@@ -93,7 +93,7 @@ export function InboxRow(props: {
           onCheckedChange={(checked: boolean) => props.onSelect(checked)}
         />
         <span aria-hidden className="grid w-2 shrink-0 place-items-center">
-          {row.unread && <span className="size-2 rounded-full bg-link" />}
+          {row.unread && <span className="size-2 rounded-full bg-status-working" />}
         </span>
         <InboxTypeIcon row={row} />
         {target.kind === "web" ? (

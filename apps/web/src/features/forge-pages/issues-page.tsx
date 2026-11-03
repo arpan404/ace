@@ -133,7 +133,12 @@ export function IssuesPage(props: {
   const creatable = projects.filter((id) => list.firsts.get(id)?.canCreate);
   const preset: Preset = search.who === "assigned" || search.who === "created" ? search.who : "all";
   const sections = issueSections(search, list.rows, onSearch);
-  const filtered = preset !== "all" || !!search.q || !!search.sort || sections.some(isOn);
+  const filtered =
+    preset !== "all" ||
+    search.state === "closed" ||
+    !!search.q ||
+    !!search.sort ||
+    sections.some(isOn);
   const qualifiers = (patch: Partial<IssuesSearch>) =>
     issueQueryText({ ...search, ...patch, q: undefined });
   const bar = (

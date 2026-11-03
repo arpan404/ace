@@ -103,20 +103,15 @@ test("one ticked project holds across Issues, Inbox and a reload", async () => {
   );
 });
 
-test("open pull requests across projects group by who has the next move, with honest counts", async () => {
+test("across projects, Needs you keeps the pull requests waiting on you, saying who asked", async () => {
   const app = withProjects();
   await app.open("/pulls");
-  const nav = await screen.findByRole("navigation", { name: "Pull requests" });
-  await waitFor(() =>
-    expect(
-      within(nav)
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent),
-    ).toEqual(expect.arrayContaining([expect.stringMatching(/^Needs you\d/)])),
+  // A review asked of you says who asked.
+  await waitFor(async () =>
+    expect(await rowOf("Pull requests", "Reconnect the client worker")).toContain("sam asked you"),
   );
-  // A review asked of you is yours to do, saying who asked rather than the group again.
-  expect(await rowOf("Pull requests", "Reconnect the client worker")).toContain("sam asked you");
-  await userEvent.click(screen.getByRole("button", { name: /^Needs you/ }));
+  await userEvent.click(screen.getByRole("button", { name: /^Views:/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: /^Needs you/ }));
   await waitFor(async () =>
     expect(await rowOf("Pull requests", "Pull requests and issues page")).toBeUndefined(),
   );

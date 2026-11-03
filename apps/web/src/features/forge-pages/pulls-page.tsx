@@ -142,7 +142,7 @@ export function PullRequestsPage(props: {
     !!search.q ||
     !!search.draft ||
     !!search.sort ||
-    search.state === "all" ||
+    (search.state !== undefined && search.state !== "open") ||
     sections.some(isOn);
   const line = prQueryText(search);
   const lineOf = (text: string) => prQueryText({ ...search, ...prSearchOf(text) });
