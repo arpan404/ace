@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
 /*
@@ -13,35 +13,65 @@ import { readFileSync, writeFileSync } from "node:fs";
  * migrations, a CLI command, tool registration) can instead say why on the line before:
  * `// oxlint-disable-next-line ace/zod-schema-in-function -- <why it runs once>`.
  * `--update` rewrites the baseline from the tree, so fixing files tightens it.
+ *
+ * It fails closed: oxlint must run, load the plugin and report exactly the expected cases in
+ * `scripts/oxlint/zod-rule-cases.ts`, and every line it prints must be understood, before any
+ * count is trusted or the baseline is written.
  */
 
 const baselinePath = "scripts/zod-schema-baseline.json";
+const casesPath = "scripts/oxlint/zod-rule-cases.ts";
 const roots = ["apps/daemon/src", "packages"];
 // Tests, test support and benchmarks run outside the daemon; their schemas cost nothing live.
 const exempt =
   /\.test\.tsx?$|test-support|[-/]testing\/|\/testing\.ts$|\/fixtures?\/|\.fixture\.ts$|\/bench\/|\/evals\/|test-process|\/conformance\//;
+const diagnostic = /^(.+?):(\d+):\d+: .*\[Error\/ace\(zod-schema-in-function\)\]$/;
+const summary = /^(\d+) problems?$/;
 
-let output = "";
-try {
-  output = execFileSync(
-    "oxlint",
-    ["-c", "scripts/oxlint/zod-schemas.json", "--format", "unix", ...roots],
-    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-  );
-} catch (error) {
-  // oxlint exits non-zero when it reports anything; its report is still on stdout.
-  const stdout = error instanceof Error && "stdout" in error ? error.stdout : undefined;
-  if (typeof stdout !== "string") throw error;
-  output = stdout;
+function fail(reason: string, detail = ""): never {
+  console.error(`check-zod-schemas: ${reason}${detail ? `\n${detail}` : ""}`);
+  process.exit(1);
 }
+
+const run = spawnSync(
+  "oxlint",
+  ["-c", "scripts/oxlint/zod-schemas.json", "--format", "unix", casesPath, ...roots],
+  { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+);
+const report = `${run.stdout ?? ""}${run.stderr ?? ""}`.trim();
+if (run.error) fail(`could not run oxlint: ${run.error.message}`);
+// 1 is "found problems", which the cases file guarantees; anything else is oxlint failing.
+if (run.status !== 1) fail(`oxlint exited with ${run.status ?? run.signal}`, report);
 
 const counts: Record<string, number> = {};
-for (const line of output.split("\n")) {
-  const match = /^(.+?):\d+:\d+: .*\[Error\/ace\(zod-schema-in-function\)\]$/.exec(line);
-  const path = match?.[1];
-  if (!path || exempt.test(path)) continue;
-  counts[path] = (counts[path] ?? 0) + 1;
+const caseLines: number[] = [];
+let reported = 0;
+let total: number | undefined;
+for (const line of run.stdout.split("\n")) {
+  if (!line.trim()) continue;
+  const problems = summary.exec(line);
+  if (problems) {
+    total = Number(problems[1]);
+    continue;
+  }
+  const match = diagnostic.exec(line);
+  // A config or plugin load failure, another rule's report or a new output format.
+  if (!match?.[1] || !match[2]) fail(`unrecognised oxlint output: ${line}`, report);
+  reported++;
+  const path = match[1];
+  if (path === casesPath) caseLines.push(Number(match[2]));
+  else if (!exempt.test(path)) counts[path] = (counts[path] ?? 0) + 1;
 }
+if (total !== reported) fail(`oxlint reported ${reported} lines but counted ${total}`, report);
+
+const expected = readFileSync(casesPath, "utf8")
+  .split("\n")
+  .flatMap((text, index) => (text.trimEnd().endsWith("// flagged") ? [index + 1] : []));
+if (caseLines.toSorted((a, b) => a - b).join() !== expected.join())
+  fail(
+    `the rule no longer reports exactly the cases in ${casesPath}`,
+    `expected lines ${expected.join(", ")}; reported ${caseLines.join(", ") || "none"}`,
+  );
 
 if (process.argv.includes("--update")) {
   const sorted = Object.fromEntries(
