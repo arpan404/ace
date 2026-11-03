@@ -18,6 +18,17 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * Markit picks token colors from the OS scheme (prefers-color-scheme); follow ace's scheme instead,
+ * so a light ace on a dark Mac does not paint the dark palette on a light code block.
+ */
+.markit-ace pre span[style] {
+  color: var(--mk-light);
+}
+[data-scheme="dark"] .markit-ace pre span[style] {
+  color: var(--mk-dark);
+}
+
 .markit-ace .markit a,
 .markit-ace a,
 .markit-ace .markit [role="link"],
