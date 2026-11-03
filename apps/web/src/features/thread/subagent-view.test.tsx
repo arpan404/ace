@@ -288,11 +288,12 @@ test("the details card's Agents names a subagent's parent and its siblings, with
   expect(
     within(lineage).getByRole("button", { name: new RegExp(`^Open parent ${parentTitle}, `) }),
   ).toBeTruthy();
-  // The one on screen is marked, not offered as somewhere to go, and Completed opens around it.
+  // The one on screen is marked, not offered as somewhere to go, and the settled agents' toggle
+  // (counting what happened, "1 working · 1 finished") opens around it.
   expect(within(lineage).getByRole("group", { name: /^resume-sweep, Done, shown$/ })).toBeTruthy();
   expect(
     within(lineage)
-      .getByRole("button", { name: /^Completed / })
+      .getByRole("button", { name: /\b1 finished\b/ })
       .getAttribute("aria-expanded"),
   ).toBe("true");
 
