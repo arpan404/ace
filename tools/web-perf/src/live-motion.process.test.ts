@@ -11,11 +11,14 @@ import { open, withPerfApp } from "./perf-app.ts";
  * stylesheet or component that brings back a perpetual animation fails here.
  */
 
-/** The live indicators on screen and every animation on the page that repeats forever. */
+/**
+ * The live indicators on screen (a live status glyph, a thread row's working icon, a spinner)
+ * and every animation on the page that repeats forever.
+ */
 async function liveMotion(page: Page) {
   return page.evaluate(() => {
     const live = document.querySelectorAll(
-      '[data-slot="status-glyph"][data-live], [data-slot="spinner"], [aria-label="Streaming"]',
+      '[data-slot="status-glyph"][data-live], [data-icon="working"], [data-slot="spinner"], [aria-label="Streaming"]',
     );
     const looping = document.getAnimations().flatMap((animation) => {
       const effect = animation.effect;
@@ -29,13 +32,18 @@ async function liveMotion(page: Page) {
     return {
       connection: document.querySelector("[data-connection]")?.getAttribute("data-connection"),
       reduced: document.documentElement.hasAttribute("data-reduce-motion"),
-      live: [...live].map((element) => element.getAttribute("data-state") ?? element.tagName),
+      live: [...live].map(
+        (element) =>
+          element.getAttribute("data-state") ??
+          element.getAttribute("data-icon") ??
+          element.tagName,
+      ),
       looping,
     };
   });
 }
 
-/** Waits until the shell is connected and the agent's working glyph is on screen. */
+/** Waits until the shell is connected and the agent's working indicator is on screen. */
 async function connectedWithIndicators(page: Page) {
   for (let attempt = 0; ; attempt++) {
     const seen = await liveMotion(page);
