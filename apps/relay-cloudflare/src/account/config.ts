@@ -18,6 +18,21 @@ const GrantKey = z
     return { id, privateKey: decodeBase64url(seed) };
   });
 
+/**
+ * `ACE_GRANT_PREVIOUS_KEY` is `<key id>:<base64url Ed25519 public key>`: the entry `/v1/keys`
+ * published for the key being replaced. Only the public half, so the old private key can be
+ * forgotten at once. While it is set, `/v1/keys` publishes it after the signing key and the
+ * relay still admits grants it signed, so a rotation fails no grant in flight. One with the
+ * signing key's own id is ignored, so the two secrets can change in either order.
+ */
+const PreviousGrantKey = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{43}$/)
+  .transform((value) => {
+    const [id = "", publicKey = ""] = value.split(":");
+    return { id, publicKey };
+  });
+
 export const AccountConfig = z.object({
   publicUrl: AceAccountOrigin,
   clientId: z.string().startsWith("client_").min(8),
@@ -25,6 +40,7 @@ export const AccountConfig = z.object({
   workosUrl: AceAccountOrigin,
   encryptionKey: z.string().regex(/^[a-fA-F0-9]{64}$/),
   grantKey: GrantKey,
+  previousGrantKey: PreviousGrantKey.optional(),
   allowedOrigins: z.array(Origin).min(1),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
@@ -48,7 +64,9 @@ const required = [
   "ACE_GRANT_KEY",
 ] as const;
 
-export type AccountEnv = { [Key in (typeof required)[number] | "WORKOS_API_URL"]?: string };
+export type AccountEnv = {
+  [Key in (typeof required)[number] | "WORKOS_API_URL" | "ACE_GRANT_PREVIOUS_KEY"]?: string;
+};
 
 export function readAccountSetup(env: AccountEnv): AccountSetup {
   if (required.every((key) => env[key] === undefined || env[key] === "")) return { status: "off" };
@@ -60,6 +78,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     workosUrl: env.WORKOS_API_URL || "https://api.workos.com",
     encryptionKey: env.ACE_ACCOUNT_ENCRYPTION_KEY,
     grantKey: env.ACE_GRANT_KEY,
+    previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
     allowedOrigins:
       typeof allowed === "string"
         ? allowed
@@ -69,9 +88,16 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
         : undefined,
   });
   if (!parsed.success) return { status: "invalid" };
+  const previous = parsed.data.previousGrantKey;
   return {
     status: "ready",
     config: parsed.data,
-    keys: { keys: [grantPublicKey(parsed.data.grantKey)] },
+    keys: {
+      keys: [
+        grantPublicKey(parsed.data.grantKey),
+        // One with the signing key's id is the key itself, set before the new one arrived.
+        ...(previous && previous.id !== parsed.data.grantKey.id ? [previous] : []),
+      ],
+    },
   };
 }

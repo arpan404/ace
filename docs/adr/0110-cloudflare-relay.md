@@ -60,10 +60,18 @@ ace runs the relay at a public `wss://` address. It is a forwarder only:
 ### Differences from the Node relay
 
 - **Backpressure.** Workers WebSockets expose no `bufferedAmount`. The object cannot pause a
-  fast sender for a slow receiver, so a large transfer to a slow phone can grow the object's
-  memory (128 MB). Daemons already cap queued sends at 16 MiB per channel. Before a public
-  launch, a staging test streams to a throttled client and measures memory; if it fails,
-  the fix is end-to-end flow control in the channel, not in the relay.
+  fast sender for a slow receiver. Measured under Miniflare
+  (`scripts/measure-slow-reader.ts`): a daemon sent 64 MB to a device that read nothing in
+  331 ms, and workerd grew by 138 MB holding it; at 256 MB it grew by 417 MB and the stream
+  broke (171 MB arrived). On Cloudflare that is past the object's 128 MB and ends every
+  socket in it. The fix is end-to-end flow control in the channel, not in the relay: a
+  client whose hello lists `flowControl: ["credit"]` gets credit fragments, and each end then
+  sends at most a 1 MiB window its peer has not consumed (wire details in the
+  [relay README](../relay/README.md)). With it, the same stalled device holds the daemon to
+  0.9 MB and workerd stays within a megabyte of idle; 256 MB arrives whole once it reads, and
+  throughput for a reader that keeps up is unchanged. Clients that don't ask (older builds)
+  keep the unbounded behaviour; the daemon's 16 MiB send cap is all that limits them. Worst
+  case per object with every client stalled: one window per stream per direction.
 - **Rate limits.** Per-IP connection budgets become a Workers rate-limit binding on upgrades.
   Per-socket frame rates are counted in memory and reset on hibernation.
 - **Idle sockets.** The relay does not ping. Daemons already ping every 10 seconds and
@@ -101,6 +109,12 @@ runs in this Worker; see [accounts](../relay/accounts.md).
   own `connectHostToRelay` and `connectClientViaRelay`: registration, an authenticated
   encrypted exchange, busy rejection, replacement, ticket expiry and a refused host whose
   claimed id does not match its key.
+- `hibernation.process.test.ts` evicts the object between steps with wrangler's
+  `evictDurableObject(…, { webSockets: "hibernate" })`, which drops its memory and keeps its
+  sockets and attachments, as the runtime does. After waking, open streams keep flowing, the
+  daemon stays registered (no re-registration), new devices pair, a full daemon still answers
+  busy, and a waiting device is paired or expired by the alarm. The harness, like the runtime,
+  won't evict an object holding a timer, so a registration mid-handshake is never hibernated.
 
 See [Durable Objects WebSockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
 and [pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).

@@ -277,6 +277,9 @@ export class Connection {
                   ...(transport.compression?.length
                     ? { compression: [...transport.compression] }
                     : {}),
+                  ...(transport.flowControl?.length
+                    ? { flowControl: [...transport.flowControl] }
+                    : {}),
                   ...parseCredential(credential),
                 });
             })

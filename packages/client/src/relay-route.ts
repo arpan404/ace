@@ -78,6 +78,7 @@ export function relayRoute(options: RelayRouteOptions): {
       return {
         supportsBinary: true,
         compression: relayCompression(),
+        flowControl: ["credit"],
         open(events) {
           stop();
           const stamp = ++epoch;

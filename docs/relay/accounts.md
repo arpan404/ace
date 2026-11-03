@@ -59,9 +59,23 @@ grants, tokens, cookies or callback queries. Account requests are limited per
 client address by the `ACCOUNT_REQUESTS` rate-limit binding, relay upgrades by
 `UPGRADES`. A cron trigger drops expired sign-ins and sessions hourly.
 
-To rotate the grant key, set a new `ACE_GRANT_KEY` with a new key id.
-Grants signed with the old key fail at the relay within five minutes of issue;
-clients and daemons fetch a new grant and retry.
+To rotate the grant key without failing grants in flight, keep the old key's
+public half published while its grants live out their five minutes:
+
+1. Copy the current key's entry from `https://YOUR_RELAY_DOMAIN/v1/keys`: its
+   `id` and `publicKey`.
+2. Set `ACE_GRANT_PREVIOUS_KEY` to `<id>:<publicKey>`, then a new `ACE_GRANT_KEY`
+   with a new key id. Either order works: a previous key with the signing key's own
+   id is ignored until the new key arrives. `/v1/keys` now publishes both, the
+   relay admits grants signed by either, and daemons verifying device grants pick
+   up the new id on first sight.
+3. After ten minutes (grant lifetime, clock skew and margin), delete
+   `ACE_GRANT_PREVIOUS_KEY`. Grants the old key signed are refused from then on.
+
+Only the public key is kept, so the old private key can be discarded at once. The
+deploy wizard does steps 1 and 2 when it rotates. If the old key leaked, skip
+`ACE_GRANT_PREVIOUS_KEY`: its grants then fail at once, and clients and daemons
+fetch a new grant and retry.
 
 For local development, `bun run dev` with the settings in `.dev.vars` (a loopback
 `ACE_ACCOUNT_PUBLIC_URL` is accepted) and `bun run migrate:local`. Register the

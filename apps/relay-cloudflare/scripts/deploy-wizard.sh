@@ -288,9 +288,25 @@ if has_secret ACE_ACCOUNT_ENCRYPTION_KEY && ! confirm "Replace ACE_ACCOUNT_ENCRY
 else
   openssl rand -hex 32 | tr -d '\n' | "${WRANGLER[@]}" secret put ACE_ACCOUNT_ENCRYPTION_KEY "${PROD[@]}"
 fi
-if has_secret ACE_GRANT_KEY && ! confirm "Rotate ACE_GRANT_KEY? Grants in flight fail for up to five minutes."; then
+# A rotation keeps the old key's public half published until its grants expire.
+if has_secret ACE_GRANT_KEY && ! confirm "Rotate ACE_GRANT_KEY?"; then
   note "kept the existing ACE_GRANT_KEY"
 else
+  if has_secret ACE_GRANT_KEY; then
+    previous=$(node -e '
+      fetch(process.argv[1]).then((r) => r.json()).then((set) => {
+        const key = set.keys[0];
+        if (!/^[A-Za-z0-9_-]{1,64}$/.test(key.id) || !/^[A-Za-z0-9_-]{43}$/.test(key.publicKey)) process.exit(1);
+        process.stdout.write(`${key.id}:${key.publicKey}`);
+      }).catch(() => process.exit(1));' "https://$RELAY_DOMAIN/v1/keys") || previous=""
+    if [[ -n "$previous" ]]; then
+      printf '%s' "$previous" | "${WRANGLER[@]}" secret put ACE_GRANT_PREVIOUS_KEY "${PROD[@]}"
+      note "grants signed by ${previous%%:*} stay valid until you delete ACE_GRANT_PREVIOUS_KEY"
+      SKIPPED+=("in ten minutes: bunx wrangler secret delete ACE_GRANT_PREVIOUS_KEY --env production")
+    else
+      warn "couldn't read https://$RELAY_DOMAIN/v1/keys; grants in flight fail for up to five minutes"
+    fi
+  fi
   printf 'k%s:%s' "$(date +%Y%m%d%H%M)" "$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')" \
     | "${WRANGLER[@]}" secret put ACE_GRANT_KEY "${PROD[@]}"
 fi
