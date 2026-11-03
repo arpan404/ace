@@ -21,6 +21,7 @@ import { frameThrottle } from "@/lib/frame-throttle.ts";
 import { useListMotion, usePresence } from "@/lib/motion.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 import { LiveFrames, LiveFramesContext } from "@/features/visualization/index.ts";
+import { QuoteLayer } from "@/features/quotes/index.ts";
 import { usePlaceBeforePaint } from "@/lib/virtual-paint.ts";
 import {
   DeferredGapRow,
@@ -34,7 +35,6 @@ import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import type { Block } from "./blocks.ts";
-import { ReplyToSelection } from "./reply-to-selection.tsx";
 import { rowOf, sameRow, transcriptRows, type Row } from "./rows.ts";
 import { useGutter } from "./scroll.ts";
 import {
@@ -413,7 +413,7 @@ export function FeedView(props: FeedViewProps) {
               {!detached && props.end}
             </div>
           </div>
-          <ReplyToSelection threadId={threadId} viewport={viewport} />
+          <QuoteLayer threadId={threadId} viewport={viewport} />
           <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
             {nav.searchOpen && (
               <Suspense fallback={null}>

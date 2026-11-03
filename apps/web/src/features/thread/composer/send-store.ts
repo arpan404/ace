@@ -92,6 +92,8 @@ export interface ReturnedDraft {
   attachments: readonly { sha256: string; name: string }[];
   /** Browser annotations the message carried (ADR 0082). */
   annotations?: import("@ace/ui-core").DraftAnnotations | undefined;
+  /** Passages of the agent's messages it replied to. */
+  quotes?: readonly import("@ace/ui-core").MessageQuote[] | undefined;
   options?: import("@ace/protocol").TurnOptions | undefined;
 }
 

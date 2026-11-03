@@ -13,6 +13,7 @@ import {
   sentFold,
 } from "@ace/ui-core";
 import { AnnotationsCard } from "@/features/annotations/index.ts";
+import { QuotesCard } from "@/features/quotes/index.ts";
 import { ArrowBendDownRightIcon, CheckIcon, ClockIcon, CopyIcon } from "@phosphor-icons/react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -77,7 +78,7 @@ function localFiles(send: PendingSend): readonly LocalAttachment[] | undefined {
 
 /** What a bubble shows of a message's parts: its words, its files, its annotations. */
 function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: string }[]) {
-  const { parts, text, readable, annotations } = bubbleContent(input);
+  const { parts, text, readable, annotations, quotes } = bubbleContent(input);
   const images: { width?: number | undefined; height?: number | undefined }[] = [
     ...attached.filter((file) => file.mimeType.startsWith("image/")),
     ...parts.flatMap((part) => (part.type === "image" ? [{}] : [])),
@@ -87,7 +88,7 @@ function bubbleOf(input: readonly ContentPart[], attached: readonly { mimeType: 
     attached.length || parts.some((part) => part.type === "file" || part.type === "image")
       ? { images }
       : undefined;
-  return { parts, text, files, readable, annotations };
+  return { parts, text, files, readable, annotations, quotes };
 }
 
 /** A message another thread's agent sent: the line naming who sent it, and its words. */
@@ -114,12 +115,12 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
   const message = item?.type === "message" ? item : undefined;
   if (!message) return null;
   const shown = bubbleOf(message.parts, message.attachments ?? []);
-  const { files, annotations } = shown;
+  const { files, annotations, quotes } = shown;
   const sent = props.sent;
   const text = sent ? sent.text : shown.text;
   const parts = sent ? undefined : shown.parts;
   const readable = sent ? !!sent.text.trim() : shown.readable;
-  if (!readable && !files) return null;
+  if (!readable && !files && !quotes) return null;
   return (
     <div className="group/bubble flex flex-col items-end">
       {sent ? sent.line : <Eyebrow kind={messageOrigin(message)?.kind} />}
@@ -135,14 +136,22 @@ export function UserMessage(props: { threadId: string; itemId: string; sent?: Se
       )}
       {/* The actions sit under the bubble, right-aligned with it. */}
       <div className="flex w-full min-w-0 flex-col items-end gap-1">
-        {readable && (
+        {(readable || quotes) && (
           <div className={userBubble}>
-            <BubbleText
-              text={text}
-              parts={parts}
-              ref={content}
-              fold={sent ? sentFold : undefined}
-            />
+            {/* What it replies to, above the words. */}
+            {quotes && !sent && (
+              <div className={readable ? "mb-2" : undefined}>
+                <QuotesCard quotes={quotes} />
+              </div>
+            )}
+            {readable && (
+              <BubbleText
+                text={text}
+                parts={parts}
+                ref={content}
+                fold={sent ? sentFold : undefined}
+              />
+            )}
           </div>
         )}
         <div className={cn(messageActions("bubble"), "shrink-0")}>
@@ -189,8 +198,11 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
   const send = usePendingSends(props.threadId).find((entry) => entry.commandId === props.commandId);
   if (!send) return null;
   const local = localFiles(send);
-  const { parts, text, files, readable, annotations } = bubbleOf(send.payload.input, local ?? []);
-  if (!readable && !files) return null;
+  const { parts, text, files, readable, annotations, quotes } = bubbleOf(
+    send.payload.input,
+    local ?? [],
+  );
+  if (!readable && !files && !quotes) return null;
   return (
     <div className="flex flex-col items-end">
       {files && (
@@ -204,9 +216,14 @@ export function StartingMessage(props: { threadId: string; commandId: string }) 
           />
         </Suspense>
       )}
-      {readable && (
+      {(readable || quotes) && (
         <div className={userBubble}>
-          <BubbleText text={text} parts={parts} />
+          {quotes && (
+            <div className={readable ? "mb-2" : undefined}>
+              <QuotesCard quotes={quotes} />
+            </div>
+          )}
+          {readable && <BubbleText text={text} parts={parts} />}
         </div>
       )}
       {annotations && (
