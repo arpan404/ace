@@ -74,35 +74,27 @@ test("uncommitted totals come from the live checkout and stay selected across ta
 const readmePatch = (line: string) =>
   `diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n Keep\n+${line}\n`;
 
-test("the uncommitted diff stays on screen while the thread's agents start and stop", async () => {
+test("the uncommitted diff stays on screen while git is read again after the thread moves on", async () => {
   const app = harness();
   const thread = "thread-cold-start";
   app.daemon.workspace.setGitDiff(thread, readmePatch("Before the turn"));
   const panel = await openChanges(app);
   await pick(panel, "Uncommitted");
-  await waitFor(() =>
-    expect(within(panel).getByLabelText("Uncommitted diff").textContent).toContain(
-      "+Before the turn",
-    ),
-  );
-  // Every render of the panel from here on: the diff must never give way to a loading state.
-  const shown: string[] = [];
-  const observer = new MutationObserver(() =>
-    shown.push(within(panel).queryByLabelText("Uncommitted diff")?.textContent ?? ""),
-  );
-  observer.observe(panel, { subtree: true, childList: true, characterData: true });
-  onTestFinished(() => observer.disconnect());
+  const diffText = () => within(panel).queryByLabelText("Uncommitted diff")?.textContent ?? "";
+  await waitFor(() => expect(diffText()).toContain("+Before the turn"));
 
-  app.daemon.updateThread(thread, { status: { state: "working", agents: 1 } });
+  // The thread moves on (here a commit) and git is slow to answer: the last diff stays shown.
+  const release = app.daemon.workspace.holdGitDiff(thread);
+  onTestFinished(release);
   app.daemon.workspace.setGitDiff(thread, readmePatch("After the turn"));
   app.daemon.updateThread(thread, { status: { state: "done" } });
-  await waitFor(() =>
-    expect(within(panel).getByLabelText("Uncommitted diff").textContent).toContain(
-      "+After the turn",
-    ),
-  );
-  expect(shown.length).toBeGreaterThan(0);
-  expect(shown.filter((text) => !/\+(Before|After) the turn/.test(text))).toEqual([]);
+  app.daemon.workspace.setDetails(thread, { head: "c".repeat(40) });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(diffText()).toContain("+Before the turn");
+  expect(within(panel).queryByText("Reading changes…")).toBeNull();
+
+  release();
+  await waitFor(() => expect(diffText()).toContain("+After the turn"));
 });
 
 test("diff comment controls explain the old or new line on hover and open a comment", async () => {

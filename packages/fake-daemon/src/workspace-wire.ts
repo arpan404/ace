@@ -44,6 +44,7 @@ export type FakeWorkspaceControls = Pick<
   | "setOwnerOnlyHostPaths"
   | "setForgeRead"
   | "holdForgeRead"
+  | "holdGitDiff"
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
@@ -209,6 +210,19 @@ export class FakeWorkspaceWire {
    */
   holdForgeRead(operation: ForgeBrowserOperation): () => void {
     const key = JSON.stringify(operation);
+    const gate = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    return () => {
+      if (this.held.get(key) === gate.promise) this.held.delete(key);
+      gate.resolve();
+    };
+  }
+  /**
+   * Answer the thread's whole uncommitted diff only once the returned release runs, as git busy
+   * on a large checkout would; the patch sent is the one set by then.
+   */
+  holdGitDiff(threadId: string): () => void {
+    const key = JSON.stringify({ op: "git.diff", threadId });
     const gate = Promise.withResolvers<void>();
     this.held.set(key, gate.promise);
     return () => {

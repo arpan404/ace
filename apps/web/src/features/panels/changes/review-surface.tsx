@@ -69,13 +69,10 @@ export function ReviewSurface(props: {
   // The thread's reviews on the daemon (from every device and agent), read as the tab opens and
   // as the thread moves on; its newest session is what Approve and Request changes act on.
   const sessionKey = ["review-drafts", threadId, thread?.status.state, thread?.details?.head];
-  const session = useDaemonQuery<Awaited<ReturnType<typeof refreshDrafts>>>({
+  const session = useDaemonQuery({
     queryKey: sessionKey,
     staleTime: 0,
     retry: false,
-    // The last read of this thread stays shown while the thread's next state is read.
-    placeholderData: (previous, previousQuery) =>
-      previousQuery?.queryKey[1] === threadId ? previous : undefined,
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();

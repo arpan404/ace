@@ -9,9 +9,8 @@ import { useWorkingTreeDiff } from "@/lib/diffs/use-working-tree.ts";
  * edits. Their lines are the checkout's, so this is where review comments go: each is recorded
  * against the working tree's review with the lines it was made on. Read only while `shown`.
  */
-export function useUncommitted(threadId: string, shown: boolean, edits: number) {
-  // Each agent edit reads git again; an unchanged checkout is answered from the daemon's cache.
-  const { query: diff, files } = useWorkingTreeDiff(threadId, { enabled: shown, also: [edits] });
+export function useUncommitted(threadId: string, shown: boolean) {
+  const { query: diff, files } = useWorkingTreeDiff(threadId, { enabled: shown });
   const stat = useMemo(
     () =>
       files.reduce(
