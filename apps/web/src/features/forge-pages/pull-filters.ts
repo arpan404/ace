@@ -4,46 +4,13 @@ import type { FilterSection } from "./filters-menu.tsx";
 
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
+const sorts = Object.keys(sortLabels) as PullsSort[];
 
 /**
- * Who the list concerns and its order, first in the Filters menu: who counts as a filter that
- * is on; sort is the view's setting.
+ * The pull request box's filter menus, in GitHub's order: Author, Label, Reviews, then the
+ * checks (ace's own) and Sort. Choices come from the rows read, plus whatever is set.
  */
-export function viewSections(
-  search: PullsSearch,
-  onSearch: (patch: Partial<PullsSearch>) => void,
-): FilterSection[] {
-  return [
-    {
-      kind: "one",
-      id: "who",
-      label: "Involvement",
-      value: search.who ?? "",
-      choices: [
-        { value: "", label: "Everyone" },
-        { value: "authored", label: "Authored" },
-        { value: "reviewing", label: "Reviewing" },
-      ],
-      onChange: (value) =>
-        onSearch({ who: value === "authored" || value === "reviewing" ? value : undefined }),
-    },
-    {
-      kind: "one",
-      id: "sort",
-      label: "Sort",
-      setting: true,
-      value: search.sort && search.sort !== "ready" ? search.sort : "",
-      choices: (Object.keys(sortLabels) as PullsSort[]).map((value) => ({
-        value: value === "ready" ? "" : value,
-        label: sortLabels[value],
-      })),
-      onChange: (value) =>
-        onSearch({ sort: (Object.keys(sortLabels) as PullsSort[]).find((key) => key === value) }),
-    },
-  ];
-}
-
-export function filterSections(
+export function pullSections(
   search: PullsSearch,
   rows: readonly ForgePrRow[],
   onSearch: (patch: Partial<PullsSearch>) => void,
@@ -51,28 +18,39 @@ export function filterSections(
   return [
     {
       kind: "one",
-      id: "draft",
-      label: "Drafts",
-      value: search.draft ?? "",
+      id: "author",
+      label: "Author",
+      value: search.author ?? "",
       choices: [
-        { value: "", label: "Include drafts" },
-        { value: "only", label: "Drafts only" },
-        { value: "hide", label: "Hide drafts" },
+        { value: "", label: "Anyone" },
+        ...unique([
+          ...rows.map((row) => row.author),
+          ...(search.author ? [search.author] : []),
+        ]).map((login) => ({ value: login, label: login })),
       ],
-      onChange: (value) =>
-        onSearch({ draft: value === "only" || value === "hide" ? value : undefined }),
+      onChange: (value) => onSearch({ author: value || undefined, who: undefined }),
+    },
+    {
+      kind: "many",
+      id: "labels",
+      label: "Label",
+      values: search.labels ?? [],
+      choices: unique([...rows.flatMap((row) => row.labels), ...(search.labels ?? [])]).map(
+        (label) => ({ value: label, label }),
+      ),
+      onChange: (labels) => onSearch({ labels: labels.length ? labels : undefined }),
     },
     {
       kind: "one",
       id: "review",
-      label: "Review",
+      label: "Reviews",
       value: search.review ?? "",
       choices: [
         { value: "", label: "Any review" },
-        { value: "approved", label: "Approved" },
-        { value: "changes", label: "Changes requested" },
+        { value: "none", label: "No reviews" },
         { value: "required", label: "Review required" },
-        { value: "none", label: "No review" },
+        { value: "approved", label: "Approved review" },
+        { value: "changes", label: "Changes requested" },
       ],
       onChange: (value) =>
         onSearch({
@@ -97,27 +75,15 @@ export function filterSections(
     },
     {
       kind: "one",
-      id: "author",
-      label: "Author",
-      value: search.author ?? "",
-      choices: [
-        { value: "", label: "Anyone" },
-        ...unique([
-          ...rows.map((row) => row.author),
-          ...(search.author ? [search.author] : []),
-        ]).map((login) => ({ value: login, label: login })),
-      ],
-      onChange: (value) => onSearch({ author: value || undefined }),
-    },
-    {
-      kind: "many",
-      id: "labels",
-      label: "Labels",
-      values: search.labels ?? [],
-      choices: unique([...rows.flatMap((row) => row.labels), ...(search.labels ?? [])]).map(
-        (label) => ({ value: label, label }),
-      ),
-      onChange: (labels) => onSearch({ labels: labels.length ? labels : undefined }),
+      id: "sort",
+      label: "Sort",
+      setting: true,
+      value: search.sort && search.sort !== "ready" ? search.sort : "",
+      choices: sorts.map((value) => ({
+        value: value === "ready" ? "" : value,
+        label: sortLabels[value],
+      })),
+      onChange: (value) => onSearch({ sort: sorts.find((key) => key === value) }),
     },
   ];
 }

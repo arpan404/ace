@@ -29,13 +29,18 @@ export function NewInProject(props: {
   if (!only) return null;
   if (props.projects.length === 1)
     return (
-      <Button size="sm" aria-label={props.label} onClick={() => props.onPick(only)}>
+      <Button
+        size="sm"
+        variant="primary"
+        aria-label={props.label}
+        onClick={() => props.onPick(only)}
+      >
         <Words label={props.label} />
       </Button>
     );
   return (
     <Menu>
-      <MenuTrigger render={<Button size="sm" aria-label={props.label} />}>
+      <MenuTrigger render={<Button size="sm" variant="primary" aria-label={props.label} />}>
         <Words label={props.label} />
       </MenuTrigger>
       <MenuContent align="end" className="max-h-80 min-w-52 overflow-y-auto">

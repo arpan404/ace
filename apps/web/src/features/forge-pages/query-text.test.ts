@@ -1,3 +1,4 @@
+import type { PullsSearch } from "@ace/ui-core";
 import { describe, expect, test } from "vitest";
 import {
   inboxQueryText,
@@ -15,7 +16,7 @@ describe("the pull request search line", () => {
   });
 
   test("every filter survives the trip through the line", () => {
-    const search = {
+    const search: PullsSearch = {
       state: "merged",
       who: "reviewing",
       author: "sam",
@@ -24,12 +25,12 @@ describe("the pull request search line", () => {
       checks: "failing",
       draft: "hide",
       q: "worker",
-    } as const;
+    };
     const line = prQueryText(search);
     expect(line).toBe(
       'is:pr is:merged draft:false review-requested:@me author:sam label:bug label:"good first issue" review:changes_requested status:failure worker',
     );
-    expect(prSearchOf(line)).toEqual({ ...search, labels: [...search.labels] });
+    expect(prSearchOf(line)).toEqual(search);
   });
 
   test("a line without a state shows every state, and leaving a filter out clears it", () => {
@@ -62,7 +63,10 @@ describe("the issue search line", () => {
   });
 
   test("issues stay open unless the line says closed", () => {
-    expect(issueSearchOf("scroll position")).toMatchObject({ state: undefined, q: "scroll position" });
+    expect(issueSearchOf("scroll position")).toMatchObject({
+      state: undefined,
+      q: "scroll position",
+    });
   });
 });
 

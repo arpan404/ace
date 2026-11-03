@@ -18,6 +18,7 @@ const Search = z.object({
   only: z.catch(z.optional(z.enum(["participating"])), undefined),
   reason: text(64),
   repo: text(512),
+  group: z.catch(z.optional(z.enum(["repo"])), undefined),
 });
 
 /** GitHub notifications beside the thread list, the way Home shows threads. */
