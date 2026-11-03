@@ -91,6 +91,19 @@ export function PrChecks(props: {
     (a, b) => order[a.status] - order[b.status] || a.name.localeCompare(b.name),
   );
   const failing = checks.filter((check) => check.status === "failure").length;
+  // The local check leads only when it failed; otherwise it follows GitHub's.
+  const localFailed = local.result === "failed";
+  const localRow = showLocal && (
+    <LocalCheckRow
+      workspaceId={workspaceId}
+      detail={props.context.detail}
+      run={local.run}
+      command={local.command}
+      onSetCommand={
+        dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
+      }
+    />
+  );
   const toggle = (id: string) =>
     setOpened((current) => {
       const next = new Set(current);
@@ -114,17 +127,7 @@ export function PrChecks(props: {
       )}
       {(showLocal || status.checks.length > 0) && (
         <ul>
-          {showLocal && (
-            <LocalCheckRow
-              workspaceId={workspaceId}
-              detail={props.context.detail}
-              run={local.run}
-              command={local.command}
-              onSetCommand={
-                dialogs ? () => dialogs.open({ kind: "edit", projectId: workspaceId }) : undefined
-              }
-            />
-          )}
+          {localFailed && localRow}
           {checks.map((check) => {
             const look = checkLook[check.status];
             const Glyph = look.icon;
@@ -175,9 +178,10 @@ export function PrChecks(props: {
               </li>
             );
           })}
+          {!localFailed && localRow}
         </ul>
       )}
-      {!status.checks.length && !stale && (
+      {!status.checks.length && !stale && !showLocal && (
         <p className="text-ui text-muted-foreground">No checks reported.</p>
       )}
     </PrSection>

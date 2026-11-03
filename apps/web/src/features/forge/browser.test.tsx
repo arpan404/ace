@@ -236,7 +236,7 @@ test("the Summary leaves the checks and the conversation to their own tabs", asy
   expect(panel().getByRole("tab", { name: /Timeline/, selected: true })).toBeTruthy();
   expect(panel().getByText(/Keep the context\./)).toBeTruthy();
   await userEvent.click(panel().getByRole("tab", { name: /Checks/ }));
-  expect(await panel().findByText("No checks reported.")).toBeTruthy();
+  expect(await panel().findByRole("region", { name: "Checks" })).toBeTruthy();
 });
 
 test("the same PR number in another repository gets independent full detail and hosted diffs", async () => {

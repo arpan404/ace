@@ -62,6 +62,7 @@ function Row(props: {
   item: AttentionItem;
   avatar: string | undefined;
   masked: boolean;
+  /** What they said, or the check's first failure line; nothing when it said nothing. */
   quote: ReactNode;
   actions: ReactNode;
   after?: ReactNode;
@@ -94,15 +95,17 @@ function Row(props: {
             </span>
           )}
         </p>
-        <div
-          className={cn(
-            "mt-1 line-clamp-3 text-ui break-words whitespace-pre-line",
-            props.masked ? "text-subtle-foreground" : "text-foreground/90",
-            item.kind === "check" && "font-mono text-xs",
-          )}
-        >
-          {props.quote}
-        </div>
+        {props.quote !== undefined && (
+          <div
+            className={cn(
+              "mt-1 line-clamp-3 text-ui break-words whitespace-pre-line",
+              props.masked ? "text-subtle-foreground" : "text-foreground/90",
+              item.kind === "check" && "font-mono text-xs",
+            )}
+          >
+            {props.quote}
+          </div>
+        )}
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">{props.actions}</div>
         {props.after}
       </div>
@@ -136,10 +139,7 @@ function CheckRow(props: {
       avatar={undefined}
       masked={!line}
       quote={
-        line ??
-        (checkRunId(check) !== undefined && run.isPending
-          ? "Reading the log…"
-          : (check.conclusion ?? "No failure message"))
+        line ?? (checkRunId(check) !== undefined && run.isPending ? "Reading the log…" : undefined)
       }
       actions={
         <>
