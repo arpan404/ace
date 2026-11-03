@@ -51,11 +51,11 @@ function endpoint(trigger: GithubTrigger): string {
       return `${base}/issues?state=all&sort=updated&direction=desc&per_page=100`;
   }
 }
+const Resources = z.array(Resource).max(100);
+const WorkflowRuns = z.object({ workflow_runs: Resources });
 function entries(data: unknown, trigger: GithubTrigger): GithubEntry[] {
   const resources =
-    trigger.event === "ci_failed"
-      ? z.object({ workflow_runs: z.array(Resource).max(100) }).parse(data).workflow_runs
-      : z.array(Resource).max(100).parse(data);
+    trigger.event === "ci_failed" ? WorkflowRuns.parse(data).workflow_runs : Resources.parse(data);
   return resources.flatMap((resource) => {
     if (trigger.event === "issue_labelled" && resource.pull_request !== undefined) return [];
     if (trigger.event === "ci_failed" && resource.conclusion !== "failure") return [];

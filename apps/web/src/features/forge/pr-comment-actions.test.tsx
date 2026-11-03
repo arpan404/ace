@@ -197,7 +197,7 @@ test("an edit and an open reply survive their row scrolling away and back, which
     // Asked for by the person, focus arrives.
     await waitFor(() => expect(document.activeElement).toBe(edit));
     await userEvent.type(edit, " Renamed both.");
-    await userEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reply" }));
     await userEvent.type(await screen.findByRole("textbox", { name: "Reply" }), "Thanks");
     // A long list unmounts rows off screen, then mounts them again.
     f.rerender(shown(false));
@@ -233,9 +233,9 @@ test("a hidden comment's text never shows: its conversation folds to 'Hidden com
   try {
     await screen.findByText("Hidden comment");
     expect(screen.queryByText(/Rename this\?/)).toBeNull();
-    // Nothing of it reaches Needs attention, nor so any agent's request.
+    // Nothing of it reaches Blocking the merge, nor so any agent's request.
     expect(screen.queryByRole("button", { name: /Fix with agent/ })).toBeNull();
-    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByText("Blocking the merge")).toBeNull();
   } finally {
     await f.close();
   }
@@ -256,7 +256,7 @@ test("Quote reply isn't offered where the viewer can't comment", async () => {
   }
 });
 
-test("Needs attention keeps its own reply, and quote replies go to the conversation's", async () => {
+test("Blocking the merge keeps its own reply, and quote replies go to the conversation's", async () => {
   const detail = reviewDetail({ reviewThreads: [thread()] });
   const f = await reviewHarness({
     detail,
@@ -308,7 +308,7 @@ test("a resolved conversation the person opened stays open when its row comes ba
   }
 });
 
-test("until GitHub says which comments are hidden, Needs attention shows no comment text and can't send it to an agent", async () => {
+test("until GitHub says which comments are hidden, Blocking the merge shows no comment text and can't send it to an agent", async () => {
   for (const hidden of [undefined, null]) {
     const detail = reviewDetail({ reviewThreads: [thread()] });
     const f = await reviewHarness({

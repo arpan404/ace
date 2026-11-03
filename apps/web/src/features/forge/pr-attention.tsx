@@ -1,28 +1,33 @@
-import { useMemo } from "react";
-import { SparkleIcon } from "@phosphor-icons/react";
-import type { ForgePrDetail } from "@ace/protocol";
-import { Button } from "@/components/ui/button.tsx";
+import { useMemo, type ReactNode } from "react";
+import { XIcon } from "@phosphor-icons/react";
+import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
+import { PrFixingWord } from "./pr-fixing-word.tsx";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
-import { useFetchCheckRun } from "./pr-check-run.ts";
-import { checkFixRequest, checkRunId } from "@ace/ui-core";
+import { useCheckRerun, useCheckRun, useFetchCheckRun } from "./pr-check-run.ts";
+import { checkControls, checkFixRequest, checkRunId, firstFailureLine } from "@ace/ui-core";
 import { hiddenReasonOf } from "@ace/ui-core";
 import { usePrReview } from "./pr-review-context.tsx";
 import { PrReplyField, replyField } from "./pr-thread.tsx";
 import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
+import { useQuote } from "./pr-quote.tsx";
+import { TextAction } from "./pr-text-action.tsx";
 
+/** Who asked, ringed in the failed tone; a failing check gets a cross in that tone. */
 function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   if (props.item.kind === "check")
     return (
       <span
         aria-hidden
         data-tone="failed"
-        className="mt-1.5 size-1.5 shrink-0 rounded-full bg-(--tone)"
-      />
+        className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-(--tone-text) ring-1 ring-(--tone)/60"
+      >
+        <XIcon size={11} weight="bold" />
+      </span>
     );
   return (
     <span className="mt-0.5 inline-flex shrink-0 rounded-full ring-2 ring-status-failed ring-offset-1 ring-offset-panel">
@@ -32,18 +37,15 @@ function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
 }
 
 /**
- * Opens a review comment's reply on its Needs attention row and focuses it; pressed again, it
- * focuses the open field. The field's own Cancel closes it.
+ * Opens a review comment's reply on its row and focuses it; pressed again, it focuses the open
+ * field. The field's own Cancel closes it.
  */
-function AttentionReplyButton(props: { threadId: string; title: string }) {
+function ReplyAction(props: { threadId: string; title: string }) {
   const field = replyField(props.threadId, "attention");
   const [open, setOpen] = useReplyOpen(field);
   const askFocus = useAskFocus();
   return (
-    <Button
-      size="xs"
-      variant="ghost"
-      className="shrink-0"
+    <TextAction
       aria-expanded={!!open}
       aria-label={`Reply: ${props.title}`}
       onClick={() => {
@@ -52,26 +54,149 @@ function AttentionReplyButton(props: { threadId: string; title: string }) {
       }}
     >
       Reply
-    </Button>
+    </TextAction>
+  );
+}
+
+/** A row's words: who or what, what they did, where and when, then what they said. */
+function Row(props: {
+  item: AttentionItem;
+  avatar: string | undefined;
+  masked: boolean;
+  /** What they said, or the check's first failure line; nothing when it said nothing. */
+  quote: ReactNode;
+  actions: ReactNode;
+  after?: ReactNode;
+}) {
+  const { item } = props;
+  return (
+    <li className="flex items-start gap-2.5 py-3">
+      <Lead item={item} avatar={props.avatar} />
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
+          <span className="font-medium text-foreground">
+            {item.kind === "check" ? item.title : item.author}
+          </span>
+          <span className="text-muted-foreground">
+            {item.kind === "check"
+              ? "failed"
+              : item.kind === "review"
+                ? "requested changes"
+                : "asked on"}
+          </span>
+          {item.kind === "thread" && (
+            <span className="min-w-0 truncate font-mono text-xs text-foreground/85">
+              {item.detail}
+            </span>
+          )}
+          {item.at && (
+            <span className="text-xs text-subtle-foreground">
+              <span aria-hidden>· </span>
+              <PrTime at={item.at} />
+            </span>
+          )}
+          <PrFixingWord subject={item.key} />
+        </p>
+        {props.quote !== undefined && (
+          <div
+            className={cn(
+              "mt-1 line-clamp-3 text-ui break-words whitespace-pre-line",
+              props.masked ? "text-subtle-foreground" : "text-foreground/90",
+              item.kind === "check" && "font-mono text-xs",
+            )}
+          >
+            {props.quote}
+          </div>
+        )}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">{props.actions}</div>
+        {props.after}
+      </div>
+    </li>
+  );
+}
+
+/** A failing check's row: its first failure line, read from the run, with Open log and Re-run. */
+function CheckRow(props: {
+  item: AttentionItem & { kind: "check" };
+  check: ForgeCheck;
+  workspaceId: string;
+  detail: ForgePrDetail;
+  open: boolean;
+  fix: ReactNode;
+  disabled: boolean;
+  onRefresh(): void | Promise<unknown>;
+  onOpenCheck: ((id: string) => void) | undefined;
+}) {
+  const { check, detail } = props;
+  const openCheck = props.onOpenCheck;
+  const pr = detail.status.ref;
+  const run = useCheckRun({ workspaceId: props.workspaceId, pr, check, enabled: true });
+  const rerun = useCheckRerun({ workspaceId: props.workspaceId, pr, onDone: props.onRefresh });
+  const line = run.data ? firstFailureLine(run.data) : undefined;
+  const workflow = run.data?.workflow;
+  const controls = checkControls(check, run.data, props.open);
+  return (
+    <Row
+      item={props.item}
+      avatar={undefined}
+      masked={!line}
+      quote={
+        line ?? (checkRunId(check) !== undefined && run.isPending ? "Reading the log…" : undefined)
+      }
+      actions={
+        <>
+          {props.fix}
+          {openCheck && <TextAction onClick={() => openCheck(check.id)}>Open log</TextAction>}
+          {workflow && controls.rerunFailed && (
+            <TextAction
+              disabled={rerun.pending || props.disabled}
+              onClick={() =>
+                void rerun.run({
+                  kind: "rerun",
+                  runId: workflow.runId,
+                  attempt: workflow.attempt,
+                  jobs: "failed",
+                })
+              }
+            >
+              {rerun.pending ? "Re-running…" : "Re-run"}
+            </TextAction>
+          )}
+        </>
+      }
+    />
   );
 }
 
 /**
- * What stands in the way and an agent could fix: failing checks and open review threads, each
- * with "Fix with agent", and a review thread with Reply. Nothing renders when there is nothing
- * to fix.
+ * What blocks the merge, each in its author's words: reviews asking for changes, open review
+ * conversations and failing checks. Each has Fix with agent, and Reply · Show in code (a
+ * conversation) or Open log · Re-run (a check). Nothing renders when nothing blocks.
  */
+/** What blocks the merge, as the Summary's Blocking the merge lists it (hidden comments left out). */
+export function useBlockingItems(detail: ForgePrDetail): AttentionItem[] {
+  const state = usePrReview()?.state;
+  return attentionItems(detail.status, (c) => hiddenReasonOf(state, c) !== undefined);
+}
+
 export function PrAttention(props: {
   workspaceId: string;
   detail: ForgePrDetail;
   hostThreadId?: string | undefined;
   disabled: boolean;
+  onRefresh?: (() => void | Promise<unknown>) | undefined;
+  /** Opens the Code tab at a conversation's line; without it there is no Show in code. */
+  onOpenCode?: ((path: string, line?: number) => void) | undefined;
+  /** Opens a check's log in the Checks tab; without it there is no Open log. */
+  onOpenCheck?: ((id: string) => void) | undefined;
 }) {
   const { detail } = props;
+  const onOpenCode = props.onOpenCode;
   const review = usePrReview();
   const state = review?.state;
-  // Hidden comments stay out of Needs attention, and so out of any agent's request.
-  const items = attentionItems(detail.status, (c) => hiddenReasonOf(state, c) !== undefined);
+  const quote = useQuote();
+  // Hidden comments stay out of the list, and so out of any agent's request.
+  const items = useBlockingItems(detail);
   const threads = useMemo(
     () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
     [detail.status.reviewThreads],
@@ -92,78 +217,99 @@ export function PrAttention(props: {
     if (item.kind !== "check" || !check || checkRunId(check) === undefined) return agent.fix(item);
     const pr = { number: detail.status.ref.number, url: detail.status.url };
     const run = await fetchRun(check).catch(() => undefined);
-    agent.ask(checkFixRequest(check, pr, run));
+    agent.ask(checkFixRequest(check, pr, run), item.key);
   };
   if (!items.length) return null;
   const open = detail.status.state === "open" || detail.status.state === "draft";
+  const avatarOf = (author: string) =>
+    detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
-    <PrSection id="pr-attention" title="Needs attention" count={items.length} fixed>
+    <PrSection id="pr-attention" title="Blocking the merge" count={items.length} fixed>
       <ul className="divide-y divide-border-soft">
         {items.map((item) => {
+          const masked = item.kind !== "check" && !hiddenKnown;
+          const title =
+            item.kind === "check"
+              ? item.title
+              : masked
+                ? item.kind === "thread"
+                  ? `Review comment on ${item.detail}`
+                  : `${item.author}'s review`
+                : item.title || `${item.author}'s review`;
+          const fixAction = open && (
+            <DisabledReason reason={masked ? unknownReason : undefined}>
+              <TextAction
+                strong
+                disabled={props.disabled || masked}
+                aria-label={`Fix with agent: ${title}`}
+                onClick={() => void fix(item)}
+              >
+                Fix with agent
+              </TextAction>
+            </DisabledReason>
+          );
+          if (item.kind === "check") {
+            const check = detail.status.checks.find((c) => `check:${c.id}` === item.key);
+            if (!check) return null;
+            return (
+              <CheckRow
+                key={item.key}
+                item={item}
+                check={check}
+                workspaceId={props.workspaceId}
+                detail={detail}
+                open={open}
+                fix={fixAction}
+                disabled={props.disabled}
+                onRefresh={props.onRefresh ?? (() => {})}
+                onOpenCheck={props.onOpenCheck}
+              />
+            );
+          }
           const thread = item.kind === "thread" ? threads.get(item.key) : undefined;
           const root = thread?.comments[0];
-          const masked = item.kind === "thread" && !hiddenKnown;
-          const title = masked ? `Review comment on ${item.detail}` : item.title;
+          const words = masked ? "Review comment" : item.body || "Requested changes";
           return (
-            <li key={item.key} className="py-2">
-              <div className="flex items-start gap-2.5">
-                <Lead
-                  item={item}
-                  avatar={
-                    item.kind === "thread"
-                      ? (root?.authorAvatarUrl ??
-                        detail.status.comments.find((c) => c.author === item.author)
-                          ?.authorAvatarUrl)
-                      : undefined
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <p
-                    className={cn(
-                      "truncate text-ui",
-                      masked ? "text-subtle-foreground" : "text-foreground",
-                    )}
-                  >
-                    {masked ? "Review comment" : title}
-                  </p>
-                  <p className="flex min-w-0 items-center gap-1.5 text-xs text-subtle-foreground">
-                    <span className={cn("truncate", item.kind === "thread" && "font-mono")}>
-                      {item.kind === "check" ? "Check failed" : item.detail}
-                    </span>
-                    {item.at && (
-                      <>
-                        <span aria-hidden>·</span>
-                        <PrTime at={item.at} />
-                      </>
-                    )}
-                  </p>
-                </div>
-                {thread && root && <AttentionReplyButton threadId={thread.id} title={title} />}
-                {open && (
-                  <DisabledReason reason={masked ? unknownReason : undefined}>
-                    <Button
-                      size="xs"
-                      variant="secondary"
-                      className="shrink-0"
-                      disabled={props.disabled || masked}
-                      aria-label={`Fix with agent: ${title}`}
-                      onClick={() => void fix(item)}
+            <Row
+              key={item.key}
+              item={item}
+              avatar={root?.authorAvatarUrl ?? avatarOf(item.author)}
+              masked={masked}
+              quote={words}
+              actions={
+                <>
+                  {fixAction}
+                  {thread && root && <ReplyAction threadId={thread.id} title={title} />}
+                  {item.kind === "review" && !masked && quote && (
+                    <TextAction
+                      aria-label={`Reply: ${title}`}
+                      onClick={() => quote("conversation", item.body)}
                     >
-                      <SparkleIcon aria-hidden size={12} />
-                      <span className="@max-[30rem]/pr:sr-only">Fix with agent</span>
-                    </Button>
-                  </DisabledReason>
-                )}
-              </div>
-              {thread && root && (
-                <PrReplyField
-                  threadId={thread.id}
-                  rootCommentId={root.id}
-                  place="attention"
-                  className="mt-2 pl-[30px]"
-                />
-              )}
-            </li>
+                      Reply
+                    </TextAction>
+                  )}
+                  {item.kind === "thread" && onOpenCode && (
+                    <TextAction
+                      aria-label={`Show in code: ${item.detail}`}
+                      onClick={() => onOpenCode(item.file, item.line ?? undefined)}
+                    >
+                      Show in code
+                    </TextAction>
+                  )}
+                </>
+              }
+              after={
+                thread &&
+                root && (
+                  <PrReplyField
+                    threadId={thread.id}
+                    rootCommentId={root.id}
+                    place="attention"
+                    className="mt-2"
+                  />
+                )
+              }
+            />
           );
         })}
       </ul>

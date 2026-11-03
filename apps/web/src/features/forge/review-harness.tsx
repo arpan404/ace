@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Client } from "@ace/client";
 import { ClientProvider } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -204,6 +205,7 @@ export async function reviewHarness(options: {
   const view = render(tree(options.ui));
   return {
     sent,
+    daemon,
     rerender(ui: ReactNode, detail?: ForgePrDetail) {
       view.rerender(tree(ui, detail));
     },
@@ -227,4 +229,17 @@ export async function reviewHarness(options: {
       await client.close();
     },
   };
+}
+
+/** Opens the header's Review once the review state has arrived (until then it shows disabled). */
+const reviewButton = () => screen.getByRole<HTMLButtonElement>("button", { name: "Review" });
+export async function clickReview(): Promise<void> {
+  const button = reviewButton;
+  await waitFor(
+    () => {
+      if (button().disabled) throw new Error("Review is still waiting for the review state");
+    },
+    { timeout: 10_000 },
+  );
+  await userEvent.click(button());
 }

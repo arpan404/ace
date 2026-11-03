@@ -15,6 +15,8 @@ import type { UsageWorkerInput } from "./usage-worker-wire.ts";
 
 const ThreadRow = z.object({ id: ThreadId });
 const WorktreeRow = z.object({ path: z.string(), record: z.string() });
+const ThreadRows = z.array(ThreadRow);
+const WorktreeRows = z.array(WorktreeRow);
 const WorktreeRecord = z.object({
   path: z.string(),
   parent_dev: z.number(),
@@ -141,7 +143,7 @@ export async function scanUsage(
             usage.complete = false;
             break;
           }
-          const rows = z.array(ThreadRow).parse(page.all(cursor));
+          const rows = ThreadRows.parse(page.all(cursor));
           if (!rows.length) break;
           for (const row of rows) {
             if (!(await walk.step())) {
@@ -183,7 +185,7 @@ export async function scanUsage(
               usage.complete = false;
               break;
             }
-            const rows = z.array(WorktreeRow).parse(page.all(cursor));
+            const rows = WorktreeRows.parse(page.all(cursor));
             if (!rows.length) break;
             for (const row of rows) {
               if (!(await walk.step())) {

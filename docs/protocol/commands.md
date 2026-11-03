@@ -659,7 +659,7 @@ Example:
 {
   "action": {
     "content": "+1",
-    "kind": "reaction.remove",
+    "kind": "reaction.add",
     "subject": {
       "kind": "pr"
     }

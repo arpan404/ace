@@ -56,6 +56,46 @@
     },
     {
       "properties": {
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "kind": {
+          "const": "drafts.move",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "headSha"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "draft.file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "headSha"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "body": {
           "maxLength": 60000,
           "type": "string"
@@ -155,6 +195,25 @@
         "kind": {
           "const": "reply",
           "type": "string"
+        },
+        "pendingReview": {
+          "properties": {
+            "reviewId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "reviewId",
+            "threadId"
+          ],
+          "type": "object"
         }
       },
       "required": [

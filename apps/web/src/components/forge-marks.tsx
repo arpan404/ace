@@ -42,6 +42,21 @@ export function StateBadge(
   );
 }
 
+/** The state in words with its glyph, in the state's colour and nothing around it. */
+export function StateWords(props: { state: PrState }) {
+  return (
+    <span
+      data-tone={props.state === "draft" ? undefined : prTone[props.state]}
+      className={cn(
+        "shrink-0 text-ui font-medium",
+        props.state === "draft" ? "text-muted-foreground" : "text-(--tone-text)",
+      )}
+    >
+      {prWords[props.state]}
+    </span>
+  );
+}
+
 /** A label in its GitHub colour, tinted so it reads on light and dark surfaces alike. */
 export function LabelPill(props: { name: string; color?: string | undefined }) {
   const color = props.color ? `#${props.color}` : undefined;

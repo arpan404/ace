@@ -172,6 +172,43 @@ test("stale issue edits and forbidden state changes leave GitHub unchanged", asy
   }
 });
 
+test("a busy issue whose reads straddle a new comment opens and closes without a conflict", async () => {
+  const later = "2026-10-01T00:05:00Z";
+  const gh = await fakeGh({
+    // The first read misses a comment that landed between it and the permissions read.
+    "repos/octo/ace/issues/7": [
+      { body: issueRecord },
+      { body: { ...issueRecord, updated_at: later } },
+    ],
+    graphql: [
+      {
+        body: {
+          data: {
+            repository: {
+              ...issuePermissions().data.repository,
+              issue: { ...issuePermissions().data.repository.issue, updatedAt: later },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    expect(await gh.forge.issueDetail(7, signal())).toMatchObject({ updatedAt: later });
+    await gh.forge.writeIssue(
+      { action: "state", number: 7, state: "closed", expectedUpdatedAt: issueRecord.updated_at },
+      "close-busy",
+      signal(),
+    );
+    const patches = (await gh.requests()).filter((request) => request.args.includes("PATCH"));
+    expect(patches.map((request) => request.body)).toEqual([
+      { state: "closed", state_reason: "completed" },
+    ]);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
 test("a lost issue creation can be recovered from its marker without another POST", async () => {
   const gh = await fakeGh({
     "repos/octo/ace": [{ body: { archived: false, has_issues: true } }],
@@ -224,5 +261,71 @@ test("an acknowledged issue creation cannot report success after its CLI identit
     expect(dispatch.definitelyFailed).toBe(false);
   } finally {
     await f.cleanup();
+  }
+});
+
+test("labels and assignees change through add and remove calls, so others' additions survive", async () => {
+  const triage = issuePermissions();
+  triage.data.repository.viewerPermission = "TRIAGE";
+  const gh = await fakeGh({
+    "repos/octo/ace/issues/7": [{ body: issueRecord }],
+    graphql: [{ body: triage }],
+    "repos/octo/ace/issues/7/labels": [{ body: [{ name: "bug" }, { name: "ui" }] }],
+    "repos/octo/ace/issues/7/labels/bug": [{ body: [{ name: "ui" }] }],
+    "repos/octo/ace/issues/7/assignees": [{ body: issueRecord }],
+  });
+  try {
+    await gh.forge.writeIssue(
+      { action: "labels", number: 7, add: ["ui"], remove: ["bug"] },
+      "labels",
+      signal(),
+    );
+    await gh.forge.writeIssue(
+      { action: "assignees", number: 7, add: ["sam"], remove: ["maintainer"] },
+      "assignees",
+      signal(),
+    );
+    const writes = (await gh.requests()).filter(
+      (request) => !request.args.includes("GET") && request.path !== "graphql",
+    );
+    expect(
+      writes.map((request) => [
+        request.args[request.args.indexOf("--method") + 1],
+        request.path,
+        request.body,
+      ]),
+    ).toEqual([
+      ["POST", "repos/octo/ace/issues/7/labels", { labels: ["ui"] }],
+      ["DELETE", "repos/octo/ace/issues/7/labels/bug", undefined],
+      ["POST", "repos/octo/ace/issues/7/assignees", { assignees: ["sam"] }],
+      ["DELETE", "repos/octo/ace/issues/7/assignees", { assignees: ["maintainer"] }],
+    ]);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
+test("a label write whose later call fails is uncertain, not failed, once its first call went", async () => {
+  const triage = issuePermissions();
+  triage.data.repository.viewerPermission = "TRIAGE";
+  const gh = await fakeGh({
+    "repos/octo/ace/issues/7": [{ body: issueRecord }],
+    graphql: [{ body: triage }],
+    "repos/octo/ace/issues/7/labels": [{ body: [{ name: "bug" }, { name: "ui" }] }],
+    "repos/octo/ace/issues/7/labels/bug": [{ offline: true }],
+  });
+  const dispatch = new WriteDispatch();
+  try {
+    await expect(
+      gh.forge.writeIssue(
+        { action: "labels", number: 7, add: ["ui"], remove: ["bug"] },
+        "labels",
+        signal(),
+        dispatch,
+      ),
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
+    expect(dispatch.definitelyFailed).toBe(false);
+  } finally {
+    await gh.cleanup();
   }
 });

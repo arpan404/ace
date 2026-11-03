@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button.tsx";
 import type { IssueWrites } from "./issue-writes.ts";
 
 /**
- * A comment on the issue, and closing or reopening it, as GitHub's own form offers: with text,
- * Close posts the comment first. Only what the signed-in account may do is offered. Unsent text
+ * A comment on the issue, and closing (as completed or as not planned) or reopening it: with
+ * text, the comment posts after the state changes. Only what the signed-in account may do is offered. Unsent text
  * stays as a draft on this device.
  */
 export function IssueComposer(props: {
@@ -34,14 +34,13 @@ export function IssueComposer(props: {
     if (posted) draft.clear(submitted);
     return posted;
   };
-  // The state change goes first: it is checked against the issue as last read, which a comment
-  // posted before it would have changed.
-  const changeState = async () => {
+  const changeState = async (reason?: "completed" | "not_planned") => {
     const changed = await writes.write({
       action: "state",
       number: issue.ref.number,
       expectedUpdatedAt: issue.updatedAt,
       state: open ? "closed" : "open",
+      ...(reason ? { reason } : {}),
     });
     if (changed && text) await comment();
   };
@@ -64,9 +63,29 @@ export function IssueComposer(props: {
         />
       )}
       <div className="flex justify-end gap-2">
+        {canState && open && (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => void changeState("not_planned")}
+          >
+            Close as not planned
+          </Button>
+        )}
         {canState && (
-          <Button type="button" disabled={busy} onClick={() => void changeState()}>
-            {open ? (text ? "Close with comment" : "Close issue") : "Reopen issue"}
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => void changeState(open ? "completed" : undefined)}
+          >
+            {open
+              ? text
+                ? "Close with comment"
+                : "Close as completed"
+              : text
+                ? "Reopen with comment"
+                : "Reopen issue"}
           </Button>
         )}
         {can.comment && (

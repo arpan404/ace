@@ -45,6 +45,19 @@ import { indexEngineRecords } from "../engine-record-indexes.ts";
 
 import { IntentStore, type IntentHeader } from "./intents.ts";
 import { AttachmentCorrelations } from "./attachment-correlations.ts";
+
+// Cursor SDK frame shapes, decoded per frame: built once, since Zod compiles a parser per schema.
+const CursorGeneration = z.object({ generation: z.string().min(1).max(512) });
+const CursorBlob = z.object({
+  kind: z.literal("blob"),
+  body: z.object({
+    id: z.string(),
+    offset: z.number(),
+    text: z.string().optional(),
+    done: z.boolean().optional(),
+  }),
+});
+const LooseFrameData = z.object({}).loose();
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
@@ -671,24 +684,12 @@ export class EngineRepository {
       this.backend(id) !== "cursor-sdk"
     )
       return;
-    const generation = z
-      .object({ generation: z.string().min(1).max(512) })
-      .parse(frame.data).generation;
-    const blob = z
-      .object({
-        kind: z.literal("blob"),
-        body: z.object({
-          id: z.string(),
-          offset: z.number(),
-          text: z.string().optional(),
-          done: z.boolean().optional(),
-        }),
-      })
-      .safeParse(frame.data);
+    const generation = CursorGeneration.parse(frame.data).generation;
+    const blob = CursorBlob.safeParse(frame.data);
     // Shared raw storage already owns chunk bytes. Hydration needs only ordered provenance.
     const data = blob.success
       ? {
-          ...z.object({}).loose().parse(frame.data),
+          ...LooseFrameData.parse(frame.data),
           body: {
             id: blob.data.body.id,
             offset: blob.data.body.offset,

@@ -32,6 +32,8 @@ import type { SnapshotRefs } from "./refs.ts";
 import type { SessionLogs } from "./logs.ts";
 import type { NavigationPolicies } from "./policy-waits.ts";
 import type { Actor, SessionOptions } from "./session-options.ts";
+
+const TextResult = z.object({ result: z.object({ value: z.string().max(65536) }) });
 /** The largest screenshot a person's request gets back inline (base64), besides the file. */
 const inlineScreenshotBytes = 3 * 1024 * 1024;
 /** Commands that act on one tab; tab structure, downloads and extensions belong to the thread. */
@@ -147,8 +149,7 @@ export async function executeBrowserCommand(
       });
       context.read();
       return {
-        text: z.object({ result: z.object({ value: z.string().max(65536) }) }).parse(result).result
-          .value,
+        text: TextResult.parse(result).result.value,
       };
     }
     case "navigation_history":

@@ -33,13 +33,6 @@ import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import {
-  ClientMessage,
-  BrowserClientMessage,
-  BrowserBackendClientMessage,
-  UserBrowserExtensionMessage,
-} from "@ace/protocol";
-import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
@@ -62,7 +55,7 @@ import { createAppUpdateSession } from "./app-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
-import type { SocketContext, SocketMessage } from "./socket.ts";
+import type { SocketContext } from "./socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
   createCliControlSession,
@@ -143,17 +136,4 @@ export function createSocketRegistry() {
     createScreenSession(context, simulators),
     createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];
-}
-export function parseSocketMessage(input: unknown): SocketMessage {
-  for (const schema of [
-    ClientMessage,
-    PluginClientMessage,
-    BrowserClientMessage,
-    BrowserBackendClientMessage,
-    UserBrowserExtensionMessage,
-  ]) {
-    const result = schema.safeParse(input);
-    if (result.success) return result.data;
-  }
-  throw new Error("Message does not match the protocol");
 }

@@ -28,6 +28,8 @@ export function ChoicePicker(props: {
   /** Mono text for branch names. */
   mono?: boolean;
   onChange(picked: string[]): void;
+  /** The popover closed: a multiple pick is final. */
+  onClose?(): void;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -53,7 +55,9 @@ export function ChoicePicker(props: {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setFilter("");
+        if (next) return;
+        setFilter("");
+        props.onClose?.();
       }}
     >
       <PopoverTrigger

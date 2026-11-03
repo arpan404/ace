@@ -79,14 +79,20 @@ export function holdStep(reason: string): string {
   return holdSteps[reason] ?? `held (${reason}) until the person resumes it`;
 }
 
-/** Undefined while the wait should keep blocking. A request for the person returns at once. */
+/**
+ * Undefined while the wait should keep blocking. A request for the person returns at once; so
+ * does a thread held by a usage limit (`limited` of them), unless the wait is already satisfied,
+ * since nothing it waits on moves until the limit resets.
+ */
 export function waitOutcome(
   states: readonly WatchedState[],
   mode: WaitMode,
+  limited = 0,
 ): WaitStatus | undefined {
   if (states.includes("needs_you")) return "needs_you";
   const settled = states.filter((state) => settledStates.has(state)).length;
-  return (mode === "any" ? settled > 0 : settled === states.length) ? "ready" : undefined;
+  if (mode === "any" ? settled > 0 : settled === states.length) return "ready";
+  return limited > 0 ? "limited" : undefined;
 }
 
 /** What the thread's root agent is doing, in a few words. */

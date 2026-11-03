@@ -15,6 +15,13 @@ import { reviewState } from "./review-harness.tsx";
 import { detail } from "./pr-workspace.fixture.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 
+/** Picks the diff layout from the toolbar's View menu. */
+async function pickLayout(name: "Split" | "Unified") {
+  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  await userEvent.keyboard("{Escape}");
+}
+
 const repository = detail.status.ref.repository;
 const workspaceId = WorkspaceId.parse("api");
 
@@ -107,7 +114,9 @@ test("every page of changed files joins one scroll without paging buttons", asyn
   expect(await within(diff).findByText("one")).toBeTruthy();
   expect(await within(diff).findByText("two")).toBeTruthy();
   expect(within(diff).queryByRole("button", { name: /Next files|Previous files/ })).toBeNull();
-  expect(within(diff).getByText("2 files")).toBeTruthy();
+  expect(
+    within(screen.getByRole("complementary", { name: "Files" })).getByText("2 files"),
+  ).toBeTruthy();
 });
 
 test("a page that fails to load offers an inline retry that resumes the scroll", async () => {
@@ -167,7 +176,9 @@ test("a file GitHub dismissed after a push reads Changed and stays open", async 
     screen.getByRole("checkbox", { name: "Viewed src/first.ts" }).getAttribute("aria-checked"),
   ).toBe("false");
   expect(screen.getByText("one")).toBeTruthy();
-  expect(screen.getByText("1 file · 0 / 1 viewed")).toBeTruthy();
+  expect(
+    within(screen.getByRole("complementary", { name: "Files" })).getByText("0 of 1 file viewed"),
+  ).toBeTruthy();
   expect(
     within(screen.getByRole("toolbar", { name: "Diff controls" })).queryByRole("button", {
       name: /unavailable/,
@@ -366,7 +377,7 @@ test("in split view a comment on the old side of an unchanged line sits in the l
   const shown = { ...detail, status: { ...detail.status, reviewThreads: [leftThread] } };
   await mount(app, reviewed(shown));
   await screen.findByText("Note 6");
-  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  await pickLayout("Split");
   const before = await screen.findByRole("region", { name: "src/first.ts before" });
   const after = screen.getByRole("region", { name: "src/first.ts after" });
   expect(within(before).getByText("Note 6")).toBeTruthy();
@@ -433,13 +444,13 @@ test("a pick on the old side in split view keeps its place in unified view, in a
   serveReview(app);
   await mount(app, reviewed(detail));
   await screen.findByText("changed 16");
-  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  await pickLayout("Split");
   await userEvent.click(
     (await screen.findAllByRole("button", { name: /\d+ unchanged lines/ }))[0]!,
   );
   await pickLine("Comment on old line 2");
   await screen.findByText("Commenting on old line 2");
-  await userEvent.click(screen.getByRole("button", { name: "Stacked diff" }));
+  await pickLayout("Unified");
   await screen.findByText("Commenting on old line 2");
   expect(screen.getByRole("textbox", { name: "Line comment" })).toBeTruthy();
 });
@@ -466,4 +477,98 @@ test("on a conversation locked to the viewer, a picked line's comment is off and
   expect(
     screen.getByRole<HTMLButtonElement>("button", { name: "Add single comment" }).disabled,
   ).toBe(true);
+});
+
+const landed = () => document.querySelector(".fx-landed");
+
+test("Show in code lands on the conversation on the asked line and marks it", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  const shown = {
+    ...detail,
+    status: { ...detail.status, reviewThreads: [thread(2, 20, false)] },
+  };
+  await mount(
+    app,
+    <PrFiles
+      workspaceId="api"
+      repository={repository}
+      detail={shown}
+      context={contextOf(shown)}
+      focus={{ path: "src/first.ts", line: 20, seq: 1 }}
+    />,
+  );
+  await waitFor(() => expect(landed()?.textContent).toContain("Note 2"));
+});
+
+test("Show in code on a line with no conversation marks that line of the file", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  await mount(
+    app,
+    <PrFiles
+      workspaceId="api"
+      repository={repository}
+      detail={detail}
+      context={contextOf(detail)}
+      focus={{ path: "src/first.ts", line: 21, seq: 1 }}
+    />,
+  );
+  await waitFor(() => expect(landed()?.textContent).toContain("z"));
+  expect(landed()?.textContent).not.toContain("y");
+});
+
+/** Every line src/split.ts shows, in either column. */
+const shownText = () =>
+  screen
+    .getAllByRole("region", { name: /^src\/split\.ts/ })
+    .map((region) => region.textContent)
+    .join("\n");
+
+test("View menu choices change the diff and are still chosen when the Code tab opens again", async () => {
+  const app = harness();
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const after = lines.map((line, i) => (i === 15 ? "changed 16" : line));
+  app.daemon.workspace.setForgeRead(
+    page(1),
+    filesPage([{ ...changed("src/split.ts", ""), patch: null, truncated: true }]),
+  );
+  for (const [sha, text] of [
+    [detail.baseSha, `${lines.join("\n")}\n`],
+    [detail.status.headSha, `${after.join("\n")}\n`],
+  ] as const)
+    app.daemon.workspace.setForgeRead(
+      { op: "forge.file.content", workspaceId, repository, sha, path: "src/split.ts", page: 1 },
+      { resource: "fileContent", value: { kind: "text", text, size: text.length } },
+    );
+  const rerender = await mount(app, codeTab());
+  await waitFor(() => expect(shownText()).toContain("changed 16"));
+  // Unchanged lines far from the change start folded.
+  expect(shownText()).not.toContain("line 3");
+  expect(screen.getByRole("button", { name: /Show \d+ unchanged lines/ })).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  await userEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Fold unchanged lines" }),
+  );
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(shownText()).toContain("line 3"));
+  expect(screen.queryByRole("button", { name: /unchanged lines/ })).toBeNull();
+  expect(screen.queryByRole("region", { name: "src/split.ts before" })).toBeNull();
+
+  await pickLayout("Split");
+  expect(await screen.findByRole("region", { name: "src/split.ts before" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "src/split.ts after" })).toBeTruthy();
+
+  rerender(null);
+  expect(screen.queryByText("changed 16")).toBeNull();
+  rerender(codeTab());
+  expect(await screen.findByRole("region", { name: "src/split.ts before" })).toBeTruthy();
+  expect(shownText()).toContain("line 3");
+  expect(screen.queryByRole("button", { name: /unchanged lines/ })).toBeNull();
+  // Kept on this device: what the next start reads back.
+  expect(JSON.parse(app.storage.getItem("ace.review.prefs") ?? "{}")).toMatchObject({
+    mode: "split",
+    fold: false,
+  });
 });

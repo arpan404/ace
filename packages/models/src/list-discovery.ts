@@ -81,6 +81,13 @@ const PiReply = z
       .passthrough(),
   })
   .passthrough();
+const PiState = z
+  .object({
+    model: z.object({ provider: z.string(), id: z.string() }).nullish(),
+    thinkingLevel: z.string().nullish(),
+  })
+  .passthrough();
+const PiSuccess = z.object({ success: z.literal(true), data: z.unknown() }).passthrough();
 async function piModels(
   proc: SupervisedProcess,
   instance: ModelInstance,
@@ -94,13 +101,7 @@ async function piModels(
       ...new Map(models.map((model) => [model.provider, providerSource(model.provider)])).values(),
     ],
   });
-  const state = z
-    .object({
-      model: z.object({ provider: z.string(), id: z.string() }).nullish(),
-      thinkingLevel: z.string().nullish(),
-    })
-    .passthrough()
-    .parse(await piRequest(proc, "get_state", "ace-models-state"));
+  const state = PiState.parse(await piRequest(proc, "get_state", "ace-models-state"));
   signal.throwIfAborted();
   return models.map((native) =>
     CatalogModel.parse({
@@ -137,10 +138,7 @@ async function piRequest(
       )
         return;
       try {
-        const reply = z
-          .object({ success: z.literal(true), data: z.unknown() })
-          .passthrough()
-          .parse(data);
+        const reply = PiSuccess.parse(data);
         proc.stdout.removeListener("line", receive);
         resolve(command === "get_available_models" ? PiReply.parse(data) : reply.data);
       } catch (error) {

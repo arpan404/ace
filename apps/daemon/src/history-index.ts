@@ -20,6 +20,16 @@ const Version = z.object({
   size: count,
   encoding: z.enum(["utf-16le", "utf-8"]),
 });
+// Built once: Zod compiles a parser per schema object, and pages are read per request.
+const ItemHead = z.object({ id: ItemId, created_seq: count });
+const OpeningRows = z.array(z.object({ id: ItemId })).max(64);
+const PageRows = z.array(ItemHead).max(201);
+const PageLimit = z.number().int().min(1).max(200);
+const PageByteLimit = z
+  .number()
+  .int()
+  .min(512)
+  .max(1024 * 1024);
 type ReadBytes = (
   stream: string,
   offset: number,
@@ -360,14 +370,11 @@ export class HistoryIndex {
    */
   opening(threadId: ThreadId, through: number, scan = 16): Item | undefined {
     count.parse(through);
-    const rows = z
-      .array(z.object({ id: ItemId }))
-      .max(64)
-      .parse(
-        this.statement(
-          "SELECT id FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq ASC LIMIT ?",
-        ).all(threadId, through, Math.min(scan, 64)),
-      );
+    const rows = OpeningRows.parse(
+      this.statement(
+        "SELECT id FROM history_items WHERE thread_id=? AND created_seq<=? ORDER BY created_seq ASC LIMIT ?",
+      ).all(threadId, through, Math.min(scan, 64)),
+    );
     for (const row of rows) {
       const value = this.itemAt(row.id, through);
       if (value?.type !== "message" || value.role !== "user") continue;
@@ -387,7 +394,7 @@ export class HistoryIndex {
       "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT 1",
     ).get(threadId, through, before);
     if (!row) return undefined;
-    const head = z.object({ id: ItemId, created_seq: count }).parse(row);
+    const head = ItemHead.parse(row);
     const value = this.itemAt(head.id, through);
     if (!value) throw new Error("Historical revision is unavailable");
     return { item: this.preview(threadId, value, through), seq: head.created_seq };
@@ -408,20 +415,13 @@ export class HistoryIndex {
   ): Omit<ItemsPage, "seq"> {
     count.parse(through);
     count.parse(before);
-    z.number().int().min(1).max(200).parse(limit);
-    z.number()
-      .int()
-      .min(512)
-      .max(1024 * 1024)
-      .parse(byteLimit);
-    const rows = z
-      .array(z.object({ id: ItemId, created_seq: count }))
-      .max(201)
-      .parse(
-        this.statement(
-          "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
-        ).all(threadId, through, before, limit + 1),
-      );
+    PageLimit.parse(limit);
+    PageByteLimit.parse(byteLimit);
+    const rows = PageRows.parse(
+      this.statement(
+        "SELECT id,created_seq FROM history_items WHERE thread_id=? AND created_seq<=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
+      ).all(threadId, through, before, limit + 1),
+    );
     const items: Item[] = [],
       cursors: [string, number][] = [];
     let bytes = 512;

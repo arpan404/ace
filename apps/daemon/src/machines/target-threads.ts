@@ -41,6 +41,9 @@ import { AgentControlError } from "../agent-control/failure.ts";
 import type { NamedAccount } from "../agent-control/account-names.ts";
 import { checkAccountModel, machineAccount } from "./target-accounts.ts";
 
+const NoticeRow = z.object({ command_id: z.string(), code: z.string(), text: z.string() });
+const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
+
 export interface TargetThreadDeps {
   store: Store;
   engine(): Engine | undefined;
@@ -163,9 +166,7 @@ export class TargetThreads {
     );
     const engine = this.deps.engine();
     if (!row || !engine) return undefined;
-    const kept = z
-      .object({ command_id: z.string(), code: z.string(), text: z.string() })
-      .parse(row);
+    const kept = NoticeRow.parse(row);
     if (engine.inputFate(threadId, CommandId.parse(kept.command_id)).state === "delivered")
       return undefined;
     return { text: kept.text.slice(0, 400), commandId: kept.command_id, code: kept.code };
@@ -229,7 +230,7 @@ export class TargetThreads {
         )
         .all(),
     );
-    const projects = z.array(z.object({ id: z.string(), name: z.string() })).parse(rows);
+    const projects = ProjectRows.parse(rows);
     const found =
       name === undefined
         ? projects.length === 1
@@ -254,10 +255,10 @@ export class TargetThreads {
         )
         .all(),
     );
-    return z
-      .array(z.object({ id: z.string(), name: z.string() }))
-      .parse(rows)
-      .map((row) => ({ workspaceId: WorkspaceId.parse(row.id), name: row.name.slice(0, 256) }));
+    return ProjectRows.parse(rows).map((row) => ({
+      workspaceId: WorkspaceId.parse(row.id),
+      name: row.name.slice(0, 256),
+    }));
   }
   /**
    * A retried request returns the same thread; receipts make creation run once. The thread is

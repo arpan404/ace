@@ -1,3 +1,4 @@
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import type { ForgePrDetail, LinkedPullRequest } from "@ace/protocol";
 import { pluralCount } from "@ace/ui-core";
 import { GitPullRequestIcon, XIcon } from "@phosphor-icons/react";
@@ -47,10 +48,7 @@ function PrRow(props: {
     queryFn: skipToken,
   }).data;
   const ci = detail ? ciWords[detail.status.ci] : "";
-  const size =
-    detail?.additions !== undefined && detail.deletions !== undefined
-      ? `+${detail.additions} −${detail.deletions}`
-      : "";
+  const sized = detail?.additions !== undefined && detail.deletions !== undefined;
   return (
     <li className={`group/pr ${resultRow}`}>
       <GitPullRequestIcon aria-hidden size={14} className={resultIcon} />
@@ -73,7 +71,13 @@ function PrRow(props: {
       >
         <span className="block truncate text-ui font-medium">{pr.title ?? `#${pr.number}`}</span>
         <span className="block truncate text-xs text-subtle-foreground tabular-nums">
-          {[`#${pr.number}`, stateWords[pr.state], ci, size].filter(Boolean).join(" · ")}
+          {[`#${pr.number}`, stateWords[pr.state], ci].filter(Boolean).join(" · ")}
+          {sized && (
+            <>
+              {" · "}
+              <DiffCounts additions={detail.additions ?? 0} deletions={detail.deletions ?? 0} />
+            </>
+          )}
         </span>
       </button>
       <IconButton

@@ -62,6 +62,11 @@ const stateSchema = z.looseObject({
   }),
   errors: z.array(z.unknown()).max(100).optional(),
 });
+const Numbers = z.array(positive).max(100);
+const MembershipsBody = z.object({
+  data: z.object({ repository: z.record(z.string(), membership.nullable()).nullable() }),
+  errors: z.array(z.unknown()).max(100).optional(),
+});
 const layerFields =
   "number title url headRefOid headRefName baseRefName state isDraft mergeStateStatus reviewDecision statusCheckRollup{state} mergeQueueEntry{state}";
 function mergeOperation(body: unknown): ForgeStackOperation {
@@ -82,19 +87,14 @@ export class GitHubStacks {
     numbers: readonly number[],
     signal: AbortSignal,
   ): Promise<ForgeStackMembership[]> {
-    z.array(positive).max(100).parse(numbers);
+    Numbers.parse(numbers);
     const unique = [...new Set(numbers)];
     if (!unique.length) return [];
     const page = await this.#api.request("graphql", signal, {
       query: `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${unique.map((number) => `pr${number}:pullRequest(number:${number}){${memberFields}}`).join(" ")}}}`,
       variables: { owner: this.#repo.owner, name: this.#repo.name },
     });
-    const result = z
-      .object({
-        data: z.object({ repository: z.record(z.string(), membership.nullable()).nullable() }),
-        errors: z.array(z.unknown()).max(100).optional(),
-      })
-      .safeParse(page.body);
+    const result = MembershipsBody.safeParse(page.body);
     if (!result.success) throw new ForgeError("invalid_data");
     if (!result.data.data.repository) throw new ForgeError("not_found");
     return unique.map((number) => {

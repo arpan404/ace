@@ -7,6 +7,9 @@ import type { GuestScope, GuestSessions, GuestSession } from "./guest-sessions.t
 import { TargetRefusal } from "./target-refusal.ts";
 import { toolResult } from "./tool-result.ts";
 
+const ScreenStateArgs = z.object({ app: z.string() });
+const ResolvedApp = z.object({ running: z.boolean() });
+
 export interface TargetScreenDeps {
   /** This machine's computer-use engine, when it has one. */
   computer(): ComputerClient | undefined;
@@ -65,10 +68,8 @@ export class TargetScreen implements CapabilityHost {
       throw new TargetRefusal("unavailable", this.unavailable());
     // Resolve afresh: a cached outline says nothing about whether the app is still running.
     if (tool === "screen_state" && level === "read") {
-      const { app } = z.object({ app: z.string() }).parse(args);
-      const resolved = z
-        .object({ running: z.boolean() })
-        .parse(await computer.request("resolve", { app }, { signal }));
+      const { app } = ScreenStateArgs.parse(args);
+      const resolved = ResolvedApp.parse(await computer.request("resolve", { app }, { signal }));
       if (!resolved.running)
         throw new TargetRefusal(
           "machine_forbidden",

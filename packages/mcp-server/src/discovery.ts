@@ -27,6 +27,11 @@ export const DiscoveredMcpServer = z.strictObject({
   status: z.string().max(128).optional(),
 });
 export type DiscoveredMcpServer = z.infer<typeof DiscoveredMcpServer>;
+const MissingFileError = z.object({ code: z.literal("ENOENT") });
+const DisabledServerNames = z.array(z.string().max(256)).max(512);
+const NamedApiRow = z.object({ name: z.string() }).passthrough();
+const CodexApiRows = z.object({ data: z.array(NamedApiRow).max(512) });
+const ClaudeApiRows = z.array(NamedApiRow).max(512);
 export interface DiscoveryApi {
   /** Read-only, bounded API result: Codex status/list, Claude mcpServerStatus, OpenCode GET /mcp. */
   read(signal: AbortSignal): Promise<unknown>;
@@ -126,7 +131,7 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
         await file.close();
       }
     } catch (error) {
-      if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) continue;
+      if (MissingFileError.safeParse(error).success) continue;
       issues.push({ source: path, code: "unreadable" });
       continue;
     }
@@ -152,10 +157,7 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
         const project = record.safeParse(record.parse(root.projects)[options.cwd]);
         if (project.success) {
           if (project.data.disabledMcpServers !== undefined) {
-            const names = z
-              .array(z.string().max(256))
-              .max(512)
-              .parse(project.data.disabledMcpServers);
+            const names = DisabledServerNames.parse(project.data.disabledMcpServers);
             for (const name of names) disabled.add(name);
             if (disabled.size > 512) throw new Error("Discovery server capacity reached");
           }
@@ -172,15 +174,10 @@ export async function discoverMcpServers(options: DiscoveryOptions) {
     try {
       const value = await options.api.read(options.signal);
       if (options.provider === "codex") {
-        const rows = z
-          .object({ data: z.array(z.object({ name: z.string() }).passthrough()).max(512) })
-          .parse(value).data;
+        const rows = CodexApiRows.parse(value).data;
         append(Object.fromEntries(rows.map((row) => [row.name, row])), "api");
       } else if (options.provider === "claude") {
-        const rows = z
-          .array(z.object({ name: z.string() }).passthrough())
-          .max(512)
-          .parse(value);
+        const rows = ClaudeApiRows.parse(value);
         append(Object.fromEntries(rows.map((row) => [row.name, row])), "api");
       } else append(value, "api");
     } catch {

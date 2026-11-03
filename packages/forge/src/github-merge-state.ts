@@ -86,13 +86,36 @@ const source = z.looseObject({
 const responseSchema = z.looseObject({
   data: z.looseObject({
     repository: z
-      .looseObject({ viewerPermission: text.nullable(), pullRequest: source.nullable() })
+      .looseObject({
+        viewerPermission: text.nullable(),
+        // The repository's merge settings; only a guide for the merge choice, so a bad value
+        // drops it.
+        mergeCommitAllowed: z.boolean().nullish().catch(null),
+        squashMergeAllowed: z.boolean().nullish().catch(null),
+        rebaseMergeAllowed: z.boolean().nullish().catch(null),
+        pullRequest: source.nullable(),
+      })
       .nullable(),
   }),
 });
+/** Each auto-merge or queue mutation's acknowledgement, keyed by the mutation's name. */
+const MutationPr = z.object({ pullRequest: z.object({ id: text }) });
+type MutationAck = z.ZodType<{ data: Record<string, { pullRequest: { id: string } }> }>;
+const MutationAcks: Record<
+  "enablePullRequestAutoMerge" | "disablePullRequestAutoMerge" | "dequeuePullRequest",
+  MutationAck
+> = {
+  enablePullRequestAutoMerge: z.object({
+    data: z.object({ enablePullRequestAutoMerge: MutationPr }),
+  }),
+  disablePullRequestAutoMerge: z.object({
+    data: z.object({ disablePullRequestAutoMerge: MutationPr }),
+  }),
+  dequeuePullRequest: z.object({ data: z.object({ dequeuePullRequest: MutationPr }) }),
+};
 const fields = `id number headRefOid state isDraft mergeStateStatus reviewDecision statusCheckRollup{state} autoMergeRequest{mergeMethod enabledAt enabledBy{login}} viewerCanEnableAutoMerge viewerCanDisableAutoMerge`;
 const wrap = (selection: string) =>
-  `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission pullRequest(number:$number){${selection}}}}`;
+  `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed pullRequest(number:$number){${selection}}}}`;
 const baseQuery = wrap(`${fields} mergeQueueEntry{id state position enqueuedAt}`);
 const query = wrap(
   `${fields} mergeHeadline:viewerMergeHeadlineText(mergeType:MERGE) mergeBody:viewerMergeBodyText(mergeType:MERGE) squashHeadline:viewerMergeHeadlineText(mergeType:SQUASH) squashBody:viewerMergeBodyText(mergeType:SQUASH) mergeQueueEntry{id state position enqueuedAt estimatedTimeToMerge} baseRef{branchProtectionRule{requiredApprovingReviewCount requiresConversationResolution requiresCommitSignatures requiresLinearHistory} rules(first:20){nodes{type}}} commits(last:1){nodes{commit{deployments(last:10){nodes{environment state latestStatus{state environmentUrl}}}}}}`,
@@ -160,7 +183,31 @@ function latestDeployments(pr: Source) {
   return [...latest.values()].slice(0, 10);
 }
 
-function mapState(pr: Source, permission: string | null, raw: unknown): ForgeMergeState {
+type Repo = {
+  mergeCommitAllowed?: boolean | null | undefined;
+  squashMergeAllowed?: boolean | null | undefined;
+  rebaseMergeAllowed?: boolean | null | undefined;
+};
+
+/** The merge methods the repository allows, when GitHub said for each; else unknown. */
+function allowedMethods(repo: Repo): ("merge" | "squash" | "rebase")[] | undefined {
+  const flags = [
+    ["merge", repo.mergeCommitAllowed],
+    ["squash", repo.squashMergeAllowed],
+    ["rebase", repo.rebaseMergeAllowed],
+  ] as const;
+  if (flags.some(([, allowed]) => typeof allowed !== "boolean")) return undefined;
+  const methods = flags.filter(([, allowed]) => allowed).map(([method]) => method);
+  return methods.length ? methods : undefined;
+}
+
+function mapState(
+  pr: Source,
+  permission: string | null,
+  raw: unknown,
+  repo: Repo = {},
+): ForgeMergeState {
+  const methods = allowedMethods(repo);
   const rules = branchRules(pr);
   const blockers: string[] = [];
   if (pr.isDraft) blockers.push("This pull request is a draft.");
@@ -195,6 +242,7 @@ function mapState(pr: Source, permission: string | null, raw: unknown): ForgeMer
     queue: pr.mergeQueueEntry,
     rules,
     deployments: latestDeployments(pr),
+    ...(methods ? { methods } : {}),
     canEnable: pr.state === "OPEN" && !pr.isDraft && pr.viewerCanEnableAutoMerge,
     canDisable: pr.viewerCanDisableAutoMerge,
     commitMessages: commitMessages(pr),
@@ -236,7 +284,7 @@ export class GitHubMergeState {
     const pr = repo?.pullRequest;
     if (!repo || !pr) throw new ForgeError("not_found");
     if (pr.number !== number) throw new ForgeError("invalid_data");
-    return { pr, state: mapState(pr, repo.viewerPermission, page.body) };
+    return { pr, state: mapState(pr, repo.viewerPermission, page.body, repo) };
   }
   async read(number: number, signal: AbortSignal) {
     return (await this.#read(number, signal)).state;
@@ -306,13 +354,7 @@ export class GitHubMergeState {
         "POST",
         dispatch,
       );
-      const result = z
-        .object({
-          data: z.object({
-            [mutation]: z.object({ pullRequest: z.object({ id: text }) }),
-          }),
-        })
-        .safeParse(page.body);
+      const result = MutationAcks[mutation].safeParse(page.body);
       if (!result.success || result.data.data[mutation]?.pullRequest.id !== pr.id)
         throw new ForgeMutationOutcome({ number, headSha });
       if (page.identityChanged) throw new ForgeMutationOutcome({ number, headSha });

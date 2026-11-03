@@ -63,6 +63,32 @@ export function logExcerpt(run: Pick<ForgeCheckRun, "log" | "workflow">): string
   return text;
 }
 
+/**
+ * The one line that says why a check failed, for a row that has room for one: the first
+ * failure annotation (else warning), else the first error in the failing step's log, else
+ * the app's own title. Undefined when the run says nothing.
+ */
+export function firstFailureLine(
+  run: Pick<ForgeCheckRun, "annotations" | "log" | "workflow" | "output">,
+): string | undefined {
+  const annotation =
+    run.annotations.find((entry) => entry.level === "failure") ??
+    run.annotations.find((entry) => entry.level === "warning");
+  const said = (annotation?.message || annotation?.title)?.split("\n")[0]?.trim();
+  if (said) return said;
+  const log = run.log;
+  if (log) {
+    const start =
+      run.workflow?.steps.find((step) => step.status === "failure" && step.line !== null)?.line ??
+      0;
+    const lines = log.text.split("\n");
+    const at = log.errors.find((line) => line >= start) ?? log.errors[0];
+    const text = at === undefined ? undefined : lines[at]?.trim();
+    if (text) return text;
+  }
+  return run.output.title?.trim() || undefined;
+}
+
 /** What "Fix with agent" asks about a failing check, with what the panel read of it. */
 export function checkFixRequest(
   check: { name: string; url: string | null },

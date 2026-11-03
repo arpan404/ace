@@ -6,7 +6,10 @@ const same = (x: LinkedThreads, y: LinkedThreads) =>
   [...x].every(([key, thread]) => {
     const other = y.get(key);
     return (
-      other?.id === thread.id && other.title === thread.title && other.needsYou === thread.needsYou
+      other?.id === thread.id &&
+      other.title === thread.title &&
+      other.needsYou === thread.needsYou &&
+      other.working === thread.working
     );
   });
 const sameLinks = (a: ReturnType<typeof linkedWork>, b: ReturnType<typeof linkedWork>): boolean =>

@@ -498,7 +498,7 @@ export class DevicesService {
         return { completed: true };
       case "start":
         await this.start(session, operation.fps);
-        // Nobody may be watching yet: a capture that makes stills on demand drops to its heartbeat.
+        // Nobody may be watching yet: a capture that makes stills on demand stops streaming.
         if (session.capture?.still)
           await this.streamControlFor(session)
             .refresh()

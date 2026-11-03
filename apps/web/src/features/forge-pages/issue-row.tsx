@@ -1,93 +1,115 @@
 import { type LinkedThread } from "@ace/ui-core";
-import { cn } from "@/lib/cn.ts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
-import { useToast } from "@/components/ui/toast.tsx";
-import { useOpenWebAddress } from "@/components/web-link.tsx";
-import { LabelPill } from "@/components/forge-marks.tsx";
-import { Avatars, IssueStateGlyph } from "./marks.tsx";
-import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
+import { Avatars, CommentCount, IssueStateIcon, LabelPills } from "./marks.tsx";
+import {
+  Ago,
+  Dot,
+  onModifiedClick,
+  RowShell,
+  rowActionClass,
+  useOpenOnGitHub,
+} from "./row-parts.tsx";
 
-/** One issue: glyph, number, title and labels, its comments and assignees; then author and age. */
+/**
+ * One issue, as GitHub lists it: the state mark; the title as the link and its labels; under
+ * it "#246 opened 25m ago by sam", its milestone, the thread working on it and its project
+ * when the list shows several. At the right Open thread (when one is linked), its assignees
+ * and comments.
+ */
 export function IssueRow(props: {
   project: string;
+  /** The project's name, on line 2; none when the list shows one project. */
+  projectName?: string | undefined;
   row: ForgeIssueRow;
   /** The list's address, so the issue's page can return to it as it was. */
   back: string;
   thread: LinkedThread | undefined;
-  /** The last of its group: no rule under it. */
   last?: boolean | undefined;
 }) {
-  const { row } = props;
+  const { row, thread } = props;
   const navigate = useNavigate();
-  const toast = useToast();
-  const openWeb = useOpenWebAddress();
+  const openOnGitHub = useOpenOnGitHub();
+  const openThread = thread
+    ? () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } })
+    : undefined;
   return (
-    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
-      <Link
-        to="/issues/$project/$number"
-        params={{ project: props.project, number: String(row.ref.number) }}
-        search={{ back: props.back }}
-        data-view-row=""
-        className={rowClass}
-      >
-        <span className="pt-0.5">
-          <IssueStateGlyph state={row.state} />
+    <RowShell
+      label={`#${row.ref.number} ${row.title}`}
+      url={row.url}
+      last={props.last}
+      menu={openThread && <MenuItem onClick={openThread}>Open thread</MenuItem>}
+      onNewThread={() =>
+        void navigate({ to: "/new", search: { project: props.project, issue: row.url } })
+      }
+    >
+      <div className="flex min-w-0 items-start gap-2 px-4 py-2 transition-colors duration-(--motion-fast) group-focus-within/row:bg-hover group-hover/row:bg-hover">
+        <span className="pt-1">
+          <IssueStateIcon state={row.state} />
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-xs text-subtle-foreground tabular-nums">
-              #{row.ref.number}
-            </span>
-            <span
-              data-view-row-title=""
-              className="min-w-0 truncate text-ui font-medium text-foreground"
+        <div className="min-w-0 flex-1">
+          <div className="min-w-0 text-ui leading-6">
+            <Link
+              to="/issues/$project/$number"
+              params={{ project: props.project, number: String(row.ref.number) }}
+              search={{ back: props.back }}
+              data-view-row=""
+              onClick={onModifiedClick(row.url, openOnGitHub)}
+              className="rounded-sm font-semibold break-words text-foreground focus-ring hover:text-link"
             >
-              {row.title}
+              <span data-view-row-title="">{row.title}</span>
+            </Link>
+            <LabelPills names={row.labels} colors={row.labelColors} />
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              {row.state === "closed" ? (
+                <>
+                  #{row.ref.number} by {row.author} was closed <Ago at={row.updatedAt} />
+                </>
+              ) : (
+                <>
+                  #{row.ref.number} opened <Ago at={row.createdAt} /> by {row.author}
+                </>
+              )}
             </span>
-            <span className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @xl/list:flex">
-              {row.labels.map((label) => (
-                <LabelPill key={label} name={label} color={row.labelColors?.[label]} />
-              ))}
-            </span>
-            <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
-              <Comments count={row.commentCount} />
-              <Avatars people={row.assignees} avatars={row.avatars} label="Assignees" />
-            </span>
-          </span>
-          <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
-            <Author login={row.author} avatar={row.avatars?.[row.author] ?? row.authorAvatarUrl} />
             {row.milestone && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
+                <Dot />
                 <span className="truncate">{row.milestone}</span>
               </>
             )}
-            {props.thread && (
+            {thread && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
+                <Dot />
+                <span className="truncate" title={`Thread: ${thread.title}`}>
+                  {thread.working ? "Agent working" : `Thread: ${thread.title}`}
                 </span>
-                <Thread thread={props.thread} />
               </>
             )}
-            <span className="ml-auto pl-2 text-subtle-foreground">
-              <Age at={row.updatedAt} />
-            </span>
-          </span>
-        </span>
-      </Link>
-      <RowActions
-        url={row.url}
-        onNewThread={() =>
-          void navigate({ to: "/new", search: { project: props.project, issue: row.url } })
-        }
-        onOpenExternal={() =>
-          void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
-        }
-      />
-    </div>
+            {props.projectName && (
+              <>
+                <Dot />
+                <span className="truncate">{props.projectName}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3 pt-0.5 pl-2">
+          {openThread && (
+            <button
+              type="button"
+              onClick={openThread}
+              className={`${rowActionClass} hidden group-focus-within/row:inline-flex group-hover/row:inline-flex`}
+            >
+              Open thread
+            </button>
+          )}
+          <Avatars people={row.assignees} avatars={row.avatars} label="Assignees" />
+          <CommentCount count={row.commentCount} />
+        </div>
+      </div>
+    </RowShell>
   );
 }

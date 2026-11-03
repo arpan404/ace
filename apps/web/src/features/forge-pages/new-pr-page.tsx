@@ -4,6 +4,7 @@ import type { ForgeNewPrContext } from "@ace/protocol";
 import { LabelPill } from "@/components/forge-marks.tsx";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -14,11 +15,12 @@ import { readFailureText, useRepoPrOptions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
-import { useProjectChoice } from "./project-choice.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { ChoicePicker } from "./new-pr-pickers.tsx";
 import {
   branchLabel,
   compareBlocker,
+  compareLines,
   compareSummary,
   isFork,
   prefill,
@@ -41,8 +43,8 @@ export function NewPullRequestPage(props: {
   back: string | undefined;
 }) {
   const { project } = props;
-  const choice = useProjectChoice(project);
-  const back = useBackToList("/pulls", project, props.back);
+  const choice = { name: useProjectName() };
+  const back = useBackToList("/pulls", props.back);
   const context = useNewPrContext(project);
   // Who reviews it and how it is filed stay while branches are switched; each branch keeps its
   // own title and description.
@@ -264,6 +266,7 @@ function NewPrForm(props: {
             {ready ? (
               <span className="ml-1.5 text-subtle-foreground tabular-nums">
                 {compareSummary(ready)}
+                <CompareLines compare={ready} />
                 {existing && (
                   <>
                     {" · "}
@@ -423,4 +426,16 @@ function Field(props: { label: string; children: React.ReactNode }) {
 
 function Quiet(props: { children: React.ReactNode }) {
   return <span className="text-subtle-foreground">{props.children}</span>;
+}
+
+/** " · +202 −1" after the comparison's words, once every file is listed. */
+function CompareLines(props: { compare: Parameters<typeof compareLines>[0] }) {
+  const lines = compareLines(props.compare);
+  if (!lines) return null;
+  return (
+    <>
+      {" · "}
+      <DiffCounts {...lines} />
+    </>
+  );
 }

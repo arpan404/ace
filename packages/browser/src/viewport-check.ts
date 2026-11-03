@@ -2,6 +2,8 @@ import { PublicToolError } from "@ace/mcp-server/errors";
 import { z } from "zod";
 import type { BrowserCdp } from "./backend.ts";
 
+const Shot = z.object({ data: z.string() });
+
 const Viewport = z.object({
   result: z.object({
     value: z.object({ width: z.number(), height: z.number(), scale: z.number().positive() }),
@@ -98,7 +100,6 @@ async function windowsDrawn(
   deadline: number,
 ): Promise<void> {
   const { imageSize } = await import("./image-size.ts");
-  const Shot = z.object({ data: z.string() });
   const want = { width: seen.width * seen.scale, height: seen.height * seen.scale };
   while (performance.now() < deadline) {
     const shot = Shot.safeParse(

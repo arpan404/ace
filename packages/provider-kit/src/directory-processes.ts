@@ -6,6 +6,8 @@ import { z } from "zod";
 
 const execute = promisify(execFile);
 const pidSchema = z.coerce.number().int().positive();
+const ExitCodeOne = z.object({ code: z.literal(1) });
+const NoSuchProcess = z.object({ code: z.literal("ESRCH") });
 function withinLease(cwd: string, roots: readonly string[]): boolean {
   return roots.some((root) => {
     const path = relative(root, cwd);
@@ -44,7 +46,7 @@ async function directoryPids(
     ["-n", "-P", "-a", ...selection, "-d", "cwd", "-F0pn"],
     { maxBuffer: 2 * 1024 * 1024, timeout: 30_000 },
   ).catch((error: unknown) => {
-    if (!z.object({ code: z.literal(1) }).safeParse(error).success) throw error;
+    if (!ExitCodeOne.safeParse(error).success) throw error;
     return { stdout: "" };
   });
   const pids: number[] = [];
@@ -67,7 +69,7 @@ function kill(pid: number) {
   try {
     process.kill(pid, "SIGKILL");
   } catch (error) {
-    if (!z.object({ code: z.literal("ESRCH") }).safeParse(error).success) throw error;
+    if (!NoSuchProcess.safeParse(error).success) throw error;
   }
 }
 /** Re-check the directory lease before signaling, then wait for kernel termination. */
@@ -85,7 +87,7 @@ export async function terminateDirectoryProcesses(directories: readonly string[]
         maxBuffer: 8192,
         timeout: 5000,
       }).catch((error: unknown) => {
-        if (!z.object({ code: z.literal(1) }).safeParse(error).success) throw error;
+        if (!ExitCodeOne.safeParse(error).success) throw error;
         return { stdout: "" };
       });
       if (output.stdout.split("\n").every((state) => !state.trim() || state.trim().startsWith("Z")))

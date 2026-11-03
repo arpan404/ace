@@ -181,6 +181,13 @@ export const DelegationRecord = z.object({
   messageNotice: z
     .object({ text: z.string().max(400), at: Timestamp, commandId: z.string().max(128).optional() })
     .optional(),
+  /**
+   * Usage-limit holds the parent was told about: how many so far, and whether the latest still
+   * holds. It is told once per hold, and again only after the child ran and was held anew.
+   */
+  limitNotice: z
+    .object({ count: z.number().int().positive(), held: z.boolean(), at: Timestamp })
+    .optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });

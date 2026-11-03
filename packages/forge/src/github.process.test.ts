@@ -46,6 +46,26 @@ describe("GitHub CLI boundary", () => {
     expect(status.raw).toMatchObject({ pr: { future_field: { useful: true } } });
     expect(status.ci).toBe("failure");
   });
+  it("a check with a malformed start time still reads, with its start unknown", async () => {
+    const fixtures = standard();
+    fixtures[`repos/octo/ace/commits/${sha}/check-runs?per_page=100&filter=latest`] = [
+      {
+        body: {
+          check_runs: [
+            { ...check, started_at: 1_700_000_000 },
+            { ...check, id: 12, name: "lint", started_at: "x".repeat(70_000) },
+          ],
+        },
+      },
+    ];
+    const { forge } = await setup(fixtures);
+    const status = await forge.status(7, signal());
+    expect(status.checks.map((entry) => [entry.name, entry.startedAt])).toEqual([
+      ["test", null],
+      ["lint", null],
+    ]);
+    expect(status.ci).toBe("failure");
+  });
   it("reuses per-resource ETags after 304 while still reading new comments", async () => {
     const fixtures = standard();
     fixtures["repos/octo/ace/pulls/7"] = [

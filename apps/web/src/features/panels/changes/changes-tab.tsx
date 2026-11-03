@@ -1,4 +1,4 @@
-import { usePanelServices } from "../services.ts";
+import { useDiffPrefs } from "./diff-prefs.ts";
 import { ChangesToolbar } from "./changes-toolbar.tsx";
 import { ReviewSurface } from "./review-surface.tsx";
 import { useScopedDiff } from "@/lib/diffs/use-scoped-diff.ts";
@@ -16,7 +16,7 @@ export function ChangesTab(props: {
   tabKey?: string | undefined;
 }) {
   const { threadId } = props;
-  const services = usePanelServices();
+  const [, setPrefs] = useDiffPrefs();
   const turn = useScopedDiff(threadId, props.tabKey);
   const { edited } = turn;
   const working = !edited.length || turn.scope === "working-tree";
@@ -43,7 +43,7 @@ export function ChangesTab(props: {
           prefs={prefs}
           shown={layout.mode}
           splitTooNarrow={layout.splitTooNarrow}
-          onPrefs={(change) => services.diffPrefs.set(change)}
+          onPrefs={setPrefs}
           allCollapsed={views.allCollapsed}
           onCollapseAll={views.collapseAll}
           canShowTree={files.length > 1}

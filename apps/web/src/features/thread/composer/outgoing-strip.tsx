@@ -10,7 +10,7 @@ import {
   useStaged,
 } from "../items/pending-sends.ts";
 import { outgoing, quietlySending, type Outgoing } from "./outgoing.ts";
-import { queuedText } from "./use-queue.ts";
+import { queuedLine } from "./use-queue.ts";
 
 const sameIds = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
   a === b || (!!a && !!b && arrayEqual(a, b));
@@ -70,7 +70,7 @@ export function OutgoingStrip(props: {
         {props.rows.map((row, index) => {
           const text =
             row.staged?.text ||
-            (row.send ? queuedText({ input: row.send.payload.input }) : "") ||
+            (row.send ? queuedLine({ input: row.send.payload.input }) : "") ||
             "Attached files";
           return (
             <li

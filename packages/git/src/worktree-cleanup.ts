@@ -36,6 +36,12 @@ const Input = z.object({
   removeBranch: z.boolean(),
 });
 export type WorktreeCleanupInput = z.infer<typeof Input>;
+const WorktreeStatus = z.object({
+  staged: z.array(z.unknown()),
+  unstaged: z.array(z.unknown()),
+  conflicted: z.array(z.unknown()),
+  untracked: z.array(z.string()),
+});
 
 /** Caller holds the common repository lock. Policy is established before even discovering roots. */
 async function inspect(
@@ -64,14 +70,7 @@ async function inspect(
   let ignored: string[] = [];
   if (!missing) {
     status = await statusWithoutHidingFlags(repository, path);
-    const parsed = z
-      .object({
-        staged: z.array(z.unknown()),
-        unstaged: z.array(z.unknown()),
-        conflicted: z.array(z.unknown()),
-        untracked: z.array(z.string()),
-      })
-      .parse(status);
+    const parsed = WorktreeStatus.parse(status);
     // Ignored files (dependencies, build output) still change the fingerprint, but deleting
     // them loses nothing tracked, so they don't make the worktree dirty.
     ignored = await ignoredPaths(repository, path);

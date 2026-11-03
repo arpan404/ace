@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { PendingQueued } from "./queued-pending.ts";
 import { QueuedAttachments } from "./queued-attachments.tsx";
-import { queuedText, type QueueControls } from "./use-queue.ts";
+import { queuedLine, type QueueControls } from "./use-queue.ts";
 import { useComposerCompact } from "./composer-compact.ts";
 import { beginQueueEdit, cancelQueueEdit, useQueueEdit } from "./queue-edit.ts";
 import { useActiveRootRun } from "./stop-state.ts";
@@ -164,7 +164,7 @@ export function QueuedTray(props: {
               const ambiguous = !saving && message.state === "uncertain";
               const busy = saving || queue.busy(message.id);
               const edited = editing?.id === message.id;
-              const text = queuedText(message) || "Attached files";
+              const text = queuedLine(message) || "Attached files";
               const reason = saving
                 ? "This message is still being saved."
                 : busy

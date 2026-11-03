@@ -121,3 +121,63 @@ export function sinceLastReview(
   if (at < 0 || head <= at) return undefined;
   return { since: commits[at]?.sha ?? since, commit: headSha, count: head - at };
 }
+
+/**
+ * Which commits the Code tab shows: all of them, the ones since the viewer's latest review
+ * (which follows the head as it moves), or a span of commits `from` through `to` (one commit
+ * when they are the same).
+ */
+export type CodeScope =
+  | { kind: "all" }
+  | { kind: "since-review" }
+  | { kind: "commits"; from: string; to: string };
+
+export const allCommits: CodeScope = { kind: "all" };
+
+/** What the files read asks for: one commit against its parent, or the commits after `since`. */
+export interface CodeRange {
+  /** "" for All commits. */
+  commit: string;
+  since?: string | undefined;
+}
+
+/**
+ * The files range a scope reads, given the PR's commits (oldest first) and the viewer's
+ * latest review. A scope that names commits no longer in the PR, or a review range that
+ * doesn't exist, reads All commits.
+ */
+export function codeRange(
+  scope: CodeScope,
+  commits: readonly { sha: string }[],
+  review: SinceLastReview | undefined,
+): CodeRange {
+  if (scope.kind === "since-review")
+    return review ? { commit: review.commit, since: review.since } : { commit: "" };
+  if (scope.kind === "all") return { commit: "" };
+  const from = commits.findIndex((commit) => commit.sha === scope.from);
+  const to = commits.findIndex((commit) => commit.sha === scope.to);
+  if (from < 0 || to < from) return { commit: "" };
+  if (from === to) return { commit: scope.to };
+  const since = commits[from - 1]?.sha;
+  // A span from the first commit through the head is All commits; short of the head, it can only
+  // be named from its own first commit.
+  if (!since) return to === commits.length - 1 ? { commit: "" } : { commit: scope.to };
+  return { commit: scope.to, since };
+}
+
+/** The choice as one string, for a picker's value and for keys. */
+export function codeScopeKey(scope: CodeScope): string {
+  return scope.kind === "commits"
+    ? scope.from === scope.to
+      ? scope.to
+      : `${scope.from}..${scope.to}`
+    : scope.kind;
+}
+
+/** The choice a picker value names. */
+export function parseCodeScope(key: string): CodeScope {
+  if (key === "since-review") return { kind: "since-review" };
+  if (!key || key === "all") return allCommits;
+  const [from = "", to = from] = key.split("..");
+  return { kind: "commits", from, to };
+}

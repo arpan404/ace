@@ -9,7 +9,7 @@ import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
   BrowserBackendOperation,
-  BrowserBackendClientMessage,
+  type BrowserBackendClientMessage,
   browserSessionLimit,
   browserWaitLimitMs,
   type BrowserBackendServerMessage,
@@ -58,6 +58,29 @@ const noop = () => {};
 const Response = z.object({
   response: z.object({ url: z.string().max(8192), status: z.number() }),
 });
+// Built once: a Zod schema compiles its parser per instance, and these run per desktop event.
+const TabDialogOpening = z.object({ method: z.literal("Page.javascriptDialogOpening") });
+const TabDialogClosed = z.object({ method: z.literal("Page.javascriptDialogClosed") });
+const WebSocketRequested = z.object({ id: z.string().max(256), url: z.string().max(8192) });
+const PermissionDenied = z.object({
+  origin: z.string().max(8192),
+  permission: z.string().max(256),
+});
+const HumanInput = z.object({ tabId: z.string().max(256).optional() });
+const DownloadDenied = z.object({
+  url: z.string().max(8192),
+  suggestedFilename: z.string().max(256),
+});
+const SameDocumentNavigation = z.object({ frameId: z.string(), url: z.string().max(8192) });
+const LoadingFailed = z.object({ errorText: z.string().max(8192) });
+const Opened = z.object({
+  url: z.string().max(8192),
+  activeTabId: z.string().optional(),
+  // Decoded leniently by EmbeddedTabs: one odd tab must not fail the whole open.
+  tabs: z.array(z.unknown()).optional(),
+  adopted: z.boolean().catch(false).optional(),
+});
+const Screenshot = z.object({ data: z.string().max(32 * 1024 * 1024) });
 interface RemoteSession {
   events: EventEmitter;
   request: BackendOpen;
@@ -269,8 +292,8 @@ export class EmbeddedBackend implements BrowserBackend {
       }
     });
   }
-  handle(raw: unknown): void {
-    const message = BrowserBackendClientMessage.parse(raw);
+  /** A message from the desktop, already parsed where it entered the daemon. */
+  handle(message: BrowserBackendClientMessage): void {
     // Registration, wake and screen notices are the connection's business, not a session's.
     if (
       message.type === "browser.backend.register" ||
@@ -294,15 +317,11 @@ export class EmbeddedBackend implements BrowserBackend {
     if (!session || session.lost) return;
     const dialog =
       message.method === "Page.javascriptDialogOpening" ||
-      (message.method === "ace.tabs.event" &&
-        z.object({ method: z.literal("Page.javascriptDialogOpening") }).safeParse(message.params)
-          .success);
+      (message.method === "ace.tabs.event" && TabDialogOpening.safeParse(message.params).success);
     if (dialog) for (const id of session.pending) this.pending.get(id)?.pauseForDialog();
     const dialogClosed =
       message.method === "Page.javascriptDialogClosed" ||
-      (message.method === "ace.tabs.event" &&
-        z.object({ method: z.literal("Page.javascriptDialogClosed") }).safeParse(message.params)
-          .success);
+      (message.method === "ace.tabs.event" && TabDialogClosed.safeParse(message.params).success);
     if (dialogClosed) for (const id of session.pending) this.pending.get(id)?.resumeAfterDialog();
     if (message.method === "Page.screencastFrame") {
       const frame = Screencast.safeParse(message.params);
@@ -321,9 +340,7 @@ export class EmbeddedBackend implements BrowserBackend {
       return;
     }
     if (message.method === "ace.webSocketRequested") {
-      const request = z
-        .object({ id: z.string().max(256), url: z.string().max(8192) })
-        .safeParse(message.params);
+      const request = WebSocketRequested.safeParse(message.params);
       if (!request.success) return;
       void session.request
         .allowed(request.data.url)
@@ -339,9 +356,7 @@ export class EmbeddedBackend implements BrowserBackend {
       return;
     }
     if (message.method === "ace.permissionDenied") {
-      const result = z
-        .object({ origin: z.string().max(8192), permission: z.string().max(256) })
-        .safeParse(message.params);
+      const result = PermissionDenied.safeParse(message.params);
       if (result.success) {
         session.request.permissionDenied?.(result.data);
         session.events.emit(message.method, result.data);
@@ -350,14 +365,12 @@ export class EmbeddedBackend implements BrowserBackend {
     }
     if (message.method === "ace.humanInput") {
       // The person used the shown view directly; agent input in that tab waits for a pause.
-      const input = z.object({ tabId: z.string().max(256).optional() }).safeParse(message.params);
+      const input = HumanInput.safeParse(message.params);
       if (input.success) session.request.humanInput?.(input.data.tabId);
       return;
     }
     if (message.method === "ace.downloadDenied") {
-      const result = z
-        .object({ url: z.string().max(8192), suggestedFilename: z.string().max(256) })
-        .safeParse(message.params);
+      const result = DownloadDenied.safeParse(message.params);
       if (result.success) session.request.downloadDenied?.(result.data);
       return;
     }
@@ -375,9 +388,7 @@ export class EmbeddedBackend implements BrowserBackend {
       }
     }
     if (message.method === "Page.navigatedWithinDocument") {
-      const nav = z
-        .object({ frameId: z.string(), url: z.string().max(8192) })
-        .safeParse(message.params);
+      const nav = SameDocumentNavigation.safeParse(message.params);
       if (nav.success && nav.data.frameId === session.mainFrame) {
         session.url = nav.data.url;
         session.request.navigation();
@@ -395,7 +406,7 @@ export class EmbeddedBackend implements BrowserBackend {
         });
     }
     if (message.method === "Network.loadingFailed") {
-      const parsed = z.object({ errorText: z.string().max(8192) }).safeParse(message.params);
+      const parsed = LoadingFailed.safeParse(message.params);
       if (parsed.success)
         session.request.log({ kind: "network", type: "failed", text: parsed.data.errorText });
     }
@@ -540,23 +551,15 @@ export class EmbeddedBackend implements BrowserBackend {
     request.signal.addEventListener("abort", abort, { once: true });
     try {
       if (request.downloadDir) await mkdir(request.downloadDir, { recursive: true, mode: 0o700 });
-      const opened = z
-        .object({
-          url: z.string().max(8192),
-          activeTabId: z.string().optional(),
-          // Decoded leniently by EmbeddedTabs: one odd tab must not fail the whole open.
-          tabs: z.array(z.unknown()).optional(),
-          adopted: z.boolean().catch(false).optional(),
-        })
-        .parse(
-          await call({
-            kind: "open",
-            options: request.options,
-            ...(request.profileScope ? { profileScope: request.profileScope } : {}),
-            ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
-            viewport,
-          }),
-        );
+      const opened = Opened.parse(
+        await call({
+          kind: "open",
+          options: request.options,
+          ...(request.profileScope ? { profileScope: request.profileScope } : {}),
+          ...(request.downloadDir ? { downloadDir: request.downloadDir } : {}),
+          viewport,
+        }),
+      );
       remote.url = opened.url;
       request.signal.throwIfAborted();
       if (opened.activeTabId !== undefined && opened.tabs) {
@@ -640,7 +643,7 @@ export class EmbeddedBackend implements BrowserBackend {
         },
         async screenshot(format) {
           if (format === "jpeg") return modelScreenshot(currentCdp());
-          const result = z.object({ data: z.string().max(32 * 1024 * 1024) }).parse(
+          const result = Screenshot.parse(
             await currentCdp().send("Page.captureScreenshot", {
               format,
             }),

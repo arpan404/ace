@@ -30,6 +30,8 @@ export function useDraftSync(args: {
   replace(draft: ComposerDraft): void;
   /** Take another window's browser annotations along with its words. */
   takeAnnotations(annotations: ComposerDraft["annotations"]): void;
+  /** Take another window's quotes along with its words. */
+  takeQuotes(quotes: ComposerDraft["quotes"]): void;
   onDraftChange?: ((draft: ComposerDraft) => void) | undefined;
   ownsDraft?: (() => boolean) | undefined;
   onReturnedOptions?: ((options: ReturnedDraft["options"]) => void) | undefined;
@@ -54,6 +56,7 @@ export function useDraftSync(args: {
       )
         return void setTheirs(draft);
       args.takeAnnotations(draft.annotations);
+      args.takeQuotes(draft.quotes);
       if (!otherFiles(draft)) return void take(draft);
       args.replace(draft);
       return "replace";
@@ -83,6 +86,7 @@ export function useDraftSync(args: {
     if (!draftKey) return false;
     const written = writeDraft(storage, draftKey, next);
     args.takeAnnotations(next.annotations);
+    args.takeQuotes(next.quotes);
     if (!otherFiles(next)) take(next);
     else {
       saved.drop();

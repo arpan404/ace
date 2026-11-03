@@ -39,6 +39,7 @@ export interface InventoryRuntime {
   /** Windows only: runs the descendant recorder on an interval; returns its stop. */
   windowsEvery?: (run: () => void, milliseconds: number) => () => void;
 }
+const NoSuchProcess = z.object({ code: z.literal("ESRCH") });
 export const inventoryRuntime: InventoryRuntime = {
   identity: processIdentity,
   childExited: childHasExited,
@@ -51,7 +52,7 @@ export const inventoryRuntime: InventoryRuntime = {
     try {
       process.kill(-group, "SIGKILL");
     } catch (error) {
-      if (!z.object({ code: z.literal("ESRCH") }).safeParse(error).success) throw error;
+      if (!NoSuchProcess.safeParse(error).success) throw error;
     }
   },
 };

@@ -66,6 +66,11 @@ export const WaitStatus = z.enum([
   "ready",
   /** A watched thread needs the person; returned early in both modes. */
   "needs_you",
+  /**
+   * A watched thread's turn ended on its provider's usage limit and nothing runs until the limit
+   * resets or someone switches it; returned early in both modes when nothing has settled.
+   */
+  "limited",
   /** The timeout elapsed first; work continues and the agent may wait again. */
   "timeout",
   /** The daemon is stopping or restarting; work is retained and the agent may wait again. */

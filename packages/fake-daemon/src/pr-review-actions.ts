@@ -9,6 +9,7 @@ import type {
 } from "@ace/protocol";
 import { validHostedAnchor } from "@ace/forge/review-anchor";
 import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
+import { draftOnFile, moveDrafts } from "./pr-review-moves.ts";
 
 type Result = Omit<CommandResult, "commandId">;
 type Thread = PullRequestFixture["detail"]["status"]["reviewThreads"][number];
@@ -39,16 +40,23 @@ function withStatus(
     detail: { ...fixture.detail, status: { ...fixture.detail.status, ...status } },
   };
 }
-/** A new thread at the anchor, opened by the viewer, which the viewer may resolve and hide. */
-function openThread(fixture: PullRequestFixture, comment: ForgeComment, anchor: ForgeReviewAnchor) {
+/** Where a new thread sits: lines of a file, or (with no line) the file as a whole. */
+type Place = {
+  path: string;
+  line: number | null;
+  side?: "LEFT" | "RIGHT";
+  startLine?: number | undefined;
+};
+/** A new thread at `place`, opened by the viewer, which the viewer may resolve and hide. */
+function openThread(fixture: PullRequestFixture, comment: ForgeComment, place: Place) {
   const thread: Thread = {
     id: `RT_${comment.id}`,
     resolved: false,
     outdated: false,
-    file: anchor.path,
-    line: anchor.line,
-    side: anchor.side,
-    startLine: anchor.startLine ?? null,
+    file: place.path,
+    line: place.line,
+    ...(place.side ? { side: place.side } : {}),
+    startLine: place.startLine ?? null,
     comments: [comment],
   };
   const status = fixture.detail.status;
@@ -158,12 +166,32 @@ export function applyHostedReview(
         fixture: withReview(fixture, { drafts: review.drafts.filter((d) => d.id !== action.id) }),
         result: { ok: true },
       };
+    case "drafts.move": {
+      const drafts = moveDrafts(fixture, action.headSha);
+      if (typeof drafts === "string") return fail(drafts);
+      return { fixture: withReview(fixture, { drafts }), result: { ok: true } };
+    }
+    case "draft.file": {
+      if (!open) return fail("forge_conflict");
+      if (!review.canComment) return fail("forge_forbidden");
+      const posted = draftOnFile(review, action.id, action.headSha);
+      if (typeof posted === "string") return fail(posted);
+      const comment = authored(posted.body, { file: posted.path });
+      return done(
+        openThread(withReview(fixture, { drafts: posted.drafts }), comment, {
+          path: posted.path,
+          line: null,
+        }),
+      );
+    }
     case "reconcile":
       return review.operations.some((o) => o.id === action.operationId)
         ? { fixture, result: { ok: true } }
         : fail("forge_not_found");
     case "submit": {
       if (!open || action.headSha !== review.headSha) return fail("forge_conflict");
+      // A review pending on GitHub must be submitted or dropped there first.
+      if (review.hostedPending) return fail("forge_conflict");
       if (!review.canComment || (!review.canReview && action.event !== "COMMENT"))
         return fail("forge_forbidden");
       const drafts = review.drafts.filter((d) => action.draftIds.includes(d.id));
@@ -225,6 +253,18 @@ export function applyHostedReview(
         t.comments.some((c) => c.id === action.commentId),
       );
       if (!thread) return fail("forge_not_found");
+      if (action.pendingReview) {
+        // The reply joins the viewer's review pending on GitHub, shown once that is submitted.
+        const pending = review.hostedPending;
+        if (
+          pending?.id !== action.pendingReview.reviewId ||
+          thread.id !== action.pendingReview.threadId
+        )
+          return fail("forge_not_found");
+        return done(
+          withReview(fixture, { hostedPending: { ...pending, comments: pending.comments + 1 } }),
+        );
+      }
       const comment = authored(action.body, {
         file: thread.file,
         line: thread.line,
