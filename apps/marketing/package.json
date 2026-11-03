@@ -17,6 +17,10 @@
     "@phosphor-icons/core": "2.1.1",
     "astro": "7.4.2",
     "simple-icons": "16.36.0",
+    "three": "0.187.0",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/three": "0.187.0"
   }
 }

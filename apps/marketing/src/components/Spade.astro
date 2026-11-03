@@ -1,14 +1,18 @@
 ---
 /*
- * Spade's announcement: its face (the shared geometry in @ace/ui-core/spade) looking toward the
- * pointer and blinking now and then, the name, and that it is coming soon.
+ * Spade's announcement: Spade in 3D (public/spade.glb) looking toward the pointer and blinking
+ * now and then, the name, and that it is coming soon. The flat face (the shared geometry in
+ * @ace/ui-core/spade) shows until the 3D one is ready, and stays where WebGL is missing.
  */
 import { spade } from "../content/product.ts";
 import SpadeFace from "./mac/SpadeFace.astro";
 ---
 
 <section class="section page spade" data-spade-section>
-  <div class="face reveal"><SpadeFace size={132} /></div>
+  <div class="face reveal" data-spade-3d>
+    <SpadeFace size={132} />
+    <canvas aria-hidden="true"></canvas>
+  </div>
   <p class="status reveal">{spade.status}</p>
   <h2 class="section-title reveal">{spade.headline}</h2>
   <p class="lede reveal">{spade.body}</p>
@@ -22,7 +26,33 @@ import SpadeFace from "./mac/SpadeFace.astro";
   }
 
   .face {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 240px;
+    height: 240px;
     color: var(--foreground);
+  }
+
+  .face canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.6s var(--ease-out);
+  }
+
+  .face :global(.spade-face) {
+    transition: opacity 0.3s;
+  }
+
+  .face[data-ready] canvas {
+    opacity: 1;
+  }
+
+  .face[data-ready] :global(.spade-face) {
+    opacity: 0;
   }
 
   .face :global(.eye) {
@@ -51,7 +81,7 @@ import SpadeFace from "./mac/SpadeFace.astro";
   }
 
   .status {
-    margin-top: 28px;
+    margin-top: 8px;
     color: var(--subtle);
     font-family: var(--font-mono);
     font-size: 12px;
@@ -83,5 +113,19 @@ import SpadeFace from "./mac/SpadeFace.astro";
 
   for (const section of document.querySelectorAll<HTMLElement>("[data-spade-section]")) {
     spadeLook(section);
+    // The 3D Spade and three.js load only as the section comes near.
+    const host = section.querySelector<HTMLElement>("[data-spade-3d]");
+    if (!host) continue;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void import("../scripts/spade-3d.ts").then(({ startSpade3d }) =>
+          startSpade3d(host, "/spade.glb"),
+        );
+      },
+      { rootMargin: "300px" },
+    );
+    observer.observe(host);
   }
 </script>
