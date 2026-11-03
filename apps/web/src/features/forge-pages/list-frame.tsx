@@ -114,7 +114,7 @@ export function ListFrame(props: {
           )}
           {props.views && (
             // Its own line under the bar while the bar is narrow; on the bar's line once it fits.
-            <div className="-ml-2 flex min-w-0 overflow-x-auto pt-1 [grid-area:views] @min-[1080px]/bar:ml-0 @min-[1080px]/bar:pt-0">
+            <div className="-ml-2 flex min-w-0 pt-1 [grid-area:views] @min-[1080px]/bar:ml-0 @min-[1080px]/bar:pt-0">
               {props.views}
             </div>
           )}

@@ -73,9 +73,19 @@ export function Dot() {
 }
 
 /** A group of rows: its name and its count ("3", or "2 of 12" while some are unread), with room above and no rule; the rows' own hairlines are the only lines. */
-export function GroupHeader(props: { label: string; count: number | string | undefined }) {
+export function GroupHeader(props: {
+  label: string;
+  count: number | string | undefined;
+  /** The list's first: right under the bar, so little room above. */
+  first?: boolean | undefined;
+}) {
   return (
-    <h2 className="flex items-center gap-2 px-(--forge-gutter) pt-6 pb-1 text-xs font-medium text-muted-foreground">
+    <h2
+      className={cn(
+        "flex items-center gap-2 px-(--forge-gutter) pb-1 text-xs font-medium text-muted-foreground",
+        props.first ? "pt-3" : "pt-6",
+      )}
+    >
       {props.label}
       {props.count !== undefined && (
         <span className="font-normal text-subtle-foreground tabular-nums">{props.count}</span>
@@ -145,13 +155,16 @@ export function RowShell(props: {
         {props.children}
         <span
           className={cn(
-            "absolute inset-y-0 right-0 items-center pr-[calc(var(--forge-gutter)-0.375rem)]",
+            "absolute inset-y-0 right-0 items-center",
             props.pinned ? "flex" : "hidden group-focus-within/row:flex group-hover/row:flex",
             props.selected ? "bg-active" : "bg-background",
           )}
         >
           <span
-            className={cn("flex h-full items-center gap-0.5 pl-3", !props.selected && "bg-hover")}
+            className={cn(
+              "flex h-full items-center gap-0.5 pr-[calc(var(--forge-gutter)-0.375rem)] pl-3",
+              !props.selected && "bg-hover",
+            )}
           >
             {props.actions}
             {props.onNewThread && (

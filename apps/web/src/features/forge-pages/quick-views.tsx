@@ -28,7 +28,7 @@ export function QuickViews<T extends string>(props: {
   onValue(value: T): void;
 }) {
   return (
-    <div role="group" aria-label={props.label} className="flex shrink-0 gap-0.5">
+    <div role="group" aria-label={props.label} className="flex min-w-0 flex-wrap gap-0.5">
       {props.views.map((view) => {
         const on = view.id === props.value;
         return (
