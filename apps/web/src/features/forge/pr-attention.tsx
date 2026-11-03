@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
+import { PrFixingWord } from "./pr-fixing-word.tsx";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { useFetchCheckRun } from "./pr-check-run.ts";
 import { checkFixRequest, checkRunId } from "@ace/ui-core";
@@ -92,7 +93,7 @@ export function PrAttention(props: {
     if (item.kind !== "check" || !check || checkRunId(check) === undefined) return agent.fix(item);
     const pr = { number: detail.status.ref.number, url: detail.status.url };
     const run = await fetchRun(check).catch(() => undefined);
-    agent.ask(checkFixRequest(check, pr, run));
+    agent.ask(checkFixRequest(check, pr, run), item.key);
   };
   if (!items.length) return null;
   const open = detail.status.state === "open" || detail.status.state === "draft";
@@ -136,6 +137,7 @@ export function PrAttention(props: {
                         <PrTime at={item.at} />
                       </>
                     )}
+                    <PrFixingWord subject={item.key} />
                   </p>
                 </div>
                 {thread && root && <AttentionReplyButton threadId={thread.id} title={title} />}

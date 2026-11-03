@@ -49,6 +49,7 @@ const Context = createContext<{
   commentsLocked: boolean;
 } | null>(null);
 export { lockedText };
+const noBatch: readonly number[] = [];
 export function PrReviewWorkspace(props: {
   workspaceId: string;
   detail: ForgePrDetail;
@@ -63,7 +64,13 @@ export function PrReviewWorkspace(props: {
   const ready = useConnectionState() === "ready";
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  const [batch, setBatch] = useState<readonly number[]>([]);
+  // A batch belongs to the head it was made on: a push clears it, as GitHub would refuse it.
+  const head = props.detail.status.headSha;
+  const [batched, setBatch] = useState<{ head: string; ids: readonly number[] }>({
+    head,
+    ids: [],
+  });
+  const batch = batched.head === head ? batched.ids : noBatch;
   // The ref as a value that stays the same object while it names the same PR.
   const prKey = JSON.stringify(props.detail.status.ref);
   const pr = useMemo(() => ForgePrRef.parse(JSON.parse(prKey)), [prKey]);
@@ -138,12 +145,16 @@ export function PrReviewWorkspace(props: {
   );
   const toggleBatch = useCallback(
     (id: number) =>
-      setBatch((current) =>
-        current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
-      ),
-    [],
+      setBatch((current) => {
+        const ids = current.head === head ? current.ids : noBatch;
+        return {
+          head,
+          ids: ids.includes(id) ? ids.filter((entry) => entry !== id) : [...ids, id],
+        };
+      }),
+    [head],
   );
-  const clearBatch = useCallback(() => setBatch([]), []);
+  const clearBatch = useCallback(() => setBatch({ head, ids: noBatch }), [head]);
   const value = useMemo(
     () => ({
       state: query.data,

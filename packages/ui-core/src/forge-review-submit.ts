@@ -78,6 +78,7 @@ export function threadCode(
       end === undefined || start === undefined
         ? row === rows.at(-1)
         : line !== undefined && line >= start && line <= end;
-    return { ...row, commented };
+    // The rows are this call's own: marking them in place copies nothing.
+    return Object.assign(row, { commented });
   });
 }
