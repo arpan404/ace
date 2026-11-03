@@ -6,7 +6,7 @@ import {
   GrantKeySet,
   grantPublicKey,
 } from "@ace/account-grant";
-import { hostId, keyPair } from "@ace/secure-channel";
+import { FLOW_WINDOW, hostId, keyPair } from "@ace/secure-channel";
 import type { KeyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
@@ -278,4 +278,28 @@ it("while a rotation keeps the replaced key, grants it signed still connect; onc
         GRANT_SUBPROTOCOL_PREFIX + mint(kind, "user_a", subject, { key: replaced }),
       ]),
     ).toEqual({ status: 401 });
+});
+
+it("a device that stops reading holds the daemon to one window instead of filling the relay object", async () => {
+  // A Durable Object can't pause a socket; without credit it buffers all of it (ADR 0110).
+  const { connect } = await host();
+  const { client, server } = await connect();
+  server.flowControl?.();
+  await server.send({ type: "pong" });
+  await client.receive();
+  const size = 60 * 1024;
+  const count = 96;
+  let written = 0;
+  const sends = Array.from({ length: count }, (_, index) => {
+    const message = new Uint8Array(size);
+    new DataView(message.buffer).setUint32(0, index);
+    return server.sendBinary(message).then(() => void (written += size));
+  });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(written).toBeLessThanOrEqual(FLOW_WINDOW + size);
+  for (let index = 0; index < count; index++) {
+    const message = await client.receiveBinary();
+    expect(new DataView(message.buffer, message.byteOffset).getUint32(0)).toBe(index);
+  }
+  await Promise.all(sends);
 });
