@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { LruCache } from "@ace/ui-core";
-import { CornersOutIcon } from "@phosphor-icons/react";
+import { ArrowsOutSimpleIcon } from "@phosphor-icons/react";
 import type { HtmlVisualization } from "@ace/protocol";
 import { resolveHtmlMode } from "@ace/html";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -30,7 +30,7 @@ const action =
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. A full-screen button sits outlined in a row above it, always shown but dimmed
+ * the network. A bare full-screen button sits in a row above it, always shown but dimmed
  * until hovered, focused or pressed; it opens the page at the side panel's full size, whose
  * strip adds open in window, copy source and download.
  */
@@ -79,15 +79,13 @@ export function HtmlVisualizationView(props: {
           aria-label={`${title} actions`}
           className="flex h-7 items-center justify-end"
         >
-          <div className="inline-flex items-center rounded-lg p-0.5 shadow-[inset_0_0_0_1px_var(--border)]">
-            <IconButton
-              size="sm"
-              icon={CornersOutIcon}
-              label="Full screen"
-              className={action}
-              onClick={() => panel.open(visualizationTab(visualization))}
-            />
-          </div>
+          <IconButton
+            size="sm"
+            icon={ArrowsOutSimpleIcon}
+            label="Full screen"
+            className={action}
+            onClick={() => panel.open(visualizationTab(visualization))}
+          />
         </div>
       )}
       <div className="w-full min-w-0">
