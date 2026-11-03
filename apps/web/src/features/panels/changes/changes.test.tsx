@@ -52,12 +52,12 @@ function panelWidth(px: number) {
   });
 }
 async function pickLayout(panel: HTMLElement, name: "Auto" | "Unified" | "Split") {
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
 }
 
 async function expectLayout(panel: HTMLElement, label: string) {
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   expect(await screen.findByRole("menuitemradio", { name: label, checked: true })).toBeTruthy();
   await userEvent.keyboard("{Escape}");
 }
@@ -154,7 +154,7 @@ test("a chosen Split shows unified in a panel too narrow for two columns, and sp
     act(() => resize.forEach((fire) => fire()));
     await pickLayout(panel, "Split");
     // The choice is kept, and the button says why it isn't showing.
-    await expectLayout(panel, "Split · needs a wider panel");
+    await expectLayout(panel, "Split · needs more width");
     expect(
       within(replay).getByText(codeText(/client.send\(\{ type: "resume.ack" \}\);/)),
     ).toBeTruthy();

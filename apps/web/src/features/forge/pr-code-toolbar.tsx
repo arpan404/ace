@@ -8,18 +8,8 @@ import {
   type SinceLastReview,
 } from "@ace/ui-core";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import {
-  Menu,
-  MenuCheckboxItem,
-  MenuContent,
-  MenuGroup,
-  MenuItem,
-  MenuLabel,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  MenuTrigger,
-} from "@/components/ui/menu.tsx";
+import { MenuCheckboxItem, MenuGroup, MenuLabel, MenuSeparator } from "@/components/ui/menu.tsx";
+import { DiffViewMenu } from "@/features/panels/index.ts";
 import { Select } from "@/components/ui/select.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
@@ -127,8 +117,8 @@ function PushedNote(props: { at: number }) {
 
 /**
  * The Code tab's toolbar: which commits show on the left, with a quiet note for what can't be
- * shown; Next comment and Next file as words (their keys in the tooltip) and one View menu
- * (layout, whitespace, wrapping, the file tree) on the right. How many files are viewed shows
+ * shown; Next comment and Next file as words (their keys in the tooltip) and the View menu every
+ * diff viewer shares (layout, folds, wrapping, whitespace, the file tree) on the right. How many files are viewed shows
  * once: in the tree's header, or here while the tree is hidden.
  */
 export function PrCodeToolbar(props: {
@@ -141,6 +131,9 @@ export function PrCodeToolbar(props: {
   caveats: readonly string[];
   options: CodeOptions;
   onOptions(change: Partial<CodeOptions>): void;
+  /** The layout drawn, after Auto and the room available. */
+  shown: DiffMode;
+  splitTooNarrow: boolean;
   allCollapsed: boolean;
   onCollapseAll(fold: boolean): void;
   /** When the head moved while the tab was open. */
@@ -201,56 +194,42 @@ export function PrCodeToolbar(props: {
           <TextAction onClick={props.onNextFile}>Next file</TextAction>
         </Tip>
       </div>
-      <Menu>
-        <MenuTrigger render={<TextAction className="shrink-0">View</TextAction>} />
-        <MenuContent align="end" className="w-52">
-          <MenuRadioGroup
-            value={options.mode}
-            onValueChange={(mode: DiffMode) => props.onOptions({ mode })}
-          >
-            <MenuLabel>Layout</MenuLabel>
-            <MenuRadioItem value="unified">Unified</MenuRadioItem>
-            <MenuRadioItem value="split">Split</MenuRadioItem>
-          </MenuRadioGroup>
-          <MenuSeparator />
+      <DiffViewMenu
+        trigger={<TextAction className="shrink-0">View</TextAction>}
+        prefs={options}
+        onPrefs={props.onOptions}
+        shown={props.shown}
+        splitTooNarrow={props.splitTooNarrow}
+        canShowTree
+        allCollapsed={props.allCollapsed}
+        onCollapseAll={props.onCollapseAll}
+        options={
           <MenuCheckboxItem
             checked={options.hideWhitespace}
             onCheckedChange={(hideWhitespace) => props.onOptions({ hideWhitespace })}
           >
-            Hide whitespace
+            Hide whitespace changes
           </MenuCheckboxItem>
-          <MenuCheckboxItem
-            checked={options.wrap}
-            onCheckedChange={(wrap) => props.onOptions({ wrap })}
-          >
-            Wrap lines
-          </MenuCheckboxItem>
-          <MenuCheckboxItem
-            checked={options.tree}
-            onCheckedChange={(tree) => props.onOptions({ tree })}
-          >
-            File tree
-          </MenuCheckboxItem>
-          <MenuSeparator />
-          <MenuItem onClick={() => props.onCollapseAll(!props.allCollapsed)}>
-            {props.allCollapsed ? "Expand all files" : "Collapse all files"}
-          </MenuItem>
-          <MenuSeparator />
-          <MenuGroup>
-            <MenuLabel>Keys</MenuLabel>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-2 pb-1.5 text-xs text-muted-foreground">
-              {codeKeyHints.map(([keys, what]) => (
-                <Fragment key={keys}>
-                  <dt>
-                    <Kbd variant="bare">{keys}</Kbd>
-                  </dt>
-                  <dd>{what}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          </MenuGroup>
-        </MenuContent>
-      </Menu>
+        }
+        footer={
+          <>
+            <MenuSeparator />
+            <MenuGroup>
+              <MenuLabel>Keys</MenuLabel>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-2 pb-1.5 text-xs text-muted-foreground">
+                {codeKeyHints.map(([keys, what]) => (
+                  <Fragment key={keys}>
+                    <dt>
+                      <Kbd variant="bare">{keys}</Kbd>
+                    </dt>
+                    <dd>{what}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </MenuGroup>
+          </>
+        }
+      />
     </div>
   );
 }

@@ -20,7 +20,8 @@ import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
-import { fileHeight, freshView, useFileViews } from "@/features/panels/index.ts";
+import { diffLayout, fileHeight, freshView, useFileViews } from "@/features/panels/index.ts";
+import { useElementWidth } from "@/lib/use-element-width.ts";
 import type { usePrCommits } from "./pr-commits.tsx";
 import { hostedFileChanges, offDiffThreads, type SideTexts } from "./pr-code-model.ts";
 import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
@@ -141,6 +142,20 @@ export function PrCodeRange(
     return { ...view, expanded: new Set(view.expanded).add(index) };
   };
   const scroller = useRef<HTMLDivElement>(null);
+  // Auto settles on the diff column's own width; a chosen layout is drawn as chosen (a full
+  // page, unlike the side panel, has the room to scroll a split sideways).
+  const [measure, width] = useElementWidth();
+  const diffColumn = useCallback(
+    (element: HTMLDivElement | null) => {
+      scroller.current = element;
+      return measure(element);
+    },
+    [measure],
+  );
+  const layout =
+    options.mode === "auto"
+      ? diffLayout(width, { ...options, tree: false }, files.length)
+      : { mode: options.mode, splitTooNarrow: false };
   const blocks = useRef<VirtualRowsHandle>(null);
   const anchor = `pr-file-${props.range.since ?? ""}${props.range.commit || "all"}`;
   const show = (path: string) => {
@@ -229,8 +244,10 @@ export function PrCodeRange(
           threads={placeable.get(file.path)}
           view={diff ? viewOf(diff) : freshView}
           onView={(next) => views.setView(file.path, next)}
-          mode={options.mode}
+          mode={layout.mode}
           wrap={options.wrap}
+          fold={options.fold}
+          whitespace={options.whitespace}
           mark={markByPath.get(file.path)}
           read={readOf(file)}
           onOpenFold={
@@ -283,6 +300,8 @@ export function PrCodeRange(
         caveats={caveats}
         options={options}
         onOptions={props.onOptions}
+        shown={layout.mode}
+        splitTooNarrow={layout.splitTooNarrow}
         allCollapsed={views.allCollapsed}
         onCollapseAll={views.collapseAll}
         pushedAt={props.pushedAt}
@@ -322,7 +341,7 @@ export function PrCodeRange(
               />
             )}
             <div
-              ref={scroller}
+              ref={diffColumn}
               data-diff-scroller=""
               className="min-h-0 min-w-0 flex-1 overflow-auto pb-16"
             >

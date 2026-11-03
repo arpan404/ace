@@ -9,14 +9,6 @@ import { LocalStore } from "./store.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
 import type { TabUiState } from "./terminal/tab-ui.ts";
 
-export interface DiffPrefs {
-  /** `auto` is unified in a narrow panel and split where both sides fit. */
-  mode: "auto" | "unified" | "split";
-  wrap: boolean;
-  /** The changed-files tree beside the diff. */
-  tree: boolean;
-}
-
 /** Per thread, the files marked viewed, each with the version of its diff that was viewed. */
 export type ViewedFiles = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
@@ -26,7 +18,6 @@ export interface PanelServices {
   preview: PreviewSource;
   drafts: LocalStore<readonly ReviewDraft[]>;
   compositions: LocalStore<Compositions>;
-  diffPrefs: LocalStore<DiffPrefs>;
   viewed: LocalStore<ViewedFiles>;
   /**
    * Per thread: the log lines Clear hid, by key. Keys rather than a time, because backdated or
@@ -74,7 +65,6 @@ export function panelServices(
           ...sources,
           drafts: new LocalStore<readonly ReviewDraft[]>([]),
           compositions: new LocalStore<Compositions>({ entries: new Map(), active: new Map() }),
-          diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
           viewed: new LocalStore<ViewedFiles>(new Map()),
           logCleared: new LocalStore<ClearedLines>(new Map()),
           terminalUi: new LocalStore<TabUiState>(new Map()),
