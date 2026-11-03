@@ -18,6 +18,15 @@ describe("account machine credential", () => {
     expect(await credential()).toEqual({ grant: "g1" });
   });
 
+  test("a refusal for an attempt that left before the code was typed keeps the code", async () => {
+    const gate = accountGate(grant("g1"));
+    gate.refused("machine_code_required");
+    gate.enter("2468");
+    gate.refused("machine_code_required");
+    expect(gate.asking).toBeUndefined();
+    expect(await accountCredential(gate)()).toEqual({ grant: "g1", machineCode: "2468" });
+  });
+
   test("a wrong code is forgotten and the daemon's reason is asked again", async () => {
     const gate = accountGate(grant("g1"));
     gate.enter("1111");

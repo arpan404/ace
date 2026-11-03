@@ -23,7 +23,6 @@ struct MachineCodePrompt: ViewModifier {
                     code = ""
                     asking?.client.enterMachineCode(typed)
                 }
-                .disabled(code.count < 4)
                 .accessibilityIdentifier("machineCode.open")
             } else {
                 Button("OK", role: .cancel) { asking?.client.machineCodeDeferred = true }

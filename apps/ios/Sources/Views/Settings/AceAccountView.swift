@@ -87,10 +87,10 @@ struct AceAccountView: View {
 
     private func subtitle(_ machine: AceMachine, machines: MachinesModel) -> String {
         let paired = machines.entry(machine.hostId).map { !$0.isAccountMachine } ?? false
-        var parts = [paired ? "Paired" : "Through your account"]
+        var parts = [paired ? "Paired" : "Via account"]
         if machine.lastSeenAt > 0 {
             let seen = Date(timeIntervalSince1970: machine.lastSeenAt / 1000)
-            parts.append("seen " + seen.formatted(.relative(presentation: .named)))
+            parts.append("seen " + seen.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))
         }
         return parts.joined(separator: " · ")
     }

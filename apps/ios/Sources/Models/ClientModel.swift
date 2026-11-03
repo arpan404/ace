@@ -440,7 +440,10 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
-            case .machineCode(let reason): machineCodeAsk = reason.flatMap(MachineCodeAsk.init(rawValue:))
+            case .machineCode(let reason):
+                // Every refused retry says it again; only a change redraws.
+                let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))
+                if ask != machineCodeAsk { machineCodeAsk = ask }
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
             case .cacheUsage(let usage): cacheUsage = usage

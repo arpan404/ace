@@ -9,10 +9,33 @@ import { z } from "zod";
  * daemon asks for one. The code lives only in the gate, until the daemon answers it.
  */
 export function accountGate(credential: () => Promise<string>): MachineCodeGate {
-  return machineCodeGate(
+  const gate = machineCodeGate(
     async () =>
       z.strictObject({ grant: z.string().min(1) }).parse(JSON.parse(await credential())).grant,
   );
+  // A typed code waiting for its answer. A `machine_code_required` arriving meanwhile answers an
+  // attempt that left before the code was typed; it must not throw the code away.
+  let pending = false;
+  return {
+    credential: () => gate.credential(),
+    refused(reason) {
+      if (pending && reason === "machine_code_required") return;
+      pending = false;
+      gate.refused(reason);
+    },
+    welcomed() {
+      pending = false;
+      gate.welcomed();
+    },
+    get asking() {
+      return gate.asking;
+    },
+    enter(value) {
+      gate.enter(value);
+      pending = true;
+    },
+    subscribe: (listener) => gate.subscribe(listener),
+  };
 }
 
 /** The gate's credential, failing the way the SDK retries: offline retries, the rest is final. */

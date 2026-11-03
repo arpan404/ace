@@ -127,7 +127,7 @@ struct MachineDetailView: View {
         .alert("Machine code for \(facts.name)", isPresented: $enteringCode) {
             SecureField("Machine code", text: $code).textContentType(.password).accessibilityIdentifier("machine.code.field")
             Button("Cancel", role: .cancel) { code = "" }
-            Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }.disabled(code.count < 4)
+            Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }
         } message: { Text(client?.machineCodeAsk?.message ?? "") }
         .alert("Couldn't rename", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
