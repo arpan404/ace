@@ -111,8 +111,11 @@ export async function relayDaemon(
           connectionId,
         });
       }
-      if (String(message.type).startsWith("browser.backend."))
-        relay?.handle(BrowserBackendClientMessage.parse(message));
+      if (!String(message.type).startsWith("browser.backend.")) return;
+      // Like the daemon, which never hands the relay a message that doesn't parse: a malformed
+      // or unknown backend message is dropped here rather than thrown inside the socket callback.
+      const parsed = BrowserBackendClientMessage.safeParse(message);
+      if (parsed.success) relay?.handle(parsed.data);
     });
     socket.on("close", () => relay?.disconnect("Desktop app disconnected"));
   });
