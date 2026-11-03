@@ -6,7 +6,7 @@
 export const product = {
   name: "ace",
   title: "ace: one app for Claude Code, Codex, Cursor and every agent",
-  headline: "Run all your coding agents as one team.",
+  headline: "Stop babysitting your agents.",
   summary:
     "Work on many tasks at once. Agents hand work to each other across your machines, and you step in only when one needs you.",
   /** For search results: at most about 160 characters. */

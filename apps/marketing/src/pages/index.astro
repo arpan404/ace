@@ -4,6 +4,7 @@ import AgentStrip from "../components/AgentStrip.astro";
 import Hero from "../components/Hero.astro";
 import LinkCards from "../components/site/LinkCards.astro";
 import MacStory from "../components/mac/MacStory.astro";
+import Principle from "../components/Principle.astro";
 import Spade from "../components/Spade.astro";
 import { product } from "../content/product.ts";
 import { route } from "../content/routes.ts";
@@ -30,6 +31,7 @@ const onward = ["/features/", "/mcp/", "/security/", "/faq/"].map((path) => {
 >
   <Hero />
   <MacStory />
+  <Principle />
   <AgentStrip />
   <Spade />
   <LinkCards heading="There's more to ace" cards={onward} />
