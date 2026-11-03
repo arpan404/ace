@@ -21,7 +21,7 @@ import UIKit
         "mutedForeground": .init(light: 0x545454, dark: 0xA3A3A3),
         "subtleForeground": .init(light: 0x676767, dark: 0x898989),
         "separator": .init(light: 0xE2E2E2, dark: 0x1E1E1E),
-        "fill": .init(light: 0xF0F0F0, dark: 0x191919),
+        "fill": .init(light: 0xE7E7E7, dark: 0x191919),
         "accent": .init(light: 0x222222, dark: 0xDEDEDE),
         "onAccent": .init(light: 0xFFFFFF, dark: 0x0C0C0C),
     ]
@@ -545,10 +545,10 @@ import UIKit
         "mutedForeground": .init(light: 0x545454, dark: 0xA3A3A3),
         "subtleForeground": .init(light: 0x676767, dark: 0x898989),
         "separator": .init(light: 0xE2E2E2, dark: 0x1E1E1E),
-        "fill": .init(light: 0xF0F0F0, dark: 0x191919),
+        "fill": .init(light: 0xE7E7E7, dark: 0x191919),
         "accent": .init(light: 0x222222, dark: 0xDEDEDE),
         "onAccent": .init(light: 0xFFFFFF, dark: 0x0C0C0C),
-        "decoration": .init(light: 0x87878D, dark: 0x76767E),
+        "decoration": .init(light: 0x84848A, dark: 0x76767E),
     ]
     /// Editable colours resolve through the injected model so saves and resets
     /// invalidate every active view. Semantic colours below stay fixed.
@@ -578,7 +578,7 @@ import UIKit
             return adaptive(pair.light, pair.dark)
         }
         static var decoration: Color {
-            let pair = NativePaletteBridge.pair(for: "decoration", light: 0x87878D, dark: 0x76767E)
+            let pair = NativePaletteBridge.pair(for: "decoration", light: 0x84848A, dark: 0x76767E)
             return adaptive(pair.light, pair.dark)
         }
         static var separator: Color {
@@ -586,7 +586,7 @@ import UIKit
             return adaptive(pair.light, pair.dark)
         }
         static var fill: Color {
-            let pair = NativePaletteBridge.pair(for: "fill", light: 0xF0F0F0, dark: 0x191919)
+            let pair = NativePaletteBridge.pair(for: "fill", light: 0xE7E7E7, dark: 0x191919)
             return adaptive(pair.light, pair.dark)
         }
         static let glass = adaptive(0xFFFFFF, 0x1C1C1F)
@@ -613,11 +613,11 @@ import UIKit
         static let failed = adaptive(0xA3233A, 0xCF5468)
     }
     @MainActor enum StatusText {
-        static let needsYou = adaptive(0x9A5900, 0xEDC070)
+        static let needsYou = adaptive(0x965700, 0xEDC070)
         static let working = adaptive(0x2A55B0, 0x6B90D9)
-        static let waiting = adaptive(0x7456CB, 0xB49CF5)
-        static let unresponsive = adaptive(0xAA4679, 0xE88BB3)
-        static let done = adaptive(0x007856, 0x57BD9B)
+        static let waiting = adaptive(0x6E52C1, 0xB49CF5)
+        static let unresponsive = adaptive(0xA54475, 0xE88BB3)
+        static let done = adaptive(0x007554, 0x57BD9B)
         static let failed = adaptive(0xA3233A, 0xE4697D)
     }
     @MainActor enum RowStatus {

@@ -45,3 +45,34 @@ it("links that put credentials in the request or name a decorated computer are r
   ])
     expect(() => parsePairingLink(link), link).toThrow();
 });
+
+it("a relay link opens the web app and names the relay and host key to pair through", () => {
+  const hostId = "A".repeat(52);
+  const url = pairingLinkUrl({
+    relay: { url: "wss://relay.example.com/", hostId },
+    code: "c0de",
+    scopes: ["read"],
+    app: "https://app.acehq.dev",
+  });
+  expect(new URL(url).origin).toBe("https://app.acehq.dev");
+  expect(new URL(url).search).toBe("");
+  expect(parsePairingLink(url)).toEqual({
+    daemon: "",
+    relay: { url: "wss://relay.example.com/", hostId },
+    code: "c0de",
+    fingerprint: hostId,
+    scopes: ["read"],
+  });
+});
+
+it("a relay link that names something other than a relay socket or host key is refused", () => {
+  const hostId = "A".repeat(52);
+  for (const fragment of [
+    `relay=${encodeURIComponent("https://relay.example.com/")}&hostId=${hostId}&code=c`,
+    `relay=${encodeURIComponent("wss://relay.example.com/?token=1")}&hostId=${hostId}&code=c`,
+    `relay=${encodeURIComponent("wss://relay.example.com/")}&hostId=short&code=c`,
+  ])
+    expect(() => parsePairingLink(`https://app.acehq.dev/pair#${fragment}`)).toThrow(
+      "doesn't name a valid relay",
+    );
+});

@@ -24,6 +24,8 @@ ace stop|kill-all [--thread ID|--provider PROVIDER|--project ID]
 ace mcp enroll --scope read|operate --ttl DURATION [--project ID]
 ace mcp list|revoke ID
 ace capabilities|providers status|login codex|claude
+ace login [--origin URL]|logout   (this machine's ace account)
+ace machine-code set [CODE|-]|clear
 ace serve|service install --linger
 ace remote add NAME HTTPS_ORIGIN --fingerprint PIN --device ID --token-file PATH
 ace remote list|use|remove NAME
@@ -130,6 +132,13 @@ export async function main(input: string[]): Promise<void> {
       return await (await import("./control.ts")).stopCommand(args, config.dataDir);
     if (["start", "serve", "service"].includes(command))
       return await (await import("./runtime.ts")).runtimeCommand(args, config);
+    // A bare `ace login` is the ace account; `ace login PROVIDER` signs a provider CLI in.
+    if (
+      (command === "login" && args.words.length === 1) ||
+      command === "logout" ||
+      command === "machine-code"
+    )
+      return await (await import("./ace-account.ts")).aceAccountCommand(args, config.dataDir);
     if (["status", "token", "pair", "devices"].includes(command))
       return await (await import("./access.ts")).accessCommand(args, config.dataDir);
     if (

@@ -5,6 +5,8 @@ export type RouteAction =
   | { type: "offer"; socket: string; ticket: string }
   | { type: "pair"; client: string; host: string };
 type Pending = { client: string; owner: string; expires: number };
+/** A client waiting for its host to join, as recorded outside the routes (a socket attachment). */
+export type PendingTicket = Pending & { ticket: string };
 /** Routing policy has no sockets, randomness or timers. IDs and times enter as facts. */
 export class RelayRoutes {
   #hosts = new Map<string, string>();
@@ -17,6 +19,43 @@ export class RelayRoutes {
       ? new Set(options.allowedHostIds.map((id) => HostId.parse(id)))
       : undefined;
     this.#ttl = options.ticketTimeoutMs;
+  }
+  /**
+   * Rebuild routes from facts recorded before a restart, such as Durable Object socket
+   * attachments read after hibernation. A waiting client whose host socket is gone is closed,
+   * as if that host had disconnected.
+   */
+  restore(
+    hosts: readonly { socket: string; hostId: string }[],
+    pending: readonly PendingTicket[],
+  ): RouteAction[] {
+    if (this.#hosts.size || this.#pending.size) throw new Error("Routes already in use");
+    for (const host of hosts) {
+      HostId.parse(host.hostId);
+      if (!this.#allowed || this.#allowed.has(host.hostId))
+        this.#hosts.set(host.hostId, host.socket);
+    }
+    const owners = new Set(this.#hosts.values());
+    const actions: RouteAction[] = [];
+    for (const entry of pending) {
+      Ticket.parse(entry.ticket);
+      if (!owners.has(entry.owner) || this.#pending.has(entry.ticket)) {
+        actions.push({
+          type: "close",
+          socket: entry.client,
+          code: 1008,
+          reason: "Host disconnected",
+        });
+        continue;
+      }
+      this.#pending.set(entry.ticket, {
+        client: entry.client,
+        owner: entry.owner,
+        expires: entry.expires,
+      });
+      this.#waiting.add(entry.client);
+    }
+    return actions;
   }
   register(socket: string, hostId: string): RouteAction[] {
     HostId.parse(hostId);

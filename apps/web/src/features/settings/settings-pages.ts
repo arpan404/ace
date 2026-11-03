@@ -10,12 +10,14 @@ import {
   KeyboardIcon,
   PaletteIcon,
   TerminalWindowIcon,
+  UserCircleIcon,
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
+  | "/settings/profile"
   | "/settings/prompts"
   | "/settings/general"
   | "/settings/agents"
@@ -31,11 +33,12 @@ export type SettingsPath =
   | "/settings/storage";
 
 /**
- * Where a page's settings live. `machine`: on the environment picked at the top of the Settings
+ * Where a page's settings live. `profile`: the person's ace account, first and untitled.
+ * `machine`: on the environment picked at the top of the Settings
  * sidebar, for every device that uses it. `device`: only on the screen in use, whatever
  * environment is picked. `network`: how machines and devices reach each other.
  */
-export type SettingsGroup = "machine" | "device" | "network";
+export type SettingsGroup = "profile" | "machine" | "device" | "network";
 
 export interface SettingsPage {
   to: SettingsPath;
@@ -45,12 +48,14 @@ export interface SettingsPage {
 }
 
 export const settingsGroupTitles: Record<SettingsGroup, string | undefined> = {
+  profile: undefined,
   machine: "Environment",
   device: "This device",
   network: "Connections",
 };
 
 export const settingsPages: readonly SettingsPage[] = [
+  { to: "/settings/profile", title: "Profile", icon: UserCircleIcon, group: "profile" },
   { to: "/settings/agents", title: "Agents", icon: ChatsCircleIcon, group: "machine" },
   { to: "/settings/providers", title: "Providers", icon: TerminalWindowIcon, group: "machine" },
   { to: "/settings/prompts", title: "Prompts", icon: NotePencilIcon, group: "machine" },

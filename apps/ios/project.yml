@@ -29,6 +29,7 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    ACE_ACCOUNT_URL: ""
   configs:
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
@@ -48,6 +49,7 @@ targets:
       path: .build/Info.plist
       properties:
         CFBundleDisplayName: ace
+        AceAccountURL: $(ACE_ACCOUNT_URL)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSSupportsLiveActivities: true
@@ -117,6 +119,11 @@ targets:
     sources:
       - path: Tests
       - path: .build/bridge-tests.js
+        buildPhase: resources
+      # The Noise XX vectors the TypeScript implementation passes, for the native one.
+      - path: ../../packages/secure-channel/fixtures/cacophony.json
+        buildPhase: resources
+      - path: ../../packages/secure-channel/fixtures/snow.json
         buildPhase: resources
       # Shared, language-neutral emulator cases (see its README).
       - path: ../../fixtures/terminal-emulator

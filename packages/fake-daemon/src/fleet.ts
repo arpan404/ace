@@ -9,6 +9,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import type { FakeAccess } from "./access.ts";
+import { answerMachineCode } from "./machine-account.ts";
 
 function slug(name: string, taken: readonly string[]): string {
   const base =
@@ -79,7 +80,7 @@ export class FakeFleet {
       }
       case "pairing": {
         const remote = this.access.remoteStatus();
-        if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
+        if (!remote.enabled || !["lan", "tailscale", "relay"].includes(remote.transport))
           return { code: "unavailable", message: "Turn on remote access on this machine to pair." };
         const { op: _op, ...request } = operation;
         return { kind: "pairing", ...this.access.pair(request) };
@@ -109,6 +110,8 @@ export class FakeFleet {
           : { code: "not_found", message: "That device isn't paired anymore." };
       case "revokeOthers":
         return { kind: "revoked", count: this.access.revokeOthers(device) };
+      case "remoteStatus":
+        return { kind: "remoteStatus", status: this.access.remoteStatus() };
       case "grant":
         this.chosen.set(operation.deviceId, {
           ...this.chosen.get(operation.deviceId),
@@ -144,8 +147,9 @@ export class FakeFleet {
       }),
     };
   }
-  /** False when the message isn't `fleet.request`. */
+  /** False when the message isn't `fleet.request` or `machine.code.*`. */
   handle(message: ClientMessage, push: (message: ServerMessage) => void, device: string): boolean {
+    if (answerMachineCode(this.access.machineAccount, message, push)) return true;
     if (message.type !== "fleet.request") return false;
     const result = this.run(message.operation, device);
     push(

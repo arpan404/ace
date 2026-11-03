@@ -16,6 +16,7 @@ import type { Machine } from "@/lib/machines.ts";
 import { useManyDevices } from "../row-parts.tsx";
 import { useNewThreadMachines, type NewThreadMachines } from "./machine-choice.ts";
 import { moveResolver } from "./machine-move.ts";
+import { platformName, useAccountMachines } from "@/features/ace-account/index.ts";
 
 /**
  * The machine a new thread runs on, as a line under the page's question ("on Build server"),
@@ -65,6 +66,8 @@ function MachineMenu(props: {
 }) {
   const { machines, current, choose } = props.choice;
   const { storage } = useLayout();
+  // Machines on the ace account this window isn't connected to; they open from Settings › Fleet.
+  const account = useAccountMachines(machines);
   const moving = useRef(false);
   const home = props.from ? machines.find((each) => each.id === props.from) : current;
   // Where the project lands on each machine, asked as the menu opens so a pick moves at once.
@@ -133,6 +136,24 @@ function MachineMenu(props: {
                     {machineStatus[machine.status].label}
                   </span>
                 )}
+              </span>
+            </MenuRadioItem>
+          ))}
+          {account.only.map((machine) => (
+            <MenuRadioItem
+              key={machine.hostId}
+              value={machine.hostId}
+              disabled
+              aria-label={`${machine.name}, on your ace account, not connected`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <MachineMark primary={false} />
+                <span className="truncate">{machine.name}</span>
+                <span className="text-xs text-subtle-foreground">
+                  {[machine.platform && platformName(machine.platform), "Not connected"]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
               </span>
             </MenuRadioItem>
           ))}

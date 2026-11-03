@@ -1,8 +1,13 @@
 /// <reference lib="dom" />
 import { z } from "zod";
-import { ClientMessage, ServerMessage, type ServerMessage as ServerFrame } from "@ace/protocol";
+import {
+  ClientMessage,
+  MachineCodeRefusal,
+  ServerMessage,
+  type ServerMessage as ServerFrame,
+} from "@ace/protocol";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
-import type { Credential } from "./credentials.ts";
+import { relayGrant, type Credential } from "./credentials.ts";
 import { relayCompression } from "./inflate.ts";
 import { DeviceClientError, type DeviceTransport } from "@ace/devices/client";
 
@@ -15,7 +20,7 @@ export interface AuthenticatedChannelOptions {
   deviceId: string;
   credential(): Promise<Credential>;
   /** Forward native close events, including their code, so 4013 can back off. */
-  socket(url: string): PortableSocket;
+  socket(url: string, protocols?: string[]): PortableSocket;
   keys: PortableRelayOptions["keys"];
   schedule(callback: () => void, delayMs: number): () => void;
 }
@@ -24,6 +29,11 @@ export interface ChannelEvents {
   message(message: ServerFrame | Uint8Array): void | Promise<void>;
   close(): void;
   limited?(error: DeviceClientError): void;
+  /**
+   * The daemon wants this machine's code from an account device (ADR 0111), or refused the one
+   * sent. The channel closes after this; open it again with the code (`machineCodeGate`).
+   */
+  refused?(reason: MachineCodeRefusal, message: string, lockedUntil?: number): void;
 }
 export interface AuthenticatedChannel {
   open(events: ChannelEvents): void;
@@ -86,6 +96,10 @@ export function authenticatedChannel(
   const receive = async (frame: ServerFrame | Uint8Array, stamp: number) => {
     if (epoch !== stamp) return;
     if (!ready) {
+      if (!(frame instanceof Uint8Array) && frame.type === "error") {
+        const reason = MachineCodeRefusal.safeParse(frame.code);
+        if (reason.success) events?.refused?.(reason.data, frame.message, frame.lockedUntil);
+      }
       if (frame instanceof Uint8Array || frame.type !== "welcome")
         throw new Error("Authenticated welcome required");
       if (
@@ -130,6 +144,8 @@ export function authenticatedChannel(
           ...(options.target.kind === "relay" && kind !== "provider_auth"
             ? { compression: relayCompression() }
             : {}),
+          // A relay route returns credit as it reads, so the relay never holds a backlog.
+          ...(options.target.kind === "relay" ? { flowControl: ["credit"] } : {}),
         });
         if (options.target.kind === "relay") {
           const { connectPortableRelay } = await import("./portable-relay.ts");
@@ -138,6 +154,7 @@ export function authenticatedChannel(
             relayUrl: options.target.url,
             pinnedFingerprint: options.target.pinnedFingerprint,
             socket: options.socket,
+            grant: relayGrant(credential),
             keys: options.keys,
             schedule: options.schedule,
             signal,
@@ -257,8 +274,8 @@ export function deviceTransport(options: AuthenticatedChannelOptions): DeviceTra
 }
 
 /** Browser socket boundary shared by the app and device latency probe. */
-export function browserDeviceSocket(address: string): PortableSocket {
-  const socket = new WebSocket(address);
+export function browserDeviceSocket(address: string, protocols?: string[]): PortableSocket {
+  const socket = new WebSocket(address, protocols);
   return {
     get binaryType() {
       return socket.binaryType;

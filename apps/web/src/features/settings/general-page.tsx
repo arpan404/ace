@@ -1,10 +1,8 @@
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useEditors } from "@/lib/editors.ts";
-import { useProfileName } from "@/lib/profile.ts";
 import { useRailMeasure } from "@/lib/rail-measure.ts";
 import { usePreferredPlace, type PanelPlace } from "@/lib/workspace/index.ts";
 import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
@@ -23,8 +21,7 @@ const places: { value: PanelPlace; label: string }[] = [
 ];
 
 /**
- * What only this device keeps: the desktop app's login item and background behaviour, your
- * name, where terminals and files open, what the rail's Usage bars show, how browser pages show,
+ * What only this device keeps: the desktop app's login item and background behaviour, where terminals and files open, what the rail's Usage bars show, how browser pages show,
  * and which computer this window
  * talks to. Agent
  * defaults belong to a machine (Settings › Agents).
@@ -33,9 +30,6 @@ export function GeneralSettings() {
   return (
     <>
       <DesktopAppPreferences />
-      <SettingSection label="Profile" card scope="device">
-        <ProfileNameRow />
-      </SettingSection>
       <SettingSection label="Workspace" card scope="device">
         <TerminalPlaceRow />
         <EditorRow />
@@ -44,26 +38,6 @@ export function GeneralSettings() {
       <BrowserDeviceSettings />
       <DaemonSettings />
     </>
-  );
-}
-
-function ProfileNameRow() {
-  const [name, setName] = useProfileName();
-  return (
-    <SettingRow {...settingRow("profile.name")} htmlFor="profile-name">
-      <Input
-        id="profile-name"
-        className="@[30rem]:w-52"
-        defaultValue={name}
-        placeholder="Name"
-        autoComplete="name"
-        maxLength={80}
-        onBlur={(event) => setName(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") setName(event.currentTarget.value);
-        }}
-      />
-    </SettingRow>
   );
 }
 

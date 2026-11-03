@@ -1,0 +1,105 @@
+import { z } from "zod";
+
+export const AceAccountOrigin = z
+  .string()
+  // The pattern carries the shape into the JSON schema; the refinement checks it is an origin.
+  .regex(/^(?:https:\/\/[^\s/?#@]+|http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?)$/)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        url.origin === value &&
+        (url.protocol === "https:" ||
+          (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+      );
+    } catch {
+      return false;
+    }
+  }, "Expected an HTTPS origin or a loopback HTTP origin")
+  .meta({
+    examples: ["https://backend.example.com"],
+    "x-ace-constraint":
+      "An exact HTTPS origin, or an HTTP origin on localhost, 127.0.0.1 or [::1], without credentials, a path, query or fragment.",
+  });
+
+/** An ace identity, independent of provider accounts and paired-machine authority. */
+export const AceAccount = z.object({
+  id: z.string().min(1).max(256),
+  /** As WorkOS reports it; only its shape is checked. */
+  email: z
+    .string()
+    .max(320)
+    .regex(/^[^\s@]+@[^\s@]+$/),
+  name: z.string().max(256),
+});
+export type AceAccount = z.infer<typeof AceAccount>;
+
+export const AceAccountSession = z.object({
+  account: AceAccount,
+  expiresAt: z.number().int().positive(),
+});
+export const AceAccountGrant = AceAccountSession.extend({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type AceAccountGrant = z.infer<typeof AceAccountGrant>;
+
+export const AceLogin = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  secret: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  loginUrl: z.url(),
+  expiresAt: z.number().int().positive(),
+});
+export type AceLogin = z.infer<typeof AceLogin>;
+/**
+ * Where the person's browser goes once ace sign-in ends, carrying only `?status=` (never a
+ * token, code or login id): the apps' own link, or the web app's landing page on an origin the
+ * backend allows.
+ */
+export const ACE_APP_SIGN_IN_RETURN = "ace://account/signed-in";
+export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
+
+/** `POST /v1/account/login`; the body is optional. */
+export const AceLoginRequest = z.object({
+  returnTo: z
+    .string()
+    .max(2048)
+    .optional()
+    .meta({
+      examples: [ACE_APP_SIGN_IN_RETURN, `https://app.example.com${ACE_WEB_SIGN_IN_PATH}`],
+      "x-ace-constraint":
+        "Exactly ace://account/signed-in, or an allowed web origin followed by /account/signed-in.",
+    }),
+});
+export type AceLoginRequest = z.infer<typeof AceLoginRequest>;
+/** The `status` a sign-in's return address is opened with. */
+export const AceSignInReturnStatus = z.enum(["signed-in", "cancelled", "failed", "expired"]);
+export type AceSignInReturnStatus = z.infer<typeof AceSignInReturnStatus>;
+
+export const AceLoginStatus = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("pending") }),
+  z.object({ status: z.literal("complete"), session: AceAccountGrant }),
+]);
+
+/** `POST /v1/grants` (ADR 0111), authenticated by the ace session token. */
+export const AceGrantRequest = z.object({
+  kind: z.enum(["machine", "device"]),
+  /** The machine's host id, or the requesting device's device id. */
+  subject: z.string().min(1).max(128),
+});
+export type AceGrantRequest = z.infer<typeof AceGrantRequest>;
+export const AceGrantResponse = z.object({
+  /** Signed grant, verified with `@ace/account-grant`. */
+  token: z.string().min(1).max(2048),
+  expiresAt: z.number().int().positive(),
+});
+export type AceGrantResponse = z.infer<typeof AceGrantResponse>;
+
+/** A machine signed in to an account, as `GET /v1/machines` lists it. */
+export const AceMachine = z.object({
+  hostId: z.string().regex(/^[A-Z2-7]{52}$/),
+  name: z.string().max(256),
+  platform: z.string().max(64),
+  lastSeenAt: z.number().int().nonnegative(),
+});
+export type AceMachine = z.infer<typeof AceMachine>;
+export const AceMachineList = z.object({ machines: z.array(AceMachine).max(1000) });

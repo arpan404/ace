@@ -28,6 +28,19 @@ const GeneralSettings = lazy(() =>
   import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
 );
 
+const ProfilePage = lazy(() =>
+  import("./profile/page.tsx").then((module) => ({ default: module.ProfilePage })),
+);
+
+/** Profile is its own wide, centred page rather than a column of settings. */
+export function ProfileSettingsScreen() {
+  return (
+    <Suspense fallback={null}>
+      <ProfilePage />
+    </Suspense>
+  );
+}
+
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">

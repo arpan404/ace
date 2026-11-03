@@ -41,7 +41,7 @@ export class UsageStore {
         )
         .iterate())
         this.known.add(String(row.model));
-      this.updatePrices(prices);
+      this.updatePrices(this.settings.prices);
       this.sessionTotals = new SessionTotals(this.db);
       this.ingestion = new Ingestion(
         this.db,

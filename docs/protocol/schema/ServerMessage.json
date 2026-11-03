@@ -60,6 +60,15 @@
       "$ref": "https://ace.local/protocol/v1/HostIdentityResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineCodeResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/PairResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ChannelClose.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesResult.json"
     },
     {
@@ -1569,6 +1578,11 @@
         },
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "lockedUntil": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
         },
         "message": {
           "type": "string"

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DeviceId, HostId } from "./ids.ts";
-import { Device, PairingRequest, PendingPairing } from "./remote.ts";
+import { Device, PairingRequest, PendingPairing, RemoteAccessStatus } from "./remote.ts";
 import { MachineAgentAccess } from "./machine-calls.ts";
 import { MachineCapability, MachineDeviceGrants, MachineGrantLevel } from "./machine-grants.ts";
 
@@ -54,6 +54,8 @@ const FleetOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("revoke"), deviceId: DeviceId }),
   /** Revoke every paired device except the caller's own and local credentials. */
   z.object({ op: z.literal("revokeOthers") }),
+  /** This machine's remote access listeners, relay route and ace account, as `GET /v1/status`. */
+  z.object({ op: z.literal("remoteStatus") }),
   /** What each paired device's agents may do here, per capability (ADR 0105). */
   z.object({
     op: z.literal("grants"),
@@ -102,6 +104,7 @@ const FleetOutcome = z.discriminatedUnion("kind", [
     master: MachineAgentAccess,
     devices: z.array(MachineDeviceGrants).max(1000),
   }),
+  z.object({ kind: z.literal("remoteStatus"), status: RemoteAccessStatus }),
   /** `count`: how many devices `revokeOthers` revoked. */
   z.object({ kind: z.literal("revoked"), count: z.number().int().nonnegative().optional() }),
 ]);

@@ -186,9 +186,13 @@ export const ThreadRunMetadata = z.object({
   rootRunId: RunId.nullable().optional(),
   /**
    * Start of the current Working stretch; streaming activity does not reset it. It restarts when
-   * the root goes back to work after waiting on its subagents.
+   * the root goes back to work after waiting on its subagents, and when a new turn starts. A run
+   * that carries the current turn on (a background completion, a subagent's result: ADR 0062)
+   * keeps the turn's start, even after the thread paused between its runs.
    */
   workingSince: Timestamp.optional(),
+  /** The current root turn (`Run.turn`, else its `ordinal`) and when its first run started. */
+  turnStart: z.object({ turn: z.number().int().positive(), at: Timestamp }).optional(),
   /** Start of the current wait on subagents, while the root does nothing but wait on them. */
   waitingSince: Timestamp.optional(),
   provider: ProviderKind.optional(),

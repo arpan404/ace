@@ -3,6 +3,8 @@ import type { ClientChannel } from "./channel.ts";
 import { dial, relayAddress } from "./socket.ts";
 import { initiateHandshake, STREAM_PROLOGUE } from "./handshake.ts";
 import { HostId } from "./config.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
+import { PAIRED_MARKER } from "./wire.ts";
 import { systemClock } from "./clock.ts";
 import type { Clock } from "./clock.ts";
 export async function connectClientViaRelay(options: {
@@ -11,6 +13,8 @@ export async function connectClientViaRelay(options: {
   pinnedFingerprint: string;
   signal?: AbortSignal;
   clock?: Clock;
+  /** An account `device` grant, required by ace's hosted relay (ADR 0111). */
+  grant?: string;
 }): Promise<ClientChannel> {
   if (HostId.parse(options.hostId) !== HostId.parse(options.pinnedFingerprint))
     throw new Error("Host id must match pinned fingerprint");
@@ -19,11 +23,14 @@ export async function connectClientViaRelay(options: {
     relayAddress(options.relayUrl, "/client", { hostId: options.hostId }),
     options.signal,
     clock,
+    10000,
+    options.grant ? [GRANT_SUBPROTOCOL_PREFIX + options.grant] : [],
   );
   const cancel = clock.schedule(10000, () => socket.terminate());
   try {
     const ready = await reader.next();
-    if (ready.length !== 1 || ready[0] !== 1) throw new Error("Invalid relay pairing marker");
+    if (ready.length !== 1 || ready[0] !== PAIRED_MARKER)
+      throw new Error("Invalid relay pairing marker");
     const transport = await initiateHandshake(socket, reader, {
       pinnedFingerprint: options.pinnedFingerprint,
       prologue: STREAM_PROLOGUE,

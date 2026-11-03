@@ -103,21 +103,26 @@ function Field(props: { label: string; htmlFor?: string; hint?: string; children
 }
 
 /**
- * Whether `machine` can issue a link a device can use: remote access on over LAN or Tailscale.
+ * Whether `machine` can issue a link a device can use: remote access on over LAN, Tailscale or
+ * a relay.
  * This window's own machine reports its live listener; another machine refuses a pairing itself
  * with its reason when it can't.
  */
 function useReach(machine: Machine | undefined) {
   const remote = useRemoteStatus();
   if (!machine?.primary) return { reachable: true, note: undefined };
+  const transport = remote.data?.transport;
+  // Through a relay, the link pairs through it; a machine that can't issue one says so itself.
   const reachable =
     !remote.isFetching &&
     remote.data?.enabled === true &&
-    ["lan", "tailscale"].includes(remote.data.transport);
+    (transport === "lan" || transport === "tailscale" || transport === "relay");
   const note = remote.isFetching
     ? "Checking remote access…"
     : reachable
-      ? `Connect your device to ${remote.data?.transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
+      ? transport === "relay"
+        ? "Your device pairs through this machine's relay, from any network."
+        : `Connect your device to ${transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
       : remote.isError
         ? "Couldn't check remote access. Reconnect and try again."
         : !remote.data

@@ -1,6 +1,6 @@
 # Remote access to your daemon
 
-Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. ace operates no hosted service. You may use a relay you host yourself.
+Remote access connects your own devices to your own machine. Provider logins stay in the installed CLIs. The optional [ace account backend](../relay/accounts.md) handles ace login and relay transport; agent execution stays on your own machine. You may also host a relay yourself.
 
 ## Start and pair
 
@@ -37,18 +37,20 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 
 ## Listeners and configuration
 
-| Setting              | Default                     | Behavior                                                                |
-| -------------------- | --------------------------- | ----------------------------------------------------------------------- |
-| `ACE_HOME`           | `~/.ace`                    | SQLite, local credential, private TLS identity and daemon endpoint file |
-| `ACE_PORT`           | `4242`                      | HTTP and WebSocket listener on `127.0.0.1`                              |
-| `ACE_LISTEN`         | `local`                     | `local`, `lan` or `tailscale`                                           |
-| `ACE_REMOTE_PORT`    | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |
-| `ACE_ADVERTISE_HOST` | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
-| `ACE_WEB_ORIGINS`    | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
+| Setting                | Default                     | Behavior                                                                |
+| ---------------------- | --------------------------- | ----------------------------------------------------------------------- |
+| `ACE_HOME`             | `~/.ace`                    | SQLite, local credential, private TLS identity and daemon endpoint file |
+| `ACE_PORT`             | `4242`                      | HTTP and WebSocket listener on `127.0.0.1`                              |
+| `ACE_LISTEN`           | `local`                     | `local`, `lan` or `tailscale`                                           |
+| `ACE_REMOTE_PORT`      | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |
+| `ACE_ADVERTISE_HOST`   | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
+| `ACE_WEB_ORIGINS`      | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
+| `ACE_ACCOUNT_URL`      | none                        | ace account backend that `ace login` signs in to                        |
+| `ACE_HOSTED_RELAY_URL` | none                        | ace's hosted relay: the only relay this daemon offers machine grants to |
 
 LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. When the tailnet has MagicDNS and HTTPS certificates turned on (Tailscale admin console › DNS), the listener serves Tailscale's publicly trusted certificate to clients that ask for this machine's ts.net name, and pairing links name that host (`https://<machine>.<tailnet>.ts.net:<port>`), so browsers pair with no warning. Until that certificate is served, or if it can't be fetched or has expired, links use the 100.x address, which works for native clients and the CLI. The daemon fetches it with `tailscale cert`, refreshes it twice a day and keeps ace's own certificate for every other name. On Linux, let ace fetch it with `sudo tailscale set --operator=$USER`. Native clients still pin ace's key, and also accept a publicly trusted certificate for the exact ts.net name ([ADR 0097](../adr/0097-tailscale-https-certificates.md)). A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
 
-Global `remote.enabled` and `remote.transport` settings control direct access. The legacy `local` transport value selects LAN when enabled. Selecting Relay starts the existing encrypted file, browser, screen and device channels at `remote.relayUrl`, without opening a LAN listener. Pair over LAN or Tailscale before switching to Relay; the main conversation channel and pairing redemption do not travel through the relay yet. The UI states this limitation.
+Global `remote.enabled` and `remote.transport` settings control direct access. The legacy `local` transport value selects LAN when enabled. Selecting Relay serves every channel through the encrypted relay at `remote.relayUrl`, without opening a LAN listener: the main conversation, pairing redemption and the file, browser, screen, device and provider sign-in channels. See [Through a relay](#through-a-relay).
 
 `ACE_LISTEN`, when explicitly supplied, overrides the direct listener preference, including `local`. `ACE_RELAY_URL` independently forces the outbound relay. Settings shows an override notice and disables network controls while either override is present. Unset the launch override to use runtime settings. Changes close direct remote sockets, relay channels, pending codes and tickets; local host sessions and stored devices survive.
 
@@ -75,24 +77,81 @@ Remote access needs no administrator rights on Windows. What differs from macOS 
 - **Windows Defender Firewall.** The first time ace listens on the LAN or on its Tailscale address, Windows may ask whether to allow ace's Node runtime on private or public networks. Allowing it creates a firewall rule and needs an administrator once. Declining (or a standard account that can't approve) leaves the listener running but blocked: local use keeps working and paired devices can't connect until a rule is added in Windows Security › Firewall & network protection › Allow an app through firewall. Tailscale Serve avoids the prompt entirely, because Tailscale's own service receives the traffic and forwards it to localhost: start ace with `ACE_LISTEN=lan` and `ACE_REMOTE_PORT=4243`, run `tailscale serve --tcp=443 tcp://localhost:4243`, and keep the pairing URL's fragment (the public-key pin) while replacing its authority with the Serve hostname.
 - **Sleep and network changes.** Connections drop while Windows sleeps and paired clients retry when it wakes. Tailscale keeps the 100.x address across network changes; a LAN address can change with the network, so pair again or set `ACE_ADVERTISE_HOST`.
 
+## Your ace account and the machine code
+
+A machine signed in to an ace account opens to every device signed in to the same account,
+with admin access and no pairing ([ADR 0111](../adr/0111-account-machine-access.md)). Pairing,
+LAN, Tailscale and self-hosted relays keep working without an account.
+
+**Signing the machine in.** The daemon holds one ace session in `ACE_HOME/ace-account.json`
+(mode 0600; never logged). The desktop app hands it its own session when you sign in to ace in
+the app, and tells it when you sign out. On a machine without the app, `ace login` starts the
+sign-in, prints the address to open, and waits until you finish it in a browser; `ace logout`
+signs the machine out. `ace status` shows the account under `remoteAccess.account`.
+
+**ace's relay.** With the relay transport set to ace's hosted relay (`ACE_HOSTED_RELAY_URL`),
+the daemon asks the account backend for a fresh, five-minute machine grant before every
+registration and offers it as the `ace.grant.<grant>` WebSocket subprotocol. While the machine
+is signed out, or after the relay refuses it, remote access shows "Sign in to your ace account
+on this machine…" and does not retry on a timer; signing in starts the relay again. Signing out
+stops it. Self-hosted relays stay anonymous: they echo an offered grant without checking it,
+and the daemon offers them none.
+
+**Account devices.** A client on the account connects to `/client` with a device grant as its
+subprotocol, then sends it in `hello` (`grant` instead of `token` or `ticket`). The daemon
+accepts it only while signed in, and only a `device` grant signed by a key from the account
+backend's `GET /v1/keys` (cached, refetched once for a new key id and at most once a minute),
+not expired, for the daemon's own account and for the `deviceId` in the hello. Anything else
+is refused like any bad credential. An admitted device has admin on that channel until the
+machine signs out, moves to another account or changes its machine code; then its open
+account channels close.
+
+**Machine code.** A machine may require a code (a PIN or password, 4 to 128 characters) so a
+stolen account login alone does not open it. Set it with `ace machine-code set` (read from
+stdin or typed without echo) or `PUT /v1/machine-code` from an admin, and clear it with
+`ace machine-code clear`. It is stored as an scrypt hash with a version that grows on every
+change, and only the daemon checks it; the account backend never sees it. An account device
+that has not passed the current version is refused before welcome with an `error` frame whose
+code is `machine_code_required`, `machine_code_wrong` or `machine_code_locked`, and the channel
+closes; the client asks for the code and opens a new channel with `machineCode` in its hello.
+A right code is remembered per device, account and code version in the daemon's SQLite store.
+Five wrong codes lock code entry on the machine (not per device) for 15 minutes. Changing or
+clearing the code makes every device enter the new one.
+
+## Through a relay
+
+**Main conversation.** A client opens a relay channel to `/client?hostId=<relay host id>`, pins that host key in the Noise handshake, and sends the same `hello` it sends a direct socket, without `channel` (a ticket, a paired device's token, or an account `grant`). The daemon serves it with the same handler as its own listener: same scopes, admission, outbox backpressure, snapshot and replay by `afterSeq`, idle timeout and close codes. The relay has no close frame, so the daemon's last message is `{ "type": "channel.close", "code", "reason" }` (4003 revoked, 4008 idle, 4009 backpressure, 4013 capacity, the resync code); a channel that ends without it reads as 1006 and the client reconnects with backoff. A refused hello gets `error` `unauthorized` (or a `machine_code_*` code for an account device) before the channel closes. `hello.compression: ["deflate-raw"]` lets the daemon deflate bulk JSON. In `@ace/client`, `relayRoute({ relayUrl, hostId, credential, socket, schedule })` gives `ClientOptions` its `transport` and `credential`; each attempt fetches its own credential, so a five-minute account grant is fresh every time.
+
+**Pairing through a self-hosted relay.** With no LAN or Tailscale listener and a self-hosted relay running, `POST /v1/pairings` and `fleet.request` issue links that open the web app (app.acehq.dev unless another is chosen) with `#relay=<wss url>&hostId=<relay host id>&code=…&scopes=…`. The client opens a relay channel pinned to that host id and sends `{ "type": "pair.redeem", "code", "name" }` as its only message; the daemon answers `pair.result` (`{ ok: true, device, token }`, or `{ ok: false, error: "invalid" | "rate_limited" | "unavailable" }`) and closes. Codes keep the same rules: five minutes, single use, scopes chosen by the host, nothing logged. Relayed redemptions share one rate limit (five a minute) besides the global one. `redeemPairingViaRelay` in `@ace/client/access` does this. ace's hosted relay admits only devices signed in to an ace account, which never need pairing, so pairing goes through self-hosted relays only.
+
+**Machine code over the wire.** An admin connection can send `machine.code.status`, `machine.code.set` (`code`, 4 to 128 characters) and `machine.code.clear`, each with a `requestId`; the daemon answers `machine.code.result` with `{ ok: true, status }` (the account and machine code state, as `GET /v1/ace-account` returns it) or `{ ok: false, error: "forbidden" | "unavailable" | "busy" }`. An account device that sets the code keeps its own access. A `machine_code_locked` refusal carries `lockedUntil`.
+
+**Settings over the wire.** An admin connection reads and changes the same things Settings reads over HTTP with `fleet.request`: `{ op: "remoteStatus" }` answers `{ kind: "remoteStatus", status }`, what `GET /v1/status` reports as `remoteAccess` (listeners, relay route, ace account); `devices`, `pairing` and `revoke` answer as `GET /v1/devices`, `POST /v1/pairings` and `DELETE /v1/devices/<id>`. Each runs the same code as its route with the same admin rule, and a pairing grants only scopes the caller holds. The web app uses these on every connection, so a machine reached through a relay shows the same Settings. Signing the machine in or out of its ace account stays HTTP only: it needs the host's own credential, which never travels over a relay.
+
 ## HTTP API
 
 All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
 
-`GET /v1/status`, `GET /v1/devices`, `POST /v1/pairings`, `POST /v1/pair`, `POST /v1/tickets` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054), ace's hosted web app (`https://app.acehq.dev`) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets accept only the same configured origins, so the desktop connect screen, the hosted web app and an explicitly allowed web app can pair.
+`GET /v1/status`, `GET /v1/devices`, `POST /v1/pairings`, `POST /v1/pair`, `POST /v1/tickets`, `DELETE /v1/devices/<id>`, and the account routes `/v1/ace-account`, `/v1/ace-account/login` and `/v1/machine-code` (the only ones whose preflight allows `PUT`; each still needs an admin credential, and signing in or out the host's) accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054), ace's hosted web app (`https://app.acehq.dev`) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets accept only the same configured origins, so the desktop connect screen, the hosted web app and an explicitly allowed web app can pair.
 
 The loopback WebSocket listener shares the HTTP access allowlist: an upgrade carrying any other `Origin` gets 403. The remote listener authenticates paired devices by a single-use ticket, independent of `Origin`. React Native WebSockets may send a URL-derived `Origin` (`https://<lan-ip>:<port>`); those clients need no origin configuration. Remote browser clients likewise require a ticket, rather than an origin allowlist entry. An Origin header is never a substitute for authentication. Sockets that have not authenticated have their own budget (128 on loopback, 64 on the remote listener with at most 16 per address) and are terminated if they send no valid `hello` within 5 seconds.
 
 The device service caps state subscribers at 64 across all clients to bound state fan-out. Only main and devices admin channels hold a subscriber; files, screen and browser channels do not. Excess sockets close before welcome with application code 4013 and reason `connection_limit`, without a pre-welcome error frame. The main client exposes `error.code === "limit"` while reconnecting, retries with a minimum five-second delay and exponential backoff, and clears the error after welcome. Dedicated `deviceTransport` channels likewise expose a `DeviceClient` snapshot limit error and retry after five seconds, increasing to thirty seconds on repeated saturation; commands are never replayed. Transient service admission failures close with 1011 and reason `service_unavailable` and follow ordinary reconnect backoff. Closing an admitted socket releases its slot.
 
-| Method and path           | Credential          | Request                                     | Response                                                     |
-| ------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------ |
-| `GET /v1/status`          | admin               | none                                        | `{ running: true, remote: null \| { origin, fingerprint } }` |
-| `POST /v1/pairings`       | admin               | `{ scopes?: ["read", "operate", "admin"] }` | `{ url, expiresAt }`                                         |
-| `POST /v1/pair`           | pairing code        | `{ code, name }`                            | `{ device, token }`                                          |
-| `POST /v1/tickets`        | device bearer token | none                                        | `{ ticket, expiresAt }`                                      |
-| `GET /v1/devices`         | admin               | none                                        | device records, including revoked devices                    |
-| `DELETE /v1/devices/<id>` | admin               | none                                        | `{ revoked: true }`                                          |
+| Method and path              | Credential          | Request                                     | Response                                                      |
+| ---------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------- |
+| `GET /v1/status`             | admin               | none                                        | `{ running: true, remote: null \| { origin, fingerprint } }`  |
+| `POST /v1/pairings`          | admin               | `{ scopes?: ["read", "operate", "admin"] }` | `{ url, expiresAt }`                                          |
+| `POST /v1/pair`              | pairing code        | `{ code, name }`                            | `{ device, token }`                                           |
+| `POST /v1/tickets`           | device bearer token | none                                        | `{ ticket, expiresAt }`                                       |
+| `GET /v1/devices`            | admin               | none                                        | device records, including revoked devices                     |
+| `DELETE /v1/devices/<id>`    | admin               | none                                        | `{ revoked: true }`                                           |
+| `GET /v1/ace-account`        | admin               | none                                        | the machine's account, pending sign-in and machine code state |
+| `PUT /v1/ace-account`        | host token          | `{ origin, token }` (an ace session)        | account state, once the backend confirms the session          |
+| `POST /v1/ace-account/login` | host token          | `{ origin? }`                               | account state with `login: { url, expiresAt }`                |
+| `DELETE /v1/ace-account`     | host token          | none                                        | account state, signed out                                     |
+| `PUT /v1/machine-code`       | admin               | `{ code }`                                  | account state                                                 |
+| `DELETE /v1/machine-code`    | admin               | none                                        | account state                                                 |
 
 Only the host/admin that creates the code chooses scopes. Redemption cannot add scopes. The default grant is `read` plus `operate`. The pairing dialog offers view-only, view-and-act and administrator access. Advanced access grants `projects` and `accounts` independently; admin does not imply these scopes. Every device row lists the actual stored grant. `read` permits subscriptions, output reads and item pages, `operate` permits all current agent commands, and `admin` includes both and device administration. Ping and unsubscribe remain available to authenticated devices.
 
@@ -108,7 +167,7 @@ Exchange a device bearer token for a ticket over pinned HTTPS. Open WSS at the s
 { "type": "hello", "protocolVersion": 1, "deviceId": "<paired device id>", "ticket": "<ticket>" }
 ```
 
-A ticket lasts sixty seconds and is consumed by one hello. It is bound to the paired device's ID. Device tokens are rejected in hello. Local clients can continue sending hello with their token-file credential. Exactly one of `token` or `ticket` is required.
+A ticket lasts sixty seconds and is consumed by one hello. It is bound to the paired device's ID. Device tokens are rejected in hello. Local clients can continue sending hello with their token-file credential. Exactly one of `token`, `ticket` or `grant` is required; `grant` (an account device grant, with an optional `machineCode`) is accepted on relayed channels only.
 
 Scope checks run before subscriptions or command receipts. Revoking a device disconnects every socket authenticated by its tickets, cancels its subscriptions, and invalidates its bearer token and outstanding tickets immediately. A caller-selected local device ID cannot cause revocation of the host credential.
 
@@ -159,4 +218,4 @@ The allocation policy receives time and hashed identities from the I/O layer. Cr
 
 `jsqr` 1.4.0 is accepted under Apache-2.0 as a test-only decoder with no runtime dependencies. Tests rasterize the terminal output and independently scan it, so a decorative or wrong QR payload fails. Zod is the repo's existing schema dependency, now declared directly by the daemon for Tailscale status validation.
 
-Future work includes the mobile/browser transport, explicit TLS-key rotation, and relay design that preserves the user's own daemon and a pinned connection. See the encrypted relay documentation for the implemented auxiliary-channel relay.
+Future work includes explicit TLS-key rotation. See the [encrypted relay documentation](../relay/README.md) for the relay itself.

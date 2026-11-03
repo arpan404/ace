@@ -1,3 +1,4 @@
+import { ACE_APP_SIGN_IN_RETURN, AceSignInReturnStatus } from "@ace/protocol/ace-account";
 import { readAceLink } from "@ace/ui-core";
 import { DeepLink } from "../shared/contract.ts";
 
@@ -27,6 +28,8 @@ export function opensNetworkFolder(link: DeepLink): boolean {
  * Anything else is ignored. The phone's extras (`machine`, `project`) don't apply here.
  */
 export function parseDeepLink(input: string): DeepLink | undefined {
+  const signedIn = signInReturn(input);
+  if (signedIn) return signedIn;
   const link = readAceLink(input);
   if (!link) return undefined;
   const candidate =
@@ -42,6 +45,17 @@ export function parseDeepLink(input: string): DeepLink | undefined {
   const parsed = DeepLink.safeParse(candidate);
   if (parsed.success && windows && opensNetworkFolder(parsed.data)) return undefined;
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * `ace://account/signed-in?status=<status>`: the browser coming back from ace sign-in
+ * (ADR 0100). It carries only how the sign-in ended; any other query makes it no link.
+ */
+function signInReturn(input: string): DeepLink | undefined {
+  const prefix = `${ACE_APP_SIGN_IN_RETURN}?status=`;
+  if (!input.startsWith(prefix)) return undefined;
+  const status = AceSignInReturnStatus.safeParse(input.slice(prefix.length));
+  return status.success ? { kind: "signed-in", status: status.data } : undefined;
 }
 
 /**

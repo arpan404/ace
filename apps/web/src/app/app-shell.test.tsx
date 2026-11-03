@@ -2,6 +2,9 @@ import { openThreads } from "@/test/navigation.ts";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { workbench } from "@ace/fake-daemon";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { harness } from "@/test/harness.tsx";
 
 test("an unknown address keeps the shell and says the page doesn't exist", async () => {
@@ -11,7 +14,7 @@ test("an unknown address keeps the shell and says the page doesn't exist", async
   expect(within(main).getByText("/this/does/not/exist")).toBeTruthy();
   // The app's chrome is still there to go elsewhere.
   expect(screen.getByRole("link", { name: "Settings" })).toBeTruthy();
-  await userEvent.click(within(main).getByRole("link", { name: "Go to Home" }));
+  await userEvent.click(within(main).getByRole("link", { name: "Back to Home" }));
   await waitFor(() =>
     expect(screen.queryByRole("heading", { name: "This page doesn't exist" })).toBeNull(),
   );
@@ -56,7 +59,7 @@ test.each(["trigger", "item"])(
       await openThreads();
       await screen.findByRole("heading", { level: 1, name: "New thread" });
       await userEvent.click(screen.getByRole("button", { name: /^You, account/ }));
-      await screen.findByRole("menuitem", { name: "Usage" });
+      await screen.findByRole("menuitem", { name: "Archived threads" });
       if (focus === "item") {
         await userEvent.keyboard("{ArrowDown}");
         await waitFor(() => expect(document.activeElement?.getAttribute("role")).toBe("menuitem"));
@@ -66,9 +69,9 @@ test.each(["trigger", "item"])(
       // Run the actual navigation frame after the person's next interaction, as a busy
       // renderer can. The route's title must not steal focus and dismiss the open menu.
       await flushFrames();
-      expect(screen.getByRole("menuitem", { name: "Usage" })).toBeTruthy();
-      await userEvent.click(screen.getByRole("menuitem", { name: "Usage" }));
-      const title = await screen.findByRole("heading", { level: 1, name: "Usage" });
+      expect(screen.getByRole("menuitem", { name: "Archived threads" })).toBeTruthy();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Archived threads" }));
+      const title = await screen.findByRole("heading", { level: 1, name: "Archived" });
       await flushFrames();
       expect(document.activeElement).toBe(title);
     } finally {
@@ -91,6 +94,33 @@ test("live indicators stay at full strength while connected and dim only while t
   act(() => app.daemon.refuseConnections(false));
   await waitFor(() => expect(shell()?.getAttribute("data-connection")).toBe("ready"));
   expect(shell()?.hasAttribute("data-live-held")).toBe(false);
+});
+
+test("a working row's icon dims while the daemon is unreachable and comes back at full strength", async () => {
+  // The rule that dims live indicators, as the app loads it.
+  const style = document.createElement("style");
+  style.textContent = readFileSync(join(import.meta.dirname, "../styles/motion.css"), "utf8");
+  document.head.append(style);
+  try {
+    const app = harness();
+    for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+    await app.open("/new");
+    const nav = await screen.findByRole("navigation", { name: "Threads" });
+    const row = await within(nav).findByRole("link", {
+      name: /^Rewrite the install page for the daemon\. Working/,
+    });
+    const icon = () => row.querySelector('[data-icon="working"]');
+    await waitFor(() => expect(icon()).not.toBeNull());
+    const opacity = () => (icon() ? getComputedStyle(icon() as Element).opacity : undefined);
+    await waitFor(() => expect(shell()?.getAttribute("data-connection")).toBe("ready"));
+    expect(opacity()).toBe("1");
+    act(() => app.daemon.refuseConnections(true));
+    await waitFor(() => expect(opacity()).toBe("0.6"));
+    act(() => app.daemon.refuseConnections(false));
+    await waitFor(() => expect(opacity()).toBe("1"));
+  } finally {
+    style.remove();
+  }
 });
 
 test("a control clicked before the new view's title settles keeps focus", async () => {

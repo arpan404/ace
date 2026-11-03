@@ -65,10 +65,11 @@ Example:
   "changes": {
     "deletedAt": 4,
     "live": {
-      "backgroundTaskCount": 6,
+      "askingThreads": [],
+      "options": {},
       "rootRunId": null,
-      "subagentCount": 3,
-      "waitingOn": 7
+      "runningSubagentCount": 6,
+      "subagentCount": 4
     },
     "movedFrom": {
       "links": {

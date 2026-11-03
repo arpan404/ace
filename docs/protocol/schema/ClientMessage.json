@@ -51,6 +51,67 @@
       "$ref": "https://ace.local/protocol/v1/HostIdentityRequest.json"
     },
     {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "code"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/PairRedeem.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
     },
     {
@@ -2390,6 +2451,22 @@
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },
+        "flowControl": {
+          "items": {
+            "maxLength": 32,
+            "type": "string"
+          },
+          "maxItems": 8,
+          "type": "array"
+        },
+        "grant": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "machineCode": {
+          "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
         "protocolVersion": {
           "const": 1,
           "type": "number"
@@ -2419,7 +2496,7 @@
         "deviceId"
       ],
       "type": "object",
-      "x-ace-constraint": "Exactly one of token and ticket is required."
+      "x-ace-constraint": "Exactly one of token, ticket and grant is required; machineCode only with grant."
     },
     {
       "properties": {

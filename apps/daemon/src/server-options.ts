@@ -89,6 +89,8 @@ export interface ServerOptions {
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair } | undefined;
+  /** Set by `startServer`: serves a relayed main channel with the main-socket handler. */
+  relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
@@ -109,6 +111,8 @@ export interface ServerOptions {
   port: number;
   remote?: RemoteListener;
   remoteConfig?: import("./config.ts").Config;
+  /** This machine's ace account and machine code (ADR 0111). */
+  machineAccount?: import("./account-access/machine-account.ts").MachineAccount;
   network?: import("./network.ts").NetworkRuntime;
   webRoot?: string;
   applyRemoteSetting?: (key: string, value: unknown, commit: () => Promise<void>) => Promise<void>;

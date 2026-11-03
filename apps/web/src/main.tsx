@@ -21,7 +21,14 @@ import {
 } from "./boot/desktop.ts";
 import { desktopColorScheme } from "./boot/desktop-color-scheme.ts";
 import { webStorage } from "./boot/web-storage.ts";
-import { BareBootFailure, BootFailure, DesktopFailureScreen } from "./features/connect/index.ts";
+import { ACE_WEB_SIGN_IN_PATH } from "@ace/protocol/ace-account";
+import {
+  BareBootFailure,
+  BootFailure,
+  DesktopFailureScreen,
+  SignInLanding,
+  signInLandingStatus,
+} from "./features/connect/index.ts";
 import { StartupPending } from "./features/startup/index.ts";
 import { createStartup } from "./lib/startup/startup.tsx";
 import { watchVisibleHeight } from "./lib/visible-height.ts";
@@ -143,9 +150,16 @@ async function content(): Promise<ReactNode> {
     if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();
     const machines = await fake.machines;
+    const { fakeAccountBackend, fakeAccountConnector } = await import("./boot/fake-account.ts");
+    const { AceAccountBackendContext, AccountMachineConnectorContext } =
+      await import("./features/ace-account/index.ts");
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
-        {app(client, machines)}
+        <AceAccountBackendContext value={() => fakeAccountBackend(session, Date.now)}>
+          <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
+            {app(client, machines)}
+          </AccountMachineConnectorContext>
+        </AceAccountBackendContext>
       </DaemonConnectionContext.Provider>
     );
   }
@@ -155,7 +169,14 @@ async function content(): Promise<ReactNode> {
     await client.start();
     return app(client);
   }
-  if (!hasDesktopBridge()) return gate();
+  if (!hasDesktopBridge()) {
+    // Back from ace sign-in started in another tab (ADR 0100): that tab gets the session.
+    if (location.pathname === ACE_WEB_SIGN_IN_PATH)
+      return (
+        <SignInLanding status={signInLandingStatus(location.search)} close={() => window.close()} />
+      );
+    return gate();
+  }
   const desktop = await desktopConnection();
   if (desktop.kind === "target") return gate({ handed: desktop.target, desktop: true });
   // A computer that runs no daemon connects to one elsewhere, by address.

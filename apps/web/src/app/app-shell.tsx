@@ -69,8 +69,8 @@ export function AppShell() {
                   // Focus belongs to the inner panes; the shell must never become a scrollport.
                   // iOS lays its keyboard over the page: the shell ends above it (--visible-height).
                   // The frame colour: the top bar, rail and panel sit on it, the canvas over it.
+                  // Under `data-live-held`, motion.css dims the live indicators.
                   "relative flex h-[var(--visible-height,100dvh)] min-h-0 overflow-clip bg-sidebar",
-                  "[&[data-live-held]_:is([data-slot=spinner],[data-live])]:opacity-60",
                 )}
               >
                 <a

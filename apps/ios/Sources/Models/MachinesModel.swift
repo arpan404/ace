@@ -1,8 +1,9 @@
 import Foundation
 import Observation
 
-/// Paired computers, each connected at once on its own runtime. Directory rules and credentials
-/// stay in the shared SDK and Keychain; this model starts, renames and retires runtimes.
+/// Paired computers and the machines on the phone's ace account, each connected at once on its
+/// own runtime. Directory rules and credentials stay in the shared SDK and Keychain; account
+/// machines come from the account backend. This model starts, renames and retires runtimes.
 @MainActor @Observable final class MachinesModel {
     /// Remembered on every change, so the next launch connects them before the directory answers.
     private(set) var machines: [MachineEntry] = [] {
@@ -14,8 +15,15 @@ import Observation
     var problem: ProblemNotice?
     /// Machines stored without a pinned direct address; they need pairing again.
     private(set) var unsupported: Set<String> = []
+    /// Machines on the phone's ace account, as the backend last listed them (paired ones too).
+    private(set) var accountMachines: [AceMachine] = []
+    /// Signed in to an ace account with a listing this launch.
+    private(set) var accountSignedIn = false
     let inbox: MachineInbox
+    /// The SDK directory's paired machines; `machines` is these plus unpaired account machines.
+    @ObservationIgnored private var paired: [MachineEntry] = []
     @ObservationIgnored private let access: any MachineAccess
+    @ObservationIgnored private let account: (any AccountDirectory)?
     @ObservationIgnored private let storage: URL
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let itemLimit: Int
@@ -27,10 +35,10 @@ import Observation
     /// Runs once every listed machine has its runtime.
     @ObservationIgnored var afterLoad: (() -> Void)?
 
-    init(access: any MachineAccess, storage: URL, defaults: UserDefaults = .standard, itemLimit: Int = 200,
-         now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+    init(access: any MachineAccess, account: (any AccountDirectory)? = nil, storage: URL, defaults: UserDefaults = .standard,
+         itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          makeClient: @escaping @MainActor () -> ClientModel) {
-        self.access = access; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
+        self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:]
     }
@@ -49,16 +57,20 @@ import Observation
         let known = (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) } ?? []
         if !known.isEmpty {
             machines = known
+            paired = known.filter { !$0.isAccountMachine }
+            accountMachines = known.filter(\.isAccountMachine).map { AceMachine(hostId: $0.hostId, name: $0.displayName, platform: "", lastSeenAt: 0) }
             loaded = true
             for entry in known { await connect(entry) }
         }
         let listing = LaunchTrace.begin("machines.list")
+        async let accountListing = listAccount()
         let listed = await access.perform(.list)
         listing.end()
         switch listed {
-        case .success(let outcome): await follow(outcome.machines ?? [])
+        case .success(let outcome): paired = outcome.machines ?? []
         case .failure(let notice): problem = notice
         }
+        await adopt(account: await accountListing)
         loaded = true
         for entry in machines { await connect(entry) }
         afterLoad?()
@@ -66,6 +78,30 @@ import Observation
     /// How many machines the next launch will connect at once, before anything is read.
     nonisolated static func rememberedCount(in defaults: UserDefaults) -> Int {
         (defaults.data(forKey: Keys.known)).flatMap { try? JSONDecoder().decode([MachineEntry].self, from: $0) }?.count ?? 0
+    }
+    /// Read the account's machines again (after sign-in, sign-out or on request) and follow them.
+    func refreshAccount() async {
+        await adopt(account: await listAccount())
+        for entry in machines { await connect(entry) }
+    }
+    /// The account's machines, or why there are none to follow.
+    private func listAccount() async -> AccountListing {
+        guard let account else { return .signedOut }
+        do { return try await account.machines().map(AccountListing.listed) ?? .signedOut }
+        catch { return .unavailable }
+    }
+    private enum AccountListing { case listed([AceMachine]), signedOut, unavailable }
+    private func adopt(account listing: AccountListing) async {
+        switch listing {
+        case .listed(let listed): accountMachines = listed; accountSignedIn = true
+        case .signedOut: accountMachines = []; accountSignedIn = false
+        case .unavailable: break
+        }
+        await follow(merged())
+    }
+    private func merged() -> [MachineEntry] {
+        guard let account, let relay = account.relayURL?.absoluteString else { return paired }
+        return AccountMachines.merge(paired: paired, account: accountMachines, relayURL: relay, deviceId: account.deviceId)
     }
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
@@ -90,7 +126,7 @@ import Observation
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            machines = outcome.machines ?? machines
+            if let listed = outcome.machines { paired = listed; machines = merged() }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
             grants[entry.deviceId] = paired.scopes
             defaults.set(grants, forKey: Keys.grants)
@@ -102,10 +138,13 @@ import Observation
     func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        if entry(hostId)?.isAccountMachine == true {
+            return ProblemNotice(code: "account", message: "This machine's name comes from your ace account. Rename it on the machine.")
+        }
         switch await access.perform(.rename(hostId: hostId, name: String(trimmed.prefix(256)))) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            machines = outcome.machines ?? machines
+            if let listed = outcome.machines { paired = listed; machines = merged() }
             if let entry = entry(hostId) { inbox.rename(hostId, to: entry.displayName) }
             return nil
         }
@@ -116,12 +155,10 @@ import Observation
         guard let entry = entry(hostId) else { return }
         let client = inbox.client(hostId)
         await client?.disconnectAndWait()
-        switch await access.perform(.remove(hostId: hostId)) {
-        case .failure(let notice):
+        if let notice = await forgetOrUnpair(entry) {
             problem = notice
-            if let client, let target = entry.connectionTarget { await open(client, entry: entry, target: target) }
+            if let client, let target = target(for: entry) { await open(client, entry: entry, target: target) }
             return
-        case .success(let outcome): machines = outcome.machines ?? machines.filter { $0.hostId != hostId }
         }
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
         unsupported.remove(hostId)
@@ -129,6 +166,19 @@ import Observation
         defaults.set(grants, forKey: Keys.grants)
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
         for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix] + ["", "-wal", "-shm"].map({ SnapshotStore.suffix + $0 }) { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
+    }
+    /// Take a machine off the ace account's list (from Profile). One reached through the account
+    /// stops and loses its local data; a paired one stays paired.
+    func forgetAccountMachine(_ hostId: String) async -> ProblemNotice? {
+        if entry(hostId)?.isAccountMachine == true {
+            problem = nil
+            await remove(hostId)
+            return problem
+        }
+        do { try await account?.forget(hostId) }
+        catch { return ProblemNotice(code: "account", message: "Couldn't forget this machine. Check your connection and try again.") }
+        accountMachines.removeAll { $0.hostId == hostId }
+        return nil
     }
     /// Back from the background: a suspended socket may be dead without having closed, so every
     /// machine checks its own now instead of at its next heartbeat.
@@ -144,8 +194,32 @@ import Observation
     func disconnectAll() async {
         for session in inbox.sessions { await session.client.disconnectAndWait() }
     }
+    /// An account machine leaves the account's list (it returns if it signs in again); a paired
+    /// one loses its device token. Nil when done.
+    private func forgetOrUnpair(_ entry: MachineEntry) async -> ProblemNotice? {
+        if entry.isAccountMachine {
+            do { try await account?.forget(entry.hostId) }
+            catch { return ProblemNotice(code: "account", message: "Couldn't forget this machine. Check your connection and try again.") }
+            accountMachines.removeAll { $0.hostId == entry.hostId }
+            machines = merged()
+            return nil
+        }
+        switch await access.perform(.remove(hostId: entry.hostId)) {
+        case .failure(let notice): return notice
+        case .success(let outcome):
+            paired = outcome.machines ?? paired.filter { $0.hostId != entry.hostId }
+            // Also on the account: it comes back with the next account listing, through the relay.
+            machines = merged().filter { $0.hostId != entry.hostId }
+            return nil
+        }
+    }
+    /// Pinned direct for a paired machine; the relay for an account machine.
+    private func target(for entry: MachineEntry) -> ConnectionTarget? {
+        guard entry.isAccountMachine else { return entry.connectionTarget }
+        return account?.route(hostId: entry.hostId).map { ConnectionTarget(relay: $0, deviceId: entry.deviceId) }
+    }
     private func connect(_ entry: MachineEntry) async {
-        guard let target = entry.connectionTarget else { unsupported.insert(entry.hostId); return }
+        guard let target = target(for: entry) else { unsupported.insert(entry.hostId); return }
         if inbox.client(entry.hostId) != nil { return }
         let client = makeClient()
         inbox.attach(entry.hostId, name: entry.displayName, client: client)

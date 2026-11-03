@@ -101,9 +101,14 @@ test("a subagent blocked only on its children takes their word: a limit-held chi
   expect(line(ended)).toBe("1 working");
 });
 
-test.each(["running", "unknown", "completed"] as const)(
+test.each([
+  ["running", "1 working", "Running"],
+  // ace lost track of it (ADR 0052): with no proof of life it holds nothing, so the branch settles.
+  ["unknown", "1 done", "Done"],
+  ["completed", "1 done", "Done"],
+] as const)(
   "a loaded idle branch includes its descendant's %s background task in settlement",
-  (status) => {
+  (status, expected, label) => {
     const reader = store(
       [agent("review", { state: "idle" }), agent("nested", { state: "idle" }, "review")],
       [spawn("review")],
@@ -121,8 +126,8 @@ test.each(["running", "unknown", "completed"] as const)(
       ],
     );
     const entry = readSubagentGroup(reader, ["spawn-review"]).value[0];
-    expect(line(reader)).toBe(status === "completed" ? "1 done" : "1 working");
-    expect(entry && subagentLabels[entry.state]).toBe(status === "completed" ? "Done" : "Running");
+    expect(line(reader)).toBe(expected);
+    expect(entry && subagentLabels[entry.state]).toBe(label);
     expect(entry?.endedAt).toBe(status === "completed" ? 7000 : undefined);
   },
 );

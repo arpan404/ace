@@ -277,7 +277,7 @@ test("an over-limit message explains the correction and never reaches the provid
         level: "info",
         code: "input_queued",
         commandId: "too-large",
-        detail: expect.stringContaining("send them in separate messages"),
+        detail: expect.stringContaining("Send some of them in a separate message"),
       }),
     );
   } finally {

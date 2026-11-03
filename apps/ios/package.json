@@ -16,7 +16,8 @@
     "theme:check": "bun scripts/generate-theme.ts --check",
     "bundle:tests": "bun build bridge-tests/delivery.ts --target browser --format iife --outfile .build/bridge-tests.js",
     "icons": "bun scripts/generate-icons.ts",
-    "mermaid": "bun scripts/copy-mermaid.ts"
+    "mermaid": "bun scripts/copy-mermaid.ts",
+    "relay:fixture": "node scripts/relay-fixture.ts"
   },
   "dependencies": {
     "@ace/client": "workspace:*",
@@ -32,10 +33,13 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/account-grant": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/devices": "workspace:*",
     "@ace/fake-daemon": "workspace:*",
+    "@ace/relay": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@types/bun": "^1.3.10",
     "mermaid": "^12.2.0"

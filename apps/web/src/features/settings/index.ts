@@ -9,6 +9,7 @@ export {
   AppearanceSettingsScreen,
   ComputerUseSettingsScreen,
   GeneralSettingsScreen,
+  ProfileSettingsScreen,
   KeyboardSettingsScreen,
   NotificationSettingsScreen,
   ProviderDetailScreen,

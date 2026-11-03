@@ -64,6 +64,7 @@ import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { fakeTransfers, type FakeTransfers } from "./transfers.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { numberedRun } from "./run-turns.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import type { FakeDaemonOptions, ThreadInit } from "./daemon-options.ts";
@@ -677,8 +678,12 @@ export class FakeDaemon implements Host {
     const followups: EventPayload[] = [];
     let inputIndex = 0;
     while (followups.length || inputIndex < payloads.length) {
-      const payload = followups.shift() ?? payloads[inputIndex++];
-      if (!payload) continue;
+      const raw = followups.shift() ?? payloads[inputIndex++];
+      if (!raw) continue;
+      host.turns.track(raw, host.view.thread.rootAgentId);
+      // A root run is numbered before anything reads it, as the daemon does: the live hints time
+      // Working from its turn.
+      const payload = numberedRun(host, raw);
       const step =
         payload.type === "agent.status" &&
         payload.status.state === "working" &&
@@ -731,22 +736,6 @@ export class FakeDaemon implements Host {
         threadId: ThreadId.parse(host.id),
         payload,
       };
-      host.turns.track(event.payload, host.view.thread.rootAgentId);
-      if (
-        event.payload.type === "run.started" &&
-        event.payload.run.agentId === host.view.thread.rootAgentId
-      ) {
-        const run = event.payload.run;
-        event.payload = {
-          ...event.payload,
-          run: {
-            ...run,
-            turn: host.turns.start(run),
-            ordinal: host.view.runs[run.id]?.ordinal ?? ++host.runOrdinal,
-            checkpoints: { state: "unavailable", error: "scripted_provider" },
-          },
-        };
-      }
       this.log.push(event);
       host.record(event);
       this.longThreads.index.record(event, host.view);

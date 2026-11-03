@@ -201,7 +201,13 @@ export class Connection {
     if (decision !== "reconnecting")
       this.#report("connection.closed", { ...closed, next: decision });
     if (decision === "fatal") {
-      this.fail(new ClientError(code === 4002 ? "protocol" : "auth"));
+      this.fail(
+        code === 4011
+          ? new ClientError("machine_code", reason)
+          : code === 4403
+            ? new ClientError("auth", "This machine isn't on your ace account.")
+            : new ClientError(code === 4002 ? "protocol" : "auth"),
+      );
       return;
     }
     this.error =
@@ -268,6 +274,12 @@ export class Connection {
                   protocolVersion: 1,
                   deviceId: this.#options.deviceId,
                   trims: [...supportedWireTrims],
+                  ...(transport.compression?.length
+                    ? { compression: [...transport.compression] }
+                    : {}),
+                  ...(transport.flowControl?.length
+                    ? { flowControl: [...transport.flowControl] }
+                    : {}),
                   ...parseCredential(credential),
                 });
             })

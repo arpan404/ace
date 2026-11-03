@@ -1,6 +1,6 @@
 import { browserReadSnapshots } from "./read-snapshots.ts";
-import { browserCredential } from "./remote-credential.ts";
-import { ClientCore, webSocketTransport } from "@ace/client";
+import { daemonRoute } from "./daemon-route.ts";
+import { ClientCore } from "@ace/client";
 import { ClientHost, type PortLike } from "@ace/client-worker";
 import { HostId } from "@ace/protocol";
 import { browserClientOptions } from "./client.ts";
@@ -24,8 +24,7 @@ const host = new ClientHost({
         new ClientCore({
           ...browserClientOptions({
             deviceId: target.deviceId,
-            transport: () => webSocketTransport(() => new WebSocket(target.url)),
-            credential: browserCredential(target),
+            ...daemonRoute(target),
             storage: workerOutbox(target),
             readSnapshots: browserReadSnapshots(target),
           }),

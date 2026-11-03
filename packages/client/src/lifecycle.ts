@@ -7,8 +7,10 @@ export function retryDelay(attempt: number, base: number, cap: number, random: n
 }
 /**
  * Only a refusal that another attempt can't change is fatal: the daemon rejected the
- * credential (4001) or revoked the device (4003), or the transport got a frame that is
- * neither text nor binary (4002, raised locally). Everything else, including 1009 (a frame
+ * credential (4001) or revoked the device (4003), the transport got a frame that is
+ * neither text nor binary (4002, raised locally), or the daemon wants a machine code the
+ * person has to type (4011, raised by a relay route), or ace's hosted relay found the machine on
+ * another account (4403). Everything else, including 1009 (a frame
  * too large) and server frames the client can't read, reconnects with backoff.
  */
 export function disconnectDecision(
@@ -16,7 +18,8 @@ export function disconnectDecision(
   online: boolean,
   code: number,
 ): "fatal" | "offline" | "reconnecting" {
-  if (code === 4001 || code === 4003 || code === 4002) return "fatal";
+  if (code === 4001 || code === 4003 || code === 4002 || code === 4011 || code === 4403)
+    return "fatal";
   return active && online ? "reconnecting" : "offline";
 }
 export function networkDecision(

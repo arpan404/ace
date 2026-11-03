@@ -172,7 +172,10 @@ test("chat stop and the next message use the shared queue and model selection ra
     await expect
       .poll(() => f.daemon.engine?.queue(threadId).reason, { timeout: 10000 })
       .toBe("stopped");
-    await session.next((entry) => entry.type === "status" && entry.status === "needs-human");
+    // The person's own Stop reads done, not needs-human (ADR 0052).
+    await session.next(
+      (entry) => entry.type === "status" && entry.status === "ok" && entry.working === false,
+    );
     // The person's next message is their go-ahead: it releases the stop and is delivered.
     session.child.stdin.write("Next chat input\n");
     await expect

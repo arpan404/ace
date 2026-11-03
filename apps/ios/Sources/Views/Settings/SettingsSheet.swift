@@ -4,6 +4,7 @@ import SwiftUI
 enum SettingsRoute: Hashable {
     /// More's own places: Settings' list, and Pull requests with its pages.
     case settings, pulls, forge(ForgeRoute)
+    case account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
     case archive, profiles, cache, thread(machine: String, id: String)
@@ -110,6 +111,10 @@ struct SettingsSheet: View {
     private var settingsList: some View {
             List {
                 Section {
+                    link(.account, "Profile", "person.crop.circle", id: "settings.account")
+                } header: { InsetHeader("You") }
+                .insetRowBackground()
+                Section {
                     link(.machines, "Machines", "laptopcomputer", value: inbox.sessions.count.formatted(), id: "settings.machines")
                     if notifications != nil {
                         link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
@@ -170,6 +175,7 @@ struct SettingsSheet: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
+        case .account: AceAccountView(machines: machines)
         case .settings: settingsList
         case .pulls: pullRequests
         case .forge(let page):

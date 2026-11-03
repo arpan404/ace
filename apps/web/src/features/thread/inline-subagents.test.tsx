@@ -55,7 +55,7 @@ const group = (feed: HTMLElement, title: string) =>
   within(feed).findByRole("region", { name: title });
 
 test.each(["child", "descendant"])(
-  "owned background task updates keep an idle %s's card working until the task completes",
+  "owned background task updates keep an idle %s's card working until the task completes or is lost",
   async (owner) => {
     const app = harness();
     const nested: Fact[] =
@@ -128,8 +128,11 @@ test.each(["child", "descendant"])(
       expect(within(card).queryByRole("button", { name: "1 subagent ran" })).toBeNull();
       expect(within(card).queryByText("Done")).toBeNull();
       expect(source.agent(agent.id)?.status.state).toBe("idle");
+      // Lost track of (ADR 0052): with no proof of life the task holds nothing, so the card
+      // settles; a later report that it ended still settles it the same way.
       await deliver({ type: "background_task.updated", taskId: task.id, status: "unknown" });
-      expect(within(card).getByRole("link", { name: "Open Review first, Running" })).toBeTruthy();
+      expect(await within(card).findByRole("button", { name: "1 subagent ran" })).toBeTruthy();
+      expect(within(card).queryByRole("link", { name: "Open Review first, Running" })).toBeNull();
       await deliver(
         {
           type: "background_task.updated",

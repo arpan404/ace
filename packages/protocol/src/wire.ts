@@ -1,4 +1,6 @@
 import { CliRequest, CliResult } from "./cli-control.ts";
+import { MachineCodeRequest, MachineCodeResult } from "./machine-access.ts";
+import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
 import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
@@ -212,6 +214,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
   HostIdentityRequest,
+  ...MachineCodeRequest.options,
+  PairRedeem,
   MachinesRequest,
   FleetRequest,
   ...LockedUseRequest.options,
@@ -308,6 +312,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
   HostIdentityResult,
+  MachineCodeResult,
+  PairResult,
+  ChannelClose,
   MachinesResult,
   FleetResult,
   ...LockedUseServerMessage.options,

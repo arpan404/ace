@@ -32,7 +32,7 @@ import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
-import { breakdownLists, breakdownNamer } from "./breakdown-lists.ts";
+import { breakdownLists, breakdownNamer, withCanonicalModels } from "./breakdown-lists.ts";
 import { LimitsView } from "./limits-view.tsx";
 import { SpendSection, type Metric } from "./spend-section.tsx";
 import { TokensSection } from "./tokens-section.tsx";
@@ -121,9 +121,17 @@ export function UsagePage() {
   // One money format for the page, to the scale of the period's total.
   const money = usageMoney(report?.usd ?? 0);
   const prices = priceNote(usage.data?.machines.map((read) => read.prices) ?? []);
-  const lists = useMemo(() => usage.data && breakdownLists(usage.data.machines), [usage.data]);
+  const read = useMemo(
+    () =>
+      withCanonicalModels(
+        usage.data?.machines ?? [],
+        (owner, model) => modelId(owner, model) ?? model,
+      ),
+    [usage.data, modelId],
+  );
+  const lists = useMemo(() => usage.data && breakdownLists(read), [usage.data, read]);
   const name = breakdownNamer({
-    machines: usage.data?.machines ?? [],
+    machines: read,
     accounts: listed.map((entry) => entry.account),
     machineList: machines,
     project,

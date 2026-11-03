@@ -196,6 +196,25 @@ profile or the SDK outbox.
 Temporary ticket transport failures, rate limits and server outages retry through
 the SDK. Rejected credentials and changed public-key pins remain fatal.
 
+## ace account and machine code
+
+```
+ace login [--origin https://account.example] --json
+ace logout --json
+printf '%s\n' "$CODE" | ace machine-code set --json
+ace machine-code set          # prompts without echo on a terminal
+ace machine-code clear
+```
+
+A bare `ace login` signs this machine's daemon in to an ace account; `ace login codex`
+and `ace login claude` still sign in a provider CLI. It prints the sign-in address (on
+stderr with `--json`) and waits until you finish in a browser, or exits 3 when the sign-in
+expires. The account address is `--origin`, else the daemon's `ACE_ACCOUNT_URL`. `ace logout`
+signs the machine out and ends a session `ace login` created. A machine signed in to an
+account opens to every device on that account with admin access; `ace machine-code set`
+makes those devices enter a code once per code version. See
+[remote access](remote-access.md#your-ace-account-and-the-machine-code).
+
 ## Cloud, logs, browser and automations
 
 ```

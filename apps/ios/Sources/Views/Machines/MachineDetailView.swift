@@ -14,6 +14,8 @@ struct MachineDetailView: View {
     @State private var newName = ""
     @State private var removing = false
     @State private var notice: ProblemNotice?
+    @State private var enteringCode = false
+    @State private var code = ""
 
     private var client: ClientModel? { inbox.client(hostId) }
 
@@ -34,7 +36,16 @@ struct MachineDetailView: View {
                 }
                 if let version = client?.providers?.version { LabeledContent("ace", value: version) }
                 if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
-                if let problem = facts.needsPairing ? nil : client?.problem {
+                if let client, let ask = client.machineCodeAsk {
+                    HStack {
+                        problemText(ask.message(lockedUntil: client.machineCodeLockedUntil))
+                        Spacer(minLength: AceTheme.Spacing.sm)
+                        if ask.canEnter {
+                            Button("Enter code") { enteringCode = true }
+                                .buttonStyle(.borderless).accessibilityIdentifier("machine.code.enter")
+                        }
+                    }
+                } else if let problem = facts.needsPairing ? nil : client?.problem {
                     // At accessibility sizes Retry goes under the message instead of squeezing it.
                     let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: AceDesign.Space.tight)) : AnyLayout(HStackLayout())
                     layout {
@@ -75,7 +86,19 @@ struct MachineDetailView: View {
                 } header: { InsetHeader("On this machine") }
                 .insetRowBackground()
             }
-            if let machines {
+            if let machines, machines.entry(hostId)?.isAccountMachine == true {
+                Section {
+                    Button("Forget this machine", role: .destructive) { removing = true }.accessibilityIdentifier("machine.remove")
+                } footer: {
+                    Text("\(facts.name) leaves your ace account's list and this phone's unsent work for it is deleted. It comes back when it signs in to ace again.")
+                }
+                .confirmationDialog("Forget \(facts.name)?", isPresented: $removing, titleVisibility: .visible) {
+                    Button("Forget \(facts.name)", role: .destructive) {
+                        Task { await machines.remove(hostId); dismiss() }
+                    }.accessibilityIdentifier("machine.remove.confirm")
+                } message: { Text("It leaves your ace account's list on every device.") }
+                .insetRowBackground()
+            } else if let machines {
                 Section {
                     Button("Rename") { newName = facts.name; renaming = true }.accessibilityIdentifier("machine.rename")
                         .foregroundStyle(AceDesign.Ink.primary)
@@ -100,6 +123,12 @@ struct MachineDetailView: View {
         .navigationTitle(facts.name).navigationBarTitleDisplayMode(.inline)
         .task(id: hostId) { client?.refreshMachine() }
         .refreshable { client?.refreshMachine() }
+        // The sheet covers the inbox's own prompt, so the machine asks here too.
+        .alert("Machine code for \(facts.name)", isPresented: $enteringCode) {
+            SecureField("Machine code", text: $code).textContentType(.password).accessibilityIdentifier("machine.code.field")
+            Button("Cancel", role: .cancel) { code = "" }
+            Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }
+        } message: { Text(client?.machineCodeAsk?.message(lockedUntil: client?.machineCodeLockedUntil) ?? "") }
         .alert("Couldn't rename", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice?.message ?? "") }

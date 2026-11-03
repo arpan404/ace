@@ -108,7 +108,7 @@ test("quiet hours set in the desktop app are the hours the desktop applies", asy
 test("a browser offers notification categories in Settings", async () => {
   const app = harness();
   const view = await app.open("/settings/general");
-  await screen.findByRole("textbox", { name: "Your name" });
+  await screen.findByText("Terminals open in");
   expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
   view.unmount();
   await app.open("/settings/notifications");

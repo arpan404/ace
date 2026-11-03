@@ -174,10 +174,10 @@ test("test runs are recognised however they are started, and other commands are 
     expect([command, isTestCommand(command)]).toEqual([command, false]);
 });
 
-test("a root whose turn ended while its subagents carry on starts its wait then, and drops it once they end", () => {
-  const target = thread();
+/** Apply payloads at given times, with the live changes they cause, as the daemon stamps them. */
+function timed(target: Thread) {
   let seq = 0;
-  const at = (raw: unknown, time: number, previous?: Agent) => {
+  return (raw: unknown, time: number, previous?: Agent) => {
     const payload = EventPayload.parse(raw);
     const change = liveMetadata(target, payload, previous, undefined, undefined, time);
     for (const next of change ? [payload, change] : [payload])
@@ -186,6 +186,11 @@ test("a root whose turn ended while its subagents carry on starts its wait then,
         Event.parse({ seq: ++seq, id: `e${seq}`, threadId: target.id, at: time, payload: next }),
       );
   };
+}
+
+test("a root whose turn ended while its subagents carry on starts its wait then, and drops it once they end", () => {
+  const target = thread();
+  const at = timed(target);
   at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 1000);
   const child = Agent.parse({
     id: "child",
@@ -211,4 +216,62 @@ test("a root whose turn ended while its subagents carry on starts its wait then,
   at({ type: "thread.updated", status: { state: "done" } }, 5000);
   expect(target.live?.workingSince).toBeUndefined();
   expect(target.live?.waitingSince).toBeUndefined();
+});
+
+/** A root run starting, numbered by the daemon into `turn`. */
+const runStarted = (id: string, turn: number, trigger: string, time: number) => ({
+  type: "run.started",
+  run: {
+    id,
+    threadId: "thread-1",
+    agentId: "root",
+    trigger,
+    turn,
+    ordinal: Number(id.replace(/\D/g, "")),
+    state: "active",
+    startedAt: time,
+  },
+});
+const runEnded = (id: string, time: number) => ({
+  type: "run.ended",
+  runId: id,
+  state: "completed",
+  endedAt: time,
+});
+
+/** A turn that left a shell running, ended, and paused until that shell finished. */
+function pausedAfterFirstTurn() {
+  const target = thread();
+  target.status = { state: "new" };
+  const at = timed(target);
+  at(runStarted("run-1", 1, "user", 1000), 1000);
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 1000);
+  at(runEnded("run-1", 75_000), 75_000);
+  at({ type: "thread.updated", status: { state: "waiting", on: "background_task" } }, 75_000);
+  at({ type: "thread.updated", status: { state: "done" } }, 100_000);
+  expect(target.live?.workingSince).toBeUndefined();
+  return { target, at };
+}
+
+test.each(["background_completion", "subagent_result"])(
+  "a %s run carries the turn on, so Working keeps the turn's start through the pause",
+  (trigger) => {
+    const { target, at } = pausedAfterFirstTurn();
+    // The daemon numbers it into the same turn (ADR 0062).
+    at(runStarted("run-2", 1, trigger, 100_000), 100_000);
+    at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 100_000);
+    expect(target.live?.workingSince).toBe(1000);
+  },
+);
+
+test("a new turn the person starts times Working from its own start", () => {
+  const { target, at } = pausedAfterFirstTurn();
+  at(runStarted("run-2", 2, "user", 120_000), 120_000);
+  at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 120_000);
+  expect(target.live?.workingSince).toBe(120_000);
+  // Its status may arrive first: the run's start still restarts the time.
+  const early = pausedAfterFirstTurn();
+  early.at({ type: "thread.updated", status: { state: "working", agents: 1 } }, 130_000);
+  early.at(runStarted("run-2", 2, "user", 130_000), 130_000);
+  expect(early.target.live?.workingSince).toBe(130_000);
 });

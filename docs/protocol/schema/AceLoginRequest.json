@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceLoginRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "returnTo": {
+      "examples": [
+        "ace://account/signed-in",
+        "https://app.example.com/account/signed-in"
+      ],
+      "maxLength": 2048,
+      "type": "string",
+      "x-ace-constraint": "Exactly ace://account/signed-in, or an allowed web origin followed by /account/signed-in."
+    }
+  },
+  "type": "object"
+}

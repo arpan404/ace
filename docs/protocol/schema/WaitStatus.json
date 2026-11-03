@@ -4,6 +4,7 @@
   "enum": [
     "ready",
     "needs_you",
+    "limited",
     "timeout",
     "interrupted"
   ],

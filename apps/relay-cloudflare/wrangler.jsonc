@@ -1,0 +1,68 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ace-relay",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-01",
+  // node:net for the shared IP normalization.
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayObject"] }],
+  // Accounts, pending sign-ins and the machine directory (ADR 0111). Replace database_id with
+  // the id `wrangler d1 create ace-accounts` prints; see docs/relay/accounts.md.
+  "d1_databases": [
+    {
+      "binding": "ACCOUNTS",
+      "database_name": "ace-accounts",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "ratelimits": [
+    { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+    {
+      "name": "ACCOUNT_REQUESTS",
+      "namespace_id": "1002",
+      "simple": { "limit": 120, "period": 60 },
+    },
+  ],
+  // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
+  "triggers": { "crons": ["17 * * * *"] },
+  // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
+  // never logged either.
+  "observability": { "enabled": false },
+  // ace's hosted relay at relay.acehq.dev: deploy with `--env production`. The top level above
+  // is for local development and tests.
+  "env": {
+    "production": {
+      "name": "ace-relay",
+      "routes": [{ "pattern": "relay.acehq.dev", "custom_domain": true }],
+      "vars": {
+        "ACE_ACCOUNT_PUBLIC_URL": "https://relay.acehq.dev",
+        "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,app://ace",
+      },
+      "durable_objects": {
+        "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
+      },
+      "d1_databases": [
+        {
+          "binding": "ACCOUNTS",
+          "database_name": "ace-accounts",
+          "database_id": "9a611912-4571-46f4-9020-1b95ec8823fc",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [
+        { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
+        {
+          "name": "ACCOUNT_REQUESTS",
+          "namespace_id": "1002",
+          "simple": { "limit": 120, "period": 60 },
+        },
+      ],
+      "triggers": { "crons": ["17 * * * *"] },
+      "observability": { "enabled": false },
+    },
+  },
+}

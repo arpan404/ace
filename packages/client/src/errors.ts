@@ -20,6 +20,11 @@ export class ClientError extends Error {
      */
     | "identity"
     | "storage"
+    /**
+     * An account device needs this machine's code (ADR 0111). The message is the refusal:
+     * `machine_code_required`, `machine_code_wrong` or `machine_code_locked`.
+     */
+    | "machine_code"
     | "daemon";
   constructor(code: ClientError["code"], message: string = code) {
     super(message);

@@ -152,7 +152,7 @@ test("message size limits explain how to send retained files without releasing t
       ),
     ).rejects.toMatchObject({
       code: "quota",
-      message: expect.stringContaining("send them in separate messages"),
+      message: expect.stringContaining("Send some of them in a separate message"),
     });
     expect(
       await readFile((await service.uploads.attachment("device", thread, hash(bytes))).path),

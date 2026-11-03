@@ -14,3 +14,10 @@ export function relayRoute(
     ? { relay: { url: relay.url, fingerprint: fingerprint(relay.keys.publicKey), hostId } }
     : {};
 }
+
+/** A pairing link's route through a self-hosted relay: its address and the host key to pin. */
+export function relayPairing(relay: { url: string; keys: KeyPair }): {
+  relay: { url: string; hostId: string };
+} {
+  return { relay: { url: relay.url, hostId: fingerprint(relay.keys.publicKey) } };
+}

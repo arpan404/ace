@@ -131,7 +131,8 @@ struct ConnectionDot: View {
         trying = !needsPairing && ["connecting", "reconnecting"].contains(client?.connection ?? "")
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
-        address = entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
+        address = entry?.isAccountMachine == true ? "Through your ace account"
+            : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         symbol = Self.symbol(entry?.icon?.kind)
         paused = client?.admission?.paused == true
     }

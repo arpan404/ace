@@ -14,8 +14,15 @@ function hasDirectory(storage: KeyValueStorage): boolean {
 }
 
 async function createPool(storage: KeyValueStorage, session: KeyValueStorage) {
-  const { browserMachinePool } = await import("./machine-pool.ts");
-  const made = browserMachinePool({ storage, session });
+  const [{ browserMachinePool }, { accountMachineOptions }] = await Promise.all([
+    import("./machine-pool.ts"),
+    import("./account-machine-options.ts"),
+  ]);
+  const made = browserMachinePool({
+    storage,
+    session,
+    account: accountMachineOptions({ storage, session }),
+  });
   try {
     await made.start();
     return made;

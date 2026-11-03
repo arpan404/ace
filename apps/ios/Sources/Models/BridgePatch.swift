@@ -339,6 +339,8 @@ enum BridgePatch: Decodable, Sendable {
     case projectLook(String, ProjectLookPatch?)
     /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
     case machineIdentity(String)
+    /// An account machine asks for its machine code: `machine_code_required`, `_wrong` or `_locked`; nil once answered.
+    case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
     case agents(String, Int, AgentSheet)
     /// The thread's Logs (`bridge/logs.ts`) and a Copy's text.
@@ -376,7 +378,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -459,6 +461,8 @@ enum BridgePatch: Decodable, Sendable {
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
         case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
+        case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
+                                                    lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
         case let kind where kind.hasPrefix("compose."): self = .compose(try ComposePatch(from: decoder))
         case let kind where kind.hasPrefix("composer."): self = .composer(try ComposerSuggestPatch(from: decoder))

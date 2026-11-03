@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceAccount.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "email": {
+      "maxLength": 320,
+      "pattern": "^[^\\s@]+@[^\\s@]+$",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "email",
+    "name"
+  ],
+  "type": "object"
+}

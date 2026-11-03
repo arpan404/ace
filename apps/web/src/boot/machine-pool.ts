@@ -4,7 +4,7 @@ import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
-import { MachinePool } from "@ace/client-worker/machines";
+import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
@@ -98,7 +98,11 @@ function dedicatedWorker(name: string, url: string): SpawnedWorker {
   };
 }
 
-/** What a machine's worker is handed: the same connection its cached threads are filed under. */
+/**
+ * What a machine's worker is handed: the same connection its cached threads are filed under. A
+ * machine paired through a self-hosted relay keeps the relay host key it pins in its entry's
+ * `ticketReference`.
+ */
 function machineConfig(entry: MachineEntry, url: string, token: string): MachineTarget {
   return {
     url: socketUrl(url),
@@ -107,6 +111,7 @@ function machineConfig(entry: MachineEntry, url: string, token: string): Machine
     pairedDeviceId: entry.deviceId,
     seed: null,
     hostId: entry.hostId,
+    ...(entry.target.kind === "relay" ? { relayHostId: entry.target.ticketReference } : {}),
   };
 }
 
@@ -116,7 +121,7 @@ class ForgettingDirectory extends MachineDirectory {
     const entry = (await this.load()).find((candidate) => candidate.hostId === hostId);
     const token = entry && (await this.token(entry).catch(() => undefined));
     await super.remove(hostId);
-    if (entry?.target.kind !== "direct" || !token) return;
+    if (!entry || entry.target.kind === "account" || !token) return;
     await forgetReadSnapshots(machineConfig(entry, entry.target.url, token)).catch(
       (error: unknown) => console.error("ace: couldn't delete a removed machine's threads", error),
     );
@@ -132,6 +137,8 @@ export function browserMachinePool(options: {
   storage: KeyValueStorage;
   session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
+  /** Machines on the person's ace account (`account-machine-options.ts`). */
+  account?: AccountMachineOptions | undefined;
 }): MachinePool {
   const directory = new ForgettingDirectory(
     directoryStorage(options.storage),
@@ -142,9 +149,11 @@ export function browserMachinePool(options: {
     directory,
     // A hidden or frozen window can't hear its workers; that silence must not end a connection.
     remote: { scheduler: timers, visibility: documentVisibility },
+    ...(options.account ? { account: options.account } : {}),
     spawn(entry, token) {
-      if (entry.target.kind !== "direct")
-        throw new ClientError("offline", "Relay machines aren't supported in this window yet");
+      // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
+      if (entry.target.kind === "account")
+        throw new ClientError("offline", "Account machines don't run in a machine worker");
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
         : dedicatedWorker(`ace-machine-${entry.hostId}`, entry.target.url);

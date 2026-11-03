@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
@@ -14,6 +14,11 @@ import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-lin
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
 import { FleetDevices } from "./fleet-devices.tsx";
 import { FleetRules } from "./fleet-rules.tsx";
+import {
+  AccountMachineRow,
+  useAccountMachines,
+  type AccountMachine,
+} from "@/features/ace-account/index.ts";
 
 /**
  * Settings › Fleet: every machine this window reaches and whether each can use the others, the
@@ -36,6 +41,12 @@ function FleetMachines(props: { fleet: Fleet }) {
   const [added, setAdded] = useState<string>();
   const handled = useRef<string>(undefined);
   const toast = useToast();
+  const account = useAccountMachines(fleet.machines);
+  // Paired machines first, then the ones only on the ace account; a machine that is both lists once.
+  const listed = useMemo(
+    () => directoryRows(fleet.machines, account.only),
+    [fleet.machines, account.only],
+  );
   const linkAll = (gaps: readonly LinkGap[]) =>
     fleet.link.mutate(gaps, {
       onSuccess: () => toast.add({ title: "Machines linked" }),
@@ -79,14 +90,33 @@ function FleetMachines(props: { fleet: Fleet }) {
         </>
       }
     >
-      <MachineDirectory machines={fleet.machines} label="Search fleet machines">
+      <MachineDirectory machines={listed} label="Search fleet machines">
         {(rows) =>
-          rows.map((machine) => (
-            <MachineRow key={machine.id} machine={machine} fleet={fleet} onLink={linkAll} />
-          ))
+          rows.map((row) =>
+            row.account ? (
+              <AccountMachineRow
+                key={row.id}
+                machine={row.account}
+                onForget={(hostId) => account.forget.mutateAsync(hostId)}
+              />
+            ) : (
+              <MachineRow
+                key={row.id}
+                machine={row.machine}
+                fleet={fleet}
+                onAccount={account.alsoOnAccount.has(row.id)}
+                onLink={linkAll}
+              />
+            ),
+          )
         }
       </MachineDirectory>
-      {fleet.machines.length === 1 && (
+      {account.error && (
+        <SettingNote role="alert">
+          Couldn't list the machines on your ace account. Try again later.
+        </SettingNote>
+      )}
+      {listed.length === 1 && (
         <SettingNote>Add another computer running ace to work across both.</SettingNote>
       )}
       {adding && <AddMachine onClose={() => setAdding(false)} onAdded={setAdded} />}
@@ -94,8 +124,27 @@ function FleetMachines(props: { fleet: Fleet }) {
   );
 }
 
+type DirectoryRow =
+  | { id: string; name: string; machine: Machine; account?: undefined }
+  | { id: string; name: string; account: AccountMachine };
+
+function directoryRows(
+  machines: readonly Machine[],
+  account: readonly AccountMachine[],
+): DirectoryRow[] {
+  return [
+    ...machines.map((machine) => ({ id: machine.id, name: machine.name, machine })),
+    ...account.map((entry) => ({ id: entry.hostId, name: entry.name, account: entry })),
+  ];
+}
+
 /** What a machine row says under its name: its connection, and anything blocking its links. */
-function machineLine(machine: Machine, fleet: Fleet): string {
+function machineLine(machine: Machine, fleet: Fleet, onAccount: boolean): string {
+  const line = connectionLine(machine, fleet);
+  return onAccount ? `${line} · On your ace account` : line;
+}
+
+function connectionLine(machine: Machine, fleet: Fleet): string {
   if (machine.status !== "online")
     return machine.status === "auth_failed" || machine.failed
       ? machineProblem(machine.status, !!machine.failed)
@@ -130,6 +179,7 @@ function gapLine(machine: string, fleet: Fleet): string {
 function MachineRow(props: {
   machine: Machine;
   fleet: Fleet;
+  onAccount: boolean;
   onLink(gaps: readonly LinkGap[]): void;
 }) {
   const { machine, fleet } = props;
@@ -153,7 +203,9 @@ function MachineRow(props: {
         >
           {machine.name}
         </Link>
-        <span className="text-xs text-muted-foreground">{machineLine(machine, fleet)}</span>
+        <span className="text-xs text-muted-foreground">
+          {machineLine(machine, fleet, props.onAccount)}
+        </span>
         {missing.length > 0 && (
           <span className="text-xs text-muted-foreground">{gapLine(machine.id, fleet)}</span>
         )}

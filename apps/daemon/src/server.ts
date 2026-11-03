@@ -1,5 +1,7 @@
 import { shutdownDeadline, trackStage } from "./shutdown.ts";
-import { relayRoute } from "./relay-route.ts";
+import { relayPairing, relayRoute } from "./relay-route.ts";
+import { isHostedRelay } from "./relay-account.ts";
+import type { PairingConnection } from "./pairing-issue.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
 import { createSocketRegistry } from "./services/registry.ts";
 import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
@@ -37,6 +39,8 @@ import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liven
 import { WireEncoder } from "./wire-encoder.ts";
 import { bindListener as bind, closeListener } from "./listener.ts";
 import { remoteRuntime } from "./remote-runtime.ts";
+import { RelaySocket, type RelayedMain } from "./relay-socket.ts";
+import type { MainSocket } from "./main-socket.ts";
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { computerName } from "./computer-name.ts";
@@ -82,10 +86,15 @@ export async function startServer(options: ServerOptions): Promise<{
     options.store.pairingCodes,
   );
   let remoteOrigin: string | undefined;
-  const pairing = () =>
+  const pairing = (): PairingConnection | undefined =>
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
-      : dynamicRemote?.pairing();
+      : dynamicRemote
+        ? dynamicRemote.pairing()
+        : // A relay from launch options (`ACE_RELAY_URL`) is self-hosted unless it is ace's.
+          options.relay && !isHostedRelay(options.relay.url, options.remoteConfig?.hostedRelayUrl)
+          ? relayPairing(options.relay)
+          : undefined;
   let dynamicRemote: ReturnType<typeof remoteRuntime> | undefined;
   let preview: DaemonPreview | undefined;
   const maintenance =
@@ -105,14 +114,21 @@ export async function startServer(options: ServerOptions): Promise<{
   const access = {
     auth,
     pairing,
-    remoteStatus: () =>
-      dynamicRemote?.status() ?? {
+    remoteStatus: () => ({
+      ...(dynamicRemote?.status() ?? {
         enabled: remoteOrigin !== undefined || options.relay !== undefined,
-        transport: options.relay ? "relay" : remoteOrigin ? "lan" : "local",
+        transport: options.relay
+          ? ("relay" as const)
+          : remoteOrigin
+            ? ("lan" as const)
+            : ("local" as const),
         listenOverride: null,
         relayOverride: false,
         ...relayRoute(options.relay, options.hostId),
-      },
+      }),
+      ...(options.machineAccount ? { account: options.machineAccount.status() } : {}),
+    }),
+    account: () => options.machineAccount,
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     // A failed settings read falls back to this computer's own link rather than failing pairing.
     pairingApp: async () =>
@@ -171,7 +187,7 @@ export async function startServer(options: ServerOptions): Promise<{
     });
   attach(local, true);
   if (remote) attach(remote, false);
-  const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
+  const authenticated = new Map<MainSocket, Device & { revocable: boolean }>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
@@ -187,18 +203,26 @@ export async function startServer(options: ServerOptions): Promise<{
   });
   const createServiceSessions = createSocketRegistry();
   const serviceTasks = new Set<Promise<void>>();
-  const serviceSessions = new Map<WebSocket, ReturnType<typeof createServiceSessions>>();
+  const serviceSessions = new Map<MainSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();
   const lanes = new CommandLanes();
-  const cleanups = new Map<WebSocket, () => void>();
+  const cleanups = new Map<MainSocket, () => void>();
   let closing: Promise<void> | undefined;
   let disconnects = Promise.resolve();
-  const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
+  const receivers = new Map<DeviceId, Map<MainSocket, (message: ServerMessage) => void>>();
   // A suspended phone can keep its socket open, so a frame sent there is not a delivery.
-  const backgrounded = new WeakSet<WebSocket>();
+  const backgrounded = new WeakSet<MainSocket>();
   const encoder = new WireEncoder();
-  const ticks = new Map<WebSocket, () => void>();
-  const connected = (socket: WebSocket, isLocal: boolean, request?: IncomingMessage) => {
+  const ticks = new Map<MainSocket, () => void>();
+  /** Main channels that came through the relay: no listener owns them, so shutdown closes them. */
+  const relaySockets = new Set<MainSocket>();
+  const connected = (
+    socket: MainSocket,
+    isLocal: boolean,
+    request?: IncomingMessage,
+    /** A relayed main channel, whose hello the relay host already authenticated. */
+    relayed?: RelayedMain,
+  ) => {
     const peer: ClosePeer = {
       client: clientAgent(request?.headers["user-agent"]),
       remote: !isLocal,
@@ -245,7 +269,10 @@ export async function startServer(options: ServerOptions): Promise<{
       send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
+    // An account device holds admin only while the machine stays on its account (ADR 0111).
+    const stillAdmitted = () => relayed?.stillAdmitted?.() !== false;
     const authorize = (scope: import("@ace/protocol").DeviceScope) => {
+      if (!stillAdmitted()) return false;
       const actor = authenticated.get(socket);
       const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
       return activeDevice(current, auth.now()) && allows(current, scope);
@@ -270,14 +297,21 @@ export async function startServer(options: ServerOptions): Promise<{
       authorityLease: (scope) => {
         const actor = authenticated.get(socket);
         return () => {
+          if (!stillAdmitted()) return false;
           const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
           return activeDevice(current, auth.now()) && allows(current, scope);
         };
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
-      hostCredential: () => authenticated.get(socket)?.revocable === false,
-      access: { auth, pairing, pairingApp: access.pairingApp },
+      hostCredential: () => relayed === undefined && authenticated.get(socket)?.revocable === false,
+      accountDevice: () => relayed?.account,
+      access: {
+        auth,
+        pairing,
+        pairingApp: access.pairingApp,
+        remoteStatus: access.remoteStatus,
+      },
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
       send,
       fail,
@@ -369,18 +403,20 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        const actor = helloActor(message, auth, isLocal);
+        const actor = relayed ? relayed.actor : helloActor(message, auth, isLocal);
         if (!actor) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
-        peer.access = !actor.revocable
-          ? "host"
-          : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")
-            ? "desktop"
-            : "paired";
+        peer.access = relayed
+          ? "paired"
+          : !actor.revocable
+            ? "host"
+            : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")
+              ? "desktop"
+              : "paired";
         if (message.channel !== undefined) peer.channel = message.channel;
         preAuth.authenticated(socket);
         authenticated.set(socket, actor);
@@ -487,6 +523,17 @@ export async function startServer(options: ServerOptions): Promise<{
     );
   };
   for (const server of servers) server.on("connection", connected);
+  // The relay host hands its authenticated main channels here (`files-relay.ts`).
+  options.relayMain = (entry) => {
+    const socket = new RelaySocket(entry.channel, {
+      deflate: entry.deflate,
+      delay: runtime.delay,
+    });
+    relaySockets.add(socket);
+    socket.once("close", () => relaySockets.delete(socket));
+    connected(socket, false, undefined, entry);
+    socket.start(entry.hello);
+  };
   const stopTimer = runtime.every(
     () => {
       for (const tick of ticks.values()) {
@@ -570,7 +617,7 @@ export async function startServer(options: ServerOptions): Promise<{
       ),
     }),
     get remoteUrl() {
-      return pairing()?.origin.replace("https:", "wss:");
+      return pairing()?.origin?.replace("https:", "wss:");
     },
     get fingerprint() {
       return pairing()?.fingerprint;
@@ -591,6 +638,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopTimer();
         stopRevocation();
         for (const cleanup of cleanups.values()) cleanup();
+        for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
         for (const server of servers)
           for (const socket of server.clients) {
             closer.gracefulClose(socket, 1001, "Daemon shutdown");

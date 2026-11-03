@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceMachineList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "machines": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AceMachine.json"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    }
+  },
+  "required": [
+    "machines"
+  ],
+  "type": "object"
+}

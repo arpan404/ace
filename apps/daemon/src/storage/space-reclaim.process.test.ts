@@ -96,6 +96,9 @@ test("free pages left by deleted rows are returned to the OS automatically witho
   // No settings service at all: the loop needs none.
   expect(f.services.settings).toBeUndefined();
   fillAndDelete(f);
+  // The store's checkpoint worker copies the WAL into the database file within a second of
+  // writes going quiet; measure from there, where the deleted rows' pages sit in the file.
+  f.store.statement("PRAGMA wal_checkpoint(TRUNCATE)").get();
   const before = { free: freeBytes(f), file: await fileBytes(f) };
   expect(before.free).toBeGreaterThan(3 * 1024 * 1024);
   const loop = await start(f, timers.schedule);

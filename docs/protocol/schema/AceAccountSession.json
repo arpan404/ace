@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/AceAccountSession.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/AceAccount.json"
+    },
+    "expiresAt": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "account",
+    "expiresAt"
+  ],
+  "type": "object"
+}

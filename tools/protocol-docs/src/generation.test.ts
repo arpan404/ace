@@ -147,7 +147,9 @@ it.each([
   expect(() => convertSchemas([{ name, schema }])).toThrow(`Schema ${name}:`);
 });
 it("exports declared semantic rules and rejects invalid examples", () => {
-  expect(canonical(snapshot.schemas.ClientMessage)).toContain("Exactly one of token and ticket");
+  expect(canonical(snapshot.schemas.ClientMessage)).toContain(
+    "Exactly one of token, ticket and grant",
+  );
   const impossible = z
     .string()
     .refine(() => false)

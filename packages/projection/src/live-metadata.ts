@@ -176,7 +176,7 @@ function applyChange(
     if (payload.status && at !== undefined) {
       if (payload.status.state === "working") {
         if (thread.status.state !== "working" || live.workingSince === undefined) {
-          live.workingSince = at;
+          live.workingSince = backToWorkSince(live, at);
           changed = true;
         }
       } else if (live.workingSince !== undefined) {
@@ -187,8 +187,14 @@ function applyChange(
     return changed;
   } else if (payload.type === "run.started" && payload.run.agentId === thread.rootAgentId) {
     live.rootRunId = payload.run.id;
-    // Working is timed from the current run, so a run that carries the work on restarts it.
-    if (at !== undefined && live.workingSince !== undefined) live.workingSince = at;
+    // Working is timed from the turn's start: a run that carries the turn on (a background
+    // completion, a subagent's result: ADR 0062) keeps it, and only a new turn restarts it.
+    const turn = payload.run.turn ?? payload.run.ordinal;
+    if (at !== undefined && (turn === undefined || live.turnStart?.turn !== turn)) {
+      if (turn === undefined) delete live.turnStart;
+      else live.turnStart = { turn, at };
+      if (live.workingSince !== undefined) live.workingSince = at;
+    }
   } else if (payload.type === "run.ended" && payload.runId === live.rootRunId) {
     live.rootRunId = null;
   } else if (payload.type === "agent.created") {
@@ -273,6 +279,15 @@ export function treeOnlyWaits(status: ThreadStatus, live: Live | undefined): boo
   if (live?.waitingOn) return true;
   const running = live?.runningSubagentCount ?? 0;
   return running > 0 && status.agents <= running;
+}
+
+/**
+ * When the thread, going back to work, started its Working stretch: during a root run, the start
+ * of that run's turn, so a run that carries the turn on after a pause keeps the turn's time;
+ * otherwise now.
+ */
+function backToWorkSince(live: Live, at: number): number {
+  return live.rootRunId && live.turnStart ? live.turnStart.at : at;
 }
 
 /**

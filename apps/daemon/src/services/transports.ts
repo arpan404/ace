@@ -12,10 +12,12 @@ export async function startRelayTransport(
   options: ServerOptions,
   auth: RemoteAuth,
   relay = options.relay,
+  access: {
+    account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
+    onRefused?: (error: import("@ace/relay").RelayRefusedError) => void;
+  } = {},
 ) {
   if (!relay) return undefined;
-  if (!options.files && !options.threadFiles && !options.context && !options.providerLogin)
-    throw new Error("Relay file service unavailable");
   const host = await startFilesRelay({
     url: relay.url,
     keys: relay.keys,
@@ -52,8 +54,14 @@ export async function startRelayTransport(
     get warn() {
       return options.warn;
     },
+    get relayMain() {
+      return options.relayMain;
+    },
     store: options.store,
     auth,
+    account: options.machineAccount,
+    relayAccount: access.account,
+    onRefused: access.onRefused,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),

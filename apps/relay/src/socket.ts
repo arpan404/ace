@@ -1,5 +1,7 @@
 import { WebSocket } from "ws";
+import type { ClientOptions } from "ws";
 import { systemClock } from "./clock.ts";
+import { upgradeRefusal } from "./refusal.ts";
 import type { Clock } from "./clock.ts";
 export const FRAME_LIMIT = 65535;
 export const QUEUE_LIMIT = 1024 * 1024;
@@ -128,13 +130,20 @@ export async function dial(
   signal?: AbortSignal,
   clock: Clock = systemClock(),
   timeoutMs = 10000,
+  protocols: string[] = [],
 ): Promise<{ socket: WebSocket; reader: FrameReader }> {
-  const socket = new WebSocket(url, {
+  const options: ClientOptions & { closeTimeout: number } = {
     maxPayload: FRAME_LIMIT,
     perMessageDeflate: false,
     maxFragments: 256,
     maxBufferedChunks: 256,
-  });
+    // After the close handshake, stop waiting for the relay to end TCP. A Durable Object keeps a
+    // closed hibernatable socket's connection open until the object sleeps (about ten seconds
+    // under workerd), which would delay every refusal by that long. ws 8.21 reads this option;
+    // its type definitions don't list it yet.
+    closeTimeout: 1000,
+  };
+  const socket = new WebSocket(url, protocols, options);
   const reader = new FrameReader(socket);
   const abort = () => socket.terminate();
   signal?.addEventListener("abort", abort, { once: true });
@@ -144,7 +153,7 @@ export async function dial(
     if (signal?.aborted) abort();
     await new Promise<void>((resolve, reject) => {
       socket.once("open", resolve);
-      socket.once("error", reject);
+      socket.once("error", (error) => reject(upgradeRefusal(error) ?? error));
       socket.once("close", () => reject(new Error("Connection closed")));
     });
     return { socket, reader };

@@ -2,6 +2,7 @@ import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
 import {
   FakeDaemon,
+  FakeMachineAccount,
   ScenarioPlayer,
   buildServerChats,
   crossDevice,
@@ -41,6 +42,7 @@ import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
+import { withFakeMachineAccount } from "./fake-account.ts";
 
 const timer = {
   set(delayMs: number, callback: () => void) {
@@ -289,15 +291,19 @@ export function bootFake(): {
 
 /** The connection dev:fake and tests run on: the fake daemon's access routes and devices. */
 export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
+  const account = (daemon.access.machineAccount ??= new FakeMachineAccount());
   return {
     ...fallback,
     endpoint: {
       kind: "fake",
-      access: {
-        origin: "http://127.0.0.1:4242/",
-        fetch: daemon.access.fetch,
-        token: async () => daemon.access.token,
-      },
+      access: withFakeMachineAccount(
+        {
+          origin: "http://127.0.0.1:4242/",
+          fetch: daemon.access.fetch,
+          token: async () => daemon.access.token,
+        },
+        account,
+      ),
       devices: () => daemon.appDevices.transport(),
       screen: () => daemon.screen.transport(),
     },

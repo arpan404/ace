@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AceSignInReturnStatus } from "@ace/protocol/ace-account";
 
 /**
  * The contract between the Electron main process and the renderer's `window.ace` bridge.
@@ -183,6 +184,8 @@ export const DeepLink = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
   z.object({ kind: z.literal("open-folder"), path: AbsolutePath }),
+  /** `ace://account/signed-in?status=`: the browser back from ace sign-in, with how it ended. */
+  z.object({ kind: z.literal("signed-in"), status: AceSignInReturnStatus }),
 ]);
 export type DeepLink = z.infer<typeof DeepLink>;
 
@@ -197,6 +200,9 @@ export function deepLinkRoute(link: DeepLink): string {
       return "/new";
     case "open-folder":
       return `/new?folder=${encodeURIComponent(link.path)}`;
+    // Profile, where the sign-in started; the app's own claim delivers the session.
+    case "signed-in":
+      return `/settings/profile?signin=${link.status}`;
   }
 }
 

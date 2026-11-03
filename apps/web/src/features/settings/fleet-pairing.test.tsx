@@ -53,6 +53,18 @@ test("pairing explains the actual Tailscale listener instead of asking to enable
   expect(within(dialog).queryByText(/Turn on LAN or Tailscale/)).toBeNull();
 });
 
+test("a machine on a relay makes a pairing link without asking for LAN or Tailscale", async () => {
+  const app = harness();
+  app.daemon.services.settings.seed({ "remote.enabled": true, "remote.transport": "relay" });
+  await app.open("/settings/remote");
+  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
+  expect(await within(dialog).findByText(/pairs through this machine's relay/)).toBeTruthy();
+  expect(within(dialog).queryByText(/Turn on LAN or Tailscale/)).toBeNull();
+  await userEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+  expect(await within(dialog).findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+});
+
 test("remote access off explains the missing listener and prevents making an unusable code", async () => {
   const app = harness();
   app.daemon.services.settings.seed({ "remote.enabled": false });

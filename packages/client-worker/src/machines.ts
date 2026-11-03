@@ -1,6 +1,9 @@
 import {
   ClientError,
   Notifications,
+  machineCodeGate,
+  relayRoute,
+  type MachineCodeGate,
   type ClientApi,
   type RequestOptions,
   type Selection,
@@ -16,9 +19,17 @@ import {
 } from "@ace/client/machines";
 import type { CommandPayload, HostIdentity, MachineIcon } from "@ace/protocol";
 import { RemoteClient, type RemoteOptions } from "./remote.ts";
+import {
+  accountMachineEntry,
+  accountMachineState,
+  type AccountMachine,
+  type AccountMachineConnection,
+  type AccountMachineOptions,
+} from "./account-machines.ts";
 import type { PortLike } from "./wire.ts";
 
-export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed";
+/** `machine_code`: an account machine waits for the person to enter its code (ADR 0111). */
+export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed" | "machine_code";
 export interface MachineState {
   entry: MachineEntry;
   status: MachineStatus;
@@ -40,11 +51,13 @@ export interface MachinePoolOptions {
   /** Spawn a separate worker with Client.expectedHostId = entry.hostId and a host/device outbox. */
   spawn(entry: MachineEntry, token: string): MachineWorker;
   remote: RemoteOptions;
+  /** Opens machines on the person's ace account through ace's relay (`openAccountMachine`). */
+  account?: AccountMachineOptions;
 }
 interface Live {
   state: MachineState;
   worker?: MachineWorker;
-  client?: RemoteClient;
+  client?: ClientApi;
   stop?: () => void;
   stopFailure?: () => void;
   /** Cancels the scheduled automatic reconnect, while one waits. */
@@ -84,6 +97,8 @@ export class MachinePool {
   private order: readonly string[] = [];
   /** Failed connections in a row per machine, for the reconnect backoff. */
   private failures = new Map<string, number>();
+  /** Account machines' code gates, kept across reconnects so an entered code is sent once. */
+  private gates = new Map<string, MachineCodeGate>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -155,7 +170,7 @@ export class MachinePool {
       this.publish(live, { entry: live.state.entry, status: "offline" });
     }
     try {
-      await this.options.directory.remove(hostId);
+      if (live?.state.entry.target.kind !== "account") await this.options.directory.remove(hostId);
     } catch {
       const error = new ClientError("storage", "Machine directory removal failed");
       if (live && !this.closed)
@@ -167,9 +182,53 @@ export class MachinePool {
     if (!live || this.closed) return;
     this.live.delete(hostId);
     this.failures.delete(hostId);
+    this.gates.delete(hostId);
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
+  }
+  /**
+   * Open a machine on the person's ace account (ADR 0111) and add it to the pool like a paired
+   * machine: its main conversation goes through ace's hosted relay, pinned to its host id, with
+   * a fresh device grant per attempt. When its daemon wants the machine code, the machine's
+   * status is `machine_code` and the connection reads `asking` until the code is entered.
+   * Opening one that is already open returns a handle to it.
+   */
+  openAccountMachine(machine: AccountMachine): AccountMachineConnection {
+    this.assertOpen();
+    const account = this.options.account;
+    if (!account) throw new ClientError("auth", "ace account sign-in is unavailable");
+    const hostId = machine.hostId;
+    let gate = this.gates.get(hostId);
+    if (!gate) {
+      gate = machineCodeGate(() => account.grant());
+      this.gates.set(hostId, gate);
+    }
+    const current = this.live.get(hostId);
+    if (!current) this.connect(accountMachineEntry(machine, account));
+    else if (current.state.entry.target.kind !== "account")
+      throw new ClientError("identity", "A paired machine already uses this host id");
+    const opened = gate;
+    return {
+      gate: opened,
+      get: () => accountMachineState(this.machine(hostId), opened),
+      subscribe: (listener) => {
+        const stopPool = this.status(hostId).subscribe(listener);
+        const stopGate = opened.subscribe(listener);
+        return () => {
+          stopPool();
+          stopGate();
+        };
+      },
+      retry: () => {
+        if (this.live.has(hostId)) this.reconnect(hostId);
+      },
+      enter: (code) => {
+        opened.enter(code);
+        if (this.live.has(hostId)) this.reconnect(hostId);
+      },
+      close: () => (this.live.has(hostId) ? this.remove(hostId) : Promise.resolve()),
+    };
   }
   /** Retry after authorization replacement or a worker failure, retaining cached thread facts. */
   reconnect(hostId: string): void {
@@ -257,7 +316,13 @@ export class MachinePool {
    * for pairing again instead.
    */
   private recover(live: Live): void {
-    if (!this.current(live) || live.retry || live.state.status === "auth_failed") return;
+    if (
+      !this.current(live) ||
+      live.retry ||
+      live.state.status === "auth_failed" ||
+      live.state.status === "machine_code"
+    )
+      return;
     const hostId = live.state.entry.hostId;
     const failures = this.failures.get(hostId) ?? 0;
     this.failures.set(hostId, failures + 1);
@@ -266,6 +331,7 @@ export class MachinePool {
       delete live.retry;
       if (!this.current(live) || live.removing) return;
       if (live.state.status === "online" || live.state.status === "auth_failed") return;
+      if (live.state.status === "machine_code") return;
       this.stopWorker(live);
       this.connect(live.state.entry);
     });
@@ -299,9 +365,10 @@ export class MachinePool {
   private current(live: Live): boolean {
     return !this.closed && live.enabled && this.live.get(live.state.entry.hostId) === live;
   }
-  private async open(live: Live): Promise<void> {
+  /** A paired machine's client: in its own worker, with its stored device token. */
+  private async workerClient(live: Live): Promise<ClientApi | undefined> {
     const token = await this.options.directory.token(live.state.entry);
-    if (!this.current(live)) return;
+    if (!this.current(live)) return undefined;
     const worker = this.options.spawn(live.state.entry, token);
     live.worker = worker;
     live.stopFailure = worker.onFailure((error) => {
@@ -310,7 +377,40 @@ export class MachinePool {
       this.stopWorker(live);
       this.recover(live);
     });
-    const client = new RemoteClient(worker.port, worker.config, this.options.remote);
+    return new RemoteClient(worker.port, worker.config, this.options.remote);
+  }
+  /** An account machine's client, through ace's relay with a fresh grant per attempt. */
+  private accountClient(live: Live, relayUrl: string): ClientApi {
+    const account = this.options.account;
+    const gate = this.gates.get(live.state.entry.hostId);
+    if (!account || !gate) throw new ClientError("auth", "ace account sign-in is unavailable");
+    const { hostId, deviceId } = live.state.entry;
+    const route = relayRoute({
+      relayUrl,
+      hostId,
+      credential: () => gate.credential(),
+      socket: account.socket,
+      schedule: (callback, delayMs) => this.options.remote.scheduler.set(delayMs, callback),
+      refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
+      welcomed: () => gate.welcomed(),
+    });
+    return account.client({
+      hostId,
+      deviceId,
+      transport: route.transport,
+      credential: route.credential,
+    });
+  }
+  private async open(live: Live): Promise<void> {
+    const target = live.state.entry.target;
+    const client =
+      target.kind === "account"
+        ? this.accountClient(live, target.relayUrl)
+        : await this.workerClient(live);
+    if (!client || !this.current(live)) {
+      if (client) void client.close().catch(() => {});
+      return;
+    }
     live.client = client;
     const changed = () => {
       if (!this.current(live)) return;
@@ -319,12 +419,14 @@ export class MachinePool {
         this.publish(live, {
           entry: live.state.entry,
           status:
-            client.state === "fatal" &&
-            (client.error?.code === "auth" || client.error?.code === "identity")
-              ? "auth_failed"
-              : client.state === "connecting"
-                ? "connecting"
-                : "offline",
+            client.state === "fatal" && client.error?.code === "machine_code"
+              ? "machine_code"
+              : client.state === "fatal" &&
+                  (client.error?.code === "auth" || client.error?.code === "identity")
+                ? "auth_failed"
+                : client.state === "connecting"
+                  ? "connecting"
+                  : "offline",
           ...(client.error ? { error: client.error } : {}),
         });
         // A client that is connecting or offline retries by itself; a fatal one never does.
@@ -336,7 +438,12 @@ export class MachinePool {
         .then(
           async (reply) => {
             if (!this.current(live) || live.verification !== epoch) return;
-            if (reply.identity.hostId !== live.state.entry.hostId) {
+            // An account machine is known by its relay host id, which the pinned handshake has
+            // already proved; its daemon's own id is another value.
+            if (
+              live.state.entry.target.kind !== "account" &&
+              reply.identity.hostId !== live.state.entry.hostId
+            ) {
               this.publish(live, {
                 entry: live.state.entry,
                 status: "auth_failed",
@@ -345,11 +452,13 @@ export class MachinePool {
               this.stopWorker(live);
               return;
             }
-            await this.options.directory.rename(
-              live.state.entry.hostId,
-              reply.identity.displayName,
-              reply.identity.icon,
-            );
+            // Account machines come from the account's list, not the saved directory.
+            if (live.state.entry.target.kind !== "account")
+              await this.options.directory.rename(
+                live.state.entry.hostId,
+                reply.identity.displayName,
+                reply.identity.icon,
+              );
             if (!this.current(live) || live.verification !== epoch) return;
             const entry = {
               ...live.state.entry,
@@ -405,3 +514,10 @@ export class MachinePool {
     delete live.worker;
   }
 }
+export { accountMachineEntry, accountMachineState } from "./account-machines.ts";
+export type {
+  AccountMachine,
+  AccountMachineConnection,
+  AccountMachineOptions,
+  AccountMachineState,
+} from "./account-machines.ts";

@@ -1598,11 +1598,8 @@ Example:
 ```json
 {
   "input": {
-    "action": "edit",
-    "body": "example",
-    "expectedUpdatedAt": "example",
-    "number": 4,
-    "title": "example"
+    "action": "labels",
+    "number": 4
   },
   "repository": {
     "forge": "github",

@@ -19,6 +19,27 @@
       "minimum": 0,
       "type": "integer"
     },
+    "limitNotice": {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "count": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "held": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "count",
+        "held",
+        "at"
+      ],
+      "type": "object"
+    },
     "messageNotice": {
       "properties": {
         "at": {

@@ -41,6 +41,14 @@ export class CipherState {
     this.#nonce++;
     return result;
   }
+  /**
+   * A copy of the key and next nonce, for a holder that must survive losing its memory (a
+   * hibernated relay). `new CipherState(key, nonce)` resumes it. Copies hold the live key.
+   */
+  snapshot(): { key: Uint8Array; nonce: bigint } {
+    if (this.#closed || !this.#key) throw new Error("No cipher key");
+    return { key: this.#key.slice(), nonce: this.#nonce };
+  }
   rekey(): void {
     this.#check(0);
     if (!this.#key) throw new Error("No cipher key");

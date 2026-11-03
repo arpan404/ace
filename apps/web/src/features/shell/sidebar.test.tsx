@@ -152,12 +152,18 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   await title("New thread");
 
   const account = await openProfileMenu();
-  // Settings, Usage, Automations and Skills are places in the rail, so the menu doesn't repeat them.
+  // The person first (opening Profile); Settings, Usage, Automations and Skills are places in the
+  // rail, so the menu doesn't repeat them.
   expect(
     within(account)
       .getAllByRole("menuitem")
       .map((item) => item.textContent),
-  ).toEqual(["Archived threads", expect.stringMatching(/^Keyboard shortcuts/), "Connection"]);
+  ).toEqual([
+    "YouYour profile",
+    "Archived threads",
+    expect.stringMatching(/^Keyboard shortcuts/),
+    "Connection",
+  ]);
   await userEvent.keyboard("{Escape}");
   await userEvent.click(place(/^Usage/));
   await title("Usage");

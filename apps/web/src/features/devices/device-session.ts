@@ -16,6 +16,7 @@ import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import { channelReconnect } from "@/lib/channel-reconnect.ts";
 import { learnRelay, type RelayRoute } from "./relay-route.ts";
+import { devicesRoute } from "./devices-route.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -43,6 +44,20 @@ function transportFor(
 ): DeviceTransport {
   if (endpoint.kind === "fake") return endpoint.devices();
   const { target, deviceId } = endpoint;
+  const token = target.token;
+  const plan = devicesRoute(target);
+  if (plan.kind === "relay") {
+    routed("relay");
+    return deviceTransport({
+      target: { kind: "relay", url: plan.url, pinnedFingerprint: plan.hostId },
+      expectedHostId: plan.hostId,
+      deviceId,
+      credential: async () => token,
+      socket: browserDeviceSocket,
+      keys: ephemeralRelayKeys,
+      schedule,
+    });
+  }
   const direct = deviceTransport({
     target: { kind: "local", url: target.url },
     deviceId,
@@ -51,8 +66,7 @@ function transportFor(
     keys: ephemeralRelayKeys,
     schedule,
   });
-  const token = target.token;
-  if (loopback(target.url) || !target.pairedDeviceId) return direct;
+  if (plan.kind === "direct") return direct;
   const relay = learnRelay(
     webStorage(() => localStorage),
     target.url,

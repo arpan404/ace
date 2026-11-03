@@ -8,6 +8,7 @@ import { createSkillLibrarySession } from "./skill-library.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
+import { createMachineCodeSession } from "./machine-code.ts";
 import { createFleetSession } from "./fleet.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
@@ -63,6 +64,7 @@ export const socketServiceFactories = [
   createSourceControlSession,
   createRepositoriesSession,
   createHostIdentitySession,
+  createMachineCodeSession,
   createFleetSession,
   createLongThreadSession,
   createPreviewClientSession,

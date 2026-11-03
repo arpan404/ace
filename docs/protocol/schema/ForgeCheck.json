@@ -34,6 +34,12 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "startedAt": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "status": {
       "enum": [
         "pending",

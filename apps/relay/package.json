@@ -4,13 +4,16 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./wire": "./src/wire.ts",
+    "./testing": "./src/testing/peer.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
     "start": "node src/cli.ts"
   },
   "dependencies": {
+    "@ace/account-grant": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/secure-channel": "workspace:*",
     "ws": "^8.18.3",

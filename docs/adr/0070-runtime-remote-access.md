@@ -44,12 +44,19 @@ remain independent grants under Advanced access even with administrator access.
 
 ## Relay boundary
 
-Runtime Relay selection owns the already implemented encrypted auxiliary
-channels, using the user's self-hosted endpoint. Relay selection keeps the LAN
-listener for pairing and conversations. A configured relay also runs alongside
-LAN or Tailscale. The existing relay does
-not implement main conversation or pairing channels. The UI describes this
-boundary; adding those channels requires a separate transport contract.
+Runtime Relay selection carries every channel through the encrypted relay: the
+main conversation, pairing redemption and the auxiliary channels (files,
+devices, browser, screen, provider sign-in). A configured relay also runs
+alongside LAN or Tailscale. A relayed main channel (a hello without `channel`)
+reaches the same main-socket handler as a direct socket, so authentication,
+scopes, admission, backpressure, replay by cursor and close codes are the same;
+the relay has no close frame, so the daemon's last message is `channel.close`
+with the code and reason. Without a direct listener, a self-hosted relay
+carries pairing: links name the relay and host key (`relay=…&hostId=…`) and
+the code is redeemed with `pair.redeem` as a channel's only message, keeping
+this ADR's rules (five minutes, single use, host-chosen scopes, nothing
+logged). ace's hosted relay admits only account devices (ADR 0111), so it
+never carries pairing.
 
 Unavailable saved transports leave the local listener usable, expose an error
 status and retry with bounded backoff. The live runtime relay is also the

@@ -3,19 +3,30 @@ import { host } from "./host.ts";
 import type { TrustMonitor } from "./access.ts";
 import type { AuthenticatedChannelOptions } from "@ace/client/devices";
 
-const sockets = new Map<string, { events: TransportEvents; trust: TrustMonitor | undefined }>();
+type Early = (text: string) => void;
+const sockets = new Map<
+  string,
+  {
+    events: TransportEvents;
+    trust: TrustMonitor | undefined;
+    early: Early | undefined;
+    seen: number;
+  }
+>();
+/** Messages per socket offered to `early`: the hello's answer comes first. */
+const earlyMessages = 3;
 
 /**
  * A native pinned socket. Swift validates WSS, the pin and redirects before the SDK sees `open`.
  * It carries binary messages: browser stream pieces (`ACES`) stay native, where Swift assembles
  * and draws them; any other binary message reaches the SDK as bytes.
  */
-export function nativeTransport(trust?: TrustMonitor): Transport {
+export function nativeTransport(trust?: TrustMonitor, early?: Early): Transport {
   const id = host.uuid();
   return {
     supportsBinary: true,
     open(events) {
-      sockets.set(id, { events, trust });
+      sockets.set(id, { events, trust, early, seen: 0 });
       host.socket(id, "open", "");
     },
     send(text) {
@@ -40,8 +51,13 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
     return;
   }
   if (type === "open") socket.events.open();
-  else if (type === "message") socket.events.message(value);
-  else if (type === "trust") socket.trust?.report(value);
+  else if (type === "message") {
+    if (socket.early && socket.seen < earlyMessages) {
+      socket.seen++;
+      socket.early(value);
+    }
+    socket.events.message(value);
+  } else if (type === "trust") socket.trust?.report(value);
   else if (type === "close") {
     sockets.delete(id);
     socket.events.close(Number(value));

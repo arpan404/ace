@@ -123,6 +123,7 @@ import QuartzCore
     static func machines(directory: URL, notifications: NotificationCoordinator, warmup: RuntimeWarmup? = nil,
                          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) -> MachinesModel {
         let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
+                                     account: AceAccountDirectory(),
                                      storage: directory.appendingPathComponent("machines", isDirectory: true), now: now,
                                      makeClient: { warmup.map { ClientModel(now: now, makeRuntime: $0.makeRuntime) } ?? ClientModel(now: now) })
         machines.afterLoad = { warmup?.releaseUnused() }

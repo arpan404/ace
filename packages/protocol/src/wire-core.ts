@@ -22,6 +22,7 @@ import { ReviewData } from "./review.ts";
 import { Run, Thread } from "./thread.ts";
 import { ListAttention, ListedThreadPlace, ThreadListResume } from "./thread-place.ts";
 import { EditorLaunch } from "./workspace-actions.ts";
+import { MachineCode } from "./machine-access.ts";
 
 /*
  * The stream every client needs from its first frame (ADR 0042): hello and welcome,
@@ -225,11 +226,25 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       token: z.string().optional(),
       ticket: z.string().optional(),
       /**
+       * A device grant from the ace account backend (ADR 0111): admin on a machine signed in to
+       * the same account, when the device id matches the grant.
+       */
+      grant: z.string().min(1).max(2048).optional(),
+      /** The machine code, with a grant, when the daemon asked for it. */
+      machineCode: MachineCode.optional(),
+      /**
        * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
        * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
        * are ignored.
        */
       compression: z.array(z.string().max(32)).max(8).optional(),
+      /**
+       * Flow control this client takes part in on a relayed channel: `credit` lets the daemon
+       * turn on credit fragments, so each end sends at most a window the other has consumed and
+       * a slow reader holds back the sender instead of filling the relay (ADR 0110). Unknown
+       * names are ignored.
+       */
+      flowControl: z.array(z.string().max(32)).max(8).optional(),
       /**
        * Redundant bytes this client can put back, so the daemon may leave them out of snapshots
        * and pages: `item-defaults` (items without `complete`, `synthetic` or `raw` when they hold
@@ -239,10 +254,19 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        */
       trims: z.array(z.string().max(32)).max(16).optional(),
     })
-    .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
-      message: "Exactly one credential is required",
+    .refine(
+      (hello) =>
+        [hello.token, hello.ticket, hello.grant].filter((value) => value !== undefined).length ===
+        1,
+      { message: "Exactly one credential is required" },
+    )
+    .refine((hello) => hello.machineCode === undefined || hello.grant !== undefined, {
+      message: "A machine code goes with a grant",
     })
-    .meta({ "x-ace-constraint": "Exactly one of token and ticket is required." }),
+    .meta({
+      "x-ace-constraint":
+        "Exactly one of token, ticket and grant is required; machineCode only with grant.",
+    }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),
@@ -400,6 +424,8 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     /** A refused command. The intent stays pending when `retryable`, and fails otherwise. */
     commandId: CommandId.optional(),
     retryable: z.boolean().optional(),
+    /** With `machine_code_locked`: when code entry opens again (epoch milliseconds). */
+    lockedUntil: z.number().int().positive().optional(),
   }),
   z.object({
     type: z.literal("output.data"),

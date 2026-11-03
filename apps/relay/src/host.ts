@@ -6,6 +6,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import type WebSocket from "ws";
 import { hostMessageChannel } from "./channel.ts";
 import type { HostChannel } from "./channel.ts";
+import type { ClientMessage } from "@ace/protocol";
 import { dial, relayAddress, sendFrame } from "./socket.ts";
 import {
   initiateHandshake,
@@ -15,10 +16,25 @@ import {
 } from "./handshake.ts";
 import { ControlMessage, HostOptionsSchema } from "./config.ts";
 import { ClientSlots } from "./admission.ts";
+import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
 import type { Clock } from "./clock.ts";
+import { RelayRefusedError } from "./refusal.ts";
 import type { z } from "zod";
 const noop = () => {};
+/** The `type` of a channel's first message, read without trusting the rest of it. */
+function firstMessageType(message: ClientMessage | Uint8Array | string): string | undefined {
+  if (message instanceof Uint8Array) return undefined;
+  if (typeof message !== "string") return message.type;
+  try {
+    const parsed: unknown = JSON.parse(message);
+    return typeof parsed === "object" && parsed !== null && "type" in parsed
+      ? String(parsed.type)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export type HostRelayConnection = {
   readonly hostId: string;
   readonly generation: number;
@@ -34,6 +50,14 @@ export async function connectHostToRelay(options: {
   clock?: Clock;
   random?: () => number;
   limits?: Partial<z.infer<typeof HostOptionsSchema>>;
+  /**
+   * ace's hosted relay admits a host only with an account `machine` grant (ADR 0111). `grant`
+   * is called before every registration, since grants live five minutes. `name` and
+   * `platform` label the machine in the account's machine list.
+   */
+  account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
+  /** The relay refused a host that had registered before; the connection has stopped. */
+  onRefused?: (error: RelayRefusedError) => void;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -51,25 +75,35 @@ export async function connectHostToRelay(options: {
   let generation = 0;
   const waiters: { after: number; resolve(value: number): void; reject(error: Error): void }[] = [];
   const id = hostId(options.hostKeys.publicKey);
-  const cancel = () => {
+  const cancel = (reason: Error = new Error("Host connection closed")) => {
     controller.abort();
     for (const socket of sockets) socket.terminate();
     for (const channel of channels) channel.close();
-    for (const waiter of waiters.splice(0)) waiter.reject(new Error("Host connection closed"));
+    for (const waiter of waiters.splice(0)) waiter.reject(reason);
   };
-  options.signal?.addEventListener("abort", cancel, { once: true });
+  // A refusal ends the connection: the same credentials would be refused again.
+  let refused = false;
+  const refuse = (error: RelayRefusedError) => {
+    if (refused || controller.signal.aborted) return;
+    refused = true;
+    if (generation > 0) options.onRefused?.(error);
+    cancel(error);
+  };
+  const abort = () => cancel();
+  options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) cancel();
   async function openClient(ticket: string, owned: AbortController): Promise<void> {
     const signal = AbortSignal.any([controller.signal, owned.signal]);
     let channel: HostChannel | undefined;
     let seenHello = false;
+    let redeeming = false;
     const expire = clock.schedule(limits.helloTimeoutMs, () => {
       channel?.close();
       owned.abort();
     });
     try {
       const { socket, reader } = await dial(
-        relayAddress(options.relayUrl, "/join", { ticket }),
+        relayAddress(options.relayUrl, "/join", { ticket, hostId: id }),
         signal,
         clock,
         limits.handshakeTimeoutMs,
@@ -88,11 +122,15 @@ export async function connectHostToRelay(options: {
         reader,
         transport,
         (message) => {
-          if (!seenHello) {
-            if (message instanceof Uint8Array || message.type !== "hello")
-              throw new Error("First message must be hello");
-            seenHello = true;
+          if (seenHello) return;
+          const type = firstMessageType(message);
+          // A pairing redemption is answered and closed by the daemon; it never authorizes.
+          if (type === "pair.redeem" && !redeeming) {
+            redeeming = true;
+            return;
           }
+          if (type !== "hello" || redeeming) throw new Error("First message must be hello");
+          seenHello = true;
         },
         () => {
           if (!seenHello) throw new Error("Device hello has not been received");
@@ -121,19 +159,30 @@ export async function connectHostToRelay(options: {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
       try {
+        const account = options.account;
+        const grant = account ? await account.grant(controller.signal) : undefined;
         const connection = await dial(
-          relayAddress(options.relayUrl, "/host"),
+          // The id only selects where a relay routes this host (a Durable Object); the
+          // handshake below still proves it.
+          relayAddress(options.relayUrl, "/host", {
+            hostId: id,
+            ...(account?.name ? { name: account.name } : {}),
+            ...(account?.platform ? { platform: account.platform } : {}),
+          }),
           controller.signal,
           clock,
           limits.handshakeTimeoutMs,
+          grant ? [GRANT_SUBPROTOCOL_PREFIX + grant] : [],
         );
         socket = connection.socket;
         watchLiveness(socket, clock, limits.idleTimeoutMs, limits.pingIntervalMs);
         sockets.add(socket);
         const owned = socket;
-        socket.once("close", (code) => {
+        socket.once("close", (code, reason) => {
           sockets.delete(owned);
-          if (code === 4001 || code === 1008) cancel();
+          // 1008: the relay refused this host. 4001: a newer registration replaced this one.
+          if (code === 1008) refuse(new RelayRefusedError(code, reason.toString()));
+          else if (code === 4001) cancel();
         });
         expire = clock.schedule(limits.handshakeTimeoutMs, () => owned.terminate());
         const transport = await initiateHandshake(socket, connection.reader, {
@@ -186,8 +235,10 @@ export async function connectHostToRelay(options: {
         } finally {
           transport.destroy();
         }
-      } catch {
-        /* Re-register with fresh ephemerals after network or relay failure. */
+      } catch (error) {
+        // Re-register with fresh ephemerals (and a fresh grant) after a network or relay
+        // failure; a refusal stops instead.
+        if (error instanceof RelayRefusedError) refuse(error);
       } finally {
         expire();
         socket?.terminate();
@@ -209,7 +260,7 @@ export async function connectHostToRelay(options: {
     },
     async close() {
       cancel();
-      options.signal?.removeEventListener("abort", cancel);
+      options.signal?.removeEventListener("abort", abort);
       await run;
       await Promise.all(tasks);
     },

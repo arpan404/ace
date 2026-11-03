@@ -106,6 +106,6 @@ test("a downloaded update restarts from Settings only after the person confirms"
 
 test("a browser shows no Updates row in Settings", async () => {
   await harness().open("/settings/general");
-  await screen.findByText("Your name");
+  await screen.findByText("Terminals open in");
   expect(screen.queryByRole("button", { name: "Check for updates" })).toBeNull();
 });

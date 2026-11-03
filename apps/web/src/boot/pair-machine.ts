@@ -54,7 +54,9 @@ export async function readPairedMachine(
       deviceId: target.pairedDeviceId,
       token: target.token,
       remember,
-      target: { kind: "direct", url: target.url },
+      target: target.relayHostId
+        ? { kind: "relay", url: target.url, ticketReference: target.relayHostId }
+        : { kind: "direct", url: target.url },
     };
   } finally {
     signal.removeEventListener("abort", abort);

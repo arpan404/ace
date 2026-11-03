@@ -1,12 +1,15 @@
 import { PairingRequest, type DeviceScope } from "@ace/protocol";
 import { pairingLinkUrl } from "@ace/client/access";
 import { AccessError, type RemoteAuth } from "./remote-auth.ts";
+import { hostedWebOrigin } from "./web-origins.ts";
 
-/** Where a redeeming device reaches this daemon, and the TLS key it pins. */
-export interface PairingConnection {
-  origin: string;
-  fingerprint: string;
-}
+/**
+ * Where a redeeming device reaches this daemon: its own HTTPS address and the TLS key it pins,
+ * or a self-hosted relay and the host key it pins there.
+ */
+export type PairingConnection =
+  | { origin: string; fingerprint: string; relay?: undefined }
+  | { relay: { url: string; hostId: string }; origin?: undefined; fingerprint?: undefined };
 export interface IssuedPairing {
   id: string;
   url: string;
@@ -53,12 +56,15 @@ export function issuePairing(
       `You can't grant ${scopeNames[missing]}: this device doesn't have it.`,
     );
   const { id, code, expiresAt } = auth.pairing(scopes, { label, ttlMs, deviceTtlMs });
-  const url = pairingLinkUrl({
-    daemon: connection.origin,
-    fingerprint: connection.fingerprint,
-    code,
-    scopes,
-    app,
-  });
+  const url = connection.relay
+    ? // No address of its own to open: the link opens ace's web app (or the chosen one).
+      pairingLinkUrl({ relay: connection.relay, code, scopes, app: app ?? hostedWebOrigin })
+    : pairingLinkUrl({
+        daemon: connection.origin,
+        fingerprint: connection.fingerprint,
+        code,
+        scopes,
+        app,
+      });
   return { id, url, code, expiresAt };
 }

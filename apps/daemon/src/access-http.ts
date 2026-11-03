@@ -1,6 +1,13 @@
 import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { AppUpdateReport, PairingRedemption, type Device } from "@ace/protocol";
+import {
+  AceAccountHandover,
+  AceAccountLoginStart,
+  AppUpdateReport,
+  MachineCodeChange,
+  PairingRedemption,
+  type Device,
+} from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
@@ -29,6 +36,7 @@ async function body(request: IncomingMessage): Promise<unknown> {
  */
 function crossOrigin(path: string): boolean {
   return (
+    accountPath(path) ||
     path === "/v1/status" ||
     path === "/v1/pair" ||
     path === "/v1/tickets" ||
@@ -37,11 +45,21 @@ function crossOrigin(path: string): boolean {
     /^\/v1\/devices\/[^/]+$/.test(path)
   );
 }
+/**
+ * This machine's ace account and machine code (ADR 0111), for the hosted web app and dev:web on
+ * the same allowlist. Each still needs an admin credential, and signing in or out the host's.
+ */
+function accountPath(path: string): boolean {
+  return (
+    path === "/v1/ace-account" || path === "/v1/ace-account/login" || path === "/v1/machine-code"
+  );
+}
+
 export interface AccessHttpOptions {
   shutdown?: import("./shutdown-receipt.ts").ShutdownControl;
   auth: RemoteAuth;
   authenticate: (token: string) => Device | undefined;
-  pairing: () => { origin: string; fingerprint: string } | undefined;
+  pairing: () => import("./pairing-issue.ts").PairingConnection | undefined;
   /** Origins whose pages may read the cross-origin routes. */
   allowedOrigins: ReadonlySet<string>;
   /** Origin of the web app new pairing links open; the daemon's own when it resolves undefined. */
@@ -60,6 +78,8 @@ export interface AccessHttpOptions {
   remoteStatus?: () => import("@ace/protocol").RemoteAccessStatus;
   /** Live provider processes per thread and whether each is busy, idle-warm or releasing. */
   providerProcesses?: () => readonly import("./engine/provider-release.ts").ProviderProcess[];
+  /** This machine's ace account and machine code (ADR 0111). */
+  account?: () => import("./account-access/machine-account.ts").MachineAccount | undefined;
 }
 export function accessHttp({
   shutdown,
@@ -78,6 +98,7 @@ export function accessHttp({
   ready = () => true,
   remoteStatus,
   providerProcesses,
+  account,
 }: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -93,7 +114,10 @@ export function accessHttp({
         if (request.method === "OPTIONS") {
           request.resume();
           if (!allowed) throw new AccessError(403, "Origin not allowed");
-          response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+          response.setHeader(
+            "Access-Control-Allow-Methods",
+            accountPath(path) ? "GET, POST, PUT, DELETE" : "GET, POST, DELETE",
+          );
           response.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
           response.setHeader("Access-Control-Max-Age", "600");
           response.statusCode = 204;
@@ -121,7 +145,7 @@ export function accessHttp({
             running: true,
             ready: ready(),
             version,
-            remote: pairing() ?? null,
+            remote: directPairing(pairing()) ?? null,
             ...(remoteStatus ? { remoteAccess: remoteStatus() } : {}),
             ...(serviceStatus ? { services: serviceStatus() } : {}),
             ...(eventLoop ? { eventLoop: eventLoop() } : {}),
@@ -173,7 +197,14 @@ export function accessHttp({
             app,
           );
           result = { url, expiresAt, id };
-        } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
+        } else if (
+          (path === "/v1/ace-account" ||
+            path === "/v1/ace-account/login" ||
+            path === "/v1/machine-code") &&
+          account
+        )
+          result = await accountRoute(path, request, account(), auth.local(token));
+        else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
         else if (path.startsWith("/v1/devices/") && request.method === "DELETE") {
           if (!auth.revoke(path.slice("/v1/devices/".length)))
             throw new AccessError(404, "Active device not found");
@@ -188,4 +219,49 @@ export function accessHttp({
       );
     });
   };
+}
+
+/**
+ * The machine's ace account and machine code (ADR 0111). Signing in and out is for this
+ * machine only (the host token: the desktop app or `ace`); any admin may set or clear the code.
+ */
+async function accountRoute(
+  path: string,
+  request: IncomingMessage,
+  account: import("./account-access/machine-account.ts").MachineAccount | undefined,
+  host: boolean,
+): Promise<unknown> {
+  if (!account) throw new AccessError(503, "ace account is unavailable");
+  if (path === "/v1/machine-code") {
+    if (request.method === "PUT") {
+      const change = MachineCodeChange.safeParse(await body(request));
+      if (!change.success) throw new AccessError(400, "A machine code has 4 to 128 characters.");
+      return account.setMachineCode(change.data.code);
+    }
+    if (request.method === "DELETE") return account.clearMachineCode();
+    throw new AccessError(405, "Unsupported method");
+  }
+  if (path === "/v1/ace-account" && request.method === "GET") return account.status();
+  if (!host) throw new AccessError(403, "Host token required");
+  if (path === "/v1/ace-account/login" && request.method === "POST") {
+    const start = AceAccountLoginStart.safeParse(await body(request));
+    if (!start.success) throw new AccessError(400, "Invalid ace account address");
+    return account.startLogin(start.data.origin);
+  }
+  if (path === "/v1/ace-account" && request.method === "PUT") {
+    const handover = AceAccountHandover.safeParse(await body(request));
+    if (!handover.success) throw new AccessError(400, "Invalid ace session");
+    return account.handover(handover.data.origin, handover.data.token);
+  }
+  if (path === "/v1/ace-account" && request.method === "DELETE") return account.signOut();
+  throw new AccessError(405, "Unsupported method");
+}
+
+/** The daemon's own HTTPS address and pin for status; a relay route is reported apart. */
+function directPairing(
+  connection: import("./pairing-issue.ts").PairingConnection | undefined,
+): { origin: string; fingerprint: string } | undefined {
+  return connection?.origin === undefined
+    ? undefined
+    : { origin: connection.origin, fingerprint: connection.fingerprint };
 }

@@ -67,6 +67,7 @@ import {
 } from "@ace/protocol";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
+import { MachineCodes } from "./account-access/machine-codes.ts";
 import { SqlitePairingCodes } from "./pairing-codes.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
@@ -95,6 +96,8 @@ type Listener = (events: Event[]) => void;
 const streamingRefreshPasses = 20;
 export class Store {
   readonly devices: Devices;
+  /** This machine's code and which account devices passed it (ADR 0111). */
+  readonly machineCodes: MachineCodes;
   /** Pairing links waiting to be redeemed; they outlive a restart until they expire. */
   readonly pairingCodes: SqlitePairingCodes;
   readonly workspaceReservations: WorkspaceReservations;
@@ -285,6 +288,7 @@ export class Store {
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
       this.pairingCodes = new SqlitePairingCodes(this.db);
+      this.machineCodes = new MachineCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
       this.searchReplay = new SearchReplay(this.db, this.history);
       this.search = new SearchIndex(this.db, {

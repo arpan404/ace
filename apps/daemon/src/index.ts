@@ -30,7 +30,8 @@ import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation
 import { assertModelTestIsolation } from "./models.ts";
 import { keepWasmWrappersGeneric } from "./wasm-wrappers.ts";
 import { homedir } from "node:os";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { machineAccount } from "./account-access/machine-account.ts";
 import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { logError, logFields, createHealthMonitor } from "@ace/diagnostics";
@@ -388,6 +389,22 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const handler = services.handler;
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
+    const account = machineAccount({
+      dataDir: config.dataDir,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now,
+      randomBytes,
+      delay: (callback, milliseconds) => {
+        const timer = setTimeout(callback, milliseconds);
+        timer.unref();
+        return () => clearTimeout(timer);
+      },
+      defaultOrigin: config.accountOrigin,
+      log: (error) => log.log("warn", "ace account", logError(error)),
+    });
+    await account.load();
+    resources.own(() => account.close(), "ace account");
 
     const socketReady = Promise.withResolvers<void>();
     resources.onShutdown(() => socketReady.resolve());
@@ -412,6 +429,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       eventLoop: loop.status,
       ready: socketReady.promise,
       remoteConfig: config,
+      machineAccount: account,
       webRoot: existsSync(resolve(import.meta.dirname, "web/index.html"))
         ? resolve(import.meta.dirname, "web")
         : resolve(import.meta.dirname, "../../web/dist"),
