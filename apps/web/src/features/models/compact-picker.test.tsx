@@ -170,3 +170,15 @@ test("keyboard selection can reach models beyond the initial rendered window", a
     await screen.findByRole("button", { name: /^Model: Shortcut model 120, Personal/ }),
   ).toBeTruthy();
 });
+
+test("search accepts focus and typing from its padded field after clicking a model source", async () => {
+  const { popover, list } = await openCatalog();
+  const search = within(popover).getByRole("combobox", { name: "Search models" });
+  await userEvent.click(within(popover).getByRole("tab", { name: "Codex · Personal" }));
+  const field = search.parentElement;
+  if (!field) throw new Error("Missing search field");
+  await userEvent.click(field);
+  expect(document.activeElement).toBe(search);
+  await userEvent.keyboard("Shortcut model 009");
+  expect(within(list).getByRole("option", { name: /^Shortcut model 009,/ })).toBeTruthy();
+});
