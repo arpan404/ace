@@ -26,6 +26,22 @@ describe("ace:// links", () => {
     );
   });
 
+  it("brings Profile forward with how sign-in ended when the browser returns from it", () => {
+    expect(route("ace://account/signed-in?status=signed-in")).toBe(
+      "/settings/general?signin=signed-in",
+    );
+    expect(route("ace://account/signed-in?status=cancelled")).toBe(
+      "/settings/general?signin=cancelled",
+    );
+    for (const input of [
+      "ace://account/signed-in",
+      "ace://account/signed-in?status=hacked",
+      "ace://account/signed-in?status=signed-in&token=x",
+      "ace://account/other?status=signed-in",
+    ])
+      expect(parseDeepLink(input)).toBeUndefined();
+  });
+
   it("still understands the older path= spelling", () => {
     expect(route("ace://open?path=/srv/app")).toBe("/new?folder=%2Fsrv%2Fapp");
   });
