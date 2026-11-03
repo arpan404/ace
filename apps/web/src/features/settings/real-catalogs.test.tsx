@@ -62,16 +62,21 @@ test("the open Skills library receives discovered skills without a reload", asyn
 test("Usage combines legacy bare and prefixed model ids and labels the Codex weekly quota", async () => {
   await fixture().open("/usage");
   expect((await screen.findAllByText("Weekly")).length).toBeGreaterThan(0);
-  const views = screen.getByRole("group", { name: "View" });
-  await userEvent.click(within(views).getByRole("button", { name: "Tokens" }));
-  await userEvent.click(await screen.findByRole("button", { name: "7 days" }));
-  const table = await screen.findByRole("table", { name: "Tokens by model" });
+  const metric = await screen.findByRole("group", { name: "Show" });
+  await userEvent.click(within(metric).getByRole("button", { name: "Tokens" }));
+  await userEvent.click(await screen.findByRole("button", { name: "30 days" }));
+  const models = await screen.findByRole("group", { name: "By model" });
+  // The bare and prefixed ids are one model: one row, with every token of the period.
   await waitFor(() =>
     expect(
-      within(table).getAllByRole("cell", { name: /Muse Spark 1\.3 Contributor$/ }),
+      within(models).getAllByRole("button", { name: /^Muse Spark 1\.3 Contributor/ }),
     ).toHaveLength(1),
   );
-  expect(await within(table).findByRole("cell", { name: "1.4M" })).toBeTruthy();
+  const total = screen.getByText("Tokens", { selector: "dt" }).nextElementSibling?.textContent;
+  expect(total).toBe("6M");
+  expect(
+    within(models).getByRole("button", { name: /^Muse Spark 1\.3 Contributor/ }).textContent,
+  ).toMatch(/6M$/);
   expect(screen.queryByText(/Session \(5h\) 7%/)).toBeNull();
 });
 

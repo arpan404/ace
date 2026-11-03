@@ -226,13 +226,20 @@ test("a provider's default model can be changed, even to a legacy one, and reads
 test("Usage shows daily tokens by provider and an API-price estimate per model", async () => {
   await harness().open("/usage");
   await screen.findByRole("heading", { level: 1, name: "Usage" });
-  const views = await screen.findByRole("group", { name: "View" });
-  await userEvent.click(within(views).getByRole("button", { name: "Tokens" }));
+  const metric = await screen.findByRole("group", { name: "Show" });
+  await userEvent.click(within(metric).getByRole("button", { name: "Tokens" }));
   expect(
-    await screen.findByRole("img", { name: /^Daily processed tokens/ }, { timeout: 10_000 }),
+    await screen.findByRole("img", { name: /^Daily tokens by provider/ }, { timeout: 10_000 }),
   ).toBeTruthy();
-  const table = await screen.findByRole("table", { name: "Tokens by model" });
-  expect(within(table).getByRole("columnheader", { name: "Cost" })).toBeTruthy();
+  await userEvent.click(within(metric).getByRole("button", { name: "Cost" }));
+  const models = await screen.findByRole("group", { name: "By model" });
+  await waitFor(() =>
+    expect(
+      within(models)
+        .getAllByRole("button")
+        .some((row) => /\$\d/.test(row.textContent ?? "")),
+    ).toBe(true),
+  );
 }, 30_000);
 
 test("an ACP agent added by command joins the list, and its page removes it", async () => {

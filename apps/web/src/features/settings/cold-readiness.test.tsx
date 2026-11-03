@@ -59,6 +59,6 @@ test("a free model whose name says Free carries that word once in the visible mo
 
 test("Usage shows OpenCode's unreported limits quietly while another source needs attention", async () => {
   await fixture().open("/usage");
-  expect(await screen.findByText(/^No limits reported · .*OpenCode/)).toBeTruthy();
+  expect(await screen.findByText(/^No limits reported for .*OpenCode/)).toBeTruthy();
   expect(screen.queryByText("Needs attention")).toBeNull();
 });
