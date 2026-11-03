@@ -37,7 +37,12 @@ test("closing a busy issue whose activity moved on since it was read still close
 test("closing an issue someone else already closed is done without another write", () => {
   const closed = { ...issue, state: "closed" as const, stateReason: "completed" as const };
   expect(
-    planIssueWrite(closed, { action: "state", number: 7, expectedUpdatedAt: readAt, state: "closed" }),
+    planIssueWrite(closed, {
+      action: "state",
+      number: 7,
+      expectedUpdatedAt: readAt,
+      state: "closed",
+    }),
   ).toEqual({ kind: "done" });
 });
 
@@ -71,9 +76,9 @@ test("a body edit conflicts only when someone else changed the body to something
 
 test("labels and assignees change from the issue as it is now, keeping others' additions", () => {
   const current = { ...issue, labels: ["bug", "added-meanwhile"] };
-  expect(planIssueWrite(current, { action: "labels", number: 7, add: ["ui"], remove: ["bug"] })).toEqual(
-    { kind: "patch", body: { labels: ["added-meanwhile", "ui"] } },
-  );
+  expect(
+    planIssueWrite(current, { action: "labels", number: 7, add: ["ui"], remove: ["bug"] }),
+  ).toEqual({ kind: "patch", body: { labels: ["added-meanwhile", "ui"] } });
   expect(
     planIssueWrite(issue, { action: "assignees", number: 7, add: ["mira"], remove: [] }),
   ).toEqual({ kind: "done" });
@@ -88,7 +93,10 @@ test("labels are refused without triage access, even when the author may edit th
 
 test("a lost milestone or label write is recognised once GitHub shows it", () => {
   expect(
-    issueWriteLanded({ ...issue, milestoneNumber: 3 }, { action: "milestone", number: 7, milestone: 3 }),
+    issueWriteLanded(
+      { ...issue, milestoneNumber: 3 },
+      { action: "milestone", number: 7, milestone: 3 },
+    ),
   ).toBe(true);
   expect(issueWriteLanded(issue, { action: "labels", number: 7, add: ["ui"], remove: [] })).toBe(
     false,

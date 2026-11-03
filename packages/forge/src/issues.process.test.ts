@@ -176,7 +176,10 @@ test("a busy issue whose reads straddle a new comment opens and closes without a
   const later = "2026-10-01T00:05:00Z";
   const gh = await fakeGh({
     // The first read misses a comment that landed between it and the permissions read.
-    "repos/octo/ace/issues/7": [{ body: issueRecord }, { body: { ...issueRecord, updated_at: later } }],
+    "repos/octo/ace/issues/7": [
+      { body: issueRecord },
+      { body: { ...issueRecord, updated_at: later } },
+    ],
     graphql: [
       {
         body: {

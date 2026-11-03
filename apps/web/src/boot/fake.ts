@@ -26,6 +26,7 @@ import {
   oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
+  seedLongIssue,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -143,6 +144,7 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedLongIssue(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
     if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head

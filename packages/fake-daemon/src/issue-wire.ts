@@ -274,6 +274,9 @@ export class FakeIssueWire {
   }
 }
 
+const names = (value: unknown) =>
+  Array.isArray(value) ? value.filter((each) => typeof each === "string") : undefined;
+
 /** An issue after a PATCH GitHub would apply: the fields named change, the rest stay. */
 function patched(detail: ForgeIssueDetail, body: Record<string, unknown>, at: string) {
   const next: ForgeIssueDetail = { ...detail, updatedAt: at };
@@ -286,8 +289,6 @@ function patched(detail: ForgeIssueDetail, body: Record<string, unknown>, at: st
     body.state_reason === "reopened"
   )
     next.stateReason = body.state_reason;
-  const names = (value: unknown) =>
-    Array.isArray(value) ? value.filter((each) => typeof each === "string") : undefined;
   next.labels = names(body.labels) ?? next.labels;
   next.assignees = names(body.assignees) ?? next.assignees;
   if ("milestone" in body) {

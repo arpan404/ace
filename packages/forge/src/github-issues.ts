@@ -181,7 +181,8 @@ export class GitHubIssues {
     ).data.repository;
     // On a busy issue the two reads can land either side of someone's change. The record is
     // read once more so the page shows the later one; the permissions don't depend on it.
-    if (permissions.issue.updatedAt > record.updated_at) record = await this.#record(number, signal);
+    if (permissions.issue.updatedAt > record.updated_at)
+      record = await this.#record(number, signal);
     const writable = !permissions.isArchived;
     const triage = ["ADMIN", "MAINTAIN", "WRITE", "TRIAGE"].includes(
       permissions.viewerPermission ?? "",

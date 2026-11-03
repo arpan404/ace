@@ -16,9 +16,10 @@ const notes = [
  * A busy issue: 62 conversation entries over three pages of 25, so the page opens on the newest
  * and earlier ones load on request.
  */
-export function longIssueReads(
-  now: number,
-): { detail: ForgeBrowserResult; pages: ForgeBrowserResult[] } {
+export function longIssueReads(now: number): {
+  detail: ForgeBrowserResult;
+  pages: ForgeBrowserResult[];
+} {
   const count = 62;
   const events = Array.from({ length: count }, (_, index) => {
     const at = iso(now - (count - index) * 20 * minute);

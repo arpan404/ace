@@ -183,7 +183,7 @@ test("an issue closed on its page has left the open list when going back", async
   const nav = await screen.findByRole("navigation", { name: "Issues" });
   await userEvent.click(await within(nav).findByRole("link", { name: /Sidebar loses its scroll/ }));
   const page = await screen.findByRole("article", { name: "Issue #240" });
-  await userEvent.click(await within(page).findByRole("button", { name: "Close issue" }));
+  await userEvent.click(await within(page).findByRole("button", { name: "Close as completed" }));
   expect(await within(page).findByRole("button", { name: "Reopen issue" })).toBeTruthy();
   await userEvent.click(within(page).getByRole("button", { name: "Back to issues" }));
   await waitFor(async () => expect(await numbers("Issues")).toEqual(["246", "235", "238"]));

@@ -11,10 +11,16 @@ import type {
   ForgeRepository,
 } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
-import { keepPreviousData, useQueries, type QueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQueries,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
+import { freshenIssueList, readIssues } from "./issue-freshen.ts";
 
 /** A list read again after half a minute; the last answer stays on screen while a new one reads. */
 const listed = { staleTime: 30_000, gcTime: 10 * 60_000, retry: false } as const;
@@ -101,6 +107,7 @@ export function usePrPages(project: string | undefined, query: ForgePrSearch, pa
 
 /** A project's issues matching `query`, `pages` pages of 25. */
 export function useIssuePages(project: string | undefined, query: ForgeIssueSearch, pages: number) {
+  const cache = useQueryClient();
   return useListPages<ForgeIssueList>(
     ["issueList", withoutPage(query)],
     project,
@@ -112,7 +119,8 @@ export function useIssuePages(project: string | undefined, query: ForgeIssueSear
         signal,
       );
       if (value.resource !== "issueList") throw new Error("No issue list.");
-      return value.value;
+      // Search trails a write; an issue read since says how it is now.
+      return freshenIssueList(value.value, query, page, readIssues(cache, project ?? ""));
     },
   );
 }

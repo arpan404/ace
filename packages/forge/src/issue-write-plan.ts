@@ -74,7 +74,9 @@ export function planIssueWrite(current: ForgeIssueDetail, value: Change): IssueW
     }
     case "milestone":
       if ((current.milestoneNumber ?? null) === value.milestone) return { kind: "done" };
-      return triage ? { kind: "patch", body: { milestone: value.milestone } } : { kind: "forbidden" };
+      return triage
+        ? { kind: "patch", body: { milestone: value.milestone } }
+        : { kind: "forbidden" };
   }
 }
 
@@ -90,12 +92,14 @@ export function issueWriteLanded(current: ForgeIssueDetail, value: Change): bool
       );
     case "labels":
     case "assignees": {
-      const have = (value.action === "labels" ? current.labels : current.assignees).map((name) =>
-        name.toLowerCase(),
+      const have = new Set(
+        (value.action === "labels" ? current.labels : current.assignees).map((name) =>
+          name.toLowerCase(),
+        ),
       );
       return (
-        value.add.every((name) => have.includes(name.toLowerCase())) &&
-        value.remove.every((name) => !have.includes(name.toLowerCase()))
+        value.add.every((name) => have.has(name.toLowerCase())) &&
+        value.remove.every((name) => !have.has(name.toLowerCase()))
       );
     }
     case "milestone":
