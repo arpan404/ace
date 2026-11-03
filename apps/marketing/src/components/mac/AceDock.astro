@@ -1,0 +1,67 @@
+---
+/*
+ * Under the open thread: what waits on you (an approval card, or a strip for a device request
+ * or a usage limit), the thread's status strip, and the composer.
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import BrandMark from "../BrandMark.astro";
+import AppIcon from "./AppIcon.astro";
+
+const claude = providerIcon({ provider: "claude" }).brand;
+---
+
+<div class="dock">
+  <div class="approval before-approval" data-for="checkout" hidden>
+    <span class="approval-title">Run command</span>
+    <code>$ rm -rf node_modules/.cache/vitest</code>
+    <span class="risk"><b>High risk</b> · Hard to undo.</span>
+    <span class="approval-actions">
+      <span class="allow" data-target="allow">Allow once</span>
+      <span>Deny</span>
+      <span class="details">Details <AppIcon name="caret-right" size={12} /></span>
+    </span>
+  </div>
+  <div class="strip before-done" data-for="cold-start">
+    <span
+      ><b>Waiting for 2 subagents</b> · 1 command running · <span data-seconds="324">5m 24s</span
+      ></span
+    >
+    <b>Stop</b>
+  </div>
+  <div class="strip ask device-ask" data-for="sign-in" hidden>
+    <span><b>Claude wants to use iPhone 17 Pro</b> · Simulator on this Mac</span>
+    <span class="strip-actions"><span class="allow" data-target="allow-device">Allow</span><b>Deny</b></span>
+  </div>
+  <div class="strip device-using" data-for="sign-in" hidden>
+    <span><b>Claude is using iPhone 17 Pro</b> · <span data-seconds="96">1m 36s</span></span>
+    <span class="strip-actions"><b>Take over</b><b>Stop</b></span>
+  </div>
+  <div class="strip" data-for="staging" hidden>
+    <span><b>Claude is using this tab</b> · localhost:5173</span>
+    <span class="strip-actions"><b>Take over</b><b>Stop</b></span>
+  </div>
+  <div class="strip ask before-move" data-for="webhooks" hidden>
+    <span><b>Claude · Personal hit its limit</b> · resets 4:20 PM</span>
+    <span class="strip-actions"
+      ><b>Resume at 4:20 PM</b><span class="allow" data-target="move">Move to Work</span></span
+    >
+  </div>
+  <div class="strip after-move" data-for="webhooks" hidden>
+    <span><b>Working</b> · <span data-seconds="4">4s</span></span>
+    <b>Stop</b>
+  </div>
+  <div class="composer">
+    <span class="placeholder">Ask anything</span>
+    <div class="composer-foot">
+      <AppIcon name="plus" size={18} />
+      <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
+      <span class="model">
+        <span class="provider"
+          >{claude && <BrandMark brand={claude} size={15} />}<i data-account>P</i></span
+        >Opus 5.5 <span>· Medium</span>
+        <AppIcon name="caret-down" size={12} />
+      </span>
+      <span class="send"><AppIcon name="arrow-up" size={16} /></span>
+    </div>
+  </div>
+</div>

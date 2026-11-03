@@ -87,7 +87,7 @@ html[data-theme="light"] .ace {
 .ace code,
 .ace .branch,
 .ace .file-chip,
-.ace .changes .code {
+.ace .side .code {
   font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 }
 
@@ -294,15 +294,6 @@ html[data-theme="light"] .ace {
   color: var(--a-fg-2);
 }
 
-.ace [data-filter-label="build-server"],
-.ace[data-filter="build-server"] [data-filter-label="all"] {
-  display: none;
-}
-
-.ace[data-filter="build-server"] [data-filter-label="build-server"] {
-  display: inline;
-}
-
 .ace .rows {
   display: grid;
   padding: 6px 8px 0;
@@ -322,10 +313,6 @@ html[data-theme="light"] .ace {
 
 .ace .row.selected {
   background: var(--a-fill);
-}
-
-.ace[data-filter="build-server"] .row:not([data-machine="build-server"]) {
-  display: none;
 }
 
 .ace .line {
@@ -395,6 +382,16 @@ html[data-theme="light"] .ace {
 .ace [data-tone="done"] .glyph-done {
   display: inline-grid;
   color: var(--a-done);
+}
+
+.ace [data-tone="limited"] .glyph-limited {
+  display: inline-grid;
+  color: var(--a-muted);
+}
+
+.ace .device {
+  display: inline-flex;
+  color: var(--a-working);
 }
 
 .ace .row .title {
@@ -541,39 +538,43 @@ html[data-theme="light"] .ace {
   padding-top: 26px;
 }
 
-.ace .thread,
-.ace .strip,
-.ace .heading > span,
-.ace .after-approval {
+/* A thread's parts show when the story opens it; until then they carry `hidden`. */
+.ace [hidden] {
+  display: none !important;
+}
+
+/* What a scene answers: before and after an approval, a device request or an account move. */
+.ace .after-approval,
+.ace .after-move,
+.ace .after-done,
+.ace[data-cold="done"] .before-done,
+.ace[data-approved="yes"] .before-approval,
+.ace[data-moved="yes"] .before-move,
+.ace[data-device="ask"] .device-using,
+.ace:not([data-device="ask"]) .device-ask {
   display: none;
 }
 
-.ace[data-thread="cold-start"] .thread[data-for="cold-start"],
-.ace[data-thread="checkout"] .thread[data-for="checkout"],
-.ace[data-thread="sign-in"] .thread[data-for="sign-in"] {
+.ace[data-approved="yes"] .step.after-approval,
+.ace[data-moved="yes"] .step.after-move {
+  display: flex;
+}
+
+.ace[data-approved="yes"] p.after-approval,
+.ace[data-moved="yes"] p.after-move {
   display: block;
 }
 
-.ace[data-thread="cold-start"] .strip[data-for="cold-start"],
-.ace[data-thread="sign-in"] .strip[data-for="sign-in"] {
+.ace[data-moved="yes"] .strip.after-move {
   display: flex;
 }
 
-.ace[data-thread="cold-start"] .heading > [data-for="cold-start"],
-.ace[data-thread="checkout"] .heading > [data-for="checkout"],
-.ace[data-thread="sign-in"] .heading > [data-for="sign-in"] {
+/* The cold-start thread once every agent and command in it has finished. */
+.ace[data-cold="done"] span.after-done {
   display: inline;
 }
 
-.ace[data-approved="yes"] .before-approval {
-  display: none;
-}
-
-.ace[data-approved="yes"] .after-approval {
-  display: flex;
-}
-
-.ace[data-approved="yes"] p.after-approval {
+.ace[data-cold="done"] p.after-done {
   display: block;
 }
 
@@ -689,7 +690,7 @@ html[data-theme="light"] .ace {
 }
 
 .ace .approval {
-  display: none;
+  display: grid;
   gap: 10px;
   margin-bottom: 10px;
   padding: 14px;
@@ -700,10 +701,6 @@ html[data-theme="light"] .ace {
   transition:
     opacity 0.25s,
     transform 0.25s;
-}
-
-.ace[data-thread="checkout"]:not([data-approved="yes"]) .approval {
-  display: grid;
 }
 
 .ace .approval-title {
@@ -754,6 +751,7 @@ html[data-theme="light"] .ace {
 }
 
 .ace .strip {
+  display: flex;
   justify-content: space-between;
   align-items: center;
   height: 38px;
@@ -826,132 +824,11 @@ html[data-theme="light"] .ace {
   color: var(--a-fg);
 }
 
-/* The right panel on Changes. */
-.ace .changes {
-  position: absolute;
-  right: 0;
-  top: 44px;
-  bottom: 0;
-  width: 460px;
-  overflow: hidden;
-  border-top: 1px solid var(--a-border);
-  border-left: 1px solid var(--a-border);
-  background: var(--a-canvas);
-  font-size: 13px;
-  transform: translateX(100%);
-  transition: transform 0.5s cubic-bezier(0.22, 0.8, 0.2, 1);
+/* A strip that waits on you: a device request or a usage limit. */
+.ace .strip.ask {
+  background: var(--a-needs-you-surface);
 }
 
-.ace[data-panel="on"] .changes {
-  transform: none;
-}
-
-.ace[data-panel="on"] .canvas {
-  right: 460px;
-}
-
-.ace[data-panel="on"] .tabs {
-  display: flex;
-}
-
-.ace .changes-bar {
-  display: flex;
+.ace .strip-actions {
   align-items: center;
-  gap: 14px;
-  height: 48px;
-  padding: 0 14px 0 18px;
-  color: var(--a-fg);
-  font-size: 14px;
-}
-
-.ace .commit {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--a-border-strong);
-  border-radius: 8px;
-  transition: background-color 0.15s;
-}
-
-.ace .commit.hover {
-  background: var(--a-fill);
-}
-
-.ace .tree {
-  display: grid;
-  padding: 4px 12px 10px;
-  border-bottom: 1px solid var(--a-border);
-  color: var(--a-fg-2);
-}
-
-.ace .tree > span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 27px;
-}
-
-.ace .tree-file {
-  padding-left: 24px;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-}
-
-.ace .tree em,
-.ace .file-head em {
-  margin-left: auto;
-  font-style: normal;
-}
-
-.ace .file-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--a-border);
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-}
-
-.ace .changes .line {
-  display: grid;
-  grid-template-columns: 34px 34px 1fr;
-  gap: 0;
-  height: 20px;
-  font-size: 12.5px;
-  white-space: pre;
-}
-
-.ace .changes .line.add {
-  background: var(--a-add);
-}
-
-.ace .changes .line.del {
-  background: var(--a-del);
-}
-
-.ace .changes .line.hover {
-  box-shadow: inset 3px 0 0 var(--a-working);
-}
-
-.ace .no {
-  padding-right: 8px;
-  color: var(--a-faint);
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
-  text-align: right;
-}
-
-.ace .add .no {
-  color: var(--a-add-ink);
-}
-
-.ace .del .no {
-  color: var(--a-del-ink);
-}
-
-.ace .changes .code {
-  overflow: hidden;
-  color: var(--a-fg-2);
 }

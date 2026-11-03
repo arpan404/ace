@@ -1,12 +1,11 @@
 /*
  * The site's motion. Text never slides or blurs in: headings rise word by word from behind a
- * mask and everything else simply fades. The motion that matters is in the product panels, which
- * act out what the feature does (scripts/stories.ts): subagents finish before their parent, an
- * agent's tool calls stream in, you take over an app, a device request is allowed, work crosses
- * machines. Hover answers the pointer with a spotlight. Nothing loops for show.
+ * mask and everything else simply fades. The motion that matters is the drawn Mac
+ * (components/mac, scripts/stage-story.ts), which acts out what ace does. Hover answers the
+ * pointer with a spotlight. Nothing loops for show.
  *
  * scripts/motion.ts drives it. Base.astro tags <html class="motion"> only when scripts run and
- * reduced motion is off; without it, every panel shows its resting state and nothing is hidden.
+ * reduced motion is off; without it, nothing is hidden.
  */
 
 :root {
@@ -131,127 +130,6 @@ html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
   }
 }
 
-/* ---------- Panel stories (scripts/stories.ts) ---------- */
-
-.status-dot,
-.status-word {
-  transition:
-    background-color 500ms var(--ease-out-quint),
-    color 500ms var(--ease-out-quint);
-}
-
-/* A status word that changes rolls in from below. */
-.status-word.flip {
-  display: inline-block;
-  animation: roll-in 600ms var(--ease-out-expo);
-}
-
-@keyframes roll-in {
-  from {
-    opacity: 0;
-    transform: translate3d(0, 70%, 0);
-  }
-}
-
-/* The browser log: a step runs (spinner, no result yet), then shows its result. */
-[data-step] {
-  position: relative;
-  transition: opacity 400ms var(--ease-out-quint);
-}
-
-[data-step].pending {
-  opacity: 0;
-}
-
-[data-step].running .panel-end {
-  opacity: 0;
-}
-
-[data-step] .panel-end {
-  transition: opacity 400ms var(--ease-out-quint);
-}
-
-[data-step].running::after {
-  content: "";
-  position: absolute;
-  right: 14px;
-  top: calc(50% - 6px);
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
-  border-top-color: var(--foreground);
-  animation: spin 700ms linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
-/* A caret while the address types itself. */
-[data-type].typing::after {
-  content: "";
-  display: inline-block;
-  width: 1px;
-  height: 1em;
-  margin-left: 1px;
-  vertical-align: -2px;
-  background: var(--foreground);
-  animation: blink 900ms steps(1) infinite;
-}
-
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
-
-.panel-action.pressed {
-  animation: press 420ms var(--ease-out-quint);
-}
-
-@keyframes press {
-  30% {
-    opacity: 0.45;
-  }
-}
-
-/* Devices: the request row folds open, then away once allowed. */
-[data-key="ask"] {
-  max-height: 60px;
-  overflow: hidden;
-  transition:
-    max-height 700ms var(--ease-out-expo),
-    min-height 700ms var(--ease-out-expo),
-    padding 700ms var(--ease-out-expo),
-    opacity 500ms var(--ease-out-quint),
-    border-color 500ms var(--ease-out-quint);
-}
-
-[data-key="ask"].folded {
-  max-height: 0;
-  min-height: 0;
-  padding-block: 0;
-  opacity: 0;
-  border-top-color: transparent;
-}
-
-/* The approval that reaches the phone rings once. */
-.ring {
-  animation: ring 1400ms var(--ease-out-quint);
-}
-
-@keyframes ring {
-  from {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-needs-you) 50%, transparent);
-  }
-  to {
-    box-shadow: 0 0 0 14px transparent;
-  }
-}
-
 /* ---------- Hover ---------- */
 
 /*
@@ -301,12 +179,6 @@ html.motion :is(.reveal.is-in[data-stagger], .reveal.is-in [data-stagger]) > * {
   .spot:hover::after {
     opacity: 1;
   }
-}
-
-.stage .panel {
-  transition:
-    transform 800ms var(--ease-out-expo),
-    box-shadow 800ms var(--ease-out-expo);
 }
 
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {

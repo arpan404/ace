@@ -1,40 +1,22 @@
 ---
-/*
- * The picture for each feature page: the home page's Mac playing that feature's scene where one
- * exists, otherwise the feature's product panel.
- */
+/* The picture for each feature page: the home page's Mac playing that feature's scene. */
 import type { FeatureSlug } from "../../content/features.ts";
 import { featureScenes } from "../../content/stage.ts";
 import MacStory from "../mac/MacStory.astro";
-import Scene from "../panels/Scene.astro";
-import Stage from "../Stage.astro";
 
 interface Props {
   slug: FeatureSlug;
 }
 
 const { slug } = Astro.props;
-const scene = featureScenes[slug];
 ---
 
 <div class="page visual reveal">
-  {
-    scene ? (
-      <MacStory only={scene} />
-    ) : (
-      <Stage>
-        <Scene slug={slug} />
-      </Stage>
-    )
-  }
+  <MacStory only={featureScenes[slug]} />
 </div>
 
 <style>
   .visual {
     margin-top: 64px;
-  }
-
-  .visual :global(.stage-inner) {
-    min-height: 440px;
   }
 </style>

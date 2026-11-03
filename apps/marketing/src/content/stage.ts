@@ -7,7 +7,18 @@ import type { FeatureSlug } from "./features.ts";
  * captions live here; the components only lay them out.
  */
 
-export type SceneId = "agents" | "approve" | "review" | "computer" | "fleet";
+/** The home page's five scenes, then the scenes only a feature page plays. */
+export type SceneId =
+  | "agents"
+  | "approve"
+  | "review"
+  | "computer"
+  | "fleet"
+  | "browser"
+  | "devices"
+  | "phone"
+  | "remote"
+  | "accounts";
 
 export interface Scene {
   id: SceneId;
@@ -56,6 +67,8 @@ export type RowState =
   | { kind: "agents"; count: number; seconds: number }
   | { kind: "working"; seconds: number }
   | { kind: "background"; seconds: number }
+  /** Held at a usage limit; `seconds` is how long it has worked once it moves on. */
+  | { kind: "limited"; seconds: number }
   | { kind: "done"; label: string };
 
 export interface ThreadRow {
@@ -113,6 +126,29 @@ export const rows: ThreadRow[] = [
     provider: "claude",
     account: "W",
     device: "phone",
+  },
+  {
+    id: "staging",
+    project: "web",
+    chip: "WE",
+    hue: 210,
+    title: "Check the staging checkout",
+    branch: "fix/checkout-total",
+    state: { kind: "working", seconds: 138 },
+    provider: "codex",
+    account: "P",
+    device: "browser",
+  },
+  {
+    id: "webhooks",
+    project: "billing-api",
+    chip: "BA",
+    hue: 265,
+    title: "Refactor billing webhooks",
+    branch: "refactor/webhooks",
+    state: { kind: "limited", seconds: 4 },
+    provider: "claude",
+    account: "P",
   },
   {
     id: "dedupe",
@@ -189,9 +225,9 @@ export const rows: ThreadRow[] = [
 
 /** The machines on the account, as the thread list's filter names them. */
 export const machines = [
-  { id: "this-mac", name: "This Mac", note: "macOS", threads: 6 },
-  { id: "build-server", name: "build-server", note: "Linux", threads: 2 },
-  { id: "workstation", name: "workstation", note: "Windows", threads: 1 },
+  { id: "this-mac", name: "This Mac", note: "macOS", threads: 8, locked: false },
+  { id: "build-server", name: "build-server", note: "Linux", threads: 2, locked: false },
+  { id: "workstation", name: "workstation", note: "Windows", threads: 1, locked: true },
 ] as const;
 
 /** The diff the review scene shows: the cold-start thread's last turn. */
@@ -255,9 +291,22 @@ export const diff = {
 export type DiffLine = (typeof diff.files)[number]["lines"][number];
 
 /** The feature pages that show a scene of the Mac instead of a product panel. */
-export const featureScenes: Partial<Record<FeatureSlug, SceneId>> = {
+export const featureScenes: Record<FeatureSlug, SceneId> = {
   status: "agents",
   review: "review",
   "computer-use": "computer",
   fleet: "fleet",
+  browser: "browser",
+  devices: "devices",
+  mobile: "phone",
+  "remote-access": "remote",
+  accounts: "accounts",
 };
+
+/** The steps the browser scene's agent takes, shown in its thread one by one. */
+export const browserSteps = [
+  { verb: "Opened", detail: "localhost:5173/checkout" },
+  { verb: "Read the page", detail: "42 elements" },
+  { verb: "Clicked", detail: "Pay now" },
+  { verb: "Read the console", detail: "0 errors · 3 requests" },
+] as const;

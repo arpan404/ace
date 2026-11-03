@@ -1,0 +1,224 @@
+---
+/*
+ * An iPhone's Lock Screen with ace on it: a Live Activity for a thread that ends only when
+ * every agent in it has finished, and an approval arriving as a notification. The story
+ * flips `data-activity` from waiting to done and brings the notification in.
+ */
+import AceMark from "../AceMark.astro";
+import AppIcon from "./AppIcon.astro";
+---
+
+<div class="lock" data-phone data-activity="waiting" aria-hidden="true">
+  <div class="lock-screen">
+    <div class="lock-status">
+      <span class="lock-island"></span>
+    </div>
+    <span class="lock-date">Tuesday 3 November</span>
+    <span class="lock-time">9:41</span>
+
+    <div class="lock-card activity">
+      <span class="lock-app"><AceMark size={16} />ace</span>
+      <b>Cap cold-start replay at 200 events</b>
+      <span class="activity-state waiting-state"
+        ><AppIcon name="circle-dashed" size={15} />Waiting on 2 subagents</span
+      >
+      <span class="activity-state done-state"
+        ><AppIcon name="check-circle" size={15} />Done · every agent finished</span
+      >
+      <span class="activity-bar"><i></i></span>
+    </div>
+
+    <div class="lock-card note-card" data-phone-note>
+      <span class="lock-app"><AceMark size={16} />ace<time>now</time></span>
+      <b>Fix flaky checkout test</b>
+      <span>Needs your approval to run rm -rf node_modules/.cache/vitest</span>
+    </div>
+    <span class="lock-home"></span>
+  </div>
+</div>
+
+<style>
+  .lock {
+    position: absolute;
+    right: 120px;
+    top: 70px;
+    z-index: 6;
+    width: 330px;
+    height: 700px;
+    padding: 12px;
+    border-radius: 62px;
+    background: #1b1b1d;
+    box-shadow:
+      inset 0 0 0 2px #3a3a3e,
+      inset 0 0 0 4px #0c0c0d,
+      0 40px 100px -20px rgb(0 0 0 / 0.75);
+    color: #fff;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      system-ui,
+      sans-serif;
+    opacity: 0;
+    transform: translateY(40px) scale(0.97);
+    transition:
+      opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  :global([data-phone-shown]) .lock {
+    opacity: 1;
+    transform: none;
+  }
+
+  .lock-screen {
+    position: relative;
+    height: 100%;
+    display: grid;
+    align-content: start;
+    justify-items: center;
+    overflow: hidden;
+    border-radius: 51px;
+    background:
+      radial-gradient(80% 60% at 20% 15%, #3d4a6b 0%, transparent 70%),
+      radial-gradient(70% 60% at 85% 85%, #5a3d55 0%, transparent 70%),
+      #15161c;
+  }
+
+  .lock-status {
+    height: 50px;
+    display: grid;
+    place-items: center;
+  }
+
+  .lock-island {
+    width: 96px;
+    height: 28px;
+    border-radius: 14px;
+    background: #000;
+  }
+
+  .lock-date {
+    margin-top: 10px;
+    font-size: 17px;
+    font-weight: 600;
+    opacity: 0.85;
+  }
+
+  .lock-time {
+    margin-top: -6px;
+    font-size: 88px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+
+  .lock-card {
+    width: calc(100% - 24px);
+    display: grid;
+    gap: 3px;
+    margin-top: 12px;
+    padding: 13px 15px;
+    border-radius: 22px;
+    background: rgb(30 30 34 / 0.72);
+    backdrop-filter: blur(24px);
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .activity {
+    margin-top: 150px;
+  }
+
+  .lock-app {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: rgb(255 255 255 / 0.6);
+    font-size: 12px;
+  }
+
+  .lock-app time {
+    margin-left: auto;
+  }
+
+  .lock-card b {
+    font-size: 14.5px;
+    font-weight: 600;
+  }
+
+  .activity-state {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .waiting-state {
+    color: #b49cf5;
+  }
+
+  .done-state {
+    display: none;
+    color: #57bd9b;
+  }
+
+  .lock[data-activity="done"] .waiting-state {
+    display: none;
+  }
+
+  .lock[data-activity="done"] .done-state {
+    display: flex;
+  }
+
+  .activity-bar {
+    height: 4px;
+    margin-top: 6px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: rgb(255 255 255 / 0.12);
+  }
+
+  .activity-bar i {
+    display: block;
+    width: 62%;
+    height: 100%;
+    border-radius: inherit;
+    background: #b49cf5;
+    transition:
+      width 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+      background-color 0.4s;
+  }
+
+  .lock[data-activity="done"] .activity-bar i {
+    width: 100%;
+    background: #57bd9b;
+  }
+
+  .note-card {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.96);
+    transition:
+      opacity 0.4s,
+      transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .note-card:global(.on) {
+    opacity: 1;
+    transform: none;
+  }
+
+  .note-card span:last-child {
+    color: rgb(255 255 255 / 0.85);
+  }
+
+  .lock-home {
+    position: absolute;
+    left: 50%;
+    bottom: 9px;
+    width: 124px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgb(255 255 255 / 0.85);
+    transform: translateX(-50%);
+  }
+</style>

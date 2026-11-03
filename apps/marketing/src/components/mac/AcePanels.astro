@@ -1,0 +1,88 @@
+---
+/*
+ * The right panel: Changes (the open thread's diff) or ace's browser with the tab an agent is
+ * using. `data-panel` on the window picks which slides in.
+ */
+import { diff } from "../../content/stage.ts";
+import AppIcon from "./AppIcon.astro";
+import "./ace-panels.css";
+
+const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del" ? "−" : " ");
+---
+
+<aside class="side side-changes">
+  <div class="changes-bar">
+    <span>Last turn <AppIcon name="caret-down" size={11} /></span>
+    <span><ins>+{diff.totals.added}</ins> <del>−{diff.totals.removed}</del></span>
+    <span class="commit" data-target="commit"
+      ><AppIcon name="cloud-arrow-up" size={15} />Commit &amp; push</span
+    >
+  </div>
+  <div class="tree">
+    <span><AppIcon name="caret-down" size={11} /><AppIcon name="folder-open" size={14} />apps</span>
+    {
+      diff.files.map((entry) => (
+        <span class="tree-file">
+          <AppIcon name="file" size={14} />
+          {entry.path.split("/").pop()}
+          <em>
+            <ins>+{entry.added}</ins> <del>−{entry.removed}</del>
+          </em>
+        </span>
+      ))
+    }
+  </div>
+  {
+    diff.files.map((entry) => (
+      <div class="file">
+        <div class="file-head">
+          <AppIcon name="code" size={14} />
+          {entry.path}
+          <em>
+            <ins>+{entry.added}</ins> <del>−{entry.removed}</del>
+          </em>
+        </div>
+        {entry.lines.map((line) => (
+          <div class:list={["line", "kind" in line ? line.kind : undefined]}>
+            <span class="no">{"old" in line ? line.old : ""}</span>
+            <span class="no">{"new" in line ? line.new : ""}</span>
+            <span class="code">
+              {sign("kind" in line ? line.kind : undefined)} {line.text}
+            </span>
+          </div>
+        ))}
+      </div>
+    ))
+  }
+</aside>
+
+<aside class="side side-browser">
+  <div class="browser-bar">
+    <AppIcon name="arrow-left" size={15} />
+    <AppIcon name="arrow-right" size={15} />
+    <AppIcon name="arrow-clockwise" size={15} />
+    <span class="address"><AppIcon name="globe" size={13} />localhost:5173/checkout</span>
+    <AppIcon name="eye" size={15} />
+    <AppIcon name="dots-three" size={15} />
+  </div>
+  <div class="site" data-site="cart">
+    <div class="site-head"><b>Acme</b><span>Shop</span><span>Orders</span><span>Account</span></div>
+    <div class="site-body cart-view">
+      <h4>Checkout</h4>
+      <span class="item"><i></i>Trail runner, size 42<b>$42.00</b></span>
+      <span class="item"><i></i>Merino socks<b>$8.00</b></span>
+      <span class="sum">Subtotal<b>$50.00</b></span>
+      <span class="sum">Tax<b>$4.18</b></span>
+      <span class="sum total">Total<b>$54.18</b></span>
+      <span class="pay" data-target="pay">Pay now</span>
+    </div>
+    <div class="site-body paid-view">
+      <span class="paid-mark"><AppIcon name="check" size={22} /></span>
+      <h4>Payment received</h4>
+      <p>Order #4821 · $54.18 charged to the test card.</p>
+    </div>
+    <span class="agent-cursor" data-agent-cursor
+      ><AppIcon name="cursor" size={16} /><em>Claude</em></span
+    >
+  </div>
+</aside>

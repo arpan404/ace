@@ -1,10 +1,8 @@
-import { playStories, prepareStories } from "./stories.ts";
-
 /*
  * Drives the site's motion (styles/motion.css): headings rise word by word, sections fade in
- * once, product panels play their stories (stories.ts) when they come into view, and tiles marked
- * .spot carry a light under the pointer. Base.astro adds <html class="motion"> before paint when
- * reduced motion is off; this marks the page ready so that class is kept.
+ * once, and tiles marked .spot carry a light under the pointer. Base.astro adds
+ * <html class="motion"> before paint when reduced motion is off; this marks the page ready so
+ * that class is kept.
  */
 
 /** Siblings that reveal together fade in a beat apart, up to a short cap. */
@@ -71,14 +69,12 @@ export function startMotion(): void {
   for (const list of document.querySelectorAll<HTMLElement>("[data-stagger]")) {
     number(list.querySelectorAll<HTMLElement>(":scope > *"));
   }
-  prepareStories(document);
 
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
         entry.target.classList.add("is-in");
-        playStories(entry.target);
         observer.unobserve(entry.target);
       }
     },

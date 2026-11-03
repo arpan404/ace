@@ -9,6 +9,7 @@
 import { siApple } from "simple-icons";
 import { scenes, type SceneId } from "../../content/stage.ts";
 import AceWindow from "./AceWindow.astro";
+import PhoneLockScreen from "./PhoneLockScreen.astro";
 import SimulatorWindow from "./SimulatorWindow.astro";
 
 interface Props {
@@ -16,18 +17,19 @@ interface Props {
 }
 
 const { only } = Astro.props;
-const shown = only ? scenes.filter((scene) => scene.id === only) : scenes;
+const shown = only ? [] : scenes;
+/** One marker per scene to play: every home scene, or the feature page's one. */
+const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
 ---
 
 <section
   class:list={["story", { single: only }]}
-  style={`--scenes: ${shown.length}`}
+  style={`--scenes: ${played.length}`}
   data-story-root
 >
   <div class="pin">
     <ol class="captions page">
       {
-        !only &&
         shown.map((scene, index) => (
           <li class:list={["caption", { on: index === 0 }]} data-caption={index}>
             <span class="n">{String(index + 1).padStart(2, "0")}</span>
@@ -80,6 +82,7 @@ const shown = only ? scenes.filter((scene) => scene.id === only) : scenes;
           </div>
 
           <SimulatorWindow />
+          <PhoneLockScreen />
 
           <div class="note" data-note aria-hidden="true">
             <span class="note-icon"
@@ -109,7 +112,7 @@ const shown = only ? scenes.filter((scene) => scene.id === only) : scenes;
       </div>
     </div>
   </div>
-  {shown.map((scene, index) => <span class="marker" data-scene={scene.id} style={`--i: ${index}`} />)}
+  {played.map((id, index) => <span class="marker" data-scene={id} style={`--i: ${index}`} />)}
 </section>
 
 <style>

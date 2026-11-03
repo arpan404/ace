@@ -34,7 +34,7 @@ const seconds = "seconds" in state ? state.seconds : undefined;
       {
         row.device === "browser" && (
           <span class="device">
-            <AppIcon name="graph" size={14} />
+            <AppIcon name="globe" size={14} />
           </span>
         )
       }
@@ -46,8 +46,9 @@ const seconds = "seconds" in state ? state.seconds : undefined;
       </span>
       <span class="glyph glyph-background"><AppIcon name="terminal-window" size={15} /></span>
       <span class="glyph glyph-done"><AppIcon name="check-circle" size={15} /></span>
+      <span class="glyph glyph-limited"><AppIcon name="gauge" size={15} /></span>
       <span class="time" data-seconds={seconds}>
-        {seconds === undefined ? state.kind === "done" ? state.label : "" : formatElapsed(seconds * 1000)}
+        {state.kind === "done" ? state.label : seconds === undefined || state.kind === "limited" ? "" : formatElapsed(seconds * 1000)}
       </span>
     </span>
   </div>

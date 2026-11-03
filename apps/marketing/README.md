@@ -76,24 +76,23 @@ theme overrides them under `html[data-theme="light"]`.
 
 `src/styles/motion.css` holds every animation. Text never slides or blurs in: section headings
 rise word by word from behind a mask, other text fades, and product visuals unmask from the top.
-The remaining product panels act out their feature once in view (`src/scripts/stories.ts`): a
-browser log streams in, a device request is allowed, a thread moves accounts, a phone answers an
-approval. Tiles marked `.spot` carry a light under the pointer, and pages cross-fade
-(`@view-transition`).
+Tiles marked `.spot` carry a light under the pointer, and pages cross-fade (`@view-transition`).
 
 The home page walks through ace on a Mac (`src/components/mac/`): a desktop with the menu bar, the
-Simulator and ace's window, drawn in HTML in the app's own sizes, colours and Phosphor glyphs, and
+Simulator, an iPhone and ace's window, drawn in HTML in the app's own sizes, colours and Phosphor glyphs, and
 scaled as one piece. It stays pinned while one caption per scene takes its turn; as each scene's
-marker crosses the middle of the screen, `src/scripts/stage-story.ts` resets the drawing and a
-pointer acts the scene out (opening a thread, allowing an approval, opening Changes, an agent
-tapping through the Simulator, filtering the list by machine). Feature pages with a scene in
-`featureScenes` show the same Mac playing just that scene. Spade's face (`mac/SpadeFace.astro`)
+marker crosses the middle of the screen, `src/scripts/stage-story.ts` plays it: each scene in
+`src/scripts/stage-scenes.ts` resets the drawing, then a pointer acts it out (opening a thread,
+allowing an approval, opening Changes, an agent tapping through the Simulator, filtering the list
+by machine). Every feature page shows the same Mac playing its own scene (`featureScenes` in
+`content/stage.ts`): an agent paying in ace's browser, a device request, the iPhone's Lock Screen,
+a machine code, a thread moving to another account. Spade's face (`mac/SpadeFace.astro`)
 comes from the shared geometry in `@ace/ui-core/spade`. When the app's look changes, change the
 drawing with it.
 
 `src/scripts/motion.ts` drives it. Base.astro only turns motion on (`<html class="motion">`) when
 reduced motion is off, and drops it if the script hasn't started within three seconds; without it,
-every panel shows its resting state and nothing is hidden.
+nothing is hidden. With reduced motion, each scene of the Mac jumps straight to its end.
 
 ## Images
 

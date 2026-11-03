@@ -1,20 +1,26 @@
 ---
 /*
- * ace's window drawn in HTML in the app's own sizes and colours, filling the Mac's window
- * and scaled with it. Every scene's pieces are here at once; `data-*` on the root picks which show
- * (the open thread, the right panel, the list's machine filter), and the story script changes
- * them (scripts/stage-story.ts). Decorative: the captions beside it carry the meaning.
+ * ace's window drawn in HTML in the app's own sizes and colours, filling the Mac's window and
+ * scaled with it. Every scene's pieces are here at once: the story script shows the thread a
+ * scene opens (`data-for`), and `data-*` on the root picks the right panel, the list's machine
+ * filter and what has been answered (scripts/stage-story.ts). Decorative: the captions beside
+ * it carry the meaning.
  */
-import { providerIcon } from "@ace/ui-core/provider-icons";
-import { diff, machines, rows } from "../../content/stage.ts";
-import BrandMark from "../BrandMark.astro";
+import { machines, rows } from "../../content/stage.ts";
+import AceDock from "./AceDock.astro";
+import AcePanels from "./AcePanels.astro";
+import AceTranscripts from "./AceTranscripts.astro";
 import AppIcon from "./AppIcon.astro";
+import MachineCode from "./MachineCode.astro";
 import SpadeFace from "./SpadeFace.astro";
 import ThreadRow from "./ThreadRow.astro";
 import "./ace-window.css";
 
-const claude = providerIcon({ provider: "claude" }).brand;
-const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del" ? "−" : " ");
+/** Each thread a scene opens, as the top bar titles it. */
+const opened = ["cold-start", "checkout", "sign-in", "staging", "webhooks"].flatMap((id) => {
+  const row = rows.find((entry) => entry.id === id);
+  return row ? [row] : [];
+});
 ---
 
 <div class="ace" data-thread="cold-start" data-panel="off" data-filter="all" aria-hidden="true">
@@ -26,19 +32,32 @@ const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del
     </div>
     <div class="heading">
       <AppIcon name="folder-open" size={15} />
-      <span data-for="cold-start">Cap cold-start replay at 200 events</span>
-      <span data-for="checkout">Fix flaky checkout test</span>
-      <span data-for="sign-in">Test sign-in on iPhone 17 Pro</span>
+      {
+        opened.map((row) => (
+          <span data-for={row.id} hidden={row.id !== "cold-start"}>
+            {row.title}
+          </span>
+        ))
+      }
     </div>
     <div class="actions">
       <AppIcon name="dots-three" size={17} />
       <AppIcon name="graph" size={16} />
       <AppIcon name="sidebar-simple" size={16} class="flip" />
     </div>
-    <div class="tabs">
+    <div class="tabs tabs-changes">
       <span class="tab"><AppIcon name="file" size={14} />Summary</span>
-      <span class="tab on"><AppIcon name="git-pull-request" size={14} />Changes<AppIcon name="x" size={12} /></span>
+      <span class="tab on"
+        ><AppIcon name="git-pull-request" size={14} />Changes<AppIcon name="x" size={12} /></span
+      >
       <span class="tab"><AppIcon name="folder-open" size={14} />Files</span>
+      <AppIcon name="plus" size={15} />
+    </div>
+    <div class="tabs tabs-browser">
+      <span class="tab"><AppIcon name="file" size={14} />Summary</span>
+      <span class="tab on"
+        ><AppIcon name="cursor" size={13} />Acme checkout<AppIcon name="x" size={12} /></span
+      >
       <AppIcon name="plus" size={15} />
     </div>
   </header>
@@ -65,8 +84,7 @@ const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del
     </div>
     <div class="filter">
       <span class="filter-button" data-target="filter">
-        <span data-filter-label="all">All projects</span>
-        <span data-filter-label="build-server">build-server</span>
+        <span data-filter-label>All projects</span>
         <AppIcon name="caret-down" size={13} />
       </span>
       <AppIcon name="note-pencil" size={18} />
@@ -81,6 +99,7 @@ const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del
             <AppIcon name={machine.id === "this-mac" ? "laptop" : "hard-drives"} size={15} />
             <span>{machine.name}</span>
             <span class="menu-note">
+              {machine.locked && <AppIcon name="lock" size={12} />}
               {machine.note} · {machine.threads}
             </span>
           </span>
@@ -94,158 +113,11 @@ const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del
 
   <main class="canvas">
     <div class="column">
-      <section class="thread" data-for="cold-start">
-        <p class="you">
-          A phone that resumes with seq 0 gets every event since the thread began. Cap cold-start
-          replay.
-        </p>
-        <p class="worked">Worked for 1m 50s</p>
-        <p class="reply">
-          replayFrom now treats seq 0 as a cold start and replays at most the last 200 events.
-        </p>
-        <span class="file-chip">replay.ts <ins>+8</ins> <del>−2</del></span>
-        <p class="you">
-          Send coldStart with the ack, keep the client buffer until it arrives, and add a regression
-          test.
-        </p>
-        <div class="step">
-          <AppIcon name="pencil-line" size={16} />
-          <span>Edited</span><code>apps/server/src/replay.ts</code>
-          <span class="end"><ins>+3</ins> <del>−2</del></span>
-        </div>
-        <div class="step agents-step" data-target="subagents">
-          {claude && <BrandMark brand={claude} size={18} />}
-          <b>2 subagents</b><span class="working">2 working</span>
-          <span class="end"><span data-seconds="445">7m 25s</span><AppIcon name="caret-right" size={14} /></span>
-        </div>
-        <div class="step">
-          <AppIcon name="terminal" size={16} />
-          <span>Running in background</span><code>bun run relay:soak --clients 2</code>
-          <span class="end">5m</span>
-        </div>
-      </section>
-
-      <section class="thread" data-for="checkout">
-        <p class="you">checkout.spec.ts fails about one run in five. Find out why and fix it.</p>
-        <p class="waiting before-approval"><i></i>Waiting for your approval</p>
-        <p class="worked after-approval">Worked for 3m 12s</p>
-        <p class="reply">I'll look for timing assumptions in the checkout flow first.</p>
-        <div class="step">
-          {claude && <BrandMark brand={claude} size={18} />}
-          <b>1 subagent ran</b>
-          <span class="end"><AppIcon name="caret-right" size={14} /></span>
-        </div>
-        <div class="step before-approval">
-          <AppIcon name="terminal" size={16} />
-          <span>Running in background</span><code>bun run test --watch checkout</code>
-          <span class="end">3m</span>
-        </div>
-        <div class="step after-approval">
-          <AppIcon name="terminal" size={16} />
-          <span>Ran</span><code>rm -rf node_modules/.cache/vitest</code>
-        </div>
-        <p class="reply after-approval">
-          The poller now awaits the payment promise instead of a fixed timer. 25 consecutive passes.
-        </p>
-      </section>
-
-      <section class="thread" data-for="sign-in">
-        <p class="you">
-          Sign in on the iPhone 17 Pro simulator with the test account and check the 2FA screen.
-        </p>
-        <p class="reply">Booting the simulator and installing the debug build.</p>
-        <div class="step">
-          <AppIcon name="device-mobile" size={16} />
-          <span>Booted</span><code>iPhone 17 Pro · iOS 26</code>
-        </div>
-        <div class="step">
-          <AppIcon name="terminal" size={16} />
-          <span>Ran</span><code>xcodebuild -scheme Acme -destination 'name=iPhone 17 Pro'</code>
-          <span class="end">42s</span>
-        </div>
-        <div class="step live-step">
-          <AppIcon name="device-mobile" size={16} />
-          <b>Using iPhone 17 Pro</b><span class="working" data-sim-note>Opening Acme</span>
-          <span class="end"><AppIcon name="caret-right" size={14} /></span>
-        </div>
-      </section>
+      <AceTranscripts />
     </div>
-
-    <div class="dock">
-      <div class="approval" data-target="approval">
-        <span class="approval-title">Run command</span>
-        <code>$ rm -rf node_modules/.cache/vitest</code>
-        <span class="risk"><b>High risk</b> · Hard to undo.</span>
-        <span class="approval-actions">
-          <span class="allow" data-target="allow">Allow once</span>
-          <span>Deny</span>
-          <span class="details">Details <AppIcon name="caret-right" size={12} /></span>
-        </span>
-      </div>
-      <div class="strip" data-for="cold-start">
-        <span><b>Waiting for 2 subagents</b> · 1 command running · <span data-seconds="324">5m 24s</span></span>
-        <b>Stop</b>
-      </div>
-      <div class="strip" data-for="sign-in">
-        <span><b>Claude is using iPhone 17 Pro</b> · <span data-seconds="96">1m 36s</span></span>
-        <span class="strip-actions"><b>Take over</b><b>Stop</b></span>
-      </div>
-      <div class="composer">
-        <span class="placeholder">Ask anything</span>
-        <div class="composer-foot">
-          <AppIcon name="plus" size={18} />
-          <span class="access"><AppIcon name="shield-check" size={16} />Auto review</span>
-          <span class="model">
-            {claude && <BrandMark brand={claude} size={15} />}Opus 5.5 <span>· Medium</span>
-            <AppIcon name="caret-down" size={12} />
-          </span>
-          <span class="send"><AppIcon name="arrow-up" size={16} /></span>
-        </div>
-      </div>
-    </div>
+    <AceDock />
   </main>
 
-  <aside class="changes">
-    <div class="changes-bar">
-      <span>Last turn <AppIcon name="caret-down" size={11} /></span>
-      <span><ins>+{diff.totals.added}</ins> <del>−{diff.totals.removed}</del></span>
-      <span class="commit" data-target="commit"><AppIcon name="cloud-arrow-up" size={15} />Commit &amp; push</span>
-    </div>
-    <div class="tree">
-      <span><AppIcon name="caret-down" size={11} /><AppIcon name="folder-open" size={14} />apps</span>
-      {
-        diff.files.map((entry) => (
-          <span class="tree-file">
-            <AppIcon name="file" size={14} />
-            {entry.path.split("/").pop()}
-            <em>
-              <ins>+{entry.added}</ins> <del>−{entry.removed}</del>
-            </em>
-          </span>
-        ))
-      }
-    </div>
-    {
-      diff.files.map((entry) => (
-        <div class="file">
-          <div class="file-head">
-            <AppIcon name="code" size={14} />
-            {entry.path}
-            <em>
-              <ins>+{entry.added}</ins> <del>−{entry.removed}</del>
-            </em>
-          </div>
-          {entry.lines.map((line) => (
-            <div class:list={["line", "kind" in line ? line.kind : undefined]}>
-              <span class="no">{"old" in line ? line.old : ""}</span>
-              <span class="no">{"new" in line ? line.new : ""}</span>
-              <span class="code">
-                {sign("kind" in line ? line.kind : undefined)} {line.text}
-              </span>
-            </div>
-          ))}
-        </div>
-      ))
-    }
-  </aside>
+  <AcePanels />
+  <MachineCode />
 </div>

@@ -1,159 +1,20 @@
 import { formatElapsed } from "@ace/ui-core/time";
+import { scenes, type Act, type Root } from "./stage-scenes.ts";
 
 /*
- * Plays the home page's Mac (components/mac/MacStory.astro). Each scene sets the drawn app to
- * where it starts, then a pointer acts it out: moving to real elements of the drawing and
- * "clicking" them, which flips the `data-*` state the CSS reads. Scrolling to another scene
- * cancels the one playing. With reduced motion every scene jumps straight to its end.
+ * Plays the drawn Mac (components/mac/MacStory.astro): scales the desktop to its frame, ticks
+ * running times, and plays a scene (stage-scenes.ts) as its marker crosses the middle of the
+ * screen, or once in view on a feature page. It owns the pointers the scenes move. Scrolling to
+ * another scene cancels the one playing; with reduced motion every scene jumps to its end.
  */
 
-type Root = HTMLElement;
-
-interface Act {
-  /** False once another scene has started; every step checks it. */
-  alive(): boolean;
-  wait(ms: number): Promise<void>;
-  moveTo(target: Element | null, at?: { x: number; y: number }): Promise<void>;
-  click(target: Element | null): Promise<void>;
-  type(target: Element | null, text: string, mask?: boolean): Promise<void>;
-  tap(target: Element | null): Promise<void>;
-}
-
-type SceneScript = (root: Root, act: Act) => Promise<void>;
-
-const scenes: Record<string, SceneScript> = {
-  async agents(root, act) {
-    show(root, { thread: "cold-start" });
-    await act.wait(500);
-    await act.moveTo(q(root, '[data-target="subagents"]'), { x: 0.3, y: 0.5 });
-    hover(root, '[data-target="subagents"]', true);
-  },
-
-  async approve(root, act) {
-    show(root, { thread: "cold-start" });
-    await act.wait(400);
-    q(root, "[data-note]")?.classList.add("on");
-    await act.wait(1500);
-    if (!act.alive()) return;
-    await act.click(q(root, '[data-row="checkout"]'));
-    q(root, "[data-note]")?.classList.remove("on");
-    select(root, "checkout");
-    await act.wait(1300);
-    await act.click(q(root, '[data-target="allow"]'));
-    if (!act.alive()) return;
-    q(root, "[data-ace]")?.setAttribute("data-approved", "yes");
-    tone(root, "checkout", "done", "now");
-    await act.wait(300);
-    await act.moveTo(q(root, ".canvas .reply.after-approval"), { x: 0.6, y: 1.6 });
-  },
-
-  async review(root, act) {
-    show(root, { thread: "cold-start", approved: true });
-    await act.wait(400);
-    await act.click(q(root, ".actions .flip"));
-    if (!act.alive()) return;
-    q(root, "[data-ace]")?.setAttribute("data-panel", "on");
-    await act.wait(900);
-    const added = q(root, ".changes .line.add");
-    await act.moveTo(added, { x: 0.45, y: 0.5 });
-    added?.classList.add("hover");
-    await act.wait(1100);
-    added?.classList.remove("hover");
-    await act.moveTo(q(root, '[data-target="commit"]'), { x: 0.4, y: 0.5 });
-    hover(root, '[data-target="commit"]', true);
-  },
-
-  async computer(root, act) {
-    show(root, { thread: "cold-start", approved: true });
-    await act.wait(300);
-    await act.click(q(root, '[data-row="sign-in"]'));
-    if (!act.alive()) return;
-    select(root, "sign-in");
-    await act.wait(500);
-    desktop(root)?.setAttribute("data-sim-shown", "");
-    await act.moveTo(null, { x: 0.45, y: 0.94 });
-    const note = q(root, "[data-sim-note]");
-    await act.wait(900);
-    if (note) note.textContent = "Typing in Email";
-    await act.tap(q(root, '[data-target="sim-email"]'));
-    await act.type(q(root, '[data-type="email"]'), "test@acme.dev");
-    await act.tap(q(root, '[data-target="sim-password"]'));
-    await act.type(q(root, '[data-type="password"]'), "hunter2-acme", true);
-    if (note && act.alive()) note.textContent = "Tapped Sign in";
-    await act.tap(q(root, '[data-target="sim-submit"]'));
-    if (!act.alive()) return;
-    q(root, "[data-sim]")?.setAttribute("data-screen", "code");
-    if (note) note.textContent = "On the code screen";
-  },
-
-  async fleet(root, act) {
-    show(root, { thread: "cold-start", approved: true });
-    await act.wait(400);
-    await act.click(q(root, '[data-target="filter"]'));
-    if (!act.alive()) return;
-    q(root, "[data-menu]")?.classList.add("open");
-    await act.wait(500);
-    await act.moveTo(q(root, '[data-target="machine-build-server"]'), { x: 0.3, y: 0.5 });
-    hover(root, '[data-target="machine-build-server"]', true);
-    await act.wait(600);
-    await act.click(q(root, '[data-target="machine-build-server"]'));
-    if (!act.alive()) return;
-    q(root, "[data-menu]")?.classList.remove("open");
-    q(root, "[data-ace]")?.setAttribute("data-filter", "build-server");
-    await act.wait(300);
-    await act.moveTo(q(root, '[data-row="worktrees"]'), { x: 0.55, y: 0.5 });
-  },
-};
-
 const q = (root: ParentNode, selector: string) => root.querySelector<HTMLElement>(selector);
-const desktop = (root: Root) => q(root, "[data-desktop]");
-
-function hover(root: Root, selector: string, on: boolean): void {
-  q(root, selector)?.classList.toggle("hover", on);
-}
-
-function select(root: Root, id: string): void {
-  for (const row of root.querySelectorAll<HTMLElement>("[data-row]")) {
-    row.classList.toggle("selected", row.dataset.row === id);
-  }
-  q(root, "[data-ace]")?.setAttribute("data-thread", id);
-}
-
-function tone(root: Root, id: string, kind: string, label?: string): void {
-  const row = q(root, `[data-row="${id}"]`);
-  if (!row) return;
-  row.dataset.tone = kind;
-  const time = q(row, ".time");
-  if (time && label !== undefined) time.textContent = label;
-}
-
-/** Every scene starts from the same app: one thread open, nothing pressed, nothing open. */
-function show(root: Root, state: { thread: string; approved?: boolean }): void {
-  const ace = q(root, "[data-ace]");
-  if (!ace) return;
-  select(root, state.thread);
-  ace.setAttribute("data-panel", "off");
-  ace.setAttribute("data-filter", "all");
-  ace.setAttribute("data-approved", state.approved ? "yes" : "no");
-  tone(root, "checkout", state.approved ? "done" : "approve", state.approved ? "now" : "");
-  desktop(root)?.removeAttribute("data-sim-shown");
-  q(root, "[data-note]")?.classList.remove("on");
-  q(root, "[data-menu]")?.classList.remove("open");
-  for (const element of root.querySelectorAll(".hover")) element.classList.remove("hover");
-  const sim = q(root, "[data-sim]");
-  sim?.setAttribute("data-screen", "sign-in");
-  for (const field of root.querySelectorAll("[data-type]")) field.textContent = "";
-  for (const field of root.querySelectorAll(".field.focus")) field.classList.remove("focus");
-  const note = q(root, "[data-sim-note]");
-  if (note) note.textContent = "Opening Acme";
-}
 
 export function startStageStory(root: Root): void {
   const mac = q(root, "[data-mac]");
-  const desk = desktop(root);
+  const desk = q(root, "[data-desktop]");
   const pointer = q(root, "[data-pointer]");
   if (!mac || !desk || !pointer) return;
-  q(root, ".ace")?.setAttribute("data-ace", "");
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const scale = () => mac.clientWidth / 1352;
@@ -166,6 +27,9 @@ export function startStageStory(root: Root): void {
   setInterval(() => {
     if (document.hidden) return;
     for (const clock of clocks) {
+      // A row that finished, waits on you or hit a limit shows no running time.
+      if (clock.closest('[data-tone="done"], [data-tone="approve"], [data-tone="limited"]'))
+        continue;
       const seconds = Number(clock.dataset.seconds) + 1;
       clock.dataset.seconds = String(seconds);
       clock.textContent = formatElapsed(seconds * 1000);
@@ -234,6 +98,21 @@ export function startStageStory(root: Root): void {
         await wait(220);
         touch.classList.remove("down");
         await wait(250);
+      },
+      async agentTo(target) {
+        const cursor = q(root, "[data-agent-cursor]");
+        const site = q(root, ".site");
+        if (!alive() || !cursor || !site || !target) return;
+        const s = scale();
+        const r = target.getBoundingClientRect();
+        const page = site.getBoundingClientRect();
+        cursor.classList.add("shown");
+        cursor.style.setProperty("--ax", `${(r.left - page.left + r.width * 0.55) / s}px`);
+        cursor.style.setProperty("--ay", `${(r.top - page.top + r.height * 0.4) / s}px`);
+        await wait(950);
+      },
+      hidePointer() {
+        pointer.classList.remove("shown");
       },
       async type(target, text, mask = false) {
         if (!target) return;
