@@ -1,5 +1,5 @@
 import { facts } from "@ace/fake-daemon";
-import { ThreadId } from "@ace/protocol";
+import { HostId, ThreadId } from "@ace/protocol";
 import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
@@ -56,7 +56,7 @@ test("a delegated child on another machine wears that machine's account badge an
                 generation: 0,
                 complete: false,
                 outcome: null,
-                machine: { machine: "build", name: "Build server", hostId: "build" },
+                machine: { machine: "build", name: "Build server", hostId: HostId.parse("build") },
               },
             },
           ],
