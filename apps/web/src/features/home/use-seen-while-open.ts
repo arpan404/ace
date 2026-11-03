@@ -20,7 +20,10 @@ export function useSeenWhileOpen() {
   const ready = useConnectionState() === "ready";
   const queries = useQueryClient();
   // updatedAt also advances on read acknowledgements and organization changes.
-  const activity = entry?.activitySeq ?? entry?.activityAt ?? entry?.createdAt;
+  // A snooze that ends while the thread is open is seen too, so its wake counts as news.
+  const activity =
+    entry &&
+    `${entry.activitySeq ?? entry.activityAt ?? entry.createdAt}:${entry.snoozeWoke?.at ?? ""}`;
   const sent = useRef<string>(undefined);
   useEffect(() => {
     sent.current = undefined;

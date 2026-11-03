@@ -20,7 +20,7 @@ import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { AlarmIcon, ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -162,6 +162,8 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const { level } = props.attention;
   // A snoozed row says what it waits for where its status sits, unless it needs the person.
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
+  // Back from a snooze, until read: the alarm and why, unless it needs the person or failed.
+  if (card.woke && level !== "needs-you" && level !== "failed") return <RowWoke woke={card.woke} />;
   const look = rowStatusLook(props.attention, card);
   return (
     <Tip label={look.meaning}>
@@ -248,6 +250,26 @@ export function RowWake(props: { wake: string }) {
       <ClockIcon aria-hidden size={12} />
       {props.wake}
     </span>
+  );
+}
+
+/**
+ * A row back from a snooze that ended by itself says why where its status sits: the alarm, then
+ * a few words ("checks failed"); the tooltip and the element's name say the whole sentence.
+ */
+export function RowWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
+  return (
+    <Tip label={props.woke.sentence}>
+      <span
+        role="img"
+        aria-label={props.woke.sentence}
+        data-woke
+        className="inline-flex min-w-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground"
+      >
+        <AlarmIcon aria-hidden size={14} weight="fill" className="shrink-0 text-foreground" />
+        <span className="truncate">{props.woke.short}</span>
+      </span>
+    </Tip>
   );
 }
 

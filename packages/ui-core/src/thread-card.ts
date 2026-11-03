@@ -2,6 +2,7 @@ import type {
   CatalogModel,
   MachineIcon,
   ProviderKind,
+  SnoozeWoke,
   ThreadListEntry,
   ThreadReadStateResponse,
   ThreadDetails,
@@ -9,6 +10,7 @@ import type {
 import { activityOf, isSnoozed, isUnread } from "./thread-state.ts";
 import { providerDisplayName, providerLabel } from "./providers.ts";
 import { snoozeLabel } from "./snooze.ts";
+import { backFromSnooze, wokeSentence, wokeShort } from "./snooze-woke.ts";
 import { projectBadge, type ProjectBadge } from "./project-badge.ts";
 import {
   runningSubagents,
@@ -147,6 +149,12 @@ export interface ThreadCard {
   announceUnread: boolean;
   /** "until tomorrow 9:00 AM", "until it needs you" while snoozed (`snoozeLabel`). */
   wake: string | undefined;
+  /**
+   * Back from a snooze that ended by itself, until the person reads it (`backFromSnooze`): the
+   * row's few words ("checks failed") and the whole sentence for its tooltip. Absent while the
+   * tree works, whose own status says more.
+   */
+  woke: { short: string; sentence: string } | undefined;
   machine: string | undefined;
   machineIcon: MachineIcon | undefined;
   /**
@@ -301,12 +309,17 @@ function unconfirmedCard(card: ThreadCard, failedSend: boolean): ThreadCard {
       : syncingAttention,
     pill: failedSend ? { label: notSent, tone: "failed", icon: "failed" } : undefined,
     announceUnread: false,
+    woke: undefined,
     status: failedSend
       ? { label: notSent, tone: "failed", mark: "failed", compact: notSent }
       : { label: syncingWord, tone: "idle", mark: "none", compact: syncingWord },
     subagents: 0,
     providerLabel: providerLabel(providerDisplayName(card.provider, card.acpAgentId), 0),
   };
+}
+
+function wokeWords(woke: SnoozeWoke | undefined): ThreadCard["woke"] {
+  return woke && { short: wokeShort(woke), sentence: wokeSentence(woke) };
 }
 
 function currentCard(input: ThreadCardInput): ThreadCard {
@@ -378,6 +391,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     prs: details?.prs,
     announceUnread: unread && !needsYou,
     wake: snoozed ? snoozeLabel(entry, now, input.locale) : undefined,
+    woke: working ? undefined : wokeWords(backFromSnooze(entry, now)),
     machine: details?.machine,
     machineIcon: details?.machineIcon,
     branch: details?.branch
