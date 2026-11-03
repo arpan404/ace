@@ -56,6 +56,11 @@ export type AceLogin = z.infer<typeof AceLogin>;
  * backend allows.
  */
 export const ACE_APP_SIGN_IN_RETURN = "ace://account/signed-in";
+/**
+ * ace's own account backend, which also serves ace's hosted relay as `wss://` on the same host
+ * (ADR 0110, 0111). Apps and daemons use it unless their settings name another.
+ */
+export const ACE_HOSTED_ACCOUNT_ORIGIN = "https://relay.acehq.dev";
 export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
 
 /** `POST /v1/account/login`; the body is optional. */

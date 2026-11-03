@@ -146,6 +146,16 @@
             }
           ]
         },
+        "snoozeWoke": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/SnoozeWoke.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "snoozedUntil": {
           "anyOf": [
             {

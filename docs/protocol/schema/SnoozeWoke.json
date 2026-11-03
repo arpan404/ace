@@ -1,0 +1,84 @@
+{
+  "$id": "https://ace.local/protocol/v1/SnoozeWoke.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "on": {
+          "const": "time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "at"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "on": {
+          "const": "needs_you",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "finished",
+            "failed",
+            "asking",
+            "limited"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "at",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "change": {
+          "enum": [
+            "merged",
+            "closed",
+            "reopened",
+            "checks_passed",
+            "checks_failed",
+            "pushed",
+            "updated",
+            "unlinked"
+          ],
+          "type": "string"
+        },
+        "number": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "on": {
+          "const": "pr",
+          "type": "string"
+        }
+      },
+      "required": [
+        "on",
+        "at",
+        "number",
+        "change"
+      ],
+      "type": "object"
+    }
+  ]
+}

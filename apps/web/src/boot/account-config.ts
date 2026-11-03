@@ -1,6 +1,7 @@
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   ACE_APP_SIGN_IN_RETURN,
+  ACE_HOSTED_ACCOUNT_ORIGIN,
   ACE_WEB_SIGN_IN_PATH,
   AceAccountGrant,
 } from "@ace/protocol/ace-account";
@@ -12,9 +13,14 @@ import { z } from "zod";
  * `VITE_ACE_HOSTED_RELAY_URL` names another.
  */
 
-/** The account backend's origin, or undefined in a build without ace accounts. */
+/**
+ * The account backend's origin, or undefined in a build without ace accounts. A release build
+ * uses ace's own unless `VITE_ACE_ACCOUNT_URL` names another; set empty, it turns accounts off.
+ * Development and tests have none unless they set it.
+ */
 export function accountOrigin(env: ImportMetaEnv = import.meta.env): string | undefined {
-  return env.VITE_ACE_ACCOUNT_URL || undefined;
+  if (env.VITE_ACE_ACCOUNT_URL !== undefined) return env.VITE_ACE_ACCOUNT_URL || undefined;
+  return env.PROD ? ACE_HOSTED_ACCOUNT_ORIGIN : undefined;
 }
 
 /** ace's hosted relay as a WebSocket address, or undefined without an account backend. */

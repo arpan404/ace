@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { accountDeviceId, hostedRelayUrl, signInReturnTo } from "./account-config.ts";
+import {
+  accountDeviceId,
+  accountOrigin,
+  hostedRelayUrl,
+  signInReturnTo,
+} from "./account-config.ts";
 
 const env = (values: Partial<ImportMetaEnv>) =>
   ({ ...import.meta.env, ...values }) as ImportMetaEnv;
@@ -20,6 +25,24 @@ test("the hosted relay is the account origin as a WebSocket address unless one i
     ),
   ).toBe("wss://relay.x");
   expect(hostedRelayUrl(env({ VITE_ACE_ACCOUNT_URL: "" }))).toBeUndefined();
+});
+
+/** A build's settings without an account address: `prod` for a release build. */
+function build(prod: boolean, values: Partial<ImportMetaEnv> = {}): ImportMetaEnv {
+  const { VITE_ACE_ACCOUNT_URL: _unset, ...rest } = import.meta.env;
+  return { ...rest, PROD: prod, ...values } as ImportMetaEnv;
+}
+
+test("a release build uses ace's own account backend unless told otherwise", () => {
+  expect(accountOrigin(build(true))).toBe("https://relay.acehq.dev");
+  expect(hostedRelayUrl(build(true))).toBe("wss://relay.acehq.dev");
+  expect(accountOrigin(build(true, { VITE_ACE_ACCOUNT_URL: "https://accounts.example" }))).toBe(
+    "https://accounts.example",
+  );
+  // Empty turns accounts off, for a build that ships without them.
+  expect(accountOrigin(build(true, { VITE_ACE_ACCOUNT_URL: "" }))).toBeUndefined();
+  // Development builds and tests stay account-free unless they set it.
+  expect(accountOrigin(build(false))).toBeUndefined();
 });
 
 test("a browser keeps one device id for its grants, and replaces a damaged one", () => {
