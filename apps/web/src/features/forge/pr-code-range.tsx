@@ -142,7 +142,8 @@ export function PrCodeRange(
     return { ...view, expanded: new Set(view.expanded).add(index) };
   };
   const scroller = useRef<HTMLDivElement>(null);
-  // Auto and a Split too narrow to read settle on the diff column's own width.
+  // Auto settles on the diff column's own width; a chosen layout is drawn as chosen (a full
+  // page, unlike the side panel, has the room to scroll a split sideways).
   const [measure, width] = useElementWidth();
   const diffColumn = useCallback(
     (element: HTMLDivElement | null) => {
@@ -151,7 +152,10 @@ export function PrCodeRange(
     },
     [measure],
   );
-  const layout = diffLayout(width, { ...options, tree: false }, files.length);
+  const layout =
+    options.mode === "auto"
+      ? diffLayout(width, { ...options, tree: false }, files.length)
+      : { mode: options.mode, splitTooNarrow: false };
   const blocks = useRef<VirtualRowsHandle>(null);
   const anchor = `pr-file-${props.range.since ?? ""}${props.range.commit || "all"}`;
   const show = (path: string) => {
