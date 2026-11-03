@@ -2,6 +2,7 @@ import type { AccountSetup } from "./config.ts";
 import { sealer } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
 import { directoryRoutes } from "./directory.ts";
+import { workosHealth } from "./health.ts";
 import { loginRoutes } from "./login.ts";
 import { loginStore } from "./logins.ts";
 import { machineStore } from "./machines.ts";
@@ -38,6 +39,7 @@ export function accountApi(
   const seal = sealer(config.encryptionKey, random);
   const sessions = sessionStore(deps.db, seal);
   const provider = workos(config, deps.fetch);
+  const health = workosHealth(config, deps.fetch, now);
   const reader = sessionReader({ store: sessions, provider, now });
   const logins = loginStore(deps.db, seal);
   const login = loginRoutes({
@@ -60,6 +62,8 @@ export function accountApi(
     const { pathname } = url;
     const method = request.method;
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
+    // Verdicts only: whether WorkOS accepts the Worker's key and client id.
+    if (pathname === "/v1/account/health" && method === "GET") return json(200, await health());
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
     if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
     const machine = pathname.match(machinePath)?.[1];

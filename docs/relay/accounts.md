@@ -48,6 +48,10 @@ By hand, from `apps/relay-cloudflare`:
 6. `bun run smoke https://YOUR_RELAY_DOMAIN` checks the live Worker without an
    account: it answers, publishes grant keys, starts and cancels a sign-in, and
    refuses relay upgrades that carry no grant.
+7. `bun run check:workos https://YOUR_RELAY_DOMAIN` asks the Worker whether WorkOS
+   accepts its own API key and client id. The Worker checks them itself
+   (`GET /v1/account/health`) and answers with verdicts only, never any part of the
+   key; it reuses an answer for 30 seconds.
 
 ### Releases deploy it
 
