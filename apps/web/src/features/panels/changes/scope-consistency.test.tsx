@@ -71,6 +71,32 @@ test("uncommitted totals come from the live checkout and stay selected across ta
   await waitFor(() => expectTotal(panel, 2, 1));
 });
 
+const readmePatch = (line: string) =>
+  `diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1,2 @@\n Keep\n+${line}\n`;
+
+test("the uncommitted diff stays on screen while git is read again after the thread moves on", async () => {
+  const app = harness();
+  const thread = "thread-cold-start";
+  app.daemon.workspace.setGitDiff(thread, readmePatch("Before the turn"));
+  const panel = await openChanges(app);
+  await pick(panel, "Uncommitted");
+  const diffText = () => within(panel).queryByLabelText("Uncommitted diff")?.textContent ?? "";
+  await waitFor(() => expect(diffText()).toContain("+Before the turn"));
+
+  // The thread moves on (here a commit) and git is slow to answer: the last diff stays shown.
+  const held = app.daemon.workspace.holdGitDiff(thread);
+  onTestFinished(held.release);
+  app.daemon.workspace.setGitDiff(thread, readmePatch("After the turn"));
+  app.daemon.updateThread(thread, { status: { state: "done" } });
+  app.daemon.workspace.setDetails(thread, { head: "c".repeat(40) });
+  await held.entered;
+  expect(diffText()).toContain("+Before the turn");
+  expect(within(panel).queryByText("Reading changes…")).toBeNull();
+
+  held.release();
+  await waitFor(() => expect(diffText()).toContain("+After the turn"));
+});
+
 test("diff comment controls explain the old or new line on hover and open a comment", async () => {
   const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
   Object.defineProperty(HTMLElement.prototype, "offsetWidth", {

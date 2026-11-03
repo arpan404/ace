@@ -57,6 +57,7 @@ export function useUncommitted(threadId: string, shown: boolean) {
     body,
     notice,
     refresh: () => void diff.refetch(),
-    refreshing: diff.isFetching,
+    // A background read keeps the last diff shown and says nothing; a Refresh shows it's working.
+    refreshing: diff.isFetching && !diff.isPlaceholderData,
   };
 }
