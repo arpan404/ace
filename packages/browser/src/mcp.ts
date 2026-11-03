@@ -513,6 +513,8 @@ export function browserToolkit(
   return {
     register(registry) {
       for (const tool of [...tabTools, ...pageTools]) {
+        // Built once per tool when the toolkit registers, from that tool's own input.
+        // oxlint-disable-next-line ace/zod-schema-in-function -- runs once at registration
         const shape = z.strictObject({
           ...tool.input,
           ...routing(tool.name, route !== undefined, user !== undefined),

@@ -3,6 +3,9 @@ import type { BrowserCdp } from "./backend.ts";
 import { CallResult } from "./cdp.ts";
 import { decodeEvaluationValue, serializeEvaluationValue } from "./evaluation-value.ts";
 
+const MainFrameTree = z.object({ frameTree: z.object({ frame: z.object({ id: z.string() }) }) });
+const IsolatedWorld = z.object({ executionContextId: z.number() });
+
 /** Return bounded text over CDP, then validate and decode at the trusted host. */
 export async function evaluatePage(cdp: BrowserCdp, expression: string): Promise<unknown> {
   const response = CallResult.parse(
@@ -59,11 +62,9 @@ export async function evaluateReadOnly(
   expression: string,
   check: () => void,
 ): Promise<unknown> {
-  const tree = z
-    .object({ frameTree: z.object({ frame: z.object({ id: z.string() }) }) })
-    .parse(await cdp.send("Page.getFrameTree"));
+  const tree = MainFrameTree.parse(await cdp.send("Page.getFrameTree"));
   check();
-  const world = z.object({ executionContextId: z.number() }).parse(
+  const world = IsolatedWorld.parse(
     await cdp.send("Page.createIsolatedWorld", {
       frameId: tree.frameTree.frame.id,
       worldName: "ace-read-only",

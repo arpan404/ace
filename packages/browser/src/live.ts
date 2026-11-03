@@ -6,6 +6,9 @@ import type { CaptureViewer, ViewerSink } from "./viewer-sink.ts";
 import { screencastSettings } from "./capture-policy.ts";
 import { LiveVideo, type LiveVideoSource } from "./live-video.ts";
 
+const DevicePixelRatio = z.object({ result: z.object({ value: z.number().positive().finite() }) });
+const InitialFrame = z.object({ data: z.string().max(4 * 1024 * 1024) });
+
 const Ack = z.object({ sessionId: z.number().int() });
 /** How long the screencast keeps running after it was last needed: back-to-back agent commands
  * keep one screencast. */
@@ -288,17 +291,15 @@ export class LiveCapture {
     const sequence = this.sequence,
       epoch = this.privacy().epoch;
     const viewport = this.viewport();
-    const ratio = z
-      .object({ result: z.object({ value: z.number().positive().finite() }) })
-      .safeParse(
-        await this.cdp.send("Runtime.evaluate", {
-          expression: "window.devicePixelRatio",
-          returnByValue: true,
-        }),
-      );
+    const ratio = DevicePixelRatio.safeParse(
+      await this.cdp.send("Runtime.evaluate", {
+        expression: "window.devicePixelRatio",
+        returnByValue: true,
+      }),
+    );
     const dpr = ratio.success ? ratio.data.result.value : 1;
     const recording = this.needed();
-    const initial = z.object({ data: z.string().max(4 * 1024 * 1024) }).parse(
+    const initial = InitialFrame.parse(
       await this.cdp.send("Page.captureScreenshot", {
         format: "jpeg",
         quality: this.settings.quality,

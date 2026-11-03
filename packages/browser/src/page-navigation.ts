@@ -3,6 +3,8 @@ import { BrowserActionError } from "./action-error.ts";
 import type { BrowserCdp } from "./backend.ts";
 import type { NavigationClock } from "./navigation.ts";
 import { NavigationHistory, historySteps } from "./page-history.ts";
+
+const FindResult = z.object({ result: z.object({ value: z.boolean().optional() }) });
 const shownEntries = 20;
 /** Whether back/forward work, and the session's recent entries with the current one marked. */
 export async function pageHistory(cdp: BrowserCdp) {
@@ -80,7 +82,7 @@ export async function traverseHistory(
   }
 }
 export async function findPageText(cdp: BrowserCdp, text: string, forward: boolean) {
-  const result = z.object({ result: z.object({ value: z.boolean().optional() }) }).parse(
+  const result = FindResult.parse(
     await cdp.send("Runtime.evaluate", {
       expression: text
         ? `window.find(${JSON.stringify(text)},false,${!forward},true,false,true,false)`
