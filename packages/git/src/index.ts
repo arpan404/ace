@@ -49,6 +49,7 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import { checkoutStamp } from "./checkout-stamp.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
@@ -480,6 +481,15 @@ export class GitService {
     return this.repository.serial(root, () =>
       deleteCheckpoints(this.repository, root, options.threadId),
     );
+  }
+
+  /**
+   * A cheap identity of the checkout's HEAD-to-working-tree diff (one status read and a stat per
+   * listed path); equal stamps mean an equal diff. Undefined when a stamp can't vouch for it.
+   */
+  async checkoutStamp(worktree: string): Promise<string | undefined> {
+    const root = await this.repository.root(worktree);
+    return this.repository.serial(root, () => checkoutStamp(this.repository, root));
   }
 
   /** `paths` limits the diff to those repository-relative paths (both sides of a rename). */

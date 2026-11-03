@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useDiffPrefs } from "./diff-prefs.ts";
 import { ChangesToolbar } from "./changes-toolbar.tsx";
 import { ReviewSurface } from "./review-surface.tsx";
@@ -20,7 +21,8 @@ export function ChangesTab(props: {
   const turn = useScopedDiff(threadId, props.tabKey);
   const { edited } = turn;
   const working = !edited.length || turn.scope === "working-tree";
-  const uncommitted = useUncommitted(threadId, working);
+  const edits = useMemo(() => edited.reduce((sum, edit) => sum + edit.edits.length, 0), [edited]);
+  const uncommitted = useUncommitted(threadId, working, edits);
   const files = working ? uncommitted.files : turn.files;
   // One surface whatever the scope, so what it holds (folded files) outlives a scope's change.
   return (

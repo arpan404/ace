@@ -251,3 +251,37 @@ test("binary detection scans beyond the first block and excludes file-directory 
   expect(result.patch).not.toContain("\0");
   expect(result.patch).toContain("+visible replacement");
 });
+
+test("a checkout's stamp moves with every change its diff would show, and only then", async () => {
+  const repo = await repository({ "tracked.txt": "one\n" });
+  const clean = await service.checkoutStamp(repo);
+  expect(await service.checkoutStamp(repo)).toBe(clean);
+
+  await put(repo, "tracked.txt", "two\n");
+  const edited = await service.checkoutStamp(repo);
+  expect(edited).not.toBe(clean);
+  expect(await service.checkoutStamp(repo)).toBe(edited);
+
+  // Same size, same status letters: only the file's own facts tell the edits apart.
+  await put(repo, "tracked.txt", "six\n");
+  const again = await service.checkoutStamp(repo);
+  expect(again).not.toBe(edited);
+
+  await put(repo, "new.txt", "aaa\n");
+  const untracked = await service.checkoutStamp(repo);
+  expect(untracked).not.toBe(again);
+  await put(repo, "new.txt", "bbb\n");
+  expect(await service.checkoutStamp(repo)).not.toBe(untracked);
+
+  await put(repo, "tracked.txt", "one\n");
+  await rm(join(repo, "new.txt"));
+  await git(repo, "commit", "--allow-empty", "-m", "moved");
+  expect(await service.checkoutStamp(repo)).not.toBe(clean);
+});
+
+test("a checkout holding a nested repository has no stamp, so its diff is always read", async () => {
+  const repo = await repository({ "tracked.txt": "one\n" });
+  const nested = await repository({ "inner.txt": "inner\n" });
+  await rename(nested, join(repo, "nested"));
+  expect(await service.checkoutStamp(repo)).toBeUndefined();
+});

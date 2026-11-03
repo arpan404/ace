@@ -1,6 +1,7 @@
 import { ForgeMediaCache, forgeMediaRoot } from "./forge-media/media-cache.ts";
 import { diffPage, filePatchBytes } from "./git-diff-page.ts";
 import { FilePatchCache } from "./git-diff-cache.ts";
+import { WorkingDiffCache } from "./working-diff-cache.ts";
 import { ForgeMediaService } from "./forge-media/media-service.ts";
 import type { ForgeMediaGrants } from "./forge-media/media-grants.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
@@ -146,6 +147,8 @@ export class WorkspaceRuntime {
   private origins: OriginCache;
   /** One file's patch, read once for all its pages (`git.diff` with `path`). */
   private filePatches: FilePatchCache;
+  /** Each checkout's whole diff, served again while its stamp says nothing changed. */
+  private workingDiffs = new WorkingDiffCache();
   private options: WorkspaceRuntimeOptions;
   private prLifetime = new AbortController();
   private manager: TerminalManager;
@@ -706,11 +709,15 @@ export class WorkspaceRuntime {
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
       if (op.path === undefined) {
-        const diff = await this.git.diff({
-          worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
-          maxPatchBytes: 262144,
+        const stamp = await this.git.checkoutStamp(root);
+        const diff = await this.workingDiffs.read(root, stamp, async () => {
+          const read = await this.git.diff({
+            worktree: root,
+            from: { kind: "commit", ref: "HEAD" },
+            to: { kind: "working-tree" },
+            maxPatchBytes: 262144,
+          });
+          return { patch: read.patch, truncated: read.truncated };
         });
         if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
         return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
