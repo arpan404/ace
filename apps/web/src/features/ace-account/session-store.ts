@@ -11,6 +11,8 @@ export interface AceAccountBackend {
   client: AceAccountClient;
   /** This window's copy (session storage), so a reload doesn't ask the backend first. */
   storage: KeyValueStorage;
+  /** Where the browser goes when sign-in ends (`signInReturnTo`); absent keeps it there. */
+  returnTo?: string | undefined;
   /** The desktop app's encrypted copy; absent in a browser. */
   secure?:
     | {
@@ -52,6 +54,7 @@ export function aceAccountStore(backend: AceAccountBackend) {
   return {
     origin,
     client,
+    returnTo: backend.returnTo,
     get: () => state,
     subscribe(listener: () => void) {
       listeners.add(listener);

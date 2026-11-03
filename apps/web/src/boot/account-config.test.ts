@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { accountDeviceId, hostedRelayUrl } from "./account-config.ts";
+import { accountDeviceId, hostedRelayUrl, signInReturnTo } from "./account-config.ts";
 
 const env = (values: Partial<ImportMetaEnv>) =>
   ({ ...import.meta.env, ...values }) as ImportMetaEnv;
@@ -34,4 +34,12 @@ test("a browser keeps one device id for its grants, and replaces a damaged one",
   expect(accountDeviceId(storage, id)).toBe(first);
   values.set("ace.account.deviceId", "not valid!");
   expect(accountDeviceId(storage, id)).toBe("device-2-aaaaaaaa");
+});
+
+test("sign-in returns to the desktop app by its link and to a browser by its own landing page", () => {
+  expect(signInReturnTo({ desktop: true, origin: "app://ace" })).toBe("ace://account/signed-in");
+  expect(signInReturnTo({ desktop: false, origin: "https://app.acehq.dev" })).toBe(
+    "https://app.acehq.dev/account/signed-in",
+  );
+  expect(signInReturnTo({ desktop: false, origin: "null" })).toBeUndefined();
 });

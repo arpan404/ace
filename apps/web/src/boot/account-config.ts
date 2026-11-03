@@ -1,5 +1,9 @@
 import { readJson, type KeyValueStorage } from "@ace/ui-core";
-import { AceAccountGrant } from "@ace/protocol/ace-account";
+import {
+  ACE_APP_SIGN_IN_RETURN,
+  ACE_WEB_SIGN_IN_PATH,
+  AceAccountGrant,
+} from "@ace/protocol/ace-account";
 import { z } from "zod";
 
 /*
@@ -20,6 +24,17 @@ export function hostedRelayUrl(env: ImportMetaEnv = import.meta.env): string | u
   if (!origin) return undefined;
   const url = new URL(origin);
   return `${url.protocol === "http:" ? "ws:" : "wss:"}//${url.host}`;
+}
+
+/**
+ * Where the browser goes when sign-in ends (ADR 0100): the desktop app's `ace://` link, or this
+ * web app's landing page on its own origin. Undefined where neither applies.
+ */
+export function signInReturnTo(page: { desktop: boolean; origin: string }): string | undefined {
+  if (page.desktop) return ACE_APP_SIGN_IN_RETURN;
+  return /^https?:\/\/[^/]+$/.test(page.origin)
+    ? `${page.origin}${ACE_WEB_SIGN_IN_PATH}`
+    : undefined;
 }
 
 /** Where a window keeps its copy of the ace session for `origin`. */

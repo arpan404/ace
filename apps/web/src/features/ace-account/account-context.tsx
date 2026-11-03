@@ -8,7 +8,8 @@ import {
   type ReactNode,
 } from "react";
 import { accountSecret } from "@/boot/account-secret.ts";
-import { accountOrigin } from "@/boot/account-config.ts";
+import { accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
+import { hasDesktopBridge } from "@/boot/desktop.ts";
 import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import {
@@ -41,6 +42,7 @@ function deployedBackend(): AceAccountBackend | undefined {
     }),
     storage: webStorage(() => sessionStorage),
     secure: accountSecret(),
+    returnTo: signInReturnTo({ desktop: hasDesktopBridge(), origin: location.origin }),
   };
 }
 
