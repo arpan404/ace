@@ -17,11 +17,12 @@ export interface ForgeGroup<R> {
 }
 
 type Entry<R> =
-  | { kind: "group"; group: ForgeGroup<R> }
+  | { kind: "group"; group: ForgeGroup<R>; first: boolean }
   | { kind: "row"; row: R; group: string; last: boolean };
 
-/** A group's heading line: its words, with 20px above and 6px below. */
-const headingHeight = 42;
+/** A group's heading line: its words, with 24px above (12px for the first) and 4px below. */
+const headingHeight = 44;
+const firstHeadingHeight = 32;
 
 /**
  * The rows of a Code review list (Pull requests, Issues, Inbox) across the main column: its
@@ -51,7 +52,7 @@ export function ForgeList<R>(props: {
   const { rowKey, rowTitle } = props;
   const entries: Entry<R>[] = [];
   for (const group of props.groups) {
-    if (group.headed) entries.push({ kind: "group", group });
+    if (group.headed) entries.push({ kind: "group", group, first: entries.length === 0 });
     group.rows.forEach((row, index) =>
       entries.push({ kind: "row", row, group: group.id, last: index === group.rows.length - 1 }),
     );
@@ -132,10 +133,16 @@ export function ForgeList<R>(props: {
         rowKey={(entry) =>
           entry.kind === "group" ? `group:${entry.group.id}` : `row:${rowKey(entry.row)}`
         }
-        estimate={(entry) => (entry.kind === "group" ? headingHeight : props.estimate)}
+        estimate={(entry) =>
+          entry.kind === "group"
+            ? entry.first
+              ? firstHeadingHeight
+              : headingHeight
+            : props.estimate
+        }
         render={(entry) =>
           entry.kind === "group" ? (
-            <GroupHeader label={entry.group.label} count={entry.group.count} />
+            <GroupHeader label={entry.group.label} count={entry.group.count} first={entry.first} />
           ) : (
             props.renderRow(entry.row, entry.group, entry.last)
           )

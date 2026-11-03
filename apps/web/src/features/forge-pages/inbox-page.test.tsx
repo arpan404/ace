@@ -30,15 +30,15 @@ async function row(title: string) {
   return found;
 }
 
-test("the inbox lists unread notifications with why each arrived, and the sidebar counts them", async () => {
+test("the inbox lists unread notifications with why each reached you, and the sidebar counts them", async () => {
   const app = withInbox();
   await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   const first = await row("Reconnect the client worker");
   expect(first.textContent).toContain("#229");
-  expect(first.textContent).toContain("Review requested");
-  expect((await row("Rewrite the install page")).textContent).toContain("Mentioned");
-  expect((await row("CI workflow run failed")).textContent).toContain("CI activity");
+  expect(first.textContent).toMatch(/asked (you )?to review/);
+  expect((await row("Rewrite the install page")).textContent).toContain("You were mentioned");
+  expect((await row("CI workflow run failed")).textContent).toContain("Workflow run");
   expect(await screen.findByRole("link", { name: /7 unread$/ })).toBeTruthy();
 });
 
@@ -65,7 +65,7 @@ test("Mark done clears a notification, and Unsubscribe stops one and clears it",
   const user = userEvent.setup();
   await app.open("/inbox");
   await user.click(
-    within(await row("Rewrite the install page")).getByRole("button", { name: "Mark done" }),
+    within(await row("Rewrite the install page")).getByRole("button", { name: "Done" }),
   );
   await waitFor(async () =>
     expect((await rows()).some((text) => text.includes("Rewrite the install page"))).toBe(false),
@@ -94,7 +94,7 @@ test("with a reason chosen, only those notifications show, read ones included in
   const app = withInbox();
   await app.open("/inbox?view=all&reason=team_mention");
   await waitFor(async () => expect(await rows()).toHaveLength(2));
-  expect((await rows()).every((text) => text.includes("Team mentioned"))).toBe(true);
+  expect((await rows()).every((text) => text.includes("Your team was mentioned"))).toBe(true);
 });
 
 test("a gh sign-in that can't read notifications says how to fix it", async () => {
@@ -175,7 +175,7 @@ test("a write GitHub refused puts the row back and says why", async () => {
   const user = userEvent.setup();
   await app.open("/inbox");
   await user.click(
-    within(await row("Rewrite the install page")).getByRole("button", { name: "Mark done" }),
+    within(await row("Rewrite the install page")).getByRole("button", { name: "Done" }),
   );
   const alert = await screen.findByRole("alertdialog");
   expect(within(alert).getByText("Couldn't mark it done")).toBeTruthy();

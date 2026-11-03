@@ -1,13 +1,19 @@
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
+import { MenuItem } from "@/components/ui/menu.tsx";
 import { Link } from "@tanstack/react-router";
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import type { ForgeInboxRow } from "@ace/protocol";
-import { inboxReasonWords, inboxTarget, inboxTypeWords } from "@ace/ui-core";
-import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { inboxTarget, inboxTypeWords, inboxWhyWords } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { IssueStateWord, PrStateWord } from "./marks.tsx";
-import { Age, Dot, ProjectTag, rowClass } from "./row-parts.tsx";
+import {
+  Age,
+  Dot,
+  onModifiedClick,
+  ProjectTag,
+  RowShell,
+  rowActionClass,
+  rowClass,
+} from "./row-parts.tsx";
 
 /** A pull request's or issue's state in words before its title; other subjects say their type on line 2. */
 function SubjectWord(props: { row: ForgeInboxRow }) {
@@ -29,9 +35,10 @@ export interface InboxRowTarget {
 
 /**
  * One notification at GitHub's density: the unread dot in the gutter, the title (after its
- * state in words when that matters), then its repository, number, why it arrived and how long ago. Opening it
- * marks it read. Hover or focus shows Mark read, Mark done and Unsubscribe (which also marks it
- * done).
+ * state in words when that matters), then its repository, number, why it reached the person in
+ * their terms ("sam asked you to review") and how long ago. Opening it marks it read. Hover or
+ * focus shows Mark read, Done and Unsubscribe (which also marks it done) as words at the right;
+ * ⌘/Ctrl-click and the right-click menu open it on GitHub.
  */
 export function InboxRow(props: {
   row: ForgeInboxRow;
@@ -40,6 +47,8 @@ export function InboxRow(props: {
   onWrite(action: "read" | "done" | "unsubscribe"): void;
   /** The row's project, at the start of line 2, when the list shows more than one. */
   tag?: { id: string; name: string } | undefined;
+  /** Who asked for the review, when a list already read the pull request. */
+  asker?: string | undefined;
   /** The last of the list: no rule under it. */
   last?: boolean | undefined;
 }) {
@@ -85,8 +94,8 @@ export function InboxRow(props: {
             </>
           )}
           <Dot />
-          <span className="shrink-0">{inboxReasonWords(row.reason)}</span>
-          {target.kind === "web" && inboxTypeWords(row.type) !== inboxReasonWords(row.reason) && (
+          <span className="min-w-0 truncate">{inboxWhyWords(row, props.asker)}</span>
+          {target.kind === "web" && inboxTypeWords(row.type) !== inboxWhyWords(row) && (
             <>
               <span aria-hidden className="text-subtle-foreground">
                 ·
@@ -101,13 +110,48 @@ export function InboxRow(props: {
       </span>
     </>
   );
+  const openOnGitHub = (event: MouseEvent<HTMLElement>) => {
+    if (!row.url || !(event.metaKey || event.ctrlKey)) return false;
+    markRead();
+    onModifiedClick(row.url, props.onOpenWeb)(event);
+    return true;
+  };
+  const act = (label: string, action: "read" | "done" | "unsubscribe") => (
+    <button type="button" className={rowActionClass} onClick={() => props.onWrite(action)}>
+      {label}
+    </button>
+  );
   return (
-    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
+    <RowShell
+      label={row.title}
+      url={row.url}
+      last={props.last}
+      menu={
+        <>
+          {row.unread && <MenuItem onClick={() => props.onWrite("read")}>Mark read</MenuItem>}
+          <MenuItem onClick={() => props.onWrite("done")}>Done</MenuItem>
+          <MenuItem onClick={() => props.onWrite("unsubscribe")}>Unsubscribe</MenuItem>
+        </>
+      }
+      actions={
+        <>
+          {row.unread && (
+            <>
+              {act("Mark read", "read")}
+              <Dot />
+            </>
+          )}
+          {act("Done", "done")}
+          <Dot />
+          {act("Unsubscribe", "unsubscribe")}
+        </>
+      }
+    >
       {target.kind === "web" ? (
         <button
           type="button"
           data-view-row=""
-          className={rowClass}
+          className={cn(rowClass, "group-focus-within/row:bg-hover")}
           onClick={() => {
             markRead();
             props.onOpenWeb(target.url);
@@ -121,33 +165,14 @@ export function InboxRow(props: {
           params={{ project: to.project, number: String(target.number) }}
           search={{ back: to.back, ...(to.repo ? { repo: to.repo } : {}) }}
           data-view-row=""
-          className={rowClass}
-          onClick={markRead}
+          className={cn(rowClass, "group-focus-within/row:bg-hover")}
+          onClick={(event) => {
+            if (!openOnGitHub(event)) markRead();
+          }}
         >
           {body}
         </Link>
       )}
-      <span className="absolute top-1.5 right-[calc(var(--forge-gutter)-0.5rem)] hidden items-center gap-0.5 rounded-md bg-hover group-focus-within/row:flex group-hover/row:flex">
-        {row.unread && (
-          <Button size="xs" variant="ghost" onClick={() => props.onWrite("read")}>
-            Mark read
-          </Button>
-        )}
-        <Button size="xs" variant="ghost" onClick={() => props.onWrite("done")}>
-          Mark done
-        </Button>
-        <Button size="xs" variant="ghost" onClick={() => props.onWrite("unsubscribe")}>
-          Unsubscribe
-        </Button>
-        {row.url && (
-          <IconButton
-            size="sm"
-            icon={ArrowSquareOutIcon}
-            label="Open on GitHub"
-            onClick={() => props.onOpenWeb(row.url ?? "")}
-          />
-        )}
-      </span>
-    </div>
+    </RowShell>
   );
 }

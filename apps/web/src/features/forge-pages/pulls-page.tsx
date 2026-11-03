@@ -15,7 +15,6 @@ import { useMergeMethod } from "@/features/forge/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { FiltersMenu } from "./filters-menu.tsx";
 import { ForgeList } from "./forge-list.tsx";
@@ -38,21 +37,27 @@ import { countWords, QuickViews } from "./quick-views.tsx";
 const noRuns: readonly VerifyRun[] = [];
 const noRows: readonly ForgePrRow[] = [];
 
-type View = "all" | "needs" | "review" | "yours";
+const known = (value: number | undefined) => (value === undefined ? undefined : String(value));
 
-const viewOf = (search: PullsSearch): View =>
-  search.view === "needs"
-    ? "needs"
-    : search.who === "reviewing"
-      ? "review"
-      : search.who === "authored"
-        ? "yours"
-        : "all";
+type View = "needs" | "review" | "yours" | "all" | "merged" | "closed";
+
+/** The quick view the address asks for; none for a state no view names ("all"). */
+function viewOf(search: PullsSearch): View | undefined {
+  const state = search.state ?? "open";
+  if (state === "merged" || state === "closed") return state;
+  if (state !== "open") return undefined;
+  if (search.view === "needs") return "needs";
+  if (search.who === "reviewing") return "review";
+  if (search.who === "authored") return "yours";
+  return "all";
+}
 const viewPatch: Record<View, Partial<PullsSearch>> = {
-  all: { view: undefined, who: undefined },
-  needs: { view: "needs", who: undefined },
-  review: { view: undefined, who: "reviewing" },
-  yours: { view: undefined, who: "authored" },
+  needs: { state: undefined, view: "needs", who: undefined },
+  review: { state: undefined, view: undefined, who: "reviewing" },
+  yours: { state: undefined, view: undefined, who: "authored" },
+  all: { state: undefined, view: undefined, who: undefined },
+  merged: { state: "merged", view: undefined, who: undefined },
+  closed: { state: "closed", view: undefined, who: undefined },
 };
 
 /**
@@ -124,29 +129,19 @@ export function PullRequestsPage(props: {
     [...list.firsts].map(([id, first]) => [id, first.counts.open + first.counts.draft]),
   );
   const peopleTotal = people.total;
-  const stateOptions = [
-    { value: "open" as const, label: "Open", count: sum((c) => c.open + c.draft) },
-    { value: "merged" as const, label: "Merged", count: sum((c) => c.merged) },
-    { value: "closed" as const, label: "Closed", count: sum((c) => c.closed) },
-    { value: "all" as const, label: "All" },
-  ];
-  const views = open ? (
+  const allOpen = peopleTotal
+    ? Object.values(peopleTotal).reduce((a, b) => a + b, 0)
+    : sum((c) => c.open + c.draft);
+  const views = (
     <QuickViews
       label="Views"
       value={view}
       onValue={(next) => onSearch(viewPatch[next])}
       views={[
         {
-          id: "all",
-          label: "All open",
-          count: peopleTotal
-            ? String(Object.values(peopleTotal).reduce((a, b) => a + b, 0))
-            : undefined,
-        },
-        {
           id: "needs",
           label: "Needs you",
-          count: countWords(needsYou.length, undefined, complete),
+          count: open ? countWords(needsYou.length, undefined, complete) : undefined,
         },
         {
           id: "review",
@@ -158,9 +153,12 @@ export function PullRequestsPage(props: {
           label: "Yours",
           count: peopleTotal ? String(peopleTotal["authored"] ?? 0) : undefined,
         },
+        { id: "all", label: "All open", count: known(allOpen) },
+        { id: "merged", label: "Merged", count: known(sum((c) => c.merged)) },
+        { id: "closed", label: "Closed", count: known(sum((c) => c.closed)) },
       ]}
     />
-  ) : null;
+  );
   const openPr = (project: string, number: number) =>
     void navigate({
       to: "/pulls/$project/$number",
@@ -214,31 +212,23 @@ export function PullRequestsPage(props: {
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
       menus={
-        <>
-          <FilterMenu
-            label="State"
-            value={search.state ?? "open"}
-            options={stateOptions}
-            onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
-          />
-          <FiltersMenu
-            sections={[
-              ...viewSections(search, onSearch),
-              ...filterSections(search, list.rows, onSearch),
-            ]}
-            onClear={() =>
-              onSearch({
-                who: undefined,
-                view: undefined,
-                draft: undefined,
-                review: undefined,
-                checks: undefined,
-                author: undefined,
-                labels: undefined,
-              })
-            }
-          />
-        </>
+        <FiltersMenu
+          sections={[
+            ...viewSections(search, onSearch),
+            ...filterSections(search, list.rows, onSearch),
+          ]}
+          onClear={() =>
+            onSearch({
+              who: undefined,
+              view: undefined,
+              draft: undefined,
+              review: undefined,
+              checks: undefined,
+              author: undefined,
+              labels: undefined,
+            })
+          }
+        />
       }
     >
       {!projects.length ? (

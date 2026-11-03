@@ -11,7 +11,6 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueList, ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { FiltersMenu, type FilterSection } from "./filters-menu.tsx";
 import { ForgeList } from "./forge-list.tsx";
@@ -24,7 +23,24 @@ import { NewInProject } from "./new-in-project.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
 import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
-import { countWords } from "./quick-views.tsx";
+import { countWords, QuickViews } from "./quick-views.tsx";
+
+const known = (value: number | undefined) => (value === undefined ? undefined : String(value));
+
+type View = "assigned" | "created" | "open" | "closed";
+
+/** The quick view the address asks for. */
+function viewOf(search: IssuesSearch): View {
+  if (search.state === "closed") return "closed";
+  if (search.who === "assigned" || search.who === "created") return search.who;
+  return "open";
+}
+const viewPatch: Record<View, Partial<IssuesSearch>> = {
+  assigned: { state: undefined, who: "assigned" },
+  created: { state: undefined, who: "created" },
+  open: { state: undefined, who: undefined },
+  closed: { state: "closed", who: undefined },
+};
 
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
@@ -118,6 +134,11 @@ export function IssuesPage(props: {
   const pages = paging.key === listKey ? paging.pages : 1;
   const list = useIssuePages(projects, query, pages);
   const totals = useGroupCounts(projects, { by: "issue-people", query }).total;
+  // Who the open issues concern, whatever view is on, for the quick views' counts.
+  const people = useGroupCounts(projects, {
+    by: "issue-people",
+    query: issueQuery({ ...search, who: undefined, state: undefined }, 1),
+  }).total;
   const linked = useLinkedThreads().issues;
   const groups = groupIssues(list.rows, list.first?.viewer);
   const sum = (pick: (first: ForgeIssueList) => number) => {
@@ -128,6 +149,19 @@ export function IssuesPage(props: {
   };
   const navigate = useNavigate();
   const listAddress = useLocation({ select: (location) => location.searchStr });
+  const views = (
+    <QuickViews
+      label="Views"
+      value={viewOf(search)}
+      onValue={(next) => onSearch(viewPatch[next])}
+      views={[
+        { id: "assigned", label: "Assigned to you", count: known(people?.["assigned"]) },
+        { id: "created", label: "Created by you", count: known(people?.["created"]) },
+        { id: "open", label: "All open", count: known(sum((first) => first.counts.open)) },
+        { id: "closed", label: "Closed", count: known(sum((first) => first.counts.closed)) },
+      ]}
+    />
+  );
   const creatable = projects.filter((id) => list.firsts.get(id)?.canCreate);
   const rows = (
     <ListFrame
@@ -160,29 +194,15 @@ export function IssuesPage(props: {
           }
         />
       }
+      views={views}
       menus={
-        <>
-          <FilterMenu
-            label="State"
-            value={search.state ?? "open"}
-            options={[
-              { value: "open" as const, label: "Open", count: sum((first) => first.counts.open) },
-              {
-                value: "closed" as const,
-                label: "Closed",
-                count: sum((first) => first.counts.closed),
-              },
-            ]}
-            onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
-          />
-          <FiltersMenu
-            sections={[
-              ...viewSections(search, onSearch),
-              ...filterSections(search, list.rows, onSearch),
-            ]}
-            onClear={() => onSearch({ who: undefined, author: undefined, labels: undefined })}
-          />
-        </>
+        <FiltersMenu
+          sections={[
+            ...viewSections(search, onSearch),
+            ...filterSections(search, list.rows, onSearch),
+          ]}
+          onClear={() => onSearch({ who: undefined, author: undefined, labels: undefined })}
+        />
       }
     >
       {!projects.length ? (

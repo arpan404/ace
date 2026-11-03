@@ -114,8 +114,8 @@ test("open pull requests across projects group by who has the next move, with ho
         .map((heading) => heading.textContent),
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^Needs you\d/)])),
   );
-  // A review asked of you is yours to do, said in words.
-  expect(await rowOf("Pull requests", "Reconnect the client worker")).toContain("Your review");
+  // A review asked of you is yours to do, saying who asked rather than the group again.
+  expect(await rowOf("Pull requests", "Reconnect the client worker")).toContain("sam asked you");
   await userEvent.click(screen.getByRole("button", { name: /^Needs you/ }));
   await waitFor(async () =>
     expect(await rowOf("Pull requests", "Pull requests and issues page")).toBeUndefined(),

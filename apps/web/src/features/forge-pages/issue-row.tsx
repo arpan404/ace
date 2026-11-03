@@ -2,10 +2,19 @@ import { type LinkedThread } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
-import { useToast } from "@/components/ui/toast.tsx";
-import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Avatars, IssueStateWord } from "./marks.tsx";
-import { Age, Comments, Dot, ProjectTag, RowActions, rowClass, Thread } from "./row-parts.tsx";
+import {
+  Age,
+  Comments,
+  Dot,
+  onModifiedClick,
+  ProjectTag,
+  RowShell,
+  rowActionClass,
+  rowClass,
+  Thread,
+  useOpenOnGitHub,
+} from "./row-parts.tsx";
 
 /**
  * One issue: its state glyph and title, its comments and assignees; then its project (when the
@@ -24,16 +33,35 @@ export function IssueRow(props: {
 }) {
   const { row } = props;
   const navigate = useNavigate();
-  const toast = useToast();
-  const openWeb = useOpenWebAddress();
+  const openOnGitHub = useOpenOnGitHub();
+  const thread = props.thread;
   return (
-    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
+    <RowShell
+      label={`#${row.ref.number} ${row.title}`}
+      url={row.url}
+      last={props.last}
+      onNewThread={() =>
+        void navigate({ to: "/new", search: { project: props.project, issue: row.url } })
+      }
+      actions={
+        thread && (
+          <button
+            type="button"
+            className={rowActionClass}
+            onClick={() => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } })}
+          >
+            Open thread
+          </button>
+        )
+      }
+    >
       <Link
         to="/issues/$project/$number"
         params={{ project: props.project, number: String(row.ref.number) }}
         search={{ back: props.back }}
         data-view-row=""
-        className={rowClass}
+        onClick={onModifiedClick(row.url, openOnGitHub)}
+        className={cn(rowClass, "group-focus-within/row:bg-hover")}
       >
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-2">
@@ -83,15 +111,6 @@ export function IssueRow(props: {
           </span>
         </span>
       </Link>
-      <RowActions
-        url={row.url}
-        onNewThread={() =>
-          void navigate({ to: "/new", search: { project: props.project, issue: row.url } })
-        }
-        onOpenExternal={() =>
-          void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
-        }
-      />
-    </div>
+    </RowShell>
   );
 }

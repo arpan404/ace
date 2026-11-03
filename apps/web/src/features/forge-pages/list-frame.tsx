@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { SearchField } from "@/components/search-field.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
@@ -35,17 +42,19 @@ function SearchBox(props: { label: string; value: string; onValue(value: string)
       placeholder="Search"
       value={text}
       onValueChange={setText}
-      className="mr-1 w-48 min-w-32 shrink"
+      className="w-full"
     />
   );
 }
 
 /**
- * A list page's frame: one pinned bar over the rows, with search and the list's menus (state,
- * filters) on the left and its one action on the right. The page's title is the top bar's, and
- * GitHub's panel moves between Inbox, Pull requests and Issues, so the bar carries no switch of
- * its own. Every band shares one gutter (`--forge-gutter`), so the bar and the rows start on the
- * same edge. Nothing changes size while scrolling, so the rows never jump.
+ * A list page's frame: one pinned bar over the rows, with the project menu, search, the quick
+ * views and Filters on the left and the list's one action on the right. The page's title is the
+ * top bar's (or the Code review panel's), so the bar carries none. While the bar has room the
+ * quick views sit on its line; narrower, they take a line of their own under it. Nothing else
+ * wraps: the search narrows first. Every band shares one gutter (`--forge-gutter`), so the bar
+ * and the rows start on the same edge. Nothing changes size while scrolling, so the rows never
+ * jump.
  */
 export function ListFrame(props: {
   kind: "inbox" | "pulls" | "issues";
@@ -54,9 +63,9 @@ export function ListFrame(props: {
   onSearch?(text: string): void;
   /** The project menu, first in the bar. */
   lead?: ReactNode;
-  /** Menus beside the search: the state, then Filters (involvement, sort and the rest). */
+  /** Menus after the quick views: Filters (involvement, sort and the rest). */
   menus?: ReactNode;
-  /** Quick views under the bar. */
+  /** Quick views: the list's states and who it concerns, as words with counts. */
   views?: ReactNode;
   actions?: ReactNode;
   /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
@@ -86,24 +95,34 @@ export function ListFrame(props: {
     >
       <header
         ref={header}
-        className={cn("sticky top-0 z-[2] bg-background px-(--forge-gutter)", toolbarEdge)}
+        className={cn(
+          "@container/bar sticky top-0 z-[2] bg-background px-(--forge-gutter)",
+          toolbarEdge,
+        )}
       >
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 py-2.5">
-          <div
-            role="toolbar"
-            aria-label={filtersLabel[props.kind]}
-            className="flex min-w-0 flex-wrap items-center gap-1"
-          >
-            {props.lead}
-            {props.onSearch && (
+        <div
+          role="toolbar"
+          aria-label={filtersLabel[props.kind]}
+          style={barGrid(!!props.onSearch, !!props.views)}
+          className="grid min-w-0 [grid-template-areas:var(--bar-areas)] [grid-template-columns:var(--bar-cols)] items-center gap-x-1 py-2 @min-[1080px]/bar:[grid-template-areas:var(--bar-areas-wide)] @min-[1080px]/bar:[grid-template-columns:var(--bar-cols-wide)]"
+        >
+          <div className="flex min-w-0 [grid-area:lead]">{props.lead}</div>
+          {props.onSearch && (
+            <div className="flex min-w-0 [grid-area:search]">
               <SearchBox label={label} value={props.search ?? ""} onValue={props.onSearch} />
-            )}
-            {props.menus}
+            </div>
+          )}
+          {props.views && (
+            // Its own line under the bar while the bar is narrow; on the bar's line once it fits.
+            <div className="-ml-2 flex min-w-0 pt-1 [grid-area:views] @min-[1080px]/bar:ml-0 @min-[1080px]/bar:pt-0">
+              {props.views}
+            </div>
+          )}
+          <div className="flex min-w-0 items-center [grid-area:menus]">{props.menus}</div>
+          <div className="flex shrink-0 items-center justify-end [grid-area:actions]">
+            {props.actions}
           </div>
-          <span className="flex-1" />
-          {props.actions && <div className="ml-1.5 flex items-center">{props.actions}</div>}
         </div>
-        {props.views}
         {props.strip}
       </header>
       {props.children}
@@ -114,6 +133,38 @@ export function ListFrame(props: {
       )}
     </div>
   );
+}
+
+/**
+ * The bar's grid, by what it holds: the project menu, the search (7–12rem), the quick views, the
+ * menus, room, then the action. Narrow, the quick views take a second line across the bar.
+ */
+interface Cell {
+  area: string;
+  column: string;
+}
+const cell = (area: string, column: string, on = true): Cell[] => (on ? [{ area, column }] : []);
+const areas = (cells: Cell[]) => cells.map((c) => c.area).join(" ");
+const columns = (cells: Cell[]) => cells.map((c) => c.column).join(" ");
+
+function barGrid(search: boolean, views: boolean): CSSProperties {
+  const row = (inline: boolean) => [
+    ...cell("lead", "auto"),
+    ...cell("search", "minmax(7rem,12rem)", search),
+    ...cell("views", "auto", views && inline),
+    ...cell("menus", "auto"),
+    ...cell("gap", "minmax(0,1fr)"),
+    ...cell("actions", "auto"),
+  ];
+  const narrow = row(false);
+  const wide = row(true);
+  const below = views ? ` "${narrow.map(() => "views").join(" ")}"` : "";
+  return {
+    ["--bar-areas" as string]: `"${areas(narrow)}"${below}`,
+    ["--bar-cols" as string]: columns(narrow),
+    ["--bar-areas-wide" as string]: `"${areas(wide)}"`,
+    ["--bar-cols-wide" as string]: columns(wide),
+  };
 }
 
 /**

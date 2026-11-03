@@ -1,4 +1,4 @@
-import { CaretDownIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import {
   Menu,
   MenuCheckboxItem,
@@ -11,7 +11,6 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { Icon } from "@/components/icon.tsx";
 
 /** One of a filter's choices; `""` is "any". */
 export interface Choice {
@@ -54,7 +53,7 @@ function chosen(section: FilterSection): string {
 const triggerClass =
   "inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover hover:text-foreground aria-expanded:bg-hover";
 
-/** The quiet "Filters ⌄" menu: each filter a submenu saying what it is set to, with how many are on and a way to clear them. */
+/** The quiet "Filters" menu, in words: each filter a submenu saying what it is set to, with how many are on and a way to clear them. */
 export function FiltersMenu(props: { sections: FilterSection[]; onClear(): void }) {
   const active = props.sections.filter((section) =>
     section.kind === "one" ? !section.setting && section.value !== "" : section.values.length > 0,
@@ -62,7 +61,6 @@ export function FiltersMenu(props: { sections: FilterSection[]; onClear(): void 
   return (
     <Menu>
       <MenuTrigger aria-label={`Filters${active ? `: ${active} on` : ""}`} className={triggerClass}>
-        <FunnelSimpleIcon aria-hidden size={14} />
         Filters
         {active > 0 && <span className="text-foreground tabular-nums">{active}</span>}
         <CaretDownIcon aria-hidden size={13} />
@@ -121,9 +119,7 @@ export function FiltersMenu(props: { sections: FilterSection[]; onClear(): void 
         {active > 0 && (
           <>
             <MenuSeparator />
-            <MenuItem icon={<Icon icon={FunnelSimpleIcon} />} onClick={props.onClear}>
-              Clear filters
-            </MenuItem>
+            <MenuItem onClick={props.onClear}>Clear filters</MenuItem>
           </>
         )}
       </MenuContent>
