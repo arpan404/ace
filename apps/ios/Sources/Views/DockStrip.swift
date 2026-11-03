@@ -65,10 +65,12 @@ struct DockStrip: View {
             }
             if !inline {
                 words(ordered).frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, AceDesign.Space.tight)
             }
         }
         .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.vertical, AceDesign.Space.row)
+        .padding(.top, AceDesign.Space.row)
+        .padding(.bottom, AceDesign.Space.stripBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The top section of the composer's glass block (`GlassBlock`); standing alone (a
         // subagent's view), its own glass.
@@ -83,7 +85,7 @@ struct DockStrip: View {
 
     private var sentence: some View {
         Text(line.sentence)
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
             .lineLimit(2)
             .monospacedDigit()
@@ -97,7 +99,7 @@ struct DockStrip: View {
             if let openPayload { openPayload() } else { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { expanded.toggle() } }
         } label: {
             Text(line.payload)
-                .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
+                .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(expanded ? nil : 1)
                 .truncationMode(.middle)
@@ -161,13 +163,13 @@ struct DockStrip: View {
 /// its state's colour (`RowStatusIcon`).
 struct StripLeadMark: View {
     let lead: StripLeadRow
-    static let width = AceDesign.Size.lead
+    static let width = AceDesign.Size.rowStatus
     var body: some View {
         Group {
             if let provider = lead.provider, !provider.isEmpty {
-                ProviderMark(provider: provider, size: AceDesign.Size.icon)
+                ProviderMark(provider: provider, size: AceDesign.Size.rowMark)
             } else if let icon = lead.icon {
-                RowStatusIcon(kind: icon, tone: lead.tone ?? "idle")
+                RowStatusIcon(kind: icon, tone: lead.tone ?? "idle", size: AceDesign.Size.rowStatusSymbol)
             }
         }
         .frame(width: Self.width)

@@ -26,6 +26,7 @@ import { followInboxSort } from "./inbox-sort.ts";
 import { dispatchCommand } from "./commands.ts";
 import { inboxOrganizer, type InboxOrganizer } from "./inbox-organize.ts";
 import { PlaceAction, runPlace, type PlaceContext } from "./inbox-place.ts";
+import { followAgentUse } from "./inbox-agent-use.ts";
 import { keepNone, type DismissedSends } from "./dismissed-sends.ts";
 import { settleSend } from "./send-recovery.ts";
 import { ManageAction, runManage } from "./inbox-manage.ts";
@@ -139,6 +140,7 @@ export function followInbox(
     baseline,
     accounts: accounts.views(),
     sortBy: sort.current(),
+    use: agentUse.current(),
   });
   /** Places on this moment's clock and sort; entries the daemon placed are only read. */
   const placer = () =>
@@ -164,6 +166,11 @@ export function followInbox(
   const accounts = followAccounts(owner, () => {
     if (!shown) return;
     for (const id of store.ids) row(id);
+  });
+  // A browser or Mac app an agent starts or stops driving re-issues that thread's row.
+  const agentUse = followAgentUse(owner, (ids) => {
+    if (!shown) return;
+    for (const id of ids) if (store.ids.includes(id)) row(id);
   });
   const checkpoint = followCheckpoint(
     clock,
@@ -303,6 +310,7 @@ export function followInbox(
   };
   const stops = [
     accounts.stop,
+    agentUse.stop,
     // A pin or move shows on its row, and moves it, before the daemon confirms it.
     organizer.observe((id) => {
       if (!shown) return;

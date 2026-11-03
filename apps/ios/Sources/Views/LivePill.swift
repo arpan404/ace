@@ -47,28 +47,28 @@ struct LivePillCapsule: View {
                     .accessibilityIdentifier("pill.\(segment.kind)")
             }
         }
-        .padding(.horizontal, AceDesign.Space.tight)
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, AceDesign.Space.row)
+        .padding(.horizontal, AceDesign.Space.chip - AceDesign.Space.tight)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .sensoryFeedback(.selection, trigger: tapped)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Live")
         .accessibilityIdentifier("thread.pill")
     }
-    static let height = AceDesign.Size.tap
+    static let height = AceDesign.Size.chip
+    /// Between the parts: a middle dot in the muted ink, as the approved chip reads.
     private var divider: some View {
-        Rectangle().fill(AceTheme.Colours.separator)
-            .frame(width: AceTheme.Dimensions.border, height: AceDesign.Space.margin)
+        Text(verbatim: "·").aceFont(AceDesign.TextRole.time, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
             .accessibilityHidden(true)
     }
     @ViewBuilder private func part<Words: View>(opens: String, label: String, @ViewBuilder words: () -> Words) -> some View {
         let content = words()
             .lineLimit(1)
-            .padding(.horizontal, AceDesign.Space.row)
-            // Each part as tall as the pill (taller with large text), never the space around it.
+            .padding(.horizontal, AceDesign.Space.tight)
+            // Each part as tall as the chip (taller with large text); taps land over 44.
             .frame(minHeight: Self.height)
-            .contentShape(Rectangle())
+            .tapBand(drawn: Self.height)
         if opens.isEmpty {
             content.accessibilityElement(children: .combine)
         } else {
@@ -97,7 +97,7 @@ private struct StatusWords: View {
             else if status.live { StatusGlyph(.working, tone: .working, live: true) }
             words
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(AceDesign.Typeface.regular)
+        .aceFont(AceDesign.TextRole.time, relativeTo: .caption).fontWeight(.medium)
         // Needs-you is always strong (DESIGN.md §5): its word in its status colour.
         .foregroundStyle(needsYou ? AceTheme.StatusText.needsYou : AceTheme.Colours.foreground)
     }
@@ -125,7 +125,7 @@ private struct SegmentWords: View {
             if segment.kind == "goal" { AceIcon(.target, size: AceDesign.Size.glyphMeta, relativeTo: .footnote).foregroundStyle(AceTheme.Colours.mutedForeground) }
             Text(segment.label).monospacedDigit()
         }
-        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+        .aceFont(AceDesign.TextRole.time, relativeTo: .caption)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 }

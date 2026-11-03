@@ -20,8 +20,9 @@ struct MorePlaces {
     let startThread: () -> Void
 }
 
-/// More, opened from the inbox header: the app's secondary places as a grouped list. Pull
-/// requests and Settings first, then each machine's tools. Settings is the connections
+/// More, opened from the inbox header: the app's secondary places as a grouped list. Settings
+/// first, then each machine's tools. Opened at a `root` (the header's Pull requests), the sheet
+/// shows that page in place of More's list. Settings is the connections
 /// (machines, notifications, Face ID), the interface, threads (archive, profiles) and the app
 /// itself. Everything pushes inside this sheet's own stack.
 struct SettingsSheet: View {
@@ -29,6 +30,8 @@ struct SettingsSheet: View {
     var places: MorePlaces? = nil
     var machines: MachinesModel?
     var lock: AppLock?
+    /// The page the sheet opens on in place of More's list, such as Pull requests.
+    var root: SettingsRoute?
     @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("ace.appearance") private var appearance = "system"
@@ -45,8 +48,10 @@ struct SettingsSheet: View {
     @State private var forgeKind = ForgeKind.pulls
     @State private var forgeQuery = ""
 
-    init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil, start: [SettingsRoute] = []) {
+    init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil,
+         root: SettingsRoute? = nil, start: [SettingsRoute] = []) {
         self.inbox = inbox
+        self.root = root
         self.places = places
         self.machines = machines
         self.lock = lock
@@ -56,16 +61,9 @@ struct SettingsSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            List {
-                Section {
-                    if places != nil { link(.pulls, "Pull requests", "arrow.triangle.branch", id: "more.pulls") }
-                    link(.settings, "Settings", "gearshape", id: "more.settings")
-                }
-                .insetRowBackground()
-                SettingsTools(inbox: inbox, machine: $toolsMachine)
+            Group {
+                if let root { destination(root) } else { more }
             }
-            .insetGroupedList()
-            .nativeTitle("More")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { dismiss() } label: { Image(systemName: "xmark") }
@@ -75,12 +73,38 @@ struct SettingsSheet: View {
             .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
         }
         .environment(\.settingsScope, scope)
+        .environment(\.settingsPush) { path.append($0) }
         .escapeCloses { dismiss() }
         .tint(AceDesign.Ink.accent)
         .toggleStyle(.systemSwitch)
         .presentationDetents([.large]).presentationDragIndicator(.visible)
         .onChange(of: path) { old, new in navigated(from: old, to: new) }
         .onDisappear { closeMachineViews() }
+    }
+
+    /// More's own list, as the approved mockup: the machine's tools, then the paired devices,
+    /// Providers and Settings.
+    private var more: some View {
+        List {
+            SettingsTools(inbox: inbox, machine: $toolsMachine, leaving: [.providers])
+            Section {
+                GroupLink(.machines) {
+                    InsetRow("Devices", icon: .devices, value: inbox.sessions.isEmpty ? nil : "\(inbox.sessions.count) paired")
+                }
+                .accessibilityIdentifier("more.devices")
+                if let host = inbox.sessions.first?.hostId {
+                    GroupLink(.tool(.providers, machine: toolsMachine.isEmpty ? host : toolsMachine)) {
+                        InsetRow(SettingsTool.providers.title, icon: SettingsTool.providers.icon)
+                    }
+                    .accessibilityIdentifier(SettingsTool.providers.identifier)
+                }
+                GroupLink(.settings) { InsetRow("Settings", icon: .gearSix) }
+                    .accessibilityIdentifier("more.settings")
+            }
+            .insetRowBackground()
+        }
+        .insetGroupedList()
+        .nativeTitle("More")
     }
 
     /// Settings' own list, one step into More.
@@ -145,7 +169,7 @@ struct SettingsSheet: View {
     }
 
     private func link(_ route: SettingsRoute, _ title: String, _ symbol: String, value: String? = nil, id: String) -> some View {
-        NavigationLink(value: route) { InsetRow(title, systemImage: symbol, value: value) }
+        GroupLink(route) { InsetRow(title, systemImage: symbol, value: value) }
             .accessibilityIdentifier(id)
     }
 

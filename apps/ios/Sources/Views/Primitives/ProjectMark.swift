@@ -38,6 +38,9 @@ struct ProjectMark: View {
         Group {
             if let glyph = look?.glyph {
                 AceIcon(glyph, size: ProjectMark.tileGlyphSize, weight: .bold, relativeTo: .caption2)
+            } else if initials.isEmpty {
+                // Rows that show no initials keep the project's folder.
+                AceIcon(.folderSimple, size: ProjectMark.glyphSize, relativeTo: .caption2)
             } else {
                 Text(initials.uppercased())
                     .font(.system(size: height * ProjectMark.initialsScale, weight: AceDesign.Typeface.strong))
@@ -47,7 +50,7 @@ struct ProjectMark: View {
         }
         .foregroundStyle(ink)
         .frame(width: width, height: height)
-        .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+        .background(initials.isEmpty && look?.glyph == nil ? .clear : AceDesign.Surface.fill, in: AceDesign.Shape.control)
     }
 }
 

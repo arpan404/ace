@@ -10,53 +10,72 @@ struct SpadeMark: View {
 
     private static let paper = Color(red: 0xF6 / 255, green: 0xF6 / 255, blue: 0xF7 / 255)
     private static let ink = Color(red: 0x14 / 255, green: 0x14 / 255, blue: 0x16 / 255)
-    private static let eyes = [CGPoint(x: 8.7, y: 11.9), CGPoint(x: 15.3, y: 11.9)]
-    private static let eye = CGSize(width: 2.3, height: 3.55)
-    private static let rest = CGPoint(x: -0.25, y: 2)
-    private static let tilt = -4.0
 
     var body: some View {
-        let small = size <= 24
-        let ring: CGFloat = small ? 1.15 : size <= 40 ? 0.85 : 0.62
-        let pupil = small ? CGSize(width: 1.25, height: 1.8) : CGSize(width: 1.1, height: 1.6)
-        let look = Self.clamped(Self.rest, pupil: pupil, pad: small ? 0.02 : 0.22)
-        Canvas { context, canvas in
-            let scale = canvas.width / 24
-            context.scaleBy(x: scale, y: scale)
-            context.fill(Path(ellipseIn: CGRect(x: 1.4, y: 1.4, width: 21.2, height: 21.2)), with: .foreground)
-            context.translateBy(x: 12, y: 12)
-            context.rotate(by: .degrees(Self.tilt))
-            context.translateBy(x: -12, y: -12)
-            for centre in Self.eyes {
-                context.fill(Self.egg(centre, rx: Self.eye.width + ring, ry: Self.eye.height + ring), with: .color(Self.ink))
-                context.fill(Self.egg(centre, rx: Self.eye.width, ry: Self.eye.height), with: .color(Self.paper))
-                let at = CGPoint(x: centre.x + look.x, y: centre.y + look.y)
-                context.fill(Path(ellipseIn: CGRect(x: at.x - pupil.width, y: at.y - pupil.height,
-                                                    width: pupil.width * 2, height: pupil.height * 2)), with: .color(Self.ink))
-                if !small {
-                    let glint = CGPoint(x: at.x + pupil.width * 0.38, y: at.y - pupil.height * 0.42)
-                    let r = pupil.width * 0.3
-                    context.fill(Path(ellipseIn: CGRect(x: glint.x - r, y: glint.y - r, width: r * 2, height: r * 2)), with: .color(Self.paper))
+        let face = SpadeFace(size: size)
+        ZStack {
+            // The head, r = 10.6 of 24, in the current text colour.
+            Circle().inset(by: 1.4 * face.unit)
+            ZStack {
+                ForEach(SpadeFace.eyes.indices, id: \.self) { index in
+                    let centre = SpadeFace.eyes[index]
+                    SpadeEgg(centre: centre, rx: SpadeFace.eye.width + face.ring, ry: SpadeFace.eye.height + face.ring).fill(Self.ink)
+                    SpadeEgg(centre: centre, rx: SpadeFace.eye.width, ry: SpadeFace.eye.height).fill(Self.paper)
+                    SpadeDot(centre: face.pupil(in: centre), rx: face.pupilSize.width, ry: face.pupilSize.height).fill(Self.ink)
+                    if let glint = face.glint(in: centre) {
+                        SpadeDot(centre: glint.centre, rx: glint.radius, ry: glint.radius).fill(Self.paper)
+                    }
                 }
             }
+            .rotationEffect(.degrees(SpadeFace.tilt))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
+}
 
-    /// The pupils' place, kept inside the eye (`clampSpadeLook`).
-    private static func clamped(_ look: CGPoint, pupil: CGSize, pad: CGFloat) -> CGPoint {
-        let ax = eye.width - pupil.width - pad, ay = eye.height - pupil.height - pad
+/// The face's geometry in the web's 24-unit box (`spade-look.ts`): where the eyes sit, how big
+/// the pupils are at this size, and where they rest.
+struct SpadeFace {
+    let size: CGFloat
+    nonisolated static let eyes = [CGPoint(x: 8.7, y: 11.9), CGPoint(x: 15.3, y: 11.9)]
+    nonisolated static let eye = CGSize(width: 2.3, height: 3.55)
+    /// Where the pupils rest: low and a hair to the left.
+    nonisolated static let rest = CGPoint(x: -0.25, y: 2)
+    nonisolated static let tilt = -4.0
+    /// 24pt and under: a thicker ring, bigger pupils, no catchlight.
+    var small: Bool { size <= 24 }
+    var unit: CGFloat { size / 24 }
+    var ring: CGFloat { small ? 1.15 : size <= 40 ? 0.85 : 0.62 }
+    var pupilSize: CGSize { small ? CGSize(width: 1.25, height: 1.8) : CGSize(width: 1.1, height: 1.6) }
+    private var pad: CGFloat { small ? 0.02 : 0.22 }
+
+    /// The pupil's centre in the eye at `centre`, kept inside the eye (`clampSpadeLook`).
+    func pupil(in centre: CGPoint) -> CGPoint {
+        let ax = Self.eye.width - pupilSize.width - pad, ay = Self.eye.height - pupilSize.height - pad
+        let look = Self.rest
         let reach = (look.x * look.x) / (ax * ax) + (look.y * look.y) / (ay * ay)
-        guard reach > 1 else { return look }
-        let scale = 1 / reach.squareRoot()
-        return CGPoint(x: look.x * scale, y: look.y * scale)
+        let scale = reach > 1 ? 1 / reach.squareRoot() : 1
+        return CGPoint(x: centre.x + look.x * scale, y: centre.y + look.y * scale)
     }
+    /// The catchlight over the pupil, above 24pt only.
+    func glint(in centre: CGPoint) -> (centre: CGPoint, radius: CGFloat)? {
+        guard !small else { return nil }
+        let at = pupil(in: centre)
+        return (CGPoint(x: at.x + pupilSize.width * 0.38, y: at.y - pupilSize.height * 0.42), pupilSize.width * 0.3)
+    }
+}
 
-    /// An egg: flatter on top, fuller below.
-    private static func egg(_ c: CGPoint, rx: CGFloat, ry: CGFloat) -> Path {
+/// An egg in the 24-unit box, scaled to the frame: flatter on top, fuller below (the web's
+/// `egg()` curve).
+struct SpadeEgg: Shape {
+    let centre: CGPoint
+    let rx: CGFloat
+    let ry: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let k = rect.width / 24
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + (centre.x + x) * k, y: rect.minY + (centre.y + y) * k) }
         var path = Path()
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: c.x + x, y: c.y + y) }
         path.move(to: p(0, -ry))
         path.addCurve(to: p(rx, ry * 0.12), control1: p(rx * 0.78, -ry), control2: p(rx, -ry * 0.36))
         path.addCurve(to: p(0, ry), control1: p(rx, ry * 0.66), control2: p(rx * 0.58, ry))
@@ -64,6 +83,17 @@ struct SpadeMark: View {
         path.addCurve(to: p(0, -ry), control1: p(-rx, -ry * 0.36), control2: p(-rx * 0.78, -ry))
         path.closeSubpath()
         return path
+    }
+}
+
+/// An ellipse in the 24-unit box, scaled to the frame: a pupil or a catchlight.
+struct SpadeDot: Shape {
+    let centre: CGPoint
+    let rx: CGFloat
+    let ry: CGFloat
+    func path(in rect: CGRect) -> Path {
+        let k = rect.width / 24
+        return Path(ellipseIn: CGRect(x: rect.minX + (centre.x - rx) * k, y: rect.minY + (centre.y - ry) * k, width: rx * 2 * k, height: ry * 2 * k))
     }
 }
 
@@ -89,13 +119,14 @@ private struct SpadeGlyph: View {
             context.translateBy(x: 12, y: 12)
             context.rotate(by: .degrees(-4))
             context.translateBy(x: -12, y: -12)
-            for centre in [CGPoint(x: 8.7, y: 11.9), CGPoint(x: 15.3, y: 11.9)] {
+            for centre in SpadeFace.eyes {
                 var cut = context
                 cut.blendMode = .destinationOut
-                cut.fill(Path(ellipseIn: CGRect(x: centre.x - 2.3, y: centre.y - 3.55, width: 4.6, height: 7.1)), with: .color(.black))
+                let box = CGRect(x: 0, y: 0, width: 24, height: 24)
+                let face = SpadeFace(size: 24)
+                cut.fill(SpadeEgg(centre: centre, rx: SpadeFace.eye.width, ry: SpadeFace.eye.height).path(in: box), with: .color(.black))
                 // Pupils resting low and a hair left, as the mark's rest look.
-                let at = CGPoint(x: centre.x - 0.21, y: centre.y + 1.69)
-                context.fill(Path(ellipseIn: CGRect(x: at.x - 1.25, y: at.y - 1.8, width: 2.5, height: 3.6)), with: .color(.black))
+                context.fill(SpadeDot(centre: face.pupil(in: centre), rx: face.pupilSize.width, ry: face.pupilSize.height).path(in: box), with: .color(.black))
             }
         }
     }
@@ -107,7 +138,7 @@ struct SpadeSoonScreen: View {
         VStack(spacing: AceDesign.Space.margin) {
             SpadeMark(size: AceDesign.Size.spade).foregroundStyle(AceTheme.Colours.foreground)
             Text("Spade is coming soon.")
-                .aceFont(AceTheme.Typography.body, relativeTo: .body)
+                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .accessibilityIdentifier("spade.soon")
         }

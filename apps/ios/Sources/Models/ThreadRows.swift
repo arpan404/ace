@@ -107,8 +107,11 @@ struct BlockRow: Codable, Sendable, Equatable {
         let status: String
         let entries: [Entry]
         var counts: [Count]? = nil
-        /// "3 subagents".
+        /// "3 subagents", or "3 subagents ran" once all have ended.
         var title: String = ""
+        /// One child still at work shows as its own row; otherwise the group folds. Nil from
+        /// older bridges, which show a lone entry alone.
+        var single: Bool? = nil
         /// The group's worst child, as a status palette key.
         var token: String = ""
         /// Its facts are stale while it ran: "Last seen: " leads the counts.

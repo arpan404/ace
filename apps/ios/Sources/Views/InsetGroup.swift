@@ -15,8 +15,8 @@ extension View {
     @ViewBuilder func searchBarEdge() -> some View {
         if #available(iOS 26, *) { scrollEdgeEffectStyle(.hard, for: .bottom) } else { self }
     }
-    /// A row's fill inside an inset group.
-    func insetRowBackground() -> some View { listRowBackground(AceDesign.Surface.fill).listRowSeparator(.hidden) }
+    /// A row's fill inside an inset group: the grouped surface, no dividers.
+    func insetRowBackground() -> some View { listRowBackground(AceDesign.Surface.group).listRowSeparator(.hidden) }
 }
 
 /// On/off switches in the one accent (design language §3). Applied to a whole stack, so every
@@ -36,8 +36,8 @@ struct InsetHeader: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title).font(AceDesign.Typeface.meta)
-            .foregroundStyle(AceDesign.Ink.muted).textCase(nil)
+        Text(title).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+            .foregroundStyle(AceDesign.Ink.subtle).textCase(nil)
     }
 }
 
@@ -57,7 +57,7 @@ struct InsetRow<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: () -> Trailing
-    @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.icon
+    @ScaledMetric(relativeTo: .subheadline) private var glyphSize = AceDesign.Size.groupGlyph
 
     init(systemImage: String?, title: String, subtitle: String? = nil, @ViewBuilder trailing: @escaping () -> Trailing) {
         self.init(glyph: systemImage.map(Glyph.symbol), title: title, subtitle: subtitle, trailing: trailing)
@@ -73,22 +73,22 @@ struct InsetRow<Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(spacing: AceDesign.Space.row) {
+        HStack(spacing: AceDesign.Space.groupGlyphGap) {
             switch glyph {
             case .symbol(let name)?:
-                Image(systemName: name).font(.system(size: glyphSize))
-                    .foregroundStyle(AceDesign.Ink.primary)
-                    .frame(width: glyphSize + AceDesign.Space.related).accessibilityHidden(true)
+                Image(systemName: name).font(.system(size: glyphSize - AceDesign.Space.tight, weight: AceDesign.Typeface.regular))
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .frame(width: glyphSize).accessibilityHidden(true)
             case .ace(let name)?:
-                AceIcon(name, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.primary)
-                    .frame(width: glyphSize + AceDesign.Space.related)
+                AceIcon(name, size: AceDesign.Size.groupGlyph, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.muted)
+                    .frame(width: glyphSize)
             case nil:
                 EmptyView()
             }
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(title).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceDesign.Ink.primary)
                 if let subtitle {
-                    Text(subtitle).font(AceDesign.Typeface.meta)
+                    Text(subtitle).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
                 }
             }
@@ -104,6 +104,10 @@ extension InsetRow where Trailing == InsetValue {
     init(_ title: String, systemImage: String?, value: String? = nil, subtitle: String? = nil) {
         self.init(systemImage: systemImage, title: title, subtitle: subtitle) { InsetValue(text: value) }
     }
+    /// The same with one of ace's own glyphs.
+    init(_ title: String, icon: AceIcon.Name, value: String? = nil, subtitle: String? = nil) {
+        self.init(icon: icon, title: title, subtitle: subtitle) { InsetValue(text: value) }
+    }
 }
 
 /// The muted trailing value of an inset row.
@@ -111,8 +115,8 @@ struct InsetValue: View {
     let text: String?
     var body: some View {
         if let text {
-            Text(text).font(AceDesign.Typeface.body)
-                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+            Text(text).aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.subtle).lineLimit(1)
         }
     }
 }
@@ -121,6 +125,43 @@ struct InsetValue: View {
 private struct InsetRowDensity: ViewModifier {
     @Environment(\.aceDensityId) private var density
     func body(content: Content) -> some View {
-        content.environment(\.defaultMinListRowHeight, AceTheme.density(density).settingsRowHeight)
+        content.environment(\.defaultMinListRowHeight, min(AceTheme.density(density).settingsRowHeight, AceDesign.Size.settingsRow))
+    }
+}
+
+extension EnvironmentValues {
+    /// Pushes a page on Settings' and More's own stack, for `GroupLink`.
+    @Entry var settingsPush: (SettingsRoute) -> Void = { _ in }
+}
+
+/// A grouped row that opens a page: the row, then the approved mockup's small faint caret in
+/// place of the system's chevron. It pushes on the sheet's own stack.
+struct GroupLink<Label: View>: View {
+    let route: SettingsRoute
+    @ViewBuilder let label: () -> Label
+    @Environment(\.settingsPush) private var push
+    init(_ route: SettingsRoute, @ViewBuilder label: @escaping () -> Label) {
+        self.route = route
+        self.label = label
+    }
+    var body: some View {
+        Button { push(route) } label: {
+            HStack(spacing: AceDesign.Space.related) {
+                label()
+                AceIcon(.caretRight, size: AceDesign.Size.chevron, weight: .bold, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.faintForeground)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(GroupRowStyle())
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// A grouped row pressed: a moment's dimming, as the system's rows answer a tap.
+private struct GroupRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? AceDesign.Ink.pressed : 1)
     }
 }

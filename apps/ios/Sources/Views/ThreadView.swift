@@ -116,7 +116,7 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), pageWidth: pageWidth,
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), chat: metadata?.chat == true, pageWidth: pageWidth,
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
@@ -323,6 +323,7 @@ struct ThreadView: View {
                 }
                 // A strip rises out of the composer and fades; with Reduce Motion it only fades.
                 .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                if hasStrip { BlockHairline() }
                 if archived {
                     ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
@@ -384,7 +385,8 @@ struct ThreadView: View {
                         .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
                 }
                 }
-                .modifier(GlassBlock(active: hasStrip))
+                // Always one block, as the approved mockup: a strip, when there is one, on top.
+                .modifier(GlassBlock(active: true))
             }
             .composerGlassGroup()
         }
@@ -415,6 +417,8 @@ struct ThreadView: View {
         case "plan": Task { _ = await model.setAccess("read-only") }
         case "model": showModels = true
         case "review": open(.changes)
+        case "fork": open(.forkLast)
+        case "attachments": open(.attachments)
         default: break
         }
     }

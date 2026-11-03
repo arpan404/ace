@@ -70,6 +70,8 @@ const threadActions = new Set([
   "goal",
   "model",
   "review",
+  "fork",
+  "attachments",
   "automation.run",
 ]);
 const draftActions = new Set(["attach", "files", "plan", "goal", "model", "project"]);

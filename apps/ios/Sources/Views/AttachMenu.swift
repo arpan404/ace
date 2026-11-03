@@ -113,10 +113,16 @@ private struct AttachmentMenuButton: UIViewRepresentable {
     @Environment(\.isEnabled) private var enabled
 
     func makeCoordinator() -> Coordinator { Coordinator() }
+    /// The + glyph drawn at `side` points, kept a template so the button's tint colours it.
+    static func drawn(_ image: UIImage, side: CGFloat) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+        }.withRenderingMode(.alwaysTemplate)
+    }
     func makeUIView(context: Context) -> Anchor {
         let button = Anchor(type: .custom)
         var appearance = UIButton.Configuration.plain()
-        appearance.image = UIImage(named: "ph-plus")
+        appearance.image = UIImage(named: "ph-plus").map { Self.drawn($0, side: AceDesign.Size.plusGlyph) }
         appearance.contentInsets = .zero
         button.configuration = appearance
         button.showsMenuAsPrimaryAction = true
@@ -125,7 +131,7 @@ private struct AttachmentMenuButton: UIViewRepresentable {
     }
     func updateUIView(_ button: Anchor, context: Context) {
         let owner = context.coordinator
-        button.tintColor = UIColor(AceTheme.Colours.foreground)
+        button.tintColor = UIColor(AceTheme.Colours.mutedForeground)
         button.isEnabled = enabled
         button.accessibilityIdentifier = identifier
         owner.actions = Dictionary(actions.map { ($0.id, $0.run) }, uniquingKeysWith: { _, last in last })
