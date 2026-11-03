@@ -81,7 +81,9 @@ struct HostRequest: Sendable {
 extension HostError {
     /// The contract's error code for a failed operation (`HostErrorCode`).
     static func code(of error: any Error) -> String {
-        switch error as? HostError {
+        // Account grants: network trouble retries; signed out or refused stops the machine.
+        if let grant = error as? AccountGrantError { return grant == .unavailable ? "offline" : "invalid" }
+        return switch error as? HostError {
         case .storage: "storage"
         case .identity: "identity"
         case .unsupported: "unsupported"

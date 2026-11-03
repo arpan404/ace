@@ -26,7 +26,7 @@ final class NativeHost: @unchecked Sendable {
     private let snapshotQueue = DispatchQueue(label: "ace.client.snapshots", qos: .userInitiated)
     private var store: DurableStore?
     private var snapshots: SnapshotStore?
-    private var sockets: [String: PinnedSocket] = [:]
+    private var sockets: [String: any DaemonSocket] = [:]
     private var timers: [String: Timer] = [:]
 
     init(runtime: ClientRuntime, binding: HostBinding) {
@@ -66,6 +66,7 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(HostError.storage), to: callback); return
         }
         if operation == "http" { http(request.input, callback: callback); return }
+        if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback); return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
@@ -83,6 +84,19 @@ final class NativeHost: @unchecked Sendable {
                 guard let store else { throw HostError.storage }
                 return try store.perform(request)
             }
+            reply(result, to: callback)
+        }
+    }
+    /// An account machine's credential: the device grant its relay socket just fetched, for the
+    /// hello on that same connection (`{"grant": …}`).
+    private func accountGrant(_ grants: AccountGrants, callback: Callback) {
+        Task { [self] in
+            let result: Result<String, Error>
+            do {
+                let token = try await grants.current()
+                let json = try JSONEncoder().encode(["grant": token])
+                result = .success(String(decoding: json, as: UTF8.self))
+            } catch { result = .failure(error) }
             reply(result, to: callback)
         }
     }
@@ -142,7 +156,7 @@ final class NativeHost: @unchecked Sendable {
                 runtime?.execute { context in context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, "close", "4003"]) }
                 return
             }
-            let socket = PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams) { type, value in
+            let event: @Sendable (String, SocketPayload) -> Void = { type, value in
                 runtime?.execute { context in
                     // Binary messages reach the SDK as a Uint8Array made from the socket's own bytes.
                     let payload: Any = switch value {
@@ -151,6 +165,11 @@ final class NativeHost: @unchecked Sendable {
                     }
                     HostTrace.measure("js.socket") { _ = context.objectForKeyedSubscript("aceSocket")?.call(withArguments: [id, type, payload]) }
                 }
+            }
+            let socket: any DaemonSocket = if let relay = target.relay {
+                RelaySocket(route: relay, streams: runtime?.browserStreams, event: event)
+            } else {
+                PinnedSocket(target: target, now: services.now, streams: runtime?.browserStreams, event: event)
             }
             sockets[id] = socket
             socket.open()

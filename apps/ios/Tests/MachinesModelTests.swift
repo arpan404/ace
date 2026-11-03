@@ -286,6 +286,34 @@ import Testing
         #expect(relaunch.model.machines.map(\.hostId) == ["studio", "desk"])
     }
 
+    @Test func accountMachinesConnectThroughTheRelayAndAMachineAlsoPairedStaysDirect() async throws {
+        let studio = String(repeating: "S", count: 52), build = String(repeating: "B", count: 52)
+        let account = FakeAccount([AceMachine(hostId: studio, name: "studio", platform: "darwin", lastSeenAt: 1),
+                                   AceMachine(hostId: build, name: "build box", platform: "linux", lastSeenAt: 1)])
+        let fixture = try Fixture(machines: [machine(studio, device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let started = fixture.sessions.started
+        #expect(started.map(\.target.hostId) == [studio, build])
+        #expect(started[0].target.relay == nil && started[0].target.pin == DaemonCertificate.pin)
+        #expect(started[1].target.relay?.clientURL?.absoluteString == "wss://ace.example.com/client?hostId=\(build)")
+        #expect(started[1].target.deviceId == "ios-account-device")
+        #expect(started[1].target.secretKey == nil)
+
+        // Forgetting it from the account stops its runtime; signing out drops the rest.
+        let forgetting = Task { await fixture.model.forgetAccountMachine(build) }
+        await drain()
+        started[1].finishShutdown()
+        #expect(await forgetting.value == nil)
+        #expect(account.forgotten == [build])
+        #expect(fixture.model.machines.map(\.hostId) == [studio])
+        #expect(fixture.model.inbox.client(build) == nil)
+        account.signOut()
+        await fixture.model.refreshAccount()
+        #expect(fixture.model.accountMachines.isEmpty)
+        #expect(fixture.model.machines.map(\.hostId) == [studio])
+    }
+
     private func machine(_ host: String, device: String) -> MachineEntry {
         MachineEntry(hostId: host, displayName: host.capitalized, icon: nil,
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)
@@ -311,18 +339,35 @@ import Testing
     let suite: String
     let model: MachinesModel
     /// `defaults` from an earlier fixture plays the same phone relaunched.
-    init(machines: [MachineEntry], defaults shared: UserDefaults? = nil) throws {
+    init(machines: [MachineEntry], account: (any AccountDirectory)? = nil, defaults shared: UserDefaults? = nil) throws {
         access = FakeAccess(machines)
         storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         suite = "ace.tests.\(UUID().uuidString)"
         defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
-        model = MachinesModel(access: access, storage: storage, defaults: defaults, now: { 5_000 },
+        model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { 5_000 },
                               makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
     func cleanUp() {
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: storage)
+    }
+}
+
+private final class FakeAccount: AccountDirectory, @unchecked Sendable {
+    private let lock = NSLock()
+    private var listed: [AceMachine]?
+    private(set) var forgotten: [String] = []
+    init(_ machines: [AceMachine]) { listed = machines }
+    let deviceId = "ios-account-device"
+    let relayURL: URL? = URL(string: "wss://ace.example.com")
+    func signOut() { lock.withLock { listed = nil } }
+    func machines() async throws(AccountGrantError) -> [AceMachine]? { lock.withLock { listed } }
+    func forget(_ hostId: String) async throws(AccountGrantError) {
+        lock.withLock { forgotten.append(hostId); listed?.removeAll { $0.hostId == hostId } }
+    }
+    func route(hostId: String) -> RelayRoute? {
+        relayURL.map { RelayRoute(relayURL: $0, hostId: hostId, grants: AccountGrants { () async throws(AccountGrantError) -> AceGrant in throw .signedOut }) }
     }
 }
 

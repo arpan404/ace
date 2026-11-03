@@ -7,6 +7,11 @@ import { nativePortableSocket } from "./socket.ts";
 export interface NativeFeatureConfig {
   deviceId: string;
   hostId: string;
+  /**
+   * The host id the welcome must name: the paired machine's. An account machine has none to
+   * check, since the relay handshake already pinned its key and its welcome names its own id.
+   */
+  expectedHostId: string | undefined;
   credential(): Promise<Credential>;
   id(): string;
   trust: TrustMonitor;
@@ -16,7 +21,7 @@ export function nativeFeatureChannel(config: NativeFeatureConfig, feature: "devi
     {
       // Swift binds sockets to the runtime's pinned machine; caller URLs never leave JavaScript.
       target: { kind: "local", url: "wss://native.invalid" },
-      expectedHostId: config.hostId,
+      ...(config.expectedHostId === undefined ? {} : { expectedHostId: config.expectedHostId }),
       deviceId: config.deviceId,
       credential: config.credential,
       socket: () => nativePortableSocket(config.trust),

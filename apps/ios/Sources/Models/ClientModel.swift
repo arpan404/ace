@@ -58,6 +58,12 @@ import QuartzCore
     var connection = "connecting"
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
+    /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
+    var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
+    /// The person chose Not now for this ask; Machines › the machine asks again.
+    var machineCodeDeferred = false
+    /// With `.locked`: when code entry on that machine opens again.
+    var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -436,6 +442,12 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
+            case .machineCode(let reason, let until):
+                // Every refused retry says it again; only a change redraws.
+                let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))
+                let lockedUntil = until.map { Date(timeIntervalSince1970: $0 / 1000) }
+                if lockedUntil != machineCodeLockedUntil { machineCodeLockedUntil = lockedUntil }
+                if ask != machineCodeAsk { machineCodeAsk = ask }
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info
             case .cacheUsage(let usage): cacheUsage = usage
@@ -749,6 +761,11 @@ import QuartzCore
     }
     func network(_ online: Bool) { action(["type": "network", "online": online]) }
     func retry() { action(["type": "retry"]) }
+    /// Send the typed machine code with the next connection. The phone keeps no copy.
+    func enterMachineCode(_ code: String) {
+        machineCodeAsk = nil
+        action(["type": "machine.code", "code": code])
+    }
     /// The app is in front again: the SDK checks the socket now and skips a waiting backoff.
     func wake() { action(["type": "wake"]) }
     /// Ask the computer for its CLIs and usage; runs on the next ready connection if offline.
