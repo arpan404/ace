@@ -176,7 +176,9 @@ test("a file GitHub dismissed after a push reads Changed and stays open", async 
     screen.getByRole("checkbox", { name: "Viewed src/first.ts" }).getAttribute("aria-checked"),
   ).toBe("false");
   expect(screen.getByText("one")).toBeTruthy();
-  expect(screen.getByText("0 of 1 file viewed")).toBeTruthy();
+  expect(
+    within(screen.getByRole("complementary", { name: "Files" })).getByText("0 of 1 file viewed"),
+  ).toBeTruthy();
   expect(
     within(screen.getByRole("toolbar", { name: "Diff controls" })).queryByRole("button", {
       name: /unavailable/,

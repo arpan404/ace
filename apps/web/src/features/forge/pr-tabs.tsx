@@ -129,6 +129,8 @@ export function PrTabs(props: {
             <div
               className={cn(
                 props.readable,
+                // A jump to a part of the tab (Blocking the merge, Reviewers) clears the pinned bar.
+                "[&_[id]]:scroll-mt-16",
                 // Code's own bars pad by 0.75rem; this lines their words up with the tabs'.
                 tab === "code" && "h-full px-[max(0rem,calc(var(--forge-gutter,1rem)-0.75rem))]",
               )}

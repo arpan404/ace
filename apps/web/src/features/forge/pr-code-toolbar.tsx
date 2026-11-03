@@ -165,11 +165,15 @@ export function PrCodeToolbar(props: {
         since={props.since}
         onScope={props.onScope}
       />
-      {!options.tree && (
-        <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
-          {counts}
-        </span>
-      )}
+      {/* Once: here while the tree is off or stepped aside for room, else in the tree's header. */}
+      <span
+        className={cn(
+          "min-w-0 truncate text-xs text-muted-foreground tabular-nums",
+          options.tree && "hidden @max-[40rem]/code:inline",
+        )}
+      >
+        {counts}
+      </span>
       {props.caveats.length > 0 && (
         <Tip
           label={

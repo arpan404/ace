@@ -54,7 +54,8 @@ export function PrCodeTree(props: {
   return (
     <aside
       aria-label="Files"
-      className="flex w-[34%] max-w-72 min-w-48 shrink-0 flex-col border-r border-border"
+      // A narrow Code tab gives the diff the room; the toolbar says how many are viewed then.
+      className="hidden w-[34%] max-w-72 min-w-48 shrink-0 flex-col border-r border-border @[40rem]/code:flex"
     >
       <p className="flex h-8 shrink-0 items-center px-3 text-xs text-subtle-foreground tabular-nums">
         {summary}
