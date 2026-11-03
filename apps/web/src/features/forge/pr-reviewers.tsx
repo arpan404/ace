@@ -30,26 +30,27 @@ function Face(props: { row: ReviewerRow; className?: string }) {
 /** Each reviewer by name with their latest verdict in words: "mira Changes requested · dana Approved". */
 function Names(props: { rows: readonly ReviewerRow[] }) {
   return (
-    <span className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui">
-      {props.rows.map((row, index) => (
-        <span key={row.key} className="inline-flex items-center gap-1.5">
-          {index > 0 && (
-            <span aria-hidden className="text-subtle-foreground">
+    // Each name leads with its dot; the edge clips the dot of whichever name starts a line.
+    <span className="block overflow-hidden">
+      <span className="-ml-4.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui">
+        {props.rows.map((row) => (
+          <span key={row.key} className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="w-3 text-center text-subtle-foreground">
               ·
             </span>
-          )}
-          <Face row={row} />
-          <span className="text-foreground">{row.label}</span>
-          <span
-            className={cn(
-              "text-xs",
-              (row.review && verdictTone[row.review.state]) ?? "text-muted-foreground",
-            )}
-          >
-            {reviewerWords(row).toLowerCase()}
+            <Face row={row} />
+            <span className="text-foreground">{row.label}</span>
+            <span
+              className={cn(
+                "text-xs",
+                (row.review && verdictTone[row.review.state]) ?? "text-muted-foreground",
+              )}
+            >
+              {reviewerWords(row).toLowerCase()}
+            </span>
           </span>
-        </span>
-      ))}
+        ))}
+      </span>
     </span>
   );
 }

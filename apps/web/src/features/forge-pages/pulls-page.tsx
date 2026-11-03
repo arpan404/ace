@@ -9,16 +9,6 @@ import {
 } from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  BellIcon,
-  CheckCircleIcon,
-  ClockIcon,
-  EyeIcon,
-  GitPullRequestIcon,
-  RobotIcon,
-  UserIcon,
-  UsersIcon,
-} from "@phosphor-icons/react";
 import type { ForgePrList, ForgePrRow, VerifyRun } from "@ace/protocol";
 import { useVerifyRuns } from "@/lib/verify.ts";
 import { useMergeMethod } from "@/features/forge/index.ts";
@@ -45,16 +35,6 @@ import { ProjectMenu } from "./project-menu.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
 import { countWords, QuickViews } from "./quick-views.tsx";
 
-const groupIcons = {
-  authored: UserIcon,
-  reviewing: EyeIcon,
-  others: UsersIcon,
-  all: GitPullRequestIcon,
-  you: BellIcon,
-  agents: RobotIcon,
-  wait: ClockIcon,
-  merge: CheckCircleIcon,
-} as const;
 const noRuns: readonly VerifyRun[] = [];
 const noRows: readonly ForgePrRow[] = [];
 
@@ -289,7 +269,6 @@ export function PullRequestsPage(props: {
           groups={groups.map((group) => ({
             id: group.id,
             label: group.label,
-            icon: groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon,
             count: count(group),
             headed: groups.length > 1 || group.id !== "all",
             rows: group.rows,

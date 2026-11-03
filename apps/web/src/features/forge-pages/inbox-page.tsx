@@ -1,4 +1,3 @@
-import { AtIcon, BellIcon, EyeIcon, ShieldCheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -30,13 +29,6 @@ import { InboxRow } from "./inbox-row.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { useProjectChoice } from "./project-choice.ts";
-
-const groupIcons = {
-  review: EyeIcon,
-  mentions: AtIcon,
-  checks: ShieldCheckIcon,
-  other: BellIcon,
-} as const;
 
 /** Unread notifications per project, for the project menu. */
 function unreadCounts(
@@ -247,7 +239,6 @@ export function InboxPage(props: {
           groups={groups.map((group) => ({
             id: group.id,
             label: group.label,
-            icon: groupIcons[group.id as keyof typeof groupIcons] ?? BellIcon,
             count: countWords(group.rows.length, undefined, !list.more),
             headed: true,
             rows: group.rows,
