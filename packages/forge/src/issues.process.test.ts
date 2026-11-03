@@ -172,6 +172,40 @@ test("stale issue edits and forbidden state changes leave GitHub unchanged", asy
   }
 });
 
+test("a busy issue whose reads straddle a new comment opens and closes without a conflict", async () => {
+  const later = "2026-10-01T00:05:00Z";
+  const gh = await fakeGh({
+    // The first read misses a comment that landed between it and the permissions read.
+    "repos/octo/ace/issues/7": [{ body: issueRecord }, { body: { ...issueRecord, updated_at: later } }],
+    graphql: [
+      {
+        body: {
+          data: {
+            repository: {
+              ...issuePermissions().data.repository,
+              issue: { ...issuePermissions().data.repository.issue, updatedAt: later },
+            },
+          },
+        },
+      },
+    ],
+  });
+  try {
+    expect(await gh.forge.issueDetail(7, signal())).toMatchObject({ updatedAt: later });
+    await gh.forge.writeIssue(
+      { action: "state", number: 7, state: "closed", expectedUpdatedAt: issueRecord.updated_at },
+      "close-busy",
+      signal(),
+    );
+    const patches = (await gh.requests()).filter((request) => request.args.includes("PATCH"));
+    expect(patches.map((request) => request.body)).toEqual([
+      { state: "closed", state_reason: "completed" },
+    ]);
+  } finally {
+    await gh.cleanup();
+  }
+});
+
 test("a lost issue creation can be recovered from its marker without another POST", async () => {
   const gh = await fakeGh({
     "repos/octo/ace": [{ body: { archived: false, has_issues: true } }],

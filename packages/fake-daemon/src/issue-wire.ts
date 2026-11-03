@@ -7,6 +7,8 @@ import {
   CommandId,
   WorkspaceActionRequest,
 } from "@ace/protocol";
+import { planIssueWrite } from "@ace/forge/issue-write-plan";
+import { catalogMilestones } from "./catalog/pr-management.ts";
 
 /**
  * A project's issues when no fixture seeded any: an empty, writable list, as a reachable
@@ -111,20 +113,16 @@ export class FakeIssueWire {
         value.value.ref.number === number
       )
         detail = value.value;
-    if (
-      input.action !== "create" &&
-      (!detail ||
-        (input.action === "edit" && !detail.permissions.edit) ||
-        (input.action === "comment" && !detail.permissions.comment) ||
-        (input.action === "state" &&
-          !(input.state === "closed" ? detail.permissions.close : detail.permissions.reopen)))
-    )
+    if (input.action !== "create" && !detail) return unsent("forge_not_found");
+    if (input.action === "comment" && !detail?.permissions.comment)
       return unsent("forge_forbidden");
-    if (
-      detail &&
-      (input.action === "edit" || input.action === "state") &&
-      detail.updatedAt !== input.expectedUpdatedAt
-    ) {
+    // The same rules as GitHub's own writes: only a field someone else changed conflicts.
+    const plan =
+      detail && input.action !== "create" && input.action !== "comment"
+        ? planIssueWrite(detail, input)
+        : undefined;
+    if (plan?.kind === "forbidden") return unsent("forge_forbidden");
+    if (plan?.kind === "conflict") {
       const result: ForgeIssueAction = {
         id: CommandId.parse(id),
         action: input.action,
@@ -168,13 +166,10 @@ export class FakeIssueWire {
         relatedThreads: [],
         relatedThreadsTruncated: false,
       });
-    } else if (detail) {
-      detail = {
-        ...detail,
-        updatedAt: at,
-        ...(input.action === "edit" ? { title: input.title, body: input.body } : {}),
-        ...(input.action === "state" ? { state: input.state } : {}),
-      };
+    } else if (detail && plan?.kind === "patch") {
+      detail = patched(detail, plan.body, at);
+    } else if (detail && input.action === "comment") {
+      detail = { ...detail, updatedAt: at, commentCount: (detail.commentCount ?? 0) + 1 };
     }
     if (!detail) return { ok: false, error: "forge_not_found" };
     const published = detail;
@@ -231,6 +226,7 @@ export class FakeIssueWire {
       if (
         input.action === "comment" &&
         value.resource === "issueTimeline" &&
+        value.nextPage === undefined &&
         request.data.operation.op === "forge.issue.timeline" &&
         request.data.operation.number === published.ref.number
       )
@@ -276,4 +272,28 @@ export class FakeIssueWire {
           issueAction: { ...result, issue: undefined },
         };
   }
+}
+
+/** An issue after a PATCH GitHub would apply: the fields named change, the rest stay. */
+function patched(detail: ForgeIssueDetail, body: Record<string, unknown>, at: string) {
+  const next: ForgeIssueDetail = { ...detail, updatedAt: at };
+  if (typeof body.title === "string") next.title = body.title;
+  if (typeof body.body === "string") next.body = body.body;
+  if (body.state === "open" || body.state === "closed") next.state = body.state;
+  if (
+    body.state_reason === "completed" ||
+    body.state_reason === "not_planned" ||
+    body.state_reason === "reopened"
+  )
+    next.stateReason = body.state_reason;
+  const names = (value: unknown) =>
+    Array.isArray(value) ? value.filter((each) => typeof each === "string") : undefined;
+  next.labels = names(body.labels) ?? next.labels;
+  next.assignees = names(body.assignees) ?? next.assignees;
+  if ("milestone" in body) {
+    const found = catalogMilestones.find((milestone) => milestone.number === body.milestone);
+    next.milestone = found?.title ?? null;
+    next.milestoneNumber = found?.number ?? null;
+  }
+  return next;
 }

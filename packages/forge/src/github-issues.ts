@@ -13,6 +13,7 @@ import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { viewerLogin } from "./github-browser-enrichment.ts";
 import { avatars, labelColors } from "./github-row-facts.ts";
+import { issueWriteLanded, planIssueWrite } from "./issue-write-plan.ts";
 
 const user = z.looseObject({ login: z.string().max(256) });
 export const GitHubIssueRecord = z.looseObject({
@@ -24,7 +25,10 @@ export const GitHubIssueRecord = z.looseObject({
   state: z.enum(["open", "closed"]),
   labels: z.array(z.looseObject({ name: z.string().max(256) })).max(100),
   assignees: z.array(user).max(100),
-  milestone: z.looseObject({ title: z.string().max(256) }).nullable(),
+  milestone: z
+    .looseObject({ title: z.string().max(256), number: z.number().int().positive().optional() })
+    .nullable(),
+  state_reason: z.string().max(64).nullable().optional().catch(undefined),
   created_at: z.string(),
   updated_at: z.string(),
   locked: z.boolean().optional(),
@@ -53,6 +57,10 @@ export function issueSearchQuery(repo: ForgeRepository, query: ForgeIssueSearch)
   ].join(" ");
 }
 const count = z.object({ issueCount: z.number().int().nonnegative() });
+const reasons = ["completed", "not_planned", "reopened"] as const;
+function stateReason(value: string | null | undefined) {
+  return reasons.find((reason) => reason === value) ?? null;
+}
 export class GitHubIssues {
   readonly #api: GhApi;
   readonly #repo: ForgeRepository;
@@ -138,13 +146,17 @@ export class GitHubIssues {
       truncated: page.total_count > 1000,
     };
   }
-  async detail(number: number, signal: AbortSignal): Promise<ForgeIssueDetail> {
-    z.number().int().positive().parse(number);
+  async #record(number: number, signal: AbortSignal) {
     const record = decode(
       GitHubIssueRecord,
       (await this.#request(`${this.#root}/issues/${number}`, signal)).body,
     );
     if (record.number !== number) throw new ForgeError("invalid_data");
+    return record;
+  }
+  async detail(number: number, signal: AbortSignal): Promise<ForgeIssueDetail> {
+    z.number().int().positive().parse(number);
+    let record = await this.#record(number, signal);
     const { owner, name } = this.#repo;
     const response = await this.#request("graphql", signal, {
       query: `query($owner:String!,$name:String!,$number:Int!) { repository(owner:$owner,name:$name) { isArchived viewerPermission issue(number:$number) { updatedAt viewerCanUpdate viewerCanClose viewerCanReopen } } }`,
@@ -167,8 +179,13 @@ export class GitHubIssues {
       }),
       response.body,
     ).data.repository;
-    if (permissions.issue.updatedAt !== record.updated_at) throw new ForgeError("conflict");
+    // On a busy issue the two reads can land either side of someone's change. The record is
+    // read once more so the page shows the later one; the permissions don't depend on it.
+    if (permissions.issue.updatedAt > record.updated_at) record = await this.#record(number, signal);
     const writable = !permissions.isArchived;
+    const triage = ["ADMIN", "MAINTAIN", "WRITE", "TRIAGE"].includes(
+      permissions.viewerPermission ?? "",
+    );
     const comment =
       writable &&
       (!record.locked ||
@@ -181,12 +198,15 @@ export class GitHubIssues {
         close: writable && permissions.issue.viewerCanClose,
         reopen: writable && permissions.issue.viewerCanReopen,
         comment,
+        triage: writable && triage,
         reason: permissions.isArchived
           ? "This repository is archived."
           : record.locked
             ? "This conversation is locked. GitHub restricts who can comment."
             : "Your gh account's GitHub permissions determine the available actions.",
       },
+      stateReason: stateReason(record.state_reason),
+      milestoneNumber: record.milestone?.number ?? null,
       relatedThreads: [],
       relatedThreadsTruncated: false,
     };
@@ -223,6 +243,7 @@ export class GitHubIssues {
       response.body,
     );
     const next = this.#api.next(response, path);
+    const last = next ? this.#api.lastPage(response, path) : page;
     return {
       events: events
         .map((record, index) => ({
@@ -238,6 +259,7 @@ export class GitHubIssues {
         }))
         .toSorted((a, b) => (a.at ?? "").localeCompare(b.at ?? "")),
       ...(next && page < 120 ? { nextPage: page + 1 } : {}),
+      ...(last ? { lastPage: Math.min(last, 120) } : {}),
       truncated: Boolean(next && page === 120),
     };
   }
@@ -293,17 +315,10 @@ export class GitHubIssues {
         ).body,
       );
     } else {
-      if (current.updatedAt !== value.expectedUpdatedAt) throw new ForgeError("conflict");
-      if (
-        value.action === "edit"
-          ? !current.permissions.edit
-          : value.state === "closed"
-            ? !current.permissions.close
-            : !current.permissions.reopen
-      )
-        throw new ForgeError("forbidden");
-      const body =
-        value.action === "edit" ? { title: value.title, body: value.body } : { state: value.state };
+      const plan = planIssueWrite(current, value);
+      if (plan.kind === "conflict") throw new ForgeError("conflict");
+      if (plan.kind === "forbidden") throw new ForgeError("forbidden");
+      if (plan.kind === "done") return current.ref;
       signal.throwIfAborted();
       const record = decode(
         GitHubIssueRecord,
@@ -311,7 +326,7 @@ export class GitHubIssues {
           await this.#request(
             `${this.#root}/issues/${value.number}`,
             signal,
-            body,
+            plan.body,
             "PATCH",
             dispatch,
           )
@@ -325,13 +340,9 @@ export class GitHubIssues {
   async reconcile(input: ForgeIssueWrite, actionId: string, signal: AbortSignal) {
     const value = ForgeIssueWrite.parse(input);
     const marker = `<!-- ace-issue-action:${encodeURIComponent(actionId)} -->`;
-    if (value.action === "edit" || value.action === "state") {
+    if (value.action !== "create" && value.action !== "comment") {
       const current = await this.detail(value.number, signal);
-      const matches =
-        value.action === "edit"
-          ? current.title === value.title && current.body === value.body
-          : current.state === value.state;
-      return matches ? current.ref : null;
+      return issueWriteLanded(current, value) ? current.ref : null;
     }
     for (let page = 1; page <= 10; page++) {
       const path =

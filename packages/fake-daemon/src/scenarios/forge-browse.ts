@@ -1,6 +1,7 @@
 import { WorkspaceId } from "@ace/protocol";
 import { browseIssues, browsePullRequests } from "../catalog/forge-browse.ts";
 import { inboxNotifications } from "../catalog/inbox.ts";
+import { longIssueReads } from "../catalog/long-issue.ts";
 import { pullRequestDetails } from "../catalog/pull-request-details.ts";
 import { richIssueReads, richPullRequest } from "../catalog/rich-content.ts";
 import type { FakeDaemon } from "../daemon.ts";
@@ -27,4 +28,12 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
           : { op: "forge.issue.detail", workspaceId, number: issue.number },
         read,
       );
+  const long = longIssueReads(now);
+  daemon.workspace.setForgeRead({ op: "forge.issue.detail", workspaceId, number: 250 }, long.detail);
+  long.pages.forEach((read, index) =>
+    daemon.workspace.setForgeRead(
+      { op: "forge.issue.timeline", workspaceId, number: 250, page: index + 1 },
+      read,
+    ),
+  );
 }
