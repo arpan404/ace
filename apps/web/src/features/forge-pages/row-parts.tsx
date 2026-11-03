@@ -1,10 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  ArrowSquareOutIcon,
-  ChatCircleIcon,
-  ChatsCircleIcon,
-  PlusIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ChatsCircleIcon, PlusIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { formatAge, type LinkedThread } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
@@ -31,10 +26,8 @@ export function Age(props: { at: string | undefined }) {
 export function Comments(props: { count: number | undefined }) {
   if (!props.count) return null;
   return (
-    <span className="inline-flex items-center gap-0.5 text-xs text-muted-foreground tabular-nums">
-      <ChatCircleIcon aria-hidden size={14} />
-      <span className="sr-only">{`${props.count} comments`}</span>
-      <span aria-hidden>{props.count}</span>
+    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+      {`${props.count} ${props.count === 1 ? "comment" : "comments"}`}
     </span>
   );
 }

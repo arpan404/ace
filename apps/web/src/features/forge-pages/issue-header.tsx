@@ -1,12 +1,5 @@
 import { useState } from "react";
-import {
-  ArrowSquareOutIcon,
-  CheckCircleIcon,
-  CopyIcon,
-  DotsThreeIcon,
-  ProhibitIcon,
-  RecordIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueDetail } from "@ace/protocol";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -22,18 +15,14 @@ import type { IssueWrites } from "./issue-writes.ts";
 export function IssueState(props: { issue: ForgeIssueDetail }) {
   const { issue } = props;
   const notPlanned = issue.state === "closed" && issue.stateReason === "not_planned";
-  const [tone, Glyph, words] =
+  const [tone, words] =
     issue.state === "open"
-      ? (["done", RecordIcon, "Open"] as const)
+      ? (["done", "Open"] as const)
       : notPlanned
-        ? (["idle", ProhibitIcon, "Closed as not planned"] as const)
-        : (["waiting", CheckCircleIcon, "Closed as completed"] as const);
+        ? (["idle", "Closed as not planned"] as const)
+        : (["waiting", "Closed as completed"] as const);
   return (
-    <span
-      data-tone={tone}
-      className="inline-flex shrink-0 items-center gap-1 font-medium text-(--tone-text)"
-    >
-      <Glyph aria-hidden size={14} />
+    <span data-tone={tone} className="shrink-0 font-medium text-(--tone-text)">
       {words}
     </span>
   );

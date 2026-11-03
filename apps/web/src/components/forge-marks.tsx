@@ -44,16 +44,14 @@ export function StateBadge(
 
 /** The state in words with its glyph, in the state's colour and nothing around it. */
 export function StateWords(props: { state: PrState }) {
-  const Glyph = props.state === "merged" ? GitMergeIcon : GitPullRequestIcon;
   return (
     <span
       data-tone={props.state === "draft" ? undefined : prTone[props.state]}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 text-ui font-medium",
+        "shrink-0 text-ui font-medium",
         props.state === "draft" ? "text-muted-foreground" : "text-(--tone-text)",
       )}
     >
-      <Glyph aria-hidden size={15} />
       {prWords[props.state]}
     </span>
   );
