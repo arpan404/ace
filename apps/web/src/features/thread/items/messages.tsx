@@ -43,16 +43,19 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
   const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
     <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
-      <Prose
-        text={text}
-        thread={{
-          threadId: props.threadId,
-          itemId: item.id,
-          ...(agent?.cwd ? { cwd: agent.cwd } : {}),
-        }}
-        stream={`${props.threadId}/${props.itemId}`}
-        streaming={streaming}
-      />
+      {/* Its words, where the person can select a passage to reply to (features/quotes). */}
+      <div data-quotable="">
+        <Prose
+          text={text}
+          thread={{
+            threadId: props.threadId,
+            itemId: item.id,
+            ...(agent?.cwd ? { cwd: agent.cwd } : {}),
+          }}
+          stream={`${props.threadId}/${props.itemId}`}
+          streaming={streaming}
+        />
+      </div>
       {answer.partial && (
         <div className="mt-2 text-xs text-muted-foreground">
           {answer.status === "loading" ? (

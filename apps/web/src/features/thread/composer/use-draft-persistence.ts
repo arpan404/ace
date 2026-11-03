@@ -172,5 +172,6 @@ function version(draft: ComposerDraft | undefined): string {
     draft?.mentions ?? [],
     draft?.attachments ?? [],
     draft?.annotations ?? null,
+    draft?.quotes ?? null,
   ]);
 }
