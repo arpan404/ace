@@ -301,6 +301,14 @@
 }
 /* The one sweep that travels breathes in place instead under reduced motion. */
 /*
+ * While the daemon is unreachable (`data-live-held` on the shell, live-motion.ts), live
+ * indicators dim, as nothing they stand for can arrive: spinners, `[data-live]` marks and a
+ * row's working icon (rows carry no `data-live`; their icon says working by `data-icon`).
+ */
+[data-live-held] :is([data-slot="spinner"], [data-live], [data-icon="working"]) {
+  opacity: 0.6;
+}
+/*
  * A list row's live dot breathes a few times as it appears, then holds still: it says "working"
  * without keeping the compositor busy for as long as the work lasts.
  */
