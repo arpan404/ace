@@ -18,7 +18,7 @@ export const GitHubCheck = z.looseObject({
   status: str,
   conclusion: str.nullable(),
   completed_at: str.nullable(),
-  started_at: str.nullish(),
+  started_at: str.nullish().catch(undefined),
   details_url: str.nullable().optional(),
   html_url: str.nullable().optional(),
 });
