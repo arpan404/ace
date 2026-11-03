@@ -49,6 +49,18 @@ By hand, from `apps/relay-cloudflare`:
    account: it answers, publishes grant keys, starts and cancels a sign-in, and
    refuses relay upgrades that carry no grant.
 
+### Releases deploy it
+
+After the first deploy, each release tag (`v*`) deploys production from that tag: the
+`relay` job in `.github/workflows/release.yml` applies D1 migrations, runs
+`wrangler deploy --env production` and then the smoke check. A manual run of the
+workflow leaves production alone. Secrets set in Cloudflare are untouched by deploys.
+
+The job needs the `CLOUDFLARE_API_TOKEN` repository secret, and fails saying so
+without it. Create the token in the Cloudflare dashboard (My Profile › API Tokens)
+from the "Edit Cloudflare Workers" template, add Account › D1 › Edit, and limit it to
+ace's account and the relay's zone. Then `gh secret set CLOUDFLARE_API_TOKEN` and paste it.
+
 Settings are all or nothing. With none of them, the Worker answers account routes
 with 503 `account_not_configured` and refuses `/host` and `/client`, since the
 hosted relay requires an account on both ends. A partial or malformed set behaves
