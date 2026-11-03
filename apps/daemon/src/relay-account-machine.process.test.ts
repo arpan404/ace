@@ -11,7 +11,8 @@ import { aceAccountClient } from "@ace/client/ace-account";
 import { DeviceId } from "@ace/protocol";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
+import { accessRequest } from "./client-access.ts";
 import { machineAccount } from "./account-access/machine-account.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 
@@ -216,4 +217,24 @@ it("the machine pool opens an account machine, asks for its code, and lists it o
 
   await opened.close();
   expect(machines.ids).toEqual([]);
+});
+
+it("an account device reads the machine's remote access and account status and its devices through the hosted relay", async () => {
+  const machine = await accountMachine();
+  const laptop = await machine.device("laptop").connect();
+  expect(laptop.state).toBe("ready");
+
+  const status = await laptop.request({
+    type: "fleet.request",
+    operation: { op: "remoteStatus" },
+  });
+  expect(status.result).toMatchObject({
+    kind: "remoteStatus",
+    status: { transport: "relay", account: { signedIn: true } },
+  });
+  const devices = await laptop.request({ type: "fleet.request", operation: { op: "devices" } });
+  expect(devices.result).toEqual({
+    kind: "devices",
+    devices: await accessRequest(machine.f.server.httpUrl, "/v1/devices", { token }),
+  });
 });

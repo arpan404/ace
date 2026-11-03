@@ -75,6 +75,8 @@ export interface SocketContext {
     pairing(): import("../pairing-issue.ts").PairingConnection | undefined;
     /** Origin of the web app new pairing links open; this daemon's own when undefined. */
     pairingApp?(): Promise<string | undefined>;
+    /** What `GET /v1/status` reports as `remoteAccess`: one implementation for both. */
+    remoteStatus?(): import("@ace/protocol").RemoteAccessStatus;
   };
   connected(): boolean;
   send(message: ServerMessage | PluginServerMessage): void;

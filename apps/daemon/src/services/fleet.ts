@@ -93,6 +93,11 @@ async function run(context: SocketContext, operation: FleetOperation): Promise<F
       return { kind: "revoked" };
     case "revokeOthers":
       return { kind: "revoked", count: auth.revokeOthers(callerDevice(context)) };
+    case "remoteStatus":
+      // Admin only, as `GET /v1/status` is: the fleet session checked it before this runs.
+      if (!access.remoteStatus)
+        throw new FleetError("refused", "Remote access status isn't available on this machine.");
+      return { kind: "remoteStatus", status: access.remoteStatus() };
     case "grants":
     case "grant":
       return grants(context, operation);

@@ -109,6 +109,8 @@ export class FakeFleet {
           : { code: "not_found", message: "That device isn't paired anymore." };
       case "revokeOthers":
         return { kind: "revoked", count: this.access.revokeOthers(device) };
+      case "remoteStatus":
+        return { kind: "remoteStatus", status: this.access.remoteStatus() };
       case "grant":
         this.chosen.set(operation.deviceId, {
           ...this.chosen.get(operation.deviceId),

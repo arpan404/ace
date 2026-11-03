@@ -305,7 +305,12 @@ export async function startServer(options: ServerOptions): Promise<{
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       hostCredential: () => relayed === undefined && authenticated.get(socket)?.revocable === false,
       accountDevice: () => relayed?.account,
-      access: { auth, pairing, pairingApp: access.pairingApp },
+      access: {
+        auth,
+        pairing,
+        pairingApp: access.pairingApp,
+        remoteStatus: access.remoteStatus,
+      },
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
       send,
       fail,

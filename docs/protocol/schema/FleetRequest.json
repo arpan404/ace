@@ -211,6 +211,18 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "remoteStatus",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "deviceIds": {
               "items": {
                 "$ref": "https://ace.local/protocol/v1/DeviceId.json"
