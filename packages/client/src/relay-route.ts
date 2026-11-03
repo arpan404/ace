@@ -28,7 +28,9 @@ export interface RelayRouteOptions {
   schedule(callback: () => void, delayMs: number): () => void;
   keys?: PortableRelayOptions["keys"];
   /** The daemon wants this machine's code, or refused the one sent (`machineCodeGate.refused`). */
-  refused?(reason: MachineCodeRefusal, message: string): void;
+  refused?(reason: MachineCodeRefusal, message: string, lockedUntil?: number): void;
+  /** The daemon welcomed this attempt (`machineCodeGate.welcomed`). */
+  welcomed?(): void;
 }
 
 /** How a close or failure before welcome reads, for the connection's retry rules. */
@@ -125,11 +127,13 @@ export function relayRoute(options: RelayRouteOptions): {
                 return;
               }
               if (!welcomed) {
-                if (frame.startsWith('{"type":"welcome"')) welcomed = true;
-                else if (frame.startsWith('{"type":"error"')) {
+                if (frame.startsWith('{"type":"welcome"')) {
+                  welcomed = true;
+                  options.welcomed?.();
+                } else if (frame.startsWith('{"type":"error"')) {
                   const refusal = machineCodeRefusal(frame);
                   if (refusal) {
-                    options.refused?.(refusal.reason, refusal.message);
+                    options.refused?.(refusal.reason, refusal.message, refusal.lockedUntil);
                     ended(MACHINE_CODE_CLOSE, refusal.reason);
                     return;
                   }
@@ -153,14 +157,19 @@ export function relayRoute(options: RelayRouteOptions): {
 
 function machineCodeRefusal(
   frame: string,
-): { reason: MachineCodeRefusal; message: string } | undefined {
+): { reason: MachineCodeRefusal; message: string; lockedUntil?: number } | undefined {
   try {
     const value: unknown = JSON.parse(frame);
     if (typeof value !== "object" || value === null) return undefined;
     const reason = MachineCodeRefusal.safeParse("code" in value ? value.code : undefined);
     if (!reason.success) return undefined;
     const message = "message" in value && typeof value.message === "string" ? value.message : "";
-    return { reason: reason.data, message };
+    const until = "lockedUntil" in value ? value.lockedUntil : undefined;
+    return {
+      reason: reason.data,
+      message,
+      ...(typeof until === "number" ? { lockedUntil: until } : {}),
+    };
   } catch {
     return undefined;
   }
