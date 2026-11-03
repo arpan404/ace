@@ -27,6 +27,7 @@ import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
+import { useCodeRoom } from "./pr-code-room.ts";
 import { PrSummary } from "./pr-summary.tsx";
 import { PrChecks } from "./pr-checks.tsx";
 import { PrPeople } from "./pr-people.tsx";
@@ -248,6 +249,7 @@ function PrDetailLoaded(props: {
 }) {
   const { context } = props;
   const readable = props.page ? pageWidth : undefined;
+  useCodeRoom(!!props.page && props.tab === "code");
   const { detail } = context;
   const [dialog, setDialog] = useState<PrDialog>();
   const [commitWhen, setCommitWhen] = useState<"now" | "auto">();

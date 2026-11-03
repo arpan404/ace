@@ -33,7 +33,7 @@ import { PrMoreFiles } from "./pr-more-files.tsx";
 import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
 import { usePrViewedMarks } from "./pr-viewed-marks.ts";
 import { usePrReview } from "./pr-review-context.tsx";
-import { useCodeNavigation } from "./pr-code-nav.ts";
+import { landingOf, useCodeNavigation } from "./pr-code-nav.ts";
 import { codeThreadStops, shownDiffs, threadsAtHead } from "./pr-code-shown.ts";
 import { PrCodeTree } from "./pr-code-tree.tsx";
 import { prCodeShortcut } from "./pr-shortcuts.ts";
@@ -175,7 +175,7 @@ export function PrCodeRange(
     if (focus && focused.current !== focus.seq) {
       focused.current = focus.seq;
       restored.current = true;
-      nav.go(focus.path);
+      nav.go(focus.path, landingOf(focus, detail.status.reviewThreads));
     } else if (!restored.current) {
       restored.current = true;
       if (place && place !== files[0]?.path) nav.go(place);
@@ -307,7 +307,6 @@ export function PrCodeRange(
       )}
       {range && context && (
         <>
-          <PrOffDiffThreads threads={offDiff} />
           <div className="flex min-h-0 flex-1">
             {options.tree && (
               <PrCodeTree
@@ -327,6 +326,7 @@ export function PrCodeRange(
               data-diff-scroller=""
               className="min-h-0 min-w-0 flex-1 overflow-auto pb-16"
             >
+              <PrOffDiffThreads threads={offDiff} />
               <p className="sr-only">
                 {props.range.commit
                   ? "Commits compared with the commit before them"

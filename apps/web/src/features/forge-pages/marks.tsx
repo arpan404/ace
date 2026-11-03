@@ -3,9 +3,6 @@ import {
   CheckIcon,
   CircleDashedIcon,
   ClockIcon,
-  GitMergeIcon,
-  GitPullRequestIcon,
-  RecordIcon,
   XCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -16,66 +13,27 @@ import { cn } from "@/lib/cn.ts";
 
 import { prTone, prWords } from "@ace/ui-core";
 
-export function PrStateGlyph(props: {
-  state: ForgePrRow["state"];
-  conflicting?: boolean | undefined;
-}) {
-  const Glyph = props.state === "merged" ? GitMergeIcon : GitPullRequestIcon;
-  if (props.state === "draft") return <DraftGlyph />;
+/**
+ * A row's state in words before its title, where the list doesn't already say it: "Draft"
+ * quiet, "Merged" and "Closed" in their tone. An open pull request needs no word.
+ */
+export function PrStateWord(props: { state: ForgePrRow["state"] }) {
+  if (props.state === "open") return null;
+  const draft = props.state === "draft";
   return (
     <span
-      data-tone={prTone[props.state]}
-      title={
-        props.conflicting ? `${prWords[props.state]}, conflicts with base` : prWords[props.state]
-      }
-      className="relative inline-flex shrink-0 text-(--tone-text)"
+      data-tone={draft ? undefined : prTone[props.state]}
+      className={cn("mr-1.5 font-normal", draft ? "text-muted-foreground" : "text-(--tone-text)")}
     >
-      <Glyph aria-hidden size={16} />
-      <span className="sr-only">{prWords[props.state]}</span>
-      {props.conflicting && (
-        <span
-          data-tone="failed"
-          className="absolute -right-0.5 -bottom-0.5 size-2 rounded-full border border-background bg-(--tone)"
-        >
-          <span className="sr-only">, conflicts with base</span>
-        </span>
-      )}
+      {prWords[props.state]}
     </span>
   );
 }
 
-/** A draft: the pull request's mark drawn dashed, quiet. */
-function DraftGlyph() {
-  return (
-    <span data-tone="idle" title="Draft" className="inline-flex shrink-0 text-(--tone-text)">
-      <svg aria-hidden width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor">
-        <circle cx="4" cy="3.5" r="1.6" strokeWidth={1.4} />
-        <circle cx="4" cy="12.5" r="1.6" strokeWidth={1.4} />
-        <circle cx="12" cy="12.5" r="1.6" strokeWidth={1.4} />
-        <path
-          d="M4 5.3v5.4M12 10.7V6.5a2 2 0 0 0-2-2H8"
-          strokeWidth={1.4}
-          strokeDasharray="1.6 1.6"
-        />
-      </svg>
-      <span className="sr-only">Draft</span>
-    </span>
-  );
-}
-
-export function IssueStateGlyph(props: { state: ForgeIssueRow["state"]; size?: number }) {
-  const open = props.state === "open";
-  const Glyph = open ? RecordIcon : CheckCircleIcon;
-  return (
-    <span
-      data-tone={open ? "done" : "waiting"}
-      title={open ? "Open" : "Closed"}
-      className="inline-flex shrink-0 text-(--tone-text)"
-    >
-      <Glyph aria-hidden size={props.size ?? 16} />
-      <span className="sr-only">{open ? "Open" : "Closed"}</span>
-    </span>
-  );
+/** An issue's state in words before its title: "Closed", quiet; an open one needs none. */
+export function IssueStateWord(props: { state: ForgeIssueRow["state"] }) {
+  if (props.state === "open") return null;
+  return <span className="mr-1.5 font-normal text-muted-foreground">Closed</span>;
 }
 
 const reviewIcons = {

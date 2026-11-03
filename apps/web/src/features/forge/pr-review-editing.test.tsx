@@ -65,7 +65,7 @@ const boxes: {
     name: "a review thread's reply",
     ui: <PrReplyField threadId="T1" rootCommentId={5} />,
     open: async () => {
-      await userEvent.click(await screen.findByRole("button", { name: "Reply…" }));
+      await userEvent.click(await screen.findByRole("button", { name: "Reply" }));
     },
     field: "Reply",
     button: "Reply",

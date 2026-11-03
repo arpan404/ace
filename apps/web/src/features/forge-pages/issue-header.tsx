@@ -201,10 +201,10 @@ export function IssueHeader(props: {
           </>
         }
       />
-      <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-ui text-muted-foreground">
+      <p className="mt-3 flex flex-wrap gap-y-1 text-ui text-muted-foreground [&>span+span]:before:px-1.5 [&>span+span]:before:text-faint-foreground [&>span+span]:before:content-['·']">
         {issue.commentCount !== undefined && <span>{plural(issue.commentCount, "comment")}</span>}
         {threads > 0 && <span>{plural(threads, "agent thread")}</span>}
-        <span className="inline-flex items-center gap-1">
+        <span>
           Updated <RelativeTime at={issue.updatedAt} />
         </span>
       </p>

@@ -71,11 +71,12 @@ test("ticking projects narrows the list to them; with one, rows drop their proje
   });
 });
 
-test("Only keeps one project, and the choice holds across Issues, Inbox and a reload", async () => {
+test("one ticked project holds across Issues, Inbox and a reload", async () => {
   const app = withProjects();
   const user = userEvent.setup();
   const view = await app.open("/pulls");
-  await user.click((await openProjects()).getByRole("button", { name: "Only docs-site" }));
+  await user.click((await openProjects()).getByRole("checkbox", { name: /docs-site/ }));
+  await user.keyboard("{Escape}");
   await waitFor(async () =>
     expect(await rowOf("Pull requests", "Reconnect the client worker")).toBeUndefined(),
   );
@@ -89,7 +90,7 @@ test("Only keeps one project, and the choice holds across Issues, Inbox and a re
   await waitFor(async () =>
     expect(await rowOf("Notifications", "Rewrite the install page")).toBeTruthy(),
   );
-  // Only docs-site's notifications: ace's review request is left out.
+  // docs-site's notifications alone: ace's review request is left out.
   expect(await rowOf("Notifications", "Reconnect the client worker")).toBeUndefined();
   view.unmount();
   await app.open("/pulls");

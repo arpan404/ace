@@ -4,7 +4,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import { Avatars, IssueStateGlyph } from "./marks.tsx";
+import { Avatars, IssueStateWord } from "./marks.tsx";
 import { Age, Comments, Dot, ProjectTag, RowActions, rowClass, Thread } from "./row-parts.tsx";
 
 /**
@@ -35,15 +35,13 @@ export function IssueRow(props: {
         data-view-row=""
         className={rowClass}
       >
-        <span className="pt-0.5">
-          <IssueStateGlyph state={row.state} />
-        </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-2">
             <span
               data-view-row-title=""
               className="min-w-0 truncate text-ui font-medium text-foreground"
             >
+              <IssueStateWord state={row.state} />
               {row.title}
             </span>
             <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
@@ -54,7 +52,7 @@ export function IssueRow(props: {
           <span className="flex min-w-0 items-center gap-1.5 text-meta text-subtle-foreground">
             {props.projectName && (
               <>
-                <ProjectTag id={props.project} name={props.projectName} />
+                <ProjectTag name={props.projectName} />
                 <Dot />
               </>
             )}

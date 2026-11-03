@@ -26,6 +26,7 @@ import {
   oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
+  seedPrChecks,
   seedLongIssue,
   movingPullRequest,
   seedProjectForge,
@@ -149,6 +150,8 @@ export function bootFake(): {
     seedLongIssue(daemon, Date.now());
     // The other projects' pull requests, issues and notifications, for the lists across projects.
     seedProjectForge(daemon, Date.now());
+    // #229's checks with runs to read, so a failing one quotes its first failure line.
+    seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
     if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
     // A 62-file PR whose head moves while it's reviewed (#250 in acme/ace).

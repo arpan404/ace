@@ -26,8 +26,8 @@ export interface PrFilesProps {
   repository: ForgeRepository;
   detail: ForgePrDetail;
   context: PrWorkspaceContext;
-  /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
-  focus?: { path: string; seq: number } | undefined;
+  /** A file to scroll to (the Summary's Changes), at a line when given; a new `seq` asks again. */
+  focus?: { path: string; line?: number | undefined; seq: number } | undefined;
   /** Which commits show, when the page holds the choice (the Timeline's commits open here). */
   scope?: CodeScope | undefined;
   onScope?: ((scope: CodeScope) => void) | undefined;

@@ -1,12 +1,12 @@
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import { middleTruncateText } from "@ace/ui-core";
+import { middleTruncateText, prWords } from "@ace/ui-core";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
-import { PrStateGlyph } from "./marks.tsx";
+import { PrStateWord } from "./marks.tsx";
 import { Age, Dot, ProjectTag, RowActions, rowClass } from "./row-parts.tsx";
 import type { RowStepView } from "./row-steps.ts";
 
@@ -16,7 +16,7 @@ const actionText =
   "inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
 
 /**
- * One pull request: its state glyph, the title across the row, then its project (when the list
+ * One pull request: the title across the row (after "Draft", "Merged" or "Closed" when so), then its project (when the list
  * shows more than one), number, author, branch and size. At the right, its state in words in
  * its tone, and its age; hovering or focusing the row puts the next action (Review, Merge,
  * Update branch, Open thread) where the age was. The action sits outside the row's link.
@@ -61,20 +61,19 @@ export function PrRow(props: {
           props.selected && "bg-active group-hover/row:bg-active hover:bg-active",
         )}
       >
-        <span className="pt-0.5">
-          <PrStateGlyph state={row.state} conflicting={row.conflicting} />
-        </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span
             data-view-row-title=""
             className="min-w-0 truncate text-ui font-medium text-foreground"
           >
+            {/* The right column may already say it ("Draft"); else it leads the title. */}
+            {status.words !== prWords[row.state] && <PrStateWord state={row.state} />}
             {row.title}
           </span>
           <span className="flex min-h-5 min-w-0 items-center gap-1.5 text-meta text-subtle-foreground">
             {props.projectName && (
               <>
-                <ProjectTag id={props.project} name={props.projectName} />
+                <ProjectTag name={props.projectName} />
                 <Dot />
               </>
             )}

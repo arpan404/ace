@@ -1,47 +1,21 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import {
-  ArrowSquareOutIcon,
-  BellIcon,
-  ChatsCircleIcon,
-  EnvelopeSimpleIcon,
-  GitCommitIcon,
-  PlayCircleIcon,
-  ShieldWarningIcon,
-  TagIcon,
-} from "@phosphor-icons/react";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import type { ForgeInboxRow } from "@ace/protocol";
 import { inboxReasonWords, inboxTarget, inboxTypeWords } from "@ace/ui-core";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { IssueStateGlyph, PrStateGlyph } from "./marks.tsx";
+import { IssueStateWord, PrStateWord } from "./marks.tsx";
 import { Age, Dot, ProjectTag, rowClass } from "./row-parts.tsx";
 
-const typeGlyphs: Record<string, IconGlyph> = {
-  Release: TagIcon,
-  Discussion: ChatsCircleIcon,
-  Commit: GitCommitIcon,
-  CheckSuite: PlayCircleIcon,
-  RepositoryVulnerabilityAlert: ShieldWarningIcon,
-  RepositoryDependabotAlertsThread: ShieldWarningIcon,
-  RepositoryInvitation: EnvelopeSimpleIcon,
-};
-
-/** The subject's mark: a PR's or issue's state glyph in its hue, else its type, quiet. */
-function SubjectGlyph(props: { row: ForgeInboxRow }) {
+/** A pull request's or issue's state in words before its title; other subjects say their type on line 2. */
+function SubjectWord(props: { row: ForgeInboxRow }) {
   const { row } = props;
-  if (row.type === "PullRequest" && row.state) return <PrStateGlyph state={row.state} />;
+  if (row.type === "PullRequest" && row.state) return <PrStateWord state={row.state} />;
   if (row.type === "Issue" && (row.state === "open" || row.state === "closed"))
-    return <IssueStateGlyph state={row.state} />;
-  const words = inboxTypeWords(row.type);
-  return (
-    <span title={words} className="inline-flex shrink-0 text-faint-foreground">
-      <Icon icon={typeGlyphs[row.type] ?? BellIcon} />
-      <span className="sr-only">{words}</span>
-    </span>
-  );
+    return <IssueStateWord state={row.state} />;
+  return null;
 }
 
 /** Where the row goes: ace's PR or issue page, else nothing (it opens on GitHub). */
@@ -54,8 +28,8 @@ export interface InboxRowTarget {
 }
 
 /**
- * One notification at GitHub's density: the unread dot in the gutter, the subject's state or
- * type, number and title, then its repository and why it arrived, and how long ago. Opening it
+ * One notification at GitHub's density: the unread dot in the gutter, the title (after its
+ * state in words when that matters), then its repository, number, why it arrived and how long ago. Opening it
  * marks it read. Hover or focus shows Mark read, Mark done and Unsubscribe (which also marks it
  * done).
  */
@@ -82,17 +56,9 @@ export function InboxRow(props: {
           className="absolute top-[18px] left-[calc(var(--forge-gutter)/2-3px)] size-1.5 rounded-full bg-ring"
         />
       )}
-      <span className="pt-0.5">
-        <SubjectGlyph row={row} />
-      </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex min-w-0 items-center gap-2">
           {row.unread && <span className="sr-only">Unread,</span>}
-          {row.number !== undefined && (
-            <span className="shrink-0 font-mono text-xs text-subtle-foreground tabular-nums">
-              #{row.number}
-            </span>
-          )}
           <span
             data-view-row-title=""
             className={cn(
@@ -100,16 +66,23 @@ export function InboxRow(props: {
               row.unread ? "font-medium text-foreground" : "text-muted-foreground",
             )}
           >
+            <SubjectWord row={row} />
             {row.title}
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
           {props.tag ? (
-            <ProjectTag id={props.tag.id} name={props.tag.name} />
+            <ProjectTag name={props.tag.name} />
           ) : (
             <span className="truncate">
               {row.repository.owner}/{row.repository.name}
             </span>
+          )}
+          {row.number !== undefined && (
+            <>
+              <Dot />
+              <span className="shrink-0 tabular-nums">#{row.number}</span>
+            </>
           )}
           <Dot />
           <span className="shrink-0">{inboxReasonWords(row.reason)}</span>

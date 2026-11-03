@@ -76,6 +76,13 @@ interface LayoutValue {
   setComposerActions(actions: ComposerActions | undefined): void;
   layout: ShellLayout;
   setSidebarOpen(open: boolean): void;
+  /**
+   * A screen asked for the sidebar's room for now (the Code tab of a PR page): it shows as
+   * hidden until the screen lets go or the person shows it again. Never remembered, so the
+   * person's own choice (`sidebarOpen`) is what comes back.
+   */
+  sidebarAside: boolean;
+  setSidebarAside(aside: boolean): void;
   /** Remember the sidebar's width (once a drag or key press settles on it). */
   setSidebarWidth(width: number): void;
   shortcutsOpen: boolean;
@@ -158,6 +165,7 @@ export function LayoutProvider(props: {
     [setPaletteOpen],
   );
   const closeSearch = useCallback(() => setSearch(undefined), []);
+  const [sidebarAside, setSidebarAside] = useState(false);
   const [rightPanel, setRightPanelState] = useState<{ hide(): void }>();
   // Stable, so the panel registering itself doesn't re-run on every layout change.
   const setRightPanel = useCallback(
@@ -213,6 +221,8 @@ export function LayoutProvider(props: {
       workspaceStore,
       sessionValue,
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
+      sidebarAside,
+      setSidebarAside,
       setSidebarWidth: (width) => change((p) => ({ ...p, sidebarWidth: width })),
     }),
     [
@@ -231,6 +241,7 @@ export function LayoutProvider(props: {
       closeSearch,
       rightPanel,
       setRightPanel,
+      sidebarAside,
       change,
       storage,
       windowStorage,
@@ -243,6 +254,13 @@ export function LayoutProvider(props: {
       <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>
     </ServicesContext.Provider>
   );
+}
+
+const keepSidebar = () => {};
+
+/** Sets the sidebar aside for now (`sidebarAside`); nothing outside the shell. */
+export function useSidebarAside(): (aside: boolean) => void {
+  return useContext(LayoutContext)?.setSidebarAside ?? keepSidebar;
 }
 
 export function useLayout(): LayoutValue {

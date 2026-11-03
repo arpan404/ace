@@ -469,3 +469,42 @@ test("on a conversation locked to the viewer, a picked line's comment is off and
     screen.getByRole<HTMLButtonElement>("button", { name: "Add single comment" }).disabled,
   ).toBe(true);
 });
+
+const landed = () => document.querySelector(".fx-landed");
+
+test("Show in code lands on the conversation on the asked line and marks it", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  const shown = {
+    ...detail,
+    status: { ...detail.status, reviewThreads: [thread(2, 20, false)] },
+  };
+  await mount(
+    app,
+    <PrFiles
+      workspaceId="api"
+      repository={repository}
+      detail={shown}
+      context={contextOf(shown)}
+      focus={{ path: "src/first.ts", line: 20, seq: 1 }}
+    />,
+  );
+  await waitFor(() => expect(landed()?.textContent).toContain("Note 2"));
+});
+
+test("Show in code on a line with no conversation marks that line of the file", async () => {
+  const app = harness();
+  app.daemon.workspace.setForgeRead(page(1), filesPage([twoChanges]));
+  await mount(
+    app,
+    <PrFiles
+      workspaceId="api"
+      repository={repository}
+      detail={detail}
+      context={contextOf(detail)}
+      focus={{ path: "src/first.ts", line: 21, seq: 1 }}
+    />,
+  );
+  await waitFor(() => expect(landed()?.textContent).toContain("z"));
+  expect(landed()?.textContent).not.toContain("y");
+});

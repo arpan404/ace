@@ -1,5 +1,4 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
-import type { IconGlyph } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
@@ -10,7 +9,6 @@ import { GroupHeader } from "./row-parts.tsx";
 export interface ForgeGroup<R> {
   id: string;
   label: string;
-  icon: IconGlyph;
   /** Its count in words ("3", "2 of 12"); none while unknown. */
   count: string | undefined;
   /** Drawn with its heading: false for a list with one group that needs no name. */
@@ -137,11 +135,7 @@ export function ForgeList<R>(props: {
         estimate={(entry) => (entry.kind === "group" ? headingHeight : props.estimate)}
         render={(entry) =>
           entry.kind === "group" ? (
-            <GroupHeader
-              icon={entry.group.icon}
-              label={entry.group.label}
-              count={entry.group.count}
-            />
+            <GroupHeader label={entry.group.label} count={entry.group.count} />
           ) : (
             props.renderRow(entry.row, entry.group, entry.last)
           )

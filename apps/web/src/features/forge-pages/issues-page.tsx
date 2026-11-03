@@ -8,7 +8,6 @@ import {
 } from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
-import { PencilSimpleIcon, RecordIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
 import type { ForgeIssueList, ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -27,12 +26,6 @@ import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
 import { countWords } from "./quick-views.tsx";
 
-const groupIcons = {
-  assigned: UserIcon,
-  created: PencilSimpleIcon,
-  others: UsersIcon,
-  all: RecordIcon,
-} as const;
 const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
 
@@ -220,7 +213,6 @@ export function IssuesPage(props: {
           groups={groups.map((group) => ({
             id: group.id,
             label: group.label,
-            icon: groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon,
             count: countWords(group.rows.length, totals?.[group.id], !list.more),
             headed: group.id !== "all",
             rows: group.rows,
