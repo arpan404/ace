@@ -1,19 +1,24 @@
 import { execFile } from "node:child_process";
-import { uptime } from "node:os";
+
+/** One system sleep, placed on the loop clock's timeline. */
+export interface LoopSleep {
+  from: number;
+  to: number;
+}
 
 /**
  * Monotonic time, a repeating timer and the system's sleep record, injected so tests drive drift
  * and suspension without sleeping.
  */
 export interface LoopClock {
-  /** Milliseconds on a monotonic clock that keeps counting while the system is suspended. */
   now(): number;
   every(milliseconds: number, tick: () => void): () => void;
   /**
-   * Total milliseconds the system has spent suspended, from any fixed origin, or `undefined` when
-   * the platform can't say. Read only after a late tick, so it may be slow.
+   * The system's most recent sleep, on `now()`'s timeline, or `undefined` when `now()` doesn't
+   * count sleep or the platform can't say. Read only after a late tick, so it may be slow; the
+   * signal aborts it when the monitor closes.
    */
-  suspendedMs(): Promise<number | undefined>;
+  lastSleep(signal: AbortSignal): Promise<LoopSleep | undefined>;
 }
 export interface LoopStatus {
   /** How late the most recent tick ran while the system was awake, in milliseconds. */
@@ -65,15 +70,29 @@ function rateLimited<T extends object>(
   };
 }
 
+/** A tick that ran late, waiting to learn whether the system slept between `from` and `to`. */
+interface LateTick {
+  tick: number;
+  from: number;
+  to: number;
+  gapMs: number;
+}
+
+/** How much of `sleep` falls between two ticks. Ticks run while awake, so a sleep is inside or out. */
+function sleptWithin(late: LateTick, sleep: LoopSleep | undefined): number {
+  if (sleep === undefined) return 0;
+  return Math.max(0, Math.min(late.to, sleep.to) - Math.max(late.from, sleep.from));
+}
+
 /**
  * Measures event-loop stalls by timer drift: a tick that runs late means the loop was busy, unless
  * the system was asleep for that time. A watchdog reading `status()` can tell a busy daemon (large
  * delays, still answering) from a hung one (no answer at all).
  *
- * A late tick is checked against the system's sleep record before it counts. Only sleep not yet
- * attributed to an earlier gap is subtracted, never more than the gap itself; the rest is left for
- * the next gap. The record is read just after the tick, so a sleep that starts in those few
- * milliseconds is credited to the gap before it and can hide that one stall.
+ * A late tick is checked against the most recent sleep, and only the part of that sleep between
+ * this tick and the one before is subtracted. Nothing carries from one tick to the next. When in
+ * doubt (no sleep record, a failed read, or a later sleep hiding this one) the delay is reported in
+ * full: a sleep logged as a stall is noise, a hidden stall is a bug.
  */
 export function createLoopMonitor({
   clock,
@@ -84,24 +103,20 @@ export function createLoopMonitor({
   logWindowMs = 60_000,
   suspendLogWindowMs = 600_000,
 }: LoopMonitorOptions) {
-  let expected = clock.now() + intervalMs;
+  let previous = clock.now();
   let delayMs = 0;
   let maxDelayMs = 0;
   let stalls = 0;
   let ticks = 0;
   let latestRecorded = 0;
   let closed = false;
+  let reading = false;
+  let waiting: LateTick[] = [];
+  const reads = new AbortController();
   const stall = rateLimited<{ delayMs: number }>(logWindowMs, onStall);
   const suspend = rateLimited<{ suspendedMs: number }>(suspendLogWindowMs, (record) =>
     onSuspend?.(record),
   );
-  /** Suspended time already subtracted from earlier gaps, on the clock's own origin. */
-  let attributed: number | undefined;
-  const readSuspended = () => clock.suspendedMs().catch(() => undefined);
-  // Checks run in order, so each one sees the sleep the previous one attributed.
-  let checks: Promise<void> = readSuspended().then((total) => {
-    attributed = total;
-  });
 
   const record = (tick: number, delay: number, now: number) => {
     // A late tick's check can finish after newer ticks; it must not hide their delay.
@@ -115,66 +130,78 @@ export function createLoopMonitor({
     stall(now, { delayMs: delay });
   };
 
-  const classify = (tick: number, gapMs: number, now: number, total: number | undefined) => {
+  const classify = (late: LateTick, sleep: LoopSleep | undefined) => {
+    const slept = Math.min(late.gapMs, sleptWithin(late, sleep));
+    if (slept >= stallMs) suspend(late.to, { suspendedMs: Math.round(slept) });
+    record(late.tick, Math.max(0, Math.round(late.gapMs - slept)), late.to);
+  };
+
+  // One read at a time. Ticks that turn late during a read share the next one, which starts after
+  // them, so it can't miss a sleep that ended before them.
+  const readSleep = async () => {
+    if (reading || closed || waiting.length === 0) return;
+    reading = true;
+    const batch = waiting;
+    waiting = [];
+    let sleep: LoopSleep | undefined;
+    try {
+      sleep = await clock.lastSleep(reads.signal);
+    } catch {
+      sleep = undefined;
+    }
+    reading = false;
     if (closed) return;
-    let suspendedMs = 0;
-    if (total !== undefined && attributed !== undefined) {
-      suspendedMs = Math.min(gapMs, Math.max(0, total - attributed));
-      attributed += suspendedMs;
-    } else if (total !== undefined) attributed = total;
-    if (suspendedMs >= stallMs) suspend(now, { suspendedMs: Math.round(suspendedMs) });
-    record(tick, Math.max(0, Math.round(gapMs - suspendedMs)), now);
+    for (const late of batch) classify(late, sleep);
+    void readSleep();
   };
 
   const stop = clock.every(intervalMs, () => {
     const now = clock.now();
+    const from = previous;
+    previous = now;
     const tick = ++ticks;
-    const gapMs = Math.max(0, now - expected);
-    expected = now + intervalMs;
+    const gapMs = Math.max(0, now - from - intervalMs);
     if (gapMs < stallMs) {
       record(tick, Math.round(gapMs), now);
       return;
     }
-    checks = checks.then(readSuspended).then((total) => classify(tick, gapMs, now, total));
+    waiting.push({ tick, from, to: now, gapMs });
+    void readSleep();
   });
   return {
     status: (): LoopStatus => ({ delayMs, maxDelayMs, stalls }),
     close() {
       closed = true;
+      waiting = [];
+      reads.abort();
       stop();
     },
   };
 }
 
 /**
- * Reads macOS's sleep total from `sysctl -n kern.monotonicclock_usecs hw.tbfrequency`. The first
- * line pairs a monotonic clock that runs through sleep (microseconds) with `mach_absolute_time`,
- * which stops during sleep; the second is the `mach_absolute_time` ticks per second. Their
- * difference only grows while the system sleeps; xnu measures sleep the same way.
+ * Parses `sysctl -n kern.sleeptime kern.waketime`: the wall-clock times the kernel last went to
+ * sleep and last woke (DarkWake included), as `{ sec = …, usec = … }`. `wallMinusLoop` moves them
+ * onto the loop clock; both clocks count sleep, so the offset holds across it.
  */
-export function parseDarwinSuspendedMs(output: string): number | undefined {
-  const [pair, frequency] = output.trim().split(/\r?\n/);
-  const [monotonicUs, machTime] = (pair ?? "").trim().split(/\s+/).map(Number);
-  const ticksPerSecond = Number(frequency);
-  if (
-    monotonicUs === undefined ||
-    machTime === undefined ||
-    !Number.isFinite(monotonicUs) ||
-    !Number.isFinite(machTime) ||
-    !Number.isFinite(ticksPerSecond) ||
-    ticksPerSecond <= 0
-  )
-    return undefined;
-  return monotonicUs / 1000 - (machTime / ticksPerSecond) * 1000;
+export function parseDarwinLastSleep(output: string, wallMinusLoop: number): LoopSleep | undefined {
+  const times = [...output.matchAll(/sec = (\d+), usec = (\d+)/g)].map(
+    ([, sec, usec]) => Number(sec) * 1000 + Number(usec) / 1000,
+  );
+  const [slept, woke] = times;
+  if (times.length !== 2 || slept === undefined || woke === undefined) return undefined;
+  if (slept <= 0 || woke <= slept) return undefined;
+  return { from: slept - wallMinusLoop, to: woke - wallMinusLoop };
 }
 
-function darwinSuspendedMs(): Promise<number | undefined> {
+function darwinLastSleep(signal: AbortSignal): Promise<LoopSleep | undefined> {
   return new Promise((resolve) => {
     execFile(
       "/usr/sbin/sysctl",
-      ["-n", "kern.monotonicclock_usecs", "hw.tbfrequency"],
-      { timeout: 5_000 },
-      (error, stdout) => resolve(error ? undefined : parseDarwinSuspendedMs(stdout)),
+      ["-n", "kern.sleeptime", "kern.waketime"],
+      { timeout: 5_000, signal },
+      (error, stdout) =>
+        resolve(error ? undefined : parseDarwinLastSleep(stdout, Date.now() - performance.now())),
     );
   });
 }
@@ -186,20 +213,20 @@ function every(milliseconds: number, tick: () => void): () => void {
 }
 
 /**
- * The daemon's loop clock. `performance.now()` comes from libuv's `uv_hrtime`:
- * - macOS reads `mach_continuous_time`, which counts sleep. `mach_absolute_time` doesn't, and Node
- *   has no binding for it, so sleep is read from sysctl after a late tick.
- * - Linux reads `CLOCK_MONOTONIC` and Windows `QueryPerformanceCounter`, which don't promise to
- *   count sleep. `os.uptime()` does there (Linux `/proc/uptime`, i.e. `CLOCK_BOOTTIME`; Windows
- *   `GetTickCount64`), so it is the clock and the difference between the two is the sleep total.
- *   Both have 10–16 ms resolution, far below the one-second stall threshold.
+ * The daemon's loop clock is `performance.now()`, libuv's `uv_hrtime`, and timers run on the same
+ * clock:
+ * - macOS reads `mach_continuous_time`, which counts sleep, so a tick due before sleep fires late
+ *   at the next (Dark)Wake. The kernel's last sleep and wake times say how much of that was sleep.
+ * - Linux reads `CLOCK_MONOTONIC`, which stops during suspend, so suspend never makes a tick late
+ *   and there is nothing to subtract.
+ * - Windows reads `QueryPerformanceCounter`, which counts standby and hibernation. Node has no
+ *   sleep-excluding clock or sleep record there without native code, so a tick that is late
+ *   because of sleep is still reported as a stall.
  */
 export function systemLoopClock(platform: NodeJS.Platform): LoopClock {
-  if (platform === "darwin")
-    return { now: () => performance.now(), every, suspendedMs: darwinSuspendedMs };
   return {
-    now: () => uptime() * 1000,
+    now: () => performance.now(),
     every,
-    suspendedMs: async () => uptime() * 1000 - performance.now(),
+    lastSleep: platform === "darwin" ? darwinLastSleep : async () => undefined,
   };
 }
