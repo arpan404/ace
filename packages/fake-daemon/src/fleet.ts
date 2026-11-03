@@ -80,7 +80,7 @@ export class FakeFleet {
       }
       case "pairing": {
         const remote = this.access.remoteStatus();
-        if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
+        if (!remote.enabled || !["lan", "tailscale", "relay"].includes(remote.transport))
           return { code: "unavailable", message: "Turn on remote access on this machine to pair." };
         const { op: _op, ...request } = operation;
         return { kind: "pairing", ...this.access.pair(request) };
