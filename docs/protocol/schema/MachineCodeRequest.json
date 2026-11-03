@@ -1,0 +1,64 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineCodeRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "$ref": "https://ace.local/protocol/v1/MachineCode.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "code"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "machine.code.clear",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    }
+  ]
+}

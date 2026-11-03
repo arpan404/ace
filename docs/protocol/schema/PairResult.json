@@ -1,0 +1,60 @@
+{
+  "$id": "https://ace.local/protocol/v1/PairResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "device": {
+              "$ref": "https://ace.local/protocol/v1/Device.json"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "token": {
+              "$ref": "https://ace.local/protocol/v1/DeviceToken.json"
+            }
+          },
+          "required": [
+            "device",
+            "token",
+            "ok"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "$ref": "https://ace.local/protocol/v1/PairRefusal.json"
+            },
+            "message": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "error",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "pair.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "result"
+  ],
+  "type": "object"
+}

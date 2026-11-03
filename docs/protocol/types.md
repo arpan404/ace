@@ -8574,6 +8574,26 @@ Example:
 }
 ```
 
+## ChannelClose
+
+[JSON Schema](schema/ChannelClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"channel.close"` |  |
+| code | yes | integer | {"minimum":1000,"maximum":4999} |
+| reason | yes | string | {"maxLength":123} |
+
+Example:
+
+```json
+{
+  "code": 1008,
+  "reason": "example",
+  "type": "channel.close"
+}
+```
+
 ## CliOperation
 
 [JSON Schema](schema/CliOperation.json), input validation.
@@ -10365,6 +10385,7 @@ Example:
 | subscriptionId | no | string |  |
 | commandId | no | [CommandId.json](schema/CommandId.json) |  |
 | retryable | no | boolean |  |
+| lockedUntil | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -17704,6 +17725,18 @@ Example:
 }
 ```
 
+## MachineCodeFailure
+
+[JSON Schema](schema/MachineCodeFailure.json), input validation.
+
+Type: ["forbidden","unavailable","busy"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"busy"
+```
+
 ## MachineCodeRefusal
 
 [JSON Schema](schema/MachineCodeRefusal.json), input validation.
@@ -17714,6 +17747,84 @@ Example:
 
 ```json
 "machine_code_locked"
+```
+
+## MachineCodeRequest
+
+[JSON Schema](schema/MachineCodeRequest.json), input validation.
+
+### machine.code.status
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.code.status"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "machine.code.status"
+}
+```
+
+### machine.code.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.code.set"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| code | yes | [MachineCode.json](schema/MachineCode.json) |  |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "requestId": "example",
+  "type": "machine.code.set"
+}
+```
+
+### machine.code.clear
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.code.clear"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "machine.code.clear"
+}
+```
+
+## MachineCodeResult
+
+[JSON Schema](schema/MachineCodeResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machine.code.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"status":{"$ref":"https://ace.local/protocol/v1/MachineAccountStatus.json"}},"required":["ok","status"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"$ref":"https://ace.local/protocol/v1/MachineCodeFailure.json"},"message":{"type":"string","maxLength":256}},"required":["ok","error","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "error": "forbidden",
+    "message": "example",
+    "ok": false
+  },
+  "type": "machine.code.result"
+}
 ```
 
 ## MachineCommandJobsResult
@@ -19864,6 +19975,70 @@ Example:
 {
   "expiresAt": 9,
   "url": "https://example.invalid/"
+}
+```
+
+## PairRedeem
+
+[JSON Schema](schema/PairRedeem.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":256} |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+| type | yes | `"pair.redeem"` |  |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "name": "example",
+  "type": "pair.redeem"
+}
+```
+
+## PairRefusal
+
+[JSON Schema](schema/PairRefusal.json), input validation.
+
+Type: ["invalid","rate_limited","unavailable"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"rate_limited"
+```
+
+## PairResult
+
+[JSON Schema](schema/PairResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"pair.result"` |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"device":{"$ref":"https://ace.local/protocol/v1/Device.json"},"token":{"$ref":"https://ace.local/protocol/v1/DeviceToken.json"},"ok":{"type":"boolean","const":true}},"required":["device","token","ok"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"$ref":"https://ace.local/protocol/v1/PairRefusal.json"},"message":{"type":"string","maxLength":256}},"required":["ok","error","message"]}]} |
+
+Example:
+
+```json
+{
+  "result": {
+    "device": {
+      "createdAt": 7,
+      "expiresAt": 3,
+      "id": "example",
+      "lastSeenAt": 6,
+      "name": "example",
+      "revokedAt": 6,
+      "scopes": [
+        "desktop"
+      ]
+    },
+    "ok": true,
+    "token": "b6367cf8d7e884b88402fbef2db8de8cd78daf2ab6b62eea3796fc9b1dd62a56"
+  },
+  "type": "pair.result"
 }
 ```
 
