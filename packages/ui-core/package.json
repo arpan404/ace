@@ -8,6 +8,8 @@
     ".": "./src/index.ts",
     "./providers": "./src/providers.ts",
     "./provider-icons": "./src/provider-icons.ts",
+    "./spade": "./src/spade-look.ts",
+    "./time": "./src/time.ts",
     "./step-labels": "./src/tool-labels.ts",
     "./ace-tools": "./src/ace-tool-rows.ts",
     "./work-log-reading": "./src/work-log-reading.ts",

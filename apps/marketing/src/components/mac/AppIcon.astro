@@ -1,0 +1,107 @@
+---
+/*
+ * The Phosphor glyphs ace's own UI draws, in the weights it draws them (apps/web
+ * components/status-icons.tsx and the shell), so the drawn app matches the real one.
+ */
+import arrowClockwise from "@phosphor-icons/core/regular/arrow-clockwise.svg?raw";
+import arrowLeft from "@phosphor-icons/core/regular/arrow-left.svg?raw";
+import arrowRight from "@phosphor-icons/core/regular/arrow-right.svg?raw";
+import arrowUp from "@phosphor-icons/core/regular/arrow-up.svg?raw";
+import caretDown from "@phosphor-icons/core/regular/caret-down.svg?raw";
+import caretRight from "@phosphor-icons/core/regular/caret-right.svg?raw";
+import chartBar from "@phosphor-icons/core/regular/chart-bar.svg?raw";
+import chatsCircle from "@phosphor-icons/core/regular/chats-circle.svg?raw";
+import check from "@phosphor-icons/core/regular/check.svg?raw";
+import checkCircle from "@phosphor-icons/core/fill/check-circle-fill.svg?raw";
+import circleDashed from "@phosphor-icons/core/bold/circle-dashed-bold.svg?raw";
+import cloudArrowUp from "@phosphor-icons/core/regular/cloud-arrow-up.svg?raw";
+import code from "@phosphor-icons/core/regular/code.svg?raw";
+import deviceMobile from "@phosphor-icons/core/regular/device-mobile.svg?raw";
+import cursorFill from "@phosphor-icons/core/fill/cursor-fill.svg?raw";
+import dotsThree from "@phosphor-icons/core/regular/dots-three.svg?raw";
+import eye from "@phosphor-icons/core/regular/eye.svg?raw";
+import file from "@phosphor-icons/core/regular/file.svg?raw";
+import folderOpen from "@phosphor-icons/core/regular/folder-open.svg?raw";
+import folders from "@phosphor-icons/core/regular/folders.svg?raw";
+import gauge from "@phosphor-icons/core/fill/gauge-fill.svg?raw";
+import gearSix from "@phosphor-icons/core/regular/gear-six.svg?raw";
+import gitPullRequest from "@phosphor-icons/core/regular/git-pull-request.svg?raw";
+import globe from "@phosphor-icons/core/regular/globe.svg?raw";
+import graph from "@phosphor-icons/core/regular/graph.svg?raw";
+import handPalm from "@phosphor-icons/core/fill/hand-palm-fill.svg?raw";
+import hardDrives from "@phosphor-icons/core/regular/hard-drives.svg?raw";
+import laptop from "@phosphor-icons/core/regular/laptop.svg?raw";
+import lock from "@phosphor-icons/core/regular/lock.svg?raw";
+import magnifyingGlass from "@phosphor-icons/core/regular/magnifying-glass.svg?raw";
+import notePencil from "@phosphor-icons/core/regular/note-pencil.svg?raw";
+import pencilLine from "@phosphor-icons/core/regular/pencil-simple-line.svg?raw";
+import plus from "@phosphor-icons/core/regular/plus.svg?raw";
+import shieldCheck from "@phosphor-icons/core/regular/shield-check.svg?raw";
+import sidebarSimple from "@phosphor-icons/core/regular/sidebar-simple.svg?raw";
+import stack from "@phosphor-icons/core/regular/stack.svg?raw";
+import terminal from "@phosphor-icons/core/regular/terminal.svg?raw";
+import terminalWindow from "@phosphor-icons/core/fill/terminal-window-fill.svg?raw";
+import timer from "@phosphor-icons/core/regular/timer.svg?raw";
+import treeStructure from "@phosphor-icons/core/regular/tree-structure.svg?raw";
+import x from "@phosphor-icons/core/regular/x.svg?raw";
+
+const glyphs = {
+  "arrow-clockwise": arrowClockwise,
+  "arrow-left": arrowLeft,
+  "arrow-right": arrowRight,
+  "arrow-up": arrowUp,
+  "caret-down": caretDown,
+  "caret-right": caretRight,
+  "chart-bar": chartBar,
+  "chats-circle": chatsCircle,
+  check,
+  "check-circle": checkCircle,
+  "circle-dashed": circleDashed,
+  "cloud-arrow-up": cloudArrowUp,
+  code,
+  "device-mobile": deviceMobile,
+  cursor: cursorFill,
+  "dots-three": dotsThree,
+  eye,
+  file,
+  "folder-open": folderOpen,
+  folders,
+  gauge,
+  "gear-six": gearSix,
+  "git-pull-request": gitPullRequest,
+  globe,
+  graph,
+  "hand-palm": handPalm,
+  "hard-drives": hardDrives,
+  laptop,
+  lock,
+  "magnifying-glass": magnifyingGlass,
+  "note-pencil": notePencil,
+  "pencil-line": pencilLine,
+  plus,
+  "shield-check": shieldCheck,
+  "sidebar-simple": sidebarSimple,
+  stack,
+  terminal,
+  "terminal-window": terminalWindow,
+  timer,
+  "tree-structure": treeStructure,
+  x,
+};
+
+export type AppIconName = keyof typeof glyphs;
+
+interface Props {
+  name: AppIconName;
+  size?: number;
+  class?: string;
+}
+
+const { name, size = 16, class: className } = Astro.props;
+const svg = glyphs[name].replace(
+  "<svg ",
+  `<svg width="${size}" height="${size}" fill="currentColor" aria-hidden="true" focusable="false"${className ? ` class="${className}"` : ""} `,
+);
+---
+
+<Fragment set:html={svg} />

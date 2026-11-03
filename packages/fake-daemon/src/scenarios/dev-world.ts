@@ -93,15 +93,23 @@ export function devWorld(): WorldThread[] {
 }
 
 /**
- * A small, tidy world for product screenshots (`?fakeWorld=showcase`): seven threads, each in a
- * different state, with the cold-start thread open and reporting live. None
- * of the dev world's edge cases, so a capture reads at a glance.
+ * Home list threads the showcase leaves out, so one approval sits among working, waiting and
+ * finished threads instead of a column of requests.
+ */
+const showcaseSkips = new Set(["thread-retry-budget", "thread-refund-tax", "thread-sheet-rotate"]);
+
+/**
+ * A small, tidy world for product screenshots (`?fakeWorld=showcase`): threads in a balanced
+ * mix of states (mostly working, one approval), with the cold-start thread open and reporting
+ * live. None of the dev world's edge cases, so a capture reads at a glance.
  */
 export function showcaseWorld(): WorldThread[] {
   return withAccounts([
     // The skills and read-state seeds in the fake boot point at this thread.
     { scenario: multiDayDemo(), agoMs: 0 },
-    ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
+    ...homeList()
+      .filter((aged) => !showcaseSkips.has(aged.scenario.thread.id))
+      .map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
     {
       scenario: flakyCheckout(),
       agoMs: 3 * minute,

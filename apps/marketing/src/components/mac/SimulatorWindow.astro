@@ -1,0 +1,321 @@
+---
+/*
+ * The iOS Simulator's device window, with a sample app's sign-in on screen. In the computer
+ * use scene an agent taps through it while ace shows the session; `data-screen` switches the
+ * app from sign-in to the code screen, and fields fill as the agent types.
+ */
+---
+
+<div class="sim" data-sim data-screen="sign-in" aria-hidden="true">
+  <div class="sim-bar">
+    <span class="sim-lights"><i></i><i></i><i></i></span>
+    <span class="sim-name"><b>iPhone 17 Pro</b> iOS 26.0</span>
+  </div>
+  <div class="device">
+    <div class="screen">
+      <div class="status">
+        <b>9:41</b>
+        <span class="island"></span>
+        <span class="bars"><i></i><i></i><i></i><i></i></span>
+      </div>
+
+      <div class="page" data-page="sign-in">
+        <span class="app-mark">A</span>
+        <h3>Sign in to Acme</h3>
+        <span class="field" data-target="sim-email">
+          <small>Email</small>
+          <span data-type="email"></span><i class="caret"></i>
+        </span>
+        <span class="field" data-target="sim-password">
+          <small>Password</small>
+          <span data-type="password"></span>
+        </span>
+        <span class="primary" data-target="sim-submit">Sign in</span>
+        <span class="link">Forgot password?</span>
+      </div>
+
+      <div class="page" data-page="code">
+        <span class="app-mark">A</span>
+        <h3>Enter your code</h3>
+        <p>We sent a 6-digit code to test@acme.dev</p>
+        <span class="code-boxes"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="primary muted">Verify</span>
+      </div>
+
+      <span class="home"></span>
+    </div>
+  </div>
+  <span class="touch" data-touch></span>
+</div>
+
+<style>
+  .sim {
+    position: absolute;
+    width: 340px;
+    padding-bottom: 14px;
+    border-radius: 16px;
+    background: rgb(36 36 40 / 0.9);
+    box-shadow:
+      0 0 0 0.5px rgb(255 255 255 / 0.18),
+      0 30px 80px -14px rgb(0 0 0 / 0.75);
+    backdrop-filter: blur(24px);
+    color: #fff;
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      system-ui,
+      sans-serif;
+  }
+
+  .sim-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 40px;
+    padding: 0 14px;
+    font-size: 12px;
+    color: rgb(255 255 255 / 0.55);
+  }
+
+  .sim-bar b {
+    margin-right: 4px;
+    color: rgb(255 255 255 / 0.9);
+    font-weight: 600;
+  }
+
+  .sim-lights {
+    display: flex;
+    gap: 8px;
+  }
+
+  .sim-lights i {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ff5f57;
+  }
+
+  .sim-lights i:nth-child(2) {
+    background: #febc2e;
+  }
+
+  .sim-lights i:nth-child(3) {
+    background: #28c840;
+  }
+
+  .device {
+    margin: 0 auto;
+    width: 300px;
+    height: 640px;
+    padding: 11px;
+    border-radius: 56px;
+    background: #1b1b1d;
+    box-shadow:
+      inset 0 0 0 2px #3a3a3e,
+      inset 0 0 0 4px #0c0c0d;
+  }
+
+  .screen {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    border-radius: 46px;
+    background: #f5f5f7;
+    color: #1d1d1f;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 52px;
+    padding: 0 30px 0 34px;
+    font-size: 15px;
+  }
+
+  .island {
+    width: 92px;
+    height: 27px;
+    border-radius: 14px;
+    background: #000;
+  }
+
+  .bars {
+    display: flex;
+    align-items: end;
+    gap: 2px;
+    height: 11px;
+  }
+
+  .bars i {
+    width: 3px;
+    border-radius: 1px;
+    background: #1d1d1f;
+  }
+
+  .bars i:nth-child(1) {
+    height: 4px;
+  }
+
+  .bars i:nth-child(2) {
+    height: 6px;
+  }
+
+  .bars i:nth-child(3) {
+    height: 8px;
+  }
+
+  .bars i:nth-child(4) {
+    height: 11px;
+  }
+
+  .page {
+    position: absolute;
+    inset: 52px 0 0;
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    padding: 46px 22px 0;
+    transition:
+      opacity 0.35s,
+      transform 0.35s;
+  }
+
+  .sim[data-screen="sign-in"] [data-page="code"],
+  .sim[data-screen="code"] [data-page="sign-in"] {
+    opacity: 0;
+    transform: translateX(24px);
+    pointer-events: none;
+  }
+
+  .app-mark {
+    display: grid;
+    place-items: center;
+    width: 52px;
+    height: 52px;
+    margin-bottom: 6px;
+    border-radius: 14px;
+    background: #1d1d1f;
+    color: #fff;
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  h3 {
+    margin-bottom: 10px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .page p {
+    margin-top: -6px;
+    color: #6e6e73;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .field {
+    display: grid;
+    gap: 2px;
+    height: 54px;
+    align-content: center;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: inset 0 0 0 1px #e3e3e8;
+    font-size: 15px;
+  }
+
+  .field.focus {
+    box-shadow: inset 0 0 0 2px #0a84ff;
+  }
+
+  .field small {
+    color: #8e8e93;
+    font-size: 11.5px;
+  }
+
+  .field span {
+    min-height: 20px;
+  }
+
+  .caret {
+    display: none;
+  }
+
+  .primary {
+    display: grid;
+    place-items: center;
+    height: 50px;
+    margin-top: 8px;
+    border-radius: 14px;
+    background: #1d1d1f;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .primary.muted {
+    opacity: 0.35;
+  }
+
+  .link {
+    justify-self: center;
+    color: #0a84ff;
+    font-size: 14px;
+  }
+
+  .code-boxes {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 7px;
+  }
+
+  .code-boxes i {
+    height: 50px;
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: inset 0 0 0 1px #e3e3e8;
+  }
+
+  .code-boxes i:first-child {
+    box-shadow: inset 0 0 0 2px #0a84ff;
+  }
+
+  .home {
+    position: absolute;
+    left: 50%;
+    bottom: 8px;
+    width: 120px;
+    height: 5px;
+    border-radius: 3px;
+    background: #1d1d1f;
+    transform: translateX(-50%);
+  }
+
+  /* Where a tap lands: the Simulator's grey touch circle. */
+  .touch {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 34px;
+    height: 34px;
+    margin: -17px 0 0 -17px;
+    border-radius: 50%;
+    background: rgb(120 120 128 / 0.45);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.5);
+    opacity: 0;
+    transform: scale(0.6);
+    transition:
+      opacity 0.15s,
+      transform 0.15s;
+    pointer-events: none;
+  }
+
+  .touch.down {
+    opacity: 1;
+    transform: scale(1);
+  }
+</style>

@@ -1,0 +1,123 @@
+---
+/*
+ * ace's window drawn in HTML in the app's own sizes and colours, filling the Mac's window and
+ * scaled with it. Every scene's pieces are here at once: the story script shows the thread a
+ * scene opens (`data-for`), and `data-*` on the root picks the right panel, the list's machine
+ * filter and what has been answered (scripts/stage-story.ts). Decorative: the captions beside
+ * it carry the meaning.
+ */
+import { machines, rows } from "../../content/stage.ts";
+import AceDock from "./AceDock.astro";
+import AcePanels from "./AcePanels.astro";
+import AceTranscripts from "./AceTranscripts.astro";
+import AppIcon from "./AppIcon.astro";
+import MachineCode from "./MachineCode.astro";
+import SpadeFace from "./SpadeFace.astro";
+import ThreadRow from "./ThreadRow.astro";
+import "./ace-window.css";
+
+/** Each thread a scene opens, as the top bar titles it. */
+const opened = ["cold-start", "checkout", "sign-in", "staging", "webhooks"].flatMap((id) => {
+  const row = rows.find((entry) => entry.id === id);
+  return row ? [row] : [];
+});
+---
+
+<div class="ace" data-thread="cold-start" data-panel="off" data-filter="all" aria-hidden="true">
+  <header class="topbar">
+    <div class="nav">
+      <AppIcon name="arrow-left" size={16} />
+      <AppIcon name="arrow-right" size={16} />
+      <AppIcon name="sidebar-simple" size={16} />
+    </div>
+    <div class="heading">
+      <AppIcon name="folder-open" size={15} />
+      {
+        opened.map((row) => (
+          <span data-for={row.id} hidden={row.id !== "cold-start"}>
+            {row.title}
+          </span>
+        ))
+      }
+    </div>
+    <div class="actions">
+      <AppIcon name="dots-three" size={17} />
+      <AppIcon name="graph" size={16} />
+      <AppIcon name="sidebar-simple" size={16} class="flip" />
+    </div>
+    <div class="tabs tabs-changes">
+      <span class="tab"><AppIcon name="file" size={14} />Summary</span>
+      <span class="tab on"
+        ><AppIcon name="git-pull-request" size={14} />Changes<AppIcon name="x" size={12} /></span
+      >
+      <span class="tab"><AppIcon name="folder-open" size={14} />Files</span>
+      <AppIcon name="plus" size={15} />
+    </div>
+    <div class="tabs tabs-browser">
+      <span class="tab"><AppIcon name="file" size={14} />Summary</span>
+      <span class="tab on"
+        ><AppIcon name="cursor" size={13} />Acme checkout<AppIcon name="x" size={12} /></span
+      >
+      <AppIcon name="plus" size={15} />
+    </div>
+  </header>
+
+  <aside class="rail">
+    <span class="place on"><AppIcon name="folders" size={20} /></span>
+    <span class="place dot"><AppIcon name="chats-circle" size={20} /></span>
+    <span class="place spade"><SpadeFace size={20} /></span>
+    <i class="rule"></i>
+    <span class="place dot"><AppIcon name="git-pull-request" size={20} /></span>
+    <span class="place"><AppIcon name="timer" size={20} /></span>
+    <span class="place"><AppIcon name="stack" size={20} /></span>
+    <span class="foot">
+      <span class="place"><AppIcon name="chart-bar" size={20} /></span>
+      <span class="place"><AppIcon name="gear-six" size={20} /></span>
+      <span class="avatar">AB</span>
+    </span>
+  </aside>
+
+  <nav class="threads">
+    <div class="threads-head">
+      <b>Threads</b>
+      <AppIcon name="magnifying-glass" size={18} />
+    </div>
+    <div class="filter">
+      <span class="filter-button" data-target="filter">
+        <span data-filter-label>All projects</span>
+        <AppIcon name="caret-down" size={13} />
+      </span>
+      <AppIcon name="note-pencil" size={18} />
+    </div>
+    <div class="menu" data-menu>
+      <span class="menu-label">Projects</span>
+      <span class="menu-item"><AppIcon name="check" size={14} />All projects</span>
+      <span class="menu-label">Machines</span>
+      {
+        machines.map((machine) => (
+          <span class="menu-item" data-target={`machine-${machine.id}`}>
+            <AppIcon name={machine.id === "this-mac" ? "laptop" : "hard-drives"} size={15} />
+            <span>{machine.name}</span>
+            <span class="menu-note">
+              {machine.locked && <AppIcon name="lock" size={12} />}
+              {machine.note} · {machine.threads}
+            </span>
+          </span>
+        ))
+      }
+    </div>
+    <div class="rows">
+      {rows.map((row) => <ThreadRow row={row} selected={row.id === "cold-start"} />)}
+    </div>
+  </nav>
+
+  <main class="canvas">
+    <div class="column">
+      <AceTranscripts />
+    </div>
+    <AceDock />
+  </main>
+
+  <AcePanels />
+  <MachineCode />
+</div>

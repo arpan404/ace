@@ -1,8 +1,9 @@
 # ace marketing site
 
 A static Astro site: the home page, `/download/`, `/features/` with a page per feature,
-`/agents/` with a page per built-in agent, `/mcp/`, `/security/` and `/faq/`, plus `llms.txt`,
-`llms-full.txt`, `robots.txt`, `sitemap.xml`, a web manifest and a 404 page.
+`/agents/` with a page per built-in agent, `/mcp/`, `/security/`, `/faq/`, `/privacy-policy/` and
+`/terms-of-service/`, plus `llms.txt`, `llms-full.txt`, `robots.txt`, `sitemap.xml`, a web manifest
+and a 404 page.
 
 ```sh
 bun run --filter @ace/marketing dev     # local preview
@@ -43,13 +44,15 @@ release page instead. Rebuild after each release so the site links the new versi
 
 Copy lives in `src/content/`, never in components:
 
-| File              | What it holds                                                                    |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `product.ts`      | Headline, statuses, capabilities, Fleet points, MCP families, FAQ, boundaries    |
-| `features.ts`     | Every feature page: title, meta description, sections, tools, questions          |
-| `agent-guides.ts` | A page per built-in agent (the agent list itself comes from `@ace/ui-core`)      |
-| `mcp.ts`          | The full tool reference on `/mcp/`                                               |
-| `routes.ts`       | Every indexable page; nav, footer, breadcrumbs, sitemap and llms.txt all read it |
+| File              | What it holds                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------ |
+| `product.ts`      | Headline, statuses, capabilities, Fleet points, MCP families, FAQ, boundaries, Spade |
+| `stage.ts`        | The home page's Mac: its scenes and captions, thread rows, machines and the diff     |
+| `legal.ts`        | The privacy policy and terms of service                                              |
+| `features.ts`     | Every feature page: title, meta description, sections, tools, questions              |
+| `agent-guides.ts` | A page per built-in agent (the agent list itself comes from `@ace/ui-core`)          |
+| `mcp.ts`          | The full tool reference on `/mcp/`                                                   |
+| `routes.ts`       | Every indexable page; nav, footer, breadcrumbs, sitemap and llms.txt all read it     |
 
 A new page goes in `routes.ts` first; `trail()` refuses a path that isn't listed, so a page can't
 ship unlinked or missing from the sitemap.
@@ -73,23 +76,27 @@ theme overrides them under `html[data-theme="light"]`.
 
 `src/styles/motion.css` holds every animation. Text never slides or blurs in: section headings
 rise word by word from behind a mask, other text fades, and product visuals unmask from the top.
-The product panels act out their feature once in view (`src/scripts/stories.ts`): subagents finish
-before their parent turns Done, a browser log streams in, a pointer takes over an app, a device
-request is allowed, and lines draw between Fleet machines to the phone. Tiles marked `.spot` carry
-a light under the pointer, and pages cross-fade (`@view-transition`).
+Tiles marked `.spot` carry a light under the pointer, and pages cross-fade (`@view-transition`).
 
-The home page walks through the features in one tour (`src/components/Tour.astro`): steps on the
-left, one pinned stage on the right whose scene changes as each step reaches the middle of the
-screen (`src/scripts/tour.ts`); narrow screens show each step's scene inline instead.
+The home page walks through ace on a Mac (`src/components/mac/`): a desktop with the menu bar, the
+Simulator, an iPhone and ace's window, drawn in HTML in the app's own sizes, colours and Phosphor glyphs, and
+scaled as one piece. It stays pinned while one caption per scene takes its turn; as each scene's
+marker crosses the middle of the screen, `src/scripts/stage-story.ts` plays it: each scene in
+`src/scripts/stage-scenes.ts` resets the drawing, then a pointer acts it out (opening a thread,
+allowing an approval, opening Changes, an agent tapping through the Simulator, filtering the list
+by machine). Every feature page shows the same Mac playing its own scene (`featureScenes` in
+`content/stage.ts`): an agent paying in ace's browser, a device request, the iPhone's Lock Screen,
+a machine code, a thread moving to another account. Spade's face (`mac/SpadeFace.astro`)
+comes from the shared geometry in `@ace/ui-core/spade`. When the app's look changes, change the
+drawing with it.
 
 `src/scripts/motion.ts` drives it. Base.astro only turns motion on (`<html class="motion">`) when
 reduced motion is off, and drops it if the script hasn't started within three seconds; without it,
-every panel shows its resting state and nothing is hidden.
+nothing is hidden. With reduced motion, each scene of the Mac jumps straight to its end.
 
-## Screenshots
+## Images
 
-`src/assets/shots/` holds light and dark captures of the web app running against the fake daemon's
-small showcase world (`bun run web:dev:fake`, then `/t/thread-cold-start?fakeWorld=showcase`), at
-1440×900 and 2× scale: `home` (the hero) and `review` (the same thread with the right panel on
-Changes). Replace both modes
-together; `Shot.astro` shows the one matching the theme. `public/og.png` is the 1200×630 social card.
+The site carries no app screenshots: the Mac on the home and feature pages is drawn. For reference
+when changing the drawing, run the web app against the fake daemon's showcase world
+(`bun run web:dev:fake`, then `/t/thread-cold-start?fakeWorld=showcase`). `public/og.png` is the
+1200×630 social card.

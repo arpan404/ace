@@ -1,0 +1,67 @@
+---
+/*
+ * Spade's mark, from the shared geometry in @ace/ui-core/spade (docs/design/spade). The head
+ * takes the text colour; the eyes stay paper and ink in both themes. Pupils carry
+ * `data-spade-pupil` so a script can turn them toward the pointer.
+ */
+import {
+  spadeEggPath,
+  spadeEye,
+  spadeEyes,
+  spadePupilAt,
+  spadePupilForSize,
+  spadeRingForSize,
+  spadeTiltDeg,
+} from "@ace/ui-core/spade";
+
+interface Props {
+  size?: number;
+  class?: string;
+}
+
+const { size = 20, class: className } = Astro.props;
+const paper = "#f6f6f7";
+const ink = "#141416";
+const small = size <= 24;
+const ring = spadeRingForSize(size);
+const { pupil, pad } = spadePupilForSize(size);
+const eyes = spadeEyes.map((centre) => ({ centre, at: spadePupilAt(centre, pupil, pad) }));
+---
+
+<svg
+  class:list={["spade-face", className]}
+  viewBox="0 0 24 24"
+  width={size}
+  height={size}
+  aria-hidden="true"
+  data-spade
+  data-pupil-rx={pupil.rx}
+  data-pupil-ry={pupil.ry}
+  data-pad={pad}
+>
+  <circle cx="12" cy="12" r="10.6" fill="currentColor"></circle>
+  <g transform={`rotate(${spadeTiltDeg} 12 12)`}>
+    {
+      eyes.map(({ centre, at }, index) => (
+        <g class="eye" data-eye={index} data-cx={centre.x} data-cy={centre.y}>
+          <path
+            d={spadeEggPath(centre.x, centre.y, spadeEye.rx + ring, spadeEye.ry + ring)}
+            fill={ink}
+          />
+          <path d={spadeEggPath(centre.x, centre.y, spadeEye.rx, spadeEye.ry)} fill={paper} />
+          <g data-spade-pupil={index}>
+            <ellipse cx={at.x} cy={at.y} rx={pupil.rx} ry={pupil.ry} fill={ink} />
+            {!small && (
+              <circle
+                cx={at.x + pupil.rx * 0.38}
+                cy={at.y - pupil.ry * 0.42}
+                r={pupil.rx * 0.3}
+                fill={paper}
+              />
+            )}
+          </g>
+        </g>
+      ))
+    }
+  </g>
+</svg>

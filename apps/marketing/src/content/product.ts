@@ -14,7 +14,7 @@ export const product = {
     "ace is a free, open-source app for Mac, Windows and Linux that runs Claude Code, Codex and Cursor side by side, with computer use and phone apps.",
   /** The fuller paragraph for structured data and llms.txt. */
   about:
-    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Sign in to several accounts per provider and pick one per thread. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another, and pairs your phones and tablets. Each thread can work in its own git worktree with a built-in diff review.",
+    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Sign in to several accounts per provider and pick one per thread. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another. Sign in to an ace account and every machine on it opens from your phone, browser or other computers, from anywhere, through an end-to-end encrypted relay. Each thread can work in its own git worktree with a built-in diff review.",
   category: "DeveloperApplication",
   operatingSystem: "macOS, Windows, Linux, iOS, iPadOS",
   license: "Apache-2.0",
@@ -116,12 +116,17 @@ export const faq: { question: string; answer: string }[] = [
   {
     question: "What is Fleet?",
     answer:
-      "Fleet links your machines and devices. Linked machines let agents start threads and use each other's browsers, simulators and emulators, and you can continue a thread on another machine, uncommitted changes included. Paired devices (ace for iPhone and iPad, or a browser) follow and steer agents. Everything connects directly over your local network or Tailscale.",
+      "Fleet links your machines and devices. Linked machines let agents start threads and use each other's browsers, simulators and emulators, and you can continue a thread on another machine, uncommitted changes included. Paired devices (ace for iPhone and iPad, or a browser) follow and steer agents. Machines connect directly over your local network or Tailscale, or from anywhere through ace's end-to-end encrypted relay when you sign in to an ace account.",
   },
   {
     question: "Where does my code go?",
     answer:
-      "ace runs on your own machine and is never hosted. Your code goes only where your agent CLI already sends it. Paired machines and devices connect directly over your local network or Tailscale; an optional end-to-end encrypted relay you can host yourself carries only extras such as previews and files.",
+      "ace runs on your own machines; your agents and code never run on our servers. Your code goes only where your agent CLI already sends it. Devices reach your machines directly over your local network or Tailscale, or through ace's relay, which is end-to-end encrypted and can't read what it forwards. You can also host the relay yourself.",
+  },
+  {
+    question: "Do I need an ace account?",
+    answer:
+      "No. ace works without one. An account lets every device you sign in reach every machine on it from anywhere, through ace's end-to-end encrypted relay. It holds your email, name and a short record of each machine, never your code, prompts or provider credentials.",
   },
   {
     question: "Can I run several agents on the same repository?",
@@ -147,7 +152,7 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
   {
     icon: "hard-drives",
     title: "Your work stays on your machine",
-    body: "Threads, history and settings live in a local daemon next to your code. ace is an app you run, never a hosted service.",
+    body: "Threads, history and settings live in a local daemon next to your code. Your agents run on your computers, never on our servers.",
   },
   {
     icon: "key",
@@ -157,7 +162,7 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
   {
     icon: "users-three",
     title: "Remote access is yours to grant",
-    body: "Machines and phones join only when you pair them, for the access and time you choose, and connect directly over your network or Tailscale.",
+    body: "Machines and phones join only when you pair them or sign them in to your ace account. From anywhere, they connect with end-to-end encryption, so the relay can't read your work.",
   },
   {
     icon: "code",
@@ -165,3 +170,11 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
     body: "ace is Apache-2.0. Read the daemon, the clients and the architecture decisions behind them on GitHub.",
   },
 ];
+
+/** Spade, ace's own agent: announced on the home page until it launches. */
+export const spade = {
+  name: "Spade",
+  status: "Coming soon",
+  headline: "Meet Spade",
+  body: "Spade is ace's own agent. It will work right beside Claude Code, Codex and the rest, in the same window.",
+} as const;

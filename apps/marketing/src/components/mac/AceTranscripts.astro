@@ -1,0 +1,130 @@
+---
+/*
+ * The open thread's transcript, one section per thread the scenes open. Only the cold-start
+ * thread shows at first; the story script shows the thread a scene opens (`data-for`).
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import { browserSteps } from "../../content/stage.ts";
+import BrandMark from "../BrandMark.astro";
+import AppIcon from "./AppIcon.astro";
+
+const claude = providerIcon({ provider: "claude" }).brand;
+---
+
+<section class="thread" data-for="cold-start">
+  <p class="you">
+    A phone that resumes with seq 0 gets every event since the thread began. Cap cold-start replay.
+  </p>
+  <p class="worked">Worked for 1m 50s</p>
+  <p class="reply">
+    replayFrom now treats seq 0 as a cold start and replays at most the last 200 events.
+  </p>
+  <span class="file-chip">replay.ts <ins>+8</ins> <del>−2</del></span>
+  <p class="you">
+    Send coldStart with the ack, keep the client buffer until it arrives, and add a regression test.
+  </p>
+  <div class="step">
+    <AppIcon name="pencil-line" size={16} />
+    <span>Edited</span><code>apps/server/src/replay.ts</code>
+    <span class="end"><ins>+3</ins> <del>−2</del></span>
+  </div>
+  <div class="step agents-step" data-target="subagents">
+    {claude && <BrandMark brand={claude} size={18} />}
+    <b>2 subagents</b><span class="working before-done">2 working</span><span
+      class="after-done">finished</span
+    >
+    <span class="end"
+      ><span data-seconds="445">7m 25s</span><AppIcon name="caret-right" size={14} /></span
+    >
+  </div>
+  <div class="step">
+    <AppIcon name="terminal" size={16} />
+    <span class="before-done">Running in background</span><span class="after-done">Ran</span><code
+      >bun run relay:soak --clients 2</code
+    >
+    <span class="end">5m</span>
+  </div>
+  <p class="reply after-done">Both subagents passed and the soak run held 200 events. Done.</p>
+</section>
+
+<section class="thread" data-for="checkout" hidden>
+  <p class="you">checkout.spec.ts fails about one run in five. Find out why and fix it.</p>
+  <p class="waiting before-approval"><i></i>Waiting for your approval</p>
+  <p class="worked after-approval">Worked for 3m 12s</p>
+  <p class="reply">I'll look for timing assumptions in the checkout flow first.</p>
+  <div class="step">
+    {claude && <BrandMark brand={claude} size={18} />}
+    <b>1 subagent ran</b>
+    <span class="end"><AppIcon name="caret-right" size={14} /></span>
+  </div>
+  <div class="step before-approval">
+    <AppIcon name="terminal" size={16} />
+    <span>Running in background</span><code>bun run test --watch checkout</code>
+    <span class="end">3m</span>
+  </div>
+  <div class="step after-approval">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>rm -rf node_modules/.cache/vitest</code>
+  </div>
+  <p class="reply after-approval">
+    The poller now awaits the payment promise instead of a fixed timer. 25 consecutive passes.
+  </p>
+</section>
+
+<section class="thread" data-for="sign-in" hidden>
+  <p class="you">
+    Sign in on the iPhone 17 Pro simulator with the test account and check the 2FA screen.
+  </p>
+  <p class="reply">Booting the simulator and installing the debug build.</p>
+  <div class="step">
+    <AppIcon name="device-mobile" size={16} />
+    <span>Booted</span><code>iPhone 17 Pro · iOS 26</code>
+  </div>
+  <div class="step">
+    <AppIcon name="terminal" size={16} />
+    <span>Ran</span><code>xcodebuild -scheme Acme -destination 'name=iPhone 17 Pro'</code>
+    <span class="end">42s</span>
+  </div>
+  <div class="step live-step device-using">
+    <AppIcon name="device-mobile" size={16} />
+    <b>Using iPhone 17 Pro</b><span class="working" data-sim-note>Opening Acme</span>
+    <span class="end"><AppIcon name="caret-right" size={14} /></span>
+  </div>
+</section>
+
+<section class="thread" data-for="staging" hidden>
+  <p class="you">
+    The staging checkout adds tax twice on some carts. Check it in the browser and fix it.
+  </p>
+  <p class="reply">Opening the checkout in ace's browser to see what a customer sees.</p>
+  {
+    browserSteps.map((step, index) => (
+      <div class="step browser-step" data-browser-step={index}>
+        <AppIcon name="globe" size={16} />
+        <span>{step.verb}</span>
+        <code>{step.detail}</code>
+      </div>
+    ))
+  }
+  <p class="reply browser-done">
+    Pay now charges $54.18, the cart's total with tax counted once. The fix is in cart.ts.
+  </p>
+</section>
+
+<section class="thread" data-for="webhooks" hidden>
+  <p class="you">Split the webhook handler by event type and retry failed deliveries.</p>
+  <p class="worked">Worked for 12m 40s</p>
+  <p class="reply">
+    Handlers are split into invoice, charge and subscription events. Retries are next.
+  </p>
+  <div class="step before-move">
+    <AppIcon name="gauge" size={16} />
+    <span>Claude · Personal reached its usage limit</span>
+    <span class="end">Resets 4:20 PM</span>
+  </div>
+  <div class="step after-move">
+    <AppIcon name="gauge" size={16} />
+    <span>Moved to</span><b>Claude · Work</b>
+  </div>
+  <p class="reply after-move">Adding retries with backoff to each handler.</p>
+</section>
