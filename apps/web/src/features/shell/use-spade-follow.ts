@@ -8,7 +8,7 @@ import {
   spadePupilForSize,
   spadeRestLook,
   type SpadeLook,
-} from "@/components/spade-look.ts";
+} from "@ace/ui-core/spade";
 import { useReducedMotion } from "@/lib/motion.ts";
 
 /**

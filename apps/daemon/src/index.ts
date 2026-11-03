@@ -172,13 +172,22 @@ export async function startDaemon(options: DaemonOptions = {}) {
     if (stopping) stopRecord.stopped(stopping);
   }, "stop record");
   const loop = createLoopMonitor({
-    clock: options.loopClock ?? systemLoopClock,
+    clock: options.loopClock ?? systemLoopClock(process.platform),
     onStall: ({ delayMs, suppressed }) =>
       log.log(
         "warn",
         "Event loop stalled",
         logFields([
           ["delayMs", delayMs],
+          ["suppressed", suppressed],
+        ]),
+      ),
+    onSuspend: ({ suspendedMs, suppressed }) =>
+      log.log(
+        "info",
+        "System was suspended",
+        logFields([
+          ["suspendedMs", suspendedMs],
           ["suppressed", suppressed],
         ]),
       ),

@@ -236,13 +236,13 @@ export function acpStdioInjection(
     ],
   };
 }
+const NamedAcpMcpServer = z.object({ name: z.string().min(1).max(256) }).passthrough();
 /** Preserve user definitions and reject a visible collision instead of silently replacing one. */
 export function appendAcpMcp(user: readonly unknown[], injected: readonly unknown[]): unknown[] {
-  const server = z.object({ name: z.string().min(1).max(256) }).passthrough();
   if (user.length + injected.length > 64) throw new Error("ACP MCP server capacity exceeded");
   const names = new Set<string>();
   for (const value of [...user, ...injected]) {
-    const name = server.parse(value).name;
+    const name = NamedAcpMcpServer.parse(value).name;
     if (names.has(name)) throw new Error(`ACP MCP server name collision: ${name}`);
     names.add(name);
   }

@@ -1,159 +1,148 @@
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import { middleTruncateText, type LinkedThread, type LocalCheckResult } from "@ace/ui-core";
-import { DiffStat } from "@/components/diff-stat.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { useOpenWebAddress } from "@/components/web-link.tsx";
+import { prWords, reviewMark } from "@ace/ui-core";
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
-import { LabelPill } from "@/components/forge-marks.tsx";
-import { Avatars, ChecksMark, PrStateGlyph, ReviewMark } from "./marks.tsx";
-import { StepButton, StepSpace } from "./pr-step.tsx";
-import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
-
-/** The row's next step as a button, or a quiet word when it waits on someone else. */
-export interface RowStepView {
-  /** The button: its word and what pressing it does. */
-  action?:
-    | {
-        label: string;
-        pressed?: boolean | undefined;
-        /** Why it can't be pressed now. */
-        disabled?: string | undefined;
-        onPress(): void;
-      }
-    | undefined;
-  /** "Checks running", "Waiting on review". */
-  quiet?: string | undefined;
-}
+import { Avatars, ChecksMark, CommentCount, LabelPills, PrStateIcon } from "./marks.tsx";
+import {
+  Ago,
+  Dot,
+  onModifiedClick,
+  RowShell,
+  rowActionClass,
+  useOpenOnGitHub,
+} from "./row-parts.tsx";
+import type { RowStepView } from "./row-steps.ts";
 
 /**
- * One pull request: glyph, number, title and labels, with its review, checks, comments, size
- * and people at the right; then author, branches, thread and age, and its next step. The step's
- * button sits outside the row's link, over space the link keeps for it.
+ * One pull request, as GitHub lists it: the state mark; the title as the link, its labels and
+ * its checks' mark; under it "#229 opened 2h ago by sam", draft, the review decision, what ace
+ * knows of it (an agent working, who asked you) and its project when the list shows several.
+ * At the right its assignees and comments; hovering or focusing the row puts its next action
+ * there too. ⌘/Ctrl-click or the right-click menu opens it on GitHub.
  */
 export function PrRow(props: {
   project: string;
+  /** The project's name, on line 2; none when the list shows one project. */
+  projectName?: string | undefined;
   row: ForgePrRow;
   /** The list's address, so the pull request's page can return to it as it was. */
   back: string;
-  thread: LinkedThread | undefined;
-  local?: LocalCheckResult;
-  step?: RowStepView | undefined;
+  step: RowStepView;
   /** In the merge selection: the row takes the selected fill. */
   selected?: boolean | undefined;
-  /** The last of its group: no rule under it. */
   last?: boolean | undefined;
 }) {
   const { row, step } = props;
   const navigate = useNavigate();
-  const toast = useToast();
-  const openWeb = useOpenWebAddress();
-  const people = [...new Set([...(row.reviewers ?? []), ...(row.assignees ?? [])])];
-  const action = step?.action;
+  const openOnGitHub = useOpenOnGitHub();
+  const { action, status } = step;
+  const pressed = action.pressed === true;
   // Space on a selectable row toggles it, as its Merge button does.
   const onKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
-    if (event.key !== " " || action?.pressed === undefined || action.disabled) return;
+    if (event.key !== " " || action.pressed === undefined || action.disabled) return;
     event.preventDefault();
     action.onPress();
   };
+  const review = reviewMark(row.reviewDecision)?.word;
+  // What ace adds to GitHub's line, when it says more than the state or the review.
+  const extra =
+    status.words !== prWords[row.state] && status.words !== review ? status.words : undefined;
+  const opened = row.createdAt ?? row.updatedAt;
   return (
-    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
-      <Link
-        to="/pulls/$project/$number"
-        params={{ project: props.project, number: String(row.ref.number) }}
-        search={{ back: props.back }}
-        data-view-row=""
-        onKeyDown={onKeyDown}
-        className={cn(
-          rowClass,
-          "group-hover/row:bg-hover",
-          props.selected && "bg-active group-hover/row:bg-active hover:bg-active",
-        )}
-      >
-        <span className="pt-0.5">
-          <PrStateGlyph state={row.state} conflicting={row.conflicting} />
+    <RowShell
+      label={`#${row.ref.number} ${row.title}`}
+      url={row.url}
+      selected={props.selected}
+      last={props.last}
+      onNewThread={() =>
+        void navigate({ to: "/new", search: { project: props.project, pullRequest: row.url } })
+      }
+    >
+      <div className="flex min-w-0 items-start gap-2 px-4 py-2 transition-colors duration-(--motion-fast) group-focus-within/row:bg-hover group-hover/row:bg-hover">
+        <span className="pt-1">
+          <PrStateIcon state={row.state} />
         </span>
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-xs text-subtle-foreground tabular-nums">
-              #{row.ref.number}
-            </span>
-            <span
-              data-view-row-title=""
-              className="min-w-0 truncate text-ui font-medium text-foreground"
+        <div className="min-w-0 flex-1">
+          <div className="min-w-0 text-ui leading-6">
+            <Link
+              to="/pulls/$project/$number"
+              params={{ project: props.project, number: String(row.ref.number) }}
+              search={{ back: props.back }}
+              data-view-row=""
+              onKeyDown={onKeyDown}
+              onClick={onModifiedClick(row.url, openOnGitHub)}
+              className="rounded-sm font-semibold break-words text-foreground focus-ring hover:text-link"
             >
-              {row.title}
+              <span data-view-row-title="">{row.title}</span>
+            </Link>
+            <LabelPills names={row.labels} colors={row.labelColors} />
+            {row.ci && (
+              <span className="ml-1.5">
+                <ChecksMark ci={row.ci} />
+              </span>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
+            <span className="tabular-nums">
+              #{row.ref.number} {row.createdAt ? "opened" : "updated"} <Ago at={opened} /> by{" "}
+              {row.author}
             </span>
-            <span className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @xl/list:flex">
-              {row.labels.map((label) => (
-                <LabelPill key={label} name={label} color={row.labelColors?.[label]} />
-              ))}
-            </span>
-            <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
-              <ReviewMark decision={row.reviewDecision} />
-              <ChecksMark ci={row.ci} local={props.local} />
-              <Comments count={row.commentCount} />
-              {row.additions !== undefined && row.deletions !== undefined && (
-                <DiffStat additions={row.additions} deletions={row.deletions} />
-              )}
-              <Avatars people={people} avatars={row.avatars} label="Reviewers and assignees" />
-            </span>
-          </span>
-          <span className="flex min-h-5 min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
-            <Author login={row.author} avatar={row.avatars?.[row.author] ?? row.authorAvatarUrl} />
-            {row.headBranch && row.baseBranch && (
+            {row.state === "draft" && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
-                <span
-                  className="min-w-0 truncate font-mono text-xs text-subtle-foreground"
-                  title={`${row.headBranch} → ${row.baseBranch}`}
-                >
-                  {`${middleTruncateText(row.headBranch, 32)} → ${middleTruncateText(row.baseBranch, 20)}`}
-                </span>
+                <Dot />
+                <span>Draft</span>
               </>
             )}
-            {props.thread && (
+            {review && row.state !== "merged" && row.state !== "closed" && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
-                <Thread thread={props.thread} />
+                <Dot />
+                <span>{review}</span>
               </>
             )}
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 text-subtle-foreground">
-              {step?.quiet && (
-                <>
-                  <span>{step.quiet}</span>
-                  <span aria-hidden>·</span>
-                </>
-              )}
-              <Age at={row.updatedAt} />
-            </span>
-            <StepSpace label={action?.pressed ? "Selected" : action?.label} />
-          </span>
-        </span>
-      </Link>
-      {action && (
-        <StepButton
-          label={action.label}
-          title={`#${row.ref.number} ${row.title}`}
-          pressed={action.pressed}
-          disabled={action.disabled}
-          onPress={action.onPress}
-        />
-      )}
-      <RowActions
-        url={row.url}
-        onNewThread={() =>
-          void navigate({ to: "/new", search: { project: props.project, pullRequest: row.url } })
-        }
-        onOpenExternal={() =>
-          void openWeb(row.url).catch(() => toast.error({ title: "Couldn't open GitHub" }))
-        }
-      />
-    </div>
+            {extra && (
+              <>
+                <Dot />
+                <span>{extra}</span>
+              </>
+            )}
+            {props.projectName && (
+              <>
+                <Dot />
+                <span className="truncate">{props.projectName}</span>
+              </>
+            )}
+            {row.additions !== undefined && row.deletions !== undefined && (
+              <>
+                <Dot />
+                <DiffCounts additions={row.additions} deletions={row.deletions} />
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-3 pt-0.5 pl-2">
+          <button
+            type="button"
+            aria-pressed={action.pressed}
+            aria-label={`${pressed ? "Selected" : action.label}: #${row.ref.number} ${row.title}`}
+            title={action.disabled}
+            disabled={action.disabled !== undefined}
+            onClick={action.onPress}
+            className={cn(
+              rowActionClass,
+              "border border-border bg-background",
+              pressed
+                ? "inline-flex"
+                : "hidden group-focus-within/row:inline-flex group-hover/row:inline-flex",
+            )}
+          >
+            {pressed ? "Selected" : action.label}
+          </button>
+          <Avatars people={row.assignees ?? []} avatars={row.avatars} label="Assignees" />
+          <CommentCount count={row.commentCount} />
+        </div>
+      </div>
+    </RowShell>
   );
 }

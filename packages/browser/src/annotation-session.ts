@@ -12,6 +12,8 @@ import type { BrowserCdp } from "./backend.ts";
 import { captureAnnotation } from "./annotation-capture.ts";
 import { evaluateInWorld, installOverlay, removeOverlay } from "./annotation-install.ts";
 
+const DescribedNode = z.object({ node: z.object({ backendNodeId: z.number().int() }) });
+
 interface Active {
   cdp: BrowserCdp;
   owner: string;
@@ -194,9 +196,9 @@ export class AnnotationSession {
     ).catch(() => ({ objectId: undefined }));
     if (!objectId) return undefined;
     try {
-      const described = z
-        .object({ node: z.object({ backendNodeId: z.number().int() }) })
-        .safeParse(await active.cdp.send("DOM.describeNode", { objectId }));
+      const described = DescribedNode.safeParse(
+        await active.cdp.send("DOM.describeNode", { objectId }),
+      );
       if (!described.success) return undefined;
       if (this.active === active) active.host = described.data.node.backendNodeId;
       return described.data.node.backendNodeId;

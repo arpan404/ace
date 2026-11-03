@@ -1,32 +1,18 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ForgeFile, ForgePrDetail, ForgeRepository } from "@ace/protocol";
-import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
-import { useScopeWorkspace } from "@/lib/workspace/index.ts";
-import { VirtualRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
+import { useEffect, useRef, useState } from "react";
 import {
-  DeferredFileDiffBlock,
-  DeferredFileTree,
-  fileHeight,
-  freshView,
-  useFileViews,
-} from "@/features/panels/index.ts";
+  allCommits,
+  codeRange,
+  sinceLastReview,
+  type CodeRange,
+  type CodeScope,
+} from "@ace/ui-core";
+import { DeferredFileDiffBlock, DeferredFileTree } from "@/features/panels/index.ts";
+import { useNow } from "@/lib/time.ts";
 import { usePrCommits } from "./pr-commits.tsx";
-import { hostedFileChanges, offDiffThreads } from "./pr-code-model.ts";
-import { PrCodeFile, type HostedFileRead } from "./pr-code-file.tsx";
-import { codeCaveats, hostedFileShow, renderedKind } from "@ace/ui-core";
-import { sideTexts, usePrFileSides } from "./pr-file-sides.ts";
-import { PrCodeToolbar, type CodeOptions } from "./pr-code-toolbar.tsx";
-import type { PrDiffContext, PrWorkspaceContext } from "./pr-extensions.ts";
-import { usePrFilePages } from "./pr-file-pages.ts";
-import { PrMoreFiles } from "./pr-more-files.tsx";
-import { PrOffDiffThreads } from "./pr-off-diff-threads.tsx";
-import { usePrViewedMarks } from "./pr-viewed-marks.ts";
-import { usePrReview } from "./pr-review-context.tsx";
-
-// The diff renderer loads with this view, not with the app's first paint (`preloadPrFiles`).
-const FileTree = DeferredFileTree.Component;
+import { useCodeOptions } from "./pr-code-options.ts";
+import { PrCodeRange } from "./pr-code-range.tsx";
+import type { PrFilesProps } from "./pr-files-props.ts";
+import { usePrReviewers } from "./pr-reviewers-query.ts";
 
 /** Warm the diff renderer while a pull request is open, before its Code tab is chosen. */
 export function preloadPrFiles(): void {
@@ -34,286 +20,64 @@ export function preloadPrFiles(): void {
   void DeferredFileTree.preload().catch(() => {});
 }
 
-/** Past this many diff rows across the files read, only the files near the viewport mount. */
-const virtualRowsAbove = 2_000;
-
-interface PrFilesProps {
-  workspaceId: string;
-  repository: ForgeRepository;
-  detail: ForgePrDetail;
-  context: PrWorkspaceContext;
-  /** A file to scroll to (the Summary's Changes); a new `seq` asks again. */
-  focus?: { path: string; seq: number } | undefined;
-}
+const rangeKey = (range: CodeRange) => `${range.since ?? ""}..${range.commit}`;
 
 /**
- * The Code tab: every changed file of the pull request (or of one commit) in one continuous
- * scroll, read page by page as it nears the end, with the files tree beside it on request.
+ * The Code tab: every changed file of the pull request (or of a span of its commits) in one
+ * continuous scroll, read page by page as it nears the end, with the files tree beside it.
+ * How it draws (layout, wrap, tree, whitespace) is kept on this device, and the commit choice
+ * and the file being read are held here, above the range: a push reads the new head's files
+ * and keeps all of it.
  */
 export function PrFiles(props: PrFilesProps) {
-  return <PrFileRange key={`${props.detail.status.headSha}/${props.detail.baseSha}`} {...props} />;
-}
-
-function PrFileRange(props: PrFilesProps) {
-  const [commit, setCommit] = useState("");
-  const [options, setOptions] = useState<CodeOptions>({
-    mode: "unified",
-    wrap: false,
-    tree: false,
-  });
+  const [options, setOptions] = useCodeOptions();
+  const [ownScope, setOwnScope] = useState<CodeScope>(allCommits);
+  const scope = props.scope ?? ownScope;
+  const onScope = props.onScope ?? setOwnScope;
   const commits = usePrCommits(props);
+  const reviewers = usePrReviewers(props.workspaceId, props.detail);
+  const head = props.detail.status.headSha;
+  const list = commits.data?.commits ?? noCommits;
+  const since = reviewers.data ? sinceLastReview(reviewers.data, list, head) : undefined;
+  const range = codeRange(scope, list, since);
+  // The file being read, kept across a push so the new head opens where the person was.
+  const [place, setPlace] = useState<string>();
+  const pushedAt = usePushedAt(head, list);
   return (
     <PrCodeRange
-      key={commit}
+      key={`${head}/${props.detail.baseSha}/${rangeKey(range)}`}
       {...props}
-      commit={commit}
-      onCommit={setCommit}
+      range={range}
+      scope={scope}
+      onScope={onScope}
+      since={since}
       commits={commits}
       options={options}
-      onOptions={(change) => setOptions((previous) => ({ ...previous, ...change }))}
+      onOptions={setOptions}
+      place={place}
+      onPlace={setPlace}
+      pushedAt={pushedAt}
     />
   );
 }
 
-function PrCodeRange(
-  props: PrFilesProps & {
-    commit: string;
-    onCommit(commit: string): void;
-    commits: ReturnType<typeof usePrCommits>;
-    options: CodeOptions;
-    onOptions(change: Partial<CodeOptions>): void;
-  },
-) {
-  const scope = `forge:${props.workspaceId}`;
-  const workspace = useScopeWorkspace(scope);
-  const pages = usePrFilePages(props);
-  const range = pages.range;
-  const files = range?.files ?? noFiles;
-  // Files whose two sides are read: withheld patches as they near the viewport (or when asked),
-  // and rendered documents.
-  const [wanted, setWanted] = useState<ReadonlySet<string>>(noPaths);
-  const want = useCallback(
-    (path: string) =>
-      setWanted((previous) => (previous.has(path) ? previous : new Set(previous).add(path))),
-    [],
-  );
-  // Markdown and notebooks draw rendered, except where conversations sit on their lines (and in
-  // the review being written): those show their source diff. A file the person switched keeps
-  // their choice, whatever conversations come and go.
-  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(noChoices);
-  const review = usePrReview();
-  const discussed = useMemo(
-    () =>
-      new Set([
-        ...props.detail.status.reviewThreads.filter((t) => !t.outdated).map((t) => t.file),
-        ...(review?.state?.drafts ?? []).map((d) => d.anchor.path),
-      ]),
-    [props.detail.status.reviewThreads, review?.state?.drafts],
-  );
-  const read = usePrFileSides({
-    workspaceId: props.workspaceId,
-    repository: props.repository,
-    range,
-    files,
-    wanted,
-  });
-  const texts = useMemo(() => sideTexts(read.sides), [read.sides]);
-  const inputs = useMemo(() => hostedFileChanges(files, texts), [files, texts]);
-  const diffs = useFileChanges(inputs);
-  const byPath = useMemo(() => new Map(diffs.files.map((diff) => [diff.path, diff])), [diffs]);
-  const context: PrDiffContext | undefined = range && { ...props.context, files: range };
-  const marks = usePrViewedMarks(context);
-  const markByPath = new Map(files.map((file) => [file.path, marks.markOf(file)]));
-  // A file marked viewed folds; unmarking it, or a new version of its diff, opens it again.
-  const versions = new Map(
-    files.map((file) => [
-      file.path,
-      `${diffs.versions.get(file.path) ?? ""}:${markByPath.get(file.path)?.checked ? "viewed" : ""}`,
-    ]),
-  );
-  const folded = new Set(files.filter((file) => markByPath.get(file.path)?.checked).map(pathOf));
-  const views = useFileViews(diffs.files, versions, folded);
-  const scroller = useRef<HTMLDivElement>(null);
-  const blocks = useRef<VirtualRowsHandle>(null);
-  const [current, setCurrent] = useState<string>();
-  const anchor = `pr-file-${props.commit || "all"}`;
-  const jump = (path: string) => {
-    const index = files.findIndex((file) => file.path === path);
-    if (index < 0) return;
-    setCurrent(path);
-    const diff = byPath.get(path);
-    if (diff && !views.viewOf(diff).open)
-      views.setView(path, { ...views.viewOf(diff), open: true });
-    const block = document.getElementById(`${anchor}-${index}`);
-    if (block) block.scrollIntoView?.({ block: "start" });
-    else blocks.current?.scrollToIndex(index);
-  };
-  // A file picked elsewhere (the Summary's Changes) opens here once its page has loaded.
-  const focused = useRef(0);
-  const focus = props.focus;
-  const ready = files.some((file) => file.path === focus?.path);
+/**
+ * When the head last moved while the tab was open: the new head commit's date when it is
+ * listed, else when ace saw the push. Undefined until a push is seen.
+ */
+function usePushedAt(head: string, commits: readonly { sha: string; date: string | null }[]) {
+  const now = useNow();
+  const first = useRef(head);
+  const [seenAt, setSeenAt] = useState<number>();
   useEffect(() => {
-    if (!focus || !ready || focused.current === focus.seq) return;
-    focused.current = focus.seq;
-    jump(focus.path);
-  });
-  const complete = pages.more === "done";
-  const caveats = codeCaveats({
-    viewed: marks.availability,
-    truncated: range?.truncated ?? false,
-    commitsTruncated: props.commits.data?.truncated ?? false,
-  });
-  if (props.commits.error) caveats.push("Couldn't read the commit list.");
-  const threads = props.commit
-    ? []
-    : offDiffThreads(props.detail.status.reviewThreads, { files, diffs: diffs.files, complete });
-  // A single commit's total is known only once its pages are read; the PR's comes with it.
-  const fileCount = props.commit ? files.length : props.detail.changedFiles;
-  const rows = diffs.files.reduce((sum, diff) => sum + diff.rows.length, 0);
-  const readOf = (file: ForgeFile): HostedFileRead => ({
-    show: hostedFileShow(file),
-    rendered: renderedKind(file.path),
-    source: chosen.get(file.path) ?? discussed.has(file.path),
-    onSource: (source) => setChosen((previous) => new Map(previous).set(file.path, source)),
-    sides: read.sides.get(file.path),
-    root: scroller,
-    onWant: () => want(file.path),
-    onRetry: read.retry,
-  });
-  const renderFile = (file: ForgeFile, index: number) => {
-    const diff = byPath.get(file.path);
-    return (
-      context && (
-        <PrCodeFile
-          key={file.path}
-          id={`${anchor}-${index}`}
-          file={file}
-          diff={diff}
-          context={context}
-          view={diff ? views.viewOf(diff) : freshView}
-          onView={(next) => views.setView(file.path, next)}
-          mode={props.options.mode}
-          wrap={props.options.wrap}
-          mark={markByPath.get(file.path)}
-          read={readOf(file)}
-        />
-      )
-    );
-  };
-  return (
-    <section
-      aria-label="Hosted PR diff"
-      className="@container/code flex h-full min-h-0 min-w-0 flex-col"
-    >
-      <PrCodeToolbar
-        commit={props.commit}
-        commits={props.commits.data?.commits ?? []}
-        onCommit={props.onCommit}
-        files={fileCount}
-        viewed={marks.count}
-        caveats={caveats}
-        options={props.options}
-        onOptions={props.onOptions}
-        allCollapsed={views.allCollapsed}
-        onCollapseAll={views.collapseAll}
-      />
-      {pages.error && (
-        <div role="alert" className="space-y-2 px-3.5 py-6 text-center text-xs">
-          <p className="font-medium text-foreground">Couldn't load the changed files.</p>
-          <p className="text-muted-foreground">{pages.error.message}</p>
-          <Button size="xs" onClick={pages.retry}>
-            Retry
-          </Button>
-        </div>
-      )}
-      {pages.pending && (
-        <LoadingRegion label="changed files" className="flex flex-col gap-3 p-3.5">
-          {[0, 1, 2].map((index) => (
-            <Skeleton key={index} className="h-8 w-full rounded-md" />
-          ))}
-        </LoadingRegion>
-      )}
-      {range && context && (
-        <>
-          <PrOffDiffThreads threads={threads} />
-          <div className="flex min-h-0 flex-1">
-            <div
-              ref={scroller}
-              data-diff-scroller=""
-              className="min-h-0 min-w-0 flex-1 overflow-auto pb-16"
-            >
-              <p className="sr-only">
-                {props.commit
-                  ? "Commit compared with its first parent"
-                  : "PR compared with its merge base"}
-                : {range.baseSha} ← {range.headSha}
-              </p>
-              <Suspense fallback={null}>
-                {files.length > 1 && rows > virtualRowsAbove ? (
-                  <VirtualRows
-                    items={files}
-                    rowKey={pathOf}
-                    estimate={(file) => {
-                      const diff = byPath.get(file.path);
-                      return diff ? fileHeight(diff, views.viewOf(diff)) : 32;
-                    }}
-                    render={renderFile}
-                    // A file is tall (up to hundreds of rows): two past each edge keep scrolling seamless.
-                    overscan={2}
-                    handle={blocks}
-                  />
-                ) : (
-                  files.map(renderFile)
-                )}
-              </Suspense>
-              {!files.length && complete && (
-                <p className="px-3.5 py-6 text-center text-xs text-muted-foreground">
-                  No changed files.
-                </p>
-              )}
-              <PrMoreFiles
-                state={pages.more}
-                loaded={pages.loaded}
-                root={scroller}
-                onMore={pages.loadMore}
-                onRetry={pages.retry}
-              />
-            </div>
-            {props.options.tree && (
-              <aside
-                aria-label="Files"
-                className="flex w-[40%] max-w-80 min-w-48 shrink-0 flex-col border-l border-border"
-              >
-                <p className="flex h-8 shrink-0 items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
-                  Files
-                  <span className="text-subtle-foreground tabular-nums">{fileCount}</span>
-                </p>
-                <Suspense fallback={null}>
-                  <FileTree
-                    threadId={scope}
-                    tabKey={workspace.active}
-                    className="min-h-0 flex-1"
-                    files={files}
-                    current={current}
-                    viewed={folded}
-                    comments={noComments}
-                    onJump={(index) => {
-                      const file = files[index];
-                      if (file) jump(file.path);
-                    }}
-                  />
-                </Suspense>
-              </aside>
-            )}
-          </div>
-        </>
-      )}
-    </section>
-  );
+    if (head !== first.current) setSeenAt(now);
+    // Only a new head marks a push; the clock ticking doesn't.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [head]);
+  if (seenAt === undefined) return undefined;
+  const date = commits.find((commit) => commit.sha === head)?.date;
+  const at = date ? Date.parse(date) : Number.NaN;
+  return Number.isNaN(at) ? seenAt : Math.min(at, seenAt);
 }
 
-const pathOf = (file: ForgeFile) => file.path;
-const noFiles: readonly ForgeFile[] = [];
-const noPaths: ReadonlySet<string> = new Set();
-const noChoices: ReadonlyMap<string, boolean> = new Map();
-const noComments: ReadonlyMap<string, number> = new Map();
+const noCommits: readonly never[] = [];

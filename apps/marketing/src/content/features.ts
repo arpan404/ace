@@ -7,6 +7,7 @@ export type FeatureSlug =
   | "computer-use"
   | "fleet"
   | "mobile"
+  | "remote-access"
   | "accounts"
   | "browser"
   | "devices"
@@ -131,14 +132,14 @@ export const features: Feature[] = [
       {
         heading: "Your phone and tablet, paired",
         body: [
-          "ace for iPhone and iPad pairs with your machines through a link or a QR code, for view only or view and act, and for as long as you choose. From it you follow every machine's threads, answer approvals, watch the browser and drive your desktops' simulators. Android is coming soon.",
+          "Sign in to your ace account on iPhone or iPad and every machine on it is there. Or pair a machine through a link or a QR code, for view only or view and act, and for as long as you choose. From it you follow every machine's threads, answer approvals, watch the browser and drive your desktops' simulators. Android is coming soon.",
           "Paired devices follow and steer agents; they don't run them. Your code and your agents stay on your computers.",
         ],
       },
       {
         heading: "Connect the way you already do",
         body: [
-          "Machines and devices connect directly, over your local network or over Tailscale, where ace uses the machine's tailnet name with a valid HTTPS certificate. An optional end-to-end encrypted relay, which you can host yourself, carries only extras such as previews and files. Nothing joins your fleet unless you pair it.",
+          "Machines and devices connect directly over your local network, or over Tailscale, where ace uses the machine's tailnet name with a valid HTTPS certificate. Away from both, devices signed in to your ace account reach your machines through ace's end-to-end encrypted relay, or through a relay you host yourself. Nothing joins your fleet unless you pair it or sign it in to your account.",
         ],
       },
     ],
@@ -170,7 +171,7 @@ export const features: Feature[] = [
       {
         question: "How do my devices connect?",
         answer:
-          "Directly, over your local network or Tailscale. An optional end-to-end encrypted relay you can host yourself carries only extras such as previews and files. Devices join only when you pair them.",
+          "Directly over your local network or Tailscale when they can. From anywhere else, through ace's end-to-end encrypted relay once they're signed in to your ace account, or through a relay you host. Devices join only when you pair them or sign them in.",
       },
     ],
     keywords: [
@@ -190,7 +191,7 @@ export const features: Feature[] = [
       "Follow and steer every agent from iPhone or iPad: approvals, diffs, terminals, the live browser, your desktop's simulators and Live Activities on the Lock Screen.",
     headline: "Every agent, every machine, in your pocket",
     intro:
-      "ace for iPhone and iPad connects to all your paired machines at once. It isn't a viewer: you approve, review, browse, drive simulators and watch the apps agents are using, from wherever you are.",
+      "ace for iPhone and iPad connects to all your machines at once, from anywhere. It isn't a viewer: you approve, review, browse, drive simulators and watch the apps agents are using, from wherever you are.",
     points: [
       "Live Activities that end only when the whole agent tree is done",
       "The live browser at 60 fps, which you can use",
@@ -233,7 +234,7 @@ export const features: Feature[] = [
       {
         question: "How does the phone reach my computers?",
         answer:
-          "Directly, over your local network or Tailscale, once you pair it with a link or QR code. You choose view only or view and act, and how long access lasts.",
+          "Sign in to your ace account and it reaches every machine on it, from anywhere, through ace's end-to-end encrypted relay. Or pair it with a link or QR code over your local network or Tailscale, choosing view only or view and act, and for how long.",
       },
     ],
     keywords: [
@@ -242,6 +243,80 @@ export const features: Feature[] = [
       "approve coding agent from phone",
       "coding agent Live Activity",
       "AI coding agent iPad",
+    ],
+  },
+  {
+    slug: "remote-access",
+    name: "Remote access",
+    title: "Reach your coding agents from anywhere with an ace account",
+    description:
+      "Sign in once and every machine on your ace account opens from your phone, browser or laptop, anywhere, through an end-to-end encrypted relay.",
+    headline: "Sign in once, reach every machine",
+    intro:
+      "Sign in to ace on your computers and your phone, and every machine on your account is a tap away, at home, at the office or on cellular. No pairing codes, no VPN, no ports to open.",
+    points: [
+      "Sign in with email, Google or GitHub",
+      "Every machine on your account, on every device",
+      "End-to-end encrypted: the relay can't read your work",
+      "A machine code adds a second lock to any computer",
+    ],
+    sections: [
+      {
+        heading: "One sign-in for your whole fleet",
+        body: [
+          "Sign in from the desktop app and that computer joins your ace account. A headless build server joins by running ace login, which prints a sign-in link you can open anywhere. Your phone, the web app and your other computers then list every machine on the account and open it in one tap.",
+          "A device signed in to your account gets full access to the machines on it. There is nothing to scan or copy, and a new machine shows up everywhere as soon as it signs in.",
+        ],
+      },
+      {
+        heading: "Works from anywhere, readable only by you",
+        body: [
+          "When your phone can't reach a machine over your network or Tailscale, ace connects them through its relay on Cloudflare. The connection is end-to-end encrypted between your device and your machine, so the relay forwards what it can't read: never your prompts, code, transcripts or screens.",
+          "Every connection needs a fresh pass from your account that lasts five minutes. Sign a device out and it loses access to your machines within minutes.",
+        ],
+      },
+      {
+        heading: "A second lock on the machines that matter",
+        body: [
+          "Set a machine code, a PIN or a password, on any computer. Each device then enters it once before it gets in, so a stolen account sign-in alone doesn't open that machine. The machine checks the code itself, inside the encrypted connection; ace's servers never see it. Five wrong tries lock code entry for 15 minutes.",
+        ],
+      },
+      {
+        heading: "Optional, and still yours to run",
+        body: [
+          "You don't need an account to use ace. Pairing with a link or QR code, your local network, Tailscale and a relay you host yourself all keep working without one. Either way, your agents, code and provider logins stay on your computers.",
+        ],
+      },
+    ],
+    tools: [],
+    questions: [
+      {
+        question: "Do I need an ace account?",
+        answer:
+          "No. An account is for reaching your machines through ace's relay from anywhere. Everything else works without one, including pairing over your local network or Tailscale and running your own relay.",
+      },
+      {
+        question: "Can ace read my code through the relay?",
+        answer:
+          "No. Traffic between your devices and your machines is end-to-end encrypted. The relay sees addresses, timing and the size of encrypted messages, and keeps none of it after the connection ends.",
+      },
+      {
+        question: "What does an ace account store?",
+        answer:
+          "Your account id, email and name, and for each machine you sign in, its name, platform, key fingerprint and when it was last seen. Never your code, prompts or provider credentials.",
+      },
+      {
+        question: "What if someone gets into my ace account?",
+        answer:
+          "They could open machines that have no machine code. Set a code on the machines that matter, use multi-factor sign-in, and sign out devices you no longer use.",
+      },
+    ],
+    keywords: [
+      "remote access for coding agents",
+      "Claude Code remote access",
+      "control Codex from anywhere",
+      "end-to-end encrypted relay",
+      "coding agents on cellular",
     ],
   },
   {

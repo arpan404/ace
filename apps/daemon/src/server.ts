@@ -3,7 +3,8 @@ import { relayPairing, relayRoute } from "./relay-route.ts";
 import { isHostedRelay } from "./relay-account.ts";
 import type { PairingConnection } from "./pairing-issue.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
-import { createSocketRegistry, readSocketFrame } from "./services/registry.ts";
+import { createSocketRegistry } from "./services/registry.ts";
+import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
@@ -375,23 +376,20 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         const frameValue: unknown = JSON.parse(data.toString());
-        const frame = readSocketFrame(frameValue);
-        if (frame.ok) message = frame.message;
-        else {
-          // A retired or newer request type is answered, not treated as a broken client.
-          const requestShape = z
-            .object({ type: z.string(), requestId: z.string().optional() })
-            .safeParse(frameValue);
-          if (!device || frame.reason !== "unknown_type" || !requestShape.success)
-            throw new Error("Message does not match the protocol");
-          fail(
-            "unsupported",
-            "Request type is not supported by this daemon",
-            false,
-            requestShape.data.requestId ? { requestId: requestShape.data.requestId } : {},
-          );
-          return;
-        }
+        if (device) {
+          const frame = decodeDeviceFrame(frameValue);
+          if (frame.kind === "unsupported") {
+            fail(
+              "unsupported",
+              "Request type is not supported by this daemon",
+              false,
+              frame.requestId ? { requestId: frame.requestId } : {},
+            );
+            return;
+          }
+          if (frame.kind === "invalid") throw new Error("Message does not match the protocol");
+          message = frame.message;
+        } else message = parseSocketMessage(frameValue);
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",

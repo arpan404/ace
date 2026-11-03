@@ -22,6 +22,19 @@ import {
   type StreamEncoding,
 } from "@ace/projection";
 
+// SQLite row shapes, built once: Zod compiles a parser per schema object.
+const StreamOwnerRow = z.object({ thread_id: ThreadId, item_id: ItemId });
+const BlobInfoRow = z.object({
+  rowid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  threadId: ThreadId,
+  size: z.number().int().nonnegative().max(2147483647),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+const OutputInfoRow = z.object({
+  threadId: ThreadId,
+  size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+});
+
 // Only the retired shell fields differ from the current protocol. All other
 // fields pass through unchanged and are validated by Event after conversion.
 const LegacyShellPayload = z.object({
@@ -245,7 +258,7 @@ export class PayloadStore {
     const row = this.statement("SELECT thread_id,item_id FROM output_streams WHERE id=?").get(
       streamId,
     );
-    const owner = z.object({ thread_id: ThreadId, item_id: ItemId }).parse(row);
+    const owner = StreamOwnerRow.parse(row);
     if (owner.thread_id !== threadId || owner.item_id !== itemId)
       throw new Error("Stream outside item scope");
     const bytes = this.writeOutput(streamId, offset, text);
@@ -278,14 +291,7 @@ export class PayloadStore {
       if (!streamed) throw new Error("Unknown blob reference");
       return streamed;
     }
-    return z
-      .object({
-        rowid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-        threadId: ThreadId,
-        size: z.number().int().nonnegative().max(2147483647),
-        sha256: z.string().regex(/^[a-f0-9]{64}$/),
-      })
-      .parse(row);
+    return BlobInfoRow.parse(row);
   }
   outputInfo(streamId: string) {
     const metadata = this.readStatement(
@@ -293,12 +299,7 @@ export class PayloadStore {
     );
     const row = metadata.get(streamId);
     if (!row) throw new Error("Unknown output stream");
-    return z
-      .object({
-        threadId: ThreadId,
-        size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-      })
-      .parse(row);
+    return OutputInfoRow.parse(row);
   }
   readOutput(streamId: string, offset: number, limit: number) {
     const { bytes, nextOffset, eof } = this.readLiveOutputBytes(streamId, offset, limit);

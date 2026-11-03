@@ -69,14 +69,15 @@ Example:
       "completedAt": null,
       "conclusion": null,
       "id": "example",
-      "jobId": 4,
+      "jobId": null,
       "name": "example",
+      "startedAt": "example",
       "status": "failure",
       "url": null
     },
     "logTail": "example",
-    "logUnavailable": true,
-    "truncated": false,
+    "logUnavailable": false,
+    "truncated": true,
     "type": "ci"
   },
   "headSha": "example",
@@ -254,7 +255,8 @@ Example:
       "comment": false,
       "edit": true,
       "reason": "example",
-      "reopen": false
+      "reopen": false,
+      "triage": true
     },
     "ref": {
       "number": 7,
@@ -266,8 +268,9 @@ Example:
       }
     },
     "relatedThreads": [],
-    "relatedThreadsTruncated": true,
+    "relatedThreadsTruncated": false,
     "state": "open",
+    "stateReason": null,
     "title": "example",
     "updatedAt": "example",
     "url": "example"
@@ -282,6 +285,7 @@ Example:
 | resource | yes | `"issueTimeline"` |  |
 | events | yes | array | {"maxItems":25,"items":{"$ref":"https://ace.local/protocol/v1/ForgeIssueEvent.json"}} |
 | nextPage | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| lastPage | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | truncated | yes | boolean |  |
 
 Example:
@@ -291,7 +295,7 @@ Example:
   "events": [],
   "nextPage": 7,
   "resource": "issueTimeline",
-  "truncated": false
+  "truncated": true
 }
 ```
 
@@ -421,12 +425,13 @@ Example:
     "autoMerge": null,
     "blockers": [],
     "canDequeue": true,
-    "canDisable": false,
-    "canEnable": true,
+    "canDisable": true,
+    "canEnable": false,
     "checksState": "example",
     "commitMessages": {},
     "headSha": "9a7BaF62B53b1A6975a7733025aB36DCbbDA591adFc5424a8ee",
     "mergeState": "example",
+    "methods": [],
     "queue": {
       "enqueuedAt": "example",
       "id": "example",
@@ -435,8 +440,7 @@ Example:
     },
     "raw": null,
     "reviewDecision": null,
-    "state": "example",
-    "writeState": "uncertain"
+    "state": "example"
   }
 }
 ```
@@ -626,6 +630,27 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| resource | yes | `"repository"` |  |
+| value | yes | [ForgeRepository.json](schema/ForgeRepository.json) |  |
+
+Example:
+
+```json
+{
+  "resource": "repository",
+  "value": {
+    "forge": "gitlab",
+    "host": "DAF3",
+    "name": "zPEqB-rh",
+    "owner": "0LH/ctmJ5WtD/HD33A1/EfMydDyMes/K/W3PlYiEEMRU/MdAaQ"
+  }
+}
+```
+
+### Variant 19
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
 | resource | yes | `"groupCounts"` |  |
 | counts | yes | object | {"propertyNames":{"type":"string","maxLength":64},"additionalProperties":{"type":"integer","minimum":0,"maximum":9007199254740991}} |
 
@@ -638,7 +663,7 @@ Example:
 }
 ```
 
-### Variant 19
+### Variant 20
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -651,25 +676,19 @@ Example:
 {
   "resource": "prDetail",
   "value": {
-    "additions": 1,
+    "additions": 4,
     "author": "example",
     "baseBranch": "example",
-    "baseSha": "cB5F71Fb1e655FD8faA5b9Ffc81E98F9f3d442EBf9fe46F388E0",
+    "baseSha": "3b10e9ACe92f8Ba2659AFB8D2c78592F0dCdacdAF413ebA9e18",
     "body": "example",
     "changedFiles": 0,
-    "commits": 5,
+    "commits": 7,
     "files": [],
     "headBranch": "example",
-    "headRepository": {
-      "forge": "gitlab",
-      "host": "LjG-6z",
-      "name": "3",
-      "owner": "eqJK49XdGA/VUfOWp3/gHBeq1r79/3sD/aNK9vNKQkH/2MMhyZe4AjS"
-    },
-    "labelColors": {},
+    "headRepository": null,
     "labels": [],
     "relatedThreads": [],
-    "relatedThreadsTruncated": false,
+    "relatedThreadsTruncated": true,
     "reviewDecision": null,
     "reviewers": [],
     "status": {
@@ -680,25 +699,24 @@ Example:
       "mergeability": "unknown",
       "raw": null,
       "ref": {
-        "number": 8,
+        "number": 3,
         "repository": {
-          "forge": "github",
-          "host": "kV8BvJk1",
-          "name": "23ul",
-          "owner": "dvc/ijfI1oS/DvRNlTALFx2/XRU_aNraYQ/1UY40qZ4/tiGm7VYf/I-BZf5"
+          "forge": "gitlab",
+          "host": "Pq.xon",
+          "name": "md4Rc.1u",
+          "owner": "5myRNJ/h7/TC8O/qSI/1vKU1O8/lWuP0dH6"
         }
       },
       "reviewThreads": [],
-      "state": "closed",
+      "state": "open",
       "title": "example",
       "url": "example"
-    },
-    "writeState": "uncertain"
+    }
   }
 }
 ```
 
-### Variant 20
+### Variant 21
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -715,11 +733,12 @@ Example:
 {
   "commits": [],
   "resource": "prCommits",
-  "truncated": true
+  "total": 9,
+  "truncated": false
 }
 ```
 
-### Variant 21
+### Variant 22
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -732,25 +751,25 @@ Example:
 {
   "resource": "prFiles",
   "value": {
-    "baseSha": "Db1ABeadeC76f12AFe06aa5eBaa66BF1925C0B74E8cCEfd9dcb3Cb4",
+    "baseSha": "0DEaCa98C0E561B084890f92Dd2a5dc6eCEbFF891Bc48FBb487465A3C24A98",
+    "commit": "c398cAF7cFcD29CE1fFC45cE80fb8bFc597C07cD88Bef05AA0e4a3D9",
     "files": [],
-    "headSha": "5dfDF87aFda34be8e6E2017DA5EcEFB4f199a0B652eEBe89B8aCDfE",
+    "headSha": "ad6aA5FB6A6EA1F54b50D53fE15Ab938eF9Eebfd16Ac5b0Bc1C269Ddce8e",
     "ref": {
-      "number": 1,
+      "number": 4,
       "repository": {
-        "forge": "gitlab",
-        "host": "t7KTQ",
-        "name": "Kas_K3YZ",
-        "owner": "3xZ5mUjT/QC/MWVSxz-4/RnWby/4gDUHVm/iyFneqUOww./l5QFG1PxX/UQ8U2z/tt"
+        "forge": "github",
+        "host": "0AHXWbJ",
+        "name": "KMH8LB",
+        "owner": "3K3j/1i0O1zGa7/ycFrWo"
       }
     },
-    "since": "e638cb1Db9A203C732914bAc5FE68fF2cDD4BcB6fB77A15cB",
     "truncated": true
   }
 }
 ```
 
-### Variant 22
+### Variant 23
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -764,30 +783,35 @@ Example:
   "resource": "prCheck",
   "value": {
     "annotations": [],
-    "annotationsTruncated": true,
-    "conclusion": null,
-    "id": 1,
-    "log": null,
-    "logUnavailable": false,
+    "annotationsTruncated": false,
+    "conclusion": "example",
+    "id": 3,
+    "log": {
+      "errors": [],
+      "focus": null,
+      "text": "example",
+      "truncated": false
+    },
+    "logUnavailable": true,
     "name": "example",
     "output": {
       "summary": null,
       "text": null,
-      "title": null
+      "title": "example"
     },
-    "status": "cancelled",
-    "url": "example",
+    "status": "unknown",
+    "url": null,
     "workflow": {
-      "attempt": 4,
-      "jobId": 9,
-      "runId": 6,
+      "attempt": 3,
+      "jobId": 10,
+      "runId": 3,
       "steps": []
     }
   }
 }
 ```
 
-### Variant 23
+### Variant 24
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -805,19 +829,19 @@ Example:
       "defaultBranch": "example",
       "repository": {
         "forge": "github",
-        "host": "v5E03xpq7p",
-        "name": "FhAsI_U3A",
-        "owner": "Lo42k./lqskIxhgj1p/g1C_/z/r/O84x/UWEyso/o5-./xDv1LGvMO/1C"
+        "host": "3",
+        "name": "NwlTb",
+        "owner": "A39S7/6maq-3niae./K"
       },
-      "truncated": true
+      "truncated": false
     },
     "head": {
       "branches": [],
       "repository": {
-        "forge": "gitlab",
-        "host": "AmQLE",
-        "name": "oXvwN3PGRi_",
-        "owner": "FL/BoG8e3/PwBGEO-ZuUT/WYPaNb8/XbY933LX4/t9"
+        "forge": "github",
+        "host": "P",
+        "name": "xVPj2BW",
+        "owner": "y"
       },
       "truncated": true
     },
@@ -826,7 +850,7 @@ Example:
 }
 ```
 
-### Variant 24
+### Variant 25
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -847,7 +871,7 @@ Example:
 }
 ```
 
-### Variant 25
+### Variant 26
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -863,7 +887,7 @@ Example:
 }
 ```
 
-### Variant 26
+### Variant 27
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -876,28 +900,28 @@ Example:
 {
   "resource": "compare",
   "value": {
-    "aheadBy": 0,
+    "aheadBy": 2,
     "base": "example",
-    "behindBy": 1,
+    "behindBy": 2,
     "commits": [],
-    "existingPr": 5,
+    "existingPr": 10,
     "files": [],
     "head": {
-      "branch": "J",
-      "name": "JvQZKO4nB",
-      "owner": "VUD"
+      "branch": "q)Qi$A'M#9",
+      "name": "_EGSJ",
+      "owner": "8p8QM"
     },
-    "headSha": "995bAB90c8dA1Ed9f3AABd61ce0383F87A2DA7A73fF8",
-    "mergeBaseSha": "BfF79cD4b5EdED353203DBFFFD9808eda8caa5Deb070e3C3408Ad0ddcF2eA1",
-    "status": "diverged",
+    "headSha": "6d4C4f2bd05Dd6168FA3CCB8381dDc4c8AE98aa2",
+    "mergeBaseSha": "622Fef9834cFC5c49CDE3Cbb9ED41D5F10BEdb16351fa6Ee91",
+    "status": "ahead",
     "totalCommits": 9,
-    "totalFiles": 1,
-    "truncated": true
+    "totalFiles": 4,
+    "truncated": false
   }
 }
 ```
 
-### Variant 27
+### Variant 28
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -913,7 +937,7 @@ Example:
 }
 ```
 
-### Variant 28
+### Variant 29
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -942,6 +966,7 @@ Example:
 | status | yes | ["pending","success","failure","cancelled","unknown"] |  |
 | conclusion | yes | string,null |  |
 | completedAt | yes | string,null |  |
+| startedAt | no | string,null |  |
 | jobId | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | url | yes | union | {"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]} |
 
@@ -952,7 +977,7 @@ Example:
   "completedAt": null,
   "conclusion": "example",
   "id": "example",
-  "jobId": null,
+  "jobId": 1,
   "name": "example",
   "status": "failure",
   "url": "example"
@@ -2141,6 +2166,25 @@ Example:
 }
 ```
 
+## ForgeHostedPendingReview
+
+[JSON Schema](schema/ForgeHostedPendingReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| comments | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| url | no | string | {"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "comments": 4,
+  "id": "example"
+}
+```
+
 ## ForgeHostedPrCreateCommand
 
 [JSON Schema](schema/ForgeHostedPrCreateCommand.json), input validation.
@@ -2200,7 +2244,8 @@ Example:
 {
   "action": {
     "commentId": 8,
-    "kind": "comment.unhide",
+    "kind": "comment.hide",
+    "reason": "spam",
     "source": "inline"
   },
   "pr": {
@@ -2458,7 +2503,7 @@ Example:
 | --- | --- | --- | --- |
 | id | yes | [CommandId.json](schema/CommandId.json) |  |
 | state | yes | ["pending","uncertain","succeeded","failed"] |  |
-| action | yes | ["create","comment","edit","state"] |  |
+| action | yes | ["create","comment","edit","state","labels","assignees","milestone"] |  |
 | issue | no | [ForgeIssueRef.json](schema/ForgeIssueRef.json) |  |
 | error | no | string | {"maxLength":256} |
 
@@ -2495,7 +2540,9 @@ Example:
 | avatars | no | [ForgeAvatars.json](schema/ForgeAvatars.json) |  |
 | raw | no | any JSON value |  |
 | body | yes | string | {"maxLength":65536} |
-| permissions | yes | object | {"properties":{"edit":{"type":"boolean"},"close":{"type":"boolean"},"reopen":{"type":"boolean"},"comment":{"type":"boolean"},"reason":{"type":"string","maxLength":256}},"required":["edit","close","reopen","comment","reason"]} |
+| permissions | yes | object | {"properties":{"edit":{"type":"boolean"},"close":{"type":"boolean"},"reopen":{"type":"boolean"},"comment":{"type":"boolean"},"triage":{"type":"boolean"},"reason":{"type":"string","maxLength":256}},"required":["edit","close","reopen","comment","reason"]} |
+| stateReason | no | union | {"anyOf":[{"type":"string","enum":["completed","not_planned","reopened"]},{"type":"null"}]} |
+| milestoneNumber | no | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | relatedThreads | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"$ref":"https://ace.local/protocol/v1/ThreadId.json"},"title":{"type":"string","maxLength":65536},"archived":{"type":"boolean"}},"required":["id","title","archived"]}} |
 | relatedThreadsTruncated | yes | boolean |  |
 
@@ -2530,7 +2577,7 @@ Example:
     }
   },
   "relatedThreads": [],
-  "relatedThreadsTruncated": false,
+  "relatedThreadsTruncated": true,
   "state": "closed",
   "title": "example",
   "updatedAt": "example",
@@ -2756,6 +2803,7 @@ Example:
 | expectedUpdatedAt | yes | string | {"maxLength":65536} |
 | title | yes | string | {"minLength":1,"maxLength":256} |
 | body | yes | string | {"maxLength":65536} |
+| base | no | object | {"properties":{"title":{"type":"string","maxLength":65536},"body":{"type":"string","maxLength":65536}},"required":["title","body"]} |
 
 Example:
 
@@ -2777,6 +2825,7 @@ Example:
 | number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | expectedUpdatedAt | yes | string | {"maxLength":65536} |
 | state | yes | ["open","closed"] |  |
+| reason | no | ["completed","not_planned"] |  |
 
 Example:
 
@@ -2786,6 +2835,62 @@ Example:
   "expectedUpdatedAt": "example",
   "number": 3,
   "state": "closed"
+}
+```
+
+### Variant 5
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"labels"` |  |
+| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| add | no | array | {"default":[],"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
+| remove | no | array | {"default":[],"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":256}} |
+
+Example:
+
+```json
+{
+  "action": "labels",
+  "number": 1,
+  "remove": []
+}
+```
+
+### Variant 6
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"assignees"` |  |
+| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| add | no | array | {"default":[],"maxItems":10,"items":{"type":"string","minLength":1,"maxLength":100}} |
+| remove | no | array | {"default":[],"maxItems":100,"items":{"type":"string","minLength":1,"maxLength":100}} |
+
+Example:
+
+```json
+{
+  "action": "assignees",
+  "add": [],
+  "number": 9
+}
+```
+
+### Variant 7
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| action | yes | `"milestone"` |  |
+| number | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| milestone | yes | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "action": "milestone",
+  "milestone": 1,
+  "number": 7
 }
 ```
 
@@ -3388,6 +3493,7 @@ Example:
 | queue | yes | union | {"anyOf":[{"type":"object","properties":{"id":{"type":"string","maxLength":65536},"state":{"type":"string","maxLength":65536},"position":{"type":"integer","minimum":0,"maximum":9007199254740991},"enqueuedAt":{"type":"string","maxLength":65536},"estimatedTimeToMerge":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["id","state","position","enqueuedAt"]},{"type":"null"}]} |
 | rules | no | array | {"maxItems":20,"items":{"type":"string","maxLength":65536}} |
 | deployments | no | array | {"maxItems":10,"items":{"type":"object","properties":{"environment":{"type":"string","maxLength":65536},"state":{"type":"string","maxLength":65536},"url":{"anyOf":[{"type":"string","maxLength":65536},{"type":"null"}]}},"required":["environment","state","url"]}} |
+| methods | no | array | {"maxItems":3,"items":{"type":"string","enum":["merge","squash","rebase"]}} |
 | canEnable | yes | boolean |  |
 | canDisable | yes | boolean |  |
 | canDequeue | yes | boolean |  |
@@ -3402,8 +3508,8 @@ Example:
 {
   "autoMerge": null,
   "blockers": [],
-  "canDequeue": true,
-  "canDisable": false,
+  "canDequeue": false,
+  "canDisable": true,
   "canEnable": false,
   "checksState": null,
   "deployments": [],
@@ -3654,7 +3760,7 @@ Example:
       },
       "blockers": [],
       "canDequeue": true,
-      "canDisable": false,
+      "canDisable": true,
       "canEnable": false,
       "checksState": "example",
       "headSha": "F0F018d75470Cd20CeabCFd0B6692B13d9ACA660BAf1FADA60408734",
@@ -3669,8 +3775,7 @@ Example:
       "raw": null,
       "reviewDecision": "example",
       "rules": [],
-      "state": "example",
-      "writeState": "uncertain"
+      "state": "example"
     },
     "mergeability": "conflicting",
     "raw": null,
@@ -4323,7 +4428,11 @@ Example:
       "side": "RIGHT"
     },
     "body": "example",
-    "id": "example"
+    "id": "example",
+    "outdated": {
+      "code": [],
+      "headSha": "C25f625421Fe78b7026Dfa96c497FB8CB194be6FeD"
+    }
   },
   "kind": "draft.save"
 }
@@ -4345,6 +4454,40 @@ Example:
 }
 ```
 
+### drafts.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"drafts.move"` |  |
+| headSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "headSha": "ee15aF3eed2BeB29d4AD1Ac969995E46F1FeC32f70c7380bd80eDD2E4F85",
+  "kind": "drafts.move"
+}
+```
+
+### draft.file
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"draft.file"` |  |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| headSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "headSha": "92c69DCFfc925A09c0cB5F64498B8C4b9C0c8397bB1a3D6fbc4496c",
+  "id": "example",
+  "kind": "draft.file"
+}
+```
+
 ### submit
 
 | Field | Required | Type | Constraints |
@@ -4361,8 +4504,8 @@ Example:
 {
   "body": "example",
   "draftIds": [],
-  "event": "COMMENT",
-  "headSha": "ee15aF3eed2BeB29d4AD1Ac969995E46F1FeC32f70c7380bd80eDD2E4F85",
+  "event": "REQUEST_CHANGES",
+  "headSha": "5d178Ba6AbA9BfE8bD8ea50E2a64bB3AEd2bD4AFfdcd37bC8f",
   "kind": "submit"
 }
 ```
@@ -4397,13 +4540,14 @@ Example:
 ```json
 {
   "anchor": {
-    "commit": "BEeF32Ba52fb4ddd0BDa51528c7feFe52ec9bB6b2078C4Bdf2B488fb7a49C7",
+    "commit": "3dC470340fDF9C80ed6da7aAAdDf61D43a9cECBbceA27DeD23fe2b51",
     "line": 6,
     "path": "example",
-    "side": "LEFT"
+    "side": "RIGHT",
+    "startSide": "RIGHT"
   },
   "body": "example",
-  "headSha": "5d178Ba6AbA9BfE8bD8ea50E2a64bB3AEd2bD4AFfdcd37bC8f",
+  "headSha": "Bc296cBED882EdA7ac09DA9aEa3FBe25C448D595",
   "kind": "line.comment"
 }
 ```
@@ -4415,14 +4559,19 @@ Example:
 | kind | yes | `"reply"` |  |
 | commentId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | body | yes | string | {"minLength":1,"maxLength":60000} |
+| pendingReview | no | object | {"properties":{"reviewId":{"type":"string","minLength":1,"maxLength":256},"threadId":{"type":"string","minLength":1,"maxLength":256}},"required":["reviewId","threadId"]} |
 
 Example:
 
 ```json
 {
   "body": "example",
-  "commentId": 3,
-  "kind": "reply"
+  "commentId": 8,
+  "kind": "reply",
+  "pendingReview": {
+    "reviewId": "example",
+    "threadId": "example"
+  }
 }
 ```
 
@@ -4441,10 +4590,10 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 1,
+  "commentId": 6,
   "expectedBody": "example",
   "kind": "comment.edit",
-  "source": "issue"
+  "source": "inline"
 }
 ```
 
@@ -4461,7 +4610,7 @@ Example:
 
 ```json
 {
-  "commentId": 8,
+  "commentId": 3,
   "expectedBody": "example",
   "kind": "comment.delete",
   "source": "issue"
@@ -4481,9 +4630,9 @@ Example:
 
 ```json
 {
-  "commentId": 6,
+  "commentId": 5,
   "kind": "comment.hide",
-  "reason": "off-topic",
+  "reason": "resolved",
   "source": "inline"
 }
 ```
@@ -4500,7 +4649,7 @@ Example:
 
 ```json
 {
-  "commentId": 3,
+  "commentId": 9,
   "kind": "comment.unhide",
   "source": "issue"
 }
@@ -4550,7 +4699,7 @@ Example:
 
 ```json
 {
-  "headSha": "AE8AcF6F6aD8Ae4Ffa0eF9aa38FF4C33DCEF4F1dA",
+  "headSha": "0169Cc61DBD87DA2Ea38AD3De68d965A23b73B2CcFDA6c2",
   "kind": "file.view",
   "path": "example"
 }
@@ -4568,7 +4717,7 @@ Example:
 
 ```json
 {
-  "headSha": "BcCaBaF8FA5fECe2D6F5E3Ced670c45FcEd6eC9aB",
+  "headSha": "8bCcf6601dD81Ba1BFd08e63973BB149bbA3fD2A369370Bdb5BFEEB3",
   "kind": "file.unview",
   "path": "example"
 }
@@ -4589,7 +4738,8 @@ Example:
   "content": "confused",
   "kind": "reaction.add",
   "subject": {
-    "kind": "pr"
+    "commentId": 2,
+    "kind": "inline"
   }
 }
 ```
@@ -4606,10 +4756,10 @@ Example:
 
 ```json
 {
-  "content": "+1",
+  "content": "rocket",
   "kind": "reaction.remove",
   "subject": {
-    "commentId": 10,
+    "commentId": 8,
     "kind": "issue"
   }
 }
@@ -4670,7 +4820,7 @@ Example:
 ```json
 {
   "kind": "review.dismiss",
-  "message": "!",
+  "message": "x",
   "reviewId": 8
 }
 ```
@@ -4689,11 +4839,11 @@ Example:
 ```json
 {
   "commentIds": [
-    7
+    3
   ],
-  "headSha": "d413B111481e0Baed91dfBFeb9ec6D7DEFaDa2A9C91AcC1444114bB3be87Dbbc",
+  "headSha": "3325eD8f76A73f6dc2f726948ab8bA67CbdBb38f5010cBbbFb8366",
   "kind": "suggestions.apply",
-  "message": "P"
+  "message": "x"
 }
 ```
 
@@ -4730,6 +4880,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | body | yes | string | {"maxLength":60000} |
 | anchor | yes | [ForgeReviewAnchor.json](schema/ForgeReviewAnchor.json) |  |
+| outdated | no | object | {"properties":{"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"code":{"maxItems":12,"type":"array","items":{"type":"string","maxLength":2000}}},"required":["headSha","code"]} |
 
 Example:
 
@@ -4743,7 +4894,11 @@ Example:
     "startLine": 10
   },
   "body": "example",
-  "id": "example"
+  "id": "example",
+  "outdated": {
+    "code": [],
+    "headSha": "4cc6b5D4fBE1291A60f73Ef6ED3B8Fa56c1F8afDEA"
+  }
 }
 ```
 
@@ -4763,6 +4918,7 @@ Example:
 | operations | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["accepted","uncertain"]}},"required":["id","state"]}} |
 | reactions | no | union | {"anyOf":[{"maxItems":4001,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeReactionSummary.json"}},{"type":"null"}]} |
 | hidden | no | union | {"anyOf":[{"maxItems":4000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeHiddenComment.json"}},{"type":"null"}]} |
+| hostedPending | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgeHostedPendingReview.json"},{"type":"null"}]} |
 | hideable | no | union | {"anyOf":[{"maxItems":4000,"type":"array","items":{"type":"object","properties":{"source":{"type":"string","enum":["issue","inline"]},"commentId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["source","commentId"]}},{"type":"null"}]} |
 
 Example:
@@ -4773,7 +4929,7 @@ Example:
   "canReview": false,
   "drafts": [],
   "headSha": "Ead5dD880F556f94Af9EfFDbA4446cdaCff5FaB2C508FE57D3b1",
-  "hideable": null,
+  "hostedPending": null,
   "operations": [],
   "resolvableThreads": [],
   "viewed": [],
@@ -4795,6 +4951,10 @@ Example:
 | side | no | ["LEFT","RIGHT"] |  |
 | startLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
 | startSide | no | ["LEFT","RIGHT"] |  |
+| hunk | no | string | {"maxLength":20000} |
+| originalLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
+| originalStartLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
+| originalCommit | no | string | {"maxLength":64} |
 | comments | yes | array | {"maxItems":2000,"items":{"$ref":"https://ace.local/protocol/v1/ForgeComment.json"}} |
 
 Example:
@@ -4803,6 +4963,7 @@ Example:
 {
   "comments": [],
   "file": "example",
+  "hunk": "example",
   "id": "example",
   "line": null,
   "outdated": false,

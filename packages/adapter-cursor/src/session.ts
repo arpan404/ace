@@ -33,6 +33,9 @@ export function unexpectedStopMessage(detail: string | undefined): string {
     : "Cursor stopped unexpectedly. Unfinished work needs your attention.";
 }
 const OpenReply = z.object({ agentId: z.string().min(1).max(512) });
+const SandboxSupport = z.object({ sandboxSupported: z.boolean() });
+const ResultStatus = z.object({ status: z.string() });
+const SettledError = z.object({ settled: z.literal(true) });
 export async function openCursorSession(
   context: SessionContext,
   options: CursorSessionOptions,
@@ -77,7 +80,7 @@ export async function openCursorSession(
     async (data, payload) => {
       if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
       if (data.kind === "open") {
-        const support = z.object({ sandboxSupported: z.boolean() }).safeParse(data.body);
+        const support = SandboxSupport.safeParse(data.body);
         context.onCapabilities?.(
           cursorCapabilitiesForSandbox(support.success && support.data.sandboxSupported),
         );
@@ -93,10 +96,9 @@ export async function openCursorSession(
         data.operationId === operation &&
         data.segment === segment
       ) {
-        const result = z.object({ status: z.string() }).safeParse(data.body);
+        const result = ResultStatus.safeParse(data.body);
         if (
-          (data.kind === "error" &&
-            z.object({ settled: z.literal(true) }).safeParse(data.body).success) ||
+          (data.kind === "error" && SettledError.safeParse(data.body).success) ||
           (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
         ) {
           active = false;

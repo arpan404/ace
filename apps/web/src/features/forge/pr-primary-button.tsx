@@ -4,7 +4,6 @@ import {
   EyeIcon,
   GitMergeIcon,
   LinkIcon,
-  ProhibitIcon,
   QueueIcon,
   TimerIcon,
   WarningIcon,
@@ -13,7 +12,6 @@ import {
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip.tsx";
-import { cardEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 
 /** How long the first press of a merge waits for the second. */
@@ -28,7 +26,7 @@ const icons: Record<PrPrimary["kind"], Icon | undefined> = {
   "auto-merge": TimerIcon,
   "auto-merge-ready": TimerIcon,
   link: LinkIcon,
-  blocked: ProhibitIcon,
+  blocked: undefined,
   merge: GitMergeIcon,
   none: undefined,
 };
@@ -48,13 +46,7 @@ function StateBadge(props: { primary: PrPrimary; text: string }) {
         : "text-status-failed"
       : "text-status-working";
   return (
-    <span
-      className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 rounded-sm px-2 text-xs font-medium",
-        cardEdge,
-        tone,
-      )}
-    >
+    <span className={cn("inline-flex h-6 shrink-0 items-center gap-1 text-xs font-medium", tone)}>
       {Glyph && <Glyph aria-hidden size={14} />}
       {props.text}
     </span>
@@ -77,6 +69,10 @@ export function PrPrimaryButton(props: {
   disableBlocked?: string | undefined;
   /** The action opens its own confirmation (the commit to write): one press is enough. */
   confirmsItself?: boolean | undefined;
+  /** Shows what blocks the merge (the Summary's Blocking the merge); a blocked merge says so in words. */
+  onBlocked?: (() => void) | undefined;
+  /** How many things Blocking the merge lists; the gates' count stands in without it. */
+  blockingCount?: number | undefined;
 }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -116,6 +112,14 @@ export function PrPrimaryButton(props: {
     );
   if (primary.kind === "state" || primary.kind === "queued")
     return <StateBadge primary={primary} text={text} />;
+  if (primary.kind === "blocked" && props.onBlocked)
+    return (
+      <BlockedWords
+        blockers={primary.blockers}
+        count={props.blockingCount || primary.blockers.length}
+        onShow={props.onBlocked}
+      />
+    );
   const twoPress =
     !props.confirmsItself &&
     (primary.kind === "merge" ||
@@ -141,7 +145,6 @@ export function PrPrimaryButton(props: {
             ? "secondary"
             : "primary"
       }
-      tone={primary.kind === "resolve" ? "danger" : "default"}
       disabled={props.blocked !== undefined || props.working}
       aria-label={shown}
       data-pr-primary=""
@@ -170,6 +173,33 @@ export function PrPrimaryButton(props: {
         {button}
       </TooltipTrigger>
       <TooltipContent className="whitespace-pre-line">{props.blocked ?? shown}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+const things = (count: number) => `${count} ${count === 1 ? "thing" : "things"}`;
+
+/**
+ * A merge that can't go yet, in words rather than a dead button: "Merge blocked · 2 things",
+ * which takes the person to what blocks it. The reasons show on hover and focus too.
+ */
+function BlockedWords(props: { blockers: readonly string[]; count: number; onShow(): void }) {
+  const label = `Merge blocked · ${things(props.count)}`;
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            data-pr-primary=""
+            onClick={props.onShow}
+            className="inline-flex h-7 shrink-0 items-center rounded-sm px-1.5 text-xs whitespace-nowrap text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:text-foreground"
+          />
+        }
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent className="whitespace-pre-line">{props.blockers.join("\n")}</TooltipContent>
     </Tooltip>
   );
 }

@@ -41,10 +41,10 @@ function purpose(description: string | undefined): string {
 }
 
 /** The families a `tools_find` result returned, for a core-mode session to open. */
+const FoundFamilies = z.object({ matches: z.array(z.object({ family: z.string().optional() })) });
+
 export function foundFamilies(result: unknown): string[] {
-  const parsed = z
-    .object({ matches: z.array(z.object({ family: z.string().optional() })) })
-    .safeParse(result);
+  const parsed = FoundFamilies.safeParse(result);
   return parsed.success
     ? [...new Set(parsed.data.matches.flatMap((match) => (match.family ? [match.family] : [])))]
     : [];
@@ -100,6 +100,9 @@ const toolsCall = {
 } as const;
 /** The meta tools' definitions, for documentation and static approval attribution. */
 export const metaToolCatalog = [toolsFind, toolsCall] as const;
+const ToolsFindAdvertisedOutput = z.looseObject({
+  matches: z.array(z.looseObject({ name: z.string() })),
+});
 
 /**
  * `tools_find` and `tools_call`: the way to the rest of ace's tools for a session that does not
@@ -110,7 +113,7 @@ export function createMetaRegistry(): ToolRegistry {
   const registry = new ToolRegistry({ scheduler: nodeScheduler, maxTools: 2 });
   registry.register({
     ...toolsFind,
-    advertisedOutput: z.looseObject({ matches: z.array(z.looseObject({ name: z.string() })) }),
+    advertisedOutput: ToolsFindAdvertisedOutput,
     async run({ query, limit, family }, context) {
       context.signal.throwIfAborted();
       const session = context.session;

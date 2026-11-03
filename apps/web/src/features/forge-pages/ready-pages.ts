@@ -28,7 +28,7 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
   const client = useClient();
   const cache = useQueryClient();
   const ready = useConnectionState() === "ready";
-  const head = usePrPages(project, prQuery(search, 1), 1);
+  const head = usePrPages(project ? [project] : [], prQuery(search, 1), 1);
   const first = head.first;
   // Everything fits in the first page: the ranking is exact without another search.
   const exhaustive = first !== undefined && first.nextPage === undefined;
@@ -84,6 +84,9 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
   const pages: ListPages<ForgePrList> = {
     rows: unique,
     first,
+    firsts: head.firsts,
+    projectOf: () => project ?? "",
+    failed: [],
     stale: head.stale,
     loading: head.loading,
     error: head.error ?? failed?.error ?? undefined,

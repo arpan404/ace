@@ -4,6 +4,10 @@ import { CallResult } from "./cdp.ts";
 import { BrowserActionError } from "./action-error.ts";
 import { decodeEvaluationValue, serializeEvaluationValue } from "./evaluation-value.ts";
 
+const ExceptionDescription = z.object({
+  exception: z.object({ description: z.string() }).optional(),
+});
+
 /**
  * Use my Chrome (ADR 0084, amended): unless the person allows it in Settings, an agent's
  * `evaluate` runs in an isolated world from which the page's cookies and web storage are
@@ -155,9 +159,7 @@ export async function evaluateWithoutStorage(
     ),
   );
   if (response.exceptionDetails) {
-    const details = z
-      .object({ exception: z.object({ description: z.string() }).optional() })
-      .safeParse(response.exceptionDetails);
+    const details = ExceptionDescription.safeParse(response.exceptionDetails);
     const description = details.success ? (details.data.exception?.description ?? "") : "";
     // A public failure, so the agent learns why and that the person can allow it.
     if (description.includes(storageRefusal)) throw new BrowserActionError("storage_restricted");

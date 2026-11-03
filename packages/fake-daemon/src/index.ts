@@ -41,7 +41,7 @@ export type { MultiDayThreadOptions, SyntheticThreadEvent } from "./scenarios/mu
 export { multiDayDemo } from "./scenarios/multi-day-demo.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
-export { prWorkThread, seedPrWork } from "./scenarios/pr-work.ts";
+export { prWorkThread, seedPrChecks, seedPrWork } from "./scenarios/pr-work.ts";
 export {
   measurementCall,
   typedMeasurementCall,
@@ -91,7 +91,9 @@ export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
 export { workbenchServices } from "./scenarios/services.ts";
 export { pullRequestDetails } from "./catalog/pull-request-details.ts";
-export { seedForgeBrowse } from "./scenarios/forge-browse.ts";
+export { seedForgeBrowse, seedLongIssue, seedProjectForge } from "./scenarios/forge-browse.ts";
+export { longIssueReads } from "./catalog/long-issue.ts";
+export { movingPullRequest } from "./catalog/moving-pull-request.ts";
 export { sketchPullRequests, type PrSketch } from "./catalog/forge-browse.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";

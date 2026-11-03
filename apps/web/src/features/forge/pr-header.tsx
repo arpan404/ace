@@ -1,10 +1,20 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
+import type { MergeMethod } from "@ace/ui-core";
+import {
+  Menu,
+  MenuContent,
+  MenuGroup,
+  MenuLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+} from "@/components/ui/menu.tsx";
 import {
   ArrowLeftIcon,
+  CaretDownIcon,
   ArrowSquareOutIcon,
   FileIcon,
   PencilSimpleIcon,
-  WarningIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -105,7 +115,7 @@ export function PrTitle(props: {
   );
 }
 
-/** An amber "Behind · Update" chip beside the branches, offering to update the branch. */
+/** "· Update" after the branch's freshness, offering to bring the branch up to date. */
 export function BehindBase(props: {
   actions: PrActions;
   open: boolean;
@@ -116,18 +126,19 @@ export function BehindBase(props: {
   if (mergeState.state?.mergeState !== "BEHIND" || !updates.length) return null;
   return (
     <Popover open={props.open} onOpenChange={props.onOpenChange}>
+      <span aria-hidden className="px-0.5 text-xs text-subtle-foreground">
+        ·
+      </span>
       <PopoverTrigger
         render={
           <button
             type="button"
             aria-label={`Behind ${context.detail.baseBranch}: update`}
-            data-tone="needs-you"
-            className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-(--tone)/12 px-2 font-sans text-xs text-(--tone-text) transition-colors duration-(--motion-fast) focus-ring hover:bg-(--tone)/20"
+            className="inline-flex h-5 shrink-0 items-center rounded-xs px-0.5 font-sans text-xs font-medium text-foreground/90 transition-colors duration-(--motion-fast) focus-ring touch-hit hover:text-foreground"
           />
         }
       >
-        <WarningIcon aria-hidden size={12} />
-        Behind · Update
+        Update
       </PopoverTrigger>
       <PopoverContent align="start" className="w-64 space-y-2 p-3">
         <PopoverTitle className="text-ui font-medium">
@@ -154,32 +165,86 @@ export function BehindBase(props: {
 }
 
 /**
+ * The merge method, as a caret beside Merge: only the methods the repository allows, and only
+ * when it allows more than one. The choice is kept per project on this device.
+ */
+function MergeMethodMenu(props: { actions: PrActions; disabled: boolean }) {
+  const { actions } = props;
+  const kind = actions.primary.kind;
+  if (kind !== "merge" && kind !== "auto-merge" && kind !== "auto-merge-ready") return null;
+  if (actions.methods.length < 2) return null;
+  const current = actions.methods.find((choice) => choice.method === actions.method);
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <IconButton
+            icon={CaretDownIcon}
+            size="sm"
+            label={`Merge method: ${current?.label ?? actions.method}`}
+            disabled={props.disabled}
+          />
+        }
+      />
+      <MenuContent align="end" className="w-56">
+        <MenuGroup>
+          <MenuLabel>Merge method</MenuLabel>
+          <MenuRadioGroup
+            value={actions.method}
+            onValueChange={(value: MergeMethod) => actions.setMethod(value)}
+          >
+            {actions.methods.map((choice) => (
+              <MenuRadioItem key={choice.method} value={choice.method}>
+                {choice.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/**
+ * The header's one primary control (merge, auto-merge, resolve…) with the merge method beside
+ * it, and turning auto-merge off.
+ */
+export function PrPrimaryControl(props: {
+  actions: PrActions;
+  /** Shows what blocks the merge; with it a blocked merge is words, not a dead button. */
+  onBlocked?: (() => void) | undefined;
+  blockingCount?: number | undefined;
+}) {
+  const { actions } = props;
+  const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
+  return (
+    <span className="inline-flex items-center gap-0.5">
+      <PrPrimaryButton
+        primary={actions.primary}
+        blocked={actions.primaryBlocked}
+        working={working}
+        onRun={() => void actions.runPrimary()}
+        confirmsItself={actions.editsCommit}
+        onBlocked={props.onBlocked}
+        blockingCount={props.blockingCount}
+        onDisable={() => void actions.mergeState.run("disable", actions.method)}
+        disableBlocked={
+          actions.mergeState.blocked ??
+          (actions.mergeState.state?.canDisable
+            ? undefined
+            : "GitHub doesn't let this account turn auto-merge off")
+        }
+      />
+      <MergeMethodMenu actions={actions} disabled={working} />
+    </span>
+  );
+}
+
+/**
  * The PR panel's header: repository and number in the state's colour, the stack chip, one
  * primary control and ⋯ on the first line; then the title, author and checkout, and the
  * branches with the diff size. Scrolled, it folds to the first line plus a thin branch line.
  */
-/** The header's one primary control (merge, auto-merge, resolve…), with turning auto-merge off. */
-export function PrPrimaryControl(props: { actions: PrActions }) {
-  const { actions } = props;
-  const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
-  return (
-    <PrPrimaryButton
-      primary={actions.primary}
-      blocked={actions.primaryBlocked}
-      working={working}
-      onRun={() => void actions.runPrimary()}
-      confirmsItself={actions.editsCommit}
-      onDisable={() => void actions.mergeState.run("disable", actions.method)}
-      disableBlocked={
-        actions.mergeState.blocked ??
-        (actions.mergeState.state?.canDisable
-          ? undefined
-          : "GitHub doesn't let this account turn auto-merge off")
-      }
-    />
-  );
-}
-
 export function PrHeader(props: {
   actions: PrActions;
   extensions?: PrWorkspaceExtensions | undefined;
@@ -191,6 +256,8 @@ export function PrHeader(props: {
   onBehindOpen(open: boolean): void;
   onBack?: (() => void) | undefined;
   onOpen(number: number): void;
+  /** Takes the person to what blocks the merge. */
+  onBlocked?: (() => void) | undefined;
 }) {
   const { actions } = props;
   const { context } = actions;
@@ -249,7 +316,7 @@ export function PrHeader(props: {
           {props.extensions?.headerActions?.(context)}
           <PrAgentChip detail={detail} compact={props.condensed} />
           <PrReviewButton />
-          <PrPrimaryControl actions={actions} />
+          <PrPrimaryControl actions={actions} onBlocked={props.onBlocked} />
           {props.menu}
         </div>
       </div>

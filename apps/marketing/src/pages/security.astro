@@ -22,7 +22,12 @@ const questions = [
   {
     question: "Can another device control my agents?",
     answer:
-      "Only devices you pair, with the access you choose: view only, or view and act, for as long as you set. Each machine also decides how much other linked machines may do on it.",
+      "Only devices you pair, with the access you choose (view only, or view and act, for as long as you set), and devices signed in to your ace account. A machine code makes even those enter a PIN or password before they get in. Each machine also decides how much other linked machines may do on it.",
+  },
+  {
+    question: "What can ace's relay see?",
+    answer:
+      "The addresses and timing of a connection and the size of its encrypted messages. Traffic between your devices and your machines is end-to-end encrypted, so the relay can't read prompts, code or screens, and it keeps nothing after the connection ends.",
   },
 ];
 ---
@@ -30,13 +35,13 @@ const questions = [
 <Page
   path={path}
   title="Security and privacy: where your code goes with ace"
-  description="ace runs on your machine, never hosted. Credentials stay with each agent CLI, devices join only when you pair them, and every line of ace is open source."
+  description="Agents run on your machines, credentials stay with each CLI, remote access is end-to-end encrypted, and every line of ace is open source."
   schema={[faqPage(schemaFor(Astro.site), path, questions)]}
 >
   <PageIntro
     headline="Your code, your machines, your keys"
     intro="ace is an app you run, not a service you send code to. It sits around your agents, never between you and your providers."
-    secondary={{ href: "/features/fleet/", label: "How pairing works" }}
+    secondary={{ href: "/privacy-policy/", label: "Privacy policy" }}
   />
   <Boundary />
   <Faq items={questions} heading="Questions about security" moreHref="/faq/" />

@@ -90,6 +90,9 @@
   --color-glass-border: var(--glass-border);
   --color-diff-add: var(--diff-add);
   --color-diff-del: var(--diff-del);
+  /* +/− counts and gutter numbers: readable on the page as well as on the diff fills. */
+  --color-diff-add-text: var(--diff-add-text);
+  --color-diff-del-text: var(--diff-del-text);
 
   /*
    * Status hues: working blue, needs you amber, waiting and limited violet (a limited row's dot is

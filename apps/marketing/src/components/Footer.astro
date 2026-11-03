@@ -1,5 +1,6 @@
 ---
 /* The footer doubles as the site map: every page from routes.ts, grouped by section. */
+import { privacyPolicy, termsOfService } from "../content/legal.ts";
 import { routes } from "../content/routes.ts";
 import { links } from "../site.ts";
 import AceMark from "./AceMark.astro";
@@ -10,7 +11,14 @@ const columns = [
   { name: "Agents", entries: under("/agents/") },
   {
     name: "ace",
-    entries: ["/download/", "/mcp/", "/security/", "/faq/"].flatMap((path) =>
+    entries: [
+      "/download/",
+      "/mcp/",
+      "/security/",
+      "/faq/",
+      privacyPolicy.path,
+      termsOfService.path,
+    ].flatMap((path) =>
       routes.filter((entry) => entry.path === path),
     ),
   },

@@ -352,3 +352,29 @@
     transform: translateX(300%);
   }
 }
+
+/*
+ * Where a jump in the Code tab landed (Show in code, Next comment): a tint that fades once.
+ * The class comes off after the fade; under reduced motion the tint holds still until then.
+ */
+.fx-landed {
+  animation: fx-landed 1.8s var(--ease-out);
+}
+@keyframes fx-landed {
+  from {
+    background-color: color-mix(in oklab, var(--ring) 18%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+:root[data-reduce-motion] .fx-landed {
+  animation: none;
+  background-color: color-mix(in oklab, var(--ring) 12%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-landed {
+    animation: none;
+    background-color: color-mix(in oklab, var(--ring) 12%, transparent);
+  }
+}

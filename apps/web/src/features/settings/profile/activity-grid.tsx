@@ -42,7 +42,7 @@ export function ActivityGrid(props: { stats: ProfileStats }) {
               key={day.day}
               onMouseEnter={() => setHover({ week: weekIndex, day: dayIndex })}
               className={cn(
-                "aspect-square rounded-[2px]",
+                "aspect-square rounded-xs",
                 day.outside ? "invisible" : levelClass[day.level],
               )}
             />

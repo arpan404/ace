@@ -1,20 +1,46 @@
-import { workKey, type LinkedThreads, rowStep, waitingWord, type RowStep } from "@ace/ui-core";
+import {
+  prNextAction,
+  prStatusWords,
+  prWorkGroup,
+  rowStep,
+  workKey,
+  type LinkedThread,
+  type LinkedThreads,
+  type PrStatusWords,
+  type PrWorkGroup,
+  type RowStep,
+} from "@ace/ui-core";
 import { useMemo } from "react";
+import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow, VerifyRun } from "@ace/protocol";
 import type { MergeRun } from "./merge-run.ts";
-import type { RowStepView } from "./pr-row.tsx";
-import { stepLabel, useStepAction } from "./pr-step.tsx";
+import { useMarkReady } from "./mark-ready.ts";
+import { useStepAction } from "./pr-step.tsx";
 
 const keyOf = (row: ForgePrRow) => workKey(row.ref.repository, row.ref.number);
 
+/** What a row's right column shows: its state in words, and the action that moves it on. */
+export interface RowStepView {
+  status: PrStatusWords;
+  action: {
+    label: string;
+    pressed?: boolean | undefined;
+    /** Why it can't be pressed now. */
+    disabled?: string | undefined;
+    onPress(): void;
+  };
+}
+
 /**
- * Each listed PR's next step and what its row shows for it: the step's button (Merge toggles
- * the row in the merge selection while `merge` is on), or a quiet word while it waits.
+ * Each listed PR's next step, its group (Needs you, Agents working, Waiting on others, Ready to
+ * merge) and what its row shows: the state in words and the next action. Merge toggles the row
+ * in the merge selection while `merge` is on; elsewhere actions open the PR, its code, or the
+ * agent's thread.
  */
 export function useRowSteps(input: {
-  project: string;
   back: string;
   rows: readonly ForgePrRow[];
+  projectOf(row: ForgePrRow): string;
   viewer: string | undefined;
   linked: LinkedThreads;
   runs: readonly VerifyRun[];
@@ -27,29 +53,59 @@ export function useRowSteps(input: {
       found.set(keyOf(row), rowStep(row, viewer, linked.get(keyOf(row)), runs));
     return found;
   }, [rows, viewer, linked, runs]);
-  const act = useStepAction(input.project, input.back);
+  const act = useStepAction(input.back);
+  const markReady = useMarkReady();
+  const navigate = useNavigate();
+  const threadOf = (row: ForgePrRow): LinkedThread | undefined => linked.get(keyOf(row));
   const stepOf = (row: ForgePrRow): RowStep =>
     steps.get(keyOf(row)) ?? { step: "wait", local: undefined };
-  const view = (row: ForgePrRow, merge: MergeRun | undefined): RowStepView | undefined => {
+  const groupOf = (row: ForgePrRow): PrWorkGroup => prWorkGroup(stepOf(row).step, threadOf(row));
+  const openPr = (row: ForgePrRow) =>
+    void navigate({
+      to: "/pulls/$project/$number",
+      params: { project: input.projectOf(row), number: String(row.ref.number) },
+      search: { back: input.back },
+    });
+  const view = (row: ForgePrRow, merge: MergeRun | undefined): RowStepView => {
     const { step, local } = stepOf(row);
-    if (step === "wait") return { quiet: waitingWord(row, local) };
-    const label = stepLabel(step);
-    if (!label) return undefined;
-    const thread = linked.get(keyOf(row));
-    const press = () => act({ step, row, thread, local, command: input.command });
+    const thread = threadOf(row);
+    const status = prStatusWords(row, step, local, thread);
+    const label = prNextAction(row, step, thread, viewer);
+    const group = groupOf(row);
     // Merging picks the row for a verified merge; one without a known head merges on its page.
-    if (step === "merge" && merge && row.headSha) {
-      const picked = merge.isPicked(row);
+    if (group === "merge" && merge && row.headSha)
       return {
+        status,
         action: {
           label,
-          pressed: picked,
+          pressed: merge.isPicked(row),
           disabled: merge.blocked(row),
           onPress: () => merge.toggle(row),
         },
       };
-    }
-    return { action: { label, onPress: press } };
+    if (group === "agents" && thread)
+      return {
+        status,
+        action: {
+          label,
+          onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
+        },
+      };
+    if (label === "Mark ready")
+      return {
+        status,
+        action: { label, onPress: () => void markReady(input.projectOf(row), row) },
+      };
+    if (group === "wait" || group === "merge")
+      return { status, action: { label, onPress: () => openPr(row) } };
+    return {
+      status,
+      action: {
+        label,
+        onPress: () =>
+          act({ project: input.projectOf(row), step, row, thread, local, command: input.command }),
+      },
+    };
   };
-  return { stepOf, view };
+  return { stepOf, groupOf, threadOf, view };
 }

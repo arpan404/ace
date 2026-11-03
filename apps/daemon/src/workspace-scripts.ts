@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { z } from "zod";
 import { WorkspaceScript, type WorkspaceScript as Script } from "@ace/protocol";
 
+const PackageScripts = z.object({ scripts: z.record(z.string(), z.unknown()).optional() });
+
 /** Read only bounded regular root files, without following symlinks or waiting on FIFOs. */
 export async function readScriptFile(path: string): Promise<string | undefined> {
   let file;
@@ -67,7 +69,7 @@ function packageScripts(text: string | undefined): Record<string, string> {
   } catch {
     return {};
   }
-  const pkg = z.object({ scripts: z.record(z.string(), z.unknown()).optional() }).safeParse(json);
+  const pkg = PackageScripts.safeParse(json);
   if (!pkg.success) return {};
   return Object.fromEntries(
     Object.entries(pkg.data.scripts ?? {}).filter(

@@ -33,6 +33,7 @@ import { useMessageState } from "./use-message-state.ts";
 import { useStableHandlers } from "./use-stable-handlers.ts";
 import { useTypeToFocus } from "./use-type-to-focus.ts";
 import { useComposerAnnotations } from "./use-composer-annotations.ts";
+import { ReplyQuotes, useDraftQuotes } from "@/features/quotes/index.ts";
 import { AnnotationChip, useAnnotationPort } from "@/features/annotations/index.ts";
 
 export type { Draft } from "./draft.ts";
@@ -117,6 +118,11 @@ function ComposerBody({
     props.thread,
     props.replacedDraft?.annotations ?? restored?.annotations,
   );
+  const quotes = useDraftQuotes({
+    threadId: props.thread.draft ? undefined : props.thread.id,
+    restored: props.replacedDraft?.quotes ?? restored?.quotes,
+    focus: () => input.current?.focus(),
+  });
   const attach = (files: Iterable<File>, note?: string) => {
     const selected = [...files];
     const left = attachments.add(selected);
@@ -133,7 +139,7 @@ function ComposerBody({
     recentFiles(storage, props.thread.workspaceId),
   );
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
-  const empty = !text.trim() && !attachments.items.length && !annotations.count;
+  const empty = !text.trim() && !attachments.items.length && !annotations.count && !quotes.count;
   const compact = width > 0 && width < compactWidth;
   const current: ComposerDraft = {
     text,
@@ -141,6 +147,7 @@ function ComposerBody({
     mentions: [...message.picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
     annotations: annotations.draft,
+    quotes: quotes.draft,
   };
   const sync = useDraftSync({
     draftKey: props.draftKey,
@@ -152,6 +159,7 @@ function ComposerBody({
     take: message.take,
     replace: props.onReplaced,
     takeAnnotations: annotations.replace,
+    takeQuotes: quotes.replace,
     onDraftChange: props.onDraftChange,
     ownsDraft: props.ownsDraft,
     onReturnedOptions: props.onReturnedOptions,
@@ -232,6 +240,7 @@ function ComposerBody({
     entries: suggestions.entries,
     attachments,
     annotations,
+    quotes,
     saved: sync.saved,
     draftKey: props.draftKey,
     storage,
@@ -255,6 +264,7 @@ function ComposerBody({
       clear();
       attachments.clear();
       annotations.replace(undefined);
+      quotes.replace(undefined);
       return true;
     },
   }));
@@ -370,6 +380,7 @@ function ComposerBody({
               onRetry={attachments.retry}
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
+            <ReplyQuotes quotes={quotes} />
             <div data-slot="composer-input" className="px-4 pt-3.5 pb-1.5">
               <MessageInput
                 input={input}

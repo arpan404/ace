@@ -1,4 +1,5 @@
-import { formatAgo, prGates, type Gate, type GateKey } from "@ace/ui-core";
+import type { ReactNode } from "react";
+import { formatAgo, prFacts, prGates, type Gate, type GateKey } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -111,58 +112,65 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
 }
 
 /**
- * The merge gates as one line of words under a page's byline, each its name and state with a
- * status dot ("Checks 1 failing · Reviews Approved · …"), each jumping to its detail. Only
- * while the PR is open: a merged or closed PR's byline already says how it ended.
+ * The merge gates as one line of sentences under a page's byline, in words between dots ("1 of
+ * 3 checks failing · mira requested changes · No conflicts · Up to date with main"), what
+ * stands in the way in its status tone, each jumping to its detail; `after` follows the branch fact (Update). Only while the
+ * PR is open: a merged or closed PR's byline already says how it ended.
  */
-export function PrGatesLine(props: { actions: PrActions; onSelect(key: GateKey): void }) {
+export function PrGatesLine(props: {
+  actions: PrActions;
+  onSelect(key: GateKey): void;
+  after?: ReactNode;
+}) {
   const { actions } = props;
   const { detail, workspaceId } = actions.context;
   const outcomes = useReviewOutcomes(workspaceId, detail);
   const open = detail.status.state === "open" || detail.status.state === "draft";
   if (!open) return null;
-  const gates = prGates({
+  const facts = prFacts({
     status: detail.status,
     reviewDecision: detail.reviewDecision,
     mergeState: actions.mergeState.state,
     baseBranch: detail.baseBranch,
     outcomes,
-    ended: undefined,
-    branchDeleted: undefined,
     local: actions.local.result,
   });
   const branchLoading = actions.mergeState.query.isPending;
   return (
-    <nav aria-label="Merge gates" className="-ml-1.5 mt-3 flex flex-wrap items-center gap-x-1">
-      {gates.map((gate) => {
-        const loading = gate.key === "branch" && branchLoading;
-        return (
-          <button
-            key={gate.key}
-            type="button"
-            onClick={() => props.onSelect(gate.key)}
-            aria-label={`${gate.label}: ${loading ? "checking" : gate.value}`}
-            className="inline-flex h-6 items-center gap-1.5 rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover"
-          >
-            <span
-              aria-hidden
-              data-tone={gate.tone === "idle" || loading ? undefined : gate.tone}
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                gate.tone === "idle" || loading ? "bg-faint-foreground" : "bg-(--tone)",
-              )}
-            />
-            <span className="text-subtle-foreground">{gate.label}</span>
-            <span
-              className={
-                gate.tone === "idle" || loading ? "text-muted-foreground" : "text-foreground"
-              }
-            >
-              {loading ? "…" : gate.value}
+    // Every fact leads with its dot; the line's left edge clips the dot of whichever fact starts
+    // a line, so a wrapped line never opens with one. The clip sits 10px out, past the text's
+    // 6px padding, so a key's focus ring still shows whole.
+    <nav aria-label="Merge gates" className="mt-1.5 -mb-1 -ml-2.5 overflow-hidden py-1">
+      <div className="-ml-3 flex flex-wrap items-center gap-y-0.5">
+        {facts.map((fact) => {
+          const loading = fact.key === "branch" && branchLoading;
+          const tone = loading ? "idle" : fact.tone;
+          const loud = tone === "failed" || tone === "needs-you";
+          return (
+            <span key={fact.key} className="inline-flex items-center">
+              <span aria-hidden className="w-4 text-center text-xs text-faint-foreground">
+                ·
+              </span>
+              <button
+                type="button"
+                onClick={() => props.onSelect(fact.key)}
+                aria-label={`${fact.label}: ${loading ? "checking" : fact.value}`}
+                data-tone={tone === "idle" ? undefined : tone}
+                className={cn(
+                  // A fact is a word: hover brightens it, no fill; the ring is for keys alone.
+                  "inline-flex h-6 items-center rounded-sm px-1.5 text-xs tabular-nums transition-[color,filter] duration-(--motion-fast) focus-ring",
+                  loud
+                    ? "text-(--tone-text) hover:brightness-125"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {loading ? "Checking the branch" : fact.value}
+              </button>
+              {fact.key === "branch" && props.after}
             </span>
-          </button>
-        );
-      })}
+          );
+        })}
+      </div>
     </nav>
   );
 }

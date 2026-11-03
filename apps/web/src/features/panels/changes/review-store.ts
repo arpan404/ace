@@ -1,5 +1,4 @@
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import * as z from "zod/mini";
 import {
   readViewed,
   settleDraft,
@@ -7,26 +6,20 @@ import {
   StoredDraft,
   withViewed,
 } from "@ace/ui-core/review";
-import type { DiffPrefs, PanelServices, ViewedFiles } from "../services.ts";
+import type { PanelServices, ViewedFiles } from "../services.ts";
 import type { LocalStore } from "../store.ts";
 import { persistDrafts } from "./draft-persistence.ts";
 
 /*
  * The Changes tab's local state outlives a reload: unsent and sent comments (a review in
- * progress must never vanish because the window closed), the diff layout, and which files were
- * marked viewed. Everything read back is parsed; anything malformed is dropped, not trusted.
+ * progress must never vanish because the window closed) and which files were marked viewed. The
+ * diff layout is kept by `diff-prefs.ts`. Everything read back is parsed; anything malformed is
+ * dropped, not trusted.
  */
 
 const keys = {
-  prefs: "ace.review.prefs",
   viewed: "ace.review.viewed",
 };
-
-const Prefs = z.object({
-  mode: z.catch(z.enum(["auto", "unified", "split"]), "auto"),
-  wrap: z.catch(z.boolean(), false),
-  tree: z.catch(z.boolean(), true),
-});
 
 /** Storage holds JSON from an older build or another tab: parsed by each `read` below. */
 const json = { safeParse: (data: unknown) => ({ success: true as const, data }) };
@@ -43,7 +36,7 @@ function persist<T>(
   store.subscribe(() => writeJson(storage, key, save(store.get())));
 }
 
-type ReviewStores = Pick<PanelServices, "drafts" | "diffPrefs" | "viewed">;
+type ReviewStores = Pick<PanelServices, "drafts" | "viewed">;
 const attached = new WeakMap<ReviewStores, KeyValueStorage>();
 
 /** Load the review state from `storage` and keep it written there (once per services). */
@@ -64,16 +57,6 @@ export function persistReview(
   if (!storage || attached.get(services) === storage) return;
   attached.set(services, storage);
   persistDrafts(services.drafts, storage, StoredDraft, (draft) => settleDraft(draft), subscribe);
-  persist<DiffPrefs>(
-    services.diffPrefs,
-    storage,
-    keys.prefs,
-    (stored) => {
-      const prefs = Prefs.safeParse(stored);
-      return prefs.success ? prefs.data : undefined;
-    },
-    (prefs) => prefs,
-  );
   persist<ViewedFiles>(services.viewed, storage, keys.viewed, readViewed, storedViewed);
 }
 

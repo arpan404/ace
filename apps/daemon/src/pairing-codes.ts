@@ -53,10 +53,11 @@ export class MemoryPairingCodes implements PairingCodeStore {
   }
 }
 
+const DeviceScopes = z.array(DeviceScope);
 const Row = z.object({
   id: z.string(),
   expires_at: z.number(),
-  scopes: z.string().transform((text) => z.array(DeviceScope).parse(JSON.parse(text))),
+  scopes: z.string().transform((text) => DeviceScopes.parse(JSON.parse(text))),
   label: z.string().nullable(),
   device_ttl_ms: z.number().nullable(),
 });

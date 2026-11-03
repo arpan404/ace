@@ -24,6 +24,7 @@ const rootSchema = z.object({
   plugin: z.string().max(256).optional(),
   trustedRoot: z.string().max(4096).optional(),
 });
+const Roots = z.array(rootSchema).max(32);
 export type WatchSource = (
   path: string,
   changed: (file: string | undefined) => void,
@@ -77,14 +78,10 @@ export class CommandFiles {
     this.watchSource = options.watch ?? nativeWatch;
     this.scheduleRecovery = options.schedule ?? new RecoveryLoop().schedule;
     this.io = options.io ?? new SecureCommandIo();
-    this.roots = z
-      .array(rootSchema)
-      .max(32)
-      .parse(roots)
-      .map((root) => {
-        const path = resolve(root.path);
-        return Object.assign(root, { path, id: sourceId(root, path) });
-      });
+    this.roots = Roots.parse(roots).map((root) => {
+      const path = resolve(root.path);
+      return Object.assign(root, { path, id: sourceId(root, path) });
+    });
     for (const root of this.roots) this.recovery.track(root.path, undefined);
     this.index = new FileIndex(catalog, this.io, this.recovery, this.roots, {
       watch: (root, path) => this.watchDirectory(root, path),

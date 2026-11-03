@@ -8,11 +8,17 @@ const text = (max: number) =>
 
 /** `/inbox?view=all&reason=mention&repo=github.com/acme/ace`: the inbox's filters, kept in the address. */
 const Search = z.object({
+  /** The projects picked; absent is the last choice made, or every project. */
+  projects: z.catch(
+    z.optional(z.array(z.string().check(z.minLength(1), z.maxLength(512))).check(z.maxLength(200))),
+    undefined,
+  ),
   project: text(512),
   view: z.catch(z.optional(z.enum(["all"])), undefined),
   only: z.catch(z.optional(z.enum(["participating"])), undefined),
   reason: text(64),
   repo: text(512),
+  group: z.catch(z.optional(z.enum(["repo"])), undefined),
 });
 
 /** GitHub notifications beside the thread list, the way Home shows threads. */

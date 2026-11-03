@@ -11,6 +11,9 @@ const words: Record<ForgeIssueAction["action"], string> = {
   comment: "A comment",
   edit: "An edit",
   state: "Closing or reopening",
+  labels: "A label change",
+  assignees: "An assignee change",
+  milestone: "A milestone change",
 };
 
 /**

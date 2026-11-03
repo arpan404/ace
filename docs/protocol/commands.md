@@ -659,7 +659,7 @@ Example:
 {
   "action": {
     "content": "+1",
-    "kind": "reaction.remove",
+    "kind": "reaction.add",
     "subject": {
       "kind": "pr"
     }
@@ -1598,11 +1598,8 @@ Example:
 ```json
 {
   "input": {
-    "action": "edit",
-    "body": "example",
-    "expectedUpdatedAt": "example",
-    "number": 4,
-    "title": "example"
+    "action": "labels",
+    "number": 4
   },
   "repository": {
     "forge": "github",

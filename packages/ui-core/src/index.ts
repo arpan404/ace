@@ -53,6 +53,7 @@ export * from "./forge-lists.ts";
 export * from "./forge-marks.ts";
 export * from "./pr-readiness.ts";
 export * from "./pr-row-steps.ts";
+export * from "./pr-work-groups.ts";
 export * from "./pr-gates.ts";
 export * from "./pr-primary-action.ts";
 export * from "./worktree-base.ts";
@@ -355,6 +356,7 @@ export * from "./not-sent.ts";
 export * from "./notice-error.ts";
 export * from "./event-view.ts";
 export * from "./forge-timeline.ts";
+export * from "./message-quotes.ts";
 export * from "./forge-comments.ts";
 export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";
@@ -370,6 +372,7 @@ export * from "./forge-history-pages.ts";
 export * from "./forge-rendered-model.ts";
 export * from "./forge-file-kind.ts";
 export * from "./diff-scope.ts";
+export * from "./diff-rows.ts";
 export {
   lockedUseLabel,
   lockedUseRefusal,
@@ -377,3 +380,5 @@ export {
   lockedUseSwitchOn,
   lockedUseUnavailable,
 } from "./locked-use.ts";
+export * from "./forge-review-submit.ts";
+export * from "./forge-fix-marks.ts";

@@ -152,7 +152,8 @@ export function shares(rows: readonly { key: string; tokens: number }[], limit: 
     .toSorted((a, b) => b.tokens - a.tokens)
     .slice(0, limit)
     .map((row) => ({
-      ...row,
+      key: row.key,
+      tokens: row.tokens,
       percent: Math.max(1, Math.round((row.tokens / total) * 100)),
     }));
 }

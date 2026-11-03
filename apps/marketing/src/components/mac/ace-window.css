@@ -1,0 +1,834 @@
+/*
+ * ace's window at its own size and in its own colours (packages/design-tokens and the web
+ * app's theme), so the drawing reads as the app. Sizes are the app's CSS pixels; the window
+ * fills the Mac's 1280 × 800 window and the Mac scales the whole desktop.
+ */
+.ace {
+  --a-frame: #090909;
+  --a-panel: #0a0a0a;
+  --a-canvas: #0c0c0c;
+  --a-fill: #191919;
+  --a-raised: #101010;
+  --a-chip: #141414;
+  --a-popover: #1a1a1c;
+  --a-border: #1e1e1e;
+  --a-border-strong: #262626;
+  --a-fg: #dedede;
+  --a-fg-2: #bcbcbc;
+  --a-muted: #a3a3a3;
+  --a-subtle: #898989;
+  --a-faint: #5c5c5c;
+  --a-needs-you: #edc070;
+  --a-needs-you-surface: #2a1f12;
+  --a-working: #6a8fd8;
+  --a-waiting: #b49cf5;
+  --a-done: #57bd9b;
+  --a-failed: #cf5468;
+  --a-add: #0f2418;
+  --a-del: #2d1515;
+  --a-add-ink: #57bd9b;
+  --a-del-ink: #e4697d;
+  --a-button: #e6e6e6;
+  --a-button-ink: #111111;
+  --a-chip-l: 18%;
+  --a-chip-ink-l: 78%;
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--a-frame);
+  color: var(--a-fg);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+  transform-origin: 0 0;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+html[data-theme="light"] .ace {
+  --a-frame: #f9f9f9;
+  --a-panel: #fbfbfb;
+  --a-canvas: #ffffff;
+  --a-fill: #e9e9e9;
+  --a-raised: #f6f6f6;
+  --a-chip: #f3f3f3;
+  --a-popover: #ffffff;
+  --a-border: #e2e2e2;
+  --a-border-strong: #d6d6d6;
+  --a-fg: #222222;
+  --a-fg-2: #3a3a3a;
+  --a-muted: #545454;
+  --a-subtle: #676767;
+  --a-faint: #a8a8a8;
+  --a-needs-you: #a86d0f;
+  --a-needs-you-surface: #fff4e8;
+  --a-working: #2a55b0;
+  --a-waiting: #7a5bd6;
+  --a-done: #2a8566;
+  --a-failed: #a3233a;
+  --a-add: #e8f7ee;
+  --a-del: #fdecec;
+  --a-add-ink: #007856;
+  --a-del-ink: #a3233a;
+  --a-button: #222222;
+  --a-button-ink: #ffffff;
+  --a-chip-l: 92%;
+  --a-chip-ink-l: 38%;
+}
+
+.ace svg {
+  flex-shrink: 0;
+}
+
+.ace code,
+.ace .branch,
+.ace .file-chip,
+.ace .side .code {
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+.ace ins {
+  color: var(--a-add-ink);
+  text-decoration: none;
+}
+
+.ace del {
+  color: var(--a-del-ink);
+  text-decoration: none;
+}
+
+/* The top bar: navigation after the traffic lights, the thread's title, its actions. */
+.ace .topbar {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--a-muted);
+}
+
+.ace .nav {
+  width: 340px;
+  display: flex;
+  gap: 18px;
+  padding-left: 92px;
+}
+
+.ace .nav svg:nth-child(-n + 2) {
+  color: var(--a-faint);
+}
+
+.ace .heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 22px;
+  color: var(--a-fg);
+  font-size: 14px;
+}
+
+.ace .heading svg {
+  color: var(--a-muted);
+}
+
+.ace .actions {
+  margin-left: auto;
+  display: flex;
+  gap: 24px;
+  padding-right: 18px;
+}
+
+.ace .flip {
+  transform: scaleX(-1);
+}
+
+.ace .tabs {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 460px;
+  height: 44px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px;
+  border-left: 1px solid var(--a-border);
+  background: var(--a-frame);
+  font-size: 13.5px;
+}
+
+.ace .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+}
+
+.ace .tab.on {
+  background: var(--a-fill);
+  color: var(--a-fg);
+}
+
+/* The rail of places. */
+.ace .rail {
+  position: absolute;
+  left: 0;
+  top: 44px;
+  bottom: 0;
+  width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
+  color: var(--a-muted);
+}
+
+.ace .place {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+.ace .place.on {
+  background: var(--a-fill);
+  color: var(--a-fg);
+}
+
+.ace .place.dot::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--a-needs-you);
+  box-shadow: 0 0 0 2px var(--a-frame);
+}
+
+.ace .place.spade {
+  color: var(--a-faint);
+}
+
+.ace .rule {
+  width: 24px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--a-border-strong);
+}
+
+.ace .foot {
+  margin-top: auto;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding-bottom: 10px;
+}
+
+.ace .avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--a-fill);
+  color: var(--a-fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* The Threads panel. */
+.ace .threads {
+  position: absolute;
+  left: 52px;
+  top: 44px;
+  bottom: 0;
+  width: 288px;
+  border-top: 1px solid var(--a-border);
+  border-left: 1px solid var(--a-border);
+  border-top-left-radius: 12px;
+  background: var(--a-panel);
+}
+
+.ace .threads-head,
+.ace .filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 0 17px;
+  color: var(--a-muted);
+}
+
+.ace .threads-head {
+  height: 44px;
+  margin-top: 4px;
+}
+
+.ace .threads-head b {
+  color: var(--a-fg);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.ace .filter {
+  height: 36px;
+  font-size: 15px;
+}
+
+.ace .filter-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 214px;
+  color: var(--a-fg-2);
+}
+
+.ace .rows {
+  display: grid;
+  padding: 6px 8px 0;
+}
+
+.ace .row {
+  display: grid;
+  gap: 1px;
+  height: 84px;
+  align-content: center;
+  padding: 0 12px;
+  border-radius: 12px;
+  transition:
+    background-color 0.2s,
+    opacity 0.3s;
+}
+
+.ace .row.selected {
+  background: var(--a-fill);
+}
+
+.ace .line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ace .chip {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: hsl(var(--hue) 28% var(--a-chip-l));
+  color: hsl(var(--hue) 70% var(--a-chip-ink-l));
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.ace .project {
+  color: var(--a-muted);
+  font-size: 13px;
+}
+
+.ace .state {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--a-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ace .glyph {
+  display: none;
+  position: relative;
+  place-items: center;
+}
+
+.ace [data-tone="approve"] .glyph-approve {
+  display: inline-grid;
+  color: var(--a-needs-you);
+}
+
+.ace [data-tone="working"] .glyph-working {
+  display: inline-grid;
+  color: var(--a-working);
+}
+
+.ace [data-tone="agents"] .glyph-agents {
+  display: inline-grid;
+  color: var(--a-waiting);
+}
+
+.ace .glyph-agents b {
+  position: absolute;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.ace [data-tone="background"] .glyph-background {
+  display: inline-grid;
+  color: var(--a-muted);
+}
+
+.ace [data-tone="done"] .glyph-done {
+  display: inline-grid;
+  color: var(--a-done);
+}
+
+.ace [data-tone="limited"] .glyph-limited {
+  display: inline-grid;
+  color: var(--a-muted);
+}
+
+.ace .device {
+  display: inline-flex;
+  color: var(--a-working);
+}
+
+.ace .row .title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ace .row .title {
+  display: block;
+  padding: 0;
+  color: var(--a-fg-2);
+  font-size: 15px;
+}
+
+.ace .row.selected .title,
+.ace .row[data-tone="approve"] .title {
+  color: var(--a-fg);
+}
+
+.ace .meta {
+  color: var(--a-subtle);
+  font-size: 12.5px;
+}
+
+.ace .branch {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ace .marks {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ace .pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--a-done);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+.ace .agents {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ace .provider {
+  position: relative;
+  display: inline-flex;
+}
+
+.ace .provider i {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--a-muted);
+  box-shadow: 0 0 0 1.5px var(--a-panel);
+  color: var(--a-panel);
+  font-size: 7.5px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* The list's filter menu: projects, then the machines on the account. */
+.ace .menu {
+  position: absolute;
+  left: 10px;
+  top: 92px;
+  z-index: 3;
+  width: 264px;
+  display: grid;
+  padding: 5px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 12px;
+  background: var(--a-popover);
+  box-shadow: 0 18px 50px -12px rgb(0 0 0 / 0.55);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  transform-origin: top left;
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+  pointer-events: none;
+}
+
+.ace .menu.open {
+  opacity: 1;
+  transform: none;
+}
+
+.ace .menu-label {
+  padding: 8px 10px 4px;
+  color: var(--a-subtle);
+  font-size: 12px;
+}
+
+.ace .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.ace .menu-item.hover {
+  background: var(--a-fill);
+}
+
+.ace .menu-note {
+  margin-left: auto;
+  color: var(--a-subtle);
+  font-size: 12.5px;
+}
+
+/* The open thread. */
+.ace .canvas {
+  position: absolute;
+  left: 340px;
+  right: 0;
+  top: 44px;
+  bottom: 0;
+  border-top: 1px solid var(--a-border);
+  background: var(--a-canvas);
+  transition: right 0.5s cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+
+.ace .column {
+  width: min(760px, 100% - 48px);
+  margin: 0 auto;
+  padding-top: 26px;
+}
+
+/* A thread's parts show when the story opens it; until then they carry `hidden`. */
+.ace [hidden] {
+  display: none !important;
+}
+
+/* What a scene answers: before and after an approval, a device request or an account move. */
+.ace .after-approval,
+.ace .after-move,
+.ace .after-done,
+.ace[data-cold="done"] .before-done,
+.ace[data-approved="yes"] .before-approval,
+.ace[data-moved="yes"] .before-move,
+.ace[data-device="ask"] .device-using,
+.ace:not([data-device="ask"]) .device-ask {
+  display: none;
+}
+
+.ace[data-approved="yes"] .step.after-approval,
+.ace[data-moved="yes"] .step.after-move {
+  display: flex;
+}
+
+.ace[data-approved="yes"] p.after-approval,
+.ace[data-moved="yes"] p.after-move {
+  display: block;
+}
+
+.ace[data-moved="yes"] .strip.after-move {
+  display: flex;
+}
+
+/* The cold-start thread once every agent and command in it has finished. */
+.ace[data-cold="done"] span.after-done {
+  display: inline;
+}
+
+.ace[data-cold="done"] p.after-done {
+  display: block;
+}
+
+.ace .you {
+  width: fit-content;
+  max-width: 540px;
+  margin: 0 0 30px auto;
+  padding: 9px 16px;
+  border-radius: 16px;
+  background: var(--a-raised);
+}
+
+.ace .worked {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--a-border);
+  color: var(--a-muted);
+  font-size: 13.5px;
+}
+
+.ace .waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--a-border);
+  color: var(--a-muted);
+  font-size: 13.5px;
+}
+
+.ace .waiting i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--a-needs-you);
+}
+
+.ace .reply {
+  margin: 16px 0 24px;
+}
+
+.ace .file-chip {
+  display: inline-block;
+  margin-bottom: 30px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--a-chip);
+  font-size: 13px;
+}
+
+.ace .step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  color: var(--a-muted);
+  font-size: 14px;
+}
+
+.ace .step svg {
+  color: var(--a-subtle);
+}
+
+.ace .step b {
+  color: var(--a-fg);
+  font-weight: 500;
+}
+
+.ace .step code {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--a-chip);
+  color: var(--a-fg-2);
+  font-size: 13px;
+}
+
+.ace .step .end {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ace .working {
+  color: var(--a-working);
+  font-size: 13.5px;
+}
+
+.ace .agents-step.hover,
+.ace .live-step {
+  margin: 0 -10px;
+  padding: 0 10px;
+  border-radius: 10px;
+}
+
+.ace .agents-step.hover {
+  background: var(--a-fill);
+}
+
+/* The dock: what waits on you, the status strip and the composer. */
+.ace .dock {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: min(696px, 100% - 40px);
+  transform: translateX(-50%);
+  display: grid;
+}
+
+.ace .approval {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 14px;
+  background: var(--a-raised);
+  font-size: 13px;
+  transition:
+    opacity 0.25s,
+    transform 0.25s;
+}
+
+.ace .approval-title {
+  color: var(--a-muted);
+}
+
+.ace .approval code {
+  padding: 8px 10px;
+  border: 1px solid var(--a-border);
+  border-radius: 8px;
+  background: var(--a-canvas);
+  font-size: 12.5px;
+}
+
+.ace .risk b {
+  color: var(--a-del-ink);
+  font-weight: 500;
+}
+
+.ace .risk {
+  color: var(--a-muted);
+}
+
+.ace .approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ace .allow {
+  padding: 4px 10px;
+  border-radius: 7px;
+  background: var(--a-button);
+  color: var(--a-button-ink);
+  font-weight: 500;
+}
+
+.ace .allow.pressed {
+  filter: brightness(0.85);
+}
+
+.ace .details {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--a-muted);
+}
+
+.ace .strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 38px;
+  margin: 0 18px;
+  padding: 0 16px;
+  border: 1px solid var(--a-border-strong);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--a-raised);
+  color: var(--a-muted);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ace .strip b {
+  color: var(--a-fg);
+  font-weight: 500;
+}
+
+.ace .strip-actions {
+  display: flex;
+  gap: 18px;
+}
+
+.ace .composer {
+  height: 112px;
+  display: grid;
+  align-content: space-between;
+  padding: 14px 12px 12px 18px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 18px;
+  background: var(--a-raised);
+}
+
+.ace .placeholder {
+  color: var(--a-subtle);
+}
+
+.ace .composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  color: var(--a-muted);
+  font-size: 14px;
+}
+
+.ace .access,
+.ace .model {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--a-fg-2);
+}
+
+.ace .model {
+  margin-left: auto;
+}
+
+.ace .model span {
+  color: var(--a-muted);
+}
+
+.ace .send {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--a-fill);
+  color: var(--a-fg);
+}
+
+/* A strip that waits on you: a device request or a usage limit. */
+.ace .strip.ask {
+  background: var(--a-needs-you-surface);
+}
+
+.ace .strip-actions {
+  align-items: center;
+}

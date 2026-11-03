@@ -27,6 +27,10 @@ import {
   oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
+  seedPrChecks,
+  seedLongIssue,
+  movingPullRequest,
+  seedProjectForge,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -34,6 +38,7 @@ import type { Client } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
+import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
@@ -145,13 +150,23 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedLongIssue(daemon, Date.now());
+    // The other projects' pull requests, issues and notifications, for the lists across projects.
+    seedProjectForge(daemon, Date.now());
+    // #229's checks with runs to read, so a failing one quotes its first failure line.
+    seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
     if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
+    // A 62-file PR whose head moves while it's reviewed (#250 in acme/ace).
+    daemon.workspace.addPullRequests([movingPullRequest(Date.now())]);
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
-    // with its lines moved, for trying what survives a push.
+    // with its lines moved, for trying what survives a push. #250 plays a real commit.
     (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
       number,
     ) => daemon.workspace.pushPullRequest(number);
+    // `ACE_FAKE_PR_PUSH_EVERY_MS=60000 bun run dev:fake`: #250 is pushed to on that timer.
+    const pushEvery = Number(import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS);
+    if (pushEvery > 0) setInterval(() => daemon.workspace.pushPullRequest(250), pushEvery);
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.
@@ -244,6 +259,7 @@ export function bootFake(): {
       new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();
   }
   seedBuildServerUsage(server, Date.now());
+  if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
   // that is off, which the chooser shows as offline (ADR 0101).

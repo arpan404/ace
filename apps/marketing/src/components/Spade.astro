@@ -1,0 +1,87 @@
+---
+/*
+ * Spade's announcement: its face (the shared geometry in @ace/ui-core/spade) looking toward the
+ * pointer and blinking now and then, the name, and that it is coming soon.
+ */
+import { spade } from "../content/product.ts";
+import SpadeFace from "./mac/SpadeFace.astro";
+---
+
+<section class="section page spade" data-spade-section>
+  <div class="face reveal"><SpadeFace size={132} /></div>
+  <p class="status reveal">{spade.status}</p>
+  <h2 class="section-title reveal">{spade.headline}</h2>
+  <p class="lede reveal">{spade.body}</p>
+</section>
+
+<style>
+  .spade {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .face {
+    color: var(--foreground);
+  }
+
+  .face :global(.eye) {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: blink 5.2s infinite;
+  }
+
+  .face :global(.eye[data-eye="1"]) {
+    animation-delay: 30ms;
+  }
+
+  @keyframes blink {
+    0%,
+    94% {
+      transform: scaleY(1);
+    }
+
+    95.5% {
+      transform: scaleY(0.08);
+    }
+
+    97% {
+      transform: scaleY(1);
+    }
+  }
+
+  .status {
+    margin-top: 28px;
+    color: var(--subtle);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h2 {
+    margin-top: 10px;
+  }
+
+  .lede {
+    margin-top: 14px;
+    max-width: 30em;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .face :global(.eye) {
+      animation: none;
+    }
+  }
+</style>
+
+<script>
+  import { spadeLook } from "../scripts/spade-look.ts";
+
+  for (const section of document.querySelectorAll<HTMLElement>("[data-spade-section]")) {
+    spadeLook(section);
+  }
+</script>

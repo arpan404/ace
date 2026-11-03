@@ -76,7 +76,8 @@ import { sendReadiness } from "./send-readiness.ts";
 import { ReturnedStartNotice } from "./returned-start-notice.tsx";
 import { forgetReturnedStart, readReturnedStart } from "@/lib/returned-start.ts";
 import { discardPreparation } from "./discard-preparation.ts";
-import { takeCarriedDraft } from "./carried-draft.ts";
+import { takeCarriedDraft, takeHandedText } from "./carried-draft.ts";
+import { forgetHandedNewThreadText } from "@/lib/composer-insert.ts";
 import { copiedTo } from "./copied-projects.ts";
 import {
   type Landed,
@@ -280,6 +281,9 @@ function PreparationPage(props: {
   );
   // A message carried from another machine fills an empty draft before the editor reads it.
   const [carried] = useState(() => takeCarriedDraft(storage, props.host, draftKey));
+  // A request handed over by "Fix with agent" on a PR starts the draft, ready to read and send.
+  const source = props.issue ?? props.pullRequest;
+  const [handed] = useState(() => takeHandedText(storage, draftKey, source));
   const [restored] = useState<Preparation | undefined>(() => {
     const previous = preparation(storage, props.host, draftKey);
     if (previous?.discardRecovery) {
@@ -594,6 +598,13 @@ function PreparationPage(props: {
   useEffect(() => {
     if (carried) keepCarried();
   }, [carried]);
+  const keepHanded = useEffectEvent((text: string) => {
+    remember({ title: text.trim().split("\n")[0]?.slice(0, 100) || "New preparation" });
+    if (source) forgetHandedNewThreadText(source, text);
+  });
+  useEffect(() => {
+    if (handed) keepHanded(handed);
+  }, [handed]);
   useEffect(() => {
     if (settledSettings !== undefined) settlePreparation();
   }, [settledSettings]);

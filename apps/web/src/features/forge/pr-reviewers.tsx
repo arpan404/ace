@@ -10,12 +10,10 @@ import { PrAvatar } from "./pr-presentation.tsx";
 import { usePrReview } from "./pr-review-context.tsx";
 import { reviewerWords, type ReviewerRow } from "@ace/ui-core";
 
-/** The verdict's colour, drawn as a 2px band around the avatar. */
-const band: Record<string, string> = {
-  APPROVED: "bg-status-done",
-  CHANGES_REQUESTED: "bg-status-failed",
-  COMMENTED: "bg-border-strong",
-  DISMISSED: "bg-border opacity-60",
+/** The verdict's status colour, on its words only. */
+const verdictTone: Record<string, string> = {
+  APPROVED: "text-status-done",
+  CHANGES_REQUESTED: "text-status-failed",
 };
 
 function Face(props: { row: ReviewerRow; className?: string }) {
@@ -29,25 +27,30 @@ function Face(props: { row: ReviewerRow; className?: string }) {
   );
 }
 
-/** Each reviewer's face, ringed by their latest verdict. */
-function Stack(props: { rows: readonly ReviewerRow[] }) {
+/** Each reviewer by name with their latest verdict in words: "mira Changes requested · dana Approved". */
+function Names(props: { rows: readonly ReviewerRow[] }) {
   return (
-    <span className="flex -space-x-1.5">
-      {props.rows.map((row) => (
-        <span
-          key={row.key}
-          className={cn(
-            // The band shows the verdict; the panel-coloured ring keeps each avatar whole
-            // where the next one overlaps it.
-            "relative inline-flex rounded-full p-0.5 ring-2 ring-panel",
-            (row.review && band[row.review.state]) ?? "bg-panel",
-          )}
-        >
-          <span className="inline-flex rounded-full bg-panel">
+    // Each name leads with its dot; the edge clips the dot of whichever name starts a line.
+    <span className="block overflow-hidden">
+      <span className="-ml-4.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui">
+        {props.rows.map((row) => (
+          <span key={row.key} className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="w-3 text-center text-subtle-foreground">
+              ·
+            </span>
             <Face row={row} />
+            <span className="text-foreground">{row.label}</span>
+            <span
+              className={cn(
+                "text-xs",
+                (row.review && verdictTone[row.review.state]) ?? "text-muted-foreground",
+              )}
+            >
+              {reviewerWords(row).toLowerCase()}
+            </span>
           </span>
-        </span>
-      ))}
+        ))}
+      </span>
     </span>
   );
 }
@@ -177,7 +180,7 @@ function Row(props: {
 }
 
 /**
- * The reviewers as a ringed avatar stack that opens their list: each one's latest review, and
+ * The reviewers by name with their verdicts in words, opening their list: each one's latest review, and
  * what this account may do about it (ask again, withdraw a request, dismiss a verdict).
  */
 export function PrReviewers(props: {
@@ -208,9 +211,9 @@ export function PrReviewers(props: {
       <Tip label={said} disabled={open}>
         <PopoverTrigger
           aria-label={`Reviewers: ${said}`}
-          className="inline-flex rounded-full focus-ring"
+          className="-mx-1 inline-flex rounded-sm px-1 py-0.5 text-left focus-ring hover:bg-hover"
         >
-          <Stack rows={props.rows} />
+          <Names rows={props.rows} />
         </PopoverTrigger>
       </Tip>
       <PopoverContent className="w-80 p-3">

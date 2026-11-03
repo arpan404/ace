@@ -15,6 +15,8 @@ export interface LinkedThread {
   title: string;
   /** It waits on the person: an approval, a question. */
   needsYou: boolean;
+  /** An agent in it is still at work, or it waits on a background command. */
+  working?: boolean | undefined;
 }
 export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
 
@@ -41,6 +43,7 @@ export function linkedWork(reader: Pick<SidebarReader, "ids" | "thread">): {
       id: thread.id,
       title: thread.title,
       needsYou: thread.status.state === "needs_you",
+      working: thread.status.state === "working" || thread.status.state === "waiting",
     };
     for (const pr of thread.details?.linkedPrs ?? []) {
       const key = workKey(pr.repo, pr.number);

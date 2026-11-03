@@ -5,6 +5,10 @@ import type { CdpConnection } from "./cdp-connection.ts";
 import { videoExtensionId, writeVideoExtension } from "./video-extension.ts";
 import { deliverVideoEvent, VideoEncoderEvent } from "./video-events.ts";
 
+const SupportedCodecs = z.array(BrowserVideoCodec);
+const OpenedStream = z.object({ streamId: z.string().min(1).max(256) });
+const LoadedExtension = z.object({ id: z.string() });
+
 /*
  * ace's Chrome as a video encoder (ADR 0088): loads the video extension, keeps CDP sessions on
  * its service worker and offscreen document, and turns the document's binding calls into
@@ -70,9 +74,9 @@ export class ChromeVideo implements VideoHost {
   }
   async supported(codecs: readonly string[], width: number, height: number): Promise<string[]> {
     const { document } = await this.extension();
-    return z
-      .array(BrowserVideoCodec)
-      .parse(await evaluate(document, "aceVideo.supported", [codecs, width, height]));
+    return SupportedCodecs.parse(
+      await evaluate(document, "aceVideo.supported", [codecs, width, height]),
+    );
   }
   async open(
     page: BrowserCdp,
@@ -111,9 +115,7 @@ export class ChromeVideo implements VideoHost {
     await Promise.all(this.stopping);
     let { worker, document } = await this.extension();
     const attempt = async (audio: boolean) => {
-      const { streamId } = z
-        .object({ streamId: z.string().min(1).max(256) })
-        .parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [windowId]));
       await evaluate(document, "aceVideo.start", [
         id,
         streamId,
@@ -231,9 +233,9 @@ export class ChromeVideo implements VideoHost {
     document?: string | undefined;
   }): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     await writeVideoExtension(this.directory);
-    const loaded = z
-      .object({ id: z.string() })
-      .parse(await this.connection.send("Extensions.loadUnpacked", { path: this.directory }));
+    const loaded = LoadedExtension.parse(
+      await this.connection.send("Extensions.loadUnpacked", { path: this.directory }),
+    );
     if (loaded.id !== videoExtensionId)
       throw new Error("The video extension loaded under another id");
     // An attached target may not have run its script yet: always so on Windows, and on any

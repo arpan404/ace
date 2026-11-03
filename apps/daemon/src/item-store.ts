@@ -16,6 +16,32 @@ import {
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
 
+// Item head rows, built once: Zod compiles a parser per schema object, and pages are per request.
+const createdSeq = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+const WirePageRows = z
+  .array(
+    z.object({
+      id: ItemId,
+      created_seq: createdSeq,
+      size: z.number().int().nonnegative(),
+      // Only text previews are special-cased below; any other item type, including ones
+      // added after this reader, pages by its stored size.
+      item_type: z.string().min(1).max(64),
+    }),
+  )
+  .max(201);
+const NewestHead = z.object({
+  id: ItemId,
+  created_seq: createdSeq,
+  item_type: z.string().min(1).max(64),
+});
+const TailHead = z.object({
+  id: ItemId,
+  created_seq: createdSeq,
+  size: z.number().int().nonnegative(),
+  agent_id: z.string(),
+});
+
 function decodeAppend(value: unknown): string {
   return z.string().parse(JSON.parse(z.string().parse(value)));
 }
@@ -167,19 +193,7 @@ export class ItemStore {
     const rows = this.statement(
       "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
     ).all(threadId, before, limit + 1);
-    const decoded = z
-      .array(
-        z.object({
-          id: ItemId,
-          created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-          size: z.number().int().nonnegative(),
-          // Only text previews are special-cased below; any other item type, including ones
-          // added after this reader, pages by its stored size.
-          item_type: z.string().min(1).max(64),
-        }),
-      )
-      .max(201)
-      .parse(rows);
+    const decoded = WirePageRows.parse(rows);
     const items: Item[] = [];
     const cursors: [string, number][] = [];
     let bytes = 512;
@@ -226,13 +240,7 @@ export class ItemStore {
       "SELECT id, created_seq, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT 1",
     ).get(threadId, before);
     if (!row) return undefined;
-    const head = z
-      .object({
-        id: ItemId,
-        created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-        item_type: z.string().min(1).max(64),
-      })
-      .parse(row);
+    const head = NewestHead.parse(row);
     return { item: this.pageItem(String(head.id), head.item_type), seq: head.created_seq };
   }
   hasItemBefore(threadId: ThreadId, before: number): boolean {
@@ -399,12 +407,6 @@ export class ItemStore {
     limit: number,
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> {
-    const Head = z.object({
-      id: ItemId,
-      created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-      size: z.number().int().nonnegative(),
-      agent_id: z.string(),
-    });
     const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
     // The root lane is the root agent's items and the thread's own (no agent): one indexed
     // read each, never one IN query, which would sort the whole lane.
@@ -419,9 +421,11 @@ export class ItemStore {
       ...(rootAgentId === undefined ? [] : lane(rootAgentId)),
       ...lane(""),
     ];
-    const heads = new Map<number, z.infer<typeof Head>>();
+    const heads = new Map<number, z.infer<typeof TailHead>>();
+    // The bound follows `limit`; the element schema is the shared, compiled `TailHead`.
+    // oxlint-disable-next-line ace/zod-schema-in-function -- wraps a module-level schema
     for (const row of z
-      .array(Head)
+      .array(TailHead)
       .max(3 * limit + 1)
       .parse(rows))
       heads.set(row.created_seq, row);

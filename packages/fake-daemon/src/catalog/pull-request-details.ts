@@ -37,6 +37,8 @@ export interface PullRequestFixture {
   commits?: FixtureCommit[] | undefined;
   /** Files read whole (`forge.file.content`) at the base and the commits that changed them. */
   contents?: FixtureContent[] | undefined;
+  /** What a push to its branch does to it, at time `at`; absent, the catalog's ten-line push. */
+  nextPush?: ((fixture: PullRequestFixture, at: string) => PullRequestFixture) | undefined;
 }
 
 /** One commit of a PR and the files it changed. */
@@ -88,6 +90,8 @@ export const check = (
   status,
   conclusion: status === "pending" ? null : status,
   completedAt: status === "pending" ? null : iso(at),
+  // A run of one to four minutes, steady per name.
+  startedAt: iso(at - (60 + (name.length % 4) * 45) * 1000),
   jobId: null,
   url,
 });
@@ -100,6 +104,8 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
     checksState: "SUCCESS",
     autoMerge: null,
     queue: null,
+    // This catalog's repositories allow squash and rebase, not merge commits.
+    methods: ["squash", "rebase"],
     canEnable: false,
     canDisable: false,
     canDequeue: false,

@@ -10,7 +10,9 @@ import { canHide, hiddenReasonOf, hiddenWord } from "@ace/ui-core";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { useQuote, type QuoteTarget } from "./pr-quote.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
-import { usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { useFixWithAgent } from "./pr-fix-with-agent.ts";
+import { commentFixRequest } from "./pr-summary-model.ts";
 import { PrSuggestionActions } from "./pr-suggestions.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
 
@@ -50,8 +52,27 @@ export function PrComment(props: {
   const source = comment.kind === "review" ? undefined : comment.kind;
   const hideable = canHide(state, comment);
   const disabled = !review?.ready || review.pending;
+  const detail = usePrDetail();
+  const agent = useFixWithAgent({ workspaceId: identity?.workspaceId ?? "", detail });
+  // Only text GitHub says is shown may reach an agent: hidden, or not known yet, stays out.
+  const fixable =
+    !!detail &&
+    (detail.status.state === "open" || detail.status.state === "draft") &&
+    Array.isArray(state?.hidden) &&
+    reason === undefined &&
+    !!comment.body.trim();
   const actions: CommentMenuActions = {
     disabled,
+    fix:
+      fixable && detail
+        ? () =>
+            agent.ask(
+              commentFixRequest(comment, {
+                number: detail.status.ref.number,
+                url: detail.status.url,
+              }),
+            )
+        : undefined,
     // Only where the viewer can answer: a quote with no box to take it would be lost.
     quote:
       quote && props.quoteTarget && state?.canComment && comment.body.trim()

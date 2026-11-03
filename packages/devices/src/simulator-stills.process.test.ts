@@ -19,7 +19,7 @@ const screen = (red: number) =>
     .jpeg()
     .toBuffer();
 
-it("an unwatched Simulator stops making a still for every change, yet a screenshot shows the screen as it is now", async () => {
+it("an unwatched Simulator receives no pictures while idle, yet a screenshot shows the screen as it is now", async () => {
   const home = await mkdtemp(join(tmpdir(), "sim-stills-"));
   onTestFinished(() => rm(home, { recursive: true, force: true }));
   const sim = await fakeServeSim(home, "0.1.49-beta.139.1", ios.slice(4));
@@ -55,7 +55,8 @@ it("an unwatched Simulator stops making a still for every change, yet a screensh
   onTestFinished(() => service.close());
   await service.request({ op: "enable", enabled: true }, person);
   await service.request({ op: "start", deviceId: ios, fps: 30 }, person);
-  await expect.poll(() => sim.mjpegOpen()).toBe(1);
+  // Nobody watches or records: serve-sim's picture stream is closed.
+  await expect.poll(() => sim.mjpegOpen()).toBe(0);
 
   // An agent scrolls for a second: serve-sim sends a change every frame, and nobody watches.
   const frames = await Promise.all(Array.from({ length: 30 }, (_, index) => screen(index)));
@@ -72,6 +73,7 @@ it("an unwatched Simulator stops making a still for every change, yet a screensh
   const shot = await service.screenshot(ios, person);
   const { data } = await sharp(shot.payload).raw().toBuffer({ resolveWithObject: true });
   expect(data[0]).toBeGreaterThan(200);
-  // A slow heartbeat, not a still per change (30 of them before).
-  expect(busy).toBeLessThanOrEqual(4);
+  // Not a still per change, nor a heartbeat: nothing until asked.
+  expect(busy).toBe(0);
+  expect(sim.mjpegOpen()).toBe(0);
 });

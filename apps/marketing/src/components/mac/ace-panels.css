@@ -1,0 +1,402 @@
+/*
+ * The right panel, in the app's sizes and colours (ace-window.css holds the tokens): Changes,
+ * or ace's browser with the tab an agent uses. The page inside the browser is a website, so it
+ * keeps its own light colours in both themes.
+ */
+.ace .side {
+  position: absolute;
+  right: 0;
+  top: 44px;
+  bottom: 0;
+  width: 460px;
+  overflow: hidden;
+  border-top: 1px solid var(--a-border);
+  border-left: 1px solid var(--a-border);
+  background: var(--a-canvas);
+  font-size: 13px;
+  transform: translateX(100%);
+  transition: transform 0.5s cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+
+.ace[data-panel="changes"] .side-changes,
+.ace[data-panel="browser"] .side-browser {
+  transform: none;
+}
+
+.ace:not([data-panel="off"]) .canvas {
+  right: 460px;
+}
+
+.ace[data-panel="changes"] .tabs-changes,
+.ace[data-panel="browser"] .tabs-browser {
+  display: flex;
+}
+
+.ace .changes-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 48px;
+  padding: 0 14px 0 18px;
+  color: var(--a-fg);
+  font-size: 14px;
+}
+
+.ace .commit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 8px;
+  transition: background-color 0.15s;
+}
+
+.ace .commit.hover {
+  background: var(--a-fill);
+}
+
+.ace .tree {
+  display: grid;
+  padding: 4px 12px 10px;
+  border-bottom: 1px solid var(--a-border);
+  color: var(--a-fg-2);
+}
+
+.ace .tree > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 27px;
+}
+
+.ace .tree-file {
+  padding-left: 24px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+.ace .tree em,
+.ace .file-head em {
+  margin-left: auto;
+  font-style: normal;
+}
+
+.ace .file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--a-border);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+.ace .side-changes .line {
+  display: grid;
+  grid-template-columns: 34px 34px 1fr;
+  gap: 0;
+  height: 20px;
+  font-size: 12.5px;
+  white-space: pre;
+}
+
+.ace .side-changes .line.add {
+  background: var(--a-add);
+}
+
+.ace .side-changes .line.del {
+  background: var(--a-del);
+}
+
+.ace .side-changes .line.hover {
+  box-shadow: inset 3px 0 0 var(--a-working);
+}
+
+.ace .no {
+  padding-right: 8px;
+  color: var(--a-faint);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  text-align: right;
+}
+
+.ace .add .no {
+  color: var(--a-add-ink);
+}
+
+.ace .del .no {
+  color: var(--a-del-ink);
+}
+
+.ace .side-changes .code {
+  overflow: hidden;
+  color: var(--a-fg-2);
+}
+
+/* ace's browser: its toolbar, then the page the agent is using. */
+.ace .browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 46px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--a-border);
+  color: var(--a-muted);
+}
+
+.ace .address {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  border-radius: 15px;
+  background: var(--a-fill);
+  color: var(--a-fg);
+  font-size: 13px;
+}
+
+.ace .site {
+  position: absolute;
+  inset: 47px 0 0;
+  overflow: hidden;
+  background: #ffffff;
+  color: #1d1d1f;
+}
+
+.ace .site-head {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 52px;
+  padding: 0 26px;
+  border-bottom: 1px solid #ececf0;
+  color: #6e6e73;
+  font-size: 13px;
+}
+
+.ace .site-head b {
+  margin-right: auto;
+  color: #1d1d1f;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+.ace .site-body {
+  display: grid;
+  gap: 12px;
+  padding: 26px;
+  font-size: 13.5px;
+  transition: opacity 0.35s;
+}
+
+.ace .site h4 {
+  margin-bottom: 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ace .item,
+.ace .sum {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ace .item i {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #f1f1f4;
+}
+
+.ace .item b,
+.ace .sum b {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.ace .sum {
+  color: #6e6e73;
+}
+
+.ace .sum:first-of-type {
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid #ececf0;
+}
+
+.ace .total {
+  color: #1d1d1f;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ace .pay {
+  display: grid;
+  place-items: center;
+  height: 44px;
+  margin-top: 8px;
+  border-radius: 12px;
+  background: #1d1d1f;
+  color: #ffffff;
+  font-weight: 600;
+  transition: transform 0.12s;
+}
+
+.ace .pay.pressed {
+  transform: scale(0.98);
+}
+
+.ace .paid-view {
+  position: absolute;
+  inset: 52px 0 auto;
+  justify-items: start;
+  opacity: 0;
+}
+
+.ace .paid-view p {
+  color: #6e6e73;
+}
+
+.ace .paid-mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #e8f7ee;
+  color: #007856;
+}
+
+.ace .site[data-site="paid"] .cart-view {
+  opacity: 0;
+}
+
+.ace .site[data-site="paid"] .paid-view {
+  opacity: 1;
+}
+
+/* The agent's pointer in the page, with its name, as ace shows it while an agent holds a tab. */
+.ace .agent-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  color: var(--a-working);
+  opacity: 0;
+  transform: translate(var(--ax, 300px), var(--ay, 300px));
+  transition:
+    transform 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.3s;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+}
+
+.ace .agent-cursor.shown {
+  opacity: 1;
+}
+
+.ace .agent-cursor em {
+  margin-top: 12px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--a-working);
+  color: #ffffff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+/* Browser steps arrive one by one while the browser scene plays. */
+.ace .browser-step.pending,
+.ace .browser-done.pending {
+  display: none;
+}
+
+/* A machine's code prompt, over the whole window. */
+.ace .code-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.ace .code-scrim.open {
+  opacity: 1;
+}
+
+.ace .code-dialog {
+  width: 380px;
+  display: grid;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 16px;
+  background: var(--a-popover);
+  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.6);
+  font-size: 14px;
+}
+
+.ace .code-dialog b {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ace .code-dialog p {
+  color: var(--a-muted);
+  line-height: 1.45;
+}
+
+.ace .code-pin {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.ace .code-pin i {
+  position: relative;
+  height: 44px;
+  border: 1px solid var(--a-border-strong);
+  border-radius: 10px;
+  background: var(--a-canvas);
+}
+
+.ace .code-pin i.set::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--a-fg);
+}
+
+.ace .code-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 18px;
+  color: var(--a-muted);
+}
+
+.ace .menu-note svg {
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+
+.ace .model .provider i {
+  box-shadow: 0 0 0 1.5px var(--a-raised);
+  color: var(--a-raised);
+}

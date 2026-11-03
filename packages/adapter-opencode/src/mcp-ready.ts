@@ -5,6 +5,12 @@ import type { OpenCodeClient } from "@opencode/client";
 import type { Runtime } from "./runtime.ts";
 import { aceReadinessTool, mcpReadyRpc } from "./mcp-ready-contract.ts";
 
+const ConfigPlugins = z.array(z.unknown()).max(64);
+const ConfigSkills = z.array(z.string()).max(64);
+const ReadyCatalog = z.object({
+  tools: z.array(z.object({ name: z.string(), description: z.string() })).max(256),
+});
+
 export function mcpReadyPluginDirectory(): string {
   return fileURLToPath(new URL("./mcp-ready-plugin", import.meta.url));
 }
@@ -27,14 +33,8 @@ export function aceConfigEnvironment(
     .record(z.string(), z.unknown())
     .parse(parse(content, errors, { allowTrailingComma: true }));
   if (errors.length) throw new Error("Invalid OpenCode configuration");
-  const plugins = z
-    .array(z.unknown())
-    .max(64)
-    .parse(config["plugins"] ?? []);
-  const skills = z
-    .array(z.string())
-    .max(64)
-    .parse(config["skills"] ?? []);
+  const plugins = ConfigPlugins.parse(config["plugins"] ?? []);
+  const skills = ConfigSkills.parse(config["skills"] ?? []);
   return {
     ...env,
     OPENCODE_CONFIG_CONTENT: JSON.stringify({
@@ -53,13 +53,11 @@ export async function waitForAceTools(
   const controller = new AbortController();
   const cancel = runtime.schedule(() => controller.abort(), 10_000);
   try {
-    const catalog = z
-      .object({ tools: z.array(z.object({ name: z.string(), description: z.string() })).max(256) })
-      .parse(
-        await client
-          .rpc(mcpReadyRpc)
-          .ready({}, { location: { directory }, signal: controller.signal }),
-      );
+    const catalog = ReadyCatalog.parse(
+      await client
+        .rpc(mcpReadyRpc)
+        .ready({}, { location: { directory }, signal: controller.signal }),
+    );
     if (!catalog.tools.some((tool) => tool.name === aceReadinessTool && tool.description))
       throw new Error("OpenCode ace context tool is missing from its native catalog");
   } finally {

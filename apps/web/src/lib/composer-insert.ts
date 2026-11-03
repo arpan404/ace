@@ -41,6 +41,10 @@ export function receiveComposerText(threadId: string, receive: (text: string) =>
     if (textReceivers.get(threadId) === receive) textReceivers.delete(threadId);
   };
 }
+/** Whether the thread has a composer on screen to take words. */
+export function composerTakesText(threadId: string): boolean {
+  return textReceivers.has(threadId);
+}
 /** Put `text` in the thread's composer at the caret; false when no composer is mounted. */
 export function insertTextInComposer(threadId: string, text: string): boolean {
   const receive = textReceivers.get(threadId);
@@ -78,4 +82,22 @@ export function mentionTabInComposer(threadId: string, tab: ComposerTab): boolea
   if (!receive) return false;
   receive(tab);
   return true;
+}
+
+/**
+ * Words for a New thread started from a pull request or issue ("Fix with agent" on a PR no
+ * thread works on), keyed by the source's address. The page puts them in its draft once, and
+ * nothing is sent for the person.
+ */
+const newThreadTexts = new Map<string, string>();
+export function handTextToNewThread(source: string, text: string): void {
+  newThreadTexts.set(source, text);
+}
+/** The words handed to the New thread from `source`, still waiting for its draft. */
+export function handedNewThreadText(source: string | undefined): string | undefined {
+  return source === undefined ? undefined : newThreadTexts.get(source);
+}
+/** The draft has `text` now: a later visit to the same source starts from the draft alone. */
+export function forgetHandedNewThreadText(source: string, text: string): void {
+  if (newThreadTexts.get(source) === text) newThreadTexts.delete(source);
 }

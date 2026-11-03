@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "./diff-stat.tsx";
@@ -32,6 +33,11 @@ export function FileTree(props: {
   /** The file last jumped to. */
   current: string | undefined;
   viewed: ReadonlySet<string>;
+  /**
+   * Files whose Viewed mark can be set from the tree: each draws a box before its name that
+   * sets the mark. Without it, viewed files show a quiet check.
+   */
+  marks?: ReadonlyMap<string, TreeViewedMark | undefined> | undefined;
   comments: ReadonlyMap<string, number>;
   onJump(index: number): void;
   className?: string;
@@ -149,6 +155,8 @@ export function FileTree(props: {
                 tabbable={index === at}
                 current={row.kind === "file" && row.key === props.current}
                 viewed={row.kind === "file" && props.viewed.has(row.key)}
+                mark={row.kind === "file" ? props.marks?.get(row.key) : undefined}
+                boxes={!!props.marks}
                 comments={row.kind === "file" ? (props.comments.get(row.key) ?? 0) : 0}
                 onActivate={() => {
                   setFocused(index);
@@ -164,12 +172,22 @@ export function FileTree(props: {
   );
 }
 
+/** A file's Viewed mark as the tree sets it. */
+export interface TreeViewedMark {
+  checked: boolean;
+  disabled: boolean;
+  change(checked: boolean): void;
+}
+
 function TreeRowView(props: {
   row: TreeRow;
   index: number;
   tabbable: boolean;
   current: boolean;
   viewed: boolean;
+  mark: TreeViewedMark | undefined;
+  /** Files lead with a Viewed box (or its empty place, when a file has no mark yet). */
+  boxes: boolean;
   comments: number;
   onActivate(): void;
   onKeyDown(event: KeyboardEvent<HTMLElement>): void;
@@ -197,7 +215,18 @@ function TreeRowView(props: {
         props.current && "bg-accent text-foreground",
       )}
     >
-      <span className="grid w-3 shrink-0 place-items-center">
+      <span className="grid w-3.5 shrink-0 place-items-center">
+        {!folder && props.mark && (
+          <Checkbox
+            aria-label={`Mark ${row.key} viewed`}
+            tabIndex={-1}
+            checked={props.mark.checked}
+            disabled={props.mark.disabled}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onCheckedChange={(checked) => props.mark?.change(checked)}
+          />
+        )}
         {folder && (
           <CaretRightIcon
             aria-hidden
@@ -209,12 +238,21 @@ function TreeRowView(props: {
           />
         )}
       </span>
-      <Icon
-        icon={folder ? (row.open ? FolderOpenIcon : FolderIcon) : FileIcon}
-        size={14}
-        className="text-subtle-foreground"
-      />
-      <span className={cn("min-w-0 flex-1 truncate", !folder && "font-mono text-sm")}>
+      {/* With Viewed boxes, the box leads a file's row in place of the file glyph. */}
+      {(folder || !props.boxes) && (
+        <Icon
+          icon={folder ? (row.open ? FolderOpenIcon : FolderIcon) : FileIcon}
+          size={14}
+          className="text-subtle-foreground"
+        />
+      )}
+      <span
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          !folder && "font-mono text-sm",
+          props.boxes && props.viewed && !props.current && "text-subtle-foreground",
+        )}
+      >
         {row.name}
       </span>
       {props.comments > 0 && (
@@ -223,7 +261,7 @@ function TreeRowView(props: {
           {props.comments}
         </span>
       )}
-      {props.viewed && (
+      {props.viewed && !props.boxes && (
         <CheckIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />
       )}
       {row.kind === "file" && row.binary ? (

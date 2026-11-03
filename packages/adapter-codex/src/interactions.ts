@@ -6,6 +6,23 @@ import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
 import { toolDraft } from "./item.ts";
 import { mcpToolApproval } from "./mcp-approval.ts";
 
+const FileChanges = z
+  .array(
+    z
+      .object({
+        path: z.string().min(1).max(4096),
+        kind: z
+          .object({
+            type: z.enum(["add", "update"]),
+            move_path: z.string().min(1).max(4096).nullish(),
+          })
+          .passthrough(),
+      })
+      .passthrough(),
+  )
+  .min(1)
+  .max(128);
+
 export function openRequest(
   agent: string,
   key: string,
@@ -43,23 +60,7 @@ export function openRequest(
           kind: "approval" as const,
           title: str(p["command"], method),
           target: (() => {
-            const changes = z
-              .array(
-                z
-                  .object({
-                    path: z.string().min(1).max(4096),
-                    kind: z
-                      .object({
-                        type: z.enum(["add", "update"]),
-                        move_path: z.string().min(1).max(4096).nullish(),
-                      })
-                      .passthrough(),
-                  })
-                  .passthrough(),
-              )
-              .min(1)
-              .max(128)
-              .safeParse(nativeItem?.changes);
+            const changes = FileChanges.safeParse(nativeItem?.changes);
             if (
               method === "item/fileChange/requestApproval" &&
               (p["grantRoot"] === undefined || p["grantRoot"] === null) &&

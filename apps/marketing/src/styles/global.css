@@ -42,8 +42,6 @@
   /* The ASCII art's ink, as an RGB triplet the canvas reads. */
   --ascii-ink: 236 232 224;
   /* The surface behind product visuals, and the dots of its grid. */
-  --stage-bg: #141312;
-  --stage-dot: rgb(255 255 255 / 0.075);
 
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
@@ -88,8 +86,6 @@ html[data-theme="light"] {
   --shadow-deep: rgb(70 50 30 / 0.16);
   --button-glow: rgb(0 0 0 / 0.08);
   --ascii-ink: 60 50 40;
-  --stage-bg: #f6f3ef;
-  --stage-dot: rgb(40 30 20 / 0.12);
 }
 
 @media (min-width: 768px) {
@@ -333,91 +329,6 @@ code {
   height: 32px;
   padding-inline: 14px;
   font-size: 13px;
-}
-
-/* Status words and dots, by data-tone, matching the app. */
-[data-tone="working"] {
-  --tone: var(--status-working);
-}
-[data-tone="needs-you"] {
-  --tone: var(--status-needs-you);
-}
-[data-tone="waiting"] {
-  --tone: var(--status-waiting);
-}
-[data-tone="failed"] {
-  --tone: var(--status-failed);
-}
-[data-tone="done"] {
-  --tone: var(--status-done);
-}
-
-.status-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tone);
-  flex-shrink: 0;
-}
-
-.status-word {
-  color: var(--tone);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* A small floating piece of the app's UI, drawn in HTML on a Stage. */
-.panel {
-  width: 100%;
-  max-width: 420px;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid var(--border-strong);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: 0 30px 80px -30px var(--shadow-deep);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.panel-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 8px 14px;
-  border-top: 1px solid var(--border);
-}
-
-.panel-row:first-child {
-  border-top: 0;
-}
-
-.panel-label {
-  color: var(--subtle);
-  font-size: 12px;
-}
-
-.panel-mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.panel-quiet {
-  color: var(--muted);
-}
-
-.panel-end {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-}
-
-/* A word that acts like a button in the app: plain text, no chrome. */
-.panel-action {
-  color: var(--foreground);
-  font-weight: 500;
 }
 
 /* Anchored sections clear the sticky header. */

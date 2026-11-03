@@ -24,6 +24,7 @@ import {
   type CursorLimits,
 } from "./contracts.ts";
 
+const HostErrorBody = z.object({ message: z.string() });
 export interface HostOptions {
   outputFlow?: import("@ace/provider-kit/flow-control").OutputFlow;
   env: NodeJS.ProcessEnv;
@@ -118,7 +119,7 @@ export class CursorHost {
         throw new Error("SDK generation mismatch");
       await onFrame(frame, payload);
       if (frame.kind === "error") {
-        const error = z.object({ message: z.string() }).safeParse(frame.body);
+        const error = HostErrorBody.safeParse(frame.body);
         if (error.success)
           this.errorMessage = safeCursorErrorMessage(error.data.message, options.env);
       }

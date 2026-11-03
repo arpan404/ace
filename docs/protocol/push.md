@@ -1251,17 +1251,9 @@ Example:
   "requestId": "example",
   "result": {
     "data": {
-      "resource": "prReviewState",
-      "value": {
-        "canComment": true,
-        "canReview": false,
-        "drafts": [],
-        "headSha": "19d3187BAFDa5ca47EbF8d6dF002C14BBFB9e25FB0F759EDd",
-        "operations": [],
-        "resolvableThreads": [],
-        "viewed": [],
-        "viewer": "example"
-      }
+      "events": [],
+      "resource": "prActivity",
+      "truncated": false
     },
     "kind": "forge"
   },
@@ -3451,7 +3443,19 @@ Example:
 ```json
 {
   "commandId": "example",
+  "editor": {
+    "editor": {
+      "command": "example",
+      "id": "example",
+      "name": "example"
+    },
+    "path": "example"
+  },
   "error": "example",
+  "forgeLifecycle": {
+    "headSha": "DC55aD8A7Ea2FAC9cEF9d0C2e58CA1A37a61e15Ac7C03DA4F11A5FaEdBDef246",
+    "outcome": "head_changed"
+  },
   "inboxAction": {
     "action": "read",
     "error": "example",
@@ -3468,6 +3472,7 @@ Example:
     }
   },
   "ok": false,
+  "prExisting": true,
   "prStatus": {
     "checks": [],
     "ci": "success",
@@ -3482,10 +3487,11 @@ Example:
       "blockers": [],
       "canDequeue": false,
       "canDisable": false,
-      "canEnable": true,
+      "canEnable": false,
       "checksState": "example",
       "headSha": "D45e3B83B81C6b8FCaA2e5b5ae0cAfddb91a86660Dd9fAFCbc31ad1E2",
       "mergeState": "example",
+      "methods": [],
       "queue": null,
       "raw": null,
       "reviewDecision": "example",
@@ -3508,12 +3514,7 @@ Example:
     "title": "example",
     "url": "example"
   },
-  "remoteHead": "1a42e09b129c204c68fe3e58a74d37eb7f350e6244e62a1cf1de45708ac20a",
-  "stackOperation": {
-    "action": "push",
-    "message": "example",
-    "state": "aborted"
-  },
+  "remoteHead": "084c3d67ef3738ae7f7adbf059eae152ea0ec6d9603224ac1dd1b2c0",
   "terminalId": "example",
   "type": "commandResult",
   "workspace": {

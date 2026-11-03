@@ -6,7 +6,6 @@ import {
   ClockIcon,
   InfoIcon,
   MinusCircleIcon,
-  SparkleIcon,
   WarningIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -281,10 +280,12 @@ export function PrCheckDetail(props: {
             size="xs"
             variant="ghost"
             onClick={() =>
-              agent.ask(checkFixRequest(check, { number: pr.number, url: detail.status.url }, run))
+              agent.ask(
+                checkFixRequest(check, { number: pr.number, url: detail.status.url }, run),
+                `check:${check.id}`,
+              )
             }
           >
-            <SparkleIcon aria-hidden size={12} />
             Fix with agent
           </Button>
         )}

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
@@ -35,13 +34,6 @@ import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import {
-  ClientMessage,
-  BrowserClientMessage,
-  BrowserBackendClientMessage,
-  UserBrowserExtensionMessage,
-} from "@ace/protocol";
-import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
@@ -64,7 +56,7 @@ import { createAppUpdateSession } from "./app-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
-import type { SocketContext, SocketMessage } from "./socket.ts";
+import type { SocketContext } from "./socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 export const socketServiceFactories = [
   createCliControlSession,
@@ -146,41 +138,4 @@ export function createSocketRegistry() {
     createScreenSession(context, simulators),
     createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];
-}
-const socketSchemas = [
-  ClientMessage,
-  PluginClientMessage,
-  BrowserClientMessage,
-  BrowserBackendClientMessage,
-  UserBrowserExtensionMessage,
-] as const;
-
-/** True when the issues say the frame's `type` itself matched nothing, rather than a field of a known type. */
-function rejectsType(issues: readonly z.core.$ZodIssue[]): boolean {
-  return issues.some(
-    (issue) =>
-      (issue.path.length === 1 && issue.path[0] === "type") ||
-      (issue.code === "invalid_union" &&
-        issue.path.length === 0 &&
-        issue.errors.length > 0 &&
-        issue.errors.every(rejectsType)),
-  );
-}
-
-export type SocketFrame =
-  | { ok: true; message: SocketMessage }
-  | { ok: false; reason: "unknown_type" | "invalid" };
-
-/**
- * Parses one client frame. A frame whose `type` no schema knows (a retired or newer request) is
- * `unknown_type`; a known type with malformed fields is `invalid`.
- */
-export function readSocketFrame(input: unknown): SocketFrame {
-  let unknownType = true;
-  for (const schema of socketSchemas) {
-    const result = schema.safeParse(input);
-    if (result.success) return { ok: true, message: result.data };
-    if (!rejectsType(result.error.issues)) unknownType = false;
-  }
-  return { ok: false, reason: unknownType ? "unknown_type" : "invalid" };
 }
