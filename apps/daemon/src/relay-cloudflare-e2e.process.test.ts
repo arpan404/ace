@@ -221,9 +221,14 @@ it("a device on another account cannot reach the machine, and signing the machin
     (await accounts().grant(token, { kind: "device", subject }, signal())).token;
   const clientUrl = `${worker.relayUrl}/client?hostId=${hostId}`;
   expect(await relayUpgrade(clientUrl, await deviceGrant(other.token, "intruder"))).toMatchObject({
-    code: 1008,
+    code: 4403,
     reason: "Not your machine",
   });
+  // A stranger's app stops with the reason instead of retrying.
+  const intruder = pool(other.token, "intruder").openAccountMachine({ hostId, name: "Build box" });
+  await expect
+    .poll(() => intruder.get(), { timeout: 10_000 })
+    .toEqual({ kind: "failed", message: "This machine isn't on your ace account." });
 
   // The owner's own device gets through while the machine is signed in.
   const reached = await connectClientViaRelay({

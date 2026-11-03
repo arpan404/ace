@@ -1,6 +1,7 @@
 import { ClientMessage, ServerMessage } from "@ace/protocol";
 import { MAX_MESSAGE, NoiseXX, type HandshakeOptions, type Transport } from "@ace/secure-channel";
 import { inflate } from "./inflate.ts";
+import { RelayClosedError } from "./relay-closed.ts";
 import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 
 /** Browser and React Native socket boundary; no Node or ws dependency. */
@@ -9,7 +10,11 @@ export interface PortableSocket {
   readonly bufferedAmount: number;
   addEventListener(type: "open" | "error", listener: () => void): void;
   addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
-  addEventListener(type: "close", listener: () => void): void;
+  /** Sockets that know the close code pass it (a browser's CloseEvent does). */
+  addEventListener(
+    type: "close",
+    listener: (event?: { code?: number; reason?: string }) => void,
+  ): void;
   send(data: string | Uint8Array): void;
   close(): void;
 }
@@ -37,6 +42,7 @@ export interface PortableRelayOptions {
   signal?: AbortSignal;
 }
 const prologue = new TextEncoder().encode("ace daemon relay stream v1");
+
 const queueLimit = 1024 * 1024;
 const logicalLimit = 16 * 1024 * 1024;
 const rekeyInterval = 1 << 20;
@@ -78,7 +84,11 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
     socket.close();
   };
   socket.addEventListener("open", () => opened?.resolve());
-  socket.addEventListener("close", () => close());
+  socket.addEventListener("close", (event) =>
+    close(
+      event?.code === undefined ? undefined : new RelayClosedError(event.code, event.reason ?? ""),
+    ),
+  );
   socket.addEventListener("error", () => close(new Error("Relay socket failed")));
   socket.addEventListener("message", ({ data }) => {
     if (error) return;

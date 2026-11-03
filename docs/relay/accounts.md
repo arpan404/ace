@@ -130,7 +130,7 @@ A grant's `kind` is `machine` (subject: the daemon's host id) or `device`
 | Accounts not configured                      | HTTP 503                                    |
 | No grant, bad signature, expired, wrong kind | HTTP 401: fetch a new grant                 |
 | `/host` machine grant for another host id    | HTTP 403                                    |
-| `/client` to a host on another account       | Upgrade, then close 1008 `Not your machine` |
+| `/client` to a host on another account       | Upgrade, then close 4403 `Not your machine` |
 | `/client` to a host not connected            | Upgrade, then close 1008 `Host unavailable` |
 
 A daemon passes `account: { grant, name, platform }` to `connectHostToRelay`;

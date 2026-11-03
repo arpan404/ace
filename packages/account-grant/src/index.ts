@@ -11,6 +11,11 @@ export const GRANT_LIFETIME_MS = 5 * 60_000;
 export const GRANT_SKEW_MS = 60_000;
 /** Grants reach the relay as a WebSocket subprotocol: `ace.grant.<token>`. */
 export const GRANT_SUBPROTOCOL_PREFIX = "ace.grant.";
+/**
+ * The hosted relay's close code for a device whose account doesn't own the machine. Final: no
+ * retry or new grant changes it. A machine that is merely offline closes with 1008 instead.
+ */
+export const NOT_YOUR_MACHINE_CLOSE = 4403;
 
 const KeyId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const Base64url32 = z.string().regex(/^[A-Za-z0-9_-]{43}$/);

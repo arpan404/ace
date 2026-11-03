@@ -212,8 +212,9 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        // 1008: the relay refused this device for this machine (another account, or gone).
-        finish(closeCode.rawValue == 1008 ? 4003 : closeCode.rawValue)
+        // 4403 (the machine is on another account) reaches the client as is, which reads it as
+        // final. 1008 means the machine isn't connected right now: a drop to retry.
+        finish(closeCode.rawValue == 1008 ? 1006 : closeCode.rawValue)
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard error != nil else { return }

@@ -92,7 +92,7 @@ it("a device on another account is told the machine is not theirs", async () => 
   const { connection, client } = await host({ account: "user_a" });
   const url = address(worker.relayUrl, "/client", { hostId: connection.hostId });
   expect(await upgrade(url, deviceProtocol("user_b"))).toMatchObject({
-    code: 1008,
+    code: 4403,
     reason: "Not your machine",
   });
   await expect(client(mint("device", "user_b", "phone"))).rejects.toThrow();

@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
 import { NoiseXX, hostId as hostIdOf, keyPair } from "@ace/secure-channel";
 import {
   CONTROL_PROLOGUE,
@@ -80,7 +81,7 @@ export class RelayObject extends DurableObject<Env> {
       if (!account) return refuseUpgrade(1008, "Account required", protocol);
       const owner = hostAccount(this.#allAttachments(), hostId);
       if (owner !== undefined && owner !== account)
-        return refuseUpgrade(1008, "Not your machine", protocol);
+        return refuseUpgrade(NOT_YOUR_MACHINE_CLOSE, "Not your machine", protocol);
       const ticket = randomTicket();
       const actions = routes.request(id, hostId, ticket, now);
       const refusal = this.#refusal(actions, id, protocol);

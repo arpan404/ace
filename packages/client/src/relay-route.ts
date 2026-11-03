@@ -3,6 +3,8 @@ import { relayGrant, type Credential } from "./credentials.ts";
 import { ephemeralRelayKeys } from "./device-route.ts";
 import { relayCompression } from "./inflate.ts";
 import { AceAccountError } from "./ace-account.ts";
+import { NOT_YOUR_MACHINE_CLOSE } from "@ace/account-grant";
+import { RelayClosedError } from "./relay-closed.ts";
 import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import { ClientError, type Transport } from "./types.ts";
 
@@ -141,7 +143,12 @@ export function relayRoute(options: RelayRouteOptions): {
               }
               events.message(frame);
             }
-          })().catch(() => ended(1006, "Relay channel closed"));
+          })().catch((error: unknown) =>
+            // The relay's own "not your machine" is final; anything else is a drop to retry.
+            error instanceof RelayClosedError && error.code === NOT_YOUR_MACHINE_CLOSE
+              ? ended(NOT_YOUR_MACHINE_CLOSE, error.message)
+              : ended(1006, "Relay channel closed"),
+          );
         },
         send(text) {
           const current = relay;

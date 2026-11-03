@@ -204,7 +204,9 @@ export class Connection {
       this.fail(
         code === 4011
           ? new ClientError("machine_code", reason)
-          : new ClientError(code === 4002 ? "protocol" : "auth"),
+          : code === 4403
+            ? new ClientError("auth", "This machine isn't on your ace account.")
+            : new ClientError(code === 4002 ? "protocol" : "auth"),
       );
       return;
     }
