@@ -11,6 +11,7 @@ import { PrAvatar } from "./pr-presentation.tsx";
 import { appendTo } from "./pr-quote.tsx";
 import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useEdit, useFocusAsk } from "./pr-ui-store.tsx";
+import { OwnWriteNote, useOwnWrite } from "./pr-own-write.tsx";
 
 /** The review anchor for `range` of `path` at `headSha` (the shared rule). */
 export const anchorOf = lineRangeAnchor;
@@ -24,8 +25,13 @@ export const anchorOf = lineRangeAnchor;
  */
 export function PrLineComposer(props: {
   path: string;
-  /** GitHub's patch for the file; a comment can only sit on lines it holds. */
-  patch: string | null;
+  /**
+   * GitHub's patch of the file across All commits; a comment can only sit on lines it holds.
+   * Undefined when it isn't read (a commit view opened first): GitHub checks it then.
+   */
+  patch: string | null | undefined;
+  /** Shown on one commit or a span: the old side is the commit before, not the base. */
+  commitView?: boolean | undefined;
   diff: FileDiff;
   range: LineRange;
   headSha: string;
@@ -42,24 +48,27 @@ export function PrLineComposer(props: {
   useFocusAsk(`line:${props.path}`, box);
   const pending = review?.state?.drafts.length ?? 0;
   const anchor = anchorOf(props.path, range, props.headSha);
+  const oldSide = !!props.commitView && range.side === "old";
   // Lines read from the whole file (an opened fold) aren't in GitHub's patch: it refuses them.
-  const placeable = props.patch !== null && validHostedAnchor(props.patch, anchor);
+  const placeable =
+    !oldSide &&
+    (props.patch === undefined ||
+      (props.patch !== null && validHostedAnchor(props.patch, anchor)));
   const locked = !!review?.commentsLocked;
-  const disabled = !review?.ready || review.pending || !draft.text.trim() || !placeable || locked;
+  const own = useOwnWrite();
+  const disabled = !review?.ready || own.saving || !draft.text.trim() || !placeable || locked;
   const done = (body: string) => (ok: boolean) => {
     if (ok && draft.clear(body)) props.onClose();
   };
   const single = () => {
     const body = draft.text;
-    if (disabled || !review) return;
-    void review
-      .run({ kind: "line.comment", headSha: props.headSha, anchor, body })
-      .then(done(body));
+    if (disabled) return;
+    void own.send({ kind: "line.comment", headSha: props.headSha, anchor, body }).then(done(body));
   };
   const save = () => {
     const body = draft.text;
-    if (disabled || !review) return;
-    void review.run({ kind: "draft.save", draft: { id, anchor, body } }).then(done(body));
+    if (disabled) return;
+    void own.send({ kind: "draft.save", draft: { id, anchor, body } }).then(done(body));
   };
   const cancel = () => {
     draft.clear();
@@ -92,7 +101,9 @@ export function PrLineComposer(props: {
       )}
       {!locked && !placeable && (
         <p role="status" className="text-xs text-muted-foreground">
-          {props.patch === null
+          {oldSide
+            ? "In a commit view the old side is the commit before. Comment on the new side's lines."
+            : props.patch === null
             ? "GitHub didn't send this file's changes, so it can't take a comment on its lines."
             : "GitHub takes comments only on lines in its diff. Pick lines inside one change."}
         </p>
@@ -121,6 +132,7 @@ export function PrLineComposer(props: {
             Suggest changes
           </Button>
         )}
+        <OwnWriteNote status={own.status} className="ml-auto" />
         <span className="ml-auto flex flex-wrap justify-end gap-2">
           <Button type="button" variant="ghost" onClick={cancel}>
             Cancel
@@ -150,12 +162,13 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
   const box = useRef<HTMLDivElement>(null);
   const askFocus = useFocusAsk(`edit:draft:${draft.id}`, box);
   const [open, setOpen] = useState(false);
-  const disabled = !review?.ready || review.pending;
+  const own = useOwnWrite();
+  const disabled = !review?.ready || own.saving;
   const save = () => {
-    if (!stored || !stored.body.trim() || disabled || !review) return;
+    if (!stored || !stored.body.trim() || disabled) return;
     const sent = stored;
-    void review
-      .run({ kind: "draft.save", draft: { ...draft, body: sent.body } })
+    void own
+      .send({ kind: "draft.save", draft: { ...draft, body: sent.body } })
       // Text changed while it saved stays open to save again.
       .then((ok) => ok && clearIf(sent));
   };
@@ -164,7 +177,9 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
       <p className="flex min-h-6 items-center gap-1.5 text-ui text-muted-foreground">
         <PrAvatar name={review?.state?.viewer ?? ""} />
         <span className="font-medium text-foreground">{review?.state?.viewer}</span>
-        <span className="text-xs text-status-needs-you">Pending</span>
+        <span className="text-xs text-subtle-foreground">
+          {own.saving ? "Pending in your review · saving…" : "Pending in your review · saved"}
+        </span>
         <span className="ml-auto flex gap-1">
           {edit === undefined && (
             <Button
@@ -184,12 +199,15 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
             variant="ghost"
             tone="danger"
             disabled={disabled}
-            onClick={() => void review?.run({ kind: "draft.delete", id: draft.id })}
+            onClick={() => void own.send({ kind: "draft.delete", id: draft.id })}
           >
             Remove
           </Button>
         </span>
       </p>
+      {own.status?.state === "failed" && (
+        <OwnWriteNote status={own.status} className="pl-[26px]" />
+      )}
       {edit === undefined ? (
         <div className="pl-[26px]">
           <PrClampedText text={draft.body} open={open} onToggle={() => setOpen(!open)} />

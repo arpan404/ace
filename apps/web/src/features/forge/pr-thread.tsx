@@ -10,6 +10,7 @@ import { plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
 import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
+import { OwnWriteNote, useOwnWrite } from "./pr-own-write.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
@@ -71,9 +72,10 @@ export function PrReplyField(props: {
     },
     place === "thread",
   );
+  const own = useOwnWrite();
   const canComment = !!review?.state?.canComment;
   const locked = !!review?.commentsLocked;
-  const disabled = !review?.ready || review.pending || !canComment || locked;
+  const disabled = !review?.ready || own.saving || !canComment || locked;
   if (!review?.state || (!canComment && !locked)) return null;
   // Under a locked conversation the reply line stays, off, with GitHub's reason.
   if (locked && !typed)
@@ -92,7 +94,7 @@ export function PrReplyField(props: {
   const send = () => {
     const body = draft.text;
     if (disabled || !body.trim()) return;
-    void review.run({ kind: "reply", commentId: props.rootCommentId, body }).then((ok) => {
+    void own.send({ kind: "reply", commentId: props.rootCommentId, body }).then((ok) => {
       if (ok && draft.clear(body)) close();
     });
   };
@@ -128,7 +130,8 @@ export function PrReplyField(props: {
           {lockedText}
         </p>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="flex items-center justify-end gap-2">
+        <OwnWriteNote status={own.status} saving="Posting…" className="mr-auto" />
         <Button
           variant="ghost"
           onClick={() => {
@@ -149,22 +152,26 @@ export function PrReplyField(props: {
 /** Resolve or unresolve a review thread, where GitHub lets the viewer. */
 export function PrResolveButton(props: { thread: ReviewThread }) {
   const review = usePrReview();
+  const own = useOwnWrite();
   if (!review?.state?.resolvableThreads.includes(props.thread.id)) return null;
   const { thread } = props;
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      disabled={!review.ready || review.pending}
-      onClick={() =>
-        void review.run({
-          kind: thread.resolved ? "thread.unresolve" : "thread.resolve",
-          threadId: thread.id,
-        })
-      }
-    >
-      {thread.resolved ? "Unresolve conversation" : "Resolve conversation"}
-    </Button>
+    <>
+      {own.status?.state === "failed" && <OwnWriteNote status={own.status} />}
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={!review.ready || own.saving}
+        onClick={() =>
+          void own.send({
+            kind: thread.resolved ? "thread.unresolve" : "thread.resolve",
+            threadId: thread.id,
+          })
+        }
+      >
+        {thread.resolved ? "Unresolve conversation" : "Resolve conversation"}
+      </Button>
+    </>
   );
 }
 

@@ -107,7 +107,9 @@ test("every page of changed files joins one scroll without paging buttons", asyn
   expect(await within(diff).findByText("one")).toBeTruthy();
   expect(await within(diff).findByText("two")).toBeTruthy();
   expect(within(diff).queryByRole("button", { name: /Next files|Previous files/ })).toBeNull();
-  expect(within(diff).getByText("2 files")).toBeTruthy();
+  expect(
+    within(screen.getByRole("toolbar", { name: "Diff controls" })).getByText("2 files"),
+  ).toBeTruthy();
 });
 
 test("a page that fails to load offers an inline retry that resumes the scroll", async () => {
@@ -366,7 +368,7 @@ test("in split view a comment on the old side of an unchanged line sits in the l
   const shown = { ...detail, status: { ...detail.status, reviewThreads: [leftThread] } };
   await mount(app, reviewed(shown));
   await screen.findByText("Note 6");
-  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  await userEvent.click(screen.getByRole("button", { name: "Split" }));
   const before = await screen.findByRole("region", { name: "src/first.ts before" });
   const after = screen.getByRole("region", { name: "src/first.ts after" });
   expect(within(before).getByText("Note 6")).toBeTruthy();
@@ -433,13 +435,13 @@ test("a pick on the old side in split view keeps its place in unified view, in a
   serveReview(app);
   await mount(app, reviewed(detail));
   await screen.findByText("changed 16");
-  await userEvent.click(screen.getByRole("button", { name: "Split diff" }));
+  await userEvent.click(screen.getByRole("button", { name: "Split" }));
   await userEvent.click(
     (await screen.findAllByRole("button", { name: /\d+ unchanged lines/ }))[0]!,
   );
   await pickLine("Comment on old line 2");
   await screen.findByText("Commenting on old line 2");
-  await userEvent.click(screen.getByRole("button", { name: "Stacked diff" }));
+  await userEvent.click(screen.getByRole("button", { name: "Unified" }));
   await screen.findByText("Commenting on old line 2");
   expect(screen.getByRole("textbox", { name: "Line comment" })).toBeTruthy();
 });

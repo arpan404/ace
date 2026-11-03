@@ -7,6 +7,35 @@ import { joinFilePages } from "./pr-code-model.ts";
 import { readForge } from "@/lib/forge-read.ts";
 import { prContentStaleMs } from "@/lib/forge-pr-detail.ts";
 
+/** The cache key of a range's file pages; All commits is `commit` "". */
+function filePagesKey(workspaceId: string, detail: ForgePrDetail, commit: string, since?: string) {
+  return [
+    "forge",
+    workspaceId,
+    detail.status.ref,
+    "file-pages",
+    detail.baseSha,
+    detail.status.headSha,
+    since ? `${since}..${commit}` : commit,
+  ];
+}
+
+/**
+ * GitHub's patch of a file across All commits, from the pages already read: a comment made
+ * in a commit view must sit on lines of this patch. Undefined while those pages aren't read.
+ */
+export function usePrPatchOf(workspaceId: string, detail: ForgePrDetail) {
+  const cache = useQueryClient();
+  return (path: string): string | null | undefined => {
+    const data = cache.getQueryData<{ pages: ForgePrFiles[] }>(filePagesKey(workspaceId, detail, ""));
+    for (const page of data?.pages ?? []) {
+      const file = page.files.find((each) => each.path === path);
+      if (file) return file.truncated ? null : file.patch;
+    }
+    return undefined;
+  };
+}
+
 /**
  * A pull request's changed files (all commits, or one commit against its parent), read page by
  * page as the person scrolls. Like every daemon read it waits for a ready connection and reads
@@ -17,20 +46,14 @@ export function usePrFilePages(props: {
   repository: ForgeRepository;
   detail: ForgePrDetail;
   commit: string;
+  /** With `commit`: the commits after this one, through `commit`. */
+  since?: string | undefined;
 }) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const cache = useQueryClient();
   const ref = props.detail.status.ref;
-  const queryKey = [
-    "forge",
-    props.workspaceId,
-    ref,
-    "file-pages",
-    props.detail.baseSha,
-    props.detail.status.headSha,
-    props.commit,
-  ];
+  const queryKey = filePagesKey(props.workspaceId, props.detail, props.commit, props.since);
   const query = useInfiniteQuery({
     queryKey,
     meta: { daemonClient: client },
@@ -52,6 +75,7 @@ export function usePrFilePages(props: {
           baseSha: props.detail.baseSha,
           page: pageParam,
           ...(props.commit ? { commit: props.commit } : {}),
+          ...(props.commit && props.since ? { since: props.since } : {}),
         },
         signal,
       );

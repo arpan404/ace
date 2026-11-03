@@ -20,7 +20,10 @@ const verdicts: readonly { value: Verdict; label: string }[] = [
  * opens the review: a summary, Comment / Approve / Request changes, the pending line comments
  * (each removable), and Submit review, which sends them all as one review.
  */
-export function PrReviewButton() {
+export function PrReviewButton(props: {
+  /** In the Code tab's bar: "Finish review · N", the main action while comments wait. */
+  finish?: boolean | undefined;
+}) {
   const review = usePrReview();
   const [open, setOpen] = useState(false);
   const [verdict, setVerdict] = useState<Verdict>("COMMENT");
@@ -58,16 +61,30 @@ export function PrReviewButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={<Button variant="secondary" />}
-        aria-label={drafts.length ? `Review · ${drafts.length} pending` : undefined}
+        render={
+          <Button
+            variant={props.finish && drafts.length ? "primary" : "secondary"}
+            size={props.finish ? "sm" : "default"}
+          />
+        }
+        aria-label={
+          drafts.length
+            ? `${props.finish ? "Finish review" : "Review"} · ${drafts.length} pending`
+            : undefined
+        }
       >
-        Review
+        {props.finish && drafts.length ? "Finish review" : "Review"}
         {drafts.length > 0 && " "}
         {drafts.length > 0 && (
-          <span className="font-normal text-muted-foreground tabular-nums">
+          <span
+            className={cn(
+              "font-normal tabular-nums",
+              props.finish ? "opacity-80" : "text-muted-foreground",
+            )}
+          >
             {/* A narrow page keeps the count and drops the word; the label still says it. */}
             {`· ${drafts.length}`}
-            <span className="@max-[30rem]/pr:hidden"> pending</span>
+            {!props.finish && <span className="@max-[30rem]/pr:hidden"> pending</span>}
           </span>
         )}
       </PopoverTrigger>
