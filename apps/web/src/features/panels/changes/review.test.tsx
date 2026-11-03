@@ -34,9 +34,14 @@ async function openChanges() {
   return { app, panel, replay, remote };
 }
 
-/** Two new-side lines next to each other in the file's diff: their code cells. */
+/**
+ * Two new-side lines next to each other in the file's diff: their code cells, the ones holding
+ * the line's comment button (a line's number can be picked too, so it carries the same marks).
+ */
 function adjacentNewLines(block: HTMLElement): [HTMLElement, HTMLElement, number] {
-  const cells = [...block.querySelectorAll<HTMLElement>('[data-side="new"][data-line]')];
+  const cells = [...block.querySelectorAll<HTMLElement>('[data-side="new"][data-line]')].filter(
+    (cell) => cell.querySelector('button[aria-label^="Comment on"]'),
+  );
   for (const cell of cells) {
     const line = Number(cell.dataset.line);
     const next = cells.find((other) => Number(other.dataset.line) === line + 1);
