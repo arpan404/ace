@@ -41,10 +41,14 @@ export function ThreadLoadError(props: { error: unknown }) {
         description={failure.description}
         actions={
           <>
-            <Link to="/new" search={machine} className={buttonVariants({ variant: "primary" })}>
+            <Link
+              to="/new"
+              search={machine}
+              className={buttonVariants({ size: "sm", variant: "primary" })}
+            >
               New thread
             </Link>
-            <Link to="/" className={buttonVariants()}>
+            <Link to="/" className={buttonVariants({ size: "sm" })}>
               Back to Home
             </Link>
           </>

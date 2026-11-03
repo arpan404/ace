@@ -43,6 +43,7 @@ export function UnavailablePreparation(props: {
             <>
               <Button
                 type="button"
+                size="sm"
                 variant="primary"
                 onClick={() => projects.open({ kind: "add", tab: "sources" })}
               >
@@ -50,6 +51,7 @@ export function UnavailablePreparation(props: {
               </Button>
               <Button
                 type="button"
+                size="sm"
                 onClick={() =>
                   void navigate({
                     to: "/new",
@@ -75,7 +77,7 @@ export function UnavailablePreparation(props: {
               {content?.text && (
                 <pre
                   aria-label="Saved message"
-                  className="mt-3 max-h-72 overflow-y-auto border-l-2 border-border pl-3 font-sans text-ui leading-relaxed whitespace-pre-wrap text-foreground"
+                  className="mt-2 max-h-72 overflow-y-auto border-l-2 border-border pl-3 text-left font-sans text-ui leading-normal whitespace-pre-wrap text-foreground"
                 >
                   {content.text}
                 </pre>
@@ -83,7 +85,7 @@ export function UnavailablePreparation(props: {
               {!!content?.attachments.length && (
                 <ul
                   aria-label="Saved attachments"
-                  className="mt-3 space-y-1 text-sm text-muted-foreground"
+                  className="mt-2 space-y-0.5 pl-3.5 text-left text-sm text-muted-foreground"
                 >
                   {content.attachments.map((file) => (
                     <li key={`${file.sha256}:${file.name}`} className="truncate">
