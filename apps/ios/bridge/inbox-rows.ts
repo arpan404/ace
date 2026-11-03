@@ -113,7 +113,7 @@ function tabsOf(sections: readonly { key: string; keys: readonly string[] }[]) {
   return tabs;
 }
 
-/** The phone's fourth tab beside Inbox, Snoozed and Settled: the chats, where compose starts a chat. */
+/** The phone's tab after the Inbox, before Snoozed and Settled: the chats, where compose starts a chat. */
 const chatsTab = {
   id: "chats",
   label: "Chats",
@@ -142,19 +142,20 @@ export function inboxLayout(
     /**
      * Each tab's words, in order: its label, whether its count shows (Inbox and Snoozed, as
      * DESIGN.md has it), what it says while empty and what the compose button starts there.
-     * The lists are `tabs`, as placed; Chats, last, lists the chats layout instead.
+     * The lists are `tabs`, as placed; Chats, second, lists the chats layout instead.
      */
-    tabWords: [
-      ...threadsTabs.map(({ id, label }) => ({
+    tabWords: threadsTabs.flatMap(({ id, label }) => {
+      const words = {
         id,
         label,
         counted: id !== "settled",
         empty: emptyTabTitle(id, undefined, false),
         emptyLine: id === "inbox" ? emptyInboxLine : null,
         compose: "thread" as const,
-      })),
-      chatsTab,
-    ],
+      };
+      // Chats sits second, right after the Inbox.
+      return id === "inbox" ? [words, chatsTab] : [words];
+    }),
     ...(options.attention ? { attention: options.attention } : {}),
     sections: sections.map((section) => ({
       key: section.key,
