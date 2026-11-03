@@ -27,7 +27,7 @@ export function HoverStatus(props: {
   const { card, attention } = props;
   const { level } = attention;
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
-  if (card.woke && level !== "needs-you" && level !== "failed") return <RowWoke woke={card.woke} />;
+  if (card.woke) return <RowWoke woke={card.woke} />;
   const line = hoverStatusLine({ attention, card, fact: threadLiveFact(props.entry) });
   if (!line.sentence) return null;
   return (

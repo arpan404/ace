@@ -57,6 +57,8 @@ struct RowStatusIcon: View {
         case "limited": "gauge.with.dots.needle.33percent"
         case "background": "apple.terminal.fill"
         case "done": "checkmark.circle.fill"
+        // Back from a snooze that ended by itself, until read.
+        case "woke": "alarm.fill"
         default: nil
         }
     }
@@ -69,6 +71,7 @@ struct RowStatusIcon: View {
         case "waiting": AceTheme.RowStatus.waiting
         case "background": AceTheme.RowStatus.background
         case "finished": AceTheme.RowStatus.finished
+        case "woke": AceTheme.Colours.foreground
         // A usage limit and a seen failure take the quiet muted ink.
         default: AceTheme.Colours.mutedForeground
         }

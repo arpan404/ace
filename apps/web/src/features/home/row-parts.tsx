@@ -162,8 +162,8 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const { level } = props.attention;
   // A snoozed row says what it waits for where its status sits, unless it needs the person.
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
-  // Back from a snooze, until read: the alarm and why, unless it needs the person or failed.
-  if (card.woke && level !== "needs-you" && level !== "failed") return <RowWoke woke={card.woke} />;
+  // Back from a snooze, until read: the alarm and why (the card leaves it out when more urgent).
+  if (card.woke) return <RowWoke woke={card.woke} />;
   const look = rowStatusLook(props.attention, card);
   return (
     <Tip label={look.meaning}>

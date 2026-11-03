@@ -36,6 +36,11 @@ test("a running thread's own status outranks why it woke", () => {
   expect(card(back({}, { state: "working", agents: 1 })).woke).toBeUndefined();
 });
 
+test("a recovery to act on outranks why it woke, on the row and its hover card", () => {
+  const queue = { revision: 2, paused: true, reason: "uncertain", resumeAt: null, pendingCount: 1 };
+  expect(card(back({ queue })).woke).toBeUndefined();
+});
+
 test("snoozed again or settled, a thread no longer says it is back", () => {
   expect(card(back({ snoozedUntil: now + hour })).woke).toBeUndefined();
   expect(card(back({ settledAt: now - minute, settledReason: "manual" })).woke).toBeUndefined();

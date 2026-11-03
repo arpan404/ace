@@ -151,8 +151,8 @@ export interface ThreadCard {
   wake: string | undefined;
   /**
    * Back from a snooze that ended by itself, until the person reads it (`backFromSnooze`): the
-   * row's few words ("checks failed") and the whole sentence for its tooltip. Absent while the
-   * tree works, whose own status says more.
+   * row's few words ("checks failed") and the whole sentence for its tooltip. Absent while
+   * anything says more: work under way, a recovery, a request or a fresh failure.
    */
   woke: { short: string; sentence: string } | undefined;
   machine: string | undefined;
@@ -352,6 +352,21 @@ function currentCard(input: ThreadCardInput): ThreadCard {
         ? { label: liveStatusText(live), tone: live.tone }
         : threadStatusLabel(entry.status));
   const compact = recovery?.label ?? compactStatus(entry, fact, tree, now, input.locale);
+  const attention = rowAttention({
+    tone,
+    word: compact,
+    unread,
+    settled: input.settled,
+    recovery: recovery !== undefined,
+  });
+  // Why it woke only while nothing says more: no running tree or live work, no recovery to act
+  // on, nothing that needs the person or just failed.
+  const quiet =
+    !working &&
+    !live &&
+    !recovery &&
+    attention.level !== "needs-you" &&
+    attention.level !== "failed";
   return {
     id: entry.id,
     title: entry.title,
@@ -359,13 +374,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     badge: projectBadge({ id: entry.workspaceId, name: input.projectName ?? entry.workspaceId }),
     age: formatAge(activityOf(entry), now),
     flags,
-    attention: rowAttention({
-      tone,
-      word: compact,
-      unread,
-      settled: input.settled,
-      recovery: recovery !== undefined,
-    }),
+    attention,
     pill: input.settled
       ? undefined
       : recovery
@@ -391,7 +400,7 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     prs: details?.prs,
     announceUnread: unread && !needsYou,
     wake: snoozed ? snoozeLabel(entry, now, input.locale) : undefined,
-    woke: working ? undefined : wokeWords(backFromSnooze(entry, now)),
+    woke: quiet ? wokeWords(backFromSnooze(entry, now)) : undefined,
     machine: details?.machine,
     machineIcon: details?.machineIcon,
     branch: details?.branch

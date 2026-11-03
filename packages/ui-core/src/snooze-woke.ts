@@ -48,7 +48,7 @@ export function wokeShort(woke: SnoozeWoke): string {
         checks_passed: "checks passed",
         checks_failed: "checks failed",
         pushed: "new commits",
-        activity: "new comment or review",
+        updated: `#${woke.number} updated`,
         unlinked: `#${woke.number} unlinked`,
       }[woke.change];
   }
@@ -75,7 +75,7 @@ export function wokeSentence(woke: SnoozeWoke): string {
         checks_passed: `Back from snooze: checks passed on ${pr}`,
         checks_failed: `Back from snooze: checks failed on ${pr}`,
         pushed: `Back from snooze: new commits on ${pr}`,
-        activity: `Back from snooze: a new comment or review on ${pr}`,
+        updated: `Back from snooze: ${pr} was updated`,
         unlinked: `Back from snooze: ${pr} was unlinked`,
       }[woke.change];
     }

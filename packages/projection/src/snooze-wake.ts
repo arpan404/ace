@@ -1,4 +1,10 @@
-import type { LinkedPullRequest, SnoozedPullRequest, SnoozeWake, Thread } from "@ace/protocol";
+import type {
+  LinkedPullRequest,
+  SnoozedPullRequest,
+  SnoozeWake,
+  SnoozeWoke,
+  Thread,
+} from "@ace/protocol";
 import { threadAttention } from "./thread-attention.ts";
 
 /*
@@ -39,14 +45,28 @@ export function snoozedPullRequests(details: Thread["details"]): SnoozedPullRequ
     });
 }
 
-/** One pull request moved on since the snooze: a review, comment, push, state or checks finishing. */
-function prChanged(before: SnoozedPullRequest, now: SnoozedPullRequest): boolean {
-  return (
-    now.updatedAt > before.updatedAt ||
-    now.state !== before.state ||
-    (before.head !== undefined && now.head !== undefined && now.head !== before.head) ||
-    (before.checks === "pending" && now.checks !== undefined && now.checks !== "pending")
-  );
+/** What moved on one pull request since the snooze, as the wake names it. */
+export type PrChange = Extract<SnoozeWoke, { on: "pr" }>["change"];
+
+/**
+ * What moved on one pull request since the snooze, the most telling first: a merge or close, a
+ * reopen, checks finishing, a push, else any other update (a review, comment, title, draft
+ * state). Undefined while nothing moved.
+ */
+export function prChange(
+  before: SnoozedPullRequest,
+  now: SnoozedPullRequest | undefined,
+): PrChange | undefined {
+  if (now === undefined) return "unlinked";
+  if (now.state !== before.state && (now.state === "merged" || now.state === "closed"))
+    return now.state;
+  if (now.state !== before.state && before.state === "closed") return "reopened";
+  if (before.checks === "pending" && now.checks === "failed") return "checks_failed";
+  if (before.checks === "pending" && now.checks === "passed") return "checks_passed";
+  if (before.head !== undefined && now.head !== undefined && now.head !== before.head)
+    return "pushed";
+  if (now.updatedAt > before.updatedAt || now.state !== before.state) return "updated";
+  return undefined;
 }
 
 /** Whether the event the snooze waits for has happened. False for a snooze to a time. */
@@ -56,10 +76,7 @@ export function snoozeWakeDue(thread: WakeFacts): boolean {
   if (wake.on === "needs_you") return !threadLive(thread);
   const now = new Map(snoozedPullRequests(thread.details).map((pr) => [pr.pr, pr]));
   // A PR unlinked since the snooze is a change too; one linked since isn't watched.
-  return wake.prs.some((before) => {
-    const current = now.get(before.pr);
-    return current === undefined || prChanged(before, current);
-  });
+  return wake.prs.some((before) => prChange(before, now.get(before.pr)) !== undefined);
 }
 
 /**

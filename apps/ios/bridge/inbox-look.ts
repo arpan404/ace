@@ -28,9 +28,10 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
   // The desktop row's status mark (`rowStatusLook`): one icon in its state's colour, with the
   // live elapsed time for work under way, the age at rest, or a quiet word while syncing.
   const status = rowStatusLook(card.attention, card);
+  // Back from a snooze, until read: the alarm with why it woke, as the desktop row shows it.
+  const woke = card.woke;
   return {
     level,
-    word: word ?? null,
     tone,
     muted,
     glyph: word === undefined || bare ? null : threadGlyph({ tone, mark: card.status.mark }),
@@ -41,14 +42,16 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     /** A finished result not yet opened, or marked unread by hand. */
     unread: card.flags.unread,
     /** The status icon (`RowStatusIconKind`, or `none`) and the colour it draws in. */
-    icon: status.icon,
-    iconTone: status.tone,
+    icon: woke ? "woke" : status.icon,
+    iconTone: woke ? "woke" : status.tone,
     /** How many agents an `agents` icon waits on. */
     count: status.count ?? null,
     /** Beside the icon: the live elapsed time, the age, a quiet word, or nothing. */
-    mode: status.mode,
+    mode: woke ? "word" : status.mode,
+    /** The quiet word beside the icon when `mode` is "word": "Syncing", or why it woke. */
+    word: woke ? woke.short : (word ?? null),
     /** The state in a few words ("Needs approval"), for VoiceOver. */
-    meaning: status.meaning,
+    meaning: woke ? woke.sentence : status.meaning,
     /** Only a thread that needs the person sets its title in semibold. */
     strong: level === "needs-you",
   };

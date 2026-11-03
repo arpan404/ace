@@ -76,12 +76,18 @@ test.each<[string, Partial<LinkedPullRequest> | undefined, string]>([
   ["checks passing", { checks: "passed" }, "checks_passed"],
   ["a push", { head: "b".repeat(40), updatedAt: 200 }, "pushed"],
   ["a merge", { state: "merged", updatedAt: 200 }, "merged"],
-  ["a review or comment", { updatedAt: 200 }, "activity"],
+  ["a review or comment", { updatedAt: 200 }, "updated"],
   ["the PR being unlinked", undefined, "unlinked"],
 ])("until the PR changes ends naming %s on the PR", (_name, change, expected) => {
   const snoozed = snooze(thread({ details: { linkedPrs: [linked()] } }), "pr");
   const moved = { ...snoozed, details: { linkedPrs: change ? [linked(change)] : [] } };
   expect(wokeAt(moved, at + 1)).toEqual({ on: "pr", at: at + 1, number: 1477, change: expected });
+});
+
+test("a draft marked ready wakes saying the PR was updated, never claiming a review", () => {
+  const snoozed = snooze(thread({ details: { linkedPrs: [linked({ state: "draft" })] } }), "pr");
+  const ready = { ...snoozed, details: { linkedPrs: [linked({ state: "open" })] } };
+  expect(wokeAt(ready, at + 1)).toMatchObject({ on: "pr", change: "updated" });
 });
 
 test("snoozing again or waking by hand clears the last wake's reason", () => {

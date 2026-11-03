@@ -73,7 +73,7 @@ export const SnoozeWoke = z.discriminatedUnion("on", [
       "checks_passed",
       "checks_failed",
       "pushed",
-      "activity",
+      "updated",
       "unlinked",
     ]),
   }),

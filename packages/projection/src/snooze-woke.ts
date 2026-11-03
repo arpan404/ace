@@ -1,5 +1,5 @@
-import type { LinkedPullRequest, SnoozedPullRequest, SnoozeWoke, Thread } from "@ace/protocol";
-import { snoozedPullRequests, snoozeWakeDue, type WakeFacts } from "./snooze-wake.ts";
+import type { LinkedPullRequest, SnoozeWoke, Thread } from "@ace/protocol";
+import { prChange, snoozedPullRequests, snoozeWakeDue, type WakeFacts } from "./snooze-wake.ts";
 import { threadAttention } from "./thread-attention.ts";
 
 /*
@@ -7,8 +7,6 @@ import { threadAttention } from "./thread-attention.ts";
  * and the thread can mark where it woke. Pure: the organizer and the queue wake call it with
  * the thread as it stands at the wake.
  */
-
-type PrChange = Extract<SnoozeWoke, { on: "pr" }>["change"];
 
 /** What the thread's tree came to when "until it needs you" ended. */
 function needsYouOutcome(
@@ -19,24 +17,6 @@ function needsYouOutcome(
   if (state === "failed" || state === "unresponsive") return "failed";
   if (state === "limited") return "limited";
   return "finished";
-}
-
-/** The most telling change on one pull request since the snooze, if any. */
-function prChange(
-  before: SnoozedPullRequest,
-  now: SnoozedPullRequest | undefined,
-): PrChange | undefined {
-  if (now === undefined) return "unlinked";
-  if (now.state !== before.state) {
-    if (now.state === "merged" || now.state === "closed") return now.state;
-    if (before.state === "closed") return "reopened";
-  }
-  if (before.checks === "pending" && now.checks === "failed") return "checks_failed";
-  if (before.checks === "pending" && now.checks === "passed") return "checks_passed";
-  if (before.head !== undefined && now.head !== undefined && now.head !== before.head)
-    return "pushed";
-  if (now.updatedAt > before.updatedAt || now.state !== before.state) return "activity";
-  return undefined;
 }
 
 /** A repository-qualified PR key's number: the last element of its key. */
