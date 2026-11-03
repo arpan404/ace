@@ -60,7 +60,7 @@ test("within a band the most recent activity leads", () => {
   expect(built.inbox).toEqual(["newer", "older"]);
 });
 
-test("a settled parent stays in Settled despite retained live subagent hints", () => {
+test("a settled parent whose agent tree still works is running in the Inbox, not Settled", () => {
   const built = panel([
     entry("parent", { state: "done" }, now - day, {
       live: { runningSubagentCount: 1 },
@@ -68,8 +68,8 @@ test("a settled parent stays in Settled despite retained live subagent hints", (
     }),
     entry("idle", { state: "done" }, now, seen(now)),
   ]);
-  expect(built.inbox).toEqual(["idle"]);
-  expect(built.settled).toEqual(["parent"]);
+  expect(built.inbox).toEqual(["parent", "idle"]);
+  expect(built.settled).toEqual([]);
 });
 
 test("a failure already seen waits with the idle threads", () => {
@@ -109,8 +109,9 @@ test("a settled thread held at a usage limit or with only a command left running
     entry("works", { state: "working", agents: 1 }, now - 2 * day, settledAt(now - 2 * day)),
     entry("asks", { state: "needs_you", interactions: 1 }, now - day, settledAt(now - day)),
   ]);
-  expect(built.settled).toEqual(["asks", "works", "server", "rate", "limited"]);
-  expect(built.inbox).toEqual([]);
+  expect(built.settled).toEqual(["server", "rate", "limited"]);
+  // Real work under a settled thread, or a request, still brings it back to the Inbox.
+  expect(built.inbox).toEqual(["asks", "works"]);
 });
 
 test("a client shows the daemon's places as given, and places only entries that came without one", () => {
@@ -273,33 +274,19 @@ test("the panel remembers its open tab; older storage opens the Inbox", () => {
   expect(new Organizer(storage, now).getState().tab).toBe("settled");
 });
 
-test("settling a pinned request removes it from Inbox through later status updates", () => {
+test("settling a pinned finished thread moves it to Settled before the daemon places it again", () => {
   const input = { baseline: 0, now };
-  const before = withPlace(
-    entry("request", { state: "needs_you", interactions: 1 }, now, {
-      pinned: true,
-    }),
-    input,
-  );
+  const before = withPlace(entry("done", { state: "done" }, now, { pinned: true }), input);
   const select = placeReader({ fallback: input });
-  expect(threadTabs([before], select).inbox).toEqual(["request"]);
+  expect(threadTabs([before], select).inbox).toEqual(["done"]);
   const optimistic = patchedEntry(before, [{ patch: { settled: true }, at: now }]);
-  const confirmed = withPlace(optimistic, input);
+  // The settle has landed but the entry still carries the daemon's Inbox place from before it.
   const stalePlace = { ...optimistic, place: before.place };
-  const later = withPlace(
-    {
-      ...confirmed,
-      status: { state: "done" },
-      updatedAt: now + minute,
-      live: { runningSubagentCount: 1 },
-      unread: true,
-    },
-    input,
-  );
-  for (const snapshot of [optimistic, stalePlace, confirmed, later]) {
+  const confirmed = withPlace(optimistic, input);
+  for (const snapshot of [optimistic, stalePlace, confirmed]) {
     const tabs = threadTabs([snapshot], select);
     expect(tabs.inbox).toEqual([]);
     expect(tabs.pinned).toEqual([]);
-    expect(tabs.settled).toEqual(["request"]);
+    expect(tabs.settled).toEqual(["done"]);
   }
 });
