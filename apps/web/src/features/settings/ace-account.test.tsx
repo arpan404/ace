@@ -202,7 +202,9 @@ test("the account menu shows who is signed in and opens their Profile", async ()
   const header = await screen.findByRole("menuitem", { name: /Menu Person/ });
   expect(within(header).getByText("menu@example.com")).toBeDefined();
   await userEvent.click(header);
-  expect(await screen.findByRole("heading", { level: 2, name: "Profile" })).toBeDefined();
+  const profile = await screen.findByRole("region", { name: "ace account" });
+  expect(within(profile).getByRole("heading", { name: "Menu Person" })).toBeDefined();
+  expect(within(profile).getByText("menu@example.com")).toBeDefined();
   expect(await screen.findByRole("button", { name: "Sign out" })).toBeDefined();
   expect(screen.getByRole("textbox", { name: "Your name" })).toBeDefined();
 });
