@@ -6,6 +6,7 @@ import type {
   ForgeReviewState,
 } from "@ace/protocol";
 import { authoredReviewComment } from "@ace/forge/review-comment-body";
+import { blockQuote } from "./block-quote.ts";
 import type { DiffRow } from "./diff.ts";
 
 /** Pure rules behind the PR's comments: links, hidden state, thread placement and wording. */
@@ -150,9 +151,5 @@ export function suggestionBlock(rows: readonly DiffRow[], start: number, end: nu
 
 /** `body` as a Markdown quote, each line behind "> ", then a blank line to write under. */
 export function quoted(body: string): string {
-  const text = authoredReviewComment(body).trim();
-  return `${text
-    .split("\n")
-    .map((line) => (line ? `> ${line}` : ">"))
-    .join("\n")}\n\n`;
+  return blockQuote(authoredReviewComment(body).trim());
 }

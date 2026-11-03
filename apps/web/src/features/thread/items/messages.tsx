@@ -42,7 +42,10 @@ export function AssistantMessage(props: { threadId: string; itemId: string; betw
   const name = subagent ? agentName(subagent, spawn) : undefined;
   const pi = (item.executionSource?.selection.provider ?? agent?.native.provider) === "pi";
   return (
-    <div className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word">
+    <div
+      data-quotable=""
+      className="group/answer relative min-w-0 font-prose text-prose leading-[1.6] tracking-[-0.005em] wrap-break-word"
+    >
       <Prose
         text={text}
         thread={{
