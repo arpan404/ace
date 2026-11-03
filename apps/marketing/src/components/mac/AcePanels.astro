@@ -5,6 +5,7 @@
  */
 import { diff } from "../../content/stage.ts";
 import AppIcon from "./AppIcon.astro";
+import Pebble from "./Pebble.astro";
 import "./ace-panels.css";
 
 const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del" ? "−" : " ");
@@ -82,7 +83,7 @@ const sign = (kind: string | undefined) => (kind === "add" ? "+" : kind === "del
       <p>Order #4821 · $54.18 charged to the test card.</p>
     </div>
     <span class="agent-cursor" data-agent-cursor
-      ><AppIcon name="cursor" size={16} /><em>Claude</em></span
+      ><Pebble size={26} /><em>Claude</em></span
     >
   </div>
 </aside>

@@ -1,0 +1,40 @@
+---
+/*
+ * ace's cursor, "Pebble", in the app's shape (@ace/design-tokens/glyphs), drawn monochrome:
+ * near-black with a white outline, so it reads on light and dark alike. The box is shifted so its tip, not its corner,
+ * sits on the point the cursor is placed at.
+ */
+import { agentCursorOutline, agentCursorPath, agentCursorTip, glyphBox } from "@ace/design-tokens/glyphs";
+
+interface Props {
+  size?: number;
+}
+
+const { size = 22 } = Astro.props;
+const tipX = (agentCursorTip.x * size) / glyphBox;
+const tipY = (agentCursorTip.y * size) / glyphBox;
+---
+
+<svg
+  class="pebble"
+  viewBox={`0 0 ${glyphBox} ${glyphBox}`}
+  width={size}
+  height={size}
+  aria-hidden="true"
+  style={`--tip-x: ${tipX}px; --tip-y: ${tipY}px`}
+  ><path
+    d={agentCursorPath}
+    fill="#161616"
+    stroke="#ffffff"
+    stroke-width={agentCursorOutline}
+    stroke-linejoin="round"></path></svg
+>
+
+<style>
+  .pebble {
+    display: block;
+    flex: none;
+    margin: calc(var(--tip-y) * -1) 0 0 calc(var(--tip-x) * -1);
+    transform-origin: var(--tip-x) var(--tip-y);
+  }
+</style>

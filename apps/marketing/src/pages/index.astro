@@ -4,6 +4,7 @@ import AgentStrip from "../components/AgentStrip.astro";
 import Hero from "../components/Hero.astro";
 import LinkCards from "../components/site/LinkCards.astro";
 import MacStory from "../components/mac/MacStory.astro";
+import Principle from "../components/Principle.astro";
 import Spade from "../components/Spade.astro";
 import { product } from "../content/product.ts";
 import { route } from "../content/routes.ts";
@@ -12,11 +13,17 @@ import { schemaFor, softwareApplication, sourceCode } from "../seo/schema.ts";
 
 const schema = schemaFor(Astro.site);
 /*
- * The home page is an overview: what ace is, the features people come for, then a way onward.
- * Anything with a page of its own (MCP tools, security, every feature, the FAQ) is linked here,
- * never repeated.
+ * The home page is an overview: what ace is, the story of agents working as a team, then what
+ * else ace does. Anything with a page of its own is linked here, never repeated.
  */
-const onward = ["/features/", "/mcp/", "/security/", "/faq/"].map((path) => {
+const onward = [
+  "/features/computer-use/",
+  "/features/browser/",
+  "/features/review/",
+  "/features/remote-access/",
+  "/mcp/",
+  "/features/",
+].map((path) => {
   const page = route(path);
   return { href: page.path, title: page.name, body: page.summary };
 });
@@ -30,8 +37,9 @@ const onward = ["/features/", "/mcp/", "/security/", "/faq/"].map((path) => {
 >
   <Hero />
   <MacStory />
+  <Principle />
   <AgentStrip />
   <Spade />
-  <LinkCards heading="There's more to ace" cards={onward} />
+  <LinkCards heading="Also in ace" cards={onward} />
   <Closing />
 </Page>
