@@ -320,7 +320,7 @@ it("an allowlist denial ends host registration instead of retrying forever", asy
   cleanup.push(() => relay.close());
   await expect(
     connectHostToRelay({ relayUrl: relay.url, hostKeys: keyPair(), onClientChannel() {} }),
-  ).rejects.toThrow("Host connection closed");
+  ).rejects.toThrow("Host not allowed");
 });
 
 it("a dead client channel expires while control pongs keep its host registered", async () => {
