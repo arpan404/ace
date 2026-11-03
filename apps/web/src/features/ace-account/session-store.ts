@@ -1,6 +1,7 @@
 import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
 import { AceAccountGrant } from "@ace/protocol/ace-account";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { accountSessionKey } from "@/boot/account-config.ts";
 
 export type AceAccountClient = ReturnType<typeof aceAccountClient>;
 
@@ -33,7 +34,7 @@ export interface AceAccountState {
  */
 export function aceAccountStore(backend: AceAccountBackend) {
   const { origin, client, storage, secure } = backend;
-  const key = `ace.account.session:${origin}`;
+  const key = accountSessionKey(origin);
   const stored = readJson(storage, key, AceAccountGrant.nullable(), null);
   let state: AceAccountState = { session: stored, restoring: true, error: "" };
   const listeners = new Set<() => void>();

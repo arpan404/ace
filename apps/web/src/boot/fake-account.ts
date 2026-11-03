@@ -6,6 +6,7 @@
 import type { AccessOptions } from "@ace/client";
 import { machineCodeGate } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
+import type { AccountMachineState } from "@ace/client-worker/machines";
 import type { MachineAccountStatus, MachineCodeRefusal } from "@ace/protocol";
 import { MachineCode } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
@@ -120,30 +121,25 @@ export function fakeAccountConnector(now: () => number) {
   let wrong = 0;
   let lockedUntil: number | undefined;
   return {
-    connect(hostId: string) {
-      type State =
-        | { kind: "connecting" }
-        | { kind: "asking"; lockedUntil?: number | undefined }
-        | { kind: "open" }
-        | { kind: "failed"; message: string };
+    async connect(machine: { hostId: string }) {
       const gate = machineCodeGate(async () => "fake-grant");
       const listeners = new Set<() => void>();
-      let state: State = { kind: "connecting" };
+      let state: AccountMachineState = { kind: "connecting" };
       let timer: ReturnType<typeof setTimeout> | undefined;
-      const set = (next: State) => {
+      const set = (next: AccountMachineState) => {
         state = next;
         for (const listener of listeners) listener();
       };
       const refuse = (reason: MachineCodeRefusal) => {
-        gate.refused(reason);
-        set({ kind: "asking", lockedUntil });
+        gate.refused(reason, lockedUntil);
+        set({ kind: "asking", reason, lockedUntil });
       };
       const open = () => {
         set({ kind: "connecting" });
         clearTimeout(timer);
         timer = setTimeout(() => {
           void gate.credential().then(({ machineCode }) => {
-            if (hostId !== hostIds.studio) return set({ kind: "open" });
+            if (machine.hostId !== hostIds.studio) return set({ kind: "open" });
             if (lockedUntil !== undefined && lockedUntil > now())
               return refuse("machine_code_locked");
             if (machineCode === undefined) return refuse("machine_code_required");
@@ -170,7 +166,13 @@ export function fakeAccountConnector(now: () => number) {
           return () => void listeners.delete(listener);
         },
         retry: open,
-        close: () => clearTimeout(timer),
+        enter(code: string) {
+          gate.enter(code);
+          open();
+        },
+        async close() {
+          clearTimeout(timer);
+        },
       };
     },
   };

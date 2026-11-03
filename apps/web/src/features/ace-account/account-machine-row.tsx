@@ -30,39 +30,59 @@ export function AccountMachineRow(props: {
   const toast = useToast();
   const connector = useAccountMachineConnector();
   const [connection, setConnection] = useState<AccountMachineConnection>();
+  const [opening, setOpening] = useState(false);
+  const [problem, setProblem] = useState("");
   const [confirming, setConfirming] = useState<Confirming>();
-  useEffect(() => () => connection?.close(), [connection]);
+  // An opened machine joins the pool and lists as a connected one, which unmounts this row; only
+  // an attempt that never opened is closed when the row goes.
+  useEffect(
+    () => () => {
+      if (connection && connection.get().kind !== "open") void connection.close().catch(() => {});
+    },
+    [connection],
+  );
   const state = useSyncExternalStore<AccountMachineState | undefined>(
     connection?.subscribe ?? idle,
     () => connection?.get(),
   );
-  const line =
-    state?.kind === "connecting"
-      ? "Opening…"
-      : state?.kind === "open"
-        ? "Connected"
-        : state?.kind === "failed"
-          ? state.message
-          : accountMachineLine(machine, now);
+  const open = () => {
+    if (connection) return connection.retry();
+    if (!connector || opening) return;
+    setOpening(true);
+    setProblem("");
+    connector
+      .connect({ hostId: machine.hostId, name: machine.name, platform: machine.platform })
+      .then(setConnection, (error: unknown) =>
+        setProblem(error instanceof Error ? error.message : "Couldn't open it. Try again."),
+      )
+      .finally(() => setOpening(false));
+  };
+  const line = opening
+    ? "Opening…"
+    : problem
+      ? problem
+      : state?.kind === "connecting"
+        ? "Opening…"
+        : state?.kind === "open"
+          ? "Connected"
+          : state?.kind === "failed"
+            ? state.message
+            : accountMachineLine(machine, now);
   return (
     <div data-account-machine="" className="group/setting">
       <div className="flex min-h-(--setting-row-height) items-center gap-3 py-(--setting-row-y)">
         <MachineMark primary={false} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-md text-foreground">{machine.name}</span>
-          <span role={state ? "status" : undefined} className="text-xs text-muted-foreground">
+          <span
+            role={state || opening || problem ? "status" : undefined}
+            className="text-xs text-muted-foreground"
+          >
             {line}
           </span>
         </div>
-        {connector && (state === undefined || state.kind === "failed") && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="-mr-1"
-            onClick={() =>
-              connection ? connection.retry() : setConnection(connector.connect(machine.hostId))
-            }
-          >
+        {connector && !opening && (state === undefined || state.kind === "failed") && (
+          <Button size="sm" variant="ghost" className="-mr-1" onClick={open}>
             Open
           </Button>
         )}

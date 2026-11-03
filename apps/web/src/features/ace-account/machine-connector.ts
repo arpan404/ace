@@ -1,42 +1,46 @@
-import type { MachineCodeGate } from "@ace/client";
-import { createContext, use } from "react";
+import type {
+  AccountMachine,
+  AccountMachineConnection,
+  AccountMachineState,
+} from "@ace/client-worker/machines";
+import { createContext, use, useMemo } from "react";
+import { hostedRelayUrl } from "@/boot/account-config.ts";
+import { useEnsureMachinePool, useMachinePool } from "@/lib/machine-pool.ts";
+import { useAceAccount } from "./account-context.tsx";
 
-/** How far opening an account machine got. */
-export type AccountMachineState =
-  | { kind: "connecting" }
-  /** Its daemon wants the machine code: the gate says why. */
-  | { kind: "asking"; lockedUntil?: number | undefined }
-  /** Welcomed: it is in the machine pool now and lists as a connected machine. */
-  | { kind: "open" }
-  | { kind: "failed"; message: string };
-
-export interface AccountMachineConnection {
-  readonly gate: MachineCodeGate;
-  get(): AccountMachineState;
-  subscribe(listener: () => void): () => void;
-  /** Opens a new channel, sending the code the person entered into the gate. */
-  retry(): void;
-  close(): void;
-}
+export type { AccountMachineConnection, AccountMachineState };
 
 /**
- * Opens a machine on the person's ace account through ace's relay (ADR 0111): a fresh device
- * grant per channel and `machineCodeGate` for the code.
- *
- * TODO(ace/relay-main-conversation): the real connector needs the client API that opens an
- * account machine's main channel through the hosted relay and adds it to the machine pool
- * (`@ace/client-worker/machines`), reporting `machine_code_*` refusals into a `machineCodeGate`.
- * Until it lands no connector is provided in real builds, so account machines list without
- * Open; the fake mode supplies `fakeAccountConnector`.
+ * Opens a machine on the person's ace account through ace's relay (ADR 0111). Once open it is
+ * in the machine pool like a paired machine; the connection's gate asks for its machine code.
  */
 export interface AccountMachineConnector {
-  connect(hostId: string): AccountMachineConnection;
+  connect(machine: AccountMachine): Promise<AccountMachineConnection>;
 }
 
+/** A connector supplied from outside (the fake mode's); otherwise the machine pool's. */
 export const AccountMachineConnectorContext = createContext<AccountMachineConnector | undefined>(
   undefined,
 );
 
+/**
+ * The window's account machine connector: the machine pool's `openAccountMachine`, created on
+ * demand, while this window is signed in to an account build with a hosted relay.
+ */
 export function useAccountMachineConnector(): AccountMachineConnector | undefined {
-  return use(AccountMachineConnectorContext);
+  const supplied = use(AccountMachineConnectorContext);
+  const pool = useMachinePool();
+  const ensure = useEnsureMachinePool();
+  const signedIn = useAceAccount().session !== null;
+  return useMemo(() => {
+    if (supplied) return supplied;
+    if (!signedIn || !hostedRelayUrl() || (!pool && !ensure)) return undefined;
+    return {
+      async connect(machine) {
+        const ready = pool ?? (await ensure?.());
+        if (!ready) throw new Error("Couldn't open your machines in this window.");
+        return ready.openAccountMachine(machine);
+      },
+    };
+  }, [supplied, pool, ensure, signedIn]);
 }

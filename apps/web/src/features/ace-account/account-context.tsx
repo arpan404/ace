@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { accountSecret } from "@/boot/account-secret.ts";
+import { accountOrigin } from "@/boot/account-config.ts";
 import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import {
@@ -27,7 +28,7 @@ export const AceAccountBackendContext = createContext<
 >(undefined);
 
 function deployedBackend(): AceAccountBackend | undefined {
-  const origin = import.meta.env.VITE_ACE_ACCOUNT_URL;
+  const origin = accountOrigin();
   if (!origin) return undefined;
   return {
     origin,

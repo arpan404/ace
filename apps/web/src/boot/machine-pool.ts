@@ -4,7 +4,7 @@ import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
-import { MachinePool } from "@ace/client-worker/machines";
+import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
@@ -132,6 +132,8 @@ export function browserMachinePool(options: {
   storage: KeyValueStorage;
   session?: KeyValueStorage;
   spawnWorker?: (name: string) => SpawnedWorker;
+  /** Machines on the person's ace account (`account-machine-options.ts`). */
+  account?: AccountMachineOptions | undefined;
 }): MachinePool {
   const directory = new ForgettingDirectory(
     directoryStorage(options.storage),
@@ -142,6 +144,7 @@ export function browserMachinePool(options: {
     directory,
     // A hidden or frozen window can't hear its workers; that silence must not end a connection.
     remote: { scheduler: timers, visibility: documentVisibility },
+    ...(options.account ? { account: options.account } : {}),
     spawn(entry, token) {
       if (entry.target.kind !== "direct")
         throw new ClientError("offline", "Relay machines aren't supported in this window yet");
