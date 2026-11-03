@@ -14,9 +14,8 @@ import {
   pinOrderOf,
   type HomeSort,
 } from "./arrange.ts";
-import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
+import { activityOf, isSnoozed } from "./thread-state.ts";
 import {
-  atRest,
   atWork,
   chatActive,
   needsPerson,
@@ -35,10 +34,9 @@ import {
  * The Inbox holds every unsettled, unsnoozed thread, in the order the person would act: pinned,
  * then what needs them, then what runs (its whole agent tree counted), then finished work not
  * yet looked at, then the rest, each band newest first. Snoozed holds what waits, soonest first;
- * Settled what is done, newest first. A settled thread returns to the Inbox only while it needs
- * the person or its agents work; held at a usage limit, or with only a command left running, it
- * stays in Settled. Placement reads the row attention (`standingOf`), so a band never disagrees
- * with the row's own status word. Pure: the caller passes the clock.
+ * Settled holds entries with a settle fact, newest first. New work or a new human request
+ * clears that fact in the event fold, rather than placement silently overriding it.
+ * Pure: the caller passes the clock.
  */
 
 export type { ThreadTab, InboxBand, ThreadPlace } from "@ace/protocol";
@@ -69,8 +67,8 @@ export interface PlacedStanding {
 
 /**
  * Where a thread sits, or undefined when the panel leaves it out: archived, deleted, a draft
- * nobody sent, or a child delegated here from another machine (#1562). A request is never
- * hidden by a snooze; a pinned thread snoozes and settles like any other.
+ * nobody sent, or a child delegated here from another machine (#1562). A request wakes a
+ * snooze; an explicit settle wins over status hints, pinned or not.
  */
 export function placeThread(entry: ThreadListEntry, input: PlaceInput): ThreadPlace | undefined {
   return placeWithStanding(entry, input)?.place;
@@ -87,7 +85,7 @@ export function placeWithStanding(
   const placed = (place: ThreadPlace) => ({ place, standing });
   if (entry.status.state !== "needs_you" && isSnoozed(entry, input.now))
     return placed({ tab: "snoozed", rank: [-(entry.snoozedUntil ?? 0), at] });
-  if (isSettled(entry) && atRest(standing)) return placed({ tab: "settled", rank: [at] });
+  if (entry.settledAt !== undefined) return placed({ tab: "settled", rank: [at] });
   if (entry.pinned === true)
     return placed({ tab: "inbox", band: "pinned", rank: [pinOrderOf(entry), at] });
   const sortBy = input.sortBy ?? "activity";
@@ -149,10 +147,12 @@ export interface PlaceReaderInput {
 /**
  * The daemon's place, unless time has overtaken it: a snooze that ran out on this device's
  * clock while its machine couldn't say so (offline, or not yet swept) is placed by the same
- * rule now. Undefined when the entry came without a place.
+ * rule now. An Inbox place predating a settle fact is also discarded.
+ * Undefined when the entry came without a current place.
  */
 export function currentPlace(entry: ThreadListEntry, now: number): ThreadPlace | undefined {
   const place = entry.place;
+  if (entry.settledAt !== undefined && place?.tab === "inbox") return undefined;
   if (place?.tab === "snoozed" && !isSnoozed(entry, now)) return undefined;
   return place;
 }
