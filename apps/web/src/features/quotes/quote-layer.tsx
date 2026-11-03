@@ -3,7 +3,7 @@ import { QuotesIcon } from "@phosphor-icons/react";
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
-import { floatingControl, floatingHover } from "@/features/thread/long/floating.ts";
+import { floatingControl } from "@/features/thread/long/floating.ts";
 import { useQuotePort } from "./store.ts";
 import { contextAround, textOffset } from "./text-offsets.ts";
 
@@ -12,6 +12,12 @@ const quotable = "[data-quotable]";
 /** The Reply pill's height and the gap it keeps from the selected line. */
 const pillRoom = 36;
 const edge = 4;
+
+/**
+ * Hovering fills the pill with the next surface, as the transcript's other floating controls
+ * do, and lights its icon; its edge stays as it is, never a bright ring.
+ */
+const hover = "hover:bg-surface-1 [&:hover_svg]:text-foreground";
 
 /** A selection in one agent message, waiting for Reply. */
 interface Offer {
@@ -161,7 +167,7 @@ export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLEl
           className={cn(
             // The floating glass every pill uses: it follows Translucency, Solid included.
             floatingControl,
-            floatingHover,
+            hover,
             "pointer-events-auto absolute pr-3 pl-2.5 font-medium whitespace-nowrap text-foreground",
             "transition-[background-color,box-shadow] duration-(--motion-fast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           )}
