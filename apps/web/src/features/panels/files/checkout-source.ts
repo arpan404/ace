@@ -1,5 +1,8 @@
 import { readFile, type ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
+import { wholeFileBytes } from "@/components/attachment-content.ts";
+import { describeFile } from "@/components/attachment-kind.ts";
+import { mediaType, type MediaMode } from "@/components/file-media-mode.ts";
 import {
   checkoutError,
   checkoutViewLimit,
@@ -21,6 +24,8 @@ export { CheckoutError, checkoutError, fromCode };
 
 /** The most the viewer reads to show a file; bigger files offer Download instead. */
 export const viewLimit = checkoutViewLimit;
+/** The most the viewer reads of a PDF, video or audio file, which it shows whole. */
+export const mediaViewLimit = wholeFileBytes;
 /** The most one upload sends; the bytes are hashed in memory before they go. */
 export const uploadLimit = 64 * 1024 * 1024;
 /** The daemon's completion limit. */
@@ -29,6 +34,8 @@ const searchLimit = 50;
 export type FileContent =
   | { kind: "text"; text: string; size: number; version: string }
   | { kind: "image"; blob: Blob; size: number; version: string }
+  /** A PDF, video or audio file, for the browser's own viewer or players. */
+  | { kind: "media"; mode: Exclude<MediaMode, "image">; blob: Blob; size: number; version: string }
   | { kind: "binary"; size: number; version: string }
   | { kind: "large"; size: number; version: string }
   | { kind: "missing" };
@@ -53,7 +60,7 @@ export interface CheckoutSource {
   /** Paths matching `query` (folders end in "/"), best first, at most 50. */
   search(threadId: string, query: string, signal?: AbortSignal): Promise<string[]>;
   stat(threadId: string, path: string, signal?: AbortSignal): Promise<Stat>;
-  /** A file to show: text, an image, or why it can't be shown. */
+  /** A file to show: text, an image, a PDF or media, or why it can't be shown. */
   read(threadId: string, path: string, signal?: AbortSignal): Promise<FileContent>;
   /**
    * Put `file` at `path`. `expected` is the version it replaces (null: nothing is there); a
@@ -67,6 +74,12 @@ export interface CheckoutSource {
     progress: (sent: number) => void,
     signal?: AbortSignal,
   ): Promise<void>;
+}
+
+/** Which of the browser's viewers shows the file at `path`, by its extension. */
+export function mediaOf(path: string): Exclude<MediaMode, "image"> | undefined {
+  const mode = describeFile({ name: path }).preview;
+  return mode === "pdf" || mode === "audio" || mode === "video" ? mode : undefined;
 }
 
 const options = (signal?: AbortSignal) => (signal ? { signal } : {});
@@ -125,9 +138,10 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
     stat,
     async read(threadId, path, signal) {
       guard(path);
+      const media = mediaOf(path);
       const read = await readFile(
         client,
-        { threadId: ThreadId.parse(threadId), path, maxSize: viewLimit },
+        { threadId: ThreadId.parse(threadId), path, maxSize: media ? mediaViewLimit : viewLimit },
         options(signal),
       ).catch((error: unknown) => {
         throw checkoutError(error);
@@ -141,6 +155,11 @@ export function daemonCheckout(client: ClientApi): CheckoutSource {
       const size = bytes.length;
       const image = imageType(path);
       if (image) return { kind: "image", blob: new Blob([bytes], { type: image }), size, version };
+      if (media) {
+        const type = mediaType(media);
+        const blob = new Blob([bytes], type ? { type } : {});
+        return { kind: "media", mode: media, blob, size, version };
+      }
       if (!isText(bytes)) return { kind: "binary", size, version };
       return { kind: "text", text: new TextDecoder().decode(bytes), size, version };
     },

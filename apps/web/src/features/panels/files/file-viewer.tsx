@@ -12,14 +12,16 @@ import {
 } from "@phosphor-icons/react";
 import { fileLanguage, isMarkdownPath, pathParts, type LineMark } from "@ace/ui-core";
 import { useConnectionState } from "@ace/client-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { formatLimit } from "@/components/attachment-kind.ts";
+import { FileMedia, mediaType, useWholeUrl } from "@/components/file-media.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { keymap } from "@/lib/keymap.ts";
-import type { FileContent } from "./checkout-source.ts";
+import { mediaOf, mediaViewLimit, viewLimit, type FileContent } from "./checkout-source.ts";
 import { SourceView, type FindHit } from "./source-view.tsx";
 import { formatBytes } from "./use-file-actions.ts";
 
@@ -82,10 +84,50 @@ function ImageView(props: { blob: Blob; name: string; size: number }) {
   );
 }
 
+/** A PDF in the browser's viewer, video and audio in its players, filling the tab. */
+function MediaView(props: { blob: Blob; name: string; mode: "pdf" | "audio" | "video" }) {
+  // The bytes are already here: wrapped as this page's own file, not copied.
+  const source = useMemo(
+    () => ({
+      kind: "file" as const,
+      file: new File([props.blob], props.name, { type: props.blob.type }),
+    }),
+    [props.blob, props.name],
+  );
+  const loaded = useWholeUrl(source, mediaType(props.mode));
+  const [broken, setBroken] = useState(false);
+  if (broken)
+    return (
+      <EmptyState
+        icon={FileIcon}
+        title="This file can't play here"
+        description={`${props.name} isn't a format this browser can open.`}
+      />
+    );
+  if (loaded.state !== "ready") return null;
+  return (
+    <div
+      className={
+        props.mode === "pdf"
+          ? "h-full p-2"
+          : "flex h-full items-center justify-center overflow-auto p-4"
+      }
+    >
+      <FileMedia
+        url={loaded.value}
+        name={props.name}
+        mode={props.mode}
+        frame={{ height: "100%" }}
+        onError={() => setBroken(true)}
+      />
+    </div>
+  );
+}
+
 /**
- * What a file tab shows for its file: source with line numbers, rendered markdown, an image, or
- * a plain sentence saying why it can't be shown (binary, too large, gone, offline) with what to
- * do instead. The path stays in the toolbar above whatever happens here.
+ * What a file tab shows for its file: source with line numbers, rendered markdown, an image, a
+ * PDF, video or audio, or a plain sentence saying why it can't be shown (binary, too large, gone,
+ * offline) with what to do instead. The path stays in the toolbar above whatever happens here.
  */
 export function FileViewer(props: {
   path: string;
@@ -157,7 +199,9 @@ export function FileViewer(props: {
         <EmptyState
           icon={FileTextIcon}
           title="Too large to show here"
-          description={`${name} is ${formatBytes(content.size)}. Files over 2 MB open as a download.`}
+          description={`${name} is ${formatBytes(content.size)}. Files over ${formatLimit(
+            mediaOf(props.path) ? mediaViewLimit : viewLimit,
+          )} open as a download.`}
           action={download}
         />
       );
@@ -172,6 +216,8 @@ export function FileViewer(props: {
       );
     case "image":
       return <ImageView blob={content.blob} name={name} size={content.size} />;
+    case "media":
+      return <MediaView blob={content.blob} name={name} mode={content.mode} />;
     case "text":
       if (isMarkdownPath(props.path) && !props.source)
         return (

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Marked, type Token } from "marked";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation, ThreadId } from "@ace/protocol";
+import { fileTextSpans } from "@ace/ui-core/file-references";
 import { agentDirectory } from "./image-files.ts";
 import type { ServiceContext } from "./services/types.ts";
 
@@ -19,6 +20,18 @@ export function markdownTargets(text: string): Set<string> {
     if (token.type === "link" || token.type === "image") targets.add(token.href);
   });
   return targets;
+}
+
+/**
+ * What an answer lets a reader open: every link and image target, and every absolute file path
+ * it names in code or prose (`/tmp/report.pdf`), found by the rule the web client links them by.
+ */
+export function linkedReferences(text: string): Set<string> {
+  const references = markdownTargets(text);
+  for (const span of fileTextSpans(text))
+    if (span.kind === "file" && span.reference.path.startsWith("/"))
+      references.add(span.reference.path);
+  return references;
 }
 
 /** The local path a link target names: a `file:` URL or a path, without a `:line:col` suffix. */
@@ -38,9 +51,9 @@ export function localReference(reference: string): string | undefined {
 }
 
 /**
- * Read-only downloads of local files that an assistant message links to, wherever they are on
- * this machine. The message is the evidence: a request names the message and the link target
- * it wrote, never a path of its own choosing. Files are streamed from where they are; nothing
+ * Read-only downloads of local files that an assistant message links to or names by absolute
+ * path, wherever they are on this machine. The message is the evidence: a request names the
+ * message and the target it wrote, never a path of its own choosing. Files are streamed from where they are; nothing
  * is copied.
  */
 export class LinkedFiles {
@@ -72,7 +85,7 @@ export class LinkedFiles {
     const text = item.parts
       .flatMap((part) => (part.type === "text" ? [part.text] : []))
       .join("\n\n");
-    if (!markdownTargets(text).has(operation.reference))
+    if (!linkedReferences(text).has(operation.reference))
       throw new FileError("FORBIDDEN", "The message does not link this file");
     const local = localReference(operation.reference);
     if (!local) throw new FileError("INVALID_PATH", "The link does not name a local file");

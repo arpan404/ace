@@ -163,6 +163,36 @@ test("markdown opens rendered, View source shows its lines, and a binary file of
   expect(within(side).getAllByRole("button", { name: "Download" }).length).toBeGreaterThan(0);
 });
 
+test("a checkout PDF opens in the browser's PDF viewer and a video plays in the Files tab", async () => {
+  // jsdom has no object URLs: stub them at that boundary, remembering each one's blob.
+  const blobs = new Map<string, Blob>();
+  vi.spyOn(URL, "createObjectURL").mockImplementation((blob: Blob | MediaSource) => {
+    const url = `blob:test/${blobs.size + 1}`;
+    if (blob instanceof Blob) blobs.set(url, blob);
+    return url;
+  });
+  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const { app } = await openThread();
+  app.daemon.checkouts.seed("thread-cold-start", "docs/spec.pdf", "%PDF-1.7 spec");
+  app.daemon.checkouts.seed("thread-cold-start", "docs/tour.mp4", "mp4 bytes");
+
+  await quickOpen("spec.pdf");
+  await userEvent.keyboard("{Enter}");
+  const side = await panel();
+  const frame = await within(side).findByTitle("spec.pdf");
+  expect(frame.tagName).toBe("IFRAME");
+  const pdf = blobs.get(frame.getAttribute("src") ?? "");
+  expect(pdf?.type).toBe("application/pdf");
+  expect(await pdf?.text()).toBe("%PDF-1.7 spec");
+
+  await quickOpen("tour.mp4");
+  await userEvent.keyboard("{Enter}");
+  const video = await within(side).findByLabelText("tour.mp4", { selector: "video" });
+  expect(video.tagName).toBe("VIDEO");
+  expect(video.hasAttribute("controls")).toBe(true);
+  expect(await blobs.get(video.getAttribute("src") ?? "")?.text()).toBe("mp4 bytes");
+});
+
 test("find in file counts matches and steps through them", async () => {
   await openThread();
   await quickOpen("outbox");

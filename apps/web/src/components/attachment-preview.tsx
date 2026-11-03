@@ -1,6 +1,5 @@
-import { useClient } from "@ace/client-react";
 import { DownloadSimpleIcon } from "@phosphor-icons/react";
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useState, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,14 +10,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import {
-  readTextPrefix,
-  readWhole,
   textPreviewBytes,
   tooLargeToLoad,
-  wholePreviewBytes,
-  type TextPrefix,
+  wholeBudget,
+  wholeFileBytes,
 } from "./attachment-content.ts";
 import { FileGlyph } from "./attachment-face.tsx";
 import type { FileSource, PreviewFile } from "./attachment-format.ts";
@@ -29,6 +25,15 @@ import {
   formatLimit,
   type Described,
 } from "./attachment-kind.ts";
+import {
+  FileMedia,
+  isMediaMode,
+  mediaType,
+  useTextPrefix,
+  useWholeUrl,
+  type MediaMode,
+} from "./file-media.tsx";
+import { useSaveFile } from "./file-save.ts";
 import { formatBytes } from "./format-bytes.ts";
 
 /*
@@ -36,9 +41,6 @@ import { formatBytes } from "./format-bytes.ts";
  * native controls, text and code as the first 64 KB in monospace (saying when there is more),
  * anything else as its details. Download saves it. Loaded only when a chip is first opened.
  */
-
-type Loaded<T> = { state: "loading" } | { state: "ready"; value: T } | { state: "failed" };
-const loading = { state: "loading" } as const;
 
 /** Frames and players take most of a short window, never more than the dialog allows. */
 const stage = { height: "min(70dvh, 56rem)" };
@@ -90,63 +92,31 @@ function Body(props: { file: PreviewFile; described: Described }) {
   if (tooLargeToLoad(source))
     return (
       <Note kind={described.kind}>
-        Previews here go up to {formatLimit(wholePreviewBytes)}; this file is{" "}
+        Previews here go up to {formatLimit(wholeBudget(source))}; this file is{" "}
         {formatBytes(source.bytes)}.
       </Note>
     );
-  return <MediaBody file={file} source={source} described={described} />;
+  if (!isMediaMode(described.preview)) return null;
+  return <MediaBody file={file} source={source} mode={described.preview} />;
 }
 
 /** A frame or player over the whole file, once its bytes are here. */
-function MediaBody(props: { file: PreviewFile; source: FileSource; described: Described }) {
-  const { described } = props;
-  // A PDF frame shows the viewer only for a blob typed as a PDF.
-  const type = described.preview === "pdf" ? "application/pdf" : undefined;
-  const url = useWholeUrl(props.source, type);
+function MediaBody(props: { file: PreviewFile; source: FileSource; mode: MediaMode }) {
+  const { mode } = props;
+  const url = useWholeUrl(props.source, mediaType(mode));
   const [broken, setBroken] = useState(false);
+  const kind = describeFile(props.file).kind;
   if (url.state === "loading") return <Skeleton className="w-full rounded-md" style={stage} />;
+  if (url.state === "failed" && url.tooLarge)
+    return <Note kind={kind}>Previews here go up to {formatLimit(wholeFileBytes)}.</Note>;
   if (url.state === "failed" || broken)
-    return <Note kind={described.kind}>Couldn't load this file on this device.</Note>;
-  const name = props.file.name;
-  if (described.preview === "pdf")
-    return (
-      // The frame only ever holds a blob this page typed as a PDF, so it is the browser's own
-      // viewer; a sandbox would stop that viewer from drawing at all.
-      // oxlint-disable-next-line react/iframe-missing-sandbox
-      <iframe
-        title={name}
-        src={url.value}
-        style={stage}
-        className="w-full rounded-md border border-border bg-background"
-      />
-    );
-  if (described.preview === "audio")
-    return (
-      <audio
-        controls
-        src={url.value}
-        aria-label={name}
-        className="w-full"
-        onError={() => setBroken(true)}
-      />
-    );
-  if (described.preview === "video")
-    return (
-      <video
-        controls
-        src={url.value}
-        aria-label={name}
-        style={{ maxHeight: stage.height }}
-        className="w-full rounded-md bg-background"
-        onError={() => setBroken(true)}
-      />
-    );
+    return <Note kind={kind}>Couldn't load this file on this device.</Note>;
   return (
-    <img
-      src={url.value}
-      alt={name}
-      style={{ maxHeight: stage.height }}
-      className="mx-auto max-w-full rounded-md object-contain"
+    <FileMedia
+      url={url.value}
+      name={props.file.name}
+      mode={mode}
+      frame={stage}
       onError={() => setBroken(true)}
     />
   );
@@ -172,7 +142,8 @@ function TextBody(props: { source: FileSource }) {
       </pre>
       {value.truncated && (
         <p className="text-xs text-muted-foreground">
-          Truncated: showing the first {textPreviewBytes / 1024} KB of {formatBytes(value.total)}.
+          Truncated: showing the first {textPreviewBytes / 1024} KB
+          {value.total === undefined ? "" : ` of ${formatBytes(value.total)}`}.
         </p>
       )}
     </div>
@@ -190,83 +161,11 @@ function Note(props: { kind: Described["kind"]; children: ReactNode }) {
 
 /** Saves the file under its own name; a sent file comes through the thread's connection. */
 function Download(props: { file: PreviewFile }) {
-  const client = useClient();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const source = props.file.source;
-  const off = !source || tooLargeToLoad(source);
-  const save = () => {
-    if (!source || off) return;
-    setBusy(true);
-    readWhole(client, source, undefined, new AbortController().signal)
-      .then(
-        (blob) => {
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = props.file.name;
-          link.click();
-          // The download holds the bytes once it starts; the URL can go after that.
-          setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        },
-        () => toast.error({ title: "Couldn't download the file" }),
-      )
-      .finally(() => setBusy(false));
-  };
+  const { save, busy, off } = useSaveFile(props.file);
   return (
     <Button variant="secondary" disabled={off || busy} onClick={save}>
       <DownloadSimpleIcon aria-hidden size={14} />
       Download
     </Button>
   );
-}
-
-function useWholeUrl(source: FileSource, type: string | undefined): Loaded<string> {
-  const client = useClient();
-  const [loaded, setLoaded] = useState<{
-    client: typeof client;
-    source: FileSource;
-    value: Loaded<string>;
-  }>();
-  useEffect(() => {
-    const abort = new AbortController();
-    let url: string | undefined;
-    readWhole(client, source, type, abort.signal).then(
-      (blob) => {
-        if (abort.signal.aborted) return;
-        url = URL.createObjectURL(blob);
-        setLoaded({ client, source, value: { state: "ready", value: url } });
-      },
-      () => {
-        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "failed" } });
-      },
-    );
-    return () => {
-      abort.abort();
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [client, source, type]);
-  return loaded?.client === client && loaded.source === source ? loaded.value : loading;
-}
-
-function useTextPrefix(source: FileSource): Loaded<TextPrefix> {
-  const client = useClient();
-  const [loaded, setLoaded] = useState<{
-    client: typeof client;
-    source: FileSource;
-    value: Loaded<TextPrefix>;
-  }>();
-  useEffect(() => {
-    const abort = new AbortController();
-    readTextPrefix(client, source, abort.signal).then(
-      (value) => {
-        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "ready", value } });
-      },
-      () => {
-        if (!abort.signal.aborted) setLoaded({ client, source, value: { state: "failed" } });
-      },
-    );
-    return () => abort.abort();
-  }, [client, source]);
-  return loaded?.client === client && loaded.source === source ? loaded.value : loading;
 }
