@@ -170,3 +170,11 @@ export const boundary: { icon: BoundaryIcon; title: string; body: string }[] = [
     body: "ace is Apache-2.0. Read the daemon, the clients and the architecture decisions behind them on GitHub.",
   },
 ];
+
+/** Spade, ace's own agent: announced on the home page until it launches. */
+export const spade = {
+  name: "Spade",
+  status: "Coming soon",
+  headline: "Meet Spade",
+  body: "Spade is ace's own agent. It will work right beside Claude Code, Codex and the rest, in the same window.",
+} as const;

@@ -1,0 +1,85 @@
+---
+/*
+ * One thread row as the app draws it: project chip and status on top, the title, then branch,
+ * pull request, agents, machine or device and the provider's mark with its account letter.
+ * The status lives in `.state` so the story can change it (scripts/stage-story.ts).
+ */
+import { providerIcon } from "@ace/ui-core/provider-icons";
+import type { ThreadRow } from "../../content/stage.ts";
+import BrandMark from "../BrandMark.astro";
+import AppIcon from "./AppIcon.astro";
+import { formatElapsed } from "@ace/ui-core/time";
+
+interface Props {
+  row: ThreadRow;
+  selected?: boolean;
+}
+
+const { row, selected = false } = Astro.props;
+const brand = providerIcon({ provider: row.provider }).brand;
+const { state } = row;
+const seconds = "seconds" in state ? state.seconds : undefined;
+---
+
+<div
+  class:list={["row", { selected }]}
+  data-row={row.id}
+  data-machine={row.machine ?? "this-mac"}
+  data-tone={state.kind}
+>
+  <div class="line top">
+    <span class="chip" style={`--hue: ${row.hue}`}>{row.chip}</span>
+    <span class="project">{row.project}</span>
+    <span class="state">
+      {
+        row.device === "browser" && (
+          <span class="device">
+            <AppIcon name="graph" size={14} />
+          </span>
+        )
+      }
+      <span class="glyph glyph-approve"><AppIcon name="hand-palm" size={15} /></span>
+      <span class="glyph glyph-working"><AppIcon name="circle-dashed" size={14} /></span>
+      <span class="glyph glyph-agents">
+        <AppIcon name="circle-dashed" size={15} />
+        <b>{state.kind === "agents" ? state.count : 1}</b>
+      </span>
+      <span class="glyph glyph-background"><AppIcon name="terminal-window" size={15} /></span>
+      <span class="glyph glyph-done"><AppIcon name="check-circle" size={15} /></span>
+      <span class="time" data-seconds={seconds}>
+        {seconds === undefined ? state.kind === "done" ? state.label : "" : formatElapsed(seconds * 1000)}
+      </span>
+    </span>
+  </div>
+  <div class="line title">{row.title}</div>
+  <div class="line meta">
+    {row.branch && <span class="branch">{row.branch}</span>}
+    <span class="marks">
+      {
+        row.pr && (
+          <span class="pr">
+            <AppIcon name="git-pull-request" size={13} />#{row.pr}
+          </span>
+        )
+      }
+      {
+        row.agents && (
+          <span class="agents">
+            <AppIcon name="tree-structure" size={13} />
+            {row.agents}
+          </span>
+        )
+      }
+      {row.machine && <AppIcon name="hard-drives" size={14} />}
+      {row.device === "phone" && <AppIcon name="device-mobile" size={14} />}
+      {
+        brand && (
+          <span class="provider">
+            <BrandMark brand={brand} size={15} />
+            {row.account && <i>{row.account}</i>}
+          </span>
+        )
+      }
+    </span>
+  </div>
+</div>
