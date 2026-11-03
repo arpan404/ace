@@ -3,7 +3,7 @@ import { QuotesIcon } from "@phosphor-icons/react";
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
-import { floatingControl } from "@/features/thread/long/floating.ts";
+import { floatingControl, floatingHover } from "@/features/thread/long/floating.ts";
 import { useQuotePort } from "./store.ts";
 import { contextAround, textOffset } from "./text-offsets.ts";
 
@@ -12,13 +12,6 @@ const quotable = "[data-quotable]";
 /** The Reply pill's height and the gap it keeps from the selected line. */
 const pillRoom = 36;
 const edge = 4;
-
-/**
- * The pill is clear glass over the words it quotes: a lighter frost and tint than a menu's, so
- * the text behind still shows through, and hovering lights its rim rather than filling it.
- */
-const glassPill =
-  "[--glass-blur:5px] [--glass-brightness:0.92] [--glass-contrast:0.9] [--glass-tint:color-mix(in_srgb,var(--surface-2)_30%,transparent)] hover:[--glass-tint:color-mix(in_srgb,var(--surface-2)_50%,transparent)] hover:[--float-edge:var(--ring)] hover:[--glass-edge:var(--ring)]";
 
 /** A selection in one agent message, waiting for Reply. */
 interface Offer {
@@ -34,6 +27,26 @@ function messageOf(root: HTMLElement, node: Node | null): HTMLElement | undefine
 }
 
 /**
+ * The selection's range inside one agent message. An end that spills past the message's words
+ * (a triple click runs to the start of what follows) is pulled back to them; a selection
+ * reaching into another message, or holding none, is no passage.
+ */
+function rangeIn(root: HTMLElement, selection: Selection) {
+  const range = selection.getRangeAt(0);
+  const starts = messageOf(root, range.startContainer);
+  const ends = messageOf(root, range.endContainer);
+  const message = starts ?? ends;
+  if (!message || (starts && ends && starts !== ends)) return undefined;
+  if (starts === ends) return { message, range, text: selection.toString() };
+  const words = message.ownerDocument.createRange();
+  words.selectNodeContents(message);
+  const kept = range.cloneRange();
+  if (!starts) kept.setStart(words.startContainer, words.startOffset);
+  if (!ends) kept.setEnd(words.endContainer, words.endOffset);
+  return { message, range: kept, text: kept.toString() };
+}
+
+/**
  * The person's selection inside one agent message, as a quote with the words around it, and
  * where Reply goes in `box`: over its first line, or under its last when there is no room above.
  * Nothing when the selection leaves the message or is scrolled out of view.
@@ -41,11 +54,11 @@ function messageOf(root: HTMLElement, node: Node | null): HTMLElement | undefine
 function readOffer(root: HTMLElement, box: HTMLElement): Offer | undefined {
   const selection = root.ownerDocument.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-  const message = messageOf(root, selection.anchorNode);
-  if (!message || messageOf(root, selection.focusNode) !== message) return;
-  const text = passageText(selection.toString());
+  const picked = rangeIn(root, selection);
+  if (!picked) return;
+  const { message, range } = picked;
+  const text = passageText(picked.text);
   if (!text) return;
-  const range = selection.getRangeAt(0);
   const lines = Array.from(range.getClientRects()).filter(
     (rect) => rect.width > 0 || rect.height > 0,
   );
@@ -68,8 +81,8 @@ function readOffer(root: HTMLElement, box: HTMLElement): Offer | undefined {
 /**
  * Select words in what an agent said and Reply puts them above the composer as a quote, caret in
  * the message box, so the reply says which part it answers. Shown once the selection settles
- * (the pointer let go, a double click, Select All or a key), it follows the selection while scrolling and goes when the
- * selection does. Only where this thread's composer is on screen to take the quote.
+ * (the pointer let go, a double or triple click, Select All or a key), it follows the selection
+ * while scrolling and goes when the selection does. Only where this thread's composer is on screen to take the quote.
  */
 export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLElement | null> }) {
   const port = useQuotePort(props.threadId);
@@ -146,8 +159,9 @@ export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLEl
             port.focus();
           }}
           className={cn(
+            // The floating glass every pill uses: it follows Translucency, Solid included.
             floatingControl,
-            glassPill,
+            floatingHover,
             "pointer-events-auto absolute pr-3 pl-2.5 font-medium whitespace-nowrap text-foreground",
             "transition-[background-color,box-shadow] duration-(--motion-fast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           )}

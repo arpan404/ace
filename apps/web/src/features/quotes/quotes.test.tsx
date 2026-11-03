@@ -133,6 +133,27 @@ test("a word picked by double click offers Reply once the selection lands", asyn
   });
 });
 
+test("a triple-clicked paragraph that runs past the answer quotes just the answer's words", async () => {
+  await open();
+  await waitFor(() => {
+    // A triple click ends the selection at the start of what follows the paragraph.
+    const holder = pick("Answer 2");
+    const answer = holder.closest("[data-quotable]");
+    const after = answer?.parentElement?.querySelector("time");
+    const selection = document.getSelection();
+    const range = selection?.getRangeAt(0);
+    if (!answer || !after || !range) throw new Error("No answer with a time under it");
+    range.setStart(answer, 0);
+    range.setEnd(after, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+  });
+  const quoted = await screen.findByRole("list", { name: "Replying to" });
+  expect(within(quoted).getByRole("listitem").textContent).toBe(
+    "Answer 2: route 2 renders its own panel.",
+  );
+});
+
 test("selecting the person's own question offers no reply", async () => {
   await open();
   await waitFor(() => {
