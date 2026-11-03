@@ -1,7 +1,6 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { LruCache } from "@ace/ui-core";
-import { CheckIcon, CopyIcon, CornersOutIcon, DownloadSimpleIcon } from "@phosphor-icons/react";
-import { usePageActions } from "./page-actions.ts";
+import { CornersOutIcon } from "@phosphor-icons/react";
 import type { HtmlVisualization } from "@ace/protocol";
 import { resolveHtmlMode } from "@ace/html";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -23,7 +22,7 @@ import { visualizationTab } from "./visualization-tab.ts";
 const heightsKey: SessionKey<LruCache<string, number>> = { name: "visualization heights" };
 const keptHeights = () => new LruCache<string, number>({ maxEntries: 500 });
 
-/** An action, dimmed until hovered, focused or pressed. */
+/** The full-screen button, dimmed until hovered, focused or pressed. */
 const action =
   "rounded-md opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
 
@@ -31,9 +30,9 @@ const action =
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. Full screen, copy and download sit in one outlined group in a row above
- * it, always shown but dimmed until hovered, focused or pressed; Full
- * screen opens it at the side panel's full size, whose strip adds open in window.
+ * the network. A full-screen button sits outlined in a row above it, always shown but dimmed
+ * until hovered, focused or pressed; it opens the page at the side panel's full size, whose
+ * strip adds open in window, copy source and download.
  */
 export function HtmlVisualizationView(props: {
   threadId: string;
@@ -67,7 +66,6 @@ export function HtmlVisualizationView(props: {
     [html, visualization.mode],
   );
   const title = visualization.title;
-  const actions = usePageActions({ html, title, theme, mode, kit: visualization.kit });
   const panel = useWorkspaceActions(props.threadId);
   const available =
     typeof HTMLIFrameElement !== "undefined" && "sandbox" in HTMLIFrameElement.prototype;
@@ -88,20 +86,6 @@ export function HtmlVisualizationView(props: {
               label="Full screen"
               className={action}
               onClick={() => panel.open(visualizationTab(visualization))}
-            />
-            <IconButton
-              size="sm"
-              icon={actions.copied ? CheckIcon : CopyIcon}
-              label={actions.copied ? "Copied" : "Copy source"}
-              className={action}
-              onClick={actions.copy}
-            />
-            <IconButton
-              size="sm"
-              icon={DownloadSimpleIcon}
-              label="Download"
-              className={action}
-              onClick={actions.save}
             />
           </div>
         </div>
