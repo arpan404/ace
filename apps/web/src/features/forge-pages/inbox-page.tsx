@@ -42,8 +42,9 @@ const groupIcons = {
 function unreadCounts(
   rows: readonly ForgeInboxRow[],
   projectOf: (row: ForgeInboxRow) => string | undefined,
+  projects: readonly string[],
 ): Map<string, number> {
-  const counts = new Map<string, number>();
+  const counts = new Map<string, number>(projects.map((id) => [id, 0]));
   for (const row of rows) {
     const project = projectOf(row);
     if (project && row.unread) counts.set(project, (counts.get(project) ?? 0) + 1);
@@ -120,7 +121,7 @@ export function InboxPage(props: {
       lead={
         <ProjectMenu
           choice={choice}
-          counts={unreadCounts(read.rows, projectOf)}
+          counts={unreadCounts(read.rows, projectOf, choice.all)}
           onPick={(next) => onSearch(choice.pick(next))}
         />
       }

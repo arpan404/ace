@@ -69,12 +69,14 @@ export function ForgeList<R>(props: {
   });
   const onMore = props.onMore;
   const nav = useRef<HTMLElement | null>(null);
-  const focusAt = (index: number) =>
-    requestAnimationFrame(() =>
-      nav.current
-        ?.querySelector<HTMLElement>(`[data-index="${index}"] [data-view-row]`)
-        ?.focus({ preventScroll: true }),
-    );
+  const rowElement = (index: number) =>
+    nav.current?.querySelector<HTMLElement>(`[data-index="${index}"] [data-view-row]`);
+  /** Focus a row now when it is mounted, else once it scrolls in. */
+  const focusAt = (index: number) => {
+    const now = rowElement(index);
+    if (now) now.focus({ preventScroll: true });
+    else requestAnimationFrame(() => rowElement(index)?.focus({ preventScroll: true }));
+  };
   const rowAt = (index: number, step: 1 | -1) => {
     for (let at = index + step; at >= 0 && at < entries.length; at += step)
       if (entries[at]?.kind === "row") return at;
@@ -98,11 +100,14 @@ export function ForgeList<R>(props: {
           focusAt(target);
           return;
         }
-        if (event.key.length === 1 && onRowKey(entry.row, event.key)) {
-          event.preventDefault();
-          // The row may leave (done): focus lands on the one that takes its place.
-          focusAt(index);
-          return;
+        if (event.key.length === 1) {
+          // The row may leave (done): focus moves on to the next one first, as triage does.
+          const next = rowAt(index, 1) ?? rowAt(index, -1);
+          if (onRowKey(entry.row, event.key)) {
+            event.preventDefault();
+            if (next !== undefined) focusAt(next);
+            return;
+          }
         }
       }
     }

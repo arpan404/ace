@@ -17,7 +17,7 @@ const repo = (name: string): ForgeRepository => ({
 });
 const web = (name: string, path = "") => `https://github.com/acme/${name}${path}`;
 
-interface Sketch {
+export interface NotificationSketch {
   id: string;
   name: string;
   type: string;
@@ -30,7 +30,7 @@ interface Sketch {
   path?: string;
 }
 
-const sketches: Sketch[] = [
+const sketches: NotificationSketch[] = [
   {
     id: "9001",
     name: "ace",
@@ -198,59 +198,32 @@ const sketches: Sketch[] = [
     ago: 5 * 24 * hour,
     unread: false,
   },
-  {
-    id: "9017",
-    name: "ace-mobile",
-    type: "PullRequest",
-    title: "Keep the composer above the keyboard",
-    reason: "review_requested",
-    ago: 25 * minute,
-    number: 17,
-    state: "open",
-    path: "/pull/17",
-  },
-  {
-    id: "9018",
-    name: "ace-mobile",
-    type: "Issue",
-    title: "Pull to refresh stalls on a slow network",
-    reason: "assign",
-    ago: 3 * hour,
-    number: 21,
-    state: "open",
-    path: "/issues/21",
-  },
-  {
-    id: "9019",
-    name: "billing-api",
-    type: "PullRequest",
-    title: "Retry webhook delivery with backoff",
-    reason: "mention",
-    ago: 70 * minute,
-    number: 112,
-    state: "open",
-    path: "/pull/112",
-  },
 ];
 
 /** The fake's notifications as the daemon maps them, newest first. */
 export function inboxNotifications(now: number): ForgeInboxRow[] {
-  return sketches
-    .map((sketch) => {
-      const row: ForgeInboxRow = {
-        id: sketch.id,
-        repository: repo(sketch.name),
-        type: sketch.type,
-        title: sketch.title,
-        reason: sketch.reason,
-        unread: sketch.unread ?? true,
-        updatedAt: iso(now - sketch.ago),
-        lastReadAt: sketch.unread === false ? iso(now - sketch.ago + minute) : null,
-        url: web(sketch.name, sketch.path),
-      };
-      if (sketch.number) row.number = sketch.number;
-      if (sketch.state) row.state = sketch.state;
-      return row;
-    })
-    .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return notificationRows(now, sketches);
+}
+
+/** Notification sketches as the daemon maps them, in their order. */
+export function notificationRows(
+  now: number,
+  from: readonly NotificationSketch[],
+): ForgeInboxRow[] {
+  return from.map((sketch) => {
+    const row: ForgeInboxRow = {
+      id: sketch.id,
+      repository: repo(sketch.name),
+      type: sketch.type,
+      title: sketch.title,
+      reason: sketch.reason,
+      unread: sketch.unread ?? true,
+      updatedAt: iso(now - sketch.ago),
+      lastReadAt: sketch.unread === false ? iso(now - sketch.ago + minute) : null,
+      url: web(sketch.name, sketch.path),
+    };
+    if (sketch.number) row.number = sketch.number;
+    if (sketch.state) row.state = sketch.state;
+    return row;
+  });
 }

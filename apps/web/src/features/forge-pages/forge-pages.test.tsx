@@ -37,16 +37,16 @@ async function headings(name: ListName) {
 async function numbers(name: ListName) {
   return numbersIn(await screen.findByRole("navigation", { name }));
 }
-test("by default open pull requests are grouped by what each needs next", async () => {
+test("by default open pull requests are grouped by who has the next move", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await waitFor(async () =>
     expect(await groups("Pull requests")).toEqual({
       // Reviews asked of you come before your own branch that fell behind.
       "Needs you": ["229", "226", "222"],
+      // Checks running, a review asked of someone else, and a draft.
+      "Waiting on others": ["231", "245", "227"],
       "Ready to merge": ["233", "224"],
-      Waiting: ["231", "245"],
-      Drafts: ["227"],
     }),
   );
 });

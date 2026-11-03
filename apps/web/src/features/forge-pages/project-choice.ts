@@ -3,7 +3,6 @@ import { useLayout } from "@/lib/layout.tsx";
 import {
   pickedProjects,
   projectsLabel,
-  projectsParam,
   readProjects,
   rememberedProjects,
   rememberProjects,
@@ -42,10 +41,13 @@ export function useProjectChoice(search: ProjectsSearch) {
     loaded,
     name,
     label: projectsLabel(picked, name),
-    /** Remember `next` and return the address's part for it. */
-    pick: (next: readonly string[]): { projects: string[] | undefined; project: undefined } => {
+    /**
+     * Remember `next` and return the address's part for it, always naming the pick (`[]` is
+     * every project), so the address changes and everything reading the choice follows.
+     */
+    pick: (next: readonly string[]): { projects: string[]; project: undefined } => {
       rememberProjects(storage, next);
-      return { projects: projectsParam(next), project: undefined };
+      return { projects: [...next], project: undefined };
     },
   };
 }

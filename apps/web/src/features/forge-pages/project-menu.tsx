@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { projectBadge } from "@ace/ui-core";
 import { ProjectMark } from "@/components/project-mark.tsx";
@@ -49,19 +49,44 @@ export function ProjectMenu(props: {
 }) {
   const { choice, counts } = props;
   const [find, setFind] = useState("");
+  const [open, setOpen] = useState(false);
+  // A tick changes the address, which closes popovers: the menu stays open for the next tick.
+  const ticking = useRef(false);
+  const tick = (next: string[]) => {
+    ticking.current = true;
+    props.onPick(next);
+    requestAnimationFrame(() => {
+      ticking.current = false;
+    });
+  };
+  const choose = (next: string[]) => {
+    setOpen(false);
+    props.onPick(next);
+  };
   const words = find.trim().toLowerCase();
   const shown = choice.all.filter((id) => !words || choice.name(id).toLowerCase().includes(words));
-  const total = counts ? choice.all.reduce((sum, id) => sum + (counts.get(id) ?? 0), 0) : undefined;
+  // Every project's count, or none: a sum of some would read as the whole.
+  const total =
+    counts && choice.all.every((id) => counts.has(id))
+      ? choice.all.reduce((sum, id) => sum + (counts.get(id) ?? 0), 0)
+      : undefined;
   const marks = choice.picked.slice(0, 3);
   if (choice.all.length < 2) return null;
   return (
-    <Popover onOpenChange={(open) => !open && setFind("")}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && ticking.current) return;
+        setOpen(next);
+        if (!next) setFind("");
+      }}
+    >
       <PopoverTrigger
         aria-label={`Projects: ${choice.label}`}
         className="mr-1 inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2 text-ui font-medium text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-hover"
       >
         {marks.length > 0 && (
-          <span aria-hidden className="flex shrink-0 -space-x-1">
+          <span aria-hidden className="flex shrink-0 gap-0.5">
             {marks.map((id) => (
               <ProjectMark key={id} id={id} badge={projectBadge({ id, name: choice.name(id) })} />
             ))}
@@ -91,7 +116,7 @@ export function ProjectMenu(props: {
             aria-checked={choice.picked.length === 0}
             data-project-option=""
             className={optionClass}
-            onClick={() => props.onPick([])}
+            onClick={() => choose([])}
           >
             <Tick on={choice.picked.length === 0} />
             <span className="flex-1">All projects</span>
@@ -112,7 +137,7 @@ export function ProjectMenu(props: {
                     aria-checked={on}
                     data-project-option=""
                     className={optionClass}
-                    onClick={() => props.onPick(toggleProject(choice.picked, id, choice.all))}
+                    onClick={() => tick(toggleProject(choice.picked, id, choice.all))}
                   >
                     <Tick on={on} />
                     <ProjectMark id={id} badge={projectBadge({ id, name: choice.name(id) })} />
@@ -128,7 +153,7 @@ export function ProjectMenu(props: {
                     data-project-option=""
                     aria-label={`Only ${choice.name(id)}`}
                     className="hidden h-8 shrink-0 rounded-md px-2 text-xs text-muted-foreground focus-ring-inset group-focus-within/option:block group-hover/option:block hover:bg-hover hover:text-foreground"
-                    onClick={() => props.onPick([id])}
+                    onClick={() => choose([id])}
                   >
                     Only
                   </button>

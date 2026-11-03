@@ -1,5 +1,6 @@
-import type { ForgeBrowserResult } from "@ace/protocol";
+import type { ForgeBrowserResult, ForgeInboxRow } from "@ace/protocol";
 import { issue, sketchPullRequests, type PrSketch } from "./forge-browse.ts";
+import { notificationRows, type NotificationSketch } from "./inbox.ts";
 import type { PullRequestFixture } from "./pull-request-details.ts";
 
 /*
@@ -136,4 +137,45 @@ export function projectIssues(
       { resource: "issueTimeline", events: [], truncated: false },
     ],
   }));
+}
+
+const notifications: NotificationSketch[] = [
+  {
+    id: "9017",
+    name: "ace-mobile",
+    type: "PullRequest",
+    title: "Keep the composer above the keyboard",
+    reason: "review_requested",
+    ago: 25 * minute,
+    number: 17,
+    state: "open",
+    path: "/pull/17",
+  },
+  {
+    id: "9018",
+    name: "ace-mobile",
+    type: "Issue",
+    title: "Pull to refresh stalls on a slow network",
+    reason: "assign",
+    ago: 3 * hour,
+    number: 21,
+    state: "open",
+    path: "/issues/21",
+  },
+  {
+    id: "9019",
+    name: "billing-api",
+    type: "PullRequest",
+    title: "Retry webhook delivery with backoff",
+    reason: "mention",
+    ago: 70 * minute,
+    number: 112,
+    state: "open",
+    path: "/pull/112",
+  },
+];
+
+/** Notifications from the other projects' repositories. */
+export function projectNotifications(now: number): ForgeInboxRow[] {
+  return notificationRows(now, notifications);
 }

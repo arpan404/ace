@@ -1,5 +1,13 @@
 import { expect, test } from "vitest";
-import { inboxBackoffMs, inboxPollMs, inboxSettledMs } from "./inbox-model.ts";
+import type { ForgeInboxRow } from "@ace/protocol";
+import {
+  inboxBackoffMs,
+  inboxGroups,
+  inboxPollMs,
+  inboxProjects,
+  inboxSettledMs,
+  rowsForProjects,
+} from "./inbox-model.ts";
 
 const list = { host: "github.com", items: [], pollSeconds: 90, unchanged: false };
 
@@ -22,4 +30,57 @@ test("the inbox polls at GitHub's interval, waits longer after a rate limit or l
     expect(inboxPollMs(list, code)).toBe(inboxSettledMs);
   // Anything else passes on its own: keep GitHub's interval.
   expect(inboxPollMs(list, "forge_cli")).toBe(90_000);
+});
+
+const repo = (name: string) => ({
+  forge: "github" as const,
+  host: "github.com",
+  owner: "acme",
+  name,
+});
+const note = (id: string, name: string, reason: string): ForgeInboxRow => ({
+  id,
+  repository: repo(name),
+  type: "PullRequest",
+  title: `Notification ${id}`,
+  reason,
+  unread: true,
+  updatedAt: "2026-11-01T00:00:00Z",
+  lastReadAt: null,
+});
+
+test("notifications group by why they arrived, everything unknown last", () => {
+  const groups = inboxGroups([
+    note("1", "ace", "comment"),
+    note("2", "ace", "review_requested"),
+    note("3", "ace", "ci_activity"),
+    note("4", "ace", "assign"),
+    note("5", "ace", "a_reason_github_adds_later"),
+  ]);
+  expect(groups.map((group) => [group.label, group.rows.map((row) => row.id)])).toEqual([
+    ["Review requested", ["2"]],
+    ["Mentioned and assigned", ["4"]],
+    ["Checks and security", ["3"]],
+    ["Other activity", ["1", "5"]],
+  ]);
+});
+
+test("every project shows the whole account's notifications; picked projects only their own", () => {
+  const projectOf = inboxProjects(
+    new Map([
+      ["p-ace", repo("ace")],
+      ["p-docs", repo("Docs-Site")],
+    ]),
+  );
+  const rows = [
+    note("1", "ace", "mention"),
+    note("2", "docs-site", "mention"),
+    note("3", "elsewhere", "mention"),
+  ];
+  expect(rowsForProjects(rows, [], projectOf).map((row) => row.id)).toEqual(["1", "2", "3"]);
+  expect(rowsForProjects(rows, ["p-docs"], projectOf).map((row) => row.id)).toEqual(["2"]);
+  expect(rowsForProjects(rows, ["p-ace", "p-docs"], projectOf).map((row) => row.id)).toEqual([
+    "1",
+    "2",
+  ]);
 });
