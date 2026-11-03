@@ -47,6 +47,7 @@ export type FakeWorkspaceControls = Pick<
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
+  | "addPullRequests"
   | "mergePullRequest"
   | "submitPullRequestReview"
   | "pushPullRequest"
@@ -116,7 +117,11 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
-  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  /** More whole pull requests beside the seeded ones. */
+  addPullRequests(fixtures: readonly PullRequestFixture[]): void {
+    this.pullRequests.add(fixtures);
+  }
+  /** Push to a catalog PR's branch: a new head (its own push, or new-side lines moved by ten). */
   pushPullRequest(number: number): boolean {
     return this.pullRequests.push(number);
   }

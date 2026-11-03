@@ -37,6 +37,8 @@ export interface PullRequestFixture {
   commits?: FixtureCommit[] | undefined;
   /** Files read whole (`forge.file.content`) at the base and the commits that changed them. */
   contents?: FixtureContent[] | undefined;
+  /** What a push to its branch does to it, at time `at`; absent, the catalog's ten-line push. */
+  nextPush?: ((fixture: PullRequestFixture, at: string) => PullRequestFixture) | undefined;
 }
 
 /** One commit of a PR and the files it changed. */
