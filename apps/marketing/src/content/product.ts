@@ -9,6 +9,12 @@ export const product = {
   headline: "Stop babysitting your agents.",
   summary:
     "ace runs your agents on many tasks at once, across all your machines. They hand work to each other and call you only when a decision is yours.",
+  /** The hero's one line under its buttons: what ace costs, where it runs, what it needs. */
+  heroFacts: [
+    "Free and open source",
+    "Mac, Windows and Linux",
+    "Uses the CLIs you already pay for",
+  ],
   /** For search results: at most about 160 characters. */
   description:
     "ace is a free, open-source app where Claude Code, Codex and Cursor work as one team across your Mac, Windows and Linux machines, with phone apps.",
