@@ -2,7 +2,8 @@ import { expect, test } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Command, WorkspaceActionRequest } from "@ace/protocol";
+import { z } from "zod";
+import { Command, ForgeReviewDraft, WorkspaceActionRequest } from "@ace/protocol";
 import { fakeGh, repository, sha } from "@ace/forge/testing";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
@@ -259,9 +260,13 @@ test("after a push, a pending draft follows its shifted line into the review and
         operation: { op: "forge.pr.review-state", workspaceId, repository, number: 7 },
       }),
     );
-    const value = (read as { result: { data: { value: { drafts: unknown[] } } } }).result.data
-      .value;
-    return value.drafts;
+    return z
+      .looseObject({
+        result: z.looseObject({
+          data: z.looseObject({ value: z.looseObject({ drafts: z.array(ForgeReviewDraft) }) }),
+        }),
+      })
+      .parse(read).result.data.value.drafts;
   };
   try {
     for (const [id, line] of [
