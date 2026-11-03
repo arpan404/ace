@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 struct AceAccountView: View {
@@ -6,7 +7,7 @@ struct AceAccountView: View {
     @State private var model = AceAccountModel()
     @State private var forgetting: AceMachine?
     @State private var notice: ProblemNotice?
-    @Environment(\.openURL) private var openURL
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     var body: some View {
         List {
@@ -46,7 +47,7 @@ struct AceAccountView: View {
         .refreshable { await machines?.refreshAccount() }
         // Signing in or out changes which machines this phone reaches through the account.
         .onChange(of: model.account?.id) { _, _ in Task { await machines?.refreshAccount() } }
-        .onChange(of: model.login?.loginUrl) { _, url in if let url { openURL(url) } }
+        .onChange(of: model.login?.loginUrl) { _, url in if let url { Task { await authenticate(url) } } }
         .onDisappear { model.cancel() }
         .confirmationDialog("Forget \(forgetting?.name ?? "machine")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
                             titleVisibility: .visible, presenting: forgetting) { machine in
@@ -57,6 +58,18 @@ struct AceAccountView: View {
         .alert("Couldn't forget", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice?.message ?? "") }
+    }
+
+    /// Sign-in in a browser sheet that closes itself when the backend sends it back to
+    /// `ace://account/signed-in`. The session arrives through the model's claim either way.
+    private func authenticate(_ url: URL) async {
+        do {
+            let returned = try await webAuthenticationSession.authenticate(using: url, callbackURLScheme: AceLink.scheme)
+            model.returned(returned)
+        } catch let failure as ASWebAuthenticationSessionError where failure.code == .canceledLogin {
+            // The person closed the sheet before WorkOS finished: stop waiting for this sign-in.
+            if model.account == nil { model.cancel() }
+        } catch {}
     }
 
     @ViewBuilder private func accountMachines(_ machines: MachinesModel) -> some View {

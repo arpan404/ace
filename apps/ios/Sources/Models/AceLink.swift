@@ -62,7 +62,8 @@ extension SettingsRoute {
 struct PendingLinks: Equatable {
     private(set) var waiting: [URL] = []
     mutating func add(_ url: URL) {
-        guard url.scheme?.lowercased() == AceLink.scheme else { return }
+        // Sign-in's return address is the account sheet's, not a link to open.
+        guard url.scheme?.lowercased() == AceLink.scheme, !AceSignInReturn.isAccountURL(url) else { return }
         // A link opened twice before the app is ready opens once.
         if !waiting.contains(url) { waiting.append(url) }
     }
