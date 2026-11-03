@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
@@ -11,7 +11,8 @@ export interface ForgeGroup<R> {
   id: string;
   label: string;
   icon: IconGlyph;
-  count: number | undefined;
+  /** Its count in words ("3", "2 of 12"); none while unknown. */
+  count: string | undefined;
   /** Drawn with its heading: false for a list with one group that needs no name. */
   headed: boolean;
   rows: readonly R[];
@@ -43,6 +44,11 @@ export function ForgeList<R>(props: {
   renderRow(row: R, group: string, last: boolean): ReactNode;
   /** GitHub has more pages: Show more asks for the next. */
   onMore: (() => void) | undefined;
+  /**
+   * Triage keys: j and k move between rows as ↓ and ↑ do, and any other letter goes to
+   * `onRowKey` with the focused row; true means it was handled.
+   */
+  onRowKey?: ((row: R, key: string) => boolean) | undefined;
 }) {
   const { rowKey, rowTitle } = props;
   const entries: Entry<R>[] = [];
@@ -62,11 +68,55 @@ export function ForgeList<R>(props: {
     reveal: (index) => handle.current?.scrollToIndex(index, "auto"),
   });
   const onMore = props.onMore;
+  const nav = useRef<HTMLElement | null>(null);
+  const focusAt = (index: number) =>
+    requestAnimationFrame(() =>
+      nav.current
+        ?.querySelector<HTMLElement>(`[data-index="${index}"] [data-view-row]`)
+        ?.focus({ preventScroll: true }),
+    );
+  const rowAt = (index: number, step: 1 | -1) => {
+    for (let at = index + step; at >= 0 && at < entries.length; at += step)
+      if (entries[at]?.kind === "row") return at;
+    return undefined;
+  };
+  const onRowKey = props.onRowKey;
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (onRowKey && !event.metaKey && !event.ctrlKey && !event.altKey && !event.defaultPrevented) {
+      const at =
+        event.target instanceof HTMLElement
+          ? event.target.closest<HTMLElement>("[data-index]")
+          : null;
+      const index = at ? Number(at.dataset["index"]) : Number.NaN;
+      const entry = entries[index];
+      if (entry?.kind === "row") {
+        if (event.key === "j" || event.key === "k") {
+          event.preventDefault();
+          const target = rowAt(index, event.key === "j" ? 1 : -1);
+          if (target === undefined) return;
+          handle.current?.scrollToIndex(target, "auto");
+          focusAt(target);
+          return;
+        }
+        if (event.key.length === 1 && onRowKey(entry.row, event.key)) {
+          event.preventDefault();
+          // The row may leave (done): focus lands on the one that takes its place.
+          focusAt(index);
+          return;
+        }
+      }
+    }
+    keys.onKeyDown(event);
+  };
   return (
     <nav
       aria-label={props.label}
       aria-busy={props.stale}
-      {...keys}
+      ref={(element) => {
+        nav.current = element;
+        keys.ref(element);
+      }}
+      onKeyDown={onKeyDown}
       className={cn(
         "pb-6",
         props.stale && "opacity-60 transition-opacity duration-(--motion-fast)",

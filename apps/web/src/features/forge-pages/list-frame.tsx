@@ -52,8 +52,12 @@ export function ListFrame(props: {
   /** The list's search; the inbox has none, since GitHub can't search notifications. */
   search?: string;
   onSearch?(text: string): void;
-  /** Menus beside the search: the state, then Filters (involvement, sort, project and the rest). */
+  /** The project menu, first in the bar. */
+  lead?: ReactNode;
+  /** Menus beside the search: the state, then Filters (involvement, sort and the rest). */
   menus?: ReactNode;
+  /** Quick views under the bar. */
+  views?: ReactNode;
   actions?: ReactNode;
   /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
   address: string;
@@ -61,6 +65,8 @@ export function ListFrame(props: {
   ready: boolean;
   /** One status line pinned under the bar (the merge strip). */
   strip?: ReactNode;
+  /** A line pinned at the foot of the list (the inbox's keys). */
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   const { ref, onScroll } = useListScroll(props.kind, props.address, props.ready);
@@ -88,6 +94,7 @@ export function ListFrame(props: {
             aria-label={filtersLabel[props.kind]}
             className="flex min-w-0 items-center gap-1"
           >
+            {props.lead}
             {props.onSearch && (
               <SearchBox label={label} value={props.search ?? ""} onValue={props.onSearch} />
             )}
@@ -96,9 +103,15 @@ export function ListFrame(props: {
           <span className="flex-1" />
           {props.actions && <div className="ml-1.5 flex items-center">{props.actions}</div>}
         </div>
+        {props.views}
         {props.strip}
       </header>
       {props.children}
+      {props.footer && (
+        <div className="sticky bottom-0 z-[2] border-t border-border bg-background px-(--forge-gutter)">
+          {props.footer}
+        </div>
+      )}
     </div>
   );
 }

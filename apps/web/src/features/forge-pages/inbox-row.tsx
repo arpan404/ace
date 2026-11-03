@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { IssueStateGlyph, PrStateGlyph } from "./marks.tsx";
-import { Age, rowClass } from "./row-parts.tsx";
+import { Age, Dot, ProjectTag, rowClass } from "./row-parts.tsx";
 
 const typeGlyphs: Record<string, IconGlyph> = {
   Release: TagIcon,
@@ -64,6 +64,8 @@ export function InboxRow(props: {
   to: InboxRowTarget;
   onOpenWeb(url: string): void;
   onWrite(action: "read" | "done" | "unsubscribe"): void;
+  /** The row's project, at the start of line 2, when the list shows more than one. */
+  tag?: { id: string; name: string } | undefined;
   /** The last of the list: no rule under it. */
   last?: boolean | undefined;
 }) {
@@ -102,12 +104,14 @@ export function InboxRow(props: {
           </span>
         </span>
         <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
-          <span className="truncate">
-            {row.repository.owner}/{row.repository.name}
-          </span>
-          <span aria-hidden className="text-subtle-foreground">
-            ·
-          </span>
+          {props.tag ? (
+            <ProjectTag id={props.tag.id} name={props.tag.name} />
+          ) : (
+            <span className="truncate">
+              {row.repository.owner}/{row.repository.name}
+            </span>
+          )}
+          <Dot />
           <span className="shrink-0">{inboxReasonWords(row.reason)}</span>
           {target.kind === "web" && inboxTypeWords(row.type) !== inboxReasonWords(row.reason) && (
             <>

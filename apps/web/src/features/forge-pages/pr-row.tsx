@@ -1,45 +1,34 @@
 import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
-import { middleTruncateText, type LinkedThread, type LocalCheckResult } from "@ace/ui-core";
+import { middleTruncateText } from "@ace/ui-core";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
-import { LabelPill } from "@/components/forge-marks.tsx";
-import { Avatars, ChecksMark, PrStateGlyph, ReviewMark } from "./marks.tsx";
-import { StepButton, StepSpace } from "./pr-step.tsx";
-import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
+import { PrStateGlyph } from "./marks.tsx";
+import { Age, Dot, ProjectTag, RowActions, rowClass } from "./row-parts.tsx";
+import type { RowStepView } from "./row-steps.ts";
 
-/** The row's next step as a button, or a quiet word when it waits on someone else. */
-export interface RowStepView {
-  /** The button: its word and what pressing it does. */
-  action?:
-    | {
-        label: string;
-        pressed?: boolean | undefined;
-        /** Why it can't be pressed now. */
-        disabled?: string | undefined;
-        onPress(): void;
-      }
-    | undefined;
-  /** "Checks running", "Waiting on review". */
-  quiet?: string | undefined;
-}
+/** The right column's width: the status words and the action under them. */
+const side = "[--row-side:8.5rem]";
+const actionText =
+  "inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
 
 /**
- * One pull request: glyph, number, title and labels, with its review, checks, comments, size
- * and people at the right; then author, branches, thread and age, and its next step. The step's
- * button sits outside the row's link, over space the link keeps for it.
+ * One pull request: its state glyph, the title across the row, then its project (when the list
+ * shows more than one), number, author, branch and size. At the right, its state in words in
+ * its tone, and its age; hovering or focusing the row puts the next action (Review, Merge,
+ * Update branch, Open thread) where the age was. The action sits outside the row's link.
  */
 export function PrRow(props: {
   project: string;
+  /** The project's name, shown at the start of line 2; none when the list shows one project. */
+  projectName?: string | undefined;
   row: ForgePrRow;
   /** The list's address, so the pull request's page can return to it as it was. */
   back: string;
-  thread: LinkedThread | undefined;
-  local?: LocalCheckResult;
-  step?: RowStepView | undefined;
+  step: RowStepView;
   /** In the merge selection: the row takes the selected fill. */
   selected?: boolean | undefined;
   /** The last of its group: no rule under it. */
@@ -49,16 +38,17 @@ export function PrRow(props: {
   const navigate = useNavigate();
   const toast = useToast();
   const openWeb = useOpenWebAddress();
-  const people = [...new Set([...(row.reviewers ?? []), ...(row.assignees ?? [])])];
-  const action = step?.action;
+  const { action, status } = step;
+  const pressed = action.pressed === true;
   // Space on a selectable row toggles it, as its Merge button does.
   const onKeyDown = (event: KeyboardEvent<HTMLAnchorElement>) => {
-    if (event.key !== " " || action?.pressed === undefined || action.disabled) return;
+    if (event.key !== " " || action.pressed === undefined || action.disabled) return;
     event.preventDefault();
     action.onPress();
   };
+  const branch = row.headBranch;
   return (
-    <div className={cn("group/row relative", !props.last && "border-b border-border")}>
+    <div className={cn("group/row relative", side, !props.last && "border-b border-border")}>
       <Link
         to="/pulls/$project/$number"
         params={{ project: props.project, number: String(row.ref.number) }}
@@ -75,77 +65,80 @@ export function PrRow(props: {
           <PrStateGlyph state={row.state} conflicting={row.conflicting} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-xs text-subtle-foreground tabular-nums">
-              #{row.ref.number}
-            </span>
-            <span
-              data-view-row-title=""
-              className="min-w-0 truncate text-ui font-medium text-foreground"
-            >
-              {row.title}
-            </span>
-            <span className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @xl/list:flex">
-              {row.labels.map((label) => (
-                <LabelPill key={label} name={label} color={row.labelColors?.[label]} />
-              ))}
-            </span>
-            <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
-              <ReviewMark decision={row.reviewDecision} />
-              <ChecksMark ci={row.ci} local={props.local} />
-              <Comments count={row.commentCount} />
-              {row.additions !== undefined && row.deletions !== undefined && (
-                <DiffStat additions={row.additions} deletions={row.deletions} />
-              )}
-              <Avatars people={people} avatars={row.avatars} label="Reviewers and assignees" />
-            </span>
+          <span
+            data-view-row-title=""
+            className="min-w-0 truncate text-ui font-medium text-foreground"
+          >
+            {row.title}
           </span>
-          <span className="flex min-h-5 min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
-            <Author login={row.author} avatar={row.avatars?.[row.author] ?? row.authorAvatarUrl} />
-            {row.headBranch && row.baseBranch && (
+          <span className="flex min-h-5 min-w-0 items-center gap-1.5 text-meta text-subtle-foreground">
+            {props.projectName && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
+                <ProjectTag id={props.project} name={props.projectName} />
+                <Dot />
+              </>
+            )}
+            <span className="shrink-0 tabular-nums">#{row.ref.number}</span>
+            <Dot />
+            <span className="max-w-40 shrink-0 truncate">{row.author}</span>
+            {branch && (
+              <>
+                <Dot />
                 <span
-                  className="min-w-0 truncate font-mono text-xs text-subtle-foreground"
-                  title={`${row.headBranch} → ${row.baseBranch}`}
+                  className="min-w-0 truncate font-mono text-xs"
+                  title={row.baseBranch ? `${branch} → ${row.baseBranch}` : branch}
                 >
-                  {`${middleTruncateText(row.headBranch, 32)} → ${middleTruncateText(row.baseBranch, 20)}`}
+                  {middleTruncateText(branch, 36)}
                 </span>
               </>
             )}
-            {props.thread && (
+            {row.additions !== undefined && row.deletions !== undefined && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
-                <Thread thread={props.thread} />
+                <Dot />
+                <DiffStat additions={row.additions} deletions={row.deletions} />
               </>
             )}
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 text-subtle-foreground">
-              {step?.quiet && (
-                <>
-                  <span>{step.quiet}</span>
-                  <span aria-hidden>·</span>
-                </>
-              )}
-              <Age at={row.updatedAt} />
-            </span>
-            <StepSpace label={action?.pressed ? "Selected" : action?.label} />
+          </span>
+        </span>
+        <span className="flex w-(--row-side) shrink-0 flex-col items-end gap-1 pl-2 text-meta">
+          <span
+            data-tone={status.tone}
+            className={cn(
+              "max-w-full truncate",
+              status.tone ? "text-(--tone-text)" : "text-foreground",
+            )}
+          >
+            {status.words}
+          </span>
+          <span
+            className={cn(
+              "flex min-h-5 items-center text-subtle-foreground",
+              !pressed && "group-focus-within/row:invisible group-hover/row:invisible",
+              pressed && "invisible",
+            )}
+          >
+            <Age at={row.updatedAt} />
           </span>
         </span>
       </Link>
-      {action && (
-        <StepButton
-          label={action.label}
-          title={`#${row.ref.number} ${row.title}`}
-          pressed={action.pressed}
-          disabled={action.disabled}
-          onPress={action.onPress}
-        />
-      )}
+      <button
+        type="button"
+        aria-pressed={action.pressed}
+        aria-label={`${pressed ? "Selected" : action.label}: #${row.ref.number} ${row.title}`}
+        title={action.disabled}
+        disabled={action.disabled !== undefined}
+        onClick={action.onPress}
+        className={cn(
+          actionText,
+          "absolute right-[calc(var(--forge-gutter)-0.375rem)] bottom-2.5",
+          !pressed &&
+            "opacity-0 group-focus-within/row:opacity-100 group-hover/row:opacity-100 focus:opacity-100",
+        )}
+      >
+        {pressed ? "Selected" : action.label}
+      </button>
       <RowActions
+        beside
         url={row.url}
         onNewThread={() =>
           void navigate({ to: "/new", search: { project: props.project, pullRequest: row.url } })

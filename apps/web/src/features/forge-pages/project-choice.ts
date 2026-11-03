@@ -1,60 +1,53 @@
-import { readJson, writeJson } from "@ace/ui-core";
-import { z } from "zod";
+import { useEffect } from "react";
 import { useLayout } from "@/lib/layout.tsx";
+import {
+  pickedProjects,
+  projectsLabel,
+  projectsParam,
+  readProjects,
+  rememberedProjects,
+  rememberProjects,
+  type ProjectsSearch,
+} from "@/lib/forge-projects.ts";
 import { useRegisteredProjects } from "@/lib/projects.ts";
-import type { FilterSection } from "./filters-menu.tsx";
 
-const key = "ace.forge.project";
-
-/** The project a list reads: the one in the address, else the last chosen if it exists, else the first. */
-export function listProject(
-  routed: string | undefined,
-  remembered: string | undefined,
-  projects: readonly string[],
-): string | undefined {
-  if (routed) return routed;
-  if (remembered && projects.includes(remembered)) return remembered;
-  return projects[0];
-}
-
-/** The project both lists read, and remembering a choice on this device for next time. */
-export function useProjectChoice(routed: string | undefined) {
+/**
+ * The projects Code review's lists show (every project unless some are picked), and picking:
+ * a pick is remembered on this device and returned as the address's part, so Inbox, Pull
+ * requests and Issues all show it, after a reload too. A choice arriving in an address (a link,
+ * Back) is remembered as well.
+ */
+export function useProjectChoice(search: ProjectsSearch) {
   const { storage } = useLayout();
   const { ids, name, loaded } = useRegisteredProjects();
-  const remembered = readJson(storage, key, z.string().min(1).max(512), "") || undefined;
+  const remembered = rememberedProjects(storage);
+  const picked = loaded ? pickedProjects(search, remembered, ids) : [];
+  const routed = search.projects ?? (search.project ? [search.project] : undefined);
+  const arrived = loaded && routed !== undefined ? picked.join("\n") : undefined;
+  useEffect(() => {
+    if (arrived === undefined) return;
+    if (rememberedProjects(storage).join("\n") !== arrived)
+      rememberProjects(storage, arrived ? arrived.split("\n") : []);
+  }, [arrived, storage]);
+  const read = readProjects(picked, ids);
   return {
-    project: listProject(routed, remembered, ids),
-    projects: ids,
+    /** The projects picked; empty is every project. */
+    picked,
+    /** The projects the list reads. */
+    projects: read,
+    /** Every project the daemon lists, by name. */
+    all: ids,
+    /** Exactly one project is shown: rows drop their project tags. */
+    one: read.length === 1 ? read[0] : undefined,
     loaded,
     name,
-    remember: (project: string) => writeJson(storage, key, project),
+    label: projectsLabel(picked, name),
+    /** Remember `next` and return the address's part for it. */
+    pick: (next: readonly string[]): { projects: string[] | undefined; project: undefined } => {
+      rememberProjects(storage, next);
+      return { projects: projectsParam(next), project: undefined };
+    },
   };
 }
 
 export type ProjectChoice = ReturnType<typeof useProjectChoice>;
-
-/**
- * The Filters menu's Project part, a view setting, when there is more than one project to pick:
- * picking one remembers it and hands it to `onPick`.
- */
-export function projectSection(
-  choice: ProjectChoice,
-  onPick: (project: string) => void,
-): FilterSection[] {
-  const current = choice.project;
-  if (!current || choice.projects.length < 2) return [];
-  return [
-    {
-      kind: "one",
-      id: "project",
-      label: "Project",
-      setting: true,
-      value: current,
-      choices: choice.projects.map((id) => ({ value: id, label: choice.name(id) })),
-      onChange: (next) => {
-        choice.remember(next);
-        onPick(next);
-      },
-    },
-  ];
-}

@@ -25,15 +25,17 @@ import { catalogMilestones, closingIssue, withManagement } from "./pr-management
 const minute = 60_000;
 const hour = 60 * minute;
 const iso = (at: number) => new Date(Math.max(0, at)).toISOString();
-const repository: ForgeRepository = {
+const named = (name: string): ForgeRepository => ({
   forge: "github",
   host: "github.com",
   owner: "acme",
-  name: "ace",
-};
+  name,
+});
 
 /** A pull request of `acme/ace` in a few facts, made whole by `sketchPullRequests`. */
 export interface PrSketch {
+  /** Its repository under `acme`; `ace` when absent. */
+  repo?: string;
   number: number;
   title: string;
   state: "open" | "draft" | "merged" | "closed";
@@ -55,6 +57,7 @@ export interface PrSketch {
 }
 
 function sketched(now: number, pr: PrSketch): PullRequestFixture {
+  const repository = named(pr.repo ?? "ace");
   const headSha = pr.number.toString(16).padStart(40, "e");
   const at = now - pr.updated;
   const checks =
@@ -69,7 +72,7 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
     status: {
       ref: { repository, number: pr.number },
       title: pr.title,
-      url: `https://github.com/acme/ace/pull/${pr.number}`,
+      url: `https://github.com/acme/${repository.name}/pull/${pr.number}`,
       headSha,
       state: pr.state === "draft" ? "draft" : pr.state,
       mergeability: pr.conflicting ? "conflicting" : pr.state === "open" ? "mergeable" : "unknown",
@@ -294,18 +297,25 @@ export function sketchPullRequests(
   return sketches.map((pr) => sketched(now, pr));
 }
 
-function issue(
+export function issue(
   now: number,
   number: number,
   title: string,
-  patch: { state?: "open" | "closed"; author: string; assignees?: string[]; labels?: string[] },
+  patch: {
+    state?: "open" | "closed";
+    author: string;
+    assignees?: string[];
+    labels?: string[];
+    repo?: string;
+  },
   updated: number,
   body: string,
 ): ForgeIssueDetail {
+  const at = named(patch.repo ?? "ace");
   return ForgeIssueDetail.parse({
-    ref: { repository, number },
+    ref: { repository: at, number },
     title,
-    url: `https://github.com/acme/ace/issues/${number}`,
+    url: `https://github.com/acme/${at.name}/issues/${number}`,
     author: patch.author,
     state: patch.state ?? "open",
     labels: patch.labels ?? [],

@@ -9,7 +9,7 @@ import {
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { PencilSimpleIcon, RecordIcon, UserIcon, UsersIcon } from "@phosphor-icons/react";
-import type { ForgeIssueRow } from "@ace/protocol";
+import type { ForgeIssueList, ForgeIssueRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
@@ -21,7 +21,11 @@ import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, useIssuePages } from "./lists.ts";
-import { projectSection, useProjectChoice, type ProjectChoice } from "./project-choice.ts";
+import { NewInProject } from "./new-in-project.tsx";
+import { PartialNotice } from "./partial-notice.tsx";
+import { useProjectChoice } from "./project-choice.ts";
+import { ProjectMenu } from "./project-menu.tsx";
+import { countWords } from "./quick-views.tsx";
 
 const groupIcons = {
   assigned: UserIcon,
@@ -33,13 +37,12 @@ const unique = (values: readonly string[]) =>
   [...new Set(values)].toSorted((a, b) => a.localeCompare(b));
 
 /**
- * Who the list concerns, its order and its project, first in the Filters menu: who counts as a
- * filter that is on; sort and project are the view's settings.
+ * Who the list concerns and its order, first in the Filters menu: who counts as a filter that
+ * is on; sort is the view's setting.
  */
 function viewSections(
   search: IssuesSearch,
   onSearch: (patch: Partial<IssuesSearch>) => void,
-  choice: ProjectChoice,
 ): FilterSection[] {
   const sorts = Object.keys(issueSortLabels) as IssuesSort[];
   return [
@@ -68,9 +71,6 @@ function viewSections(
       })),
       onChange: (value) => onSearch({ sort: sorts.find((key) => key === value) }),
     },
-    ...projectSection(choice, (project) =>
-      onSearch({ project, labels: undefined, author: undefined }),
-    ),
   ];
 }
 
@@ -108,49 +108,64 @@ function filterSections(
 }
 
 /**
- * A project's issues across the main column, grouped as assigned to you, opened by you and the
- * rest; a row opens its issue as a page. Every filter lives in the address.
+ * Issues across the main column, from every project unless some are picked, grouped as
+ * assigned to you, opened by you and the rest; a row opens its issue as a page. Every filter
+ * lives in the address.
  */
 export function IssuesPage(props: {
   search: IssuesSearch;
   onSearch(patch: Partial<IssuesSearch>): void;
 }) {
   const { search, onSearch } = props;
-  const choice = useProjectChoice(search.project);
-  const project = choice.project;
+  const choice = useProjectChoice(search);
+  const projects = choice.projects;
   const query = issueQuery(search, 1);
-  const listKey = JSON.stringify([project, query]);
+  const listKey = JSON.stringify([projects, query]);
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
-  const list = useIssuePages(project, query, pages);
-  const totals = useGroupCounts(project, { by: "issue-people", query }).data;
+  const list = useIssuePages(projects, query, pages);
+  const totals = useGroupCounts(projects, { by: "issue-people", query }).total;
   const linked = useLinkedThreads().issues;
   const groups = groupIssues(list.rows, list.first?.viewer);
-  const counts = list.first?.counts;
+  const sum = (pick: (first: ForgeIssueList) => number) => {
+    if (list.firsts.size < projects.length) return undefined;
+    let total = 0;
+    for (const first of list.firsts.values()) total += pick(first);
+    return total;
+  };
   const navigate = useNavigate();
   const listAddress = useLocation({ select: (location) => location.searchStr });
+  const creatable = projects.filter((id) => list.firsts.get(id)?.canCreate);
   const rows = (
     <ListFrame
       kind="issues"
       address={listAddress}
       ready={list.rows.length > 0}
+      lead={
+        <ProjectMenu
+          choice={choice}
+          counts={new Map([...list.firsts].map(([id, first]) => [id, first.counts.open]))}
+          onPick={(next) =>
+            onSearch({ ...choice.pick(next), labels: undefined, author: undefined })
+          }
+        />
+      }
       search={search.q ?? ""}
       onSearch={(text) => onSearch({ q: text.trim() || undefined })}
+      strip={<PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />}
       actions={
-        project && list.first?.canCreate ? (
-          <Button
-            size="sm"
-            onClick={() =>
-              void navigate({
-                to: "/issues/$project/new",
-                params: { project },
-                search: { back: listAddress },
-              })
-            }
-          >
-            New issue
-          </Button>
-        ) : null
+        <NewInProject
+          label="New issue"
+          projects={creatable}
+          name={choice.name}
+          onPick={(project) =>
+            void navigate({
+              to: "/issues/$project/new",
+              params: { project },
+              search: { back: listAddress },
+            })
+          }
+        />
       }
       menus={
         <>
@@ -158,14 +173,18 @@ export function IssuesPage(props: {
             label="State"
             value={search.state ?? "open"}
             options={[
-              { value: "open" as const, label: "Open", count: counts?.open },
-              { value: "closed" as const, label: "Closed", count: counts?.closed },
+              { value: "open" as const, label: "Open", count: sum((first) => first.counts.open) },
+              {
+                value: "closed" as const,
+                label: "Closed",
+                count: sum((first) => first.counts.closed),
+              },
             ]}
             onValueChange={(state) => onSearch({ state: state === "open" ? undefined : state })}
           />
           <FiltersMenu
             sections={[
-              ...viewSections(search, onSearch, choice),
+              ...viewSections(search, onSearch),
               ...filterSections(search, list.rows, onSearch),
             ]}
             onClear={() => onSearch({ who: undefined, author: undefined, labels: undefined })}
@@ -173,7 +192,7 @@ export function IssuesPage(props: {
         </>
       }
     >
-      {!project ? (
+      {!projects.length ? (
         choice.loaded && (
           <EmptyState
             title="No projects yet"
@@ -202,29 +221,35 @@ export function IssuesPage(props: {
             id: group.id,
             label: group.label,
             icon: groupIcons[group.id as keyof typeof groupIcons] ?? UsersIcon,
-            count: totals?.[group.id],
+            count: countWords(group.rows.length, totals?.[group.id], !list.more),
             headed: group.id !== "all",
             rows: group.rows,
           }))}
-          rowKey={(row) => String(row.ref.number)}
+          rowKey={(row) =>
+            `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`
+          }
           rowTitle={(row) => row.title}
           estimate={61}
-          renderRow={(row, _group, last) => (
-            <IssueRow
-              project={project}
-              back={listAddress}
-              row={row}
-              thread={linked.get(workKey(row.ref.repository, row.ref.number))}
-              last={last}
-            />
-          )}
+          renderRow={(row, _group, last) => {
+            const project = list.projectOf(row);
+            return (
+              <IssueRow
+                project={project}
+                projectName={choice.one ? undefined : choice.name(project)}
+                back={listAddress}
+                row={row}
+                thread={linked.get(workKey(row.ref.repository, row.ref.number))}
+                last={last}
+              />
+            );
+          }}
           onMore={list.more ? () => setPaging({ key: listKey, pages: pages + 1 }) : undefined}
         />
       )}
     </ListFrame>
   );
   return (
-    <Screen title="Issues" namedByPanel crumb={project ? choice.name(project) : undefined}>
+    <Screen title="Issues" namedByPanel>
       {rows}
     </Screen>
   );
