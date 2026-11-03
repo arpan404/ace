@@ -32,38 +32,9 @@
   // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
   // never logged either.
   "observability": { "enabled": false },
-  // ace's hosted relay: `--env staging` (relay-staging.acehq.dev) and `--env production`
-  // (relay.acehq.dev). The top level above is for local development and tests.
+  // ace's hosted relay at relay.acehq.dev: deploy with `--env production`. The top level above
+  // is for local development and tests.
   "env": {
-    "staging": {
-      "name": "ace-relay-staging",
-      "routes": [{ "pattern": "relay-staging.acehq.dev", "custom_domain": true }],
-      "vars": {
-        "ACE_ACCOUNT_PUBLIC_URL": "https://relay-staging.acehq.dev",
-        "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,http://localhost:5173,app://ace",
-      },
-      "durable_objects": {
-        "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
-      },
-      "d1_databases": [
-        {
-          "binding": "ACCOUNTS",
-          "database_name": "ace-accounts-staging",
-          "database_id": "ac19f449-f31f-438c-909d-e6327c1eaee9",
-          "migrations_dir": "migrations",
-        },
-      ],
-      "ratelimits": [
-        { "name": "UPGRADES", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
-        {
-          "name": "ACCOUNT_REQUESTS",
-          "namespace_id": "1002",
-          "simple": { "limit": 120, "period": 60 },
-        },
-      ],
-      "triggers": { "crons": ["17 * * * *"] },
-      "observability": { "enabled": false },
-    },
     "production": {
       "name": "ace-relay",
       "routes": [{ "pattern": "relay.acehq.dev", "custom_domain": true }],
