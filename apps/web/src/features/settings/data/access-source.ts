@@ -1,10 +1,17 @@
 /*
- * Paired devices, pairing and revoking through the daemon's HTTP access routes (`AccessClient`):
- * `GET /v1/devices`, `POST /v1/pairings`, `DELETE /v1/devices/:id`, with the admin token in the
- * Authorization header. Fake mode reaches the fake daemon's routes through an injected fetch.
+ * Remote access status, paired devices, pairing and revoking over the machine's own connection
+ * (`fleet.request`, admin only, the same daemon code as `GET /v1/status`, `GET /v1/devices`,
+ * `POST /v1/pairings` and `DELETE /v1/devices/:id`). `accessOptions` is the HTTP route left for
+ * what only this computer's own credential may do (machine-account-source.ts).
  */
-import { AccessClient, ClientError, type AccessOptions } from "@ace/client";
-import type { Device, DeviceScope } from "@ace/protocol";
+import { ClientError, type AccessOptions, type ClientApi } from "@ace/client";
+import {
+  DeviceId,
+  type Device,
+  type DeviceScope,
+  type FleetOperation,
+  type FleetOutcome,
+} from "@ace/protocol";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
 import type { AccessGaps } from "./access-gaps.ts";
 import type { Pairing } from "./backend.ts";
@@ -43,25 +50,39 @@ function paired(device: Device): boolean {
   );
 }
 
+/** A refusal's code: the daemon's own (`forbidden`…) inside a `daemon` error, else the client's. */
+function refusal(error: unknown): string {
+  if (!(error instanceof ClientError)) return "";
+  return error.code === "daemon" ? error.message : error.code;
+}
+
 /** A failed access call, in words a person can act on. */
 function explain(error: unknown): Error {
-  if (error instanceof ClientError && (error.code === "daemon" || error.code === "auth")) {
-    if (error.message === "HTTP 409")
-      return new Error("Turn on remote access above and choose LAN or Tailscale, then pair again.");
-    if (error.message === "HTTP 401" || error.message === "HTTP 403")
+  switch (refusal(error)) {
+    case "forbidden":
       return new Error(
         "This device cannot manage pairing. Use the host computer or a device with administrator access.",
       );
-    if (error.message === "HTTP 404") return new Error("That device is no longer paired.");
+    case "unavailable":
+      return new Error("Turn on remote access above and choose LAN or Tailscale, then pair again.");
+    case "not_found":
+      return new Error("That device is no longer paired.");
+    case "busy":
+      return new Error("Too many pairing links are open. Cancel one first.");
+    case "version_mismatch":
+    case "protocol":
+    case "invalid":
+      return new Error("This machine runs another version of ace. Update it, then try again.");
+    case "":
+      return error instanceof Error
+        ? error
+        : new Error("This machine refused the request. Reconnect and try again.");
+    default:
+      return new Error("Couldn't reach this machine. Reconnect and try again.");
   }
-  if (error instanceof ClientError && error.code === "auth")
-    return new Error("Paired devices need a wss:// address or one on 127.0.0.1.");
-  if (error instanceof TypeError)
-    return new Error(`Couldn't reach this machine. Check its address and network, then try again.`);
-  return error instanceof Error
-    ? error
-    : new Error("This machine refused the request. Reconnect and try again.");
 }
+
+const unreadable = () => new Error("This machine gave an answer ace can't read.");
 
 /** How this window reaches its daemon's HTTP routes: origin, fetch and credential. */
 export function accessOptions(endpoint: DaemonEndpoint): AccessOptions {
@@ -74,32 +95,50 @@ export function accessOptions(endpoint: DaemonEndpoint): AccessOptions {
   };
 }
 
-/** Access for this connection; `gaps` serves what the daemon has no route for yet. */
-export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessGaps): AccessSource {
-  const settings = endpoint && accessOptions(endpoint);
-  let client: AccessClient | undefined;
-  const run = async <T>(call: (client: AccessClient) => Promise<T>): Promise<T> => {
+/**
+ * Access for the machine `client` reaches, over its own connection (`fleet.request`), so it
+ * works the same direct, through a self-hosted relay or as an account machine on ace's hosted
+ * relay, and a machine's page never shows another machine's devices. `gaps` serves what the
+ * daemon can't answer yet.
+ */
+export function accessSource(
+  client: Pick<ClientApi, "request"> | undefined,
+  gaps: AccessGaps,
+): AccessSource {
+  const run = async (operation: FleetOperation): Promise<FleetOutcome> => {
     try {
-      if (!settings) throw new Error("Connect to your computer first.");
-      client ??= new AccessClient(settings);
-      return await call(client);
+      if (!client) throw new Error("Connect to your computer first.");
+      return (await client.request({ type: "fleet.request", operation })).result;
     } catch (error) {
       throw explain(error);
     }
   };
   return {
     ...gaps,
-    remoteStatus: () => run((access) => access.remoteStatus()),
-    devices: () => run((access) => access.devices()).then((all) => all.filter(paired)),
-    pair: (scopes) =>
-      run((access) =>
-        access.pairing(
-          scopes.filter(
-            (scope): scope is Exclude<typeof scope, "desktop" | "user-browser"> =>
-              scope !== "desktop" && scope !== "user-browser",
-          ),
+    async remoteStatus() {
+      const result = await run({ op: "remoteStatus" });
+      if (result.kind !== "remoteStatus") throw unreadable();
+      return result.status;
+    },
+    async devices() {
+      const result = await run({ op: "devices" });
+      if (result.kind !== "devices") throw unreadable();
+      return result.devices.filter(paired);
+    },
+    async pair(scopes) {
+      const result = await run({
+        op: "pairing",
+        scopes: scopes.filter(
+          (scope): scope is Exclude<typeof scope, "desktop" | "user-browser"> =>
+            scope !== "desktop" && scope !== "user-browser",
         ),
-      ).then(pairing),
-    revoke: (deviceId) => run((access) => access.revoke(deviceId)).then(() => undefined),
+      });
+      if (result.kind !== "pairing") throw unreadable();
+      return pairing(result);
+    },
+    async revoke(deviceId) {
+      const result = await run({ op: "revoke", deviceId: DeviceId.parse(deviceId) });
+      if (result.kind !== "revoked") throw unreadable();
+    },
   };
 }

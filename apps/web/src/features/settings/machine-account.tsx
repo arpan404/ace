@@ -7,9 +7,9 @@ import { machineCodeAdminSource } from "./data/machine-code-admin-source.ts";
 import { useSettingsBackend } from "./data/use-settings.ts";
 
 /**
- * A machine's ace account and machine code on its Settings page: this window's own daemon over
- * its HTTP routes (which also sign it in and out), any other connected machine over its own
- * connection. A machine that is offline, or where this device isn't an admin, shows nothing.
+ * A machine's ace account and machine code on its Settings page: this window's own daemon, which
+ * this computer may also sign in and out, and any other connected machine's code, each over its
+ * own connection. A machine that is offline, or where this device isn't an admin, shows nothing.
  */
 function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undefined {
   const backend = useSettingsBackend();
@@ -17,7 +17,7 @@ function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undef
   return useMemo(
     () =>
       machine.primary
-        ? machineAccountSource(endpoint, () => backend.remoteStatus())
+        ? machineAccountSource(endpoint, () => backend.remoteStatus(), machine.client)
         : machine.client
           ? machineCodeAdminSource(machine.client)
           : undefined,

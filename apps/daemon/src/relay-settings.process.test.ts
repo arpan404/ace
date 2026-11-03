@@ -122,7 +122,7 @@ it("an administrator through the relay lists, pairs and revokes devices as the H
   });
 
   const issued = await admin.fleet({ op: "pairing", scopes: ["read"] });
-  if (issued.kind !== "pairing") throw new Error("No pairing link");
+  if ("refused" in issued || issued.kind !== "pairing") throw new Error("No pairing link");
   expect(parsePairingLink(issued.url).relay?.hostId).toBe(hostId);
 
   expect(await admin.fleet({ op: "revoke", deviceId: tablet.device.id })).toEqual({

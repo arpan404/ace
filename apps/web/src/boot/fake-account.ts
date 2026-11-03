@@ -7,8 +7,8 @@ import type { AccessOptions } from "@ace/client";
 import { machineCodeGate } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineState } from "@ace/client-worker/machines";
-import type { MachineAccountStatus, MachineCodeRefusal } from "@ace/protocol";
-import { MachineCode } from "@ace/protocol";
+import type { FakeMachineAccount } from "@ace/fake-daemon";
+import type { MachineCodeRefusal } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
@@ -26,48 +26,36 @@ const read = async (init: RequestInit) => {
 
 /**
  * Serves `/v1/ace-account` and `/v1/machine-code` beside the fake daemon's other access routes,
- * and adds the account to `/v1/status`, as a daemon with ace accounts does. Starts signed out
- * with no code; five wrong codes from the fake account machine don't touch this one.
+ * from the same account the fake daemon reports in its status and changes over `machine.code.*`,
+ * as a daemon with ace accounts does. Five wrong codes from the fake account machine don't touch
+ * this one.
  */
-export function withFakeMachineAccount(access: AccessOptions): AccessOptions {
-  let state: MachineAccountStatus = { signedIn: false, machineCode: { set: false } };
+export function withFakeMachineAccount(
+  access: AccessOptions,
+  account: FakeMachineAccount,
+): AccessOptions {
   return {
     ...access,
     async fetch(input, init) {
       const path = new URL(input).pathname;
       const method = init.method ?? "GET";
-      if (path === "/v1/status") {
-        const response = await access.fetch(input, init);
-        if (!response.ok) return response;
-        const body = z
-          .object({ remoteAccess: z.record(z.string(), z.unknown()) })
-          .parse(await response.json());
-        return json(200, { ...body, remoteAccess: { ...body.remoteAccess, account: state } });
-      }
       if (path === "/v1/ace-account") {
-        if (method === "GET") return json(200, state);
+        if (method === "GET") return json(200, account.status());
         if (method === "PUT") {
           const body = await read(init);
           if (typeof body.token !== "string") return json(400, { error: "Invalid ace session" });
-          state = { ...state, signedIn: true, origin: String(body.origin), account: person };
-          return json(200, state);
+          return json(200, account.signIn(String(body.origin), person));
         }
-        if (method === "DELETE") {
-          state = { signedIn: false, machineCode: state.machineCode };
-          return json(200, state);
-        }
+        if (method === "DELETE") return json(200, account.signOut());
       }
       if (path === "/v1/machine-code") {
         if (method === "PUT") {
-          const code = MachineCode.safeParse((await read(init)).code);
-          if (!code.success) return json(400, { error: "A machine code has 4 to 128 characters." });
-          state = { ...state, machineCode: { set: true } };
-          return json(200, state);
+          const status = account.setCode((await read(init)).code);
+          return status
+            ? json(200, status)
+            : json(400, { error: "A machine code has 4 to 128 characters." });
         }
-        if (method === "DELETE") {
-          state = { ...state, machineCode: { set: false } };
-          return json(200, state);
-        }
+        if (method === "DELETE") return json(200, account.clearCode());
       }
       return access.fetch(input, init);
     },

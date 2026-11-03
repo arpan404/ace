@@ -57,7 +57,7 @@ function useBackendFactory(): (client: ClientApi) => SettingsBackend {
     let backend = backends.get(client);
     if (!backend) {
       const gaps = module ? withBrowserClock(module) : unavailableGaps();
-      const access = accessSource(connection.endpoint, gaps);
+      const access = accessSource(client, gaps);
       backend = daemonSettingsBackend(client, { access, defaults });
       backends.set(client, backend);
     }
