@@ -33,6 +33,10 @@ export function accountSecrets(directory: string) {
     read(origin: string) {
       return serial(async () => (await read())[origin] ?? null);
     },
+    /** Every saved session, by account origin. */
+    all(): Promise<Readonly<Record<string, string>>> {
+      return serial(read);
+    },
     write(origin: string, token: string | null) {
       return serial(async () => {
         const entries = await read();

@@ -1,6 +1,8 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { accountSecrets } from "./account-secrets.ts";
 import { handAccountToDaemon } from "./account-handover.ts";
+import { followDaemonAccount, resumeDaemonAccount } from "./account-follow.ts";
+import { aceAccountClient } from "@ace/client/ace-account";
 import { machineAccount } from "./machine-account.ts";
 import {
   app,
@@ -85,6 +87,16 @@ export function createHandlers(options: {
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
+  // A daemon that starts or restarts signed out follows the app's account (never switching one
+  // that is signed in); the app hands its session over again on each change too.
+  followDaemonAccount(runtime, async () =>
+    resumeDaemonAccount(await options.connection(), {
+      saved: () => account.all(),
+      accountOf: async (origin, token) =>
+        (await aceAccountClient({ origin, fetch }).session(token, AbortSignal.timeout(10_000)))
+          .account.id,
+    }),
+  );
   const editorIcon = editorIcons(
     {
       forProtocol: async (url) => (await app.getApplicationInfoForProtocol(url)).icon,
