@@ -64,8 +64,11 @@ function set(element: HTMLElement | null, name: string, value: string): void {
   element?.setAttribute(name, value);
 }
 
-/** Every scene starts from the same app: one thread open, nothing answered, nothing open. */
-function show(root: Root, state: { thread: string; approved?: boolean }): void {
+/**
+ * Every scene starts from the same app: one thread open, nothing answered, nothing open. Scenes
+ * after the cold-start thread handed off its work keep its agents group open (`agents`).
+ */
+function show(root: Root, state: { thread: string; approved?: boolean; agents?: boolean }): void {
   const app = ace(root);
   if (!app) return;
   select(root, state.thread);
@@ -75,9 +78,11 @@ function show(root: Root, state: { thread: string; approved?: boolean }): void {
   set(app, "data-moved", "no");
   set(app, "data-device", "yes");
   set(app, "data-cold", "running");
+  set(app, "data-agents", state.agents ? "open" : "closed");
   tone(root, "checkout", state.approved ? "done" : "approve", state.approved ? "now" : "");
   tone(root, "webhooks", "limited", "");
-  tone(root, "cold-start", "agents", formatElapsed(324_000));
+  tone(root, "cold-start", "agents", formatElapsed(248_000));
+  tone(root, "soak", "working", formatElapsed(248_000));
   const account = q(root, "[data-account]");
   if (account) account.textContent = "P";
 
@@ -85,8 +90,7 @@ function show(root: Root, state: { thread: string; approved?: boolean }): void {
   desk?.removeAttribute("data-sim-shown");
   desk?.removeAttribute("data-phone-shown");
   set(q(root, "[data-phone]"), "data-activity", "waiting");
-  for (const selector of ["[data-note]", "[data-phone-note]"])
-    q(root, selector)?.classList.remove("on");
+  q(root, "[data-phone-note]")?.classList.remove("on");
   for (const selector of ["[data-menu]", "[data-code-dialog]"])
     q(root, selector)?.classList.remove("open");
   for (const pin of root.querySelectorAll("[data-pin] i")) pin.classList.remove("set");
@@ -107,30 +111,48 @@ function show(root: Root, state: { thread: string; approved?: boolean }): void {
 
 const reveal = (root: Root, selector: string) => q(root, selector)?.classList.remove("pending");
 
+/** The Simulator comes up beside ace and the agent signs in to the test account on it. */
+async function signIn(root: Root, act: Act): Promise<void> {
+  desktop(root)?.setAttribute("data-sim-shown", "");
+  await act.moveTo(null, { x: 0.45, y: 0.94 });
+  const note = q(root, "[data-sim-note]");
+  await act.wait(900);
+  if (note) note.textContent = "Typing in Email";
+  await act.tap(q(root, '[data-target="sim-email"]'));
+  await act.type(q(root, '[data-type="email"]'), "test@acme.dev");
+  await act.tap(q(root, '[data-target="sim-password"]'));
+  await act.type(q(root, '[data-type="password"]'), "hunter2-acme", true);
+  if (note && act.alive()) note.textContent = "Tapped Sign in";
+  await act.tap(q(root, '[data-target="sim-submit"]'));
+  if (!act.alive()) return;
+  set(q(root, "[data-sim]"), "data-screen", "code");
+  if (note) note.textContent = "On the code screen";
+}
+
 export const scenes: Record<string, SceneScript> = {
-  async agents(root, act) {
+  async parallel(root, act) {
     show(root, { thread: "cold-start" });
     await act.wait(500);
-    await act.moveTo(q(root, '[data-target="subagents"]'), { x: 0.3, y: 0.5 });
-    hover(root, '[data-target="subagents"]', true);
+    // A glance down the list: every thread is doing something, and one waits on you.
+    for (const id of ["cold-start", "soak", "staging", "checkout"]) {
+      const row = q(root, `[data-row="${id}"]`);
+      await act.moveTo(row, { x: 0.6, y: 0.5 });
+      if (!act.alive()) return;
+      for (const other of root.querySelectorAll(".row.hover")) other.classList.remove("hover");
+      row?.classList.add("hover");
+    }
   },
 
-  async approve(root, act) {
+  async team(root, act) {
     show(root, { thread: "cold-start" });
     await act.wait(400);
-    q(root, "[data-note]")?.classList.add("on");
-    await act.wait(1500);
-    await act.click(q(root, '[data-row="checkout"]'));
+    await act.click(q(root, '[data-target="subagents"]'));
     if (!act.alive()) return;
-    q(root, "[data-note]")?.classList.remove("on");
-    select(root, "checkout");
-    await act.wait(1300);
-    await act.click(q(root, '[data-target="allow"]'));
-    if (!act.alive()) return;
-    set(ace(root), "data-approved", "yes");
-    tone(root, "checkout", "done", "now");
-    await act.wait(300);
-    await act.moveTo(q(root, ".canvas p.after-approval"), { x: 0.6, y: 1.6 });
+    set(ace(root), "data-agents", "open");
+    await act.wait(1100);
+    const remote = q(root, ".agent-row:last-child");
+    await act.moveTo(remote, { x: 0.35, y: 0.5 });
+    remote?.classList.add("hover");
   },
 
   async review(root, act) {
@@ -156,24 +178,11 @@ export const scenes: Record<string, SceneScript> = {
     if (!act.alive()) return;
     select(root, "sign-in");
     await act.wait(500);
-    desktop(root)?.setAttribute("data-sim-shown", "");
-    await act.moveTo(null, { x: 0.45, y: 0.94 });
-    const note = q(root, "[data-sim-note]");
-    await act.wait(900);
-    if (note) note.textContent = "Typing in Email";
-    await act.tap(q(root, '[data-target="sim-email"]'));
-    await act.type(q(root, '[data-type="email"]'), "test@acme.dev");
-    await act.tap(q(root, '[data-target="sim-password"]'));
-    await act.type(q(root, '[data-type="password"]'), "hunter2-acme", true);
-    if (note && act.alive()) note.textContent = "Tapped Sign in";
-    await act.tap(q(root, '[data-target="sim-submit"]'));
-    if (!act.alive()) return;
-    set(q(root, "[data-sim]"), "data-screen", "code");
-    if (note) note.textContent = "On the code screen";
+    await signIn(root, act);
   },
 
   async fleet(root, act) {
-    show(root, { thread: "cold-start", approved: true });
+    show(root, { thread: "cold-start", approved: true, agents: true });
     await act.wait(400);
     await act.click(q(root, '[data-target="filter"]'));
     if (!act.alive()) return;
@@ -187,7 +196,7 @@ export const scenes: Record<string, SceneScript> = {
     q(root, "[data-menu]")?.classList.remove("open");
     filter(root, "build-server", "build-server");
     await act.wait(300);
-    await act.moveTo(q(root, '[data-row="worktrees"]'), { x: 0.55, y: 0.5 });
+    await act.moveTo(q(root, '[data-row="soak"]'), { x: 0.55, y: 0.5 });
   },
 
   async browser(root, act) {
@@ -227,13 +236,11 @@ export const scenes: Record<string, SceneScript> = {
     if (!act.alive()) return;
     set(ace(root), "data-device", "yes");
     await act.wait(400);
-    desktop(root)?.setAttribute("data-sim-shown", "");
-    await act.moveTo(null, { x: 0.45, y: 0.94 });
-    await act.tap(q(root, '[data-target="sim-email"]'));
+    await signIn(root, act);
   },
 
   async phone(root, act) {
-    show(root, { thread: "cold-start", approved: true });
+    show(root, { thread: "cold-start", approved: true, agents: true });
     act.hidePointer();
     desktop(root)?.setAttribute("data-phone-shown", "");
     await act.wait(1300);
@@ -243,6 +250,7 @@ export const scenes: Record<string, SceneScript> = {
     set(q(root, "[data-phone]"), "data-activity", "done");
     set(ace(root), "data-cold", "done");
     tone(root, "cold-start", "done", "now");
+    tone(root, "soak", "done", "now");
   },
 
   async remote(root, act) {

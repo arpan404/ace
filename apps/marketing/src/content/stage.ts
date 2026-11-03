@@ -7,59 +7,105 @@ import type { FeatureSlug } from "./features.ts";
  * captions live here; the components only lay them out.
  */
 
-/** The home page's five scenes, then the scenes only a feature page plays. */
+/** The home page's six scenes, then the scenes only a feature page plays. */
 export type SceneId =
-  | "agents"
-  | "approve"
+  | "parallel"
+  | "team"
+  | "fleet"
+  | "devices"
+  | "accounts"
+  | "phone"
   | "review"
   | "computer"
-  | "fleet"
   | "browser"
-  | "devices"
-  | "phone"
-  | "remote"
-  | "accounts";
+  | "remote";
 
 export interface Scene {
   id: SceneId;
   title: string;
   body: string;
-  /** The feature page this scene is part of. */
-  feature: FeatureSlug;
+  /** The page that tells more. */
+  href: string;
 }
 
+/*
+ * One working day, told in order: many threads at once, one of them handing its work to other
+ * agents and machines, a device borrowed across machines, a usage limit passed, and the end
+ * of it all on the phone.
+ */
 export const scenes: Scene[] = [
   {
-    id: "agents",
-    title: "Every agent, one window",
-    body: "Claude Code, Codex and Cursor side by side. Each thread shows what its agents and commands are doing right now.",
-    feature: "status",
+    id: "parallel",
+    title: "Many tasks, all at once",
+    body: "Start a thread for every task, with any agent. Each row shows what it is doing right now, and the one that needs you stands out.",
+    href: "/features/status/",
   },
   {
-    id: "approve",
-    title: "It asks, you answer",
-    body: "When an agent needs a decision, ace tells you. Answer it and the agent carries on, here or from your phone.",
-    feature: "mobile",
-  },
-  {
-    id: "review",
-    title: "Review next to the conversation",
-    body: "Every thread works in its own worktree. Read the diff, comment on a line, then commit and push from the same panel.",
-    feature: "review",
-  },
-  {
-    id: "computer",
-    title: "Agents use your apps",
-    body: "Agents drive simulators and desktop apps in the background while you keep working, and you can take over at any time.",
-    feature: "computer-use",
+    id: "team",
+    title: "Agents hand work to each other",
+    body: "Claude fixes the server and hands off the rest: Codex writes the test, Cursor reviews the change, and the soak test goes to your Linux server. The thread isn't done until all of them are.",
+    href: "/mcp/",
   },
   {
     id: "fleet",
-    title: "Every machine you own",
-    body: "Your laptop, a Linux build server and a Windows workstation in one list. Sign in once and reach them from anywhere.",
-    feature: "fleet",
+    title: "Every machine works at once",
+    body: "The soak test runs on the build server while your Mac keeps going. Threads from every machine share one list, wherever you open ace.",
+    href: "/features/fleet/",
+  },
+  {
+    id: "devices",
+    title: "Devices go where the agent is",
+    body: "An agent on the build server has no iPhone, so it borrows the Simulator on your Mac. You allow it once and can take over at any time.",
+    href: "/features/devices/",
+  },
+  {
+    id: "accounts",
+    title: "Limits don't stop the work",
+    body: "When one account runs out, move the thread to another and it picks up where it stopped. Work a restart cut short carries on by itself.",
+    href: "/features/accounts/",
+  },
+  {
+    id: "phone",
+    title: "Answer from your phone",
+    body: "Step away. Your phone shows when the whole team has finished, and approvals arrive on the lock screen.",
+    href: "/features/mobile/",
   },
 ];
+
+/** The agents the cold-start thread hands its work to, as its agents group lists them. */
+export const delegates = [
+  {
+    provider: "codex",
+    name: "Regression test",
+    machine: undefined,
+    state: "working",
+    seconds: 131,
+    detail: "Writing resume-cold-start.test.ts",
+  },
+  {
+    provider: "cursor",
+    name: "Review the outbox change",
+    machine: undefined,
+    state: "done",
+    seconds: undefined,
+    detail: "No issues. The buffer is kept until the ack.",
+  },
+  {
+    provider: "codex",
+    name: "Soak test, 2,000 clients",
+    machine: "build-server",
+    state: "working",
+    seconds: 248,
+    detail: "1,240 of 2,000 clients resumed",
+  },
+] as const satisfies readonly {
+  provider: ProviderKind;
+  name: string;
+  machine: string | undefined;
+  state: "working" | "done";
+  seconds: number | undefined;
+  detail: string;
+}[];
 
 /** How a thread row's status reads: the app's own glyph per state. */
 export type RowState =
@@ -110,10 +156,22 @@ export const rows: ThreadRow[] = [
     hue: 15,
     title: "Cap cold-start replay at 200 events",
     branch: "fix/cold-start-cap",
-    state: { kind: "agents", count: 2, seconds: 324 },
+    state: { kind: "agents", count: 2, seconds: 248 },
     agents: 2,
     provider: "claude",
     account: "P",
+  },
+  {
+    id: "soak",
+    project: "ace",
+    chip: "AC",
+    hue: 15,
+    title: "Soak test resume with 2,000 clients",
+    branch: "fix/cold-start-cap",
+    state: { kind: "working", seconds: 248 },
+    provider: "codex",
+    account: "P",
+    machine: "build-server",
   },
   {
     id: "sign-in",
@@ -125,6 +183,7 @@ export const rows: ThreadRow[] = [
     state: { kind: "working", seconds: 96 },
     provider: "claude",
     account: "W",
+    machine: "build-server",
     device: "phone",
   },
   {
@@ -225,8 +284,8 @@ export const rows: ThreadRow[] = [
 
 /** The machines on the account, as the thread list's filter names them. */
 export const machines = [
-  { id: "this-mac", name: "This Mac", note: "macOS", threads: 8, locked: false },
-  { id: "build-server", name: "build-server", note: "Linux", threads: 2, locked: false },
+  { id: "this-mac", name: "This Mac", note: "macOS", threads: 7, locked: false },
+  { id: "build-server", name: "build-server", note: "Linux", threads: 4, locked: false },
   { id: "workstation", name: "workstation", note: "Windows", threads: 1, locked: true },
 ] as const;
 
@@ -292,7 +351,7 @@ export type DiffLine = (typeof diff.files)[number]["lines"][number];
 
 /** The feature pages that show a scene of the Mac instead of a product panel. */
 export const featureScenes: Record<FeatureSlug, SceneId> = {
-  status: "agents",
+  status: "parallel",
   review: "review",
   "computer-use": "computer",
   fleet: "fleet",
