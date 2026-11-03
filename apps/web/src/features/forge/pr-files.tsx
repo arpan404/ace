@@ -54,7 +54,7 @@ export function PrFiles(props: PrFilesProps) {
   const since = reviewers.data ? sinceLastReview(reviewers.data, list, head) : undefined;
   const range = codeRange(scope, list, since);
   // The file being read, kept across a push so the new head opens where the person was.
-  const place = useRef<string | undefined>(undefined);
+  const [place, setPlace] = useState<string>();
   const pushedAt = usePushedAt(head, list);
   return (
     <PrCodeRange
@@ -68,6 +68,7 @@ export function PrFiles(props: PrFilesProps) {
       options={options}
       onOptions={setOptions}
       place={place}
+      onPlace={setPlace}
       pushedAt={pushedAt}
     />
   );

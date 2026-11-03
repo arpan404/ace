@@ -210,7 +210,9 @@ export function PrCodeToolbar(props: {
         </Button>
       </div>
       <Menu>
-        <MenuTrigger render={<IconButton size="sm" icon={SlidersHorizontalIcon} label="Diff options" />} />
+        <MenuTrigger
+          render={<IconButton size="sm" icon={SlidersHorizontalIcon} label="Diff options" />}
+        />
         <MenuContent align="end">
           <MenuRadioGroup
             value={options.mode}

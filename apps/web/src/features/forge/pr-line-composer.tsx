@@ -52,8 +52,7 @@ export function PrLineComposer(props: {
   // Lines read from the whole file (an opened fold) aren't in GitHub's patch: it refuses them.
   const placeable =
     !oldSide &&
-    (props.patch === undefined ||
-      (props.patch !== null && validHostedAnchor(props.patch, anchor)));
+    (props.patch === undefined || (props.patch !== null && validHostedAnchor(props.patch, anchor)));
   const locked = !!review?.commentsLocked;
   const own = useOwnWrite();
   const disabled = !review?.ready || own.saving || !draft.text.trim() || !placeable || locked;
@@ -104,8 +103,8 @@ export function PrLineComposer(props: {
           {oldSide
             ? "In a commit view the old side is the commit before. Comment on the new side's lines."
             : props.patch === null
-            ? "GitHub didn't send this file's changes, so it can't take a comment on its lines."
-            : "GitHub takes comments only on lines in its diff. Pick lines inside one change."}
+              ? "GitHub didn't send this file's changes, so it can't take a comment on its lines."
+              : "GitHub takes comments only on lines in its diff. Pick lines inside one change."}
         </p>
       )}
       <MarkdownEditor
@@ -205,9 +204,7 @@ export function PrPendingComment(props: { draft: ForgeReviewDraft }) {
           </Button>
         </span>
       </p>
-      {own.status?.state === "failed" && (
-        <OwnWriteNote status={own.status} className="pl-[26px]" />
-      )}
+      {own.status?.state === "failed" && <OwnWriteNote status={own.status} className="pl-[26px]" />}
       {edit === undefined ? (
         <div className="pl-[26px]">
           <PrClampedText text={draft.body} open={open} onToggle={() => setOpen(!open)} />

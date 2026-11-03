@@ -34,14 +34,10 @@ export function PrCodeTree(props: {
   const listed = props.detail.files;
   const files = useMemo(() => {
     const seen = new Set(props.files.map((file) => file.path));
-    const rest: TreeFile[] = props.all
-      ? (listed ?? []).filter((file) => !seen.has(file.path))
-      : [];
+    const rest: TreeFile[] = props.all ? (listed ?? []).filter((file) => !seen.has(file.path)) : [];
     return [...props.files, ...rest];
   }, [props.files, props.all, listed]);
-  const viewed = new Set(
-    [...props.marks].flatMap(([path, mark]) => (mark?.checked ? [path] : [])),
-  );
+  const viewed = new Set([...props.marks].flatMap(([path, mark]) => (mark?.checked ? [path] : [])));
   const open = new Map<string, number>();
   for (const [path, list] of props.threads) {
     const count = list.filter((thread) => !thread.resolved).length;
@@ -50,7 +46,9 @@ export function PrCodeTree(props: {
   const openTotal = [...open.values()].reduce((sum, count) => sum + count, 0);
   const marked = [...props.marks.values()].some((mark) => mark !== undefined);
   const summary = [
-    marked ? `${viewed.size} of ${plural(props.count, "file")} viewed` : plural(props.count, "file"),
+    marked
+      ? `${viewed.size} of ${plural(props.count, "file")} viewed`
+      : plural(props.count, "file"),
     ...(openTotal ? [`${plural(openTotal, "open conversation")}`] : []),
   ].join(" · ");
   return (

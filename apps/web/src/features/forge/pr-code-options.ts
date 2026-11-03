@@ -33,9 +33,7 @@ const Stored = z.object({
 /** The Code tab's options as this device last left them, and a setter that keeps each change. */
 export function useCodeOptions(): [CodeOptions, (change: Partial<CodeOptions>) => void] {
   const { storage } = useLayout();
-  const [options, setOptions] = useState(() =>
-    readJson(storage, key, Stored, defaultCodeOptions),
-  );
+  const [options, setOptions] = useState(() => readJson(storage, key, Stored, defaultCodeOptions));
   const change = useCallback(
     (next: Partial<CodeOptions>) =>
       setOptions((previous) => {

@@ -204,6 +204,7 @@ export async function reviewHarness(options: {
   const view = render(tree(options.ui));
   return {
     sent,
+    daemon,
     rerender(ui: ReactNode, detail?: ForgePrDetail) {
       view.rerender(tree(ui, detail));
     },

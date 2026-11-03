@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import type { ForgeFile } from "@ace/protocol";
 
 /** A conversation the Code tab can step to: on a file's line, or in the strip above the files. */
@@ -62,32 +62,33 @@ export function useCodeNavigation(options: {
   const [seeking, setSeeking] = useState<{ path: string; thread?: string | undefined }>();
   const [current, setCurrent] = useState<string>();
   const lastThread = useRef<string | undefined>(undefined);
-  const go = useCallback(
-    (path: string, thread?: string) => {
-      if (!files.some((file) => file.path === path)) {
-        setSeeking({ path, thread });
-        return;
-      }
-      setCurrent(path);
-      show(path);
-      if (thread) requestAnimationFrame(() => revealThread(scroller.current, thread));
-    },
-    [files, show, scroller],
-  );
+  const handled = useRef<object | undefined>(undefined);
+  const go = (path: string, thread?: string) => {
+    setCurrent(path);
+    if (!files.some((file) => file.path === path)) {
+      setSeeking({ path, thread });
+      return;
+    }
+    show(path);
+    if (thread) requestAnimationFrame(() => revealThread(scroller.current, thread));
+  };
+  const found = !!seeking && files.some((file) => file.path === seeking.path);
   // A file past the pages read: read on until it shows up, or the list ends without it.
   useEffect(() => {
-    if (!seeking) return;
-    if (files.some((file) => file.path === seeking.path)) {
-      setSeeking(undefined);
-      go(seeking.path, seeking.thread);
+    if (!seeking || handled.current === seeking) return;
+    if (found) {
+      handled.current = seeking;
+      show(seeking.path);
+      const thread = seeking.thread;
+      if (thread) requestAnimationFrame(() => revealThread(scroller.current, thread));
     } else if (more === "idle") loadMore();
-    else if (more !== "loading") setSeeking(undefined);
-  }, [seeking, files, more, loadMore, go]);
+  });
   // The file being read follows the scroll.
   useEffect(() => {
     const element = scroller.current;
     if (!element) return;
     let frame = 0;
+    let last: string | undefined;
     const measure = () => {
       frame = 0;
       const top = element.getBoundingClientRect().top + readingLine;
@@ -96,7 +97,8 @@ export function useCodeNavigation(options: {
         if (block.getBoundingClientRect().top > top) break;
         reading = files[Number(block.id.slice(anchor.length + 1))]?.path;
       }
-      if (!reading) return;
+      if (!reading || reading === last) return;
+      last = reading;
       setCurrent(reading);
       onPlace?.(reading);
     };
@@ -122,5 +124,6 @@ export function useCodeNavigation(options: {
     if (stop.path) go(stop.path, stop.id);
     else revealThread(scroller.current, stop.id);
   };
-  return { current, go, seeking: seeking?.path, stepFile, stepThread };
+  const searching = !!seeking && !found && (more === "idle" || more === "loading");
+  return { current, go, seeking: searching ? seeking.path : undefined, stepFile, stepThread };
 }

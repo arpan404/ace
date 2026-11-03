@@ -58,7 +58,9 @@ export function usePrViewedMarks(context: PrDiffContext | undefined) {
       : marks.count +
         [...(review?.viewed.changes ?? [])].reduce((sum, [path, change]) => {
           const was = marks.of(path)?.checked;
-          return was === undefined || was === change.checked ? sum : sum + (change.checked ? 1 : -1);
+          return was === undefined || was === change.checked
+            ? sum
+            : sum + (change.checked ? 1 : -1);
         }, 0);
   return { markOf, count, availability: marks.availability };
 }

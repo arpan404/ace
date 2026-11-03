@@ -27,7 +27,9 @@ function filePagesKey(workspaceId: string, detail: ForgePrDetail, commit: string
 export function usePrPatchOf(workspaceId: string, detail: ForgePrDetail) {
   const cache = useQueryClient();
   return (path: string): string | null | undefined => {
-    const data = cache.getQueryData<{ pages: ForgePrFiles[] }>(filePagesKey(workspaceId, detail, ""));
+    const data = cache.getQueryData<{ pages: ForgePrFiles[] }>(
+      filePagesKey(workspaceId, detail, ""),
+    );
     for (const page of data?.pages ?? []) {
       const file = page.files.find((each) => each.path === path);
       if (file) return file.truncated ? null : file.patch;

@@ -21,7 +21,12 @@ import { lockedText } from "@ace/ui-core";
 import { readForge } from "@/lib/forge-read.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { readFailureText } from "./query-state.tsx";
-import { useReviewWrites, type ReviewReread, type ReviewWriteResult } from "./pr-review-writes.ts";
+import {
+  useReportedWrites,
+  useReviewWrites,
+  type ReviewReread,
+  type ReviewWriteResult,
+} from "./pr-review-writes.ts";
 import { useViewedChanges } from "./pr-viewed-overrides.ts";
 /**
  * Which pull request this is, as plain values that don't change between polls, so every
@@ -73,8 +78,6 @@ export function PrReviewWorkspace(props: {
 }) {
   const client = useClient();
   const ready = useConnectionState() === "ready";
-  const [pending, setPending] = useState(0);
-  const [message, setMessage] = useState("");
   const [batch, setBatch] = useState<readonly number[]>([]);
   // The ref as a value that stays the same object while it names the same PR.
   const prKey = JSON.stringify(props.detail.status.ref);
@@ -127,7 +130,7 @@ export function PrReviewWorkspace(props: {
     },
     [refetch],
   );
-  const { write } = useReviewWrites({
+  const writes = useReviewWrites({
     client,
     workspaceId: props.workspaceId,
     pr,
@@ -136,22 +139,9 @@ export function PrReviewWorkspace(props: {
     commentsLocked,
     onSettled,
   });
+  const write = writes.write;
   const viewed = useViewedChanges(write);
-  const run = useCallback(
-    async (action: ForgeReviewAction) => {
-      setPending((count) => count + 1);
-      setMessage("Waiting for GitHub…");
-      try {
-        const result = await write(action);
-        // The result shows where it was made (the new comment, the resolved thread).
-        setMessage(result.ok ? "" : result.message);
-        return result.ok;
-      } finally {
-        setPending((count) => count - 1);
-      }
-    },
-    [write],
-  );
+  const { run, pending, message } = useReportedWrites(write);
   const toggleBatch = useCallback(
     (id: number) =>
       setBatch((current) =>

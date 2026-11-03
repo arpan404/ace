@@ -1,10 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { ClientApi } from "@ace/client";
-import {
-  ForgeHostedReviewCommand,
-  type ForgePrRef,
-  type ForgeReviewAction,
-} from "@ace/protocol";
+import { ForgeHostedReviewCommand, type ForgePrRef, type ForgeReviewAction } from "@ace/protocol";
 import { actionErrorText, lockedKinds, lockedText, reviewLostText } from "@ace/ui-core";
 import { runCommand, CommandRefused } from "@/lib/daemon-command.ts";
 
@@ -83,7 +79,10 @@ export function useReviewWrites(options: {
     (action: ForgeReviewAction): Promise<ReviewWriteResult> => {
       const { ready, disabled, commentsLocked } = latest.current;
       if (action.kind !== "reconcile" && !ready)
-        return Promise.resolve({ ok: false, message: "Not connected. Try again once ace reconnects." });
+        return Promise.resolve({
+          ok: false,
+          message: "Not connected. Try again once ace reconnects.",
+        });
       if (action.kind !== "reconcile" && disabled)
         return Promise.resolve({
           ok: false,
@@ -99,4 +98,30 @@ export function useReviewWrites(options: {
     [perform],
   );
   return { write, inFlight };
+}
+
+/**
+ * Writes reported in the status line under the header: "Waiting for GitHub…" while one is on
+ * its way, then GitHub's refusal, if any. `pending` counts the ones on their way.
+ */
+export function useReportedWrites(
+  write: (action: ForgeReviewAction) => Promise<ReviewWriteResult>,
+) {
+  const [pending, setPending] = useState(0);
+  const [message, setMessage] = useState("");
+  const run = useCallback(
+    (action: ForgeReviewAction) => {
+      setPending((count) => count + 1);
+      setMessage("Waiting for GitHub…");
+      // A write never throws: it answers with its result.
+      return write(action).then((result) => {
+        // The result shows where it was made (the new comment, the resolved thread).
+        setMessage(result.ok ? "" : result.message);
+        setPending((count) => count - 1);
+        return result.ok;
+      });
+    },
+    [write],
+  );
+  return { run, pending, message };
 }

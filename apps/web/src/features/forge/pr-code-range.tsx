@@ -6,7 +6,6 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type RefObject,
 } from "react";
 import type { ForgeFile } from "@ace/protocol";
 import {
@@ -57,7 +56,9 @@ export function PrCodeRange(
     commits: ReturnType<typeof usePrCommits>;
     options: CodeOptions;
     onOptions(change: Partial<CodeOptions>): void;
-    place: RefObject<string | undefined>;
+    /** The file last read before this range mounted (a push), opened again once found. */
+    place: string | undefined;
+    onPlace(path: string): void;
     pushedAt: number | undefined;
   },
 ) {
@@ -129,21 +130,16 @@ export function PrCodeRange(
   );
   const folded = new Set(files.filter((file) => markByPath.get(file.path)?.checked).map(pathOf));
   const views = useFileViews(shown, versions, folded);
-  // Folds opened before their lines were read open once they are.
+  // Folds opened before their lines were read show open once they are.
   const [opening, setOpening] = useState<ReadonlyMap<string, number>>(noOpening);
-  useEffect(() => {
-    if (!opening.size) return;
-    const left = new Map(opening);
-    for (const [path, index] of opening) {
-      const diff = byPath.get(path);
-      const row = diff?.rows[index];
-      if (!diff || (row?.kind === "fold" && !row.lines)) continue;
-      left.delete(path);
-      const view = views.viewOf(diff);
-      views.setView(path, { ...view, expanded: new Set(view.expanded).add(index) });
-    }
-    if (left.size !== opening.size) setOpening(left);
-  }, [opening, byPath, views]);
+  const viewOf = (diff: (typeof shown)[number]) => {
+    const view = views.viewOf(diff);
+    const index = opening.get(diff.path);
+    const row = index === undefined ? undefined : diff.rows[index];
+    if (index === undefined || row?.kind !== "fold" || !row.lines || view.expanded.has(index))
+      return view;
+    return { ...view, expanded: new Set(view.expanded).add(index) };
+  };
   const scroller = useRef<HTMLDivElement>(null);
   const blocks = useRef<VirtualRowsHandle>(null);
   const anchor = `pr-file-${props.range.since ?? ""}${props.range.commit || "all"}`;
@@ -151,14 +147,12 @@ export function PrCodeRange(
     const index = files.findIndex((file) => file.path === path);
     if (index < 0) return false;
     const diff = byPath.get(path);
-    if (diff && !views.viewOf(diff).open)
-      views.setView(path, { ...views.viewOf(diff), open: true });
+    if (diff && !viewOf(diff).open) views.setView(path, { ...viewOf(diff), open: true });
     const block = document.getElementById(`${anchor}-${index}`);
     if (block) block.scrollIntoView?.({ block: "start" });
     else blocks.current?.scrollToIndex(index);
     return true;
   };
-  const place = props.place;
   const nav = useCodeNavigation({
     files,
     more: pages.more,
@@ -166,13 +160,15 @@ export function PrCodeRange(
     show,
     scroller,
     anchor,
-    onPlace: useCallback((path: string) => (place.current = path), [place]),
+    onPlace: props.onPlace,
   });
   // A file picked elsewhere (the Summary's Changes), or the one being read before a push,
   // opens here once it is found, reading pages until it is.
   const focused = useRef(0);
   const focus = props.focus;
   const restored = useRef(false);
+  // Read once: the place as this range opened, not as the person scrolls it.
+  const [place] = useState(props.place);
   const ready = files.length > 0;
   useEffect(() => {
     if (!ready) return;
@@ -182,7 +178,7 @@ export function PrCodeRange(
       nav.go(focus.path);
     } else if (!restored.current) {
       restored.current = true;
-      if (place.current && place.current !== files[0]?.path) nav.go(place.current);
+      if (place && place !== files[0]?.path) nav.go(place);
     }
   });
   const complete = pages.more === "done";
@@ -231,7 +227,7 @@ export function PrCodeRange(
           diff={diff}
           context={context}
           threads={placeable.get(file.path)}
-          view={diff ? views.viewOf(diff) : freshView}
+          view={diff ? viewOf(diff) : freshView}
           onView={(next) => views.setView(file.path, next)}
           mode={options.mode}
           wrap={options.wrap}
@@ -260,7 +256,10 @@ export function PrCodeRange(
       const mark = nav.current ? markByPath.get(nav.current) : undefined;
       if (mark && !mark.disabled) mark.change(!mark.checked);
     } else {
-      const at = Math.max(0, files.findIndex((file) => file.path === nav.current));
+      const at = Math.max(
+        0,
+        files.findIndex((file) => file.path === nav.current),
+      );
       const next = [...files.slice(at + 1), ...files.slice(0, at)].find(
         (file) => markByPath.get(file.path)?.checked === false,
       );
@@ -341,7 +340,7 @@ export function PrCodeRange(
                     rowKey={pathOf}
                     estimate={(file) => {
                       const diff = byPath.get(file.path);
-                      return diff ? fileHeight(diff, views.viewOf(diff)) : 32;
+                      return diff ? fileHeight(diff, viewOf(diff)) : 32;
                     }}
                     render={renderFile}
                     // A file is tall (up to hundreds of rows): two past each edge keep scrolling seamless.

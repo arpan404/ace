@@ -117,7 +117,10 @@ function withoutWhitespace(run: readonly DiffLine[]): DiffLine[] {
       out.push({ kind: "context", old: del.old, new: add.new, text: add.text });
       i++;
       j++;
-    } else if (del && (!add || (lengths[(i + 1) * width + j] ?? 0) >= (lengths[i * width + j + 1] ?? 0))) {
+    } else if (
+      del &&
+      (!add || (lengths[(i + 1) * width + j] ?? 0) >= (lengths[i * width + j + 1] ?? 0))
+    ) {
       pending.push(del);
       i++;
     } else if (add) {
