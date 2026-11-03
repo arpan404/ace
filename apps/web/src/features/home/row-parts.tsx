@@ -1,5 +1,7 @@
 import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import {
+  browsingLabel,
+  computerUseLabel,
   rowStatusLook,
   type RowAttention,
   type RowStatusLook,
@@ -57,10 +59,10 @@ export { ProjectMark } from "@/components/project-mark.tsx";
 export function BrowsingMark(props: { threadId: string }) {
   if (!useThreadBrowsing(props.threadId)) return null;
   return (
-    <Tip label="An agent is browsing">
+    <Tip label={browsingLabel}>
       <span
         role="img"
-        aria-label="An agent is browsing"
+        aria-label={browsingLabel}
         data-tone="working"
         className="inline-flex shrink-0 text-status-working"
       >
@@ -70,17 +72,11 @@ export function BrowsingMark(props: { threadId: string }) {
   );
 }
 
-/** "Calculator", "Calculator and Notes", "Calculator, Notes and 2 more". */
-function appList(apps: readonly string[]): string {
-  if (apps.length <= 2) return apps.join(" and ");
-  return `${apps.slice(0, 2).join(", ")} and ${apps.length - 2} more`;
-}
-
 /** The agent cursor (the Pebble, as drawn over apps and pages) while an agent uses Mac apps for the thread. */
 export function ComputerUseMark(props: { threadId: string }) {
   const apps = useThreadComputerUse(props.threadId);
   if (!apps.length) return null;
-  const label = `An agent is using ${appList(apps)}`;
+  const label = computerUseLabel(apps);
   return (
     <Tip label={label}>
       <span role="img" aria-label={label} data-tone="working" className="inline-flex shrink-0">

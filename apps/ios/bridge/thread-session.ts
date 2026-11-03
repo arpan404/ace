@@ -21,6 +21,7 @@ import {
   sendBusyReason,
   type QueueAction,
 } from "@ace/ui-core";
+import { listedSubagentState } from "@ace/ui-core/subagent-group";
 import { runsOn } from "@ace/ui-core/thread-execution";
 import { subagentRetryMessage } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -132,7 +133,15 @@ export class ThreadSession {
     this.#pump = pump;
     const put: Put = (key, read) => this.#put(key, read);
     const signal = this.#abort.signal;
-    this.#blocks = followBlocks(store, put);
+    // Each delegated child at the worse of its launch row's state and the thread list's, so a
+    // group never reads done while a child the list knows is newer still works.
+    const list = client.threads();
+    this.#blocks = followBlocks(store, put, undefined, (id) => listedSubagentState(list.store, id));
+    const stopList = list.store.observe(() => this.#blocks.relist());
+    this.#releaseList = () => {
+      stopList();
+      list.release();
+    };
     this.#pill = new PillFollower(store, put);
     this.#queue = new QueueFollower(
       client,
@@ -275,7 +284,10 @@ export class ThreadSession {
   }
   #trayKept = false;
 
+  readonly #releaseList: () => void;
+
   dispose(): void {
+    this.#releaseList();
     this.#abort.abort();
     this.#stop();
     this.#steps.dispose();

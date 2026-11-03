@@ -60,6 +60,22 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// A chat's row menu in the Chats tab (Rename, Pin or Unpin, Move, Delete); nil for a
     /// project thread and from older bridges.
     var chatMenu: [String]? = nil
+    /// Inbox rows only, the desktop card's facts (`inbox-card.ts`): the branch cut in the
+    /// middle, the lines changed (only when some were), every linked pull request, the hover
+    /// card's status sentence, the account's name, and what an agent drives for the thread.
+    var branchLabel: String? = nil
+    var work: Work? = nil
+    var prs: [LinkedPull]? = nil
+    var hover: HoverLine? = nil
+    var accountLabel: String? = nil
+    var browsing: String? = nil
+    var computerUse: String? = nil
+
+    struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
+    struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
+    /// The preview's first line: the sentence, what it is about, and its ink ("warning",
+    /// "destructive" or "muted").
+    struct HoverLine: Codable, Sendable, Equatable { let sentence: String; let detail: String?; let code: Bool; let ink: String }
 }
 /// How an inbox row reads, by the web's Home row rule (`rowAttention`): the attention level,
 /// the status word (none at rest: the row shows its age), its tone and glyph, and whether the
@@ -246,6 +262,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
         let id: String; let label: String; let empty: String
         var counted: Bool? = nil
         var emptyLine: String? = nil
+        /// What the compose button starts on this tab: "thread", or "chat" on Chats.
+        var compose: String? = nil
     }
     var tabWords: [TabWords]? = nil
     static let empty = InboxLayout(sections: [], more: false, snooze: [])

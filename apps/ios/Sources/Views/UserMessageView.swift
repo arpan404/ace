@@ -80,9 +80,9 @@ struct UserBubble: View {
                         .accessibilityIdentifier("message.fold.\(id)")
                 }
             }
-            .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.related)
-            // Round as a capsule while it's one line; continuous corners once it wraps.
-            .background(AceTheme.Colours.fill, in: AceShape.bubble)
+            .padding(.horizontal, AceDesign.Space.bubbleH).padding(.vertical, AceDesign.Space.bubbleV)
+            // The raised fill with 19pt continuous corners, as the approved mockup draws it.
+            .background(AceDesign.Surface.group, in: RoundedRectangle(cornerRadius: AceDesign.Size.bubbleCorner, style: .continuous))
         }
     }
 }
@@ -97,7 +97,7 @@ private struct BubbleText: View {
             ForEach(Array(pieces.enumerated()), id: \.offset) { _, piece in
                 switch piece {
                 case .prose(let text):
-                    Text(text).aceFont(AceTheme.Typography.body, relativeTo: .body)
+                    Text(text).aceFont(AceDesign.TextRole.message, relativeTo: .body)
                 case .code(let text):
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(verbatim: text).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)

@@ -10,6 +10,10 @@ struct InboxHeaderActions {
     var page: ([SettingsRoute]) -> Void = { _ in }
     /// Opens a thread the list doesn't hold (archived), read-only in Settings › Archive.
     var archived: (InboxKey) -> Void = { _ in }
+    /// Opens Pull requests, from the header's own button.
+    var pulls: () -> Void = {}
+    /// Starts a chat, from the Chats tab's empty state.
+    var newChat: () -> Void = {}
 }
 
 /// One tab's list and the page it opens (`InboxSplit`): the compact wordmark (or a connection
@@ -88,30 +92,21 @@ struct InboxStack<Destination: View, Side: View>: View {
         HoldsTabs { holds, inDrawer in
             listed
                 .inboxFootBar {
-                    if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? forge.startThread : nil) }
+                    if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? composeHere : nil) }
                 }
-                // The system's large title, collapsing as rows scroll under it; the scope (machine
-                // and project, or what is wrong with the connection) under it and its pickers in
-                // the title's own menu.
-                .nativeTitle(pulls ? "Pull requests" : "Threads") {
-                    if !pulls {
-                        filters
-                        if inbox.sessions.contains(where: { $0.client.canOperate }) {
-                            Section {
-                                Button("Select threads", ace: .checkCircle) { startSelecting() }
-                                    .accessibilityIdentifier("inbox.select")
-                            }
-                        }
-                        if InboxConnectionProblem.of(inbox) != nil {
-                            Button("Machines", ace: .laptop, action: header.machines)
-                        }
-                    }
-                }
+                .modifier(ListTitle(pulls: pulls, selecting: selecting))
+                // The phone's own bottom bar, on the full-width list only: beside a page or as
+                // the drawer the list carries the places at its foot instead.
+                .modifier(HomeBottomBar(tab: $tab, compose: inbox.canStartThreads ? composeHere : nil,
+                                        composeLabel: showsChats ? "New chat" : "New thread",
+                                        shown: !holds && !selecting && !pulls))
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
                 // the bar comes back only for search and Select, which live in it.
-                .modifier(DrawerHeaderPlace(own: inDrawer && !pulls && !searching && !selecting) { drawerHeader })
+                // A phone's list, and the drawer, draw their own header at the approved spacing; the
+                // system's bar comes back only for search and Select, which live in it.
+                .modifier(DrawerHeaderPlace(own: (inDrawer || sizeClass == .compact) && !pulls && !searching && !selecting) { drawerHeader })
                 .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                     if selecting && !pulls {
                         InboxSelectionBar(inbox: inbox, selection: selection, organize: organize) { selecting = false; selection = [] }
@@ -132,13 +127,20 @@ struct InboxStack<Destination: View, Side: View>: View {
                 // The list stays mounted under the results, so it keeps its place while the
                 // person searches and is back where it was when they cancel.
                 ZStack {
+                    if showsChats {
+                        ChatsList(inbox: inbox, includes: includes, whole: whole, scope: project.isEmpty && machine.isEmpty ? nil : filters.subtitle,
+                                  empty: openTab?.empty ?? "No chats yet",
+                                  searching: !query.trimmingCharacters(in: .whitespaces).isEmpty,
+                                  actions: ChatsActions(open: { key in picking.open(key) }, newChat: header.newChat, rename: actions.rename))
+                    } else {
                     InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                               pair: header.pair, selection: selecting ? $selection : nil)
                         .refreshable { await refresh() }
                         .opacity(searching ? 0 : 1)
                         .allowsHitTesting(!searching)
                         .accessibilityHidden(searching)
-                    if searching {
+                    }
+                    if searching && !showsChats {
                         InboxSearchList(inbox: inbox, query: $query, includes: includes, threadOpen: ThreadColumns.selection(path) != nil,
                                         actions: searchActions)
                             .transition(.opacity)
@@ -148,17 +150,17 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .animation(AceDesign.Motion.arriving(reduceMotion), value: searching)
                 // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
                 .inboxTopBar {
-                    if !searching {
-                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                            scopeMenu
-                            tabsBar
-                        }
-                    }
+                    if !searching { tabsBar }
+                }
+                // Chats asks each runtime for the chats matching the search, as it types.
+                .onChange(of: query) { _, now in
+                    if showsChats { for session in inbox.sessions { session.client.searchChats(now) } }
                 }
             }
         }
         .modifier(InboxSearchField(query: $query, searching: $searching,
-                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications") : "Search everything"))
+                                   prompt: pulls ? (forgeKind == .pulls ? "Search pull requests" : forgeKind == .issues ? "Search issues" : "Search notifications")
+                                       : showsChats ? "Search chats" : "Search everything"))
     }
 
     /// A row picked in the list (`ThreadDrawer.pick`): the drawer closes, the search ends in a
@@ -189,39 +191,15 @@ struct InboxStack<Destination: View, Side: View>: View {
     private var selectable: [InboxKey] {
         inbox.merged.sections.filter { $0.key != "unsent" && $0.tab == threadsTab }.flatMap { $0.rows.filter(includes) }
     }
-    /// The Threads tabs, once a runtime sends them. The Inbox's dot follows the scope: only a
-    /// request the list would show lights it.
-    /// Under the large title: what the list shows ("All projects ⌄"), or what is wrong with the
-    /// connection, as a menu holding the machine and project pickers and Select threads. The
-    /// title's own menu offers the same once it has collapsed.
-    private var scopeMenu: some View {
-        Menu {
-            filters
-            if inbox.sessions.contains(where: { $0.client.canOperate }) {
-                Section {
-                    Button("Select threads", ace: .checkCircle) { startSelecting() }
-                }
-            }
-            if InboxConnectionProblem.of(inbox) != nil {
-                Button("Machines", ace: .laptop, action: header.machines)
-            }
-        } label: {
-            HStack(spacing: AceDesign.Space.tight) {
-                Text(scopeLine).lineLimit(1)
-                Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
-            }
-            .font(AceDesign.Typeface.meta)
-            .foregroundStyle(InboxConnectionProblem.of(inbox) == nil ? AceDesign.Ink.muted : AceDesign.Status.failed)
-            .frame(minHeight: AceDesign.Size.tap)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Showing \(scopeLine)")
-        .accessibilityHint("Chooses what the list shows")
-        .accessibilityIdentifier("inbox.projects")
-        .padding(.horizontal, AceDesign.Space.margin)
-    }
+    /// The tab showing, once a runtime sends the tabs.
+    private var openTab: MergedInbox.Tab? { inbox.merged.tabs.first { $0.id == threadsTab } }
+    /// The Chats tab is open: the chats list in place of the threads.
+    private var showsChats: Bool { openTab?.chats == true }
+    /// Compose where the list carries it: a new chat on Chats, else a new thread.
+    private var composeHere: () -> Void { showsChats ? header.newChat : forge.startThread }
 
+    /// Inbox, Chats, Snoozed and Settled, once a runtime sends them. The Inbox's dot follows the
+    /// scope: only a request the list would show lights it.
     @ViewBuilder private var tabsBar: some View {
         let tabs = inbox.merged.tabs
         if !tabs.isEmpty {
@@ -343,16 +321,33 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     @ToolbarContentBuilder private func listToolbar(holdsTabs: Bool, composeInBar: Bool) -> some ToolbarContent {
-        // Two round glass buttons (design language §5): More and Search. What the list shows and
-        // Select are in the title's own menu.
+        // The title, its menu and the scope or connection problem under it, with no glass.
+        if !pulls {
+            if #available(iOS 26, *) {
+                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { title }
+            }
+        }
+        // One glass capsule (design language §5): More, Pull requests and Search, drawn at the
+        // header's size rather than the bar's taller default.
+        if !pulls {
+            if #available(iOS 26, *) {
+                ToolbarItem(placement: .topBarTrailing) { headerCapsule }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { headerCapsule }
+            }
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            settings
-            Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
-                .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+            if pulls {
+                settings
+                Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+            }
             // The phone's floating New thread button, in the Threads sidebar's own bar.
             if composeInBar, !pulls, inbox.canStartThreads {
-                Button(action: forge.startThread) { Image(systemName: "square.and.pencil") }
-                    .accessibilityLabel("New thread").accessibilityIdentifier("inbox.compose")
+                Button(action: composeHere) { Image(systemName: "square.and.pencil") }
+                    .accessibilityLabel(showsChats ? "New chat" : "New thread").accessibilityIdentifier("inbox.compose")
             }
         }
     }
@@ -360,54 +355,61 @@ struct InboxStack<Destination: View, Side: View>: View {
         ForgePage(inbox: inbox, route: route, open: { path.append(.forge($0)) }, openThread: forge.openThread,
                   startThread: inbox.canStartThreads ? forge.startThread : nil)
     }
-    /// Under the large title: what is wrong with the connection, else the scope the list shows.
-    private var scopeLine: String {
-        InboxConnectionProblem.of(inbox)?.text ?? filters.subtitle
-    }
+    /// "ace ⌄" with the scope under it; its menu holds the machines, projects and sort.
     private var title: some View {
-        InboxHeading(title: "Threads", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
+        InboxHeading(title: "ace", scope: filters.subtitle, problem: InboxConnectionProblem.of(inbox),
                      openMachines: header.machines) { filters }
             // The bar's title stops growing at the largest standard size, so it keeps its place
             // beside the buttons; accessibility sizes read it from the title's own menu and VoiceOver.
             .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .modifier(HeaderLead())
     }
-    /// The drawer's own header: the title and its menu, then Select, Settings and Search on one
-    /// glass capsule, each a full touch target.
+    /// The drawer's own header: the title and its menu, then More, Pull requests and Search on
+    /// one glass capsule, each a full touch target.
     private var drawerHeader: some View {
         HStack(alignment: .center, spacing: AceDesign.Space.related) {
             title
             Spacer(minLength: AceDesign.Space.related)
-            HStack(spacing: AceTheme.Spacing.none) {
-                if inbox.sessions.contains(where: { $0.client.canOperate }) {
-                    headerButton("checkmark.circle", label: "Select", identifier: "inbox.select") { startSelecting() }
-                }
-                headerButton("ellipsis.circle", label: "More", identifier: "inbox.settings", action: header.settings)
-                headerButton("magnifyingglass", label: "Search", identifier: "inbox.search") {
-                    withAnimation(listMotion) { searching = true }
-                }
-            }
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            headerCapsule
         }
-        .padding(.horizontal, AceDesign.Space.margin)
-        .padding(.top, AceDesign.Space.row)
-        .padding(.bottom, AceDesign.Space.related)
+        .frame(height: AceDesign.Size.header)
+        .padding(.leading, AceDesign.Space.headerLeading)
+        .padding(.trailing, AceDesign.Space.margin)
+        .padding(.top, AceDesign.Space.headerTop)
     }
-    private func headerButton(_ symbol: String, label: String, identifier: String, action: @escaping () -> Void) -> some View {
+    /// More, Pull requests and Search on one glass capsule at the header's height.
+    private var headerCapsule: some View {
+        HStack(spacing: AceTheme.Spacing.none) {
+            headerButton(label: "More", identifier: "inbox.settings", action: header.settings) {
+                AceIcon(.dotsThree, size: AceDesign.Size.headerGlyph, weight: .bold)
+            }
+            headerButton(label: "Pull requests", identifier: "inbox.pulls", action: header.pulls) {
+                AceIcon(.gitPullRequest, size: AceDesign.Size.headerGlyph)
+            }
+            headerButton(label: "Search", identifier: "inbox.search") {
+                withAnimation(listMotion) { searching = true }
+            } icon: { AceIcon(.magnifyingGlass, size: AceDesign.Size.headerGlyph) }
+        }
+        .frame(height: AceDesign.Size.headerBar)
+        .aceGlass(in: AceShape.capsule, interactive: true)
+    }
+    /// One of the capsule's buttons: drawn at the capsule's height, taking taps over a full
+    /// 44pt square.
+    private func headerButton<Icon: View>(label: String, identifier: String, action: @escaping () -> Void,
+                                          @ViewBuilder icon: () -> Icon) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: AceDesign.Size.barIcon))
+            icon()
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .contentShape(Rectangle())
+                .frame(width: AceDesign.Size.headerCell, height: AceDesign.Size.headerBar)
+                .tapBand(drawn: AceDesign.Size.headerBar, width: AceDesign.Size.headerCell)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
     }
     private var settings: some View {
-        // More: Pull requests, Settings and each machine's tools.
-        Button(action: header.settings) { Image(systemName: "ellipsis.circle") }
+        // More: Settings and each machine's tools.
+        Button(action: header.settings) { Image(systemName: "ellipsis") }
             .accessibilityLabel("More").accessibilityIdentifier("inbox.settings")
     }
 
@@ -462,6 +464,28 @@ private struct HoldsTabs<Content: View>: View {
 struct HeaderLead: ViewModifier {
     @Environment(\.headerLead) private var lead
     func body(content: Content) -> some View { content.padding(.leading, lead) }
+}
+
+/// The list's title. The home list's is drawn in the bar's leading slot ("ace ⌄", `InboxHeading`):
+/// the bar keeps an inline title for Back buttons and VoiceOver and drops its own centred one,
+/// which would leave the heading and its buttons half the width each. Pull requests keeps the
+/// system's large title.
+/// Select mode keeps the bar's centre, where it counts the threads picked.
+private struct ListTitle: ViewModifier {
+    let pulls: Bool
+    let selecting: Bool
+    func body(content: Content) -> some View {
+        if pulls {
+            content.nativeTitle("Pull requests")
+        } else if selecting {
+            content.navigationTitle("ace").navigationBarTitleDisplayMode(.inline)
+        } else {
+            content
+                .navigationTitle("ace")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(removing: .title)
+        }
+    }
 }
 
 /// Hides the list's system bar and pins the drawer's own header in its place while `own` holds.

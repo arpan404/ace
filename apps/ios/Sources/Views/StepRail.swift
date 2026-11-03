@@ -12,20 +12,21 @@ struct LogRowBox<Lead: View, Title: View, Meta: View>: View {
     var body: some View {
         HStack(spacing: AceDesign.Space.related) {
             lead().foregroundStyle(AceTheme.Colours.subtleForeground)
-                .frame(minWidth: AceDesign.Size.lead)
+                .frame(minWidth: AceDesign.Size.stepGlyph)
             HStack(spacing: AceDesign.Space.tight) {
                 title()
                 if let open { DisclosureCaret(open: open) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            meta().aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            meta().aceFont(AceDesign.TextRole.time, relativeTo: .caption)
                 .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
+        .aceFont(AceDesign.TextRole.step, relativeTo: .footnote).fontWeight(AceDesign.Typeface.regular)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .lineLimit(1)
-        .frame(minHeight: AceDesign.Size.tap - AceDesign.Space.tight)
-        .contentShape(Rectangle())
+        // Drawn at the step's own line, as the approved feed sets them; taps land over 44.
+        .frame(minHeight: AceDesign.Size.stepRow)
+        .tapBand(drawn: AceDesign.Size.stepRow)
     }
 }
 
@@ -55,7 +56,7 @@ extension LogRowBox where Lead == EmptyView, Meta == EmptyView {
 
 /// Where a row's details open: indented to the title, past the lead and the gap.
 extension View {
-    func rowDetailIndent() -> some View { padding(.leading, AceDesign.Size.lead + AceDesign.Space.related) }
+    func rowDetailIndent() -> some View { padding(.leading, AceDesign.Size.stepGlyph + AceDesign.Space.related) }
 }
 
 /// Steps on a thin rail: an opened group, an opened "Worked for". Each finished step sits on the

@@ -70,11 +70,11 @@ struct InboxHeading<Choices: View>: View {
 
     private func label(chevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
-                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceTheme.Typography.title, relativeTo: .headline)
+            HStack(alignment: .center, spacing: AceDesign.Space.tight + 1) {
+                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceDesign.TextRole.header, relativeTo: .headline)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
                 if chevron {
-                    Image(systemName: "chevron.down").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong))
+                    AceIcon(.caretDown, size: AceDesign.Size.titleChevron, weight: .bold, relativeTo: .headline)
                         .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
             }
@@ -110,8 +110,8 @@ struct InboxTitle: View {
                 .accessibilityHint("Opens Machines")
                 .accessibilityIdentifier(shown.identifier)
             } else if let scope {
-                Text(scope).accessibilityIdentifier("inbox.heading.scope").aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1)
+                Text(scope).accessibilityIdentifier("inbox.heading.scope").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
             }
         }
         .task(id: problem) {
@@ -187,12 +187,13 @@ struct InboxChip: View {
             Text(title).lineLimit(1)
             Image(systemName: "chevron.down").font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong))
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+        .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
         .foregroundStyle(AceTheme.Colours.mutedForeground)
         .padding(.horizontal, AceDesign.Space.row)
-        .frame(minHeight: AceDesign.Size.tap)
+        // The segmented control's height beside it, taking taps over 44.
+        .frame(height: AceDesign.Size.segment)
         .aceGlass(in: AceShape.capsule, interactive: true)
-        .contentShape(AceShape.capsule)
+        .tapBand(drawn: AceDesign.Size.segment)
     }
 }
 

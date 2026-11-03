@@ -57,10 +57,11 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
                     }
             }
             .environment(\.panelPlace, .none)
-            .toolbarVisibility(!selecting && path.isEmpty ? .automatic : .hidden, for: .tabBar)
+            // A phone draws its own bottom bar on the list (`HomeBottomBar`): the system's stays away.
+            .toolbarVisibility(.hidden, for: .tabBar)
             .background {
                 if showing {
-                    TabBarPlace(hidden: selecting || !path.isEmpty, relayout: "stack \(path.count) \(selecting)")
+                    TabBarPlace(hidden: true, relayout: "stack \(path.count) \(selecting)")
                         .frame(width: 0, height: 0)
                 }
             }

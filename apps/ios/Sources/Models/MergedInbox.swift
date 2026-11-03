@@ -34,6 +34,10 @@ struct MergedInbox: Equatable {
     struct Tab: Identifiable, Equatable {
         let id: String; let label: String; var counted = false; let empty: String; let emptyLine: String?
         var needsYou = 0
+        /// What compose starts while this tab shows: "thread", or "chat" on Chats.
+        var compose = "thread"
+        /// Chats lists the chats layout, not the inbox's sections.
+        var chats: Bool { compose == "chat" }
     }
     let sections: [Section]
     /// Inbox, Snoozed and Settled, in the runtimes' order; empty until a machine sends them.
@@ -83,9 +87,12 @@ struct MergedInbox: Equatable {
         }
         // The words from the first machine that sends them; the Inbox's dot from every daemon's.
         let needsYou = parts.reduce(0) { $0 + ($1.layout.attention?.threads.needsYou ?? 0) }
+        let chatsNeedYou = parts.reduce(0) { $0 + ($1.layout.attention?.chats.needsYou ?? 0) }
         let tabs: [Tab] = (parts.lazy.compactMap(\.layout.tabWords).first ?? []).map { words in
-            Tab(id: words.id, label: words.label, counted: words.counted ?? false, empty: words.empty,
-                emptyLine: words.emptyLine, needsYou: words.id == "inbox" ? needsYou : 0)
+            let compose = words.compose ?? "thread"
+            return Tab(id: words.id, label: words.label, counted: words.counted ?? false, empty: words.empty,
+                       emptyLine: words.emptyLine,
+                       needsYou: words.id == "inbox" ? needsYou : compose == "chat" ? chatsNeedYou : 0, compose: compose)
         }
         return MergedInbox(sections: sections, tabs: tabs, more: parts.filter { $0.layout.more }.map(\.machineId),
                            snooze: parts.first { !$0.layout.snooze.isEmpty }?.layout.snooze ?? [],

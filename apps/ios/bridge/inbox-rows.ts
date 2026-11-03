@@ -27,6 +27,8 @@ import {
 import { threadRow } from "./presentation.ts";
 import { inboxLook } from "./inbox-look.ts";
 import { rowAccount } from "./inbox-accounts.ts";
+import { rowCard } from "./inbox-card.ts";
+import { noAgentUse, type AgentUse } from "./inbox-agent-use.ts";
 import { inboxSortChoices } from "./inbox-sort.ts";
 
 /** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
@@ -44,6 +46,8 @@ export interface RowContext {
   accounts: readonly AccountView[];
   /** The machine's `threads.sortBy`, which orders the sections. */
   sortBy?: HomeSort;
+  /** What agents drive for each thread now (a browser, Mac apps). */
+  use?: AgentUse;
 }
 
 /**
@@ -64,6 +68,13 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     status: inboxStatus(thread, context.now),
     look,
     account: rowAccount(context.accounts, entry),
+    ...rowCard(entry, {
+      baseline: context.baseline,
+      now: context.now,
+      settled: look.settled,
+      accounts: context.accounts,
+      use: context.use ?? noAgentUse,
+    }),
     activityAt: entry.activityAt ?? entry.updatedAt,
     archivedAt: entry.archivedAt ?? null,
     pinned: entry.pinned === true,
@@ -113,6 +124,16 @@ function tabsOf(sections: readonly { key: string; keys: readonly string[] }[]) {
   return tabs;
 }
 
+/** The phone's tab after the Inbox, before Snoozed and Settled: the chats, where compose starts a chat. */
+const chatsTab = {
+  id: "chats",
+  label: "Chats",
+  counted: false,
+  empty: "No chats yet",
+  emptyLine: null,
+  compose: "chat" as const,
+};
+
 /** The shared grouping as ordered sections, each row with its rank for merging machines. */
 export function inboxLayout(
   threads: readonly InboxThread[],
@@ -131,15 +152,21 @@ export function inboxLayout(
     tabs: tabsOf(sections),
     /**
      * Each tab's words, in order: its label, whether its count shows (Inbox and Snoozed, as
-     * DESIGN.md has it), and what it says while empty. The lists are `tabs`, as placed.
+     * DESIGN.md has it), what it says while empty and what the compose button starts there.
+     * The lists are `tabs`, as placed; Chats, second, lists the chats layout instead.
      */
-    tabWords: threadsTabs.map(({ id, label }) => ({
-      id,
-      label,
-      counted: id !== "settled",
-      empty: emptyTabTitle(id, undefined, false),
-      emptyLine: id === "inbox" ? emptyInboxLine : null,
-    })),
+    tabWords: threadsTabs.flatMap(({ id, label }) => {
+      const words = {
+        id,
+        label,
+        counted: id !== "settled",
+        empty: emptyTabTitle(id, undefined, false),
+        emptyLine: id === "inbox" ? emptyInboxLine : null,
+        compose: "thread" as const,
+      };
+      // Chats sits second, right after the Inbox.
+      return id === "inbox" ? [words, chatsTab] : [words];
+    }),
     ...(options.attention ? { attention: options.attention } : {}),
     sections: sections.map((section) => ({
       key: section.key,
