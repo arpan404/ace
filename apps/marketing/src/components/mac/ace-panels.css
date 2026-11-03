@@ -288,7 +288,6 @@
   display: flex;
   align-items: flex-start;
   gap: 2px;
-  color: var(--a-working);
   opacity: 0;
   transform: translate(var(--ax, 300px), var(--ay, 300px));
   transition:
@@ -305,7 +304,8 @@
   margin-top: 12px;
   padding: 1px 6px;
   border-radius: 5px;
-  background: var(--a-working);
+  background: #161616;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85);
   color: #ffffff;
   font-size: 11px;
   font-style: normal;

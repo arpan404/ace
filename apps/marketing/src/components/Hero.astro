@@ -14,7 +14,7 @@ const words = product.headline.split(" ");
 ---
 
 <section class="hero">
-  <AsciiField focus={0.76} scale={0.74} />
+  <AsciiField focus={0.79} scale={0.72} />
   <div class="page hero-copy">
     <ul class="marks" aria-label="Agents ace runs">
       {
@@ -32,7 +32,10 @@ const words = product.headline.split(" ");
           <>
             <span class="word" style={`--w: ${index}`}>
               {word}
-            </span>{" "}
+            </span>
+            {/* The headline's two phrases sit on their own lines on wide screens. */}
+            {" "}
+            {word.endsWith(",") && <br class="phrase" />}
           </>
         ))
       }
@@ -85,6 +88,12 @@ const words = product.headline.split(" ");
     padding-bottom: 72px;
   }
 
+  @media (max-width: 760px) {
+    .phrase {
+      display: none;
+    }
+  }
+
   .marks {
     display: flex;
     flex-wrap: wrap;
@@ -93,15 +102,15 @@ const words = product.headline.split(" ");
 
   h1 {
     margin-top: 36px;
-    max-width: 11em;
-    font-size: clamp(40px, 5.2vw, 62px);
+    max-width: 14em;
+    font-size: clamp(38px, 4.6vw, 56px);
     letter-spacing: -0.045em;
     line-height: 1.02;
   }
 
   .summary {
     margin-top: 20px;
-    max-width: 29em;
+    max-width: 34em;
     color: var(--muted);
     font-size: 17px;
     line-height: 1.6;

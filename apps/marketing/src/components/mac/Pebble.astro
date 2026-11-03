@@ -1,7 +1,7 @@
 ---
 /*
- * ace's cursor, "Pebble", as the app draws it (@ace/design-tokens/glyphs): filled with the
- * surrounding text colour and outlined in white. The box is shifted so its tip, not its corner,
+ * ace's cursor, "Pebble", in the app's shape (@ace/design-tokens/glyphs), drawn monochrome:
+ * near-black with a white outline, so it reads on light and dark alike. The box is shifted so its tip, not its corner,
  * sits on the point the cursor is placed at.
  */
 import { agentCursorOutline, agentCursorPath, agentCursorTip, glyphBox } from "@ace/design-tokens/glyphs";
@@ -24,7 +24,7 @@ const tipY = (agentCursorTip.y * size) / glyphBox;
   style={`--tip-x: ${tipX}px; --tip-y: ${tipY}px`}
   ><path
     d={agentCursorPath}
-    fill="currentColor"
+    fill="#161616"
     stroke="#ffffff"
     stroke-width={agentCursorOutline}
     stroke-linejoin="round"></path></svg

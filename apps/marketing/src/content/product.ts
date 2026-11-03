@@ -6,12 +6,12 @@
 export const product = {
   name: "ace",
   title: "ace: one app for Claude Code, Codex, Cursor and every agent",
-  headline: "All your coding agents, one window.",
+  headline: "Your coding agents, one team on every machine.",
   summary:
-    "ace drives Claude Code, Codex, Cursor and the CLIs you already use, across all your machines, and tells you which one needs you.",
+    "Claude Code, Codex and Cursor hand work to each other and run on all your machines at once. ace tells you when one needs you.",
   /** For search results: at most about 160 characters. */
   description:
-    "ace is a free, open-source app for Mac, Windows and Linux that runs Claude Code, Codex and Cursor side by side, with computer use and phone apps.",
+    "ace is a free, open-source app where Claude Code, Codex and Cursor work as one team across your Mac, Windows and Linux machines, with phone apps.",
   /** The fuller paragraph for structured data and llms.txt. */
   about:
     "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Sign in to several accounts per provider and pick one per thread. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another. Sign in to an ace account and every machine on it opens from your phone, browser or other computers, from anywhere, through an end-to-end encrypted relay. Each thread can work in its own git worktree with a built-in diff review.",
