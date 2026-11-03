@@ -20,7 +20,7 @@ import { MiddleTruncate } from "@/components/ui/middle-truncate.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useThreadBrowsing } from "@/lib/browsing.ts";
 import { useThreadComputerUse } from "@/lib/computer-using.ts";
-import { ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
+import { AlarmIcon, ClockIcon, TreeStructureIcon } from "@phosphor-icons/react";
 import type { LinkClick } from "@/lib/web-links.ts";
 import { useOpenThreadPullRequest } from "./open-pull-request.ts";
 
@@ -162,6 +162,8 @@ export function RowStatus(props: { card: ThreadCard; attention: RowAttention }) 
   const { level } = props.attention;
   // A snoozed row says what it waits for where its status sits, unless it needs the person.
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
+  // Back from a snooze, until read: the alarm and why (the card leaves it out when more urgent).
+  if (card.woke) return <RowWoke woke={card.woke} />;
   const look = rowStatusLook(props.attention, card);
   return (
     <Tip label={look.meaning}>
@@ -248,6 +250,38 @@ export function RowWake(props: { wake: string }) {
       <ClockIcon aria-hidden size={12} />
       {props.wake}
     </span>
+  );
+}
+
+/**
+ * A row back from a snooze that ended by itself: the alarm alone where its status sits, as other
+ * attention icons stand alone. Why it woke is the tooltip and the element's name.
+ */
+export function RowWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
+  return (
+    <Tip label={props.woke.sentence}>
+      <span
+        role="img"
+        aria-label={props.woke.sentence}
+        data-woke
+        className="inline-flex shrink-0 text-foreground"
+      >
+        <AlarmIcon aria-hidden size={16} weight="fill" />
+      </span>
+    </Tip>
+  );
+}
+
+/** The hover card's line for a row back from a snooze: the alarm, then why it woke in full. */
+export function HoverWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
+  return (
+    <p
+      data-woke
+      className="flex min-w-0 items-center gap-1.5 text-ui leading-5 text-muted-foreground"
+    >
+      <AlarmIcon aria-hidden size={16} weight="fill" className="shrink-0 text-foreground" />
+      <span className="min-w-0">{props.woke.sentence}</span>
+    </p>
   );
 }
 

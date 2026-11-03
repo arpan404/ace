@@ -27,6 +27,7 @@ import {
   organizationCommands,
   organizationDecision,
   settleDecision,
+  snoozeWokeByQueue,
   settlePolicy,
   liveMetadata,
   applyThreadListEvent,
@@ -658,7 +659,10 @@ export class FakeDaemon implements Host {
       host.queue.revision++;
       host.queue.pendingCount = host.queued.length;
       if (queueWakesSnooze(host.view.thread, host.queue, now))
-        follow.push({ type: "thread.client.updated", changes: { snoozedUntil: null } });
+        follow.push({
+          type: "thread.client.updated",
+          changes: { snoozedUntil: null, snoozeWoke: snoozeWokeByQueue(now) },
+        });
       follow.push({ type: "queue.updated", ...host.queue });
     }
     this.append(host, follow, now);

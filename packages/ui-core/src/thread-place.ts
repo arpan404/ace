@@ -15,6 +15,7 @@ import {
   type HomeSort,
 } from "./arrange.ts";
 import { activityOf, isSettled, isSnoozed } from "./thread-state.ts";
+import { backFromSnooze } from "./snooze-woke.ts";
 import {
   atRest,
   atWork,
@@ -93,7 +94,13 @@ export function placeWithStanding(
   const sortBy = input.sortBy ?? "activity";
   if (sortBy !== "activity")
     return placed({ tab: "inbox", band: "listed", rank: [homeListKey(sortBy)(entry)] });
-  return placed({ tab: "inbox", band: bandOf(standing), rank: [at] });
+  // Back from a snooze and not read yet: it sits with the finished work not looked at.
+  // Back from a snooze and not read yet: it sits with the finished work not looked at, as of
+  // when it came back.
+  const band = bandOf(standing);
+  const woke = band === "idle" || band === "unseen" ? backFromSnooze(entry, input.now) : undefined;
+  if (woke) return placed({ tab: "inbox", band: "unseen", rank: [Math.max(at, woke.at)] });
+  return placed({ tab: "inbox", band, rank: [at] });
 }
 
 const bandOrder: readonly InboxBand[] = [

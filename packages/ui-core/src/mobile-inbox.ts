@@ -10,6 +10,7 @@ import {
   type StatusDisplay,
 } from "./mobile-status.ts";
 import { recoveryAttention } from "./recovery-attention.ts";
+import { backFromSnooze, wokeShort } from "./snooze-woke.ts";
 
 /*
  * The native apps' single inbox (issue #560): one list across every paired machine, grouped by
@@ -162,7 +163,8 @@ export function snoozeEnded(entry: ThreadListEntry, now: number): boolean {
 /**
  * The status a row shows: a recovery the person must act on ("Not sent", "Review a message"),
  * else the daemon's status, or Syncing while the copy is unconfirmed. A settled thread whose
- * snooze has run out says so ("Snooze ended") in its done colour; any live state outranks it.
+ * snooze has run out says so ("Snooze ended") in its done colour, and one back from a snooze
+ * says why ("Back · checks failed") until read; any live state outranks both.
  */
 export function inboxStatus(thread: InboxThread, now: number): StatusDisplay {
   const { entry } = thread;
@@ -172,6 +174,12 @@ export function inboxStatus(thread: InboxThread, now: number): StatusDisplay {
   const status = mobileThreadStatus(entry);
   if (entry.status.state === "done" && snoozeEnded(entry, now))
     return { label: snoozeEndedLabel, token: status.token };
+  // Back from a snooze that ended by itself, until read: why it woke, while nothing else is live.
+  const woke =
+    entry.status.state === "done" || entry.status.state === "new"
+      ? backFromSnooze(entry, now)
+      : undefined;
+  if (woke) return { label: `Back · ${wokeShort(woke)}`, token: status.token };
   if (entry.status.state === "needs_you") {
     const kind = entry.live?.asking?.[0]?.kind;
     if (kind === "question") return { label: "Question", token: status.token };
