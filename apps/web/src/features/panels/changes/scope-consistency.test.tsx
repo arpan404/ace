@@ -85,7 +85,7 @@ test("diff comment controls explain the old or new line on hover and open a comm
   const panel = await openChanges(app);
   await showUncommitted(panel);
   for (const layout of ["Unified", "Split"] as const) {
-    await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+    await userEvent.click(within(panel).getByRole("button", { name: "View" }));
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: new RegExp(`^${layout}`) }),
     );

@@ -517,3 +517,58 @@ test("Show in code on a line with no conversation marks that line of the file", 
   await waitFor(() => expect(landed()?.textContent).toContain("z"));
   expect(landed()?.textContent).not.toContain("y");
 });
+
+/** Every line src/split.ts shows, in either column. */
+const shownText = () =>
+  screen
+    .getAllByRole("region", { name: /^src\/split\.ts/ })
+    .map((region) => region.textContent)
+    .join("\n");
+
+test("View menu choices change the diff and are still chosen when the Code tab opens again", async () => {
+  const app = harness();
+  const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`);
+  const after = lines.map((line, i) => (i === 15 ? "changed 16" : line));
+  app.daemon.workspace.setForgeRead(
+    page(1),
+    filesPage([{ ...changed("src/split.ts", ""), patch: null, truncated: true }]),
+  );
+  for (const [sha, text] of [
+    [detail.baseSha, `${lines.join("\n")}\n`],
+    [detail.status.headSha, `${after.join("\n")}\n`],
+  ] as const)
+    app.daemon.workspace.setForgeRead(
+      { op: "forge.file.content", workspaceId, repository, sha, path: "src/split.ts", page: 1 },
+      { resource: "fileContent", value: { kind: "text", text, size: text.length } },
+    );
+  const rerender = await mount(app, codeTab());
+  await waitFor(() => expect(shownText()).toContain("changed 16"));
+  // Unchanged lines far from the change start folded.
+  expect(shownText()).not.toContain("line 3");
+  expect(screen.getByRole("button", { name: /Show \d+ unchanged lines/ })).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  await userEvent.click(
+    await screen.findByRole("menuitemcheckbox", { name: "Fold unchanged lines" }),
+  );
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(shownText()).toContain("line 3"));
+  expect(screen.queryByRole("button", { name: /unchanged lines/ })).toBeNull();
+  expect(screen.queryByRole("region", { name: "src/split.ts before" })).toBeNull();
+
+  await pickLayout("Split");
+  expect(await screen.findByRole("region", { name: "src/split.ts before" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "src/split.ts after" })).toBeTruthy();
+
+  rerender(null);
+  expect(screen.queryByText("changed 16")).toBeNull();
+  rerender(codeTab());
+  expect(await screen.findByRole("region", { name: "src/split.ts before" })).toBeTruthy();
+  expect(shownText()).toContain("line 3");
+  expect(screen.queryByRole("button", { name: /unchanged lines/ })).toBeNull();
+  // Kept on this device: what the next start reads back.
+  expect(JSON.parse(app.storage.getItem("ace.review.prefs") ?? "{}")).toMatchObject({
+    mode: "split",
+    fold: false,
+  });
+});

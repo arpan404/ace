@@ -1,4 +1,4 @@
-import type { DiffPrefs } from "../services.ts";
+import type { DiffPrefs } from "./diff-prefs.ts";
 
 /** Auto layout is split from this diff width, unified below it. */
 const splitFrom = 880;

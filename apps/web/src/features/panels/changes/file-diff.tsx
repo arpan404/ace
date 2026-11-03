@@ -94,7 +94,13 @@ export function FileDiffBlock(props: {
   /** The header's trailing controls (Viewed, file actions). */
   actions?: ReactNode;
   statusIcon?: ReactNode;
+  /** Spaces and tabs draw as visible marks. */
   whitespace?: boolean | undefined;
+  /**
+   * Unchanged runs stay folded until opened (the default); off, every fold whose lines are
+   * known draws open.
+   */
+  fold?: boolean | undefined;
   /** Shown under the header instead of the lines: an image, a rendered document, a read. */
   body?: ReactNode;
   /**
@@ -112,8 +118,9 @@ export function FileDiffBlock(props: {
   const plain = props.mode === "unified" && !props.wrap && !props.annotated && !props.onComment;
   const renderer = useDiffRenderer(plain ? file.rows.length : 0);
   const slash = file.path.lastIndexOf("/");
+  const unfolded = props.fold === false;
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
-    row.kind === "fold" && expanded.has(index) && row.lines ? row.lines : [row],
+    row.kind === "fold" && (unfolded || expanded.has(index)) && row.lines ? row.lines : [row],
   );
   const indexOf = new Map(file.rows.map((row, index) => [row, index]));
   // A drag from a line's + across more lines picks them; the comment opens on release.

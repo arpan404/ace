@@ -136,7 +136,7 @@ test("a comment from another device shows with its replies, and a reply here rea
   const commentId = added.review?.comment?.id;
   remote({ type: "review.reply", sessionId, commentId, text: "The agent agreed" });
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
   const card = await within(panel).findByRole("article", { name: `Comment on line ${line}` });
   const replies = await within(card).findByRole("list", { name: "Replies" });
@@ -166,7 +166,7 @@ test.each([false, true])(
           to: { kind: "working-tree" },
         },
       });
-      await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+      await userEvent.click(within(panel).getByRole("button", { name: "View" }));
       await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
     }
     expect(within(panel).queryByRole("region", { name: "Review" })).toBeNull();
@@ -221,7 +221,7 @@ test("comments sharing an ending line keep independent replies and resolve actio
     text: "Second same-line finding",
   }).review?.comment?.id;
   remote({ type: "review.status", sessionId, status: "changes-requested" });
-  await userEvent.click(within(panel).getByRole("button", { name: "Diff options" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "View" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Refresh comments" }));
   const cards = await within(replay).findAllByRole("article");
   expect(cards.map((card) => card.textContent)).toEqual([

@@ -77,6 +77,8 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
   view: FileView;
   mode: "unified" | "split";
   wrap: boolean;
+  fold: boolean;
+  whitespace: boolean;
   viewed: boolean;
   /** This file's comments. */
   drafts: readonly ReviewDraft[];
@@ -101,6 +103,8 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
       onView={(next) => handlers.setView(file.path, next)}
       mode={props.mode}
       wrap={props.wrap}
+      fold={props.fold}
+      whitespace={props.whitespace}
       viewed={props.viewed}
       actions={
         <FileActions

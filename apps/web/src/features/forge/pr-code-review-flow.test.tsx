@@ -95,7 +95,7 @@ const box = (path: string) => screen.findByRole("checkbox", { name: `Viewed ${pa
 
 type ViewItem = ["menuitemradio" | "menuitemcheckbox", string];
 const split: ViewItem = ["menuitemradio", "Split"];
-const noWhitespace: ViewItem = ["menuitemcheckbox", "Hide whitespace"];
+const noWhitespace: ViewItem = ["menuitemcheckbox", "Hide whitespace changes"];
 
 /** Opens the View menu and finds a choice there. */
 const viewItem = async ([role, name]: ViewItem) => {
