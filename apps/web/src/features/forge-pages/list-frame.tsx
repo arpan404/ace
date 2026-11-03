@@ -41,10 +41,10 @@ export function ListFrame(props: {
   return (
     <div
       ref={ref}
-      className={cn("@container/page h-full overflow-y-auto", forgeGutter)}
+      className={cn("@container/page flex h-full flex-col overflow-y-auto", forgeGutter)}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >
-      <div className={cn(pageColumn, "px-(--forge-gutter) pt-4 pb-8")}>
+      <div className={cn(pageColumn, "flex-1 px-(--forge-gutter) pt-4 pb-8")}>
         <div
           role="toolbar"
           aria-label={barLabels[props.kind]}
