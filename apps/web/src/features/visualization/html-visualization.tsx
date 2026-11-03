@@ -24,15 +24,15 @@ const keptHeights = () => new LruCache<string, number>({ maxEntries: 500 });
 
 /** The full-screen button, dimmed until hovered, focused or pressed. */
 const action =
-  "rounded-md opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
+  "rounded-full opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
 
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. A bare full-screen button sits in a row above it, always shown but dimmed
- * until hovered, focused or pressed; it opens the page at the side panel's full size, whose
- * strip adds open in window, copy source and download.
+ * the network. A full-screen button sits on a small glass pill in a row above it, its icon
+ * dimmed until hovered, focused or pressed; it opens the page at the side panel's full size,
+ * whose strip adds open in window, copy source and download.
  */
 export function HtmlVisualizationView(props: {
   threadId: string;
@@ -79,13 +79,15 @@ export function HtmlVisualizationView(props: {
           aria-label={`${title} actions`}
           className="flex h-7 items-center justify-end"
         >
-          <IconButton
-            size="sm"
-            icon={ArrowsOutSimpleIcon}
-            label="Full screen"
-            className={action}
-            onClick={() => panel.open(visualizationTab(visualization))}
-          />
+          <div className="ace-floating inline-flex rounded-full p-0.5">
+            <IconButton
+              size="sm"
+              icon={ArrowsOutSimpleIcon}
+              label="Full screen"
+              className={action}
+              onClick={() => panel.open(visualizationTab(visualization))}
+            />
+          </div>
         </div>
       )}
       <div className="w-full min-w-0">
