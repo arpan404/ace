@@ -43,6 +43,8 @@ const radius = 10.6 * unit;
 const headTurn = { yaw: 0.32, pitch: 0.2 };
 const blinkEvery = 5200;
 
+const clamp = (value: number) => Math.max(-1, Math.min(1, value));
+
 interface Eye {
   /** Squashes the eye toward its centre for a blink. */
   lid: Object3D;
@@ -197,7 +199,6 @@ export async function startSpade3d(host: HTMLElement, src: string): Promise<bool
     (event) => {
       const rect = canvas.getBoundingClientRect();
       target = spadeLookFromPointer(rect, { x: event.clientX, y: event.clientY });
-      const clamp = (value: number) => Math.max(-1, Math.min(1, value));
       towardTarget.x = clamp((event.clientX - (rect.left + rect.width / 2)) / (innerWidth / 2));
       towardTarget.y = clamp((event.clientY - (rect.top + rect.height / 2)) / (innerHeight / 2));
     },
