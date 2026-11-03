@@ -315,6 +315,10 @@ html[data-theme="light"] .ace {
   background: var(--a-fill);
 }
 
+.ace .row.hover:not(.selected) {
+  background: var(--a-raised);
+}
+
 .ace .line {
   display: flex;
   align-items: center;
@@ -677,6 +681,124 @@ html[data-theme="light"] .ace {
 
 .ace .agents-step.hover {
   background: var(--a-fill);
+}
+
+/* An agents group leads with its providers' marks, overlapping like the app's. */
+.ace .group-marks {
+  display: inline-flex;
+}
+
+.ace .group-marks > * + * {
+  margin-left: -4px;
+}
+
+/*
+ * The agents a thread handed work to, as the group lists them once opened: mark, name, where
+ * it runs and how it was started, then what it does now; its status word on the right.
+ */
+.ace .agent-list {
+  display: grid;
+  margin: 2px 0 10px 30px;
+  padding-left: 12px;
+  border-left: 1px solid var(--a-border);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.5s cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+
+.ace[data-agents="open"] .agent-list {
+  max-height: 240px;
+}
+
+.ace .agent-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  margin: 0 -8px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.35s,
+    transform 0.35s,
+    background 0.15s;
+  transition-delay: calc(var(--i) * 140ms + 150ms);
+}
+
+.ace[data-agents="open"] .agent-row {
+  opacity: 1;
+  transform: none;
+}
+
+.ace .agent-row.hover {
+  background: var(--a-fill);
+  transition-delay: 0s;
+}
+
+.ace .agent-mark {
+  display: flex;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+}
+
+.ace .agent-main {
+  display: grid;
+  min-width: 0;
+}
+
+.ace .agent-first {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.ace .agent-first b {
+  color: var(--a-fg);
+  font-weight: 500;
+}
+
+.ace .agent-machine,
+.ace .agent-meta {
+  color: var(--a-subtle);
+  font-size: 12.5px;
+}
+
+.ace .agent-detail {
+  overflow: hidden;
+  color: var(--a-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ace .agent-row[data-tone="working"] .agent-detail {
+  color: var(--a-fg-2);
+}
+
+.ace .agent-state {
+  font-size: 12.5px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ace .agent-row[data-tone="working"] .agent-state {
+  color: var(--a-working);
+}
+
+.ace .agent-row[data-tone="done"] .agent-state,
+.ace[data-cold="done"] .agent-row .agent-state {
+  color: var(--a-done);
+}
+
+.ace .agent-time {
+  margin-left: 6px;
+  color: var(--a-subtle);
 }
 
 /* The dock: what waits on you, the status strip and the composer. */

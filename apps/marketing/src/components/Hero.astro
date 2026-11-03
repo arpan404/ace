@@ -14,12 +14,12 @@ const words = product.headline.split(" ");
 ---
 
 <section class="hero">
-  <AsciiField />
+  <AsciiField focus={0.79} scale={0.72} />
   <div class="page hero-copy">
     <ul class="marks" aria-label="Agents ace runs">
       {
         marks.map((agent, index) => (
-          <li class="tile" title={agent.label} style={`--m: ${index}`}>
+          <li class="tile" tabindex="0" data-tip={agent.label} style={`--m: ${index}`}>
             <BrandMark brand={agent.brand} size={18} />
             <span class="sr-only">{agent.label}</span>
           </li>
@@ -45,8 +45,8 @@ const words = product.headline.split(" ");
         Star on GitHub
       </a>
     </div>
+    <p class="facts">{product.heroFacts.join(" · ")}</p>
   </div>
-
 </section>
 
 <style>
@@ -55,15 +55,27 @@ const words = product.headline.split(" ");
     padding-top: 64px;
   }
 
-  /* The ASCII field covers only the copy band, not the screenshot. */
+  /*
+   * The ASCII field covers only the copy band, not the screenshot, and stays inside the page's
+   * content column so the mark lines up with the copy instead of running to the window's edge.
+   * Its sides fade so the drifting field has no hard edge.
+   */
   .hero > :global(.ascii) {
-    bottom: auto;
+    inset: 0 auto auto 50%;
+    width: min(calc(100% - var(--gutter) * 2), var(--page));
     height: 600px;
-    mask-image: linear-gradient(to bottom, black 65%, transparent);
+    translate: -50% 0;
+    mask-image:
+      linear-gradient(to bottom, black 65%, transparent),
+      linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+    mask-composite: intersect;
   }
 
-  /* Narrower than this, the mark runs into the headline and buttons, so it steps aside. */
-  @media (max-width: 1180px) {
+  /*
+   * The mark shrinks to the room beside the copy (AsciiField caps it); narrower than this it
+   * would run into the summary, so it steps aside.
+   */
+  @media (max-width: 960px) {
     .hero > :global(.ascii) {
       display: none;
     }
@@ -82,6 +94,42 @@ const words = product.headline.split(" ");
     gap: 8px;
   }
 
+  /* Each agent's name, shown above its tile on hover or keyboard focus. */
+  .tile {
+    position: relative;
+    outline: none;
+  }
+
+  .tile:focus-visible {
+    box-shadow: 0 0 0 2px var(--focus);
+  }
+
+  .tile::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    z-index: 2;
+    padding: 4px 9px;
+    border-radius: 7px;
+    background: var(--ink);
+    color: var(--ink-foreground);
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    translate: -50% 3px;
+    transition:
+      opacity var(--motion-fast) var(--ease-out),
+      translate var(--motion-fast) var(--ease-out);
+  }
+
+  .tile:is(:hover, :focus-visible)::after {
+    opacity: 1;
+    translate: -50% 0;
+  }
+
   h1 {
     margin-top: 36px;
     max-width: 11em;
@@ -92,7 +140,7 @@ const words = product.headline.split(" ");
 
   .summary {
     margin-top: 20px;
-    max-width: 29em;
+    max-width: 34em;
     color: var(--muted);
     font-size: 17px;
     line-height: 1.6;
@@ -105,5 +153,9 @@ const words = product.headline.split(" ");
     margin-top: 32px;
   }
 
-
+  .facts {
+    margin-top: 18px;
+    color: var(--subtle);
+    font-size: 13.5px;
+  }
 </style>

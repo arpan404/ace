@@ -1,50 +1,78 @@
 ---
 /*
  * The open thread's transcript, one section per thread the scenes open. Only the cold-start
- * thread shows at first; the story script shows the thread a scene opens (`data-for`).
+ * thread shows at first; the story script shows the thread a scene opens (`data-for`). The
+ * cold-start thread's agents group opens (`data-agents="open"` on the window) to list the agents
+ * it handed work to.
  */
 import { providerIcon } from "@ace/ui-core/provider-icons";
-import { browserSteps } from "../../content/stage.ts";
+import { formatElapsed } from "@ace/ui-core/time";
+import { browserSteps, delegates } from "../../content/stage.ts";
 import BrandMark from "../BrandMark.astro";
 import AppIcon from "./AppIcon.astro";
 
 const claude = providerIcon({ provider: "claude" }).brand;
+/** The agents group leads with the marks of the providers it handed work to, once each. */
+const groupMarks = [...new Set(delegates.map((agent) => agent.provider))].flatMap((provider) => {
+  const brand = providerIcon({ provider }).brand;
+  return brand ? [brand] : [];
+});
 ---
 
 <section class="thread" data-for="cold-start">
   <p class="you">
-    A phone that resumes with seq 0 gets every event since the thread began. Cap cold-start replay.
+    Resuming phones get every event since the thread began. Cap the replay, keep the client buffer
+    until the ack, and prove it holds at 2,000 clients.
   </p>
-  <p class="worked">Worked for 1m 50s</p>
-  <p class="reply">
-    replayFrom now treats seq 0 as a cold start and replays at most the last 200 events.
-  </p>
-  <span class="file-chip">replay.ts <ins>+8</ins> <del>−2</del></span>
-  <p class="you">
-    Send coldStart with the ack, keep the client buffer until it arrives, and add a regression test.
-  </p>
+  <p class="reply">I'll fix the server here and hand off the rest.</p>
   <div class="step">
     <AppIcon name="pencil-line" size={16} />
     <span>Edited</span><code>apps/server/src/replay.ts</code>
     <span class="end"><ins>+3</ins> <del>−2</del></span>
   </div>
   <div class="step agents-step" data-target="subagents">
-    {claude && <BrandMark brand={claude} size={18} />}
-    <b>2 subagents</b><span class="working before-done">2 working</span><span
-      class="after-done">finished</span
+    <span class="group-marks">
+      {groupMarks.map((brand) => <BrandMark brand={brand} size={16} />)}
+    </span>
+    <b>3 agents</b><span class="working before-done">2 running</span><span class="after-done"
+      >finished</span
     >
     <span class="end"
-      ><span data-seconds="445">7m 25s</span><AppIcon name="caret-right" size={14} /></span
+      ><span data-seconds="248">4m 8s</span><AppIcon name="caret-down" size={14} /></span
     >
   </div>
-  <div class="step">
-    <AppIcon name="terminal" size={16} />
-    <span class="before-done">Running in background</span><span class="after-done">Ran</span><code
-      >bun run relay:soak --clients 2</code
-    >
-    <span class="end">5m</span>
+  <div class="agent-list" data-agent-list>
+    {
+      delegates.map((agent, index) => {
+        const brand = providerIcon({ provider: agent.provider }).brand;
+        return (
+          <div class="agent-row" data-tone={agent.state} style={`--i: ${index}`}>
+            <span class="agent-mark">{brand && <BrandMark brand={brand} size={16} />}</span>
+            <span class="agent-main">
+              <span class="agent-first">
+                <b>{agent.name}</b>
+                {agent.machine && <span class="agent-machine">on {agent.machine}</span>}
+                <span class="agent-meta">Delegated</span>
+              </span>
+              <span class="agent-detail">{agent.detail}</span>
+            </span>
+            <span class="agent-state">
+              <span class="before-done">{agent.state === "done" ? "Done" : "Running"}</span>
+              <span class="after-done">Done</span>
+              {agent.seconds !== undefined && (
+                <span class="agent-time before-done" data-seconds={agent.seconds}>
+                  {formatElapsed(agent.seconds * 1000)}
+                </span>
+              )}
+            </span>
+          </div>
+        );
+      })
+    }
   </div>
-  <p class="reply after-done">Both subagents passed and the soak run held 200 events. Done.</p>
+  <p class="reply after-done">
+    The test passes, the review is clean, and the soak held 2,000 clients. Done.
+  </p>
 </section>
 
 <section class="thread" data-for="checkout" hidden>
@@ -72,18 +100,16 @@ const claude = providerIcon({ provider: "claude" }).brand;
 </section>
 
 <section class="thread" data-for="sign-in" hidden>
-  <p class="you">
-    Sign in on the iPhone 17 Pro simulator with the test account and check the 2FA screen.
-  </p>
-  <p class="reply">Booting the simulator and installing the debug build.</p>
+  <p class="you">Sign in on an iPhone 17 Pro with the test account and check the 2FA screen.</p>
+  <p class="reply">This server has no simulator, so I'll use the iPhone 17 Pro on your Mac.</p>
   <div class="step">
     <AppIcon name="device-mobile" size={16} />
-    <span>Booted</span><code>iPhone 17 Pro · iOS 26</code>
+    <span>Asked for</span><code>iPhone 17 Pro · Simulator on your Mac</code>
   </div>
-  <div class="step">
-    <AppIcon name="terminal" size={16} />
-    <span>Ran</span><code>xcodebuild -scheme Acme -destination 'name=iPhone 17 Pro'</code>
-    <span class="end">42s</span>
+  <div class="step device-using">
+    <AppIcon name="download-simple" size={16} />
+    <span>Installed</span><code>Acme · debug build 412</code>
+    <span class="end">12s</span>
   </div>
   <div class="step live-step device-using">
     <AppIcon name="device-mobile" size={16} />

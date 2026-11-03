@@ -40,6 +40,8 @@ const { focus = 0.78, scale = 0.8 } = Astro.props;
   const ramp = " .·:-=+*o#%@";
   const cellWidth = 9;
   const cellHeight = 15;
+  /** The most of the canvas width the mark may take, so it leaves the copy its room. */
+  const maxShare = 0.36;
 
   /** Smooth value noise from a small integer hash; deterministic, so every visit looks alike. */
   function hash(x: number, y: number): number {
@@ -92,17 +94,25 @@ const { focus = 0.78, scale = 0.8 } = Astro.props;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       columns = Math.ceil(width / cellWidth);
       rows = Math.ceil(height / cellHeight);
+      // Hidden on a narrow page: nothing to draw until a resize shows it again.
+      if (columns === 0 || rows === 0) {
+        mask = new Float32Array(0);
+        return;
+      }
 
       const shape = document.createElement("canvas");
       shape.width = columns;
       shape.height = rows;
       const pen = shape.getContext("2d");
       if (!pen) return;
+      // On a narrower page the mark shrinks to the room beside the copy (at most `maxShare` of
+      // the width) and stays clear of the right edge, instead of running into the text.
+      const size = Math.min(rows * scale, (width * maxShare) / cellHeight);
       // Cells are taller than wide, so the mark is stretched across columns to look square.
-      const size = rows * scale;
       const across = size * (cellHeight / cellWidth);
+      const centre = Math.min(columns * focus, columns - across / 2 - 2);
       pen.filter = "blur(0.6px)";
-      pen.translate(columns * focus - across / 2, (rows - size) / 2);
+      pen.translate(centre - across / 2, (rows - size) / 2);
       pen.scale(across / 24, size / 24);
       pen.translate(0, 1.5);
       // Both wings in one path: the second is the first mirrored across the 24-unit box.

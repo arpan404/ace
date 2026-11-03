@@ -2,13 +2,14 @@
 /*
  * The home page's walk through ace: a Mac pinned while the visitor scrolls, with one caption
  * per scene above it. The desktop is drawn at a fixed logical size (1352 × 880) and scaled
- * as one piece, so the window, the Simulator, the notification and the pointer share one
+ * as one piece, so the window, the Simulator, the phone and the pointer share one
  * coordinate space. scripts/stage-story.ts plays each scene as its marker crosses the middle.
  * With `only`, a feature page shows that one scene, unpinned, played once it is in view.
  */
 import { siApple } from "simple-icons";
 import { scenes, type SceneId } from "../../content/stage.ts";
 import AceWindow from "./AceWindow.astro";
+import Pebble from "./Pebble.astro";
 import PhoneLockScreen from "./PhoneLockScreen.astro";
 import SimulatorWindow from "./SimulatorWindow.astro";
 
@@ -36,7 +37,7 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
             <h2>{scene.title}</h2>
             <p>
               {scene.body}{" "}
-              <a href={`/features/${scene.feature}/`}>More</a>
+              <a href={scene.href}>More</a>
             </p>
           </li>
         ))
@@ -84,30 +85,7 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
           <SimulatorWindow />
           <PhoneLockScreen />
 
-          <div class="note" data-note aria-hidden="true">
-            <span class="note-icon"
-              ><svg viewBox="0 0 24 24" width="22" height="22"
-                ><path fill="currentColor" d="M12 2 4 13l3.2 1.8L12 8.4l4.8 6.4L20 13z"></path><path
-                  fill="currentColor"
-                  d="m12 12.4-3.4 4.6L12 22l3.4-5z"></path></svg
-              ></span
-            >
-            <b>ace</b><time>now</time>
-            <span class="note-body"
-              ><strong>Fix flaky checkout test</strong> needs your approval to run rm -rf node_modules/.cache/vitest</span
-            >
-          </div>
-
-          <span class="pointer" data-pointer aria-hidden="true"
-            ><svg viewBox="0 0 19 26" width="19" height="26"
-              ><path
-                d="M1.5 1.2v20.4l5-4.7 3.4 7.8 3.4-1.5-3.3-7.6h6.9z"
-                fill="#fff"
-                stroke="#000"
-                stroke-width="1.3"
-                stroke-linejoin="round"></path></svg
-            ></span
-          >
+          <span class="pointer" data-pointer aria-hidden="true"><Pebble size={34} /></span>
         </div>
       </div>
     </div>
@@ -345,65 +323,6 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
     width: 930px;
   }
 
-  .note {
-    position: absolute;
-    right: 14px;
-    top: 40px;
-    z-index: 7;
-    width: 380px;
-    display: grid;
-    grid-template-columns: 40px 1fr auto;
-    gap: 2px 12px;
-    padding: 13px 15px;
-    border-radius: 18px;
-    background: rgb(44 44 50 / 0.78);
-    backdrop-filter: blur(30px) saturate(1.5);
-    box-shadow:
-      0 0 0 0.5px rgb(255 255 255 / 0.16),
-      0 14px 40px -8px rgb(0 0 0 / 0.55);
-    color: #fff;
-    font-family:
-      -apple-system,
-      BlinkMacSystemFont,
-      "SF Pro Text",
-      system-ui,
-      sans-serif;
-    font-size: 14px;
-    transform: translateX(calc(100% + 30px));
-    transition: transform 0.6s var(--ease-out);
-  }
-
-  :global(html[data-theme="light"]) .note {
-    background: rgb(246 246 248 / 0.86);
-    color: #1d1d1f;
-  }
-
-  .note:global(.on) {
-    transform: none;
-  }
-
-  .note-icon {
-    grid-row: span 2;
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: #f2f2f3;
-    color: #111;
-  }
-
-  .note time {
-    font-size: 12.5px;
-    opacity: 0.55;
-  }
-
-  .note-body {
-    grid-column: 2 / -1;
-    line-height: 1.35;
-    opacity: 0.9;
-  }
-
   .pointer {
     position: absolute;
     left: 0;
@@ -414,7 +333,7 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
     transition:
       transform 0.85s cubic-bezier(0.4, 0, 0.2, 1),
       opacity 0.3s;
-    filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.45));
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
     pointer-events: none;
   }
 
@@ -422,11 +341,11 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
     opacity: 1;
   }
 
-  .pointer svg {
+  .pointer :global(svg) {
     transition: transform 0.12s;
   }
 
-  .pointer:global(.press) svg {
+  .pointer:global(.press) :global(svg) {
     transform: scale(0.86);
   }
 
@@ -459,8 +378,7 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
   @media (prefers-reduced-motion: reduce) {
     .caption,
     .pointer,
-    .window,
-    .note {
+    .window {
       transition: none;
     }
   }
