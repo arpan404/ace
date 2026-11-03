@@ -74,6 +74,9 @@
     "snoozeWake": {
       "$ref": "https://ace.local/protocol/v1/SnoozeWake.json"
     },
+    "snoozeWoke": {
+      "$ref": "https://ace.local/protocol/v1/SnoozeWoke.json"
+    },
     "snoozedUntil": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

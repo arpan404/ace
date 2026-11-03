@@ -25,18 +25,55 @@ Example:
 
 ```json
 {
-  "at": 7,
+  "at": 9,
   "id": "example",
   "payload": {
-    "lastFailure": null,
-    "paused": false,
-    "pendingCount": 9,
-    "reason": null,
-    "resumeAt": null,
-    "revision": 5,
-    "type": "queue.updated"
+    "changes": {
+      "activitySeq": 5,
+      "autoSettle": false,
+      "details": {
+        "ahead": 0,
+        "base": {
+          "head": "3b32794de1b6fc1a233eadf724cf7febf4324b48f4fc3dc6da5e9",
+          "ref": "example"
+        },
+        "continuedFrom": {
+          "at": 0,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "diff": {
+          "additions": 6,
+          "deletions": 8,
+          "files": 5
+        },
+        "guest": {
+          "host": "example",
+          "name": "example"
+        },
+        "head": null,
+        "worktreeCreation": {
+          "actions": [],
+          "attempt": 6,
+          "cleanupComplete": true,
+          "commandId": "example",
+          "details": [],
+          "elapsedMs": 1,
+          "message": "example",
+          "startedAt": 3,
+          "state": "cancelled",
+          "step": "preparing",
+          "steps": []
+        }
+      },
+      "prSettledKey": null,
+      "readAt": 0,
+      "settledAt": 0
+    },
+    "type": "thread.client.updated"
   },
-  "seq": 5,
+  "seq": 9,
   "threadId": "example"
 }
 ```
@@ -3306,7 +3343,6 @@ Example:
         "override": null,
         "pending": false
       },
-      "prSettled": 5,
       "provider": "antigravity",
       "queue": {
         "exited": true,
@@ -3321,6 +3357,7 @@ Example:
         "text": "example"
       },
       "rootAgentId": "example",
+      "settleWhenDone": true,
       "settledAt": 9,
       "snoozeWake": {
         "on": "pr",
