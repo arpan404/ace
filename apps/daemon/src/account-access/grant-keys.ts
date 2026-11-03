@@ -4,6 +4,8 @@ import { z } from "zod";
 /** How often an unknown key id may trigger a key refetch, whatever the id. */
 export const KEY_REFETCH_MS = 60_000;
 const rememberedUnknown = 256;
+/** Only the key id, from claims that are not yet verified. */
+const NamedKey = z.object({ kid: GrantClaims.shape.kid });
 
 /** The key id a grant names, read without trusting it; undefined when it names none. */
 export function grantKeyId(token: string): string | undefined {
@@ -11,7 +13,7 @@ export function grantKeyId(token: string): string | undefined {
   if (!body || token.length > 2048) return undefined;
   try {
     const parsed: unknown = JSON.parse(new TextDecoder().decode(decodeBase64url(body)));
-    return z.object({ kid: GrantClaims.shape.kid }).safeParse(parsed).data?.kid;
+    return NamedKey.safeParse(parsed).data?.kid;
   } catch {
     return undefined;
   }
