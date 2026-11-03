@@ -50,6 +50,35 @@ export const SnoozeWake = z.discriminatedUnion("on", [
   z.object({ on: z.literal("pr"), prs: z.array(SnoozedPullRequest).min(1).max(100) }),
 ]);
 export type SnoozeWake = z.infer<typeof SnoozeWake>;
+/**
+ * Why a snooze ended by itself, and when: its time came (`time`), the thread's tree finished,
+ * failed or turned to the person (`needs_you`), or a linked pull request moved (`pr`, with its
+ * number and what changed). A snooze the person ends by hand leaves none.
+ */
+export const SnoozeWoke = z.discriminatedUnion("on", [
+  z.object({ on: z.literal("time"), at: Timestamp }),
+  z.object({
+    on: z.literal("needs_you"),
+    at: Timestamp,
+    outcome: z.enum(["finished", "failed", "asking", "limited"]),
+  }),
+  z.object({
+    on: z.literal("pr"),
+    at: Timestamp,
+    number: z.number().int().positive(),
+    change: z.enum([
+      "merged",
+      "closed",
+      "reopened",
+      "checks_passed",
+      "checks_failed",
+      "pushed",
+      "updated",
+      "unlinked",
+    ]),
+  }),
+]);
+export type SnoozeWoke = z.infer<typeof SnoozeWoke>;
 export const ThreadOrganization = z.object({
   pinned: z.boolean().optional(),
   pinOrder: PinOrder.optional(),
@@ -61,6 +90,8 @@ export const ThreadOrganization = z.object({
   snoozedUntil: Timestamp.optional(),
   /** The event that ends the snooze before `snoozedUntil`; absent for a snooze to a time. */
   snoozeWake: SnoozeWake.optional(),
+  /** The last snooze that ended by itself: why and when. The next snooze replaces it. */
+  snoozeWoke: SnoozeWoke.optional(),
   deletedAt: Timestamp.optional(),
   /** Last execution activity; organization and metadata refresh do not reset it. */
   activityAt: Timestamp.optional(),
@@ -278,6 +309,7 @@ export const ThreadClientUpdated = z.object({
     settledReason: ThreadOrganization.shape.settledReason.unwrap().nullable().optional(),
     snoozedUntil: Timestamp.nullable().optional(),
     snoozeWake: SnoozeWake.nullable().optional(),
+    snoozeWoke: SnoozeWoke.nullable().optional(),
     autoSettleAt: Timestamp.nullable().optional(),
     autoSettle: z.literal(false).nullable().optional(),
     settleWhenDone: z.literal(true).nullable().optional(),

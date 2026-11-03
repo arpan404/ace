@@ -10,6 +10,7 @@ import { FeedView, type FeedKeys, type FeedProps } from "./feed-view.tsx";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useReadMarker } from "./seen.ts";
 import { SettledLine } from "./settled-line.tsx";
+import { WokeLine } from "./woke-line.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
 
@@ -57,6 +58,7 @@ export function Feed(props: FeedProps) {
             <AgentPageReveal threadId={threadId} />
           </Suspense>
           {!working && <SettledLine threadId={threadId} />}
+          {!working && <WokeLine threadId={threadId} />}
         </>
       }
       Keys={ThreadKeys}

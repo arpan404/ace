@@ -13,7 +13,8 @@ import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 
 /*
  * A phone opens a file an agent linked in its answer, even when the file sits outside the
- * project (Desktop, Downloads). The message is the grant: only targets it links are served.
+ * project (Desktop, Downloads). The message is the grant: only targets it links, and absolute
+ * paths it names in code or prose, are served.
  */
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -191,6 +192,20 @@ it("only targets the answer links are served, never a path the client picks", as
       type: "files.error",
       code: "FORBIDDEN",
     });
+});
+
+it("absolute paths an answer names in code or prose open; paths it doesn't name stay refused", async () => {
+  const f = await setup("websocket");
+  const notes = join(f.downloads, "notes.txt");
+  const log = join(f.home, "build.log");
+  await writeFile(log, "build ok\n");
+  f.message("answer", "assistant", `Saved \`${notes}\`. The build log is at ${log}:12.`);
+  expect(await f.open("answer", notes)).toBe("plain notes\n");
+  expect(await f.open("answer", log)).toBe("build ok\n");
+  expect(await f.open("answer", join(f.home, "secret.txt"))).toMatchObject({
+    type: "files.error",
+    code: "FORBIDDEN",
+  });
 });
 
 it("a link in the person's own message grants nothing", async () => {

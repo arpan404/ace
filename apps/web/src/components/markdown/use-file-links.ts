@@ -1,8 +1,13 @@
 import type { ClientApi } from "@ace/client";
-import { codeFileReference, type FileResolution } from "@ace/ui-core/file-references";
+import { codeFileReference } from "@ace/ui-core/file-references";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ScopeWorkspace, WorkspaceActions } from "@/lib/workspace/index.ts";
-import { fileMentionLabel, fileMentionTab, resolveFileMention } from "../file-reference.ts";
+import {
+  fileMentionLabel,
+  fileMentionTab,
+  resolveFileMention,
+  type MentionResolution,
+} from "../file-reference.ts";
 import {
   fileMentions,
   linkFileMentions,
@@ -14,18 +19,24 @@ import {
 /**
  * File mentions in one thread answer: while it streams markit's file references read as plain
  * code; once it is settled its mentions are looked up in the thread's checkout, the confirmed
- * ones linked and the rest made plain. `open` follows a mention, looking it up first if its answer hasn't
- * come yet; a name the checkout doesn't have opens nothing. With
- * no workspace (an answer drawn outside the shell) nothing links: there is no panel to open in.
+ * ones linked and the rest made plain. An absolute path links even where the checkout lacks it
+ * (outside the project, or ignored): it opens beside the thread as a file the answer names.
+ * `open` follows a mention, looking it up first if its answer hasn't come yet; a relative name
+ * the checkout doesn't have opens nothing. With no workspace (an answer drawn outside the shell)
+ * nothing links: there is no panel to open in.
  */
 export function useFileLinks(input: {
   client: ClientApi;
   threadId: string;
+  /** The answer drawn, whose absolute paths open even outside the checkout. */
+  itemId: string | undefined;
   root: string | undefined;
   workspace: { actions: WorkspaceActions; read: () => ScopeWorkspace } | undefined;
 }) {
-  const { client, threadId, root, workspace } = input;
-  const answers = useRef(new Map<string, { mention: FileMention; resolution: FileResolution }>());
+  const { client, threadId, itemId, root, workspace } = input;
+  const answers = useRef(
+    new Map<string, { mention: FileMention; resolution: MentionResolution }>(),
+  );
   const lookups = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => lookups.current?.abort(), []);
 
@@ -51,7 +62,7 @@ export function useFileLinks(input: {
       lookups.current?.abort();
       const controller = new AbortController();
       lookups.current = controller;
-      const thread = { threadId, root };
+      const thread = { threadId, root, itemId };
       void Promise.all(
         unknown.map(async (mention) => {
           const resolution = await resolveFileMention(
@@ -59,7 +70,7 @@ export function useFileLinks(input: {
             thread,
             mention.reference,
             controller.signal,
-          ).catch((): FileResolution => ({ kind: "none" }));
+          ).catch((): MentionResolution => ({ kind: "none" }));
           if (!controller.signal.aborted)
             answers.current.set(mention.text, { mention, resolution });
         }),
@@ -67,13 +78,13 @@ export function useFileLinks(input: {
         if (!controller.signal.aborted && element.isConnected) settle();
       });
     },
-    [client, threadId, root, workspace],
+    [client, threadId, itemId, root, workspace],
   );
 
   const open = useCallback(
     (target: string) => {
       if (!workspace) return;
-      const follow = (mention: FileMention, resolution: FileResolution) => {
+      const follow = (mention: FileMention, resolution: MentionResolution) => {
         if (resolution.kind !== "none")
           workspace.actions.open(fileMentionTab(workspace.read(), mention.reference, resolution));
       };
@@ -82,11 +93,16 @@ export function useFileLinks(input: {
       const reference = codeFileReference(target);
       if (!reference) return;
       const mention = { text: target, reference };
-      void resolveFileMention(client, { threadId, root }, reference, new AbortController().signal)
+      void resolveFileMention(
+        client,
+        { threadId, root, itemId },
+        reference,
+        new AbortController().signal,
+      )
         .then((resolution) => follow(mention, resolution))
         .catch(() => {});
     },
-    [client, threadId, root, workspace],
+    [client, threadId, itemId, root, workspace],
   );
 
   return useMemo(() => ({ drawn, open }), [drawn, open]);

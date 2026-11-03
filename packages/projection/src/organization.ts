@@ -1,5 +1,6 @@
 import { threadAttention } from "./thread-attention.ts";
 import { snoozeWakeDue, snoozeWakeFor } from "./snooze-wake.ts";
+import { snoozeWokeFor } from "./snooze-woke.ts";
 import {
   type Command,
   type Thread,
@@ -102,14 +103,18 @@ export function organizationDecision(
           : { autoSettle: false, autoSettleAt: null, settleWhenDone: null },
       };
     case "thread.snooze": {
+      // Ending or starting a snooze by hand: the last wake's reason goes with it.
       if (p.until === null)
-        return { type: "thread.client.updated", changes: { snoozedUntil: null, snoozeWake: null } };
+        return {
+          type: "thread.client.updated",
+          changes: { snoozedUntil: null, snoozeWake: null, snoozeWoke: null },
+        };
       if (p.until <= at) return "snooze_in_past";
       const wake = p.wake === undefined ? null : snoozeWakeFor(thread, p.wake);
       if (typeof wake === "string") return wake;
       return {
         type: "thread.client.updated",
-        changes: { snoozedUntil: p.until, snoozeWake: wake },
+        changes: { snoozedUntil: p.until, snoozeWake: wake, snoozeWoke: null },
       };
     }
     case "thread.delete":
@@ -129,7 +134,7 @@ export function settleDecision(
   policy: SettlePolicy,
   at: number,
 ): ThreadClientUpdated["changes"] {
-  const expired = snoozeEnds(thread, at) ? { snoozedUntil: null, snoozeWake: null } : {};
+  const expired = snoozeEnds(thread, at) ? snoozeEnded(thread, at) : {};
   const request = settleRequest(thread);
   if (request === "settle")
     return {
@@ -141,6 +146,12 @@ export function settleDecision(
     };
   const changes = automaticSettle(thread, policy, at, expired);
   return request === "drop" ? { ...changes, settleWhenDone: null } : changes;
+}
+
+/** The snooze goes, and a snooze that ended by itself says why. */
+function snoozeEnded(thread: Thread, at: number): ThreadClientUpdated["changes"] {
+  const woke = snoozeWokeFor(thread, at);
+  return { snoozedUntil: null, snoozeWake: null, ...(woke ? { snoozeWoke: woke } : {}) };
 }
 
 /**

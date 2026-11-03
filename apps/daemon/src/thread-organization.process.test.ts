@@ -220,6 +220,8 @@ test("snooze expires on the daemon clock and a renewed working tree immediately 
   now = 2000;
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+  // It records why it woke, for the row's alarm and the transcript's line.
+  expect(f.store.getThread(f.thread.id)?.snoozeWoke).toEqual({ on: "time", at: 2000 });
   f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }], now);
   await f.command({ type: "thread.settle", threadId: f.thread.id });
   expect(f.store.getThread(f.thread.id)?.settledAt).toBe(now);
@@ -393,6 +395,11 @@ test("a queue hold wakes a snoozed thread only when it starts after the snooze",
   await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 9000 });
   queue.set(f.thread.id, { paused: true, reason: "restart" }, 1000);
   expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBeUndefined();
+  expect(f.store.getThread(f.thread.id)?.snoozeWoke).toEqual({
+    on: "needs_you",
+    at: 1000,
+    outcome: "asking",
+  });
   await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 9000 });
   queue.set(f.thread.id, { paused: true, reason: "restart" }, 1000);
   expect(f.store.getThread(f.thread.id)?.snoozedUntil).toBe(9000);
@@ -463,6 +470,7 @@ test.each<[string, ThreadStatus]>([
     const thread = store.getThread(f.thread.id);
     expect(thread?.snoozedUntil).toBeUndefined();
     expect(thread?.snoozeWake).toBeUndefined();
+    expect(thread?.snoozeWoke).toMatchObject({ on: "needs_you", at: now });
   },
 );
 

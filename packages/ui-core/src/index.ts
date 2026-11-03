@@ -136,6 +136,7 @@ export * from "./last-sent.ts";
 export * from "./queued-input.ts";
 export * from "./queued-steer.ts";
 export * from "./snooze.ts";
+export * from "./snooze-woke.ts";
 export * from "./live-status.ts";
 export { newestAgentPage, opensAgentPage } from "./agent-page.ts";
 export * from "./status.ts";

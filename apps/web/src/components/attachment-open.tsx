@@ -1,6 +1,7 @@
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useContext, useRef, useState } from "react";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import type { PreviewFile, ShownImage } from "./attachment-format.ts";
+import { PanelFileOpener } from "./linked-file.tsx";
 
 /*
  * Opening an attachment over the page: images in the lightbox, every other file in the preview
@@ -37,11 +38,17 @@ export function useLightbox(images: readonly ShownImage[]) {
   return { show, lightbox };
 }
 
-/** The preview dialog for one file: `show` opens it, `preview` is the element to render. */
+/**
+ * One file, opened: on a thread's screen a file the daemon holds opens in the side panel;
+ * otherwise (or a file only this browser has) the preview dialog. `show` opens it, `preview` is
+ * the dialog to render.
+ */
 export function useFilePreview() {
+  const panel = useContext(PanelFileOpener);
   const [open, setOpen] = useState<PreviewFile>();
   const opener = useRef<HTMLElement | null>(null);
   const show = (file: PreviewFile, element: HTMLElement) => {
+    if (panel?.(file)) return;
     opener.current = element;
     setOpen(file);
   };

@@ -287,6 +287,15 @@ This widens what a paired read-only device can fetch to whatever the agent chose
 to link. That adds no exposure the agent didn't already have: it can read those
 files and paste their contents into the same message.
 
+Amended 2026-11-03: an absolute file path the message names in code or prose
+(`/tmp/report.pdf`, `/Users/me/Downloads/notes.txt:12`) grants the same read as
+a link. The daemon finds those paths with the rule the web client uses to make
+them clickable (`fileTextSpans` in `@ace/ui-core`), so a reader can open exactly
+the paths the answer shows, including ignored files inside the checkout that
+the path index leaves out. Relative names still open only when the checkout has
+them. Clients show these files in the thread's side panel by kind (PDF, video,
+audio, image, text).
+
 ## Idle context indexes and batched reconciliation, 2026-10-17
 
 Context completion indexes no longer stay resident, watched and busy until LRU
