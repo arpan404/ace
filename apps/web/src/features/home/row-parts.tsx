@@ -254,8 +254,8 @@ export function RowWake(props: { wake: string }) {
 }
 
 /**
- * A row back from a snooze that ended by itself says why where its status sits: the alarm, then
- * a few words ("checks failed"); the tooltip and the element's name say the whole sentence.
+ * A row back from a snooze that ended by itself: the alarm alone where its status sits, as other
+ * attention icons stand alone. Why it woke is the tooltip and the element's name.
  */
 export function RowWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
   return (
@@ -264,12 +264,24 @@ export function RowWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
         role="img"
         aria-label={props.woke.sentence}
         data-woke
-        className="inline-flex min-w-0 items-center gap-1 text-meta whitespace-nowrap text-muted-foreground"
+        className="inline-flex shrink-0 text-foreground"
       >
-        <AlarmIcon aria-hidden size={14} weight="fill" className="shrink-0 text-foreground" />
-        <span className="truncate">{props.woke.short}</span>
+        <AlarmIcon aria-hidden size={16} weight="fill" />
       </span>
     </Tip>
+  );
+}
+
+/** The hover card's line for a row back from a snooze: the alarm, then why it woke in full. */
+export function HoverWoke(props: { woke: NonNullable<ThreadCard["woke"]> }) {
+  return (
+    <p
+      data-woke
+      className="flex min-w-0 items-center gap-1.5 text-ui leading-5 text-muted-foreground"
+    >
+      <AlarmIcon aria-hidden size={16} weight="fill" className="shrink-0 text-foreground" />
+      <span className="min-w-0">{props.woke.sentence}</span>
+    </p>
   );
 }
 

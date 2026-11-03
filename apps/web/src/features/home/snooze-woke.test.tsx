@@ -11,7 +11,7 @@ const hour = 3_600_000;
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const alarm = "Back from snooze: its time came";
 
-test("a snooze that ends by itself brings the row back with an alarm saying why, until the thread is opened", async () => {
+test("a snooze that ends by itself brings the row back with an alarm that says why, until the thread is opened", async () => {
   let now = Date.parse("2026-11-03T12:00:00Z");
   const app = harness({ clock: () => now, uiClock: () => now });
   await app.client.start();
@@ -40,7 +40,8 @@ test("a snooze that ends by itself brings the row back with an alarm saying why,
   app.daemon.sweep();
   const back = await row();
   expect(await within(back).findByRole("img", { name: alarm })).toBeTruthy();
-  expect(within(back).getByText("snooze ended")).toBeTruthy();
+  // The alarm stands alone; why it woke is its name and tooltip, not words on the row.
+  expect(within(back).queryByText("snooze ended")).toBeNull();
 
   // Opened, the thread ends with the same reason, and the list drops the alarm.
   await userEvent.click(back);

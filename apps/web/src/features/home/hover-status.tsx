@@ -7,7 +7,7 @@ import {
   type ThreadCard,
 } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
-import { LookIcon, RowWake, RowWoke } from "./row-parts.tsx";
+import { HoverWoke, LookIcon, RowWake } from "./row-parts.tsx";
 
 /** The words take the state's text colour (`--tone-text`, AA on every surface) when coloured. */
 const inkTone = { warning: "needs-you", destructive: "failed", muted: undefined } as const;
@@ -27,7 +27,7 @@ export function HoverStatus(props: {
   const { card, attention } = props;
   const { level } = attention;
   if (card.wake && level !== "needs-you" && level !== "failed") return <RowWake wake={card.wake} />;
-  if (card.woke) return <RowWoke woke={card.woke} />;
+  if (card.woke) return <HoverWoke woke={card.woke} />;
   const line = hoverStatusLine({ attention, card, fact: threadLiveFact(props.entry) });
   if (!line.sentence) return null;
   return (

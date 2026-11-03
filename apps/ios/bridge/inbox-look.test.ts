@@ -25,11 +25,10 @@ const thread = (extra: Record<string, unknown> = {}) => ({
   }),
 });
 
-test("a phone row back from its snooze draws the alarm and why it woke until it is read", () => {
+test("a phone row back from its snooze draws the alarm, saying why it woke to VoiceOver, until it is read", () => {
   expect(inboxLook(thread(), 0, now)).toMatchObject({
     icon: "woke",
-    mode: "word",
-    word: "checks failed",
+    mode: "icon",
     meaning: "Back from snooze: checks failed on #1477",
   });
   const read = inboxLook(thread({ readAt: now }), 0, now);
