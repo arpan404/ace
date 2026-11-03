@@ -9,27 +9,35 @@ struct ConnectionTarget: Sendable {
     /// Keychain key of a paired device token. Its runtime exchanges it for a ticket per attempt.
     let secretKey: String?
     let credential: @Sendable () throws -> String
+    /// An account machine (ADR 0111): reached through ace's hosted relay with device grants.
+    let relay: RelayRoute?
 
     /// Debug loopback fixture only: a fixed fake credential, never a paired device.
     init(endpoint: URL, hostId: String, deviceId: String, pin: String?, credential: @escaping @Sendable () throws -> String) {
         self.endpoint = endpoint; self.hostId = hostId; self.deviceId = deviceId; self.pin = pin
-        self.secretKey = nil; self.credential = credential
+        self.secretKey = nil; self.credential = credential; self.relay = nil
     }
     /// A paired machine: pinned WSS, pinned HTTPS ticket exchange and a Keychain-held token.
     init(endpoint: URL, hostId: String, deviceId: String, pin: String, secretKey: String) {
         self.endpoint = endpoint; self.hostId = hostId; self.deviceId = deviceId; self.pin = pin
-        self.secretKey = secretKey; self.credential = { throw HostError.unsupported }
+        self.secretKey = secretKey; self.credential = { throw HostError.unsupported }; self.relay = nil
+    }
+    /// A machine on the phone's ace account: the relay pins the host id itself, so no TLS pin.
+    init(relay: RelayRoute, deviceId: String) {
+        endpoint = relay.relayURL; hostId = relay.hostId; self.deviceId = deviceId; pin = nil
+        secretKey = nil; credential = { throw HostError.unsupported }; self.relay = relay
     }
 
-    /// HTTPS origin of the same daemon listener, for pairing and tickets.
+    /// HTTPS origin of the same daemon listener, for pairing and tickets. None through the relay.
     var httpsOrigin: URL? {
-        guard endpoint.scheme == "wss", var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { return nil }
+        guard relay == nil, endpoint.scheme == "wss", var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else { return nil }
         components.scheme = "https"
         components.path = ""
         return components.url
     }
     func validate() throws {
         guard endpoint.user == nil, endpoint.password == nil, endpoint.query == nil, endpoint.fragment == nil else { throw HostError.transport }
+        if let relay { if relay.isValid { return }; throw HostError.transport }
         if endpoint.scheme == "wss", let pin, PinnedTrust.isPin(pin) { return }
         if isLoopbackFixture { return }
         throw HostError.transport
@@ -37,7 +45,7 @@ struct ConnectionTarget: Sendable {
     /// Release builds (no `ACE_FIXTURE`) compile this to false: production requires WSS and an exact pin.
     var isLoopbackFixture: Bool {
         #if ACE_FIXTURE
-        endpoint.scheme == "ws" && secretKey == nil && ["127.0.0.1", "localhost", "::1"].contains(endpoint.host ?? "")
+        endpoint.scheme == "ws" && secretKey == nil && relay == nil && ["127.0.0.1", "localhost", "::1"].contains(endpoint.host ?? "")
         #else
         false
         #endif
