@@ -121,7 +121,7 @@ export function ThreadView(props: {
         }
       >
         <ThreadForgeLinks threadId={props.threadId}>
-          <ThreadLinkedFiles>
+          <ThreadLinkedFiles threadId={props.threadId}>
             <ThreadScreen threadId={props.threadId} target={props.target} crumb={props.crumb} />
           </ThreadLinkedFiles>
         </ThreadForgeLinks>

@@ -149,33 +149,51 @@ test("a native image captured after the answer arrives appears inline from its o
   expect(image.closest("p")?.querySelector("div")).toBeNull();
 });
 
-test("source links open the thread checkout and links outside it download from the host", async () => {
+test("source links open the thread checkout and links outside it open beside the thread", async () => {
   const { app, feed } = await openMessage({}, [
     facts.message(
       "root",
       "answer",
       "assistant",
-      "Read [source](/work/shop/src/main.ts:12) and [the guide](</Users/me/Downloads/Study Guide.pdf>).",
+      "Read [source](/work/shop/src/main.ts:12), [the guide](</Users/me/Downloads/Study Guide.pdf>) and [the demo](/tmp/out/demo.webm).",
     ),
   ]);
+  const answer = app.daemon.itemId("thread-shots", "answer") ?? "";
   app.daemon.checkouts.seedLinked(
     "thread-shots",
-    app.daemon.itemId("thread-shots", "answer") ?? "",
+    answer,
     "/Users/me/Downloads/Study Guide.pdf",
     "%PDF guide",
   );
+  app.daemon.checkouts.seedLinked("thread-shots", answer, "/tmp/out/demo.webm", "webm bytes");
   await userEvent.click(await within(feed).findByRole("link", { name: "source" }));
   await screen.findByRole("tab", { name: /main.ts/ });
+
+  await userEvent.click(within(feed).getByRole("link", { name: "the guide" }));
+  await screen.findByRole("tab", { name: /Study Guide\.pdf/ });
+  const guide = await screen.findByRole("region", { name: "Study Guide.pdf" });
+  const frame = await within(guide).findByTitle("Study Guide.pdf");
+  const pdf = objectUrls.get(frame.getAttribute("src") ?? "");
+  expect(pdf?.type).toBe("application/pdf");
+  expect(await pdf?.text()).toBe("%PDF guide");
+
+  // Download still saves the original under its name.
   const downloads: { name: string; blob: Blob | undefined }[] = [];
   vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
     this: HTMLAnchorElement,
   ) {
     downloads.push({ name: this.download, blob: objectUrls.get(this.href) });
   });
-  await userEvent.click(within(feed).getByRole("link", { name: "the guide" }));
+  await userEvent.click(screen.getByRole("button", { name: "Download Study Guide.pdf" }));
   await waitFor(() => expect(downloads).toHaveLength(1));
   expect(downloads[0]?.name).toBe("Study Guide.pdf");
   expect(await downloads[0]?.blob?.text()).toBe("%PDF guide");
+
+  await userEvent.click(within(feed).getByRole("link", { name: "the demo" }));
+  const demo = await screen.findByRole("region", { name: "demo.webm" });
+  const video = await within(demo).findByLabelText("demo.webm");
+  expect(video.tagName).toBe("VIDEO");
+  expect(await objectUrls.get(video.getAttribute("src") ?? "")?.text()).toBe("webm bytes");
 });
 
 test("a link outside the checkout that the host can't serve says so", async () => {

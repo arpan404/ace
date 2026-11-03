@@ -46,6 +46,13 @@ export { allTabs, bottomOf, isShowing, locateTab, placeOf, type PanelPlace } fro
 
 export { fileTab, fileTabId } from "./file-tab.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
+export {
+  filePreviewTab,
+  filePreviewTabData,
+  filePreviewTabKind,
+  type FilePreviewSource,
+  type FilePreviewTabData,
+} from "./file-preview-tab.ts";
 export { tabDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

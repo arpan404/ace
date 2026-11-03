@@ -51,7 +51,9 @@ export type ImageSource =
 export type FileSource =
   | { kind: "file"; file: File }
   | { kind: "artifact"; threadId: string; artifactId: string; bytes: number }
-  | { kind: "attachment"; threadId: string; sha256: string; bytes: number };
+  | { kind: "attachment"; threadId: string; sha256: string; bytes: number }
+  /** A local file an assistant message links to; the daemon serves it because the message does. */
+  | { kind: "link"; threadId: string; itemId: string; reference: string };
 
 /** A file the preview can show: what it is, and where its bytes are when this device has them. */
 export interface PreviewFile {

@@ -2,6 +2,7 @@ import { fileTabData } from "./files/files-state.ts";
 import {
   BrowserIcon,
   DeviceMobileIcon,
+  FileIcon,
   FilesIcon,
   GitDiffIcon,
   GitPullRequestIcon,
@@ -11,7 +12,13 @@ import {
 } from "@phosphor-icons/react";
 import { ComputerUseIcon } from "@/components/ace-icons.tsx";
 import { ChangesSkeleton, FilesSkeleton } from "./tab-skeletons.tsx";
-import { defineTabKind, PullRequestTabData, type TabKind } from "@/lib/workspace/index.ts";
+import {
+  defineTabKind,
+  filePreviewTabData,
+  filePreviewTabKind,
+  PullRequestTabData,
+  type TabKind,
+} from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { PullRequestGlyph } from "@/components/pull-request-state.tsx";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
@@ -87,6 +94,19 @@ export const filesKind = defineTabKind({
   fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
   onShortcut: (scope) => quickOpen.set(() => scope),
   Overlay: QuickOpenOverlay,
+});
+
+/**
+ * A file outside the checkout (one a message links, an agent saved or a message carried), by its
+ * kind: PDF, video, audio, image, text or its details. Not in the launcher: it opens from the
+ * conversation.
+ */
+export const filePreviewKind = defineTabKind({
+  kind: filePreviewTabKind,
+  label: "File",
+  icon: FileIcon,
+  title: (tab) => filePreviewTabData(tab)?.name ?? tab.title ?? "File",
+  load: () => import("./files/file-preview-tab.tsx"),
 });
 
 /**
@@ -215,6 +235,7 @@ export const threadKinds: readonly TabKind[] = [
   changesKind,
   terminalKind,
   filesKind,
+  filePreviewKind,
   browserKind,
   previewKind,
   portKind,

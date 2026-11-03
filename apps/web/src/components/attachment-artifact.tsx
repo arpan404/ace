@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useThreadMeta } from "@ace/client-react";
 import { isCheckoutPath } from "@ace/ui-core";
@@ -6,17 +6,16 @@ import { ArchiveIcon } from "@phosphor-icons/react";
 import { ArtifactImage } from "./artifact-image.tsx";
 import { UnavailableImage } from "./attachment-message.tsx";
 import { projectRelative } from "./attachment-format.ts";
+import { useFilePreview } from "./attachment-open.tsx";
 const ArtifactActions = lazy(() =>
   import("./artifact-actions.tsx").then((module) => ({ default: module.ArtifactActions })),
 );
 
 /**
- * A file the agent saved (a browser screenshot, a download), named relative to the project.
- * Workspace artifacts open in Files or download through the owning thread's file channel.
+ * A file the agent saved (a browser screenshot, a download, a recording), named relative to the
+ * project. Workspace artifacts open in Files or download through the owning thread's file
+ * channel; Open file shows the saved bytes beside the thread, by kind.
  */
-const Preview = lazy(() =>
-  import("./attachment-preview.tsx").then((module) => ({ default: module.AttachmentPreview })),
-);
 export function ArtifactLine(props: {
   threadId: string;
   path: string;
@@ -25,8 +24,7 @@ export function ArtifactLine(props: {
   bytes?: number | undefined;
   filename?: string | undefined;
 }) {
-  const [open, setOpen] = useState(false);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const { show, preview } = useFilePreview();
   const file = useMemo(
     () => ({
       name: props.filename ?? props.path.split("/").at(-1) ?? "Saved file",
@@ -73,15 +71,11 @@ export function ArtifactLine(props: {
         )}
       </p>
       {props.artifactId && (
-        <Button ref={trigger} variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <Button variant="ghost" size="sm" onClick={(event) => show(file, event.currentTarget)}>
           {props.mimeType.startsWith("video/") ? "Play recording" : "Open file"}
         </Button>
       )}
-      {open && (
-        <Suspense>
-          <Preview file={file} finalFocus={trigger} onClose={() => setOpen(false)} />
-        </Suspense>
-      )}
+      {preview}
       {props.mimeType.startsWith("image/") &&
         (file.source ? (
           <ArtifactImage name={file.name} source={{ ...file.source, mimeType: props.mimeType }} />
