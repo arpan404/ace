@@ -32,10 +32,7 @@ const words = product.headline.split(" ");
           <>
             <span class="word" style={`--w: ${index}`}>
               {word}
-            </span>
-            {/* The headline's two phrases sit on their own lines on wide screens. */}
-            {" "}
-            {word.endsWith(",") && <br class="phrase" />}
+            </span>{" "}
           </>
         ))
       }
@@ -88,12 +85,6 @@ const words = product.headline.split(" ");
     padding-bottom: 72px;
   }
 
-  @media (max-width: 760px) {
-    .phrase {
-      display: none;
-    }
-  }
-
   .marks {
     display: flex;
     flex-wrap: wrap;
@@ -102,8 +93,8 @@ const words = product.headline.split(" ");
 
   h1 {
     margin-top: 36px;
-    max-width: 14em;
-    font-size: clamp(38px, 4.6vw, 56px);
+    max-width: 11em;
+    font-size: clamp(40px, 5.2vw, 62px);
     letter-spacing: -0.045em;
     line-height: 1.02;
   }
