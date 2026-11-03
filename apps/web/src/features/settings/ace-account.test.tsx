@@ -1,5 +1,6 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -136,4 +137,46 @@ test("returning from a cancelled desktop sign-in says so on Profile until the ne
   expect((await screen.findByRole("alert")).textContent).toBe("Sign-in was cancelled.");
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
   await waitFor(() => expect(screen.queryByText("Sign-in was cancelled.")).toBeNull());
+});
+
+test("a sign-in keeps going while the person leaves Settings and finishes in the browser", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  let finished = false,
+    cancelled = false;
+  const grant = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_away", email: "away@example.com", name: "Away Person" },
+  };
+  vi.stubGlobal("ace", { shell: { openExternal: async () => {} } });
+  vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
+    const path = new URL(input).pathname;
+    if (path === "/v1/account/login" && init?.method === "POST")
+      return Response.json({
+        id: "i".repeat(43),
+        secret: "s".repeat(43),
+        expiresAt: 1_900_000_000_000,
+        loginUrl: `${origin}/v1/account/login?id=${"i".repeat(43)}`,
+      });
+    if (path.startsWith("/v1/account/login/") && init?.method === "DELETE") {
+      cancelled = true;
+      return Response.json({ ok: true });
+    }
+    if (path.startsWith("/v1/account/login/"))
+      return Response.json(
+        finished && !cancelled ? { status: "complete", session: grant } : { status: "pending" },
+      );
+    return Response.json({ error: "unavailable" }, { status: 503 });
+  });
+  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
+  await harness({ history }).open("/settings/general");
+  await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+  expect(await screen.findByText("Complete sign-in in your browser")).toBeDefined();
+  await act(() => history.push("/settings/appearance"));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Profile" })).toBeNull());
+  finished = true;
+  await act(() => history.push("/settings/general"));
+  expect(await screen.findByText("Away Person", {}, { timeout: 8000 })).toBeDefined();
+  expect(cancelled).toBe(false);
 });

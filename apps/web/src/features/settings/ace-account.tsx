@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { AceAccountError } from "@ace/client/ace-account";
-import type { AceLogin } from "@ace/protocol/ace-account";
+import { useState } from "react";
 import { initials } from "@ace/ui-core";
 import { UserIcon } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
@@ -12,19 +10,6 @@ import { Input } from "@/components/ui/input.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { useProfileName } from "@/lib/profile.ts";
 import { settingRow } from "./settings-index.ts";
-
-function pause(signal: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    const finish = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", finish);
-      resolve();
-    };
-    const timer = setTimeout(finish, 2000);
-    signal.addEventListener("abort", finish, { once: true });
-    if (signal.aborted) finish();
-  });
-}
 
 /**
  * What the desktop app's `ace://account/signed-in` link said about a sign-in that didn't
@@ -42,8 +27,8 @@ export function AceAccountSettings() {
   const [draftName, setDraftName] = useState(name);
   const store = useAceAccountStore();
   const client = store?.client;
-  const { session, restoring, error: accountError } = useAceAccount();
-  const [login, setLogin] = useState<AceLogin>();
+  const { session, restoring, error: accountError, signIn } = useAceAccount();
+  const login = signIn?.login;
   const [busy, setBusy] = useState(false);
   const [loginError, setError] = useState("");
   const search: Record<string, unknown> = useSearch({ strict: false });
@@ -51,79 +36,13 @@ export function AceAccountSettings() {
   const returnNote =
     !returnSeen && typeof search.signin === "string" ? returned[search.signin] : undefined;
   const error = (!session && returnNote) || loginError || accountError;
-  const [openBlocked, setOpenBlocked] = useState(false);
-  const work = useRef<AbortController | undefined>(undefined);
-  const pending = useRef<AceLogin | undefined>(undefined);
 
-  useEffect(
-    () => () => {
-      work.current?.abort();
-      if (client && pending.current)
-        void client.cancel(pending.current, AbortSignal.timeout(5000)).catch(() => {});
-    },
-    [client],
-  );
-
-  async function signIn() {
-    if (!store || !client || busy || restoring) return;
-    const controller = new AbortController();
-    work.current = controller;
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60_000)]);
-    setBusy(true);
+  function startSignIn() {
+    if (!store || !client || signIn || restoring) return;
     setError("");
     setReturnSeen(true);
-    store.report("");
-    setOpenBlocked(false);
-    try {
-      const request = client.login(
-        AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-        store.returnTo ? { returnTo: store.returnTo } : {},
-      );
-      // Reserve the browser tab during the click, before awaiting the login request.
-      void openExternalWhenReady(request.then((next) => next.loginUrl)).catch(() => {
-        if (!signal.aborted) setOpenBlocked(true);
-      });
-      const next = await request;
-      pending.current = next;
-      if (signal.aborted) {
-        await client.cancel(next, AbortSignal.timeout(5000));
-        return;
-      }
-      setLogin(next);
-      for (;;) {
-        await pause(signal);
-        if (signal.aborted) return;
-        const result = await client
-          .poll(next, AbortSignal.any([signal, AbortSignal.timeout(15_000)]))
-          .catch((cause: unknown) => {
-            if (cause instanceof AceAccountError && [401, 410].includes(cause.status)) throw cause;
-            if (!signal.aborted) setError("Connection interrupted. Retrying sign-in…");
-            return undefined;
-          });
-        if (!result) continue;
-        if (result.status === "pending") continue;
-        if (signal.aborted) return;
-        pending.current = undefined;
-        setError("");
-        await store.signedIn(result.session);
-        return;
-      }
-    } catch (cause) {
-      if (controller.signal.aborted) return;
-      // The backend lets a sign-in wait ten minutes, then forgets it (410).
-      if (cause instanceof AceAccountError && cause.status === 410) {
-        pending.current = undefined;
-        setError("Sign-in took too long. Try again.");
-      } else setError("Couldn't sign in. Try again.");
-    } finally {
-      if (work.current === controller) {
-        if (pending.current)
-          void client.cancel(pending.current, AbortSignal.timeout(5000)).catch(() => {});
-        pending.current = undefined;
-        setBusy(false);
-        setLogin(undefined);
-      }
-    }
+    // The window's sign-in, not this page's: it keeps going if the person leaves Settings.
+    store.signIn((address) => openExternalWhenReady(address));
   }
 
   async function signOut() {
@@ -158,7 +77,7 @@ export function AceAccountSettings() {
                 {session?.account.email ||
                   (login ? "Complete sign-in in your browser" : "Not signed in")}
               </span>
-              {login && openBlocked && (
+              {login && signIn?.openBlocked && (
                 <button
                   type="button"
                   className="w-fit rounded-sm text-xs text-foreground underline underline-offset-2 focus-ring"
@@ -179,12 +98,12 @@ export function AceAccountSettings() {
           <Button disabled={busy || restoring} onClick={() => void signOut()}>
             Sign out
           </Button>
-        ) : busy ? (
-          <Button variant="ghost" onClick={() => work.current?.abort()}>
+        ) : signIn ? (
+          <Button variant="ghost" onClick={() => store?.cancelSignIn()}>
             Cancel
           </Button>
         ) : (
-          <Button disabled={!client || busy || restoring} onClick={() => void signIn()}>
+          <Button disabled={!client || restoring} onClick={startSignIn}>
             {restoring ? "Connecting…" : "Sign in"}
           </Button>
         )}

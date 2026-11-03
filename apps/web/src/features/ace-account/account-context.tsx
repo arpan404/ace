@@ -65,7 +65,7 @@ export function AceAccountProvider(props: { children: ReactNode }) {
 }
 
 const none = () => () => {};
-const signedOut: AceAccountState = { session: null, restoring: false, error: "" };
+const signedOut: AceAccountState = { session: null, restoring: false, error: "", signIn: null };
 
 /** The window's ace account store, or undefined in a build without an account backend. */
 export function useAceAccountStore(): AceAccountStore | undefined {
