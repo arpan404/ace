@@ -13,7 +13,8 @@ import { useMachinePool } from "./machine-pool.ts";
  * another one.
  */
 
-export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed";
+/** `machine_code`: an account machine waits for its machine code (ADR 0111). */
+export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed" | "machine_code";
 
 export interface Machine {
   /** The daemon's host id; `primaryMachineId` for this window's daemon while it is unnamed. */

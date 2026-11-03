@@ -6,6 +6,7 @@ export const machineStatus: Record<MachineStatus, { label: string; tone: Tone }>
   connecting: { label: "Connecting", tone: "waiting" },
   offline: { label: "Offline", tone: "idle" },
   auth_failed: { label: "Pair again", tone: "failed" },
+  machine_code: { label: "Needs its machine code", tone: "waiting" },
 };
 export function machineProblem(status: MachineStatus, failed: boolean) {
   if (status === "auth_failed")
