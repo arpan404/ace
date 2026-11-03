@@ -11,7 +11,7 @@ import { bindListener, closeListener } from "./listener.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import { relayRoute } from "./relay-route.ts";
+import { relayPairing, relayRoute } from "./relay-route.ts";
 import { computerName } from "./computer-name.ts";
 import { RelayRefusedError } from "@ace/relay";
 import {
@@ -47,6 +47,8 @@ export function remoteRuntime(
   let trusted: TrustedCertificate | undefined;
   let connection: { origin: string; fingerprint: string; port: number } | undefined;
   let relay: Awaited<ReturnType<typeof startRelayTransport>>;
+  /** The running relay is ace's hosted one. */
+  let hostedActive = false;
   let preferences: Preferences = {
     "remote.enabled": false,
     "remote.transport": "local",
@@ -239,6 +241,7 @@ export function remoteRuntime(
           },
         });
       options.relay = relay ? relayOptions : undefined;
+      hostedActive = relay !== undefined && hosted;
       preferences = next;
       active = signature;
       error = undefined;
@@ -274,7 +277,10 @@ export function remoteRuntime(
     // A link names the ts.net host only while browsers would trust it there; otherwise the
     // 100.x (or LAN) address, which works wherever the pinned certificate does.
     pairing: () => {
-      if (!connection) return undefined;
+      // Without a direct listener, a self-hosted relay carries the redemption (ADR 0070); ace's
+      // relay admits account devices only, which never pair.
+      if (!connection)
+        return relay && options.relay && !hostedActive ? relayPairing(options.relay) : undefined;
       const { origin, fingerprint, port } = connection;
       const name = trusted?.active() ? trusted.name : undefined;
       return { origin: name ? `https://${name}:${port}` : origin, fingerprint };

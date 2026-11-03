@@ -49,6 +49,7 @@ export * from "./notifications.ts";
 export * from "./mcp.ts";
 export * from "./remote.ts";
 export * from "./machine-access.ts";
+export * from "./relay-channel.ts";
 
 export * from "./review.ts";
 export * from "./usage.ts";

@@ -201,7 +201,11 @@ export class Connection {
     if (decision !== "reconnecting")
       this.#report("connection.closed", { ...closed, next: decision });
     if (decision === "fatal") {
-      this.fail(new ClientError(code === 4002 ? "protocol" : "auth"));
+      this.fail(
+        code === 4011
+          ? new ClientError("machine_code", reason)
+          : new ClientError(code === 4002 ? "protocol" : "auth"),
+      );
       return;
     }
     this.error =
@@ -268,6 +272,9 @@ export class Connection {
                   protocolVersion: 1,
                   deviceId: this.#options.deviceId,
                   trims: [...supportedWireTrims],
+                  ...(transport.compression?.length
+                    ? { compression: [...transport.compression] }
+                    : {}),
                   ...parseCredential(credential),
                 });
             })

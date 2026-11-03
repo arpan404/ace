@@ -7,6 +7,8 @@ device reaches only machines on its own account.
 
 The relay is a fallback after LAN and Tailscale. It can run on the user's own infrastructure. It handles no coding-provider credentials. The daemon integration worker chooses the route and validates device tokens inside the encrypted channel.
 
+Every daemon channel can travel through it: the main conversation (a hello without `channel`), pairing redemption (`pair.redeem`, self-hosted relays only) and the files, devices, browser, screen and provider sign-in channels. The relay forwards ciphertext and cannot tell them apart.
+
 ## API
 
 `@ace/relay` exports:
@@ -16,6 +18,8 @@ The relay is a fallback after LAN and Tailscale. It can run on the user's own in
 - `connectClientViaRelay({ relayUrl, hostId, pinnedFingerprint, signal?, clock?, grant? })`, returning a client channel after pin verification. The host id must equal the pinned fingerprint. `grant` is a `device` grant for ace's hosted relay.
 - A host the relay refuses for good (close 1008 after the upgrade, or HTTP 403 before it) stops instead of reconnecting: `connectHostToRelay` rejects with `RelayRefusedError`, or calls `onRefused` when it had registered before. A 401 or 503 before the upgrade is retried with a fresh grant and backoff.
 - `readRelayConfig(env)` and the pure `RelayRoutes`, `IpBudget`, and `ClientSlots` policies. Their inputs are facts, ids and timestamps; they perform no socket or timer I/O.
+
+Channels also expose `sendText(json, compress?)` and `receiveRaw()`, which pass JSON text without the schema parse, for an endpoint that encodes and parses messages itself (the daemon's main channel and the client's `relayRoute`). The first message of a host channel must still be a `hello` or a `pair.redeem`; a redemption channel is never authorized.
 
 Channels expose `send(message)`, `receive()`, async iteration, `sendBinary(bytes)`, `receiveFrame()` and `frames()`, `close()`, `closed`, `bufferedBytes` and `bufferedReceiveBytes`. Host channels receive `ClientMessage` values and send `ServerMessage` values; client channels do the reverse. Schemas parse messages only at the endpoints. `receive()` and the original async iterator retain JSON-only behavior. `receiveFrame()` and `frames()` return either a typed protocol message or a `Uint8Array`. The file service adapter binds those frames after the host authenticates its hello. Consume with one reader and await sends. `closed` resolves with an error on network or authentication failure, and without one on local close. Local close also ends a pending async iterator normally; a pending direct `receive()` rejects.
 

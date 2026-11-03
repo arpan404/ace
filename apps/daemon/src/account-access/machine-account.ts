@@ -267,10 +267,20 @@ export function machineAccount(options: {
       const code = options.codes.current();
       return code === undefined || options.codes.passed(deviceId, account, code.version);
     },
-    async setMachineCode(code: string): Promise<MachineAccountStatus> {
+    /**
+     * Set or replace the code. `keep` is an account device setting it: it knows the new code, so
+     * it keeps its access while every other device enters the new one.
+     */
+    async setMachineCode(
+      code: string,
+      keep?: { deviceId: string; account: string },
+    ): Promise<MachineAccountStatus> {
       const parsed = MachineCode.safeParse(code);
       if (!parsed.success) throw new AccessError(400, "A machine code has 4 to 128 characters.");
       options.codes.replace(await hashMachineCode(parsed.data, options.randomBytes(16)));
+      const current = options.codes.current();
+      if (keep && current && active()?.account.id === keep.account)
+        options.codes.rememberPass(keep.deviceId, keep.account, current.version, options.now());
       notify();
       return this.status();
     },

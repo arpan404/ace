@@ -10,7 +10,7 @@ import type {
   UserBrowserExtensionMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
-import type { WebSocket } from "ws";
+import type { MainSocket } from "../main-socket.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { MaintenanceGate } from "@ace/service";
 export type SocketMessage =
@@ -44,7 +44,7 @@ export interface SocketService {
 }
 export interface SocketContext {
   options: ServerOptions;
-  socket: WebSocket;
+  socket: MainSocket;
   sessionId: string;
   /** True only for the daemon loopback listener, never a client claim. */
   local?: boolean;
@@ -67,6 +67,8 @@ export interface SocketContext {
    * only, never revocable), not by a paired device.
    */
   hostCredential?(): boolean;
+  /** The ace account an account device's grant names (ADR 0111); undefined for others. */
+  accountDevice?(): string | undefined;
   /** Pairing and paired devices on this daemon (`fleet.request`). */
   access?: {
     auth: import("../remote-auth.ts").RemoteAuth;

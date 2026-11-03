@@ -31,6 +31,11 @@ export const MachineTarget = z.discriminatedUnion("kind", [
     url: endpoint,
     ticketReference: z.string().min(1).max(256),
   }),
+  /**
+   * A machine on the person's ace account (ADR 0111), reached through ace's hosted relay with a
+   * fresh device grant per connection. Listed by the account backend, never saved here.
+   */
+  z.strictObject({ kind: z.literal("account"), relayUrl: endpoint }),
 ]);
 export const MachineEntry = z.strictObject({
   hostId: z.string().min(1).max(256).pipe(HostId),

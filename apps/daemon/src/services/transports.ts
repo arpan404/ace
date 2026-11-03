@@ -18,8 +18,6 @@ export async function startRelayTransport(
   } = {},
 ) {
   if (!relay) return undefined;
-  if (!options.files && !options.threadFiles && !options.context && !options.providerLogin)
-    throw new Error("Relay file service unavailable");
   const host = await startFilesRelay({
     url: relay.url,
     keys: relay.keys,
@@ -55,6 +53,9 @@ export async function startRelayTransport(
     },
     get warn() {
       return options.warn;
+    },
+    get relayMain() {
+      return options.relayMain;
     },
     store: options.store,
     auth,
