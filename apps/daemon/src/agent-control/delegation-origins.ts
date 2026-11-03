@@ -29,6 +29,7 @@ const Row = z.object({
   kind: z.enum(["turn", "independent", "uncertain"]),
   run_id: z.string().nullable(),
 });
+const NotedRow = Row.extend({ noted_seq: z.number() });
 
 export class DelegationOrigins {
   private store: Store;
@@ -77,7 +78,7 @@ export class DelegationOrigins {
       )
       .get(child, generation);
     if (!row) return undefined;
-    const value = Row.extend({ noted_seq: z.number() }).parse(row);
+    const value = NotedRow.parse(row);
     return {
       kind: value.kind,
       ...(value.run_id === null ? {} : { run: value.run_id }),
