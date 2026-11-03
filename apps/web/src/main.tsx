@@ -143,9 +143,16 @@ async function content(): Promise<ReactNode> {
     if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();
     const machines = await fake.machines;
+    const { fakeAccountBackend, fakeAccountConnector } = await import("./boot/fake-account.ts");
+    const { AceAccountBackendContext, AccountMachineConnectorContext } =
+      await import("./features/ace-account/index.ts");
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
-        {app(client, machines)}
+        <AceAccountBackendContext value={() => fakeAccountBackend(session, Date.now)}>
+          <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
+            {app(client, machines)}
+          </AccountMachineConnectorContext>
+        </AceAccountBackendContext>
       </DaemonConnectionContext.Provider>
     );
   }

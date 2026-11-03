@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { aceAccountClient, AceAccountError } from "@ace/client/ace-account";
-import { AceAccountGrant, type AceLogin } from "@ace/protocol/ace-account";
-import { initials, readJson, writeJson } from "@ace/ui-core";
+import { useEffect, useRef, useState } from "react";
+import { AceAccountError } from "@ace/client/ace-account";
+import type { AceLogin } from "@ace/protocol/ace-account";
+import { initials } from "@ace/ui-core";
 import { UserIcon } from "@phosphor-icons/react";
-import { webStorage } from "@/boot/web-storage.ts";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
-import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
-import { accountSecret } from "@/boot/account-secret.ts";
+import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -31,64 +29,16 @@ function pause(signal: AbortSignal) {
 export function AceAccountSettings() {
   const [name, setName] = useProfileName();
   const [draftName, setDraftName] = useState(name);
-  const origin = import.meta.env.VITE_ACE_ACCOUNT_URL;
-  const client = useMemo(
-    () =>
-      origin
-        ? aceAccountClient({
-            origin,
-            fetch: async (input, init) => {
-              await authorizeDaemonUrl(`${origin}/`);
-              return fetch(input, init);
-            },
-          })
-        : undefined,
-    [origin],
-  );
-  const [secure] = useState(() => accountSecret());
-  const [storage] = useState(() => webStorage(() => sessionStorage));
-  const key = `ace.account.session:${origin ?? ""}`;
-  const [session, setSession] = useState(() =>
-    readJson(storage, key, AceAccountGrant.nullable(), null),
-  );
-  const [restoring, setRestoring] = useState(Boolean(client && (session || secure)));
+  const store = useAceAccountStore();
+  const client = store?.client;
+  const { session, restoring, error: accountError } = useAceAccount();
   const [login, setLogin] = useState<AceLogin>();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [loginError, setError] = useState("");
+  const error = loginError || accountError;
   const [openBlocked, setOpenBlocked] = useState(false);
   const work = useRef<AbortController | undefined>(undefined);
   const pending = useRef<AceLogin | undefined>(undefined);
-
-  useEffect(() => {
-    if (!client || !origin) return;
-    const controller = new AbortController();
-    const stored = readJson(storage, key, AceAccountGrant.nullable(), null);
-    void (async () => {
-      const token = stored?.token ?? (await secure?.read(origin).catch(() => null));
-      if (!token || controller.signal.aborted) return;
-      const value = await client.session(
-        token,
-        AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
-      );
-      if (controller.signal.aborted) return;
-      const next = { ...value, token };
-      setSession(next);
-      writeJson(storage, key, next);
-    })()
-      .catch(async (cause: unknown) => {
-        if (controller.signal.aborted) return;
-        if (cause instanceof AceAccountError && cause.status === 401) {
-          setSession(null);
-          storage.removeItem?.(key);
-          if (secure) await secure.write(origin, null).catch(() => {});
-        }
-        setError("Couldn't verify your account. Try again.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setRestoring(false);
-      });
-    return () => controller.abort();
-  }, [client, storage, key, secure, origin]);
 
   useEffect(
     () => () => {
@@ -100,12 +50,13 @@ export function AceAccountSettings() {
   );
 
   async function signIn() {
-    if (!client || busy || restoring) return;
+    if (!store || !client || busy || restoring) return;
     const controller = new AbortController();
     work.current = controller;
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60_000)]);
     setBusy(true);
     setError("");
+    store.report("");
     setOpenBlocked(false);
     try {
       const request = client.login(AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
@@ -135,16 +86,16 @@ export function AceAccountSettings() {
         if (signal.aborted) return;
         pending.current = undefined;
         setError("");
-        writeJson(storage, key, result.session);
-        setSession(result.session);
-        if (secure && origin)
-          await secure
-            .write(origin, result.session.token)
-            .catch(() => setError("Signed in for this window only."));
+        await store.signedIn(result.session);
         return;
       }
-    } catch {
-      if (!controller.signal.aborted) setError("Couldn't sign in. Try again.");
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      // The backend lets a sign-in wait ten minutes, then forgets it (410).
+      if (cause instanceof AceAccountError && cause.status === 410) {
+        pending.current = undefined;
+        setError("Sign-in took too long. Try again.");
+      } else setError("Couldn't sign in. Try again.");
     } finally {
       if (work.current === controller) {
         if (pending.current)
@@ -157,19 +108,11 @@ export function AceAccountSettings() {
   }
 
   async function signOut() {
-    if (!client || !session || busy || restoring) return;
+    if (!store || !session || busy || restoring) return;
     setBusy(true);
     setError("");
     try {
-      await client.logout(session.token, AbortSignal.timeout(15_000));
-      storage.removeItem?.(key);
-      setSession(null);
-      if (secure && origin)
-        await secure
-          .write(origin, null)
-          .catch(() => setError("Signed out. Couldn't clear the saved account session."));
-    } catch {
-      setError("Couldn't sign out. Reconnect and try again.");
+      await store.signOut();
     } finally {
       setBusy(false);
     }

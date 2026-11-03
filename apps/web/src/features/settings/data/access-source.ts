@@ -63,7 +63,8 @@ function explain(error: unknown): Error {
     : new Error("This machine refused the request. Reconnect and try again.");
 }
 
-function options(endpoint: DaemonEndpoint): AccessOptions {
+/** How this window reaches its daemon's HTTP routes: origin, fetch and credential. */
+export function accessOptions(endpoint: DaemonEndpoint): AccessOptions {
   if (endpoint.kind === "fake") return endpoint.access;
   const { url, token } = endpoint.target;
   return {
@@ -75,7 +76,7 @@ function options(endpoint: DaemonEndpoint): AccessOptions {
 
 /** Access for this connection; `gaps` serves what the daemon has no route for yet. */
 export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessGaps): AccessSource {
-  const settings = endpoint && options(endpoint);
+  const settings = endpoint && accessOptions(endpoint);
   let client: AccessClient | undefined;
   const run = async <T>(call: (client: AccessClient) => Promise<T>): Promise<T> => {
     try {

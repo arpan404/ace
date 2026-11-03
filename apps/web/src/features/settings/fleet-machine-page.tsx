@@ -24,6 +24,7 @@ import { MachineEditor } from "./machine-editor.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { PairDevice } from "./pair-device.tsx";
 import { SettingsBody } from "./settings-body.tsx";
+import { MachineAccount } from "./machine-account.tsx";
 
 const back = (
   <Link
@@ -72,6 +73,7 @@ export function FleetMachinePage(props: { id: string }) {
       titleActions={!machine.primary && <Reconnect machine={machine} />}
     >
       <Identity machine={machine} />
+      <MachineAccount machine={machine} />
       <MachineLinks machine={machine} fleet={fleet} />
       <MachineDevices machine={machine} fleet={fleet} />
       {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}

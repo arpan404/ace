@@ -6,6 +6,7 @@ import {
   requests,
   type EventChannel,
   type EventOf,
+  type MachineAccountRequest,
   type RequestChannel,
   type RequestOf,
   type ResultOf,
@@ -66,6 +67,8 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
     account: {
       read: (origin: string) => call("account.read", origin),
       write: (origin: string, token: string | null) => call("account.write", { origin, token }),
+      /** This computer's daemon's ace account and machine code. */
+      machine: (request: MachineAccountRequest) => call("daemon.account", request),
     },
     version: info.version,
     platform: info.platform,
