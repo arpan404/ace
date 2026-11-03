@@ -22,6 +22,7 @@ export {
   threadLive,
   type WakeFacts,
 } from "./snooze-wake.ts";
+export { snoozeWokeByQueue, snoozeWokeFor } from "./snooze-woke.ts";
 export { startsTurn, startedRunTurn, runTurn } from "./turn-boundary.ts";
 export { siteOrigin, toolSurface, toolSurfaces } from "./tool-surface.ts";
 export { withoutPortableHandoff } from "./portable-input.ts";
