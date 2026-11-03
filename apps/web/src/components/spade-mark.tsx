@@ -8,29 +8,20 @@
  */
 
 import {
+  spadeEggPath as egg,
   spadeEye,
   spadeEyes,
   spadePupilAt,
   spadePupilForSize,
+  spadeRingForSize,
   spadeTiltDeg,
   type SpadeLook,
-} from "./spade-look.ts";
+} from "@ace/ui-core/spade";
 
 const paper = "#f6f6f7";
 const ink = "#141416";
 
 const round = (value: number) => Number(value.toFixed(2));
-const n = (value: number) => round(value).toString();
-
-/** An egg: flatter on top, fuller below. */
-function egg(x: number, y: number, rx: number, ry: number): string {
-  return (
-    `M${n(x)} ${n(y - ry)}C${n(x + rx * 0.78)} ${n(y - ry)} ${n(x + rx)} ${n(y - ry * 0.36)} ${n(x + rx)} ${n(y + ry * 0.12)}` +
-    `C${n(x + rx)} ${n(y + ry * 0.66)} ${n(x + rx * 0.58)} ${n(y + ry)} ${n(x)} ${n(y + ry)}` +
-    `C${n(x - rx * 0.58)} ${n(y + ry)} ${n(x - rx)} ${n(y + ry * 0.66)} ${n(x - rx)} ${n(y + ry * 0.12)}` +
-    `C${n(x - rx)} ${n(y - ry * 0.36)} ${n(x - rx * 0.78)} ${n(y - ry)} ${n(x)} ${n(y - ry)}Z`
-  );
-}
 
 export function SpadeMark(props: {
   size?: number;
@@ -40,7 +31,7 @@ export function SpadeMark(props: {
 }) {
   const size = props.size ?? 20;
   const small = size <= 24;
-  const ring = small ? 1.15 : size <= 40 ? 0.85 : 0.62;
+  const ring = spadeRingForSize(size);
   const { pupil, pad } = spadePupilForSize(size);
   return (
     <svg

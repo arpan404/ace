@@ -1,8 +1,8 @@
 /**
  * The pure maths behind Spade's look. No DOM, no React: given a pointer and a mark rectangle,
  * where the pupils want to be, and keeping them inside the eye. Ported from the living
- * reference (`docs/design/spade/spade-mark.html`); the component and the rail follow draw from
- * here so there is one geometry, not two.
+ * reference (`docs/design/spade/spade-mark.html`); the web app's mark and rail follow and the
+ * marketing site all draw from here, so there is one geometry.
  */
 
 /** A point in client pixels. */
@@ -108,4 +108,22 @@ export function approachSpadeLook(current: SpadeLook, target: SpadeLook, blend =
 /** Close enough to snap: the loop stops here, so nothing runs while the eyes rest. */
 export function spadeLookSettled(current: SpadeLook, target: SpadeLook, epsilon = 0.01): boolean {
   return Math.abs(current.dx - target.dx) < epsilon && Math.abs(current.dy - target.dy) < epsilon;
+}
+
+const round = (value: number) => Number(value.toFixed(2));
+const n = (value: number) => round(value).toString();
+
+/** An egg-shaped SVG path: flatter on top, fuller below. Spade's eyes and their outlines. */
+export function spadeEggPath(x: number, y: number, rx: number, ry: number): string {
+  return (
+    `M${n(x)} ${n(y - ry)}C${n(x + rx * 0.78)} ${n(y - ry)} ${n(x + rx)} ${n(y - ry * 0.36)} ${n(x + rx)} ${n(y + ry * 0.12)}` +
+    `C${n(x + rx)} ${n(y + ry * 0.66)} ${n(x + rx * 0.58)} ${n(y + ry)} ${n(x)} ${n(y + ry)}` +
+    `C${n(x - rx * 0.58)} ${n(y + ry)} ${n(x - rx)} ${n(y + ry * 0.66)} ${n(x - rx)} ${n(y + ry * 0.12)}` +
+    `C${n(x - rx)} ${n(y - ry * 0.36)} ${n(x - rx * 0.78)} ${n(y - ry)} ${n(x)} ${n(y - ry)}Z`
+  );
+}
+
+/** The eye outline's extra radius: thicker at small sizes so the face still reads. */
+export function spadeRingForSize(size: number): number {
+  return size <= 24 ? 1.15 : size <= 40 ? 0.85 : 0.62;
 }

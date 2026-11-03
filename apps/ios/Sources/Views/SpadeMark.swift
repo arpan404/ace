@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Spade's mark, drawn natively from the web's geometry (`spade-mark.tsx`, `spade-look.ts`): a
+/// Spade's mark, drawn natively from the web's geometry (`spade-mark.tsx`, ui-core `spade-look.ts`): a
 /// round head in the current text colour with two egg-shaped eyes resting low and a hair left,
 /// the face tilted -4°. The eyes are always paper white with near-black outlines and pupils,
 /// whatever the theme. At 24pt and under the outline thickens, the pupils grow and the
@@ -34,7 +34,7 @@ struct SpadeMark: View {
     }
 }
 
-/// The face's geometry in the web's 24-unit box (`spade-look.ts`): where the eyes sit, how big
+/// The face's geometry in the web's 24-unit box (ui-core `spade-look.ts`): where the eyes sit, how big
 /// the pupils are at this size, and where they rest.
 struct SpadeFace {
     let size: CGFloat
