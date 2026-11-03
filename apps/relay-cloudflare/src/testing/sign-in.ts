@@ -1,6 +1,6 @@
 import { AceLogin, AceLoginStatus, type AceAccountGrant } from "@ace/protocol/ace-account";
 import type { WorkosUser, fakeWorkos } from "./fake-workos.ts";
-import { allowedOrigin } from "./harness.ts";
+import { allowedOrigin } from "./worker.ts";
 
 let codes = 0;
 
