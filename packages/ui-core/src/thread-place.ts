@@ -38,8 +38,9 @@ import {
  * yet looked at, then the rest, each band newest first. Snoozed holds what waits, soonest first;
  * Settled what is done, newest first. A settled thread returns to the Inbox only while it needs
  * the person or its agents work; held at a usage limit, or with only a command left running, it
- * stays in Settled. Placement reads the row attention (`standingOf`), so a band never disagrees
- * with the row's own status word. Pure: the caller passes the clock.
+ * stays in Settled. New work or a new request also clears the settle itself (`liveMetadata`).
+ * Placement reads the row attention (`standingOf`), so a band never disagrees with the row's
+ * own status word. Pure: the caller passes the clock.
  */
 
 export type { ThreadTab, InboxBand, ThreadPlace } from "@ace/protocol";
@@ -156,10 +157,12 @@ export interface PlaceReaderInput {
 /**
  * The daemon's place, unless time has overtaken it: a snooze that ran out on this device's
  * clock while its machine couldn't say so (offline, or not yet swept) is placed by the same
- * rule now. Undefined when the entry came without a place.
+ * rule now. An Inbox place predating a settle fact is also discarded.
+ * Undefined when the entry came without a current place.
  */
 export function currentPlace(entry: ThreadListEntry, now: number): ThreadPlace | undefined {
   const place = entry.place;
+  if (entry.settledAt !== undefined && place?.tab === "inbox") return undefined;
   if (place?.tab === "snoozed" && !isSnoozed(entry, now)) return undefined;
   return place;
 }

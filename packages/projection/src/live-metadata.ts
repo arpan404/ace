@@ -134,13 +134,22 @@ export function liveMetadata(
     !thread.hasSentMessage
   )
     return { type: "thread.client.updated", changes: { hasSentMessage: true } };
-  const unsettled =
-    payload.type === "thread.updated" &&
-    payload.status &&
-    payload.status.state === "working" &&
-    (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
   const live: Live = { provider: thread.provider, ...thread.live };
   const changed = applyChange(live, thread, payload, previousAgent, previousTask, command, at);
+  // A continuing request may have been settled by hand. Only a new request reopens it.
+  const resumes =
+    payload.type === "thread.updated" &&
+    payload.status &&
+    (payload.status.state === "working" ||
+      (payload.status.state === "needs_you" && thread.status.state !== "needs_you"));
+  const childStarts = (live.runningSubagentCount ?? 0) > (thread.live?.runningSubagentCount ?? 0);
+  const newRequest =
+    payload.type === "interaction.opened" &&
+    payload.interaction.state === "pending" &&
+    !thread.live?.asking?.some((previous) => previous.id === payload.interaction.id);
+  const unsettled =
+    (resumes || childStarts || newRequest) &&
+    (thread.settledAt !== undefined || thread.autoSettleAt !== undefined);
   const status =
     payload.type === "thread.updated" && payload.status ? payload.status : thread.status;
   const stamped = at !== undefined && stampTreeWait(live, status, at);

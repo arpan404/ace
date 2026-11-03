@@ -3,6 +3,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import type { HomeSort } from "./arrange.ts";
 import { panelPage, panelRows, tabThreads } from "./home-rows.ts";
 import { placeReader, placeThread, threadTabs } from "./thread-place.ts";
+import { patchedEntry } from "./organize-patch.ts";
 import { Organizer } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
 
@@ -271,4 +272,21 @@ test("the panel remembers its open tab; older storage opens the Inbox", () => {
   expect(organizer.getState().tab).toBe("inbox");
   organizer.setTab("settled");
   expect(new Organizer(storage, now).getState().tab).toBe("settled");
+});
+
+test("settling a pinned finished thread moves it to Settled before the daemon places it again", () => {
+  const input = { baseline: 0, now };
+  const before = withPlace(entry("done", { state: "done" }, now, { pinned: true }), input);
+  const select = placeReader({ fallback: input });
+  expect(threadTabs([before], select).inbox).toEqual(["done"]);
+  const optimistic = patchedEntry(before, [{ patch: { settled: true }, at: now }]);
+  // The settle has landed but the entry still carries the daemon's Inbox place from before it.
+  const stalePlace = { ...optimistic, place: before.place };
+  const confirmed = withPlace(optimistic, input);
+  for (const snapshot of [optimistic, stalePlace, confirmed]) {
+    const tabs = threadTabs([snapshot], select);
+    expect(tabs.inbox).toEqual([]);
+    expect(tabs.pinned).toEqual([]);
+    expect(tabs.settled).toEqual(["done"]);
+  }
 });
