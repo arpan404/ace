@@ -6,6 +6,7 @@ import {
   type RemoteAccessStatus,
 } from "@ace/protocol";
 import { settingsFixture } from "./scenarios/settings.ts";
+import type { FakeMachineAccount } from "./machine-account.ts";
 
 const pairingLifetimeMs = 5 * 60_000;
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -24,7 +25,9 @@ function reply(status: number, body: unknown): Response {
  */
 export class FakeAccess {
   private devices: Device[];
-  remoteStatus: () => RemoteAccessStatus;
+  private listeners: () => RemoteAccessStatus;
+  /** This machine's ace account and code; a machine without ace accounts has none. */
+  machineAccount: FakeMachineAccount | undefined;
   private clock: () => number;
   private pairings = 0;
   /** Open links by code; the latest is the one `completePairing` redeems. */
@@ -41,8 +44,13 @@ export class FakeAccess {
     }),
   ) {
     this.clock = clock;
-    this.remoteStatus = remoteStatus;
+    this.listeners = remoteStatus;
     this.devices = settingsFixture(clock()).devices;
+  }
+  /** What `GET /v1/status` reports as `remoteAccess`, with the account when there is one. */
+  remoteStatus(): RemoteAccessStatus {
+    const account = this.machineAccount?.status();
+    return { ...this.listeners(), ...(account ? { account } : {}) };
   }
   /** Paired devices that are still allowed in, as `GET /v1/devices` lists them. */
   list(): Device[] {

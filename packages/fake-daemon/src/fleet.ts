@@ -9,6 +9,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import type { FakeAccess } from "./access.ts";
+import { answerMachineCode } from "./machine-account.ts";
 
 function slug(name: string, taken: readonly string[]): string {
   const base =
@@ -146,8 +147,9 @@ export class FakeFleet {
       }),
     };
   }
-  /** False when the message isn't `fleet.request`. */
+  /** False when the message isn't `fleet.request` or `machine.code.*`. */
   handle(message: ClientMessage, push: (message: ServerMessage) => void, device: string): boolean {
+    if (answerMachineCode(this.access.machineAccount, message, push)) return true;
     if (message.type !== "fleet.request") return false;
     const result = this.run(message.operation, device);
     push(
