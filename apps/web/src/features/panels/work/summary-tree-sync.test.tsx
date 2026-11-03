@@ -265,8 +265,11 @@ test("when the viewed thread's own subscription fails, the done it kept is not s
       JSON.stringify({ type: "error", code: "internal", message: "Lost it", subscriptionId }),
     ),
   );
-  // Its metadata still says done; the Summary doesn't repeat that as fact.
-  await waitFor(async () => expect(await summaryStatus(work)).toBe("Syncing"));
+  // Its metadata still says done; nothing repeats that as fact. The thread says it couldn't be
+  // opened and keeps no side panel, so no Summary is left to call it done.
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("tabpanel", { name: "Summary" })).toBeNull());
+  expect(screen.queryByRole("status", { name: /^Thread status/ })).toBeNull();
 });
 
 /** Tab into the tree at its one stop, go Home, then ↓ until the row named `name` has focus. */
