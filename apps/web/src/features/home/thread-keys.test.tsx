@@ -21,15 +21,15 @@ const rows = () =>
 const titleOf = (row: HTMLElement) => row.getAttribute("aria-label")?.split(/[.,]/)[0] ?? "";
 const heading = () => screen.findByRole("heading", { level: 1 });
 
-test("⌥⌘↓ and ⌥⌘↑ move to the next and previous thread in the sidebar's order", async () => {
+test("⌥⌘↓ and ⌥⌘↑ (Alt+Shift+↓ and ↑ off Apple) move to the next and previous thread in the sidebar's order", async () => {
   await openApp();
   const [first, second] = rows();
   if (!first || !second) throw new Error("The list needs two threads");
   await userEvent.click(first);
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(first)));
-  await userEvent.keyboard("{Alt>}{Meta>}{ArrowDown}{/Meta}{/Alt}");
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowDown}{/Shift}{/Alt}");
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(second)));
-  await userEvent.keyboard("{Alt>}{Meta>}{ArrowUp}{/Meta}{/Alt}");
+  await userEvent.keyboard("{Alt>}{Shift>}{ArrowUp}{/Shift}{/Alt}");
   await waitFor(async () => expect((await heading()).textContent).toBe(titleOf(first)));
 });
 

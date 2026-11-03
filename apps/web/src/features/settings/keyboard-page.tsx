@@ -17,6 +17,7 @@ import {
   resolveKeymap,
   scopeOf,
   setKeybindingOverrides,
+  systemKeys,
   useKeybindingOverrides,
   useResolvedKeymap,
   type Keybindings,
@@ -63,6 +64,8 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "goAutomations",
       "goSkills",
       "goUsage",
+      "goPullRequests",
+      "goIssues",
       "nextThread",
       "previousThread",
       "nextNeedsYou",
@@ -142,27 +145,34 @@ const scopeChips: Record<Exclude<KeyScope, "global">, string> = {
   notifications: "In notifications",
 };
 
-/** Chords the browser (or the system, in the app) keeps for itself; a page never sees them. */
-function reservedKeys() {
-  const env = keyboardEnv();
+/** Chords a browser tab keeps for itself; a page never sees them. */
+function browserKeys(): readonly string[] {
+  if (!keyboardEnv().web) return [];
   return [
     "mod+w",
     "mod+q",
     "mod+t",
     "mod+l",
     "mod+r",
+    "mod+n",
+    "shift+mod+n",
     "shift+mod+w",
     "shift+mod+t",
-    ...(env.web ? ["mod+n", "shift+mod+n"] : env.apple ? ["mod+h", "mod+m", "mod+tab"] : []),
   ];
+}
+
+/** Who keeps `keys` for itself, or undefined when a shortcut may have them. */
+function reservedBy(keys: string): string | undefined {
+  const same = (chord: string) => normalizeKeys(chord) === normalizeKeys(keys);
+  if (browserKeys().some(same)) return "the browser";
+  if (systemKeys().some(same)) return "the system";
+  return undefined;
 }
 
 /** Why a shortcut can't be recorded here, or undefined when it can. */
 function readOnlyReason(id: KeymapId): string | undefined {
   if (!isRebindable(id)) return "Fixed";
-  const keys = keymap[id].keys;
-  if (keys.includes(" ")) return "Sequence";
-  const chord = parseChord(keys);
+  const chord = parseChord(keymap[id].keys);
   if (!chord.mod && !chord.ctrl && !chord.alt && !/^f\d+$/.test(chord.key)) return "Single key";
   return undefined;
 }
@@ -234,15 +244,10 @@ export function KeyboardShortcuts() {
     }
     const keys = result.keys;
     // A shortcut may always take back its own default (Reload's ⌘R).
-    const ownDefault = normalizeKeys(keys) === normalizeKeys(keymap[id].keys);
-    if (
-      !ownDefault &&
-      reservedKeys().some((chord) => normalizeKeys(chord) === normalizeKeys(keys))
-    ) {
-      setProblem({
-        id,
-        text: `${formatKeys(keys)} is used by ${env.web ? "the browser" : "the system"}.`,
-      });
+    const ownDefault = normalizeKeys(keys) === normalizeKeys(defaultKeys(id));
+    const reserved = ownDefault ? undefined : reservedBy(keys);
+    if (reserved) {
+      setProblem({ id, text: `${formatKeys(keys)} is used by ${reserved}.` });
       return;
     }
     const taken = conflictFor(keys, id, bindings);

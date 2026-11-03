@@ -4,11 +4,19 @@ import { describe, expect, it } from "vitest";
 import { keymap } from "../../../web/src/lib/keymap.ts";
 import { helpUrl, issuesUrl } from "./links.ts";
 import { applicationMenu } from "./menu.ts";
-import { acceleratorToKey, shortcuts } from "./shortcuts.ts";
+import { acceleratorFor, acceleratorToKey, shortcuts } from "./shortcuts.ts";
 
 const webKeys = new Map<string, string>(
   Object.entries(keymap).map(([id, entry]) => [id, entry.keys]),
 );
+/** The web keymap's binding on a platform: its `nonApple` keys on Windows and Linux. */
+function webKeysOn(id: string, platform: NodeJS.Platform): string | undefined {
+  const entry: { keys: string; nonApple?: string } | undefined = Object.entries(keymap).find(
+    ([key]) => key === id,
+  )?.[1];
+  if (!entry) return undefined;
+  return platform === "darwin" ? entry.keys : (entry.nonApple ?? entry.keys);
+}
 const platforms = ["darwin", "win32", "linux"] as const;
 
 /** A web keymap chord as the keys pressed on a platform: "mod+k" is ⌘K on macOS, Ctrl+K elsewhere. */
@@ -70,10 +78,10 @@ describe("native menu shortcuts", () => {
   it("every shortcut is the chord the web keymap binds to the same action", () => {
     for (const platform of platforms)
       for (const shortcut of shortcuts) {
-        const keys = webKeys.get(shortcut.keymapId);
+        const keys = webKeysOn(shortcut.keymapId, platform);
         expect(keys, `${shortcut.keymapId} is not in the web keymap`).toBeDefined();
         expect(
-          replayed(acceleratorToKey(shortcut.accelerator, platform)),
+          replayed(acceleratorToKey(acceleratorFor(shortcut, platform), platform)),
           `${shortcut.keymapId} on ${platform}`,
         ).toBe(pressed(keys ?? "", platform));
       }

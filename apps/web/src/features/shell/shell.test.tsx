@@ -110,17 +110,20 @@ test("⌘\\ hides the sidebar and the header offers to bring it back", async () 
   expect(threadList()).toBeTruthy();
 });
 
-test("G then U jumps to Automations, but not while typing", async () => {
-  await harness().open("/");
-  await title("Home");
+test("view shortcuts need a modifier, so they work while typing and plain letters just type", async () => {
+  await harness().open("/automations");
+  await title("Automations");
   await userEvent.keyboard("{Meta>}k{/Meta}");
   const search = await screen.findByRole("combobox", { name: "Search commands" });
-  await userEvent.type(search, "gu");
-  expect(screen.queryByRole("heading", { level: 1, name: "Automations" })).toBeNull();
-  await userEvent.keyboard("{Escape}");
+  await userEvent.type(search, "gh");
+  expect((search as HTMLInputElement).value).toBe("gh");
+  expect(screen.queryByRole("heading", { level: 1, name: "Home" })).toBeNull();
 
-  await userEvent.keyboard("gu");
-  await title("Automations");
+  // jsdom is not an Apple platform: Ctrl+Alt+H there (⌃⌘H on a Mac).
+  await userEvent.keyboard("{Control>}{Alt>}h{/Alt}{/Control}");
+  // The open palette hides the page; once it closes, Home is showing.
+  await userEvent.keyboard("{Escape}");
+  await title("Home");
 });
 
 test("⌘K finds a thread by title and opens it", async () => {
