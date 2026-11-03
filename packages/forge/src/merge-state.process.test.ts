@@ -78,6 +78,25 @@ test("green CI with outstanding reviews still exposes GitHub's auto-merge capabi
     await f.cleanup();
   }
 });
+test("the merge state offers only the methods the repository allows", async () => {
+  const settings = (repo: Record<string, unknown>) => ({
+    body: { data: { repository: { ...read().body.data.repository, ...repo } } },
+  });
+  const f = await fakeGh({
+    graphql: [
+      settings({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: true }),
+      settings({ mergeCommitAllowed: true, squashMergeAllowed: "yes", rebaseMergeAllowed: false }),
+    ],
+  });
+  try {
+    expect((await f.forge.prMergeState(7, signal())).methods).toEqual(["squash", "rebase"]);
+    // A setting GitHub didn't state plainly leaves the choice open, not narrowed by a guess.
+    expect((await f.forge.prMergeState(7, signal())).methods).toBeUndefined();
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("enable and cancel return GitHub state and a subsequent external disablement stays disabled", async () => {
   const f = await fakeGh({
     graphql: [

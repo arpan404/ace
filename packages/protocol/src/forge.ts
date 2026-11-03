@@ -54,6 +54,8 @@ export const ForgeCheck = z.object({
   status: z.enum(["pending", "success", "failure", "cancelled", "unknown"]),
   conclusion: z.string().nullable(),
   completedAt: z.string().nullable(),
+  /** When the check started running; absent from older reads and from commit statuses. */
+  startedAt: z.string().nullable().optional(),
   jobId: z.number().int().positive().nullable(),
   url: text.nullable(),
 });
