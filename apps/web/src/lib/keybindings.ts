@@ -71,6 +71,56 @@ export function defaultKeys(id: KeymapId, env: KeyboardEnv = keyboardEnv()): str
   return entry.keys;
 }
 
+/**
+ * Chords the operating system or desktop keeps, so a shortcut must not default to them and
+ * Settings refuses them. Off Apple platforms this covers Windows and the Linux desktops ace
+ * supports (GNOME, Ubuntu's additions, Hyprland binds only Super), since both read `nonApple`.
+ */
+export function systemKeys(env: KeyboardEnv = keyboardEnv()): readonly string[] {
+  if (env.apple)
+    return [
+      "mod+h",
+      "alt+mod+h",
+      "mod+m",
+      "alt+mod+m",
+      "mod+tab",
+      "mod+space",
+      "ctrl+space",
+      "ctrl+mod+space",
+      "ctrl+mod+q",
+      "ctrl+mod+f",
+      "alt+mod+escape",
+      "shift+mod+3",
+      "shift+mod+4",
+      "shift+mod+5",
+    ];
+  const arrows = ["arrowup", "arrowdown", "arrowleft", "arrowright"];
+  return [
+    "alt+f4",
+    "alt+tab",
+    "alt+space",
+    "alt+escape",
+    "mod+escape",
+    "shift+mod+escape",
+    "alt+mod+delete",
+    // GNOME: the activities overview, run a command, switch, move and resize windows.
+    "alt+f1",
+    "alt+f2",
+    "alt+f6",
+    "alt+f7",
+    "alt+f8",
+    "alt+f10",
+    "alt+`",
+    // Ubuntu: open a terminal.
+    "alt+mod+t",
+    // Windows graphics drivers rotate the screen; GNOME switches and moves across workspaces.
+    ...arrows.map((arrow) => `alt+mod+${arrow}`),
+    ...arrows.map((arrow) => `shift+alt+mod+${arrow}`),
+    // Linux: switch to a text console.
+    ...Array.from({ length: 12 }, (_, index) => `alt+mod+f${index + 1}`),
+  ];
+}
+
 /** Whether Settings may rebind `id` (not one a library or the platform binds). */
 export function isRebindable(id: KeymapId): boolean {
   return keymapEntry(id).fixed !== true;
@@ -280,11 +330,13 @@ const codeKeys: Record<string, string> = {
 };
 
 /**
- * A key press's name in keymap notation, from the physical key where it has one, so the
- * recorder and the matcher agree whatever Shift or ⌥ did to the character ("/" not "?",
- * "space" not " ", "p" not "π").
+ * A key press's name in keymap notation, so the recorder and the matcher agree. A letter is the
+ * one the layout types (⌘Z is Z on AZERTY, QWERTZ or Dvorak too); where the character isn't a
+ * Latin letter (⌥P types π, a Cyrillic layout types к) it is the physical key. Digits and
+ * punctuation are always the physical key, whatever Shift did ("/" not "?", "1" not "!").
  */
 export function keyNameOf(event: Pick<KeyboardEvent, "key" | "code">): string {
+  if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase();
   const code = event.code ?? "";
   if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase();
   if (/^Digit\d$/.test(code)) return code.slice(5);

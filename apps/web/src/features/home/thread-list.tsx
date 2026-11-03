@@ -362,8 +362,7 @@ export function ThreadList(props: {
     const step = steps[event.key];
     // 1, 2 and 3 switch the panel's tabs (`ThreadsPanelKeys`), never a jump.
     if (props.triage && /^[123]$/.test(event.key)) return;
-    // Type to jump: a letter goes to the next thread whose title starts with it. Not prevented,
-    // so a letter may still start a sequence ("g h").
+    // Type to jump: a letter goes to the next thread whose title starts with it.
     if (!step && plain && event.key.length === 1 && /\S/.test(event.key)) {
       const titles = drawn.map((row) => {
         const thread = row.phase === "exit" ? undefined : homeRowThread(row.item);

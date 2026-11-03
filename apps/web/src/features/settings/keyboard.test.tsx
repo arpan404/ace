@@ -108,12 +108,16 @@ test("shortcuts are grouped, filterable, and a rebound one is marked", async () 
   expect(within(again).getByRole("img", { name: "Changed" })).toBeTruthy();
 });
 
-test("sequences and plain keys are shown, not recorded; shortcuts say where they work", async () => {
+test("Go to shortcuts are modifier chords that can be rebound; shortcuts say where they work", async () => {
   await harness().open("/settings/keyboard");
   const goTo = await screen.findByRole("region", { name: "Go to" });
-  expect(within(goTo).queryByRole("button", { name: "Go to Home shortcut" })).toBeNull();
-  expect(within(goTo).queryByText("Sequence")).toBeNull();
-  expect(within(goTo).getAllByText("then").length).toBeGreaterThan(0);
+  expect(within(goTo).queryByText("then")).toBeNull();
+  const home = await shortcut("Go to Home");
+  expect(home.textContent).toBe("Alt+Ctrl+H");
+  await userEvent.click(home);
+  press(home, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
+  expect((await shortcut("Go to Home")).textContent).toBe("Alt+Ctrl+Y");
+  expect((await shortcut("Go to Issues")).textContent).toBe("Alt+Ctrl+I");
   const cap = screen.getByLabelText("Stop the working agent shortcut");
   cap.focus();
   expect((await screen.findByRole("tooltip")).textContent).toContain("In the composer");

@@ -26,7 +26,7 @@ test("Home opens on the top thread, then comes back to the thread last opened", 
 
   await openProfileView("Automations");
   await screen.findByRole("heading", { level: 1, name: "Automations" });
-  await userEvent.keyboard("gh");
+  await userEvent.keyboard("{Control>}{Alt>}h{/Alt}{/Control}");
   expect(
     await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" }),
   ).toBeTruthy();

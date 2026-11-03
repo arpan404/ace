@@ -156,7 +156,6 @@ export function useViewListKeys<T extends HTMLElement>(
       const target = typed
         ? typedIndex(model, index, event.key.toLowerCase())
         : nextIndex(model, index, event.key);
-      // A letter is not prevented: it may also start a sequence shortcut ("g h").
       if (!typed && target !== undefined) event.preventDefault();
       if (target !== undefined) void focusIndex(element, model, target);
       return;
@@ -167,7 +166,6 @@ export function useViewListKeys<T extends HTMLElement>(
     else if (event.key === "Home") next = 0;
     else if (event.key === "End") next = rows.length - 1;
     else if (event.key.length === 1 && /\S/.test(event.key)) {
-      // Not prevented: a letter may also start a sequence shortcut ("g h").
       const letter = event.key.toLowerCase();
       const order = [...rows.slice(current + 1), ...rows.slice(0, current + 1)];
       const match = order.find((row) => titleOf(row).startsWith(letter));

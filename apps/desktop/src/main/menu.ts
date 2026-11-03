@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron";
 import { helpUrl, issuesUrl } from "./links.ts";
-import { keymapAccelerator, shortcuts } from "./shortcuts.ts";
+import { acceleratorFor, keymapAccelerator, shortcuts } from "./shortcuts.ts";
 import type { ZoomChange } from "./window/zoom.ts";
 
 /**
@@ -28,7 +28,8 @@ export function applicationMenu(options: {
     const shortcut = shortcuts.find((entry) => entry.keymapId === keymapId);
     if (!shortcut?.label) throw new Error(`No menu shortcut for ${keymapId}`);
     const bound = options.bindings?.[keymapId];
-    const accelerator = bound === undefined ? shortcut.accelerator : keymapAccelerator(bound);
+    const accelerator =
+      bound === undefined ? acceleratorFor(shortcut, options.platform) : keymapAccelerator(bound);
     return {
       label: shortcut.label,
       ...(accelerator ? { accelerator } : {}),

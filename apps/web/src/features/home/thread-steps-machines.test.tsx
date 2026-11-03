@@ -40,7 +40,7 @@ const where = (history: ReturnType<typeof createMemoryHistory>) =>
   `${history.location.pathname}${history.location.search}`;
 
 async function step(key: "ArrowDown" | "ArrowUp", title: string) {
-  await userEvent.keyboard(`{Alt>}{Meta>}{${key}}{/Meta}{/Alt}`);
+  await userEvent.keyboard(`{Alt>}{Shift>}{${key}}{/Shift}{/Alt}`);
   expect(await screen.findByRole("heading", { level: 1, name: title })).toBeTruthy();
 }
 
@@ -55,7 +55,7 @@ const address: Record<string, string> = {
   "Add rate limits": "/t/thread-shared?machine=build",
 };
 
-test("⌥⌘↓ and ⌥⌘↑ step through another machine's thread in Home's order and back", async () => {
+test("⌥⌘↓ and ⌥⌘↑ (Alt+Shift off Apple) step through another machine's thread in Home's order and back", async () => {
   const { made, history } = world();
   await made.open("/");
   const threads = await screen.findByRole("list", { name: "Threads" });
