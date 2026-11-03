@@ -20,7 +20,9 @@ export function mint(
 }
 
 /** The Worker under Miniflare with its bindings, for the Worker's own tests. */
-export async function startWorker(options: { accounts?: boolean; workosUrl?: string } = {}) {
+export async function startWorker(
+  options: { accounts?: boolean; workosUrl?: string; previousGrantKey?: string } = {},
+) {
   const { harness, ...started } = await launchWorker(options);
   const env = await harness.getWorker<Env>().getEnv();
   return { ...started, db: env.ACCOUNTS };

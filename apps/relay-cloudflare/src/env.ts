@@ -16,4 +16,6 @@ export interface Env {
   WORKOS_API_URL?: string;
   ACE_ACCOUNT_ENCRYPTION_KEY?: string;
   ACE_GRANT_KEY?: string;
+  /** The replaced key's `/v1/keys` entry, `<id>:<public key>`, during a rotation. */
+  ACE_GRANT_PREVIOUS_KEY?: string;
 }

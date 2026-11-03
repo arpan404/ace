@@ -1,6 +1,11 @@
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
 import { DeviceId } from "@ace/protocol";
-import { GRANT_LIFETIME_MS, GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
+import {
+  GRANT_LIFETIME_MS,
+  GRANT_SUBPROTOCOL_PREFIX,
+  GrantKeySet,
+  grantPublicKey,
+} from "@ace/account-grant";
 import { hostId, keyPair } from "@ace/secure-channel";
 import type { KeyPair } from "@ace/secure-channel";
 import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
@@ -226,4 +231,51 @@ it("a relay without account settings admits no host or device", async () => {
   const response = await fetch(`${bare.http}/v1/account/login`, { method: "POST" });
   expect(response.status).toBe(503);
   expect(await response.json()).toEqual({ error: "account_not_configured" });
+});
+
+it("while a rotation keeps the replaced key, grants it signed still connect; once removed they don't", async () => {
+  const replaced = { id: "old", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
+  const published = grantPublicKey(replaced);
+  const rotating = await startWorker({ previousGrantKey: `old:${published.publicKey}` });
+  cleanups.push(() => rotating.close());
+  const keys = GrantKeySet.parse(await (await fetch(`${rotating.http}/v1/keys`)).json());
+  expect(keys.keys.map((key) => key.id)).toEqual(["test", "old"]);
+  expect(keys.keys[1]).toEqual(published);
+
+  const hostKeys = keyPair();
+  const id = hostId(hostKeys.publicKey);
+  const channel = deferred<HostChannel>();
+  const machine = await connectHostToRelay({
+    relayUrl: rotating.relayUrl,
+    hostKeys,
+    account: { grant: async () => mint("machine", "user_a", id, { key: replaced }) },
+    onClientChannel: channel.resolve,
+  });
+  cleanups.push(() => machine.close());
+  const device = await connectClientViaRelay({
+    relayUrl: rotating.relayUrl,
+    hostId: id,
+    pinnedFingerprint: id,
+    grant: mint("device", "user_a", "phone", { key: replaced }),
+  });
+  cleanups.push(() => device.close());
+  await device.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("phone"),
+    token: "t",
+  });
+  expect(await (await channel.promise).receive()).toMatchObject({ type: "hello" });
+
+  // The Worker without ACE_GRANT_PREVIOUS_KEY: the replaced key's grants are refused.
+  const target = { hostId: id };
+  for (const [path, kind, subject] of [
+    ["/client", "device", "phone"],
+    ["/host", "machine", id],
+  ] as const)
+    expect(
+      await upgrade(address(worker.relayUrl, path, target), [
+        GRANT_SUBPROTOCOL_PREFIX + mint(kind, "user_a", subject, { key: replaced }),
+      ]),
+    ).toEqual({ status: 401 });
 });
