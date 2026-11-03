@@ -51,12 +51,10 @@ extension XCUIApplication {
         for _ in 0..<4 where menu.exists && !(item.exists && item.isHittable) { menu.swipeUp() }
         return item
     }
-    /// Pull requests and Issues: More's Pull requests, from the inbox header's More button.
+    /// Pull requests and Issues, from the inbox header's own Pull requests button.
     @MainActor func openPulls() {
-        XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: 10))
-        buttons["inbox.settings"].tap()
-        XCTAssertTrue(buttons["more.pulls"].waitForExistence(timeout: 10))
-        buttons["more.pulls"].tap()
+        XCTAssertTrue(buttons["inbox.pulls"].waitForExistence(timeout: 10))
+        buttons["inbox.pulls"].tap()
     }
     /// The system back button of a pushed page. Some runtimes (iOS 27, the folded Duo) show it
     /// without a NavigationBar around it, so it is found by its usual identifier or label too.

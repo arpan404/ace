@@ -94,7 +94,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .inboxFootBar {
                     if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? composeHere : nil) }
                 }
-                .modifier(ListTitle(pulls: pulls))
+                .modifier(ListTitle(pulls: pulls, selecting: selecting))
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
@@ -448,11 +448,15 @@ struct HeaderLead: ViewModifier {
 /// the bar keeps an inline title for Back buttons and VoiceOver and drops its own centred one,
 /// which would leave the heading and its buttons half the width each. Pull requests keeps the
 /// system's large title.
+/// Select mode keeps the bar's centre, where it counts the threads picked.
 private struct ListTitle: ViewModifier {
     let pulls: Bool
+    let selecting: Bool
     func body(content: Content) -> some View {
         if pulls {
             content.nativeTitle("Pull requests")
+        } else if selecting {
+            content.navigationTitle("ace").navigationBarTitleDisplayMode(.inline)
         } else {
             content
                 .navigationTitle("ace")

@@ -64,7 +64,7 @@ struct ThreadsTabsBar: View {
         }
         .buttonStyle(.plain)
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)
-        .accessibilityLabel("\(tab.label), \(total)")
+        .accessibilityLabel(tab.counted ? "\(tab.label), \(total)" : tab.label)
         .accessibilityValue(lit ? "Needs you" : "")
         .accessibilityAddTraits(chosen ? [.isSelected, .isButton] : .isButton)
         .accessibilityIdentifier("threads.tab.\(tab.id)")

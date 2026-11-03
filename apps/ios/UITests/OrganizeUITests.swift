@@ -92,18 +92,17 @@ import XCTest
 
     func testSelectModeArchivesSeveralThreadsWithOneUndo() throws {
         let app = launch()
-        // Select threads is in the scope menu under the title.
-        XCTAssertTrue(app.buttons["inbox.projects"].waitForExistence(timeout: 30))
-        app.buttons["inbox.projects"].tap()
-        XCTAssertTrue(app.buttons["inbox.select"].waitForExistence(timeout: 10))
-        app.buttons["inbox.select"].tap()
-        XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
-        // Any two rows the list shows: picking is the system's own check circle.
+        // Select is in a row's own menu; that row starts picked.
         let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'"))
-        XCTAssertTrue(rows.element(boundBy: 1).waitForExistence(timeout: 10))
+        XCTAssertTrue(rows.element(boundBy: 1).waitForExistence(timeout: 30))
         // Each row's title, the start of its label (the age after it moves on).
         let picked = [rows.element(boundBy: 0).label, rows.element(boundBy: 1).label].map { $0.components(separatedBy: ",")[0] }
-        rows.element(boundBy: 0).tap()
+        rows.element(boundBy: 0).press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["thread.action.select"].waitForExistence(timeout: 10))
+        app.buttons["thread.action.select"].tap()
+        XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["1 selected"].waitForExistence(timeout: 5))
+        // Picking another is the system's own check circle.
         rows.element(boundBy: 1).tap()
         XCTAssertTrue(app.staticTexts["2 selected"].waitForExistence(timeout: 5))
         screenshot("select-mode")
