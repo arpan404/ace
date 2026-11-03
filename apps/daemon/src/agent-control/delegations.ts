@@ -39,6 +39,7 @@ import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
 import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
+import { limitNoticeText, usageLimitHold } from "./limit-hold.ts";
 import { MessageSenders } from "./message-senders.ts";
 import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
@@ -335,21 +336,57 @@ export class DelegationService {
         };
         this.journal.save(edge);
       });
+    this.tell(sender, child, id, `[ace-origin:delegation.message_notice:${id}]\n${text}`);
+  }
+  /** Sends `text` about `child` to `target` the way a result reaches it, never failing the caller. */
+  private tell(target: ThreadId, child: ThreadId, id: string, text: string) {
     try {
-      const delivery = this.deps.engine.supportsSteering(sender) ? "steer" : "queue";
+      const delivery = this.deps.engine.supportsSteering(target) ? "steer" : "queue";
       const result = this.command(id, {
         type: "thread.send",
-        threadId: sender,
-        input: [{ type: "text", text: `[ace-origin:delegation.message_notice:${id}]\n${text}` }],
+        threadId: target,
+        input: [{ type: "text", text }],
         delivery,
         trigger: "subagent_result",
         origin: { kind: "subagent_result", threadIds: [child] },
       });
       if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
-      if (delivery === "queue") this.deps.engine.prioritizeSubagentResult(sender, result.commandId);
+      if (delivery === "queue") this.deps.engine.prioritizeSubagentResult(target, result.commandId);
     } catch (error) {
       this.report(error);
     }
+  }
+  /**
+   * A running child whose turn ended on its usage limit does nothing until the limit resets, so
+   * it never settles and its parent would wait on it for hours. The parent hears it once per
+   * hold, the way it hears results; a live wait on the child returns `limited` instead.
+   */
+  private noticeLimit(edge: DelegationRecord) {
+    const thread = this.deps.store.getThread(edge.childId);
+    if (!thread || edge.phase !== "running" || edge.resultDelivery === "owner") return;
+    const hold = usageLimitHold(thread, edge, this.deps.engine.resuming(edge.childId));
+    const told = edge.limitNotice;
+    if (!hold) {
+      if (told?.held) this.saveLimitNotice(edge, { ...told, held: false });
+      return;
+    }
+    if (told?.held) return;
+    const count = (told?.count ?? 0) + 1;
+    this.saveLimitNotice(edge, { count, held: true, at: this.deps.clock.now() });
+    if (this.monitor.watching(edge.childId) || !this.deps.store.getThread(edge.parentId)) return;
+    const id = controlCommandId(edge.parentId, `${edge.childId}:${count}`, "limit_notice");
+    if (this.commandReceipt(id)) return;
+    const text = limitNoticeText(hold, edge.request.role, edge.childId);
+    this.tell(
+      edge.parentId,
+      edge.childId,
+      id,
+      `[ace-origin:delegation.limit_notice:${id}]\n${text}`,
+    );
+  }
+  private saveLimitNotice(edge: DelegationRecord, notice: DelegationRecord["limitNotice"]) {
+    edge.limitNotice = notice;
+    this.deps.store.atomic(() => this.journal.save(edge));
   }
   /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
   arrival(caller: McpAttribution, requestId: string, threadId: ThreadId, restart = false) {
@@ -1188,6 +1225,7 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
+      if (edge && event.payload.type === "thread.updated") this.noticeLimit(edge);
       const participant = this.journal.participant(event.threadId);
       if (!edge && !participant) continue;
       const root = edge?.rootId ?? participant?.root_id;

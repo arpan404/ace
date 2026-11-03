@@ -22,6 +22,7 @@ import type { Store } from "../store.ts";
 import type { DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { queuedStep } from "./child-status.ts";
+import { limitStep, usageLimitHold } from "./limit-hold.ts";
 import {
   checkedChild,
   snapshotOf,
@@ -123,10 +124,7 @@ export class AgentMonitor {
       )
         return { ok: false, code: "forbidden", data: { threadId: id } };
     if (this.closed) return { ok: true, data: this.interrupted(ids, input.mode) };
-    const immediate = waitOutcome(
-      ids.map((id) => this.state(id)),
-      input.mode,
-    );
+    const immediate = this.outcome(ids, input.mode);
     if (immediate) return { ok: true, data: this.respond(caller, ids, input.mode, immediate) };
     const status = await new Promise<WaitStatus | WaitResult>((resolve, reject) => {
       const cancelTimer = this.deps.clock.setTimer(
@@ -252,13 +250,27 @@ export class AgentMonitor {
         queueMicrotask(() => {
           wait.scheduled = false;
           if (!this.waits.has(wait)) return;
-          const status = waitOutcome(
-            wait.ids.map((id) => this.state(id)),
-            wait.mode,
-          );
+          const status = this.outcome(wait.ids, wait.mode);
           if (status) wait.finish(status);
         });
       }
+  }
+  private outcome(ids: readonly ThreadId[], mode: WaitMode): WaitStatus | undefined {
+    const states = ids.map((id) => this.state(id));
+    // Only a thread still at work can be held by a limit; settled ones are read as they are.
+    const limited = ids.filter((id, index) => states[index] === "working" && this.limitHold(id));
+    return waitOutcome(states, mode, limited.length);
+  }
+  /** A local thread's usage-limit hold. Children on other machines report their own state. */
+  private limitHold(id: ThreadId) {
+    if (this.remote?.watched(id)) return undefined;
+    const thread = this.deps.store.getThread(id);
+    if (!thread) return undefined;
+    return usageLimitHold(
+      thread,
+      this.deps.journal.get(id),
+      this.deps.resuming?.(thread.id) ?? false,
+    );
   }
   private state(id: ThreadId): WatchedState {
     const remote = this.remote?.watched(id);
@@ -348,6 +360,8 @@ export class AgentMonitor {
       this.deps.resuming?.(thread.id) ?? false,
     );
     if (held) return holdStep(held);
+    const limit = this.limitHold(thread.id);
+    if (limit) return limitStep(limit);
     const root = thread.rootAgentId && this.deps.store.getMcpAgent(thread.id, thread.rootAgentId);
     return root ? agentStep(root.status) : undefined;
   }

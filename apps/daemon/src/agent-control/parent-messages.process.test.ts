@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { randomUUID } from "node:crypto";
-import type { McpAttribution, ThreadId } from "@ace/protocol";
+import { WaitResult, type McpAttribution, type ThreadId } from "@ace/protocol";
+import type { Fact } from "@ace/core";
 import { createAgentControlPort } from "@ace/daemon";
 import { setup } from "./test-support.ts";
 import { task } from "../engine/test-support.ts";
@@ -33,6 +34,21 @@ const message = (
   );
 
 const received = (h: Harness, id: ThreadId) => h.inputs.get(id) ?? [];
+const quotaEnd: Fact = {
+  type: "turn.ended",
+  agent: "root",
+  outcome: "failed",
+  error: { kind: "quota", message: "You've hit your usage limit." },
+};
+const waitOn = async (h: Harness, parent: McpAttribution, child: ThreadId) => {
+  const result = await createAgentControlPort(h.store, h.service).execute(
+    parent,
+    { op: "wait", threadIds: [child], mode: "all", timeoutSeconds: 600 },
+    new AbortController().signal,
+  );
+  expect(result.ok).toBe(true);
+  return WaitResult.parse(result.data);
+};
 const later = (h: Harness, ms: number) => h.clock.advance(h.clock.now() + ms);
 
 test("a parent's message reaches its running child's turn now when the provider steers", async () => {
@@ -243,4 +259,34 @@ test("a steer lost in transit is never resent, and the parent is told it may not
   });
   await h.complete(child, "first pass");
   expect(received(h, child)).not.toContain("New repo rule");
+});
+
+test("a child stopped by its usage limit tells its parent once instead of leaving it waiting", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.emit(child, quotaEnd);
+  expect(h.store.getThread(child)?.status.state).toBe("limited");
+  const told = () =>
+    received(h, parent.threadId).filter((text) => text.includes("hit its usage limit"));
+  expect(told()).toHaveLength(1);
+  expect(told()[0]).toContain(child);
+  // Nothing more happening to the held child tells the parent again.
+  later(h, 5000);
+  await h.engine.flush();
+  expect(told()).toHaveLength(1);
+  // A wait on it returns at once, saying why, and the child is still open, never done.
+  expect(await waitOn(h, parent, child)).toMatchObject({
+    status: "limited",
+    threads: [{ threadId: child, state: "working", step: expect.stringContaining("usage limit") }],
+  });
+  expect(h.service.journal.get(child)?.phase).toBe("running");
+});
+
+test("a wait on a child that hits its usage limit returns limited, and no second notice follows", async () => {
+  const { h, parent, child } = await runningChild(true);
+  const pending = waitOn(h, parent, child);
+  await h.engine.flush();
+  await h.emit(child, quotaEnd);
+  expect(await pending).toMatchObject({ status: "limited", threads: [{ threadId: child }] });
+  // The wait told the parent; no message repeats it.
+  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
 });
