@@ -290,3 +290,23 @@ test("a wait on a child that hits its usage limit returns limited, and no second
   // The wait told the parent; no message repeats it.
   expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
 });
+
+test("a provider retrying a rate limit inside its turn is still working: no notice, and a wait keeps waiting", async () => {
+  const { h, parent, child } = await runningChild(true);
+  await h.emit(child, {
+    type: "retry",
+    agent: "root",
+    on: "rate_limit",
+    until: h.clock.now() + 60_000,
+    message: "Rate limited, retrying",
+  });
+  expect(h.store.getThread(child)?.status.state).toBe("limited");
+  let returned = false;
+  const pending = waitOn(h, parent, child).then((result) => ((returned = true), result));
+  await h.engine.flush();
+  for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
+  expect(returned).toBe(false);
+  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
+  await h.complete(child, "done after the retry");
+  expect(await pending).toMatchObject({ status: "ready", threads: [{ state: "done" }] });
+});

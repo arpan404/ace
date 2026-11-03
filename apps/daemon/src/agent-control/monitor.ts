@@ -62,6 +62,12 @@ export interface MonitorDependencies {
   delivered(caller: McpAttribution, outcome: DelegationOutcome): void;
   /** A resume of the thread is in flight, so its paused queue is about to move. */
   resuming?(id: ThreadId): boolean;
+  /** The thread's root turn ended on a usage limit and nothing runs or retries. */
+  endedOnLimit?(id: ThreadId): boolean;
+  /** A wait told `caller` that child `id` is held by a usage limit, so no message repeats it. */
+  limitDelivered?(caller: McpAttribution, id: ThreadId): void;
+  /** A wait on these threads ended; one it didn't tell about a hold is told another way. */
+  released?(ids: readonly ThreadId[]): void;
   /** Where a queued child stands: slot limit, slots in use and its queue place. */
   queueFacts?(child: ThreadId): QueueFacts | undefined;
   /** A child agents_status could only partly read, for the log. */
@@ -78,6 +84,7 @@ export interface RemoteChildren {
   subscribe(listener: (ids: readonly string[]) => void): () => void;
 }
 interface PendingWait {
+  caller: ThreadId;
   ids: readonly ThreadId[];
   mode: WaitMode;
   scheduled: boolean;
@@ -104,9 +111,13 @@ export class AgentMonitor {
     this.remote = remote;
     this.stopRemote = remote.subscribe((ids) => this.recheck(new Set(ids)));
   }
-  /** Whether a live wait is watching this thread, so its result is read there, not woken. */
-  watching(id: ThreadId): boolean {
-    for (const wait of this.waits) if (wait.ids.includes(id)) return true;
+  /**
+   * Whether a live wait is watching this thread, so its result is read there, not woken. With
+   * `by`, only a wait of that thread counts.
+   */
+  watching(id: ThreadId, by?: ThreadId): boolean {
+    for (const wait of this.waits)
+      if (wait.ids.includes(id) && (by === undefined || wait.caller === by)) return true;
     return false;
   }
   /** Waits on children the caller delegated or any other thread it may read. */
@@ -133,6 +144,7 @@ export class AgentMonitor {
       );
       const abort = () => {
         cleanup();
+        this.deps.released?.(ids);
         reject(signal.reason);
       };
       const cleanup = () => {
@@ -141,6 +153,7 @@ export class AgentMonitor {
         this.waits.delete(wait);
       };
       const wait: PendingWait = {
+        caller: caller.threadId,
         ids,
         mode: input.mode,
         scheduled: false,
@@ -153,11 +166,15 @@ export class AgentMonitor {
       this.waits.add(wait);
       signal.addEventListener("abort", abort, { once: true });
     });
-    signal.throwIfAborted();
-    return {
-      ok: true,
-      data: typeof status === "string" ? this.respond(caller, ids, input.mode, status) : status,
-    };
+    try {
+      signal.throwIfAborted();
+      return {
+        ok: true,
+        data: typeof status === "string" ? this.respond(caller, ids, input.mode, status) : status,
+      };
+    } finally {
+      this.deps.released?.(ids);
+    }
   }
   /**
    * Every delegated descendant of the caller, a few short fields each. A child whose facts can't
@@ -266,11 +283,10 @@ export class AgentMonitor {
     if (this.remote?.watched(id)) return undefined;
     const thread = this.deps.store.getThread(id);
     if (!thread) return undefined;
-    return usageLimitHold(
-      thread,
-      this.deps.journal.get(id),
-      this.deps.resuming?.(thread.id) ?? false,
-    );
+    return usageLimitHold(thread, this.deps.journal.get(id), {
+      resuming: this.deps.resuming?.(id) ?? false,
+      endedOnLimit: () => this.deps.endedOnLimit?.(id) ?? false,
+    });
   }
   private state(id: ThreadId): WatchedState {
     const remote = this.remote?.watched(id);
@@ -296,12 +312,14 @@ export class AgentMonitor {
     status: WaitStatus,
   ): WaitResult {
     const read = ids.map((id) => this.watched(id));
-    for (const entry of read)
+    for (const entry of read) {
+      if (entry.limited) this.deps.limitDelivered?.(caller, entry.view.threadId);
       if (entry.outcome) {
         if (this.remote?.owns(caller, entry.outcome.threadId))
           this.remote.delivered(entry.outcome.threadId);
         else this.deps.delivered(caller, entry.outcome);
       }
+    }
     return { status, mode, threads: shareResults(read.map((entry) => entry.view)) };
   }
   /** Never fails: a restart answers with whatever is still readable. */
@@ -314,7 +332,11 @@ export class AgentMonitor {
     }
     return { status: "interrupted", mode, threads };
   }
-  private watched(id: ThreadId): { view: WatchedThread; outcome?: DelegationOutcome } {
+  private watched(id: ThreadId): {
+    view: WatchedThread;
+    outcome?: DelegationOutcome;
+    limited?: boolean;
+  } {
     const remote = this.remote?.watched(id);
     if (remote) return remote;
     const thread = this.deps.store.getThread(id);
@@ -344,6 +366,7 @@ export class AgentMonitor {
     const step = state === "queued" ? queuedStepText(queue) : this.step(thread);
     const last = this.lastOutput(thread, 160);
     return {
+      ...(state === "working" && this.limitHold(id) ? { limited: true } : {}),
       view: {
         ...base,
         ...(step ? { step: clip(step, 120) } : {}),

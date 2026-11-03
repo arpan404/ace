@@ -1194,6 +1194,15 @@ export class Engine {
   resuming(id: ThreadId): boolean {
     return this.repo.state(id) !== undefined && this.repo.pending.recovering(id);
   }
+  /**
+   * The thread's root turn ended on a usage limit: nothing runs or retries until it resumes. A
+   * provider retrying a rate limit inside a live turn is still working.
+   */
+  endedOnLimit(id: ThreadId): boolean {
+    const state = this.repo.state(id);
+    const root = state?.rootKey === undefined ? undefined : state.agents[state.rootKey];
+    return root?.limited !== undefined && !root.activeRun && !root.retry;
+  }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));
   }

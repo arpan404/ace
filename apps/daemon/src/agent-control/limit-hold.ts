@@ -10,20 +10,29 @@ export interface UsageLimitHold {
   resetsAt?: number;
 }
 
+/** What the engine knows about a thread that its stored row doesn't say. */
+export interface LimitFacts {
+  /** A resume of the thread is in flight (the person's Continue): the hold is ending. */
+  resuming: boolean;
+  /** Its root turn ended on the limit and nothing runs or retries; read only when needed. */
+  endedOnLimit(): boolean;
+}
+
 /**
  * The thread's usage-limit hold, if it has one. Only a turn that ended on the limit counts: a
- * provider retrying a rate limit inside a running turn is still working.
+ * provider retrying a rate limit inside a running turn is still working, though it reads
+ * limited and its queue is held the same way.
  */
 export function usageLimitHold(
   thread: Thread,
   record: DelegationRecord | undefined,
-  /** A resume of this thread is in flight (the person's Continue): the hold is ending. */
-  resuming = false,
+  facts: LimitFacts,
 ): UsageLimitHold | undefined {
-  if (thread.status.state !== "limited" || record?.phase === "cancelling" || resuming)
+  if (thread.status.state !== "limited" || record?.phase === "cancelling" || facts.resuming)
     return undefined;
   const queue = thread.queue;
   if (!queue?.paused || (queue.reason !== "limit" && queue.reason !== "snooze")) return undefined;
+  if (!facts.endedOnLimit()) return undefined;
   const resumesAt = queue.reason === "limit" ? (queue.resumeAt ?? undefined) : undefined;
   const resetsAt = thread.status.until ?? queue.resumeAt ?? undefined;
   return {

@@ -39,7 +39,7 @@ import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
 import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
-import { limitNoticeText, usageLimitHold } from "./limit-hold.ts";
+import { LimitNotices } from "./limit-notices.ts";
 import { MessageSenders } from "./message-senders.ts";
 import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
@@ -91,6 +91,7 @@ export class DelegationService {
   private ready = false;
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
+  private limits: LimitNotices;
   private closed = false;
   private retryAt = 0;
   private suspending = new Set<ThreadId>();
@@ -145,6 +146,19 @@ export class DelegationService {
             : undefined,
       }),
     );
+    this.limits = new LimitNotices({
+      store: deps.store,
+      journal: this.journal,
+      now: () => deps.clock.now(),
+      resuming: (id) => deps.engine.resuming(id),
+      endedOnLimit: (id) => deps.engine.endedOnLimit(id),
+      watching: (child, parent) => this.monitor.watching(child, parent),
+      sent: (id) => this.commandReceipt(id)?.ok === true,
+      send: (target, child, id, text) => this.send(target, child, id, text),
+      retrying: () => this.arm(),
+      closed: () => this.closed,
+      report: (error) => this.report(error),
+    });
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
     // Subscribed after the owner, so a wait reads edges this owner settled for the same batch.
     this.monitor = new AgentMonitor({
@@ -154,6 +168,9 @@ export class DelegationService {
       authorize: (caller, target, write) => this.authorize(caller, target, write),
       delivered: (caller, outcome) => this.delivered(caller, outcome),
       resuming: (id) => deps.engine.resuming(id),
+      endedOnLimit: (id) => deps.engine.endedOnLimit(id),
+      limitDelivered: (caller, id) => this.limits.delivered(caller, id),
+      released: (ids) => this.limits.recheck(ids),
       queueFacts: (child) => this.queueFacts(child),
       report: (child, problem) =>
         deps.onError(new Error(`agents_status listed child ${child} as read: ${problem}`)),
@@ -164,6 +181,8 @@ export class DelegationService {
     }
     for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
       this.reconcile(edge);
+      // A notice a crash or a refused send left unsent goes now.
+      this.limits.recheck([edge.childId]);
     }
     this.pumpAll();
     this.arm();
@@ -341,52 +360,23 @@ export class DelegationService {
   /** Sends `text` about `child` to `target` the way a result reaches it, never failing the caller. */
   private tell(target: ThreadId, child: ThreadId, id: string, text: string) {
     try {
-      const delivery = this.deps.engine.supportsSteering(target) ? "steer" : "queue";
-      const result = this.command(id, {
-        type: "thread.send",
-        threadId: target,
-        input: [{ type: "text", text }],
-        delivery,
-        trigger: "subagent_result",
-        origin: { kind: "subagent_result", threadIds: [child] },
-      });
-      if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
-      if (delivery === "queue") this.deps.engine.prioritizeSubagentResult(target, result.commandId);
+      this.send(target, child, id, text);
     } catch (error) {
       this.report(error);
     }
   }
-  /**
-   * A running child whose turn ended on its usage limit does nothing until the limit resets, so
-   * it never settles and its parent would wait on it for hours. The parent hears it once per
-   * hold, the way it hears results; a live wait on the child returns `limited` instead.
-   */
-  private noticeLimit(edge: DelegationRecord) {
-    const thread = this.deps.store.getThread(edge.childId);
-    if (!thread || edge.phase !== "running" || edge.resultDelivery === "owner") return;
-    const hold = usageLimitHold(thread, edge, this.deps.engine.resuming(edge.childId));
-    const told = edge.limitNotice;
-    if (!hold) {
-      if (told?.held) this.saveLimitNotice(edge, { ...told, held: false });
-      return;
-    }
-    if (told?.held) return;
-    const count = (told?.count ?? 0) + 1;
-    this.saveLimitNotice(edge, { count, held: true, at: this.deps.clock.now() });
-    if (this.monitor.watching(edge.childId) || !this.deps.store.getThread(edge.parentId)) return;
-    const id = controlCommandId(edge.parentId, `${edge.childId}:${count}`, "limit_notice");
-    if (this.commandReceipt(id)) return;
-    const text = limitNoticeText(hold, edge.request.role, edge.childId);
-    this.tell(
-      edge.parentId,
-      edge.childId,
-      id,
-      `[ace-origin:delegation.limit_notice:${id}]\n${text}`,
-    );
-  }
-  private saveLimitNotice(edge: DelegationRecord, notice: DelegationRecord["limitNotice"]) {
-    edge.limitNotice = notice;
-    this.deps.store.atomic(() => this.journal.save(edge));
+  private send(target: ThreadId, child: ThreadId, id: string, text: string) {
+    const delivery = this.deps.engine.supportsSteering(target) ? "steer" : "queue";
+    const result = this.command(id, {
+      type: "thread.send",
+      threadId: target,
+      input: [{ type: "text", text }],
+      delivery,
+      trigger: "subagent_result",
+      origin: { kind: "subagent_result", threadIds: [child] },
+    });
+    if (!result.ok) throw controlAdmissionError(result.error ?? "Notice not delivered");
+    if (delivery === "queue") this.deps.engine.prioritizeSubagentResult(target, result.commandId);
   }
   /** How the message `requestId` sent to `threadId` reaches it, read once it was accepted. */
   arrival(caller: McpAttribution, requestId: string, threadId: ThreadId, restart = false) {
@@ -1225,7 +1215,7 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
-      if (edge && event.payload.type === "thread.updated") this.noticeLimit(edge);
+      if (edge && event.payload.type === "thread.updated") this.limits.check(edge);
       const participant = this.journal.participant(event.threadId);
       if (!edge && !participant) continue;
       const root = edge?.rootId ?? participant?.root_id;
@@ -1338,7 +1328,8 @@ export class DelegationService {
       return;
     }
     // Queued children are retried each second, so a missed slot release only delays them.
-    const poll = this.launches.waiting() ? this.deps.clock.now() + 1000 : undefined;
+    const poll =
+      this.launches.waiting() || this.limits.retrying ? this.deps.clock.now() + 1000 : undefined;
     const at = next && poll !== undefined ? Math.min(next.due, poll) : (next?.due ?? poll);
     if (at === undefined) return;
     this.cancelTimer = this.deps.clock.setTimer(
@@ -1369,6 +1360,7 @@ export class DelegationService {
   drain() {
     if (this.closed) return;
     this.pumpAll();
+    this.limits.retry();
     for (let batch = 0; batch < 64; batch++) {
       const next = this.journal.nextWake();
       if (!next || next.due > this.deps.clock.now()) break;
