@@ -310,3 +310,14 @@ test("a provider retrying a rate limit inside its turn is still working: no noti
   await h.complete(child, "done after the retry");
   expect(await pending).toMatchObject({ status: "ready", threads: [{ state: "done" }] });
 });
+
+test("a limit the provider first retried, then ended the turn on, still tells the parent", async () => {
+  const { h, parent, child } = await runningChild(true);
+  // Codex reports the quota error, then completes the turn with it, in separate batches.
+  await h.emit(child, { type: "retry", agent: "root", on: "rate_limit" });
+  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
+  await h.emit(child, quotaEnd);
+  expect(
+    received(h, parent.threadId).filter((text) => text.includes("hit its usage limit")),
+  ).toHaveLength(1);
+});

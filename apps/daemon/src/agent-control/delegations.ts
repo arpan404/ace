@@ -1197,6 +1197,11 @@ export class DelegationService {
       const notice = deliveryNotice(event);
       if (notice) this.noticeSender(event.threadId, notice);
       if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
+      // A turn that ends on a limit its provider was already retrying changes no status.
+      if (event.payload.type === "run.ended") {
+        const ended = this.journal.get(event.threadId);
+        if (ended) this.limits.check(ended);
+      }
       if (
         event.payload.type !== "thread.updated" &&
         event.payload.type !== "usage.updated" &&
