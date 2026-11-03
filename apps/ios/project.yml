@@ -120,6 +120,11 @@ targets:
       - path: Tests
       - path: .build/bridge-tests.js
         buildPhase: resources
+      # The Noise XX vectors the TypeScript implementation passes, for the native one.
+      - path: ../../packages/secure-channel/fixtures/cacophony.json
+        buildPhase: resources
+      - path: ../../packages/secure-channel/fixtures/snow.json
+        buildPhase: resources
       # Shared, language-neutral emulator cases (see its README).
       - path: ../../fixtures/terminal-emulator
         type: folder
