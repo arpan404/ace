@@ -334,7 +334,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
           }
         } catch (error) {
           context.fail(
-            "browser_backendMessagedenied",
+            "browser_backend_denied",
             error instanceof Error ? error.message : "Desktop registration failed",
           );
         }
