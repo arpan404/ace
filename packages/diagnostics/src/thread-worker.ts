@@ -23,6 +23,12 @@ const query = db.prepare(`SELECT seq, at,
   FROM events WHERE seq IN (SELECT seq FROM events ORDER BY seq DESC LIMIT 2000) ORDER BY seq`);
 const iterator = query.iterate();
 const port = parentPort;
+const EventRow = z.object({
+  seq: z.number(),
+  at: z.number(),
+  type: z.string().max(128),
+  payload: z.string(),
+});
 if (!port) throw new Error("Thread export requires a parent");
 port.on("message", (input: unknown) => {
   if (input !== "next") {
@@ -38,9 +44,7 @@ port.on("message", (input: unknown) => {
       done = true;
       break;
     }
-    const row = z
-      .object({ seq: z.number(), at: z.number(), type: z.string().max(128), payload: z.string() })
-      .parse(next.value);
+    const row = EventRow.parse(next.value);
     let payload: unknown;
     try {
       payload = JSON.parse(redact(row.payload));

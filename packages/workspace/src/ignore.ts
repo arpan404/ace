@@ -6,6 +6,12 @@ import { command } from "./process.ts";
 import { errorCode, WorkspaceError } from "./types.ts";
 import type { SafeRoot } from "./safety.ts";
 
+const GitConfigEnvironment = z.object({
+  HOME: z.string().optional(),
+  XDG_CONFIG_HOME: z.string().optional(),
+  GIT_CONFIG_GLOBAL: z.string().optional(),
+});
+
 function missingGit(error: unknown): undefined {
   if (errorCode(error) === "ENOENT") return undefined;
   throw error;
@@ -144,13 +150,7 @@ export class GitIgnore {
     if (!excludes) return unavailable;
     if (excludes.code !== 0 && excludes.code !== 1)
       throw new WorkspaceError("IO_ERROR", excludes.stderr || "Cannot resolve Git excludes source");
-    const env = z
-      .object({
-        HOME: z.string().optional(),
-        XDG_CONFIG_HOME: z.string().optional(),
-        GIT_CONFIG_GLOBAL: z.string().optional(),
-      })
-      .parse(this.safe.runtime.environment);
+    const env = GitConfigEnvironment.parse(this.safe.runtime.environment);
     const configHome = env.XDG_CONFIG_HOME || (env.HOME ? resolve(env.HOME, ".config") : undefined);
     let excludesPath: string | undefined;
     if (excludes.code === 0) {

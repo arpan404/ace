@@ -3,6 +3,11 @@ import type { OpenCodeClient } from "@opencode/client";
 import type { InteractionResolution } from "@ace/protocol";
 import { nativeResolution } from "./interactions.ts";
 
+const FormAnswer = z.record(
+  z.string(),
+  z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
+);
+
 /** SDK exceptions may contain unsanitized response bodies. Expose fixed messages only. */
 export async function request<T>(label: string, operation: () => Promise<T>): Promise<T> {
   try {
@@ -30,9 +35,7 @@ export function resolveNativeInteraction(
       await client.session.form.reply({
         sessionID: command.sessionID,
         formID: command.formID,
-        answer: z
-          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
-          .parse(command.answer),
+        answer: FormAnswer.parse(command.answer),
       });
   });
 }

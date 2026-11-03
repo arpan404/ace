@@ -1,7 +1,10 @@
 import {
   boundedAnnotations,
+  mergeQuotes,
   returnedAnnotations,
+  returnedQuotes,
   splitAnnotationParts,
+  splitQuoteParts,
   tokensFromInput,
   type ComposerDraft,
   type DraftAnnotations,
@@ -20,7 +23,9 @@ export type SendPayload = Extract<
  * browser annotations rebuilt from their block, with their images taken out of the files.
  */
 export function draftOf(payload: SendPayload): ReturnedDraft {
-  const split = splitAnnotationParts(payload.input);
+  const annotatedParts = splitAnnotationParts(payload.input);
+  const quoted = splitQuoteParts(annotatedParts.parts);
+  const split = { ...annotatedParts, parts: quoted.parts };
   const files = (payload.context?.attachments ?? []).map((file) => ({
     sha256: file.sha256,
     name: localAttachment(file.sha256)?.name ?? "Attachment",
@@ -31,6 +36,7 @@ export function draftOf(payload: SendPayload): ReturnedDraft {
     mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
     attachments: annotated?.attachments ?? files,
     ...(annotated ? { annotations: annotated.annotations } : {}),
+    ...(quoted.quotes ? { quotes: returnedQuotes(quoted.quotes, (index) => `sent:${index}`) } : {}),
     options: payload.options,
   };
 }
@@ -80,6 +86,7 @@ export function mergeReturnedDraft(
       ).values(),
     ],
     annotations: mergeAnnotations(current?.annotations, returned.annotations),
+    quotes: mergeQuotes(current?.quotes, returned.quotes),
   };
 }
 

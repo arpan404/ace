@@ -12,6 +12,10 @@ const facts = z.looseObject({
   isDraft: z.boolean(),
   mergeQueueEntry: z.looseObject({ state: text }).nullable(),
 });
+const Numbers = z.array(positive).max(100);
+const ScopeBody = z.object({
+  data: z.object({ repository: z.record(z.string(), facts.nullable()).nullable() }),
+});
 
 /** Queue facts remain readable after native membership dissolves or changes. */
 export async function readStackMergeScope(
@@ -20,18 +24,14 @@ export async function readStackMergeScope(
   numbers: readonly number[],
   signal: AbortSignal,
 ): Promise<(Pick<ForgeStackLayer, "number" | "state" | "queueState"> & { raw: unknown })[]> {
-  z.array(positive).max(100).parse(numbers);
+  Numbers.parse(numbers);
   const unique = [...new Set(numbers)];
   if (!unique.length) return [];
   const page = await api.request("graphql", signal, {
     query: `query StackMergeScope($owner:String!,$name:String!){repository(owner:$owner,name:$name){${unique.map((number) => `pr${number}:pullRequest(number:${number}){number state isDraft mergeQueueEntry{state}}`).join(" ")}}}`,
     variables: { owner: repository.owner, name: repository.name },
   });
-  const result = z
-    .object({
-      data: z.object({ repository: z.record(z.string(), facts.nullable()).nullable() }),
-    })
-    .safeParse(page.body);
+  const result = ScopeBody.safeParse(page.body);
   if (!result.success) throw new ForgeError("invalid_data");
   if (!result.data.data.repository) throw new ForgeError("not_found");
   return unique.map((number) => {

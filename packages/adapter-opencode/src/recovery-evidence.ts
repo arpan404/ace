@@ -3,6 +3,7 @@ import { coveredPrefix } from "./text-coverage.ts";
 import { NativeEvent, eventSession } from "./boundaries.ts";
 import { array, object, string, number } from "./data.ts";
 
+const InteractionKeys = z.array(z.string());
 type Snapshot = { channel: string; data: unknown; session: string; started: number };
 /** Bounded evidence for one recovery epoch. Text and absence have separate clocks. */
 export class RecoveryEvidence {
@@ -176,6 +177,6 @@ export class RecoveryEvidence {
     });
   }
   interactionKeys(data: unknown): Set<string> {
-    return new Set(z.array(z.string()).parse(object(data).keys));
+    return new Set(InteractionKeys.parse(object(data).keys));
   }
 }

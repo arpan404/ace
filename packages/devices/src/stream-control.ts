@@ -16,7 +16,7 @@ export const deviceImageStream: ScreenStreamSettings = {
 };
 /**
  * A capture nobody watches or records, which makes a fresh still whenever an agent asks for one
- * (`DeviceCapture.still`): a slow heartbeat instead of a still for every change of the screen.
+ * (`DeviceCapture.still`) and streams nothing in between. The budget sizes each still.
  */
 export const deviceStillStream: ScreenStreamSettings = { ...deviceImageStream, fps: 2 };
 /** A live view that hasn't sized its stream yet: H.264 at 60 fps in a phone-sized box. */

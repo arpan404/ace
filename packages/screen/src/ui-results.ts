@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ScreenUITree, ScreenUIFindResult } from "@ace/protocol";
 const Branch = z.object({ children: z.array(z.unknown()).max(2048) });
+const TreeEnvelope = z.object({ root: z.unknown().nullable(), truncated: z.boolean() });
 /** Check aggregate limits before handing recursive data to Zod. */
 function bounded(roots: unknown[], maxNodes: number, maxDepth: number): void {
   const pending = roots.map((node) => ({ node, depth: 0 }));
@@ -21,7 +22,7 @@ export function parseUITree(
   maxNodes: number,
   maxDepth: number,
 ): z.infer<typeof ScreenUITree> {
-  const envelope = z.object({ root: z.unknown().nullable(), truncated: z.boolean() }).parse(data);
+  const envelope = TreeEnvelope.parse(data);
   bounded(envelope.root === null ? [] : [envelope.root], maxNodes, maxDepth);
   return ScreenUITree.parse(data);
 }

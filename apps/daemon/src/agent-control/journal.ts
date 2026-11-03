@@ -19,6 +19,10 @@ const treeRow = z.object({
   tokens: z.number(),
   cost: z.number(),
 });
+const ParticipantRow = z.object({ root_id: ThreadId, active: z.number() });
+const ActiveParticipantRow = z.object({ thread_id: ThreadId, root_id: ThreadId });
+const SnoozeRow = z.object({ snoozed_until: z.number().nullable() });
+const WakeRow = z.object({ parent_id: ThreadId, due: z.number() });
 /** One writer on Store's transaction boundary; only indexed current rows enter memory. */
 export class DelegationJournal {
   private store: Store;
@@ -144,7 +148,7 @@ export class DelegationJournal {
     const row = this.sql(
       "SELECT root_id,active FROM delegation_participants WHERE thread_id=?",
     ).get(thread);
-    return row ? z.object({ root_id: ThreadId, active: z.number() }).parse(row) : undefined;
+    return row ? ParticipantRow.parse(row) : undefined;
   }
   activity(thread: ThreadId, active: 0 | 1) {
     this.sql("UPDATE delegation_participants SET active=? WHERE thread_id=? AND active<>?").run(
@@ -158,7 +162,7 @@ export class DelegationJournal {
       "SELECT thread_id,root_id FROM delegation_participants WHERE active=1 ORDER BY thread_id LIMIT 10001",
     )
       .all()
-      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+      .map((row) => ActiveParticipantRow.parse(row));
   }
   /** Children holding a run slot. Created, queued and settled children hold none. */
   running(parent: ThreadId) {
@@ -261,7 +265,7 @@ export class DelegationJournal {
     const row = this.sql("SELECT snoozed_until FROM agent_thread_metadata WHERE thread_id=?").get(
       thread,
     );
-    return row ? z.object({ snoozed_until: z.number().nullable() }).parse(row) : null;
+    return row ? SnoozeRow.parse(row) : null;
   }
   active() {
     return this.sql(
@@ -405,7 +409,7 @@ export class DelegationJournal {
     const row = this.sql(
       "SELECT parent_id,due FROM delegation_wakes ORDER BY due,parent_id LIMIT 1",
     ).get();
-    return row ? z.object({ parent_id: ThreadId, due: z.number() }).parse(row) : undefined;
+    return row ? WakeRow.parse(row) : undefined;
   }
   deferWake(parent: ThreadId, due: number) {
     this.sql("UPDATE delegation_wakes SET due=? WHERE parent_id=?").run(due, parent);
@@ -509,7 +513,7 @@ export class DelegationJournal {
         UNION ALL SELECT thread_id,root_id FROM delegation_participants WHERE thread_id>?
         ORDER BY thread_id LIMIT 64`)
       .all(after, after)
-      .map((row) => z.object({ thread_id: ThreadId, root_id: ThreadId }).parse(row));
+      .map((row) => ActiveParticipantRow.parse(row));
   }
   /** Counters and the replay position share one commit, including incremental samples. */
   account(root: ThreadId, event: Event): void {

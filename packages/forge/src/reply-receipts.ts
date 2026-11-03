@@ -32,13 +32,14 @@ const comment = z.object({
   in_reply_to_id: z.number().int().positive().optional(),
   user: z.object({ login: z.string().max(100) }).nullable(),
 });
+const Comments = z.array(comment).max(100);
 async function comments(api: GhApi, root: string, number: number, signal: AbortSignal) {
   const pages = await api.pages(
     `${root}/pulls/${number}/comments?per_page=100`,
     signal,
     new ReadBudget(),
   );
-  return pages.flatMap((page) => z.array(comment).max(100).parse(page.body));
+  return pages.flatMap((page) => Comments.parse(page.body));
 }
 export async function replyCutoff(
   api: GhApi,

@@ -4,6 +4,7 @@ const id = z.string().min(1).max(256);
 // SDK strings have no minimum length. Empty parameter values must survive native selection.
 const value = z.string().max(256);
 const NativeModel = z.object({ id }).passthrough();
+const CursorSdkEntries = z.array(z.unknown()).max(512);
 const Metadata = z.object({
   displayName: id.optional().catch(undefined),
   parameters: z
@@ -46,7 +47,7 @@ export function decodeCursorSdkModels(
   payload: unknown,
   rejected?: (entry: CursorModelRejection) => void,
 ) {
-  const entries = z.array(z.unknown()).max(512).parse(payload);
+  const entries = CursorSdkEntries.parse(payload);
   const models = entries.flatMap((entry, index) => {
     const parsed = NativeModel.safeParse(entry);
     if (!parsed.success) {

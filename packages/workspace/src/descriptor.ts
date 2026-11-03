@@ -53,6 +53,7 @@ const Binding = z.object({
   }),
 });
 let loaded: z.infer<typeof Binding> | undefined;
+const ElectronProcess = z.object({ resourcesPath: z.string().min(1) });
 function binding(): z.infer<typeof Binding> {
   // Importing the shared service API needs no native addon. Filesystem operations load it on demand.
   if (!loaded) {
@@ -66,10 +67,7 @@ function binding(): z.infer<typeof Binding> {
       )
         throw error;
       native = require(
-        join(
-          z.object({ resourcesPath: z.string().min(1) }).parse(process).resourcesPath,
-          "daemon/descriptor.node",
-        ),
+        join(ElectronProcess.parse(process).resourcesPath, "daemon/descriptor.node"),
       );
     }
     loaded = Binding.parse(native);

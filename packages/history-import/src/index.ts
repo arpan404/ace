@@ -33,6 +33,7 @@ export type { HistorySession } from "@ace/protocol/history";
 export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
 }
+const ImportedAgents = z.array(Agent).max(512);
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 const Progress = z.object({
   progress: z.number().int().nonnegative(),
@@ -294,10 +295,7 @@ export class HistoryService {
   }
   async importedAgents(id: ThreadId) {
     this.requireIdle();
-    return z
-      .array(Agent)
-      .max(512)
-      .parse(await this.request({ op: "archive.agents", id }));
+    return ImportedAgents.parse(await this.request({ op: "archive.agents", id }));
   }
   async itemsPage(request: z.input<typeof PageRequest>) {
     this.requireIdle();

@@ -2,6 +2,8 @@ import { z } from "zod";
 import type { SupervisedProcess, spawnSupervised } from "@ace/provider-kit/process";
 import { loopback } from "./boundaries.ts";
 
+const ReadinessLine = z.object({ url: z.string() });
+
 /** OpenCode's own v2 server on a private loopback port, answering only to `password`. */
 export function spawnOwnedServer(options: {
   spawn: typeof spawnSupervised;
@@ -50,7 +52,7 @@ export function ownedServerReady(proc: SupervisedProcess, signal: AbortSignal): 
       } catch {
         return;
       }
-      const readiness = z.object({ url: z.string() }).safeParse(parsed);
+      const readiness = ReadinessLine.safeParse(parsed);
       if (!readiness.success) return;
       cleanup();
       try {

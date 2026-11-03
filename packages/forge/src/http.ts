@@ -14,6 +14,7 @@ const envelope = z.object({
   status: z.number().int().min(100).max(599),
   headers: z.record(z.string(), z.string()),
 });
+const ErrorMessage = z.object({ message: z.string() });
 const graphqlResult = z.object({
   data: z.record(z.string(), z.unknown()).nullish(),
   errors: z
@@ -206,7 +207,7 @@ export class GhApi {
     let rateMessage = "";
     if (code === 403) {
       try {
-        rateMessage = z.object({ message: z.string() }).parse(JSON.parse(text)).message;
+        rateMessage = ErrorMessage.parse(JSON.parse(text)).message;
       } catch {
         /* A malformed error body does not obscure the HTTP status. */
       }

@@ -176,10 +176,11 @@ function compactPage(data: unknown): Record<string, unknown> {
     },
   };
 }
+const QueueEntries = z.object({ entries: z.array(z.unknown()) });
 /** The thread's queue, only when something waits in it. */
 async function queued(control: Control, threadId: string) {
   const listed = await control.run({ op: "queue.list", threadId });
-  const entries = z.object({ entries: z.array(z.unknown()) }).safeParse(listed.data).data;
+  const entries = QueueEntries.safeParse(listed.data).data;
   return entries?.entries.length ? { queue: listed.data } : {};
 }
 async function previews(control: Control, threadId: string) {

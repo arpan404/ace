@@ -32,6 +32,18 @@ import { createSessionCommands, type Pending } from "./session-commands.ts";
 import { asyncKey, list, obj, planKey, questions, requestKey, str } from "./native.ts";
 import { readRateLimits } from "./rate-limits-read.ts";
 
+const PermissionProfiles = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(256),
+        description: z.string().max(2048).nullish(),
+        allowed: z.boolean(),
+      }),
+    )
+    .max(256),
+});
+
 export type CodexOptions = {
   discovery?: DiscoveryOptions;
   cli?: DiscoveryResult;
@@ -442,19 +454,9 @@ export async function openCodexSession(
   try {
     if (ctx.signal.aborted) throw ctx.signal.reason;
     try {
-      const listing = z
-        .object({
-          data: z
-            .array(
-              z.object({
-                id: z.string().min(1).max(256),
-                description: z.string().max(2048).nullish(),
-                allowed: z.boolean(),
-              }),
-            )
-            .max(256),
-        })
-        .parse(await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }));
+      const listing = PermissionProfiles.parse(
+        await request("permissionProfile/list", { cwd: ctx.cwd, limit: 256 }),
+      );
       const builtins = nativePermissionModes("codex");
       const permissionModes = listing.data
         .filter((profile) => profile.allowed)

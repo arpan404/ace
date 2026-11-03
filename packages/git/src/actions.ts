@@ -97,18 +97,16 @@ const remoteName = z
   .max(128)
   .regex(/^[\w./-]+$/)
   .refine((value) => !value.startsWith("-"));
+const ExpectedPushTarget = z.object({
+  branch: z.string().min(1).max(1024),
+  head: head.nullable(),
+  pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
+});
+const BranchNames = z.array(z.string().min(1).max(1024)).max(1001);
 export async function pushBranch(repository: Repository, options: PushOptions): Promise<void> {
   const remote = remoteName.parse(options.remote);
   const expected =
-    options.expected === undefined
-      ? undefined
-      : z
-          .object({
-            branch: z.string().min(1).max(1024),
-            head: head.nullable(),
-            pushUrls: z.array(z.string().min(1).max(4096)).min(1).max(100),
-          })
-          .parse(options.expected);
+    options.expected === undefined ? undefined : ExpectedPushTarget.parse(options.expected);
   const lease = options.force === undefined ? undefined : head.parse(options.force.lease);
   // ace's own reads keep the checkout's protections; only `push` is the person's.
   const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
@@ -237,9 +235,8 @@ export async function listBranches(
     ["for-each-ref", "--count=1001", "--format=%(refname:short)", "refs/heads", "refs/remotes"],
     { captureBytes: 1_048_576 },
   );
-  const branches = z
-    .array(z.string().min(1).max(1024))
-    .max(1001)
-    .parse(result.stdout.toString("utf8").trim().split("\n").filter(Boolean));
+  const branches = BranchNames.parse(
+    result.stdout.toString("utf8").trim().split("\n").filter(Boolean),
+  );
   return { branches: branches.slice(0, 1000), truncated: branches.length > 1000 };
 }

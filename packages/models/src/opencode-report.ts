@@ -7,6 +7,14 @@ import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { discoveryError } from "./discovery-errors.ts";
 import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
 
+const ReportModels = z.array(z.unknown()).max(8192);
+const ReportProviderErrors = z
+  .array(z.object({ providerID: z.string().max(256), error: z.unknown() }))
+  .max(512)
+  .optional();
+const ReportModelIdentity = z.object({ providerID: z.string(), modelID: z.string() });
+const ReportProviderIdentity = z.object({ providerID: z.string() });
+
 /** A bad connected provider cannot erase healthy providers or its own last good choices. */
 export function normalizeOpenCodeReport(
   payload: unknown,
@@ -17,21 +25,18 @@ export function normalizeOpenCodeReport(
   const envelope = z
     .object({
       location: z.object({ directory: z.literal(instance.cwd) }),
-      data: z.array(z.unknown()).max(8192),
+      data: ReportModels,
       configuredDefault: z.string().optional(),
-      errors: z
-        .array(z.object({ providerID: z.string().max(256), error: z.unknown() }))
-        .max(512)
-        .optional(),
+      errors: ReportProviderErrors,
     })
     .parse(payload);
   const grouped = new Map<string, unknown[]>();
   const metadataIds = new Set<string>();
   const available = new Map(connected);
   for (const raw of envelope.data) {
-    const model = z.object({ providerID: z.string(), modelID: z.string() }).safeParse(raw);
+    const model = ReportModelIdentity.safeParse(raw);
     if (model.success) metadataIds.add(`${model.data.providerID}/${model.data.modelID}`);
-    const identity = z.object({ providerID: z.string() }).safeParse(raw);
+    const identity = ReportProviderIdentity.safeParse(raw);
     if (!identity.success) continue;
     const id = identity.data.providerID;
     if (!connected.has(id)) {

@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { LaneComparison } from "@ace/protocol";
 
+const Lanes = z.array(LaneComparison).max(64);
+
 /** Sparse side-by-side table. An absent lane cell means unchanged; patches remain per lane. */
 export function sideBySide(input: unknown) {
-  const lanes = z.array(LaneComparison).max(64).parse(input);
+  const lanes = Lanes.parse(input);
   type Change = LaneComparison["files"][number];
   const files = new Map<string, { path: string; lanes: Record<string, Change> }>();
   let truncated = lanes.some((lane) => lane.filesTruncated);

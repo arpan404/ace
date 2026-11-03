@@ -10,6 +10,8 @@ import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
+const CursorSend = z.object({ kind: z.literal("send") });
+
 const frameSchema = z.object({
   seq: z.number().int().nonnegative(),
   t: z.number().nonnegative(),
@@ -432,7 +434,7 @@ export class ThreadActor {
     if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
     if (
       cursorSdk &&
-      z.object({ kind: z.literal("send") }).safeParse(decoded.data).success &&
+      CursorSend.safeParse(decoded.data).success &&
       this.repo.quiescent(this.repo.requireState(this.id))
     )
       this.repo.recovery.beginTurn(this.id);

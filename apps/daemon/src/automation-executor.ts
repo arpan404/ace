@@ -5,6 +5,10 @@ import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
 import { automationRunExecutor, hostControl } from "./automation-run-executor.ts";
 
+const AutomationThreadRow = z
+  .object({ thread_id: ThreadId, settings: z.string().nullable() })
+  .optional();
+
 const deviceId = DeviceId.parse("automation");
 
 /**
@@ -19,14 +23,11 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
     );`),
   );
   const threadRow = (automationId: string) =>
-    z
-      .object({ thread_id: ThreadId, settings: z.string().nullable() })
-      .optional()
-      .parse(
-        store
-          .statement("SELECT thread_id,settings FROM automation_threads WHERE automation_id=?")
-          .get(automationId),
-      );
+    AutomationThreadRow.parse(
+      store
+        .statement("SELECT thread_id,settings FROM automation_threads WHERE automation_id=?")
+        .get(automationId),
+    );
   /** The automation's thread while it can still take a run: not deleted, not archived. */
   const ownThread = (automationId: string): ThreadId | undefined => {
     const row = threadRow(automationId);

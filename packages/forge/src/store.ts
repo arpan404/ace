@@ -13,6 +13,9 @@ import { ForgeError } from "./errors.ts";
 import { redactData } from "./redact.ts";
 
 const rowSchema = z.object({ payload: z.string() });
+const GenerationRow = z.object({ generation: z.number().int().positive() });
+const SummaryRow = z.object({ summary: z.string().nullable() });
+const CountRow = z.object({ count: z.number() });
 function decode<T>(schema: z.ZodType<T>, value: unknown): T {
   const row = rowSchema.safeParse(value);
   if (!row.success) throw new ForgeError("invalid_data");
@@ -107,13 +110,11 @@ export class ForgeStore {
     this.#db.exec("SAVEPOINT forge_link");
     try {
       this.#advance.run(link.threadId);
-      const generation = z
-        .object({ generation: z.number().int().positive() })
-        .parse(
-          this.#db
-            .prepare("SELECT generation FROM forge_link_epochs WHERE thread_id=?")
-            .get(link.threadId),
-        ).generation;
+      const generation = GenerationRow.parse(
+        this.#db
+          .prepare("SELECT generation FROM forge_link_epochs WHERE thread_id=?")
+          .get(link.threadId),
+      ).generation;
       this.#putLink.run(
         link.threadId,
         repositoryKey(link.pr.repository),
@@ -130,7 +131,7 @@ export class ForgeStore {
   getLinks(threadId: string): ForgeLinkState[] {
     return this.#getLinks.all(threadId).map((row) => ({
       link: decode(ForgeThreadLink, row),
-      generation: z.object({ generation: z.number().int().positive() }).parse(row).generation,
+      generation: GenerationRow.parse(row).generation,
     }));
   }
   getLink(threadId: string): ForgeThreadLink | undefined {
@@ -140,12 +141,12 @@ export class ForgeStore {
     if (!pr) return this.getLinks(threadId)[0];
     const row = this.#getLink.get(threadId, repositoryKey(pr.repository), pr.number);
     if (row === undefined) return undefined;
-    const generation = z.object({ generation: z.number().int().positive() }).parse(row).generation;
+    const generation = GenerationRow.parse(row).generation;
     return { link: decode(ForgeThreadLink, row), generation };
   }
   summaries(threadId: string): LinkedPullRequest[] {
     return this.#getLinks.all(threadId).map((row) => {
-      const summary = z.object({ summary: z.string().nullable() }).parse(row).summary;
+      const summary = SummaryRow.parse(row).summary;
       if (summary) return LinkedPullRequest.parse(JSON.parse(summary));
       const { pr } = decode(ForgeThreadLink, row);
       return {
@@ -192,7 +193,7 @@ export class ForgeStore {
   admit(input: ForgeAutoFixIntent): void {
     const intent = ForgeAutoFixIntent.parse(redactData(input));
     if (this.hasIntent(intent.link.threadId, intent.key)) return;
-    const count = z.object({ count: z.number() }).parse(this.#count.get()).count;
+    const count = CountRow.parse(this.#count.get()).count;
     if (count >= this.#maxPending) throw new ForgeError("limit");
     const state = this.getLinkState(intent.link.threadId, intent.link.pr);
     if (

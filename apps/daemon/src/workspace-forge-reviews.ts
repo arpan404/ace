@@ -11,6 +11,10 @@ import {
 } from "@ace/protocol";
 import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { Store } from "./store.ts";
+
+const AcceptedDraftRow = z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) });
+const CountRow = z.object({ count: z.number() });
+const StoredDrafts = z.array(ForgeReviewDraft).max(100);
 const scope = forgeResourceKey;
 /** Local draft and remote-write journal. No agent or local review-session state is touched. */
 export class WorkspaceForgeReviews {
@@ -115,9 +119,7 @@ export class WorkspaceForgeReviews {
           .all(scope(pr), 100 - unresolved.length);
         return [...unresolved, ...accepted];
       })
-      .map((row) =>
-        z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) }).parse(row),
-      );
+      .map((row) => AcceptedDraftRow.parse(row));
     return {
       viewer: host.viewer,
       headSha: host.pr.headRefOid,
@@ -194,13 +196,11 @@ export class WorkspaceForgeReviews {
     if (!allowed()) throw new ForgeError("cancelled");
     if (action.kind === "draft.save") {
       this.#store.atomic((db) => {
-        const count = z
-          .object({ count: z.number() })
-          .parse(
-            db
-              .prepare("SELECT COUNT(*) AS count FROM forge_hosted_drafts WHERE scope=?")
-              .get(scope(pr)),
-          ).count;
+        const count = CountRow.parse(
+          db
+            .prepare("SELECT COUNT(*) AS count FROM forge_hosted_drafts WHERE scope=?")
+            .get(scope(pr)),
+        ).count;
         const exists = db
           .prepare("SELECT id FROM forge_hosted_drafts WHERE scope=? AND id=?")
           .get(scope(pr), action.draft.id);
@@ -238,10 +238,7 @@ export class WorkspaceForgeReviews {
         return;
       }
       const original = ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)));
-      const drafts = z
-        .array(ForgeReviewDraft)
-        .max(100)
-        .parse(JSON.parse(z.string().parse(row.drafts)));
+      const drafts = StoredDrafts.parse(JSON.parse(z.string().parse(row.drafts)));
       if (!(await backend.reviews.reconcile(pr.number, original, action.operationId, signal)))
         throw new Error("action_outcome_uncertain");
       this.#store.atomic(() => {

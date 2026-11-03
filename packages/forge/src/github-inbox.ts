@@ -18,6 +18,9 @@ import type { WriteDispatch } from "./write-dispatch.ts";
 const perPage = 50;
 const maxRemembered = 32;
 type Remembered = { page: Page; at: number; list: ForgeInboxList };
+const StatesBody = z.object({
+  data: z.record(z.string(), z.record(z.string(), z.unknown()).nullable()),
+});
 
 /**
  * A 403 to the account's notifications means gh's token can't reach them (a fine-grained or app
@@ -192,9 +195,7 @@ export class GitHubInbox {
         (error instanceof ForgeError && (error.kind === "not_found" || error.kind === "forbidden"));
       return { states, complete: settled };
     }
-    const data = z
-      .object({ data: z.record(z.string(), z.record(z.string(), z.unknown()).nullable()) })
-      .safeParse(body);
+    const data = StatesBody.safeParse(body);
     if (!data.success) return { states, complete: false };
     repos.forEach((repo, index) => {
       const nodes = data.data.data[`r${index}`];

@@ -4,6 +4,9 @@ import { digestFromCounters, type DigestContribution } from "@ace/projection";
 import { LongThreadDatabase, decodeCounters, type Counters } from "./database.ts";
 import { Ranges } from "./ranges.ts";
 
+const FileRefRow = z.object({ path: z.string(), current_refs: z.number() });
+const DigestOwner = z.object({ agentId: z.string() });
+
 const FileRow = z.object({
   path: z.string(),
   added: z.number(),
@@ -340,7 +343,7 @@ export class Digests {
         "SELECT t.path,COALESCE(f.refs,0) AS current_refs FROM long_time_files t LEFT JOIN long_files f ON f.thread_id=t.thread_id AND f.ordinal=0 AND f.path=t.path WHERE t.thread_id=? AND t.at>? ORDER BY t.at,t.path LIMIT 65",
       )
       .all(thread, time)
-      .map((row) => z.object({ path: z.string(), current_refs: z.number() }).parse(row));
+      .map((row) => FileRefRow.parse(row));
     const totals = this.ranges.fileCounters(
       thread,
       files.slice(0, 64).map((file) => file.path),
@@ -384,7 +387,7 @@ export class Digests {
       old ? decodeCounters(old.counters) : {},
       counters,
     );
-    const owner = z.object({ agentId: z.string() }).safeParse(data);
+    const owner = DigestOwner.safeParse(data);
     if (owner.success)
       this.agentReplace(
         event,

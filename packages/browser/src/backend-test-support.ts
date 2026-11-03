@@ -7,7 +7,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { afterEach } from "vitest";
 import { installOriginGuard } from "./origin-guard.ts";
 import type { CarriedCookie } from "./cookie-carry.ts";
-import { BrowserBackendServerMessage } from "@ace/protocol";
+import { BrowserBackendClientMessage, BrowserBackendServerMessage } from "@ace/protocol";
 import {
   BrowserService,
   type BrowserServiceOptions,
@@ -218,7 +218,9 @@ export async function backendFixture(
     },
     close: () => connection.close(),
   });
-  connection.on("message", (data) => backend.handle(JSON.parse(data.toString())));
+  connection.on("message", (data) =>
+    backend.handle(BrowserBackendClientMessage.parse(JSON.parse(data.toString()))),
+  );
   connection.on("close", () => backend.disconnect("Desktop disconnected"));
   const pages = new Map<string, FakePage>();
   const requests = new EventEmitter();

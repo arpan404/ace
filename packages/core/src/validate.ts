@@ -29,6 +29,7 @@ import { isFactData, preservesFields, validData } from "./fact-data.ts";
 
 type Fields = Record<string, unknown>;
 const raw = RawPayload.array();
+const StringList = z.array(z.string());
 const agentId = AgentId.parse("validation_agent");
 const itemId = ItemId.parse("validation_item");
 const allowed: Record<Fact["type"], string[]> = {
@@ -303,7 +304,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "activity":
       return AgentActivity.safeParse(fact.activity).success && optionalString(fact.detail);
     case "subagents.waiting":
-      return z.array(z.string()).safeParse(fact.targets).success;
+      return StringList.safeParse(fact.targets).success;
     case "item.reconciled":
     case "item.upsert":
       return itemError(state, fact, now) === undefined;

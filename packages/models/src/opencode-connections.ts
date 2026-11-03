@@ -40,22 +40,23 @@ export async function connectedOpenCodeProviders(
   }
 }
 
+const OpenCodeConnectionRows = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(256),
+      name: z.string().min(1).max(256).optional(),
+      local: z.boolean().optional(),
+      baseURL: z.string().max(4096).optional(),
+      connections: z
+        .array(z.object({ type: z.string().max(256), authType: z.string().max(256).optional() }))
+        .max(128),
+    }),
+  )
+  .max(512);
+
 /** Only CLI-exposed identity/type/endpoint flags cross this boundary. Unknown fields are stripped. */
 export function parseOpenCodeConnections(value: unknown): ReadonlyMap<string, ModelSource> {
-  const rows = z
-    .array(
-      z.object({
-        id: z.string().min(1).max(256),
-        name: z.string().min(1).max(256).optional(),
-        local: z.boolean().optional(),
-        baseURL: z.string().max(4096).optional(),
-        connections: z
-          .array(z.object({ type: z.string().max(256), authType: z.string().max(256).optional() }))
-          .max(128),
-      }),
-    )
-    .max(512)
-    .parse(value);
+  const rows = OpenCodeConnectionRows.parse(value);
   const connected = new Map<string, ModelSource>();
   for (const row of rows) {
     const source = providerSource(row.id, {

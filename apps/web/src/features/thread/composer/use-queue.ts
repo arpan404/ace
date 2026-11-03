@@ -1,5 +1,6 @@
 import { distinctRetainedInputs } from "@ace/projection";
-import { inputWithText, tokensFromInput } from "@ace/ui-core";
+import { bubbleContent, inputWithText, tokensFromInput } from "@ace/ui-core";
+import { annotationCount } from "@/features/annotations/index.ts";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import {
   CommandId,
@@ -37,6 +38,23 @@ export async function sendQueueAction(
 /** The text of a queued message, as the person wrote it. */
 export const queuedText = (message: Pick<QueuedMessage, "input">) =>
   tokensFromInput(message.input).text;
+
+/**
+ * A message on its way in one line: its words without the blocks only the agent reads, what it
+ * replies to and how many annotations go with it.
+ */
+export function queuedLine(message: Pick<QueuedMessage, "input">): string {
+  const shown = bubbleContent(message.input);
+  const annotations = shown.annotations?.items.length ?? 0;
+  const quotes = shown.quotes?.length ?? 0;
+  return [
+    quotes ? `Replying to ${quotes === 1 ? "1 quote" : `${quotes} quotes`}` : "",
+    shown.text,
+    annotations ? annotationCount(annotations) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 /**
  * A change to one queued message the person made, shown at once while its command is on its

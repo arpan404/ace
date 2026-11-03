@@ -4,6 +4,8 @@ import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";
 import type { Store } from "./store.ts";
 import { ThreadId } from "@ace/protocol";
 
+const PublicationReply = z.object({ ok: z.boolean(), reason: z.string().optional() });
+
 export type HistoryPublicationWorkerFactory = (url: URL, options: WorkerOptions) => Worker;
 
 export async function publishHistory(
@@ -31,9 +33,7 @@ export async function publishHistory(
       let replied = false;
       publication.on("message", (value: unknown) => {
         if (isWorkerRuntimeMessage(value)) return;
-        const parsed = z
-          .object({ ok: z.boolean(), reason: z.string().optional() })
-          .safeParse(value);
+        const parsed = PublicationReply.safeParse(value);
         if (!parsed.success) {
           reject(new Error("Invalid history publication reply"));
           return;
