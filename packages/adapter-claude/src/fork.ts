@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { z } from "zod";
 
+const ForkResult = z.object({ sessionId: z.uuid() });
+
 /** Idle transcript clone. Never spawns a provider CLI, sends input or copies file undo history. */
 export async function forkClaudeSession(input: {
   nativeSessionId: string;
@@ -26,7 +28,7 @@ export async function forkClaudeSession(input: {
   let failure: unknown;
   worker.stdout.on("line", (line) => {
     try {
-      const result = z.object({ sessionId: z.uuid() }).parse(JSON.parse(line));
+      const result = ForkResult.parse(JSON.parse(line));
       if (nativeId !== undefined || result.sessionId === source)
         throw new Error("Invalid Claude fork identity");
       nativeId = result.sessionId;

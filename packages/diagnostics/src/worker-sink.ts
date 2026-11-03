@@ -6,6 +6,10 @@ import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
 import { appendLogLinesSync, openFileSink } from "./file-sink.ts";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+const WorkerAcknowledgement = z.object({
+  ready: z.boolean().optional(),
+  ok: z.boolean().optional(),
+});
 export interface LogWorkerRuntime {
   spawn(url: URL, data: unknown): Pick<Worker, "on" | "postMessage" | "terminate">;
   schedule(callback: () => void, milliseconds: number): () => void;
@@ -69,9 +73,7 @@ export async function createFileSink(
   worker.on("message", (input: unknown) => {
     if (isWorkerRuntimeMessage(input)) return;
     cancel?.();
-    const parsed = z
-      .object({ ready: z.boolean().optional(), ok: z.boolean().optional() })
-      .safeParse(input);
+    const parsed = WorkerAcknowledgement.safeParse(input);
     if (!parsed.success) {
       fail(new Error("Invalid log acknowledgement"));
       return;

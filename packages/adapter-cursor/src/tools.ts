@@ -4,6 +4,11 @@ import { TodoEntry } from "@ace/protocol";
 import { z } from "zod";
 import { object, string } from "./contracts.ts";
 
+const NativeTodos = z
+  .array(z.object({ content: z.string(), status: z.string(), id: z.string().optional() }))
+  .max(128);
+const Todos = z.array(TodoEntry).max(128);
+
 const kinds: Record<string, ToolKind> = {
   shell: "shell",
   read: "file.read",
@@ -98,22 +103,16 @@ export function toolDetail(name: string, args: unknown, result: unknown): ToolDe
         ...(string(input.prompt) ? { prompt: string(input.prompt) } : {}),
       };
     case "todo": {
-      const native = z
-        .array(z.object({ content: z.string(), status: z.string(), id: z.string().optional() }))
-        .max(128)
-        .safeParse(input.todos ?? value.todos);
-      const todos = z
-        .array(TodoEntry)
-        .max(128)
-        .safeParse(
-          native.success
-            ? native.data.map((todo) => ({
-                content: todo.content,
-                id: todo.id,
-                status: todo.status === "inProgress" ? "in_progress" : todo.status,
-              }))
-            : [],
-        );
+      const native = NativeTodos.safeParse(input.todos ?? value.todos);
+      const todos = Todos.safeParse(
+        native.success
+          ? native.data.map((todo) => ({
+              content: todo.content,
+              id: todo.id,
+              status: todo.status === "inProgress" ? "in_progress" : todo.status,
+            }))
+          : [],
+      );
       return { kind, todos: todos.success ? todos.data : [] };
     }
     case "plan":

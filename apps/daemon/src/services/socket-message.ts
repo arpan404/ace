@@ -18,7 +18,7 @@ const families: readonly z.ZodType<SocketMessage>[] = [
 ];
 
 /** The `type` literals a schema accepts, or undefined when it doesn't pin `type` down. */
-function typeLiterals(schema: z.ZodType): ReadonlySet<unknown> | undefined {
+function typeLiterals(schema: z.core.$ZodType): ReadonlySet<unknown> | undefined {
   if (schema instanceof z.ZodObject) {
     const type: unknown = schema.shape["type"];
     return type instanceof z.ZodLiteral ? type.values : undefined;

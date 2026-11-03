@@ -63,6 +63,7 @@ class ConsumerFailure extends Error {
   }
 }
 const Identity = z.object({ version: z.string(), pid: z.number().int().positive() }).passthrough();
+const ServerSecrets = z.array(z.string().min(1).max(4096)).max(32);
 /** One process/stream/reconnect owner per adapter instance. */
 export class OpenCodeServer {
   readonly runtime: Runtime;
@@ -113,10 +114,7 @@ export class OpenCodeServer {
   constructor(options: ServerOptions = {}) {
     this.options = {
       ...options,
-      secrets: z
-        .array(z.string().min(1).max(4096))
-        .max(32)
-        .parse(options.secrets ?? []),
+      secrets: ServerSecrets.parse(options.secrets ?? []),
     };
     this.runtime = runtime(options.runtime);
   }

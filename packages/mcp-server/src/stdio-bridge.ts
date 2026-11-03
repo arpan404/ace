@@ -18,6 +18,10 @@ const Message = z
     method: z.string().min(1).max(256),
   })
   .passthrough();
+const RequestId = z.union([z.string(), z.number()]);
+const CancelledNotification = z.object({ params: z.object({ requestId: RequestId }) });
+const SseEnvelope = z.object({ id: RequestId.optional() }).passthrough();
+const ReplyEnvelope = z.object({ jsonrpc: z.literal("2.0"), id: RequestId }).passthrough();
 export type BridgeOptions = {
   connection: AceMcpConnection;
   input: Readable;
@@ -85,9 +89,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     if (message.method === "notifications/initialized" || message.method === "tools/list")
       await listen().catch(() => {});
     if (message.method === "notifications/cancelled") {
-      const cancelled = z
-        .object({ params: z.object({ requestId: z.union([z.string(), z.number()]) }) })
-        .safeParse(message);
+      const cancelled = CancelledNotification.safeParse(message);
       if (cancelled.success) active.get(cancelled.data.params.requestId)?.abort();
     }
     const controller = new AbortController();
@@ -135,10 +137,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
       const parser = new SseParser(
         (event) => {
           const value: unknown = JSON.parse(event.data);
-          const envelope = z
-            .object({ id: z.union([z.string(), z.number()]).optional() })
-            .passthrough()
-            .parse(value);
+          const envelope = SseEnvelope.parse(value);
           if (envelope.id === message.id) reply = value;
         },
         "",
@@ -160,10 +159,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
         if (sse) parser.feed(decoder.decode());
         else reply = JSON.parse(decoder.decode(Buffer.concat(chunks, bytes)));
         if (reply === undefined) throw new Error("MCP reply did not settle request");
-        const envelope = z
-          .object({ jsonrpc: z.literal("2.0"), id: z.union([z.string(), z.number()]) })
-          .passthrough()
-          .parse(reply);
+        const envelope = ReplyEnvelope.parse(reply);
         if (envelope.id !== message.id) throw new Error("MCP reply identity mismatch");
         cancelTimer();
         await write(reply, requestSignal);

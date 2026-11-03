@@ -8,6 +8,7 @@ import {
   UsageSessionTotalsQuery as SessionTotalsRequest,
 } from "@ace/protocol";
 export { SessionTotalPage, SessionTotalsRequest };
+const ColumnInfo = z.object({ name: z.string() });
 /** Inclusive estimates retain inherited baselines without contributing to agent/day rollups. */
 export class SessionTotals {
   private readonly upsert;
@@ -22,7 +23,7 @@ export class SessionTotals {
       CREATE INDEX IF NOT EXISTS usage_session_thread ON usage_session_totals(thread, at);`);
     if (
       ![...db.prepare("PRAGMA table_info(usage_session_totals)").iterate()].some(
-        (row) => z.object({ name: z.string() }).parse(row).name === "write1h",
+        (row) => ColumnInfo.parse(row).name === "write1h",
       )
     )
       db.exec("ALTER TABLE usage_session_totals ADD COLUMN write1h INTEGER NOT NULL DEFAULT 0");

@@ -199,6 +199,7 @@ const Setup = z
       .optional(),
   })
   .passthrough();
+const ChoiceGroup = z.object({ options: z.array(Choice) });
 export function acpPermissionModes(
   raw: unknown,
   identity: { provider?: ProviderKind | undefined; profile?: string | undefined } = {},
@@ -214,9 +215,7 @@ export function acpPermissionModes(
       continue;
     return config.data.options
       .flatMap((option) =>
-        "value" in option
-          ? [Choice.parse(option)]
-          : z.object({ options: z.array(Choice) }).parse(option).options,
+        "value" in option ? [Choice.parse(option)] : ChoiceGroup.parse(option).options,
       )
       .map((option) =>
         acpPresentation(

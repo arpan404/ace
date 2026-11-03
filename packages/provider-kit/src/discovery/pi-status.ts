@@ -10,6 +10,18 @@ import type { DiscoveryResult } from "./types.ts";
 import { probeOutput } from "../process.ts";
 import { piCredentialProviders } from "./pi-sdk.ts";
 
+const PiSettings = z.object({
+  defaultProvider: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]{1,128}$/)
+    .optional(),
+});
+const PiAuthStatus = z.object({
+  status: z.enum(["ready", "not_ready", "invalid"]),
+  reason: z.string().optional(),
+  authType: z.enum(["api_key", "oauth"]).optional(),
+});
+
 /** Only non-secret settings select the native readiness check. Never open Pi's auth files. */
 export async function discoverPiStatus(
   options: Omit<DiscoveryOptions, "overrides"> & { executable?: string } = {},
@@ -31,14 +43,9 @@ export async function discoverPiStatus(
       const buffer = Buffer.alloc(65537);
       const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
       if (bytesRead > 65536) throw new Error("Settings too large");
-      provider = z
-        .object({
-          defaultProvider: z
-            .string()
-            .regex(/^[a-zA-Z0-9._-]{1,128}$/)
-            .optional(),
-        })
-        .parse(JSON.parse(buffer.toString("utf8", 0, bytesRead))).defaultProvider;
+      provider = PiSettings.parse(
+        JSON.parse(buffer.toString("utf8", 0, bytesRead)),
+      ).defaultProvider;
     } finally {
       await file.close();
     }
@@ -82,13 +89,7 @@ export async function discoverPiStatus(
             ...(options.signal ? { signal: options.signal } : {}),
           },
         );
-        const status = z
-          .object({
-            status: z.enum(["ready", "not_ready", "invalid"]),
-            reason: z.string().optional(),
-            authType: z.enum(["api_key", "oauth"]).optional(),
-          })
-          .parse(JSON.parse(output.stdout));
+        const status = PiAuthStatus.parse(JSON.parse(output.stdout));
         const auth =
           status.status === "ready" && output.code === 0
             ? "logged_in"

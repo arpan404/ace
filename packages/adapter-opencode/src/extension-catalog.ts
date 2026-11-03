@@ -8,6 +8,7 @@ const commands = z.object({
     .max(512),
 });
 /** Optional native metadata APIs, with one in-flight read and one pending update per surface. */
+const CatalogData = z.object({ data: z.array(z.unknown()).max(512) });
 export function createExtensionCatalog(
   client: OpenCodeClient,
   cwd: string,
@@ -45,7 +46,7 @@ export function createExtensionCatalog(
               availableCommands: commands.parse(reply).data,
             });
           else {
-            const result = z.object({ data: z.array(z.unknown()).max(512) }).parse(reply);
+            const result = CatalogData.parse(reply);
             emit("note", "catalog.runtime", {
               method,
               cwd,

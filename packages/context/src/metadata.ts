@@ -16,6 +16,7 @@ export const UploadRow = z.object({
   done: z.number().int().min(0).max(1),
 });
 export type UploadRow = z.infer<typeof UploadRow>;
+const UsageTotals = z.object({ bytes: z.number(), count: z.number() });
 export class Metadata {
   readonly ready: Promise<void>;
   private db: DatabaseSync;
@@ -112,16 +113,12 @@ export class Metadata {
     return row ? Attachment.parse(JSON.parse(z.string().parse(row.metadata))) : undefined;
   }
   usage(scope: string): { bytes: number; count: number } {
-    return z
-      .object({ bytes: z.number(), count: z.number() })
-      .parse(
-        this.get("SELECT bytes,count FROM usage WHERE scope=?", scope) ?? { bytes: 0, count: 0 },
-      );
+    return UsageTotals.parse(
+      this.get("SELECT bytes,count FROM usage WHERE scope=?", scope) ?? { bytes: 0, count: 0 },
+    );
   }
   storage(): { bytes: number; count: number } {
-    return z
-      .object({ bytes: z.number(), count: z.number() })
-      .parse(this.get("SELECT bytes,count FROM storage WHERE id=1"));
+    return UsageTotals.parse(this.get("SELECT bytes,count FROM storage WHERE id=1"));
   }
   adjustStorage(bytes: number, count: number): void {
     this.run("UPDATE storage SET bytes=bytes+?,count=count+? WHERE id=1", bytes, count);

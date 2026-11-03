@@ -3,6 +3,8 @@ import type { Frame } from "./frames.ts";
 import type { HelperPort } from "./helper-session.ts";
 import { nodeScheduler } from "./runtime.ts";
 
+const CaptureProgress = z.object({ afterSeq: z.number().int().nonnegative() });
+
 /**
  * Helpers whose capture pauses while nobody watches (`watch`), with each watch a new capture
  * generation stamped on its pictures: Windows, and Linux, whose desktop sends a buffer only
@@ -102,7 +104,7 @@ export class Pixels {
           await this.helper.requestV2({ op: "watch", active, captureGeneration: this.generation });
         } else {
           const data = await this.helper.request({ op: "capture", enabled: active });
-          const progress = z.object({ afterSeq: z.number().int().nonnegative() }).parse(data);
+          const progress = CaptureProgress.parse(data);
           if (active) this.floor = progress.afterSeq;
         }
         this.actual = active;

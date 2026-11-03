@@ -47,6 +47,8 @@ const Attempt = z
   .passthrough();
 export type OpenCodeAttempt = z.infer<typeof Attempt>;
 const Status = z.object({ status: z.string() }).passthrough();
+const DataReply = z.object({ data: z.unknown() });
+const IntegrationEntries = z.array(z.unknown()).max(1024);
 
 export interface OpenCodeSignIn {
   integrations(): Promise<OpenCodeIntegration[]>;
@@ -110,20 +112,14 @@ export async function openOpenCodeSignIn(options: {
       signal: AbortSignal.any([options.signal, stopped.signal]),
     });
     if (!response.ok) throw new Error(`OpenCode sign-in request failed (${response.status})`);
-    return response.status === 204
-      ? undefined
-      : z.object({ data: z.unknown() }).parse(await response.json()).data;
+    return response.status === 204 ? undefined : DataReply.parse(await response.json()).data;
   };
   return {
     async integrations() {
-      return z
-        .array(z.unknown())
-        .max(1024)
-        .parse(await request("/api/integration"))
-        .flatMap((entry) => {
-          const parsed = Integration.safeParse(entry);
-          return parsed.success ? [parsed.data] : [];
-        });
+      return IntegrationEntries.parse(await request("/api/integration")).flatMap((entry) => {
+        const parsed = Integration.safeParse(entry);
+        return parsed.success ? [parsed.data] : [];
+      });
     },
     async begin(integration, method, answer) {
       return Attempt.parse(
