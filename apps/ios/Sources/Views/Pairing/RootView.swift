@@ -32,6 +32,7 @@ struct RootView: View {
     /// while the phone is still reading its machines the list shows its loading rows.
     private var content: some View {
         InboxView(inbox: machines.inbox, machines: machines, lock: lock)
+            .machineCodePrompt(machines.inbox)
     }
 }
 

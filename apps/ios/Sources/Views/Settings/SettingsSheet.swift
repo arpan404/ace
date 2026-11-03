@@ -102,7 +102,7 @@ struct SettingsSheet: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
-        case .account: AceAccountView()
+        case .account: AceAccountView(machines: machines)
         case .machines: MachinesView(inbox: inbox, machines: machines)
         case .machine(let hostId): MachineDetailView(inbox: inbox, machines: machines, hostId: hostId)
         case .pair:

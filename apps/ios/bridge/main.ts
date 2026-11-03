@@ -19,6 +19,8 @@ import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
+import { accountCredential, accountGate, machineCodeRefusal } from "./account-machine.ts";
+import type { MachineCodeGate } from "@ace/client";
 import { followMachine, MachineProviders } from "./machine-info.ts";
 import { MachineFollowers } from "./machine-followers.ts";
 import { HostCare } from "./host-care.ts";
@@ -63,6 +65,8 @@ const Config = z.object({
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
+  /** A machine on the phone's ace account, through ace's relay: device grants (ADR 0111). */
+  account: z.strictObject({}).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
@@ -79,6 +83,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("retry") }),
   z.object({ type: z.literal("wake") }),
   z.object({ type: z.literal("machine.refresh") }),
+  /** The machine code the person typed for an account machine; kept until the daemon answers. */
+  z.object({ type: z.literal("machine.code"), code: z.string().max(128) }),
   /** `epoch`: the navigation generation the action was sent for (`thread-route.ts`). */
   z.object({
     type: z.literal("thread"),
@@ -104,6 +110,8 @@ const Action = z.discriminatedUnion("type", [
   z.object({ type: z.literal("transfers"), action: TransferAction }),
 ]);
 let client: ClientCore | undefined;
+/** An account machine's machine-code gate; undefined for paired machines. */
+let gate: MachineCodeGate | undefined;
 let snapshots: ReturnType<typeof nativeReadSnapshots> | undefined;
 let notifications: NotificationBridge | undefined;
 let machine: MachineProviders | undefined;
@@ -176,17 +184,34 @@ async function start(json: string): Promise<void> {
     build: "ios-turn-steps-v1",
   });
   const paired = config.paired;
+  const account = config.account ? accountGate(() => call("credential")) : undefined;
+  gate = account;
+  const credential = paired
+    ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
+    : account
+      ? accountCredential(account)
+      : async () =>
+          z
+            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
+            .parse(JSON.parse(await call("credential")));
+  // The daemon refuses an account hello with `machine_code_*` until the code is entered.
+  const early = account
+    ? (text: string) => {
+        const reason = machineCodeRefusal(text);
+        if (reason) account.refused(reason);
+      }
+    : undefined;
+  if (account) {
+    const machineCode = () =>
+      pump.put("machine.code", () => ({ type: "machine.code", asking: account.asking ?? null }));
+    account.subscribe(machineCode);
+  }
   client = new ClientCore({
     deviceId: config.deviceId,
     expectedHostId: config.hostId,
     limits: { items: config.itemLimit, text: 8192 },
-    transport: () => nativeTransport(trust),
-    credential: paired
-      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
-      : async () =>
-          z
-            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
-            .parse(JSON.parse(await call("credential"))),
+    transport: () => nativeTransport(trust, early),
+    credential,
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {
@@ -226,7 +251,11 @@ async function start(json: string): Promise<void> {
   const owner = client;
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
-    if (connection.getSnapshot() === "ready") trust.clear();
+    if (connection.getSnapshot() !== "ready") return;
+    trust.clear();
+    account?.welcomed();
+  });
+  connection.subscribe(() => {
     pump.put("connection.problem", () => ({
       type: "connection.problem",
       problem: connectionProblem(connection.getSnapshot(), owner.error, trust),
@@ -271,12 +300,7 @@ async function start(json: string): Promise<void> {
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
-    credential: paired
-      ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
-      : async () =>
-          z
-            .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
-            .parse(JSON.parse(await call("credential"))),
+    credential,
     id: () => host.uuid(),
     trust,
   };
@@ -501,6 +525,14 @@ function action(json: string): void {
         break;
       case "machine.refresh":
         machine?.refresh();
+        break;
+      case "machine.code":
+        try {
+          gate?.enter(value.code);
+          client.reconnectNow();
+        } catch {
+          pump.put("machine.code", () => ({ type: "machine.code", asking: gate?.asking ?? null }));
+        }
         break;
       case "command":
         void dispatchCommand(client, value.payload, value.requestId, pump);
