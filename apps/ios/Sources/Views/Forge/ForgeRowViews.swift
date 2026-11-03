@@ -72,7 +72,7 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.sm) {
                     Text(title)
-                        .aceFont(InboxRowType.title, relativeTo: .body)
+                        .aceFont(InboxRowType.title, relativeTo: .callout)
                         .foregroundStyle(AceTheme.Colours.foreground)
                         .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                     Spacer(minLength: AceTheme.Spacing.sm)
@@ -83,11 +83,11 @@ private struct ForgeRowLayout<Glyph: View, Line: View, Marks: View>: View {
                     Spacer(minLength: AceTheme.Spacing.sm)
                     HStack(spacing: AceTheme.Spacing.sm) { marks() }.fixedSize().layoutPriority(2)
                 }
-                .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                .aceFont(InboxRowType.line, relativeTo: .footnote)
             }
         }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .padding(.vertical, AceTheme.Spacing.md)
+        .padding(.vertical, AceDesign.Size.rowPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
@@ -127,7 +127,7 @@ private struct ForgeRowAge: View {
         TimelineView(.everyMinute) { context in
             Text(ActivityTime.age(since: Date(timeIntervalSince1970: updatedAt / 1000), now: context.date))
                 .monospacedDigit()
-                .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                .aceFont(InboxRowType.line, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.subtleForeground)
                 .lineLimit(1).fixedSize()
         }

@@ -18,7 +18,7 @@ struct ThreadPreview: View {
         let look = look
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(row.title).aceFont(InboxRowType.title, relativeTo: .body).fontWeight(AceDesign.Typeface.regular)
+                Text(row.title).aceFont(InboxRowType.title, relativeTo: .callout).fontWeight(AceDesign.Typeface.regular)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(3)
                 // The row's icon and what it means (`rowStatusLook`), as the desktop's hover card
                 // leads with it; older bridges keep the status word.
@@ -29,9 +29,9 @@ struct ThreadPreview: View {
                                                       : look.iconTone == "failed" ? AceTheme.RowStatus.failed
                                                       : AceTheme.Colours.mutedForeground)
                     }
-                    .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                    .aceFont(InboxRowType.line, relativeTo: .footnote)
                 } else {
-                    StateLabel(status: row.status).aceFont(InboxRowType.line, relativeTo: .subheadline)
+                    StateLabel(status: row.status).aceFont(InboxRowType.line, relativeTo: .footnote)
                 }
             }
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -59,7 +59,7 @@ struct ThreadPreview: View {
                     }
                 }
             }
-            .aceFont(InboxRowType.line, relativeTo: .subheadline)
+            .aceFont(InboxRowType.line, relativeTo: .footnote)
             .foregroundStyle(AceTheme.Colours.mutedForeground)
             if row.pr != nil || row.diff != nil {
                 Divider()
@@ -82,7 +82,7 @@ struct ThreadPreview: View {
                     }
                     Spacer(minLength: AceTheme.Spacing.none)
                 }
-                .aceFont(InboxRowType.line, relativeTo: .subheadline)
+                .aceFont(InboxRowType.line, relativeTo: .footnote)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
         }

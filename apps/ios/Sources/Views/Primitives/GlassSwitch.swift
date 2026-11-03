@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// ace's one segmented control (design language §5): the choices share one capsule track on the
-/// quiet fill, and the chosen one sits on the accent's capsule, which slides between them. 44pt
-/// tall, no glass: it sits on sheets and pages, not over content.
+/// quiet fill, and the chosen one sits on the accent's capsule, which slides between them. Drawn
+/// at the system segmented control's 32pt, taking taps over 44, no glass: it sits on sheets and
+/// pages, not over content.
 struct CapsuleSegments<Value: Hashable>: View {
     struct Choice {
         let value: Value
@@ -23,7 +24,8 @@ struct CapsuleSegments<Value: Hashable>: View {
         HStack(spacing: AceTheme.Spacing.none) {
             ForEach(choices, id: \.value) { choice in segment(choice) }
         }
-        .padding(AceDesign.Space.tight)
+        .padding(AceDesign.Size.segmentInset)
+        .frame(height: AceDesign.Size.segment)
         .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
         .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: selection)
@@ -39,18 +41,19 @@ struct CapsuleSegments<Value: Hashable>: View {
                 Text(choice.title)
                 if let short = choice.short { Text(short) }
             }
-            .font(AceDesign.Typeface.body.weight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular))
+            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+            .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceDesign.Ink.onAccent : AceDesign.Ink.muted)
             .lineLimit(1)
             .padding(.horizontal, AceDesign.Space.row)
-            .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap - 2 * AceDesign.Space.tight)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background {
                 if chosen {
                     AceDesign.Shape.control.fill(AceDesign.Ink.accent)
                         .matchedGeometryEffect(id: "chosen", in: thumb)
                 }
             }
-            .contentShape(AceDesign.Shape.control)
+            .tapBand(drawn: AceDesign.Size.segment)
         }
         .buttonStyle(.plain)
         .disabled(disabled)

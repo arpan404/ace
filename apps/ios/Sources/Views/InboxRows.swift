@@ -21,12 +21,13 @@ struct InboxThreadRow: View {
 
     var body: some View {
         let look = look
+        HStack(alignment: .center, spacing: AceDesign.Space.row) {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
             InboxRowMark(look: look).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + InboxRowMark.baseline }
             VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
                     Text(row.title)
-                        .aceFont(InboxRowType.title, relativeTo: .body)
+                        .aceFont(InboxRowType.title, relativeTo: .callout)
                         // Semibold only while the thread needs the person, as on the desktop.
                         .fontWeight(look.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                         .foregroundStyle(look.settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
@@ -37,8 +38,11 @@ struct InboxThreadRow: View {
                 InboxRowLine(row: row, look: look, snoozed: snoozed, machine: machine, project: project)
             }
         }
+            // The machine, subagents and provider: centred on the row at its trailing edge.
+            InboxRowMarks(row: row, look: look, machine: machine).fixedSize()
+        }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
+        .padding(.vertical, InboxRowType.padding(densityId))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
         // The title, then what the icon means ("Needs approval"), as the desktop row names itself.
@@ -54,9 +58,14 @@ struct InboxThreadRow: View {
 
 /// The row's type: the title role for the thread's title and the body role for the line under
 /// it (design language §3), as the system's lists set them.
-enum InboxRowType {
-    static let title = AceTheme.Typography.body
-    static let line = AceTheme.Typography.rowTitle
+@MainActor enum InboxRowType {
+    static let title = AceDesign.TextRole.rowTitle
+    static let line = AceDesign.TextRole.meta
+    /// Above and below a row's lines: the phone's row padding, or less where the density is
+    /// compact.
+    static func padding(_ density: String) -> CGFloat {
+        min(AceTheme.density(density).inboxRowPadding, AceDesign.Size.rowPadding)
+    }
 }
 
 /// The one status mark beside a row: the desktop row's status icon in its state's colour
@@ -126,8 +135,8 @@ struct InboxRowAge: View {
     }
     private func label(_ text: String) -> some View {
         Text(text).monospacedDigit()
-            .aceFont(InboxRowType.line, relativeTo: .subheadline)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .aceFont(InboxRowType.line, relativeTo: .footnote)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
             .lineLimit(1).fixedSize()
     }
     private func text(at now: Date) -> String {
@@ -163,10 +172,9 @@ struct InboxRowLine: View {
                     .lineLimit(1)
                     .layoutPriority(1)
             }
-            Spacer(minLength: AceDesign.Space.related)
-            InboxRowMarks(row: row, look: look, machine: machine).fixedSize().layoutPriority(2)
+            Spacer(minLength: AceTheme.Spacing.none)
         }
-        .aceFont(InboxRowType.line, relativeTo: .subheadline)
+        .aceFont(InboxRowType.line, relativeTo: .footnote)
     }
     /// When a snoozed row wakes: "Until 3:00 PM" today, else with the weekday.
     static func wake(_ until: Double) -> String {
@@ -192,14 +200,15 @@ struct InboxRowMarks: View {
             }
             if look.subagents > 0 {
                 HStack(spacing: AceTheme.Spacing.xxs) {
-                    AceIcon(.treeStructure, size: AceDesign.Size.glyphSmall, relativeTo: .subheadline)
+                    AceIcon(.treeStructure, size: AceDesign.Size.glyphSmall, relativeTo: .footnote)
                     Text(look.subagents.formatted()).monospacedDigit()
                 }
+                .aceFont(InboxRowType.line, relativeTo: .footnote)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(look.subagents) agents")
             }
             // The provider in its own colours at 80% (a one-colour mark in the foreground ink).
-            ProviderMark(provider: row.provider, size: AceDesign.Size.icon, quiet: look.settled)
+            ProviderMark(provider: row.provider, size: AceDesign.Size.rowMark, quiet: look.settled)
                 .foregroundStyle(look.settled ? AceTheme.Colours.faintForeground : AceTheme.Colours.foreground)
                 .opacity(look.settled ? 1 : AceDesign.Ink.markOpacity)
         }
@@ -222,15 +231,15 @@ struct InboxUnsentRow: View {
             .frame(width: AceDesign.Size.lead).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + InboxRowMark.baseline }
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.density(densityId).inboxLineGap) {
-                Text(entry.text).aceFont(InboxRowType.title, relativeTo: .body)
+                Text(entry.text).aceFont(InboxRowType.title, relativeTo: .callout)
                     .foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
                 (Text(entry.label ?? "").foregroundStyle(tone == .needsYou ? tone.text : AceTheme.Colours.mutedForeground)
                  + Text(thread.map { " · \($0.title)" } ?? "").foregroundStyle(AceTheme.Colours.mutedForeground))
-                    .aceFont(InboxRowType.line, relativeTo: .subheadline).lineLimit(1)
+                    .aceFont(InboxRowType.line, relativeTo: .footnote).lineLimit(1)
             }
         }
         .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .padding(.vertical, AceTheme.density(densityId).inboxRowPadding)
+        .padding(.vertical, InboxRowType.padding(densityId))
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

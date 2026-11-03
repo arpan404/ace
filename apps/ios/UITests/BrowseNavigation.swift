@@ -65,8 +65,8 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// The inbox's New thread button, the round tab at the tab bar's trailing end.
-    var newThreadButton: XCUIElement { tabBars.buttons["New thread"].firstMatch }
+    /// The inbox's compose button, the round button at the bottom bar's trailing end.
+    var newThreadButton: XCUIElement { buttons["inbox.compose"].firstMatch }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {
         XCTAssertTrue(buttons["inbox.settings"].waitForExistence(timeout: timeout))

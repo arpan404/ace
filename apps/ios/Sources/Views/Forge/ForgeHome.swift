@@ -76,7 +76,8 @@ struct ForgeHome: View {
 
     var body: some View {
         content
-            .inboxTopBar { chips }
+            // A plain inset on the page colour: a glass bar under a large title blurs the title.
+            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { chips.background(AceTheme.Colours.background, ignoresSafeAreaEdges: []) }
             // The system's large title (Pulls, Issues or Inbox), the project under it and the
             // machine and project pickers in its menu.
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,

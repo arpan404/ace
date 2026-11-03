@@ -282,7 +282,7 @@ struct InboxSearchList: View {
     private func plainRow(_ title: String, icon: AceIcon.Name?, detail: String? = nil) -> some View {
         HStack(spacing: AceDesign.Space.row) {
             if let icon { AceIcon(icon, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.faintForeground) }
-            Text(title).aceFont(InboxRowType.title, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            Text(title).aceFont(InboxRowType.title, relativeTo: .callout).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)
             if let detail { Text(detail).meta(AceTheme.Colours.subtleForeground) }
         }

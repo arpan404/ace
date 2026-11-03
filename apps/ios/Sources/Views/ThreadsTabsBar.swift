@@ -20,12 +20,13 @@ struct ThreadsTabsBar: View {
         HStack(spacing: AceTheme.Spacing.none) {
             ForEach(tabs) { tab in item(tab) }
         }
-        .padding(AceDesign.Space.tight)
+        .padding(AceDesign.Size.segmentInset)
+        .frame(height: AceDesign.Size.segment)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceDesign.Space.margin)
         .padding(.top, AceDesign.Space.tight)
-        .padding(.bottom, AceDesign.Space.related)
+        .padding(.bottom, AceDesign.Space.belowSegment)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Threads")
     }
@@ -41,26 +42,27 @@ struct ThreadsTabsBar: View {
                 Text(tab.label).lineLimit(1)
                 if tab.counted && total > 0 {
                     Text(total.formatted()).monospacedDigit()
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                 }
                 if lit {
                     Circle().fill(AceTheme.RowStatus.needsYou).frame(width: AceDesign.Size.dot, height: AceDesign.Size.dot)
                         .accessibilityHidden(true)
                 }
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
+            .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(chosen ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.row)
-            .frame(minHeight: AceDesign.Size.tap)
+            .frame(maxHeight: .infinity)
             .background {
                 if chosen {
                     AceShape.capsule.fill(AceDesign.Surface.fill)
                         .matchedGeometryEffect(id: "chosen", in: fill)
                 }
             }
-            .contentShape(AceShape.capsule)
+            // Drawn at the control's height; taps land over a full 44pt band.
+            .tapBand(drawn: AceDesign.Size.segment)
         }
         .buttonStyle(.plain)
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: chosen)

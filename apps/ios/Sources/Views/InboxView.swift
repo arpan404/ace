@@ -124,7 +124,11 @@ struct InboxView: View {
         TabView(selection: $tab) {
             Tab("ace", systemImage: "bubble.left", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
             // Spade, ace's cloud agent, before it launches: its own place in the bar.
-            Tab(value: InboxTab.spade) { SpadeSoonScreen() } label: {
+            Tab(value: InboxTab.spade) {
+                SpadeSoonScreen()
+                    .modifier(HomeBottomBar(tab: $tab, compose: inbox.canStartThreads ? { compose() } : nil,
+                                            composeLabel: composesChat ? "New chat" : "New thread"))
+            } label: {
                 Label { Text("Spade") } icon: { Image(uiImage: SpadeMark.tabImage) }
             }
             if inbox.canStartThreads {

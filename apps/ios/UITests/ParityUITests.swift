@@ -37,8 +37,9 @@ import XCTest
         chats.tap()
         XCTAssertTrue(app.buttons["chat.row"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'")).firstMatch.exists)
-        let compose = app.tabBars.buttons["New chat"].firstMatch
+        let compose = app.newThreadButton
         XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        XCTAssertEqual(compose.label, "New chat")
         compose.tap()
         XCTAssertEqual(app.buttons["newThread.project"].waitForExistence(timeout: 10) ? app.buttons["newThread.project"].label : nil, "Project, none")
     }

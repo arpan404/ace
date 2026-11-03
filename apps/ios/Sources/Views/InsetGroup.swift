@@ -121,6 +121,6 @@ struct InsetValue: View {
 private struct InsetRowDensity: ViewModifier {
     @Environment(\.aceDensityId) private var density
     func body(content: Content) -> some View {
-        content.environment(\.defaultMinListRowHeight, AceTheme.density(density).settingsRowHeight)
+        content.environment(\.defaultMinListRowHeight, min(AceTheme.density(density).settingsRowHeight, AceDesign.Size.settingsRow))
     }
 }

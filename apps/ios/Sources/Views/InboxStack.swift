@@ -95,6 +95,11 @@ struct InboxStack<Destination: View, Side: View>: View {
                     if holds { InboxPlaces(tab: $tab, compose: inDrawer && inbox.canStartThreads ? composeHere : nil) }
                 }
                 .modifier(ListTitle(pulls: pulls, selecting: selecting))
+                // The phone's own bottom bar, on the full-width list only: beside a page or as
+                // the drawer the list carries the places at its foot instead.
+                .modifier(HomeBottomBar(tab: $tab, compose: inbox.canStartThreads ? composeHere : nil,
+                                        composeLabel: showsChats ? "New chat" : "New thread",
+                                        shown: !holds && !selecting && !pulls))
                 .toolbar { toolbar(holdsTabs: holds, composeInBar: holds && !inDrawer) }
                 // As a compact window's drawer the list is too narrow for the system's bar, which
                 // folds the title and its buttons into one ⋯: the list draws its own header, and
@@ -322,15 +327,21 @@ struct InboxStack<Destination: View, Side: View>: View {
                 ToolbarItem(placement: .topBarLeading) { title }
             }
         }
-        // One glass capsule (design language §5): More, Pull requests and Search.
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            settings
-            if !pulls {
-                Button(action: header.pulls) { AceIcon(.gitPullRequest, size: AceDesign.Size.barIcon) }
-                    .accessibilityLabel("Pull requests").accessibilityIdentifier("inbox.pulls")
+        // One glass capsule (design language §5): More, Pull requests and Search, drawn at the
+        // header's size rather than the bar's taller default.
+        if !pulls {
+            if #available(iOS 26, *) {
+                ToolbarItem(placement: .topBarTrailing) { headerCapsule }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { headerCapsule }
             }
-            Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
-                .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if pulls {
+                settings
+                Button { withAnimation(listMotion) { searching = true } } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Search").accessibilityIdentifier("inbox.search")
+            }
             // The phone's floating New thread button, in the Threads sidebar's own bar.
             if composeInBar, !pulls, inbox.canStartThreads {
                 Button(action: composeHere) { Image(systemName: "square.and.pencil") }
@@ -357,29 +368,36 @@ struct InboxStack<Destination: View, Side: View>: View {
         HStack(alignment: .center, spacing: AceDesign.Space.related) {
             title
             Spacer(minLength: AceDesign.Space.related)
-            HStack(spacing: AceTheme.Spacing.none) {
-                headerButton(label: "More", identifier: "inbox.settings", action: header.settings) { Image(systemName: "ellipsis") }
-                headerButton(label: "Pull requests", identifier: "inbox.pulls", action: header.pulls) {
-                    AceIcon(.gitPullRequest, size: AceDesign.Size.barIcon)
-                }
-                headerButton(label: "Search", identifier: "inbox.search") {
-                    withAnimation(listMotion) { searching = true }
-                } icon: { Image(systemName: "magnifyingglass") }
-            }
-            .aceGlass(in: AceShape.capsule, interactive: true)
+            headerCapsule
         }
         .padding(.horizontal, AceDesign.Space.margin)
         .padding(.top, AceDesign.Space.row)
         .padding(.bottom, AceDesign.Space.related)
     }
+    /// More, Pull requests and Search on one glass capsule at the header's height.
+    private var headerCapsule: some View {
+        HStack(spacing: AceTheme.Spacing.none) {
+            headerButton(label: "More", identifier: "inbox.settings", action: header.settings) { Image(systemName: "ellipsis") }
+            headerButton(label: "Pull requests", identifier: "inbox.pulls", action: header.pulls) {
+                AceIcon(.gitPullRequest, size: AceDesign.Size.headerGlyph)
+            }
+            headerButton(label: "Search", identifier: "inbox.search") {
+                withAnimation(listMotion) { searching = true }
+            } icon: { Image(systemName: "magnifyingglass") }
+        }
+        .frame(height: AceDesign.Size.headerBar)
+        .aceGlass(in: AceShape.capsule, interactive: true)
+    }
+    /// One of the capsule's buttons: drawn at the capsule's height, taking taps over a full
+    /// 44pt square.
     private func headerButton<Icon: View>(label: String, identifier: String, action: @escaping () -> Void,
                                           @ViewBuilder icon: () -> Icon) -> some View {
         Button(action: action) {
             icon()
-                .font(.system(size: AceDesign.Size.barIcon))
+                .font(.system(size: AceDesign.Size.headerGlyph, weight: AceDesign.Typeface.regular))
                 .foregroundStyle(AceTheme.Colours.foreground)
-                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .contentShape(Rectangle())
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.headerBar)
+                .tapBand(drawn: AceDesign.Size.headerBar)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)

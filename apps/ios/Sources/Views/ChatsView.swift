@@ -120,7 +120,7 @@ private struct ChatRow: View {
         let look = row.look
         HStack(spacing: AceDesign.Space.row) {
             Text(row.title)
-                .aceFont(InboxRowType.title, relativeTo: .body)
+                .aceFont(InboxRowType.title, relativeTo: .callout)
                 .fontWeight(look?.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                 .foregroundStyle(look?.settled == true ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
