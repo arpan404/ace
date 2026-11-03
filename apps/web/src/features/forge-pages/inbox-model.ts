@@ -4,6 +4,8 @@ import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.t
 
 /** `/inbox?view=all&reason=mention&repo=github.com/acme/ace`: the inbox's filters, in the address. */
 export interface InboxSearch {
+  /** The projects picked; none is every project. */
+  projects?: string[] | undefined;
   project?: string | undefined;
   /** Read notifications too; unread only when absent. */
   view?: "all" | undefined;
@@ -110,4 +112,74 @@ export function inboxPollMs(data: ForgeInboxList | undefined, failure: string | 
   if (failure && settled.has(failure)) return inboxSettledMs;
   if (failure && passing.has(failure)) return inboxBackoffMs;
   return (data?.pollSeconds ?? 60) * 1_000;
+}
+
+const reasonGroups = [
+  { id: "review", label: "Review requested", reasons: ["review_requested"] },
+  {
+    id: "mentions",
+    label: "Mentioned and assigned",
+    reasons: ["mention", "team_mention", "assign"],
+  },
+  { id: "checks", label: "Checks and security", reasons: ["ci_activity", "security_alert"] },
+] as const;
+
+export interface InboxGroup {
+  id: string;
+  label: string;
+  rows: ForgeInboxRow[];
+}
+
+/**
+ * The rows by why they reached the person: review requests, mentions and assignments, checks and
+ * security alerts, then everything else, each newest first as GitHub sends them. Empty groups are
+ * left out.
+ */
+export function inboxGroups(rows: readonly ForgeInboxRow[]): InboxGroup[] {
+  const known = new Set<string>(reasonGroups.flatMap((group) => group.reasons));
+  const groups: InboxGroup[] = reasonGroups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    rows: rows.filter((row) => (group.reasons as readonly string[]).includes(row.reason)),
+  }));
+  groups.push({
+    id: "other",
+    label: "Other activity",
+    rows: rows.filter((row) => !known.has(row.reason)),
+  });
+  return groups.filter((group) => group.rows.length > 0);
+}
+
+const repoKey = (repository: { host: string; owner: string; name: string }) =>
+  `${repository.host}/${repository.owner}/${repository.name}`.toLowerCase();
+
+/**
+ * Each row's project, by its repository; `projects` maps each project to its repository. A
+ * repository two projects share belongs to the first. Rows of repositories no project is stay
+ * without one.
+ */
+export function inboxProjects(
+  repositories: ReadonlyMap<string, { host: string; owner: string; name: string }>,
+): (row: Pick<ForgeInboxRow, "repository">) => string | undefined {
+  const byRepo = new Map<string, string>();
+  for (const [project, repository] of repositories)
+    if (!byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
+  return (row) => byRepo.get(repoKey(row.repository));
+}
+
+/**
+ * The rows the project choice keeps: every row when every project shows (notifications are the
+ * account's, so repositories outside ace's projects too); else only the picked projects' rows.
+ */
+export function rowsForProjects(
+  rows: readonly ForgeInboxRow[],
+  picked: readonly string[],
+  projectOf: (row: ForgeInboxRow) => string | undefined,
+): ForgeInboxRow[] {
+  if (!picked.length) return [...rows];
+  const wanted = new Set(picked);
+  return rows.filter((row) => {
+    const project = projectOf(row);
+    return project !== undefined && wanted.has(project);
+  });
 }

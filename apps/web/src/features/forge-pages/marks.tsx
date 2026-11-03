@@ -21,6 +21,7 @@ export function PrStateGlyph(props: {
   conflicting?: boolean | undefined;
 }) {
   const Glyph = props.state === "merged" ? GitMergeIcon : GitPullRequestIcon;
+  if (props.state === "draft") return <DraftGlyph />;
   return (
     <span
       data-tone={prTone[props.state]}
@@ -39,6 +40,25 @@ export function PrStateGlyph(props: {
           <span className="sr-only">, conflicts with base</span>
         </span>
       )}
+    </span>
+  );
+}
+
+/** A draft: the pull request's mark drawn dashed, quiet. */
+function DraftGlyph() {
+  return (
+    <span data-tone="idle" title="Draft" className="inline-flex shrink-0 text-(--tone-text)">
+      <svg aria-hidden width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor">
+        <circle cx="4" cy="3.5" r="1.6" strokeWidth={1.4} />
+        <circle cx="4" cy="12.5" r="1.6" strokeWidth={1.4} />
+        <circle cx="12" cy="12.5" r="1.6" strokeWidth={1.4} />
+        <path
+          d="M4 5.3v5.4M12 10.7V6.5a2 2 0 0 0-2-2H8"
+          strokeWidth={1.4}
+          strokeDasharray="1.6 1.6"
+        />
+      </svg>
+      <span className="sr-only">Draft</span>
     </span>
   );
 }

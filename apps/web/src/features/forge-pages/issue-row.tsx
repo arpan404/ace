@@ -4,13 +4,17 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
-import { LabelPill } from "@/components/forge-marks.tsx";
 import { Avatars, IssueStateGlyph } from "./marks.tsx";
-import { Age, Author, Comments, RowActions, rowClass, Thread } from "./row-parts.tsx";
+import { Age, Comments, Dot, ProjectTag, RowActions, rowClass, Thread } from "./row-parts.tsx";
 
-/** One issue: glyph, number, title and labels, its comments and assignees; then author and age. */
+/**
+ * One issue: its state glyph and title, its comments and assignees; then its project (when the
+ * list shows more than one), number, author, labels, milestone, thread and age.
+ */
 export function IssueRow(props: {
   project: string;
+  /** The project's name, shown at the start of line 2; none when the list shows one project. */
+  projectName?: string | undefined;
   row: ForgeIssueRow;
   /** The list's address, so the issue's page can return to it as it was. */
   back: string;
@@ -36,40 +40,42 @@ export function IssueRow(props: {
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono text-xs text-subtle-foreground tabular-nums">
-              #{row.ref.number}
-            </span>
             <span
               data-view-row-title=""
               className="min-w-0 truncate text-ui font-medium text-foreground"
             >
               {row.title}
             </span>
-            <span className="hidden min-w-0 shrink items-center gap-1 overflow-hidden @xl/list:flex">
-              {row.labels.map((label) => (
-                <LabelPill key={label} name={label} color={row.labelColors?.[label]} />
-              ))}
-            </span>
             <span className="ml-auto flex shrink-0 items-center gap-2.5 pl-2">
               <Comments count={row.commentCount} />
               <Avatars people={row.assignees} avatars={row.avatars} label="Assignees" />
             </span>
           </span>
-          <span className="flex min-w-0 items-center gap-1.5 text-meta text-muted-foreground">
-            <Author login={row.author} avatar={row.avatars?.[row.author] ?? row.authorAvatarUrl} />
+          <span className="flex min-w-0 items-center gap-1.5 text-meta text-subtle-foreground">
+            {props.projectName && (
+              <>
+                <ProjectTag id={props.project} name={props.projectName} />
+                <Dot />
+              </>
+            )}
+            <span className="shrink-0 tabular-nums">#{row.ref.number}</span>
+            <Dot />
+            <span className="max-w-40 shrink-0 truncate">{row.author}</span>
+            {row.labels.length > 0 && (
+              <>
+                <Dot />
+                <span className="min-w-0 truncate">{row.labels.join(", ")}</span>
+              </>
+            )}
             {row.milestone && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
+                <Dot />
                 <span className="truncate">{row.milestone}</span>
               </>
             )}
             {props.thread && (
               <>
-                <span aria-hidden className="text-subtle-foreground">
-                  ·
-                </span>
+                <Dot />
                 <Thread thread={props.thread} />
               </>
             )}

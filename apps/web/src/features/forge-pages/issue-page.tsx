@@ -15,7 +15,7 @@ import { IssueTimeline, timelineSpeakers } from "./issue-timeline.tsx";
 import { IssuePageSkeleton } from "./issue-skeletons.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
 import { cachedRow, useIssueDetail } from "./lists.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { IssuePages, PullRequestPages } from "@/components/forge-links.tsx";
 import { repositoryFromParam } from "@/lib/pull-request-route.ts";
 
@@ -87,8 +87,8 @@ export function IssuePage(props: {
   /** The list's own address, when opened from it. */
   back: string | undefined;
 }) {
-  const choice = useProjectChoice(props.project);
-  const back = useBackToList("/issues", props.project, props.back);
+  const choice = { name: useProjectName() };
+  const back = useBackToList("/issues", props.back);
   const label = backLabel(props.back, "Issues");
   const repository = repositoryFromParam(props.repo);
   const query = useIssueDetail(props.project, props.number, repository);

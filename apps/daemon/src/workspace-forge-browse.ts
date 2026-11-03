@@ -33,6 +33,9 @@ export class WorkspaceForgeBrowse {
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
     if (operation.op === "forge.inbox.list") return this.inbox(cwd, operation, signal);
+    // Which repository a project is, from its remote alone: lists tag rows by project with it.
+    if (operation.op === "forge.repository")
+      return { resource: "repository", value: await this.ctx.backends.repository(cwd) };
     // A new pull request reads where it would open, which may be a fork's parent.
     if (operation.op === "forge.pr.new-context")
       return { resource: "newPrContext", value: await this.parts.newPr.context(cwd, signal) };

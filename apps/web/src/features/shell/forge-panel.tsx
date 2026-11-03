@@ -2,6 +2,8 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { BellIcon, CircleDashedIcon, GitPullRequestIcon } from "@phosphor-icons/react";
 import { PanelRowBody, panelRow } from "@/components/ui/panel.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
+import { projectsParam, rememberedProjects } from "@/lib/forge-projects.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { PanelHeader } from "./view-frame.tsx";
 
 const places = [
@@ -24,7 +26,8 @@ function forgePlaceOf(pathname: string, back: unknown): Place | undefined {
 /**
  * Code review's panel: its three pages, Inbox, Pull requests and Issues, as panel rows, the one the
  * page belongs to selected (a pull request's or issue's page included). The pages fill the main
- * column and carry no switch of their own: this panel is the way between them.
+ * column and carry no switch of their own: this panel is the way between them. Each link carries
+ * the projects picked, so moving between the three keeps them.
  */
 export function ForgePanel() {
   const current = useRouterState({
@@ -34,6 +37,21 @@ export function ForgePanel() {
     },
   });
   const keys = useViewListKeys<HTMLUListElement>();
+  // The address's pick when it names one, else the one remembered: a pick navigates, so the
+  // links follow it.
+  const routed = useRouterState({
+    select: (state) => {
+      const search: Record<string, unknown> = state.location.search;
+      const value = search["projects"];
+      return Array.isArray(value) && value.every((id) => typeof id === "string")
+        ? value.join("\n")
+        : undefined;
+    },
+  });
+  const remembered = rememberedProjects(useLayout().storage);
+  const projects = projectsParam(
+    routed === undefined ? remembered : routed ? routed.split("\n") : [],
+  );
   return (
     <aside aria-label="Code review" className="flex min-h-0 flex-1 flex-col">
       <PanelHeader title="Code review" />
@@ -42,6 +60,7 @@ export function ForgePanel() {
           <li key={place.to}>
             <Link
               to={place.to}
+              search={{ projects }}
               // Only the list itself: a pull request's page belongs to the list it came from.
               activeOptions={{ exact: true, includeSearch: false }}
               aria-current={current === place.to ? "page" : undefined}

@@ -12,7 +12,12 @@ import {
 
 /** What the Pull requests list shows, as its address keeps it (`/pulls?state=merged&…`). */
 export interface PullsSearch {
+  /** The projects picked (`useProjectChoice`); none is every project. */
+  projects?: string[] | undefined;
+  /** An older link's one project. */
   project?: string | undefined;
+  /** A quick view: only the ones that need the person. */
+  view?: "needs" | undefined;
   who?: "all" | "authored" | "reviewing" | undefined;
   state?: "open" | "merged" | "closed" | "all" | undefined;
   sort?: PullsSort | undefined;
@@ -108,6 +113,7 @@ export function groupPrs(
 
 /** What the Issues list shows, as its address keeps it (`/issues?state=closed&…`). */
 export interface IssuesSearch {
+  projects?: string[] | undefined;
   project?: string | undefined;
   who?: "all" | "assigned" | "created" | undefined;
   state?: "open" | "closed" | undefined;

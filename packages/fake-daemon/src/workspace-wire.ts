@@ -25,7 +25,7 @@ import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeInboxWire } from "./inbox-wire.ts";
-import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
+import { catalogIssueList, matchingIssues, projectRepository } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
@@ -441,6 +441,12 @@ export class FakeWorkspaceWire {
         type: "workspace.result",
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
+      });
+    if (op.op === "forge.repository")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "repository", value: projectRepository(op) } },
       });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({

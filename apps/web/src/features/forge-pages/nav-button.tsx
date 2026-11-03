@@ -5,29 +5,33 @@ import { useLinkedThreads } from "./linked-threads.ts";
 import { useInboxPages } from "./inbox-data.ts";
 import { useLastListPath } from "./last-list.ts";
 import { usePrPages } from "./lists.ts";
+import { inboxProjects, rowsForProjects } from "./inbox-model.ts";
+import { useProjectRepositories } from "./inbox-projects.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
 /**
- * Code review's place in the rail with what it knows: how many open pull requests of the project
- * last looked at wait on the person (a review asked of them, failing checks or conflicts on
+ * Code review's place in the rail with what it knows: how many open pull requests of the projects
+ * the lists show wait on the person (a review asked of them, failing checks or conflicts on
  * their PR, an agent waiting), by the same next-step rule as the list, and how many inbox
  * notifications are unread. Both come from the lists' own first pages, cached and kept between
  * sessions, so the button costs no extra GitHub read.
  */
 export function ForgeNavButton(props: { active: boolean }) {
-  const choice = useProjectChoice(undefined);
-  const project = choice.project;
-  const list = usePrPages(project, prQuery({}, 1), 1);
-  const inbox = useInboxPages(project, {}, 1);
+  const choice = useProjectChoice({});
+  const list = usePrPages(choice.projects, prQuery({}, 1), 1);
+  const inbox = useInboxPages(choice.all[0], {}, 1);
+  const projectOf = inboxProjects(useProjectRepositories(choice.all));
   const linked = useLinkedThreads().pulls;
-  const runs = useVerifyRuns(project).data?.runs ?? [];
+  const runs = useVerifyRuns(choice.one).data?.runs ?? [];
   const viewer = list.first?.viewer;
   const waiting = list.rows.filter((row) =>
     prStepsForYou.includes(
       rowStep(row, viewer, linked.get(workKey(row.ref.repository, row.ref.number)), runs).step,
     ),
   ).length;
-  const unread = inbox.rows.filter((row) => row.unread).length;
+  const unread = rowsForProjects(inbox.rows, choice.picked, projectOf).filter(
+    (row) => row.unread,
+  ).length;
   return (
     <ForgeButton to={useLastListPath()} active={props.active} needsYou={waiting} unread={unread} />
   );

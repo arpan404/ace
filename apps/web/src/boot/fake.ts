@@ -28,6 +28,7 @@ import {
   seedForgeBrowse,
   seedLongIssue,
   movingPullRequest,
+  seedProjectForge,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -146,6 +147,8 @@ export function bootFake(): {
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
     seedLongIssue(daemon, Date.now());
+    // The other projects' pull requests, issues and notifications, for the lists across projects.
+    seedProjectForge(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
     if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
     // A 62-file PR whose head moves while it's reviewed (#250 in acme/ace).

@@ -98,11 +98,12 @@ test("issues page in by Show more and mount only a window, End reaching the last
 
 test("notifications page in by Show more and mount only a window, End reaching the last loaded", async () => {
   const app = withLongLists();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   const list = await screen.findByRole("navigation", { name: "Notifications" });
   await within(list).findByText("Long list notification 0001");
-  const last = await loadThrough(list, /Long list notification 0150/);
-  expect(last.textContent).toMatch(/Long list notification 0150/);
+  // Grouped by reason, the last row loaded after three pages is the last mention: 0149.
+  const last = await loadThrough(list, /Long list notification 0149/);
+  expect(last.textContent).toMatch(/Long list notification 0149/);
   expect(mounted(list)).toBeLessThan(40);
   expect(within(list).queryByText("Long list notification 0001")).toBeNull();
 });

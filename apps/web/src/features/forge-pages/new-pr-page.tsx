@@ -14,7 +14,7 @@ import { readFailureText, useRepoPrOptions } from "@/features/forge/index.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
-import { useProjectChoice } from "./project-choice.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { ChoicePicker } from "./new-pr-pickers.tsx";
 import {
   branchLabel,
@@ -41,8 +41,8 @@ export function NewPullRequestPage(props: {
   back: string | undefined;
 }) {
   const { project } = props;
-  const choice = useProjectChoice(project);
-  const back = useBackToList("/pulls", project, props.back);
+  const choice = { name: useProjectName() };
+  const back = useBackToList("/pulls", props.back);
   const context = useNewPrContext(project);
   // Who reviews it and how it is filed stay while branches are switched; each branch keeps its
   // own title and description.

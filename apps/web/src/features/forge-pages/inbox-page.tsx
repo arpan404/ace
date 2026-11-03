@@ -1,4 +1,4 @@
-import { BellIcon } from "@phosphor-icons/react";
+import { AtIcon, BellIcon, EyeIcon, ShieldCheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useLocation } from "@tanstack/react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -14,11 +14,43 @@ import { useClock } from "@/lib/time.ts";
 import { FiltersMenu } from "./filters-menu.tsx";
 import { ForgeList } from "./forge-list.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
-import { reasonChoices, repositoryChoices, type InboxSearch } from "./inbox-model.ts";
+import {
+  inboxGroups,
+  inboxProjects,
+  reasonChoices,
+  repositoryChoices,
+  rowsForProjects,
+  type InboxSearch,
+} from "./inbox-model.ts";
+import { useProjectRepositories } from "./inbox-projects.ts";
+import { TriageKeys } from "./triage-keys.tsx";
+import { ProjectMenu } from "./project-menu.tsx";
+import { countWords } from "./quick-views.tsx";
 import { InboxRow } from "./inbox-row.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { useProjectChoice } from "./project-choice.ts";
+
+const groupIcons = {
+  review: EyeIcon,
+  mentions: AtIcon,
+  checks: ShieldCheckIcon,
+  other: BellIcon,
+} as const;
+
+/** Unread notifications per project, for the project menu. */
+function unreadCounts(
+  rows: readonly ForgeInboxRow[],
+  projectOf: (row: ForgeInboxRow) => string | undefined,
+  projects: readonly string[],
+): Map<string, number> {
+  const counts = new Map<string, number>(projects.map((id) => [id, 0]));
+  for (const row of rows) {
+    const project = projectOf(row);
+    if (project && row.unread) counts.set(project, (counts.get(project) ?? 0) + 1);
+  }
+  return counts;
+}
 
 /** Every row any inbox read of this project holds, so a filtered list still offers the rest. */
 function seenRows(cache: QueryClient, project: string | undefined): ForgeInboxRow[] {
@@ -37,12 +69,16 @@ export function InboxPage(props: {
   onSearch(patch: Partial<InboxSearch>): void;
 }) {
   const { search, onSearch } = props;
-  const choice = useProjectChoice(search.project);
-  const project = choice.project;
+  const choice = useProjectChoice(search);
+  // Notifications are the account's: one read, through the first project, for every choice.
+  const project = choice.all[0];
+  const repositories = useProjectRepositories(choice.all);
+  const projectOf = inboxProjects(repositories);
   const listKey = JSON.stringify([project, search.view, search.only, search.repo]);
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
-  const list = useInboxPages(project, search, pages);
+  const read = useInboxPages(project, search, pages);
+  const list = { ...read, rows: rowsForProjects(read.rows, choice.picked, projectOf) };
   const writes = useInboxWrites(project);
   // The unfiltered first page the sidebar polls: shared with it, and it keeps the filters'
   // choices whole. With a filter on, the page therefore polls twice: the filtered list and this.
@@ -54,15 +90,23 @@ export function InboxPage(props: {
   const listAddress = useLocation({ select: (location) => location.searchStr });
   const ownRepository = list.first?.projectRepository ?? everything.first?.projectRepository;
   const own = ownRepository ? repositoryParam(ownRepository) : undefined;
+  const groups = inboxGroups(list.rows);
+  // Triage from the keyboard: e marks done, m mutes (unsubscribes, which also clears it).
+  const triage = (row: ForgeInboxRow, action: "read" | "done" | "unsubscribe") =>
+    void (async () => {
+      const sent = await writes.write({ action, id: row.id });
+      if (sent && action === "unsubscribe") await writes.write({ action: "done", id: row.id });
+    })();
   const allRows = list.first?.items ?? [];
   const filtered = !!(search.reason || search.repo || search.only);
   const unread = list.rows.some((row) => row.unread);
   /**
    * GitHub can mark everything read, or one repository's; it can't mark only participating
-   * threads or one reason's, so then the rows on show are marked one by one.
+   * threads, one reason's or some projects', so then the rows on show are marked one by one.
    */
   const readAll = async () => {
-    if (!search.only && !search.reason) return writes.readAll(search.repo, clock());
+    if (!search.only && !search.reason && !choice.picked.length)
+      return writes.readAll(search.repo, clock());
     for (const row of list.rows)
       if (row.unread && !(await writes.write({ action: "read", id: row.id }))) return false;
     return true;
@@ -74,6 +118,14 @@ export function InboxPage(props: {
       kind="inbox"
       address={listAddress}
       ready={list.rows.length > 0}
+      lead={
+        <ProjectMenu
+          choice={choice}
+          counts={unreadCounts(read.rows, projectOf, choice.all)}
+          onPick={(next) => onSearch(choice.pick(next))}
+        />
+      }
+      footer={list.rows.length > 0 && writes.ready ? <TriageKeys /> : null}
       strip={
         // The rows on show are an earlier answer: say so once, with the way to ask again.
         list.error && list.first ? (
@@ -192,38 +244,36 @@ export function InboxPage(props: {
         <ForgeList
           label="Notifications"
           stale={list.stale}
-          groups={[
-            {
-              id: "all",
-              label: "Notifications",
-              icon: BellIcon,
-              count: undefined,
-              headed: false,
-              rows: list.rows,
-            },
-          ]}
+          groups={groups.map((group) => ({
+            id: group.id,
+            label: group.label,
+            icon: groupIcons[group.id as keyof typeof groupIcons] ?? BellIcon,
+            count: countWords(group.rows.length, undefined, !list.more),
+            headed: true,
+            rows: group.rows,
+          }))}
           rowKey={(row) => row.id}
           rowTitle={(row) => row.title}
           estimate={61}
+          onRowKey={(row, key) => {
+            if (!writes.ready || (key !== "e" && key !== "m")) return false;
+            triage(row, key === "e" ? "done" : "unsubscribe");
+            return true;
+          }}
           renderRow={(row, _group, last) => {
             const repo = repositoryParam(row.repository);
+            const owner = projectOf(row);
             return (
               <InboxRow
                 row={row}
+                tag={owner && !choice.one ? { id: owner, name: choice.name(owner) } : undefined}
                 to={{
-                  project,
-                  repo: repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
+                  project: owner ?? project,
+                  repo: owner || repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
                   back: `/inbox${listAddress}`,
                 }}
                 onOpenWeb={open}
-                onWrite={(action) =>
-                  void (async () => {
-                    // Unsubscribing also clears the thread from the inbox, as on GitHub.
-                    const sent = await writes.write({ action, id: row.id });
-                    if (sent && action === "unsubscribe")
-                      await writes.write({ action: "done", id: row.id });
-                  })()
-                }
+                onWrite={(action) => triage(row, action)}
                 last={last}
               />
             );

@@ -72,7 +72,7 @@ const entry = (
     },
   }) as unknown as ThreadListEntry;
 
-test("linked work names the first listed thread per pull request or issue, skips archived ones, and says when it needs you", () => {
+test("linked work names the first listed thread per pull request or issue, skips archived ones, and says when it needs you or is working", () => {
   const threads = [
     entry("old", { archivedAt: 1, prs: [5] }),
     entry("new", { state: "needs_you", prs: [5], issues: [7] }),
@@ -87,7 +87,8 @@ test("linked work names the first listed thread per pull request or issue, skips
     id: "new",
     title: "Thread new",
     needsYou: true,
+    working: false,
   });
-  expect(pulls.get(workKey(repository, 6))?.id).toBe("other");
+  expect(pulls.get(workKey(repository, 6))).toMatchObject({ id: "other", working: true });
   expect(issues.get(workKey({ owner: "ACME", name: "ace" }, 7))?.id).toBe("new");
 });

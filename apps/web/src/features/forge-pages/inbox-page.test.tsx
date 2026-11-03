@@ -13,10 +13,12 @@ function withInbox(uiClock?: () => number) {
   return app;
 }
 
+/** The notifications listed, without the reason groups' headings. */
 async function rows() {
   const nav = await screen.findByRole("navigation", { name: "Notifications" });
   return within(nav)
     .getAllByRole("listitem")
+    .filter((item) => item.querySelector("[data-view-row]"))
     .map((item) => item.textContent ?? "");
 }
 async function row(title: string) {
@@ -30,7 +32,7 @@ async function row(title: string) {
 
 test("the inbox lists unread notifications with why each arrived, and the sidebar counts them", async () => {
   const app = withInbox();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   const first = await row("Reconnect the client worker");
   expect(first.textContent).toContain("#229");
@@ -43,7 +45,7 @@ test("the inbox lists unread notifications with why each arrived, and the sideba
 test("opening a pull request from the inbox shows ace's page and marks the notification read", async () => {
   const app = withInbox();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   const link = within(await row("Reconnect the client worker")).getAllByRole("link")[0];
   if (!link) throw new Error("No link");
   await user.click(link);
@@ -61,7 +63,7 @@ test("opening a pull request from the inbox shows ace's page and marks the notif
 test("Mark done clears a notification, and Unsubscribe stops one and clears it", async () => {
   const app = withInbox();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await user.click(
     within(await row("Rewrite the install page")).getByRole("button", { name: "Mark done" }),
   );
@@ -82,7 +84,7 @@ test("Mark done clears a notification, and Unsubscribe stops one and clears it",
 test("Mark all read in one repository leaves the others unread", async () => {
   const app = withInbox();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace&repo=github.com/acme/docs-site");
+  await app.open("/inbox?repo=github.com/acme/docs-site");
   await waitFor(async () => expect(await rows()).toHaveLength(1));
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
   expect(await screen.findByRole("link", { name: /6 unread$/ })).toBeTruthy();
@@ -90,7 +92,7 @@ test("Mark all read in one repository leaves the others unread", async () => {
 
 test("with a reason chosen, only those notifications show, read ones included in All", async () => {
   const app = withInbox();
-  await app.open("/inbox?project=ace&view=all&reason=team_mention");
+  await app.open("/inbox?view=all&reason=team_mention");
   await waitFor(async () => expect(await rows()).toHaveLength(2));
   expect((await rows()).every((text) => text.includes("Team mentioned"))).toBe(true);
 });
@@ -98,7 +100,7 @@ test("with a reason chosen, only those notifications show, read ones included in
 test("a gh sign-in that can't read notifications says how to fix it", async () => {
   const app = withInbox();
   app.daemon.workspace.inbox.setUnavailable(true);
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   expect(await screen.findByText("Couldn't load notifications")).toBeTruthy();
   expect(screen.getByText(/gh auth refresh -s notifications/)).toBeTruthy();
 });
@@ -124,7 +126,7 @@ test("Mark all read covers everything up to the moment of the click, not the las
   let wall = Date.now();
   const app = withInbox(() => wall);
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   wall += 50_000;
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
@@ -140,7 +142,7 @@ test("notifications newer than Mark all read stay unread", async () => {
   // The click happens 45 minutes ago: the three newer notifications came after it.
   const app = withInbox(() => Date.now() - 45 * 60_000);
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
   await waitFor(async () => expect(await unreadCount()).toBe(3));
@@ -150,7 +152,7 @@ test("rows stay read after Mark all read while GitHub is still applying it", asy
   const app = withInbox();
   app.daemon.workspace.inbox.deferReadAll();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace&view=all");
+  await app.open("/inbox?view=all");
   await waitFor(async () => expect(await rows()).toHaveLength(16));
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
   await waitFor(async () => expect(await unreadCount()).toBe(0));
@@ -160,7 +162,7 @@ test("rows stay read after Mark all read while GitHub is still applying it", asy
 test("with a reason chosen, Mark all read marks only the rows on show", async () => {
   const app = withInbox();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace&view=all&reason=team_mention");
+  await app.open("/inbox?view=all&reason=team_mention");
   await waitFor(async () => expect(await rows()).toHaveLength(2));
   await user.click(screen.getByRole("button", { name: "Mark all read" }));
   await waitFor(async () => expect(await unreadCount()).toBe(6));
@@ -171,7 +173,7 @@ test("a write GitHub refused puts the row back and says why", async () => {
   const app = withInbox();
   app.daemon.workspace.inbox.setOutcome("refused");
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await user.click(
     within(await row("Rewrite the install page")).getByRole("button", { name: "Mark done" }),
   );
@@ -187,7 +189,7 @@ test("the inbox polls at GitHub's interval while in front, and not while the app
   const app = withInbox();
   const inbox = app.daemon.workspace.inbox;
   inbox.setPollSeconds(1);
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   const shown = inbox.reads;
   await waitFor(() => expect(inbox.reads).toBeGreaterThan(shown), { timeout: 3_000 });
@@ -204,7 +206,7 @@ test("a refusal that won't pass by itself isn't asked again at GitHub's interval
   const app = withInbox();
   const inbox = app.daemon.workspace.inbox;
   inbox.setPollSeconds(1);
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   inbox.setUnavailable(true);
   const before = inbox.reads;
@@ -216,13 +218,15 @@ test("a refusal that won't pass by itself isn't asked again at GitHub's interval
 test("a pull request opened from the inbox goes back to the inbox, by name", async () => {
   const app = withInbox();
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   const link = within(await row("Reconnect the client worker")).getAllByRole("link")[0];
   if (!link) throw new Error("No link");
   // The project's own repository opens without naming it.
   expect(link.getAttribute("href")).not.toContain("repo=");
   const other = within(await row("Rewrite the install page")).getAllByRole("link")[0];
-  expect(other?.getAttribute("href")).toContain("repo=github.com%2Facme%2Fdocs-site");
+  // Another project's notification opens in that project, naming no repository.
+  expect(other?.getAttribute("href")).toMatch(/^\/pulls\/docs-site\/31\?/);
+  expect(other?.getAttribute("href")).not.toContain("repo=");
   await user.click(link);
   expect(await screen.findByRole("button", { name: "Back to inbox" })).toBeTruthy();
 });
@@ -232,7 +236,7 @@ test("a poll on its way when a row is marked read can't bring the row back bold"
   const inbox = app.daemon.workspace.inbox;
   inbox.setPollSeconds(1);
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   // The next poll is asked before the write and answered after it, as a slow GitHub would.
   const release = inbox.hold();
@@ -251,7 +255,7 @@ test("when a refresh fails, the rows stay with one line saying so and a way to t
   const inbox = app.daemon.workspace.inbox;
   inbox.setPollSeconds(1);
   const user = userEvent.setup();
-  await app.open("/inbox?project=ace");
+  await app.open("/inbox");
   await waitFor(async () => expect(await rows()).toHaveLength(7));
   inbox.setUnavailable(true);
   const line = await screen.findByRole("status", { name: "Inbox refresh" }, { timeout: 3_000 });

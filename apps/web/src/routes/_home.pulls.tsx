@@ -13,7 +13,13 @@ const choice = <T extends string>(values: readonly [T, ...T[]]) =>
  * link, a reload or coming back from a pull request shows the same list.
  */
 const Search = z.object({
+  /** The projects picked; absent is the last choice made, or every project. */
+  projects: z.catch(
+    z.optional(z.array(z.string().check(z.minLength(1), z.maxLength(512))).check(z.maxLength(200))),
+    undefined,
+  ),
   project: text(512),
+  view: choice(["needs"]),
   who: choice(["all", "authored", "reviewing"]),
   state: choice(["open", "merged", "closed", "all"]),
   sort: choice(["ready", "updated", "largest", "smallest"]),

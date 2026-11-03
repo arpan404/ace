@@ -57,16 +57,20 @@ async function groups() {
 test("a ready pull request older than the first page still leads the list", async () => {
   const app = withBusyRepository();
   await app.open("/pulls?project=ace");
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 25 }));
+  await waitFor(async () =>
+    expect(await groups()).toEqual({ "Ready to merge": 1, "Waiting on others": 25 }),
+  );
   const ready = listGroup(
     await screen.findByRole("navigation", { name: "Pull requests" }),
     "Ready to merge",
   );
   expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
-  // 25 of the 30 waiting are loaded: a group counts its rows once every page is read.
-  expect(heading("Waiting")).toBe("Waiting");
+  // 25 of the 30 waiting are loaded: until every page is read a group says it has more.
+  expect(heading("Waiting on others")).toBe("Waiting on others25+");
   await userEvent.click(screen.getByRole("button", { name: "Show more" }));
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 30 }));
-  await waitFor(() => expect(heading("Waiting")).toBe("Waiting30"));
+  await waitFor(async () =>
+    expect(await groups()).toEqual({ "Ready to merge": 1, "Waiting on others": 30 }),
+  );
+  await waitFor(() => expect(heading("Waiting on others")).toBe("Waiting on others30"));
   expect(heading("Ready to merge")).toBe("Ready to merge1");
 });

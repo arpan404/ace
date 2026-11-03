@@ -25,49 +25,100 @@ import { freshenIssueList, readIssues } from "./issue-freshen.ts";
 /** A list read again after half a minute; the last answer stays on screen while a new one reads. */
 const listed = { staleTime: 30_000, gcTime: 10 * 60_000, retry: false } as const;
 
-/** The pages of one search read so far, as one list. */
+/** The pages of one search read so far across the chosen projects, as one list. */
 export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   rows: L["items"][number][];
-  /** The first page's answer: counts, viewer, repository. */
+  /** The first project's first page: viewer, repository. */
   first: L | undefined;
+  /** Each project's first page, once read. */
+  firsts: ReadonlyMap<string, L>;
+  /** The project a row came from. */
+  projectOf(row: L["items"][number]): string;
   /** A filter or search just changed and these rows are the previous answer's. */
   stale: boolean;
   loading: boolean;
+  /** Every project's read failed: the first failure. */
   error: Error | undefined;
-  /** Another page exists after the last one read. */
+  /** Projects whose read failed while others answered. */
+  failed: readonly string[];
+  /** Another page exists after the last one read, in some project. */
   more: boolean;
   retry(): void;
 }
 
+const rowKey = (row: { ref: { repository: { owner: string; name: string }; number: number } }) =>
+  `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`.toLowerCase();
+
+/**
+ * One cached read per project and page: page 2 of a project is asked for only once its page 1
+ * says there is one, so "Show more" reads only the projects with more. Rows come in the
+ * projects' order, each once (two projects on one repository show its rows once).
+ */
 function useListPages<L extends ForgePrList | ForgeIssueList>(
   key: readonly unknown[],
-  project: string | undefined,
+  projects: readonly string[],
   pages: number,
-  read: (client: ClientApi, page: number, signal: AbortSignal) => Promise<L>,
+  read: (client: ClientApi, project: string, page: number, signal: AbortSignal) => Promise<L>,
 ): ListPages<L> {
   const client = useClient();
+  const cache = useQueryClient();
   const ready = useConnectionState() === "ready";
+  const keyOf = (project: string, page: number) => ["forge", project, "browse", ...key, page];
+  const plan = projects.flatMap((project) =>
+    Array.from({ length: pages }, (_, index) => ({ project, page: index + 1 })),
+  );
   const results = useQueries({
-    queries: Array.from({ length: pages }, (_, index) => ({
-      queryKey: ["forge", project, "browse", ...key, index + 1],
-      queryFn: ({ signal }: { signal: AbortSignal }) => read(client, index + 1, signal),
-      enabled: ready && !!project,
+    queries: plan.map(({ project, page }) => ({
+      queryKey: keyOf(project, page),
+      queryFn: ({ signal }: { signal: AbortSignal }) => read(client, project, page, signal),
+      enabled:
+        ready && (page === 1 || cache.getQueryData<L>(keyOf(project, page - 1))?.nextPage === page),
       ...listed,
-      ...(index === 0 ? { placeholderData: keepPreviousData } : {}),
+      ...(page === 1 ? { placeholderData: keepPreviousData } : {}),
       meta: { daemonClient: client },
     })),
   });
-  const first = results[0];
   const rows: L["items"][number][] = [];
-  for (const result of results) if (result.data) rows.push(...result.data.items);
-  const failed = results.find((result) => result.isError);
+  const owner = new Map<string, string>();
+  const firsts = new Map<string, L>();
+  const failed = new Set<string>();
+  let stale = false;
+  let more = false;
+  let error: Error | undefined;
+  plan.forEach(({ project, page }, index) => {
+    const result = results[index];
+    if (!result) return;
+    if (result.isError) {
+      failed.add(project);
+      error ??= result.error;
+    }
+    const data = result.data;
+    if (!data) return;
+    if (page === 1) {
+      firsts.set(project, data);
+      stale ||= result.isPlaceholderData;
+    }
+    // The last page asked for of this project says whether it has more.
+    if (page === pages && data.nextPage !== undefined) more = true;
+    for (const row of data.items) {
+      const id = rowKey(row);
+      if (owner.has(id)) continue;
+      owner.set(id, project);
+      rows.push(row);
+    }
+  });
+  const answered = firsts.size > 0;
+  const first = projects.map((project) => firsts.get(project)).find(Boolean);
   return {
     rows,
-    first: first?.data,
-    stale: first?.isPlaceholderData ?? false,
-    loading: !first?.data && !failed,
-    error: failed?.error ?? undefined,
-    more: results[results.length - 1]?.data?.nextPage !== undefined,
+    first,
+    firsts,
+    projectOf: (row) => owner.get(rowKey(row)) ?? projects[0] ?? "",
+    stale,
+    loading: projects.length > 0 && !answered && failed.size < projects.length,
+    error: answered ? undefined : error,
+    failed: answered ? [...failed] : [],
+    more,
     retry: () => void Promise.all(results.map((result) => result.refetch())),
   };
 }
@@ -95,56 +146,78 @@ export async function readPrPage(
   return value.value;
 }
 
-/** A project's pull requests matching `query`, `pages` pages of 25. */
-export function usePrPages(project: string | undefined, query: ForgePrSearch, pages: number) {
+/** The projects' pull requests matching `query`, up to `pages` pages of 25 each. */
+export function usePrPages(projects: readonly string[], query: ForgePrSearch, pages: number) {
   return useListPages<ForgePrList>(
     ["prList", withoutPage(query)],
-    project,
+    projects,
     pages,
-    (client, page, signal) => readPrPage(client, project ?? "", query, page, signal),
+    (client, project, page, signal) => readPrPage(client, project, query, page, signal),
   );
 }
 
-/** A project's issues matching `query`, `pages` pages of 25. */
-export function useIssuePages(project: string | undefined, query: ForgeIssueSearch, pages: number) {
+/** The projects' issues matching `query`, up to `pages` pages of 25 each. */
+export function useIssuePages(projects: readonly string[], query: ForgeIssueSearch, pages: number) {
   const cache = useQueryClient();
   return useListPages<ForgeIssueList>(
     ["issueList", withoutPage(query)],
-    project,
+    projects,
     pages,
-    async (client, page, signal) => {
+    async (client, project, page, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.issue.list", workspaceId: project ?? "", query: { ...query, page } },
+        { op: "forge.issue.list", workspaceId: project, query: { ...query, page } },
         signal,
       );
       if (value.resource !== "issueList") throw new Error("No issue list.");
       // Search trails a write; an issue read since says how it is now.
-      return freshenIssueList(value.value, query, page, readIssues(cache, project ?? ""));
+      return freshenIssueList(value.value, query, page, readIssues(cache, project));
     },
   );
 }
 
 /**
- * Every group's total for the list on show, as GitHub counts it: one request per filter set,
- * kept as long as the list's pages are.
+ * Every group's total for the list on show, as GitHub counts it, summed over the projects: one
+ * request per project and filter set, kept as long as the list's pages are. Undefined until
+ * every project has answered, so a total never undercounts.
  */
-export function useGroupCounts(project: string | undefined, grouping: ForgeGroupCounting) {
-  return useDaemonQuery<Record<string, number>>({
-    queryKey: ["forge", project, "browse", "groupCounts", grouping],
-    enabled: !!project,
-    ...listed,
-    placeholderData: keepPreviousData,
-    read: async (client, signal) => {
-      const value = await readForge(
-        client,
-        { op: "forge.group-counts", workspaceId: project ?? "", grouping },
-        signal,
-      );
-      if (value.resource !== "groupCounts") throw new Error("No group counts.");
-      return value.counts;
-    },
+export function useGroupCounts(
+  projects: readonly string[],
+  grouping: ForgeGroupCounting,
+): {
+  total: Record<string, number> | undefined;
+  byProject: ReadonlyMap<string, Record<string, number>>;
+} {
+  const client = useClient();
+  const ready = useConnectionState() === "ready";
+  const results = useQueries({
+    queries: projects.map((project) => ({
+      queryKey: ["forge", project, "browse", "groupCounts", grouping],
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const value = await readForge(
+          client,
+          { op: "forge.group-counts", workspaceId: project, grouping },
+          signal,
+        );
+        if (value.resource !== "groupCounts") throw new Error("No group counts.");
+        return value.counts;
+      },
+      enabled: ready,
+      ...listed,
+      placeholderData: keepPreviousData,
+      meta: { daemonClient: client },
+    })),
   });
+  const byProject = new Map<string, Record<string, number>>();
+  results.forEach((result, index) => {
+    const project = projects[index];
+    if (project && result.data) byProject.set(project, result.data);
+  });
+  if (!projects.length || byProject.size < projects.length) return { total: undefined, byProject };
+  const total: Record<string, number> = {};
+  for (const counts of byProject.values())
+    for (const [id, count] of Object.entries(counts)) total[id] = (total[id] ?? 0) + count;
+  return { total, byProject };
 }
 
 export const issueDetailKey = (project: string, number: number, repo = "") =>

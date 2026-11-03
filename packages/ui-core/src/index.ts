@@ -53,6 +53,7 @@ export * from "./forge-lists.ts";
 export * from "./forge-marks.ts";
 export * from "./pr-readiness.ts";
 export * from "./pr-row-steps.ts";
+export * from "./pr-work-groups.ts";
 export * from "./pr-gates.ts";
 export * from "./pr-primary-action.ts";
 export * from "./worktree-base.ts";

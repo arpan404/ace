@@ -17,7 +17,7 @@ const repo = (name: string): ForgeRepository => ({
 });
 const web = (name: string, path = "") => `https://github.com/acme/${name}${path}`;
 
-interface Sketch {
+export interface NotificationSketch {
   id: string;
   name: string;
   type: string;
@@ -30,7 +30,7 @@ interface Sketch {
   path?: string;
 }
 
-const sketches: Sketch[] = [
+const sketches: NotificationSketch[] = [
   {
     id: "9001",
     name: "ace",
@@ -202,7 +202,15 @@ const sketches: Sketch[] = [
 
 /** The fake's notifications as the daemon maps them, newest first. */
 export function inboxNotifications(now: number): ForgeInboxRow[] {
-  return sketches.map((sketch) => {
+  return notificationRows(now, sketches);
+}
+
+/** Notification sketches as the daemon maps them, in their order. */
+export function notificationRows(
+  now: number,
+  from: readonly NotificationSketch[],
+): ForgeInboxRow[] {
+  return from.map((sketch) => {
     const row: ForgeInboxRow = {
       id: sketch.id,
       repository: repo(sketch.name),
