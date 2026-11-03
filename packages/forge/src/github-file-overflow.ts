@@ -9,6 +9,7 @@ import type { GhApi } from "./http.ts";
 export const listedPages = 120;
 const perPage = 25;
 const lastPage = 4_000;
+const ListedFiles = z.array(FileRecord).max(perPage);
 
 /**
  * A pull request's files past the 3,000 GitHub lists, as pages 121 on. GitHub lists files in
@@ -58,7 +59,7 @@ export class GitHubFileOverflow {
       ),
       treeChanges(this.#api, this.#root, input.base, input.head, signal),
     );
-    const records = z.array(FileRecord).max(perPage).safeParse(listed.body);
+    const records = ListedFiles.safeParse(listed.body);
     if (!records.success) throw new ForgeError("invalid_data");
     const last = records.data.at(-1)?.filename;
     if (last === undefined) throw new ForgeError("conflict");
