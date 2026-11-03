@@ -231,8 +231,9 @@ export async function reviewHarness(options: {
 }
 
 /** Opens the header's Review once the review state has arrived (until then it shows disabled). */
+const reviewButton = () => screen.getByRole<HTMLButtonElement>("button", { name: "Review" });
 export async function clickReview(): Promise<void> {
-  const button = () => screen.getByRole<HTMLButtonElement>("button", { name: "Review" });
+  const button = reviewButton;
   await waitFor(
     () => {
       if (button().disabled) throw new Error("Review is still waiting for the review state");

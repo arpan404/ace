@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { expect, test } from "vitest";
 import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { PrReviewButton } from "./pr-review-popover.tsx";
 import { PrReplyField } from "./pr-thread.tsx";
