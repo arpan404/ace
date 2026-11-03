@@ -5,6 +5,8 @@ import { createWorkspace, type WorkspaceWatcher } from "@ace/workspace";
 import type { WorkspaceChanges } from "@ace/automations";
 import type { ServiceContext } from "./services/types.ts";
 
+const WorkspacePathRow = z.object({ path: z.string() });
+
 /** Reuse the bounded workspace watcher; each admitted observation has a persisted run key. */
 export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
   let subscriptions = 0;
@@ -17,7 +19,7 @@ export function automationWorkspace(context: ServiceContext): WorkspaceChanges {
       const row = context.store.atomic((db) =>
         db.prepare("SELECT path FROM workspaces WHERE path=? OR id=? LIMIT 1").get(root, root),
       );
-      const workspace = row ? z.object({ path: z.string() }).parse(row) : undefined;
+      const workspace = row ? WorkspacePathRow.parse(row) : undefined;
       if (!workspace) {
         const error = new Error("automation_workspace_not_found");
         hooks?.onError?.(error);

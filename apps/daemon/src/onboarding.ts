@@ -4,6 +4,9 @@ import { z } from "zod";
 import type { ProviderStatuses } from "./provider-status.ts";
 import type { OnboardingResult } from "@ace/protocol";
 
+const DismissedRow = z.object({ dismissed: z.number() });
+const TotalRow = z.object({ total: z.number() });
+
 /** Only a device's dismissal flag is persisted. No login challenge enters this database. */
 export class Onboarding {
   private db: DatabaseSync;
@@ -17,7 +20,7 @@ export class Onboarding {
   }
   query(device: string, requestId: string): OnboardingResult {
     const row = this.db.prepare("SELECT dismissed FROM onboarding WHERE device = ?").get(device);
-    const dismissed = row ? z.object({ dismissed: z.number() }).parse(row).dismissed === 1 : false;
+    const dismissed = row ? DismissedRow.parse(row).dismissed === 1 : false;
     return {
       type: "onboarding.result",
       requestId,
@@ -25,9 +28,9 @@ export class Onboarding {
     };
   }
   dismiss(device: string, dismissed: boolean): void {
-    const count = z
-      .object({ total: z.number() })
-      .parse(this.db.prepare("SELECT count(*) AS total FROM onboarding").get()).total;
+    const count = TotalRow.parse(
+      this.db.prepare("SELECT count(*) AS total FROM onboarding").get(),
+    ).total;
     if (
       count >= 256 &&
       !this.db.prepare("SELECT device FROM onboarding WHERE device = ?").get(device)

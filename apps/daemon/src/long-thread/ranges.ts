@@ -3,6 +3,8 @@ import { TurnDigest, type Event } from "@ace/protocol";
 import { LongThreadDatabase, type Counters } from "./database.ts";
 import { rangeBuckets, rangePrefix, rangeSuffix } from "./range-shape.ts";
 
+const CommandItemRow = z.object({ item_id: z.string() });
+
 const Aggregate = z.object({ owner: z.string(), key: z.string(), value: z.number() });
 const Completion = z.object({ seq: z.number(), at: z.number() });
 const fileOwner = (path: string) => `file:${path}`;
@@ -116,7 +118,7 @@ export class Ranges {
         "SELECT item_id FROM long_time_commands WHERE thread_id=? AND at>? ORDER BY at,item_id LIMIT 65",
       )
       .all(thread, time)
-      .map((row) => z.object({ item_id: z.string() }).parse(row).item_id);
+      .map((row) => CommandItemRow.parse(row).item_id);
     const bounds = rangeSuffix(time);
     // SQLite's single MAX aggregate selects the data belonging to that maximum seq.
     // Tied nodes contain the same canonical event body, so tie selection is immaterial.
