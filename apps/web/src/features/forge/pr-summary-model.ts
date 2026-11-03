@@ -77,6 +77,23 @@ export function fixRequest(item: AttentionItem, pr: { number: number; url: strin
   return `Address ${item.author}'s review comment on ${item.detail} in PR #${pr.number}:\n\n> ${item.body.split("\n").join("\n> ")}\n\nMake the change, push it, and reply on the thread.`;
 }
 
+/**
+ * What "Apply with agent" asks for a suggestion GitHub can't commit as it is (outdated, or its
+ * lines changed): the suggested lines, fenced so their own backticks can't end the block.
+ */
+export function suggestionFixRequest(
+  comment: Pick<ForgeComment, "author" | "file" | "line">,
+  suggestion: readonly string[],
+  pr: { number: number; url: string },
+): string {
+  const place = comment.file
+    ? `${comment.file}${comment.line ? `:${comment.line}` : ""}`
+    : "the PR";
+  const longest = Math.max(2, ...suggestion.map((l) => /`+/.exec(l)?.[0].length ?? 0));
+  const fence = "`".repeat(longest + 1);
+  return `Apply ${comment.author}'s suggested change on ${place} in PR #${pr.number} (${pr.url}). The code may have moved since it was suggested: apply it where it fits now.\n\n${fence}\n${suggestion.join("\n")}\n${fence}\n\nPush the change and reply on the thread.`;
+}
+
 export interface GlanceFile {
   path: string;
   /** "src/invoices/pdf/", empty at the root. */

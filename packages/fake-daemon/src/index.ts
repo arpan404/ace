@@ -93,6 +93,7 @@ export { workbenchServices } from "./scenarios/services.ts";
 export { pullRequestDetails } from "./catalog/pull-request-details.ts";
 export { seedForgeBrowse, seedLongIssue } from "./scenarios/forge-browse.ts";
 export { longIssueReads } from "./catalog/long-issue.ts";
+export { movingPullRequest } from "./catalog/moving-pull-request.ts";
 export { sketchPullRequests, type PrSketch } from "./catalog/forge-browse.ts";
 export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";

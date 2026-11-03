@@ -500,7 +500,7 @@ async function openReview(name = "Review") {
   return screen.findByRole("dialog", { name: "Finish your review" });
 }
 
-test("new commits visibly invalidate durable hosted drafts and disable all review submission", async () => {
+test("a draft new commits left behind shows its earlier code and why no review can be sent", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setForgeRead(
@@ -516,6 +516,8 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
           id: "draft",
           body: "Keep this unsent finding",
           anchor: { commit: "b".repeat(40), path: "src/main.ts", line: 1, side: "RIGHT" },
+          // The daemon tried to move it to the head and found its line changed.
+          outdated: { headSha: "a".repeat(40), code: ["const total = 1;"] },
         },
       ]),
     },
@@ -523,8 +525,14 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
   const first = await openPullRequest(app, { project: "api", number: 42 });
   const review = await openReview("Review · 1 pending");
   expect(await within(review).findByText("Keep this unsent finding")).toBeTruthy();
-  expect(within(review).getByText("Outdated")).toBeTruthy();
-  expect(within(review).getByText(/New commits moved the lines of outdated comments/)).toBeTruthy();
+  expect(within(review).getByText("Lines changed")).toBeTruthy();
+  expect(within(review).getByText("const total = 1;")).toBeTruthy();
+  expect(within(review).getByRole("button", { name: "Post on file" })).toBeTruthy();
+  expect(
+    within(review).getByText(
+      "New commits changed the lines of 1 comment. Post it on its file or remove it to submit.",
+    ),
+  ).toBeTruthy();
   await userEvent.type(
     within(review).getByRole("textbox", { name: "Review summary" }),
     "Preserve my summary",

@@ -84,6 +84,16 @@ export const ForgeReviewThread = z.object({
   startLine: z.number().int().nullable().optional(),
   /** The side `startLine` counts on, when the thread starts on the other side from `side`. */
   startSide: z.enum(["LEFT", "RIGHT"]).optional(),
+  /**
+   * GitHub's diff hunk for the thread's first comment: the code it was written on, ending at
+   * the commented line, trimmed to its last lines. Absent when GitHub sent none.
+   */
+  hunk: z.string().max(20_000).optional(),
+  /** The line (and first line) the thread was written on, in `originalCommit`. */
+  originalLine: z.number().int().nullable().optional(),
+  originalStartLine: z.number().int().nullable().optional(),
+  /** The commit the thread was written on; differs from the head once outdated. */
+  originalCommit: z.string().max(64).optional(),
   comments: z.array(ForgeComment).max(2_000),
 });
 export const ForgePrStatus = z.object({

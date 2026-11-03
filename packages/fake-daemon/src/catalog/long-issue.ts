@@ -26,7 +26,7 @@ export function longIssueReads(now: number): {
     const actor = people[index % people.length] ?? "mira";
     if (index === count - 1)
       return {
-        id: `c-250-${index}`,
+        id: `c-260-${index}`,
         kind: "issue_comment" as const,
         event: "commented",
         actor: "dana",
@@ -36,7 +36,7 @@ export function longIssueReads(now: number): {
       };
     if (index % 6 === 5)
       return {
-        id: `e-250-${index}`,
+        id: `e-260-${index}`,
         kind: "activity" as const,
         event: "labeled",
         actor,
@@ -44,7 +44,7 @@ export function longIssueReads(now: number): {
         raw: { label: { name: "providers" } },
       };
     return {
-      id: `c-250-${index}`,
+      id: `c-260-${index}`,
       kind: "issue_comment" as const,
       event: "commented",
       actor,
@@ -62,10 +62,10 @@ export function longIssueReads(now: number): {
       value: ForgeIssueDetail.parse({
         ref: {
           repository: { forge: "github", host: "github.com", owner: "acme", name: "ace" },
-          number: 250,
+          number: 260,
         },
         title: "Reconnect loop spins after the laptop wakes from sleep",
-        url: "https://github.com/acme/ace/issues/250",
+        url: "https://github.com/acme/ace/issues/260",
         author: "mira",
         state: "open",
         labels,

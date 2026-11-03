@@ -4,7 +4,11 @@ import { ForgeMutationOutcome } from "./mutation.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { ForgePrRef } from "@ace/protocol/forge";
-import type { ForgeReviewAction, ForgeReviewDraft } from "@ace/protocol/forge-review";
+import type {
+  ForgeHostedPendingReview,
+  ForgeReviewAction,
+  ForgeReviewDraft,
+} from "@ace/protocol/forge-review";
 import type { GhApi } from "./http.ts";
 import { ForgeError } from "./errors.ts";
 import { ReadBudget } from "./read-budget.ts";
@@ -18,6 +22,8 @@ import {
   assertHostedAnchors,
 } from "./github-line-comment.ts";
 import { GitHubReviewerWrites, isReviewerAction } from "./github-reviewer-writes.ts";
+import { GitHubPendingWrites } from "./github-pending-writes.ts";
+import { moveDrafts } from "./github-draft-moves.ts";
 const text = z.string().max(65_536);
 const positive = z.number().int().positive();
 const Comment = z.looseObject({
@@ -53,6 +59,22 @@ const Host = z.object({
         viewerDidAuthor: z.boolean(),
         locked: z.boolean(),
         viewerCanUpdate: z.boolean(),
+        // The viewer's own review pending on GitHub; GitHub shows nobody else's. Lenient: a
+        // host that leaves it out, or sends it malformed, reads as unknown.
+        reviews: z
+          .object({
+            nodes: z
+              .array(
+                z.object({
+                  id: text,
+                  url: z.string().max(4_096).optional(),
+                  comments: z.object({ totalCount: z.number().int().nonnegative() }),
+                }),
+              )
+              .max(1),
+          })
+          .optional()
+          .catch(undefined),
         reviewThreads: z.object({
           nodes: z
             .array(
@@ -83,6 +105,21 @@ const Files = z.object({
     }),
   }),
 });
+/** The viewer's pending review on GitHub: null when none, undefined when unread. */
+function hostedPending(
+  reviews:
+    | { nodes: { id: string; url?: string | undefined; comments: { totalCount: number } }[] }
+    | undefined,
+): ForgeHostedPendingReview | null | undefined {
+  if (!reviews) return undefined;
+  const review = reviews.nodes[0];
+  if (!review) return null;
+  return {
+    id: review.id,
+    comments: review.comments.totalCount,
+    ...(review.url ? { url: review.url } : {}),
+  };
+}
 export function reviewWriteMarker(operationId: string): string {
   return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -97,6 +134,7 @@ export class GitHubReviews {
   readonly #lineComment: GitHubLineComment;
   readonly #io: ReviewIo;
   readonly #reviewers: GitHubReviewerWrites;
+  readonly #pending: GitHubPendingWrites;
   constructor(api: GhApi, pr: (number: number) => ForgePrRef) {
     this.#api = api;
     this.#pr = pr;
@@ -114,6 +152,25 @@ export class GitHubReviews {
     this.#lineComment = new GitHubLineComment(io);
     this.#io = io;
     this.#reviewers = new GitHubReviewerWrites(io);
+    this.#pending = new GitHubPendingWrites(io, (...args) => this.#mutation(...args));
+  }
+  /**
+   * Drafts written on earlier commits, moved to `headSha` (or kept, outdated) as the PR shows
+   * them now. Refused unless `headSha` is the PR's head. Only drafts that change come back.
+   */
+  async moveDrafts(
+    number: number,
+    headSha: string,
+    drafts: readonly ForgeReviewDraft[],
+    signal: AbortSignal,
+  ): Promise<ForgeReviewDraft[]> {
+    const host = await this.host(number, signal);
+    if (host.pr.headRefOid !== headSha) throw new ForgeError("conflict");
+    const moved = await moveDrafts(this.#io, number, headSha, drafts, signal);
+    // The reads take time: the moves hold only for the head they were made against.
+    if ((await this.host(number, signal)).pr.headRefOid !== headSha)
+      throw new ForgeError("conflict");
+    return moved;
   }
   /** Reactions plus which comments are hidden and which the viewer may hide, read together. */
   decorations(number: number, signal: AbortSignal) {
@@ -136,7 +193,7 @@ export class GitHubReviews {
     const budget = new ReadBudget();
     for (let page = 0; page < 20; page++) {
       const result = await this.#request("graphql", signal, {
-        query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ viewer { login } repository(owner:$owner,name:$name){ pullRequest(number:$number){ id headRefOid state viewerDidAuthor locked viewerCanUpdate reviewThreads(first:100,after:$after){ nodes { id isResolved viewerCanResolve viewerCanUnresolve } pageInfo { hasNextPage endCursor } } } } }`,
+        query: `query($owner:String!,$name:String!,$number:Int!,$after:String){ viewer { login } repository(owner:$owner,name:$name){ pullRequest(number:$number){ id headRefOid state viewerDidAuthor locked viewerCanUpdate reviews(states:[PENDING],first:1){ nodes { id url comments { totalCount } } } reviewThreads(first:100,after:$after){ nodes { id isResolved viewerCanResolve viewerCanUnresolve } pageInfo { hasNextPage endCursor } } } } }`,
         variables: { owner, name, number, after },
       });
       budget.add(result.bytes);
@@ -146,6 +203,7 @@ export class GitHubReviews {
       if (!pr.reviewThreads.pageInfo.hasNextPage)
         return {
           viewer: data.viewer.login,
+          pending: hostedPending(pr.reviews),
           pr: { ...pr, viewerCanComment: !pr.locked || pr.viewerCanUpdate },
           threads,
         };
@@ -201,6 +259,7 @@ export class GitHubReviews {
     action: ForgeReviewAction,
     operationId: string,
     signal: AbortSignal,
+    drafts: readonly ForgeReviewDraft[] = [],
   ): Promise<boolean> {
     const marker = reviewWriteMarker(operationId);
     const host = await this.host(number, signal);
@@ -220,6 +279,14 @@ export class GitHubReviews {
           r.state === states[action.event],
       );
     }
+    if (action.kind === "reply" && action.pendingReview)
+      return this.#pending.reconcilePendingReply(
+        { ...action, pendingReview: action.pendingReview },
+        marker,
+        signal,
+      );
+    if (action.kind === "draft.file")
+      return this.#pending.reconcileFileComment(number, drafts, host.viewer, marker, signal);
     if (action.kind === "conversation" || action.kind === "reply") {
       const path =
         action.kind === "reply" ? `pulls/${number}/comments` : `issues/${number}/comments`;
@@ -330,6 +397,29 @@ export class GitHubReviews {
       if (review.state === "PENDING" || review.commit_id !== action.headSha)
         throw new ForgeError("invalid_data");
       return;
+    }
+    if (action.kind === "draft.file")
+      return this.#pending.fileComment(
+        number,
+        action,
+        drafts,
+        host,
+        marker,
+        signal,
+        allowed,
+        dispatch,
+      );
+    if (action.kind === "reply" && action.pendingReview) {
+      if (!host.pr.viewerCanComment) throw new ForgeError("forbidden");
+      return this.#pending.pendingReply(
+        { ...action, pendingReview: action.pendingReview },
+        host.pending?.id,
+        marker,
+        operationId,
+        signal,
+        allowed,
+        dispatch,
+      );
     }
     if (action.kind === "conversation" || action.kind === "reply") {
       if (!host.pr.viewerCanComment) throw new ForgeError("forbidden");

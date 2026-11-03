@@ -10,7 +10,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { usePrReview } from "./pr-review-context.tsx";
+import { threadOfComment } from "@ace/ui-core";
+import { usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { useFixWithAgent } from "./pr-fix-with-agent.ts";
+import { suggestionFixRequest } from "./pr-summary-model.ts";
 
 /** Asks for the commit message, then commits the suggestions on the head the review saw. */
 function CommitSuggestions(props: {
@@ -19,6 +22,7 @@ function CommitSuggestions(props: {
   message: string;
   onClose(): void;
   onCommitted?(): void;
+  onFailed?(): void;
 }) {
   const review = usePrReview();
   const [message, setMessage] = useState(props.message);
@@ -42,6 +46,7 @@ function CommitSuggestions(props: {
               })
               .then((ok) => {
                 if (ok) props.onCommitted?.();
+                else props.onFailed?.();
               });
           }}
         >
@@ -74,16 +79,58 @@ function CommitSuggestions(props: {
   );
 }
 
+/** Hands a suggestion GitHub can't commit to the agent working on the PR, to apply where it fits. */
+function ApplyWithAgent(props: { comment: ForgeComment; suggestion: readonly string[] }) {
+  const identity = usePrIdentity();
+  const detail = usePrDetail();
+  if (!identity || !detail) return null;
+  return <ApplyWithAgentButton {...props} workspaceId={identity.workspaceId} detail={detail} />;
+}
+function ApplyWithAgentButton(props: {
+  comment: ForgeComment;
+  suggestion: readonly string[];
+  workspaceId: string;
+  detail: NonNullable<ReturnType<typeof usePrDetail>>;
+}) {
+  const agent = useFixWithAgent({ workspaceId: props.workspaceId, detail: props.detail });
+  const { status } = props.detail;
+  const thread = threadOfComment(status.reviewThreads, props.comment.id);
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      onClick={() =>
+        agent.ask(
+          suggestionFixRequest(props.comment, props.suggestion, {
+            number: status.ref.number,
+            url: status.url,
+          }),
+          thread ? `thread:${thread.id}` : undefined,
+        )
+      }
+    >
+      Apply with agent
+    </Button>
+  );
+}
+
 /**
- * Commit or batch an inline comment's suggested change. Shown only for a suggestion still on
- * the current diff; GitHub refuses the commit if the head moved since the review was read.
+ * Commit or batch an inline comment's suggested change while it is on the current diff. One
+ * GitHub can't commit (outdated, or its commit was refused) goes to the agent instead.
  */
 export function PrSuggestionActions(props: { comment: ForgeComment; outdated: boolean }) {
   const review = usePrReview();
   const [open, setOpen] = useState(false);
+  const [refused, setRefused] = useState(false);
   const { comment } = props;
-  if (!review?.state || comment.kind !== "inline" || props.outdated) return null;
-  if (!suggestionOf(comment.body)) return null;
+  const suggestion = suggestionOf(comment.body);
+  if (!review?.state || comment.kind !== "inline" || !suggestion) return null;
+  if (props.outdated)
+    return (
+      <div className="flex items-center gap-1">
+        <ApplyWithAgent comment={comment} suggestion={suggestion} />
+      </div>
+    );
   const batched = review.batch.includes(comment.id);
   const disabled = !review.ready || review.pending;
   return (
@@ -100,12 +147,14 @@ export function PrSuggestionActions(props: { comment: ForgeComment; outdated: bo
       >
         {batched ? "Remove from batch" : "Add to batch"}
       </Button>
+      {refused && <ApplyWithAgent comment={comment} suggestion={suggestion} />}
       {open && (
         <CommitSuggestions
           open
           commentIds={[comment.id]}
           message={`Apply suggestion from @${comment.author}`}
           onClose={() => setOpen(false)}
+          onFailed={() => setRefused(true)}
         />
       )}
     </div>

@@ -5,6 +5,8 @@ import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { fixRequest, type AttentionItem } from "./pr-summary-model.ts";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { recordFixMark } from "./pr-fix-marks.ts";
+import { useClock } from "@/lib/time.ts";
 
 /**
  * "Fix with agent": the request goes into the composer of the task working on this PR (the
@@ -20,11 +22,17 @@ export function useFixWithAgent(props: {
   const machine = useMachineSearch();
   const workspace = useWorkspaceActions(props.hostThreadId ?? "");
   const toast = useToast();
+  const now = useClock();
   const { detail } = props;
   const linked = detail.relatedThreads.filter((thread) => !thread.archived);
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
-  /** Put `request` in the composer of the task working on this PR, for the person to send. */
-  const ask = (request: string) => {
+  const prKey = JSON.stringify(detail.status.ref);
+  /**
+   * Put `request` in the composer of the task working on this PR, for the person to send.
+   * `subject` (`thread:<id>` or `check:<id>`) is what it came from, which then shows "Agent
+   * fixing this" while that task works, until it pushes and replies.
+   */
+  const ask = (request: string, subject?: string) => {
     if (!target) {
       void navigate({
         to: "/new",
@@ -32,6 +40,18 @@ export function useFixWithAgent(props: {
       });
       return;
     }
+    if (subject)
+      recordFixMark(
+        { workspaceId: props.workspaceId, prKey, url: detail.status.url },
+        {
+          subject,
+          agentThreadId: target.id,
+          headSha: detail.status.headSha,
+          at: new Date(now()).toISOString(),
+        },
+        detail.status,
+        now(),
+      );
     // The panel's own task: a panel in full view hides its composer, so step out of it.
     const here = target.id === props.hostThreadId;
     if (here) workspace.setExpanded(false);
@@ -53,7 +73,7 @@ export function useFixWithAgent(props: {
     target,
     ask,
     fix(item: AttentionItem) {
-      ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
+      ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }), item.key);
     },
   };
 }

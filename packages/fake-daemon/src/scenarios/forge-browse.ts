@@ -30,17 +30,17 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
       );
 }
 
-/** A busy issue, #250, whose conversation runs to three pages: for the newest-first view. */
+/** A busy issue, #260, whose conversation runs to three pages: for the newest-first view. */
 export function seedLongIssue(daemon: FakeDaemon, now: number, project = "ace"): void {
   const workspaceId = WorkspaceId.parse(project);
   const long = longIssueReads(now);
   daemon.workspace.setForgeRead(
-    { op: "forge.issue.detail", workspaceId, number: 250 },
+    { op: "forge.issue.detail", workspaceId, number: 260 },
     long.detail,
   );
   long.pages.forEach((read, index) =>
     daemon.workspace.setForgeRead(
-      { op: "forge.issue.timeline", workspaceId, number: 250, page: index + 1 },
+      { op: "forge.issue.timeline", workspaceId, number: 260, page: index + 1 },
       read,
     ),
   );

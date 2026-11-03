@@ -16,7 +16,7 @@ function withLongIssue() {
 const issueOp = {
   op: "forge.issue.detail" as const,
   workspaceId: WorkspaceId.parse("ace"),
-  number: 250,
+  number: 260,
 };
 const seeded = (() => {
   const read = longIssueReads(now).detail;
@@ -33,8 +33,8 @@ function elsewhere(app: ReturnType<typeof harness>, patch: Partial<ForgeIssueDet
 
 test("a long issue opens on its newest comments, and earlier ones load on request", async () => {
   const app = withLongIssue();
-  await app.open("/issues/ace/250");
-  const page = await screen.findByRole("article", { name: "Issue #250" });
+  await app.open("/issues/ace/260");
+  const page = await screen.findByRole("article", { name: "Issue #260" });
   expect(await within(page).findByText(/Newest: the fix in #229 looks right/)).toBeTruthy();
   expect(within(page).queryByText("Still seeing it on the latest build. (1)")).toBeNull();
   await userEvent.click(
@@ -49,8 +49,8 @@ test("a long issue opens on its newest comments, and earlier ones load on reques
 
 test("closing an issue someone commented on since it opened closes it, without a conflict", async () => {
   const app = withLongIssue();
-  await app.open("/issues/ace/250");
-  const page = await screen.findByRole("article", { name: "Issue #250" });
+  await app.open("/issues/ace/260");
+  const page = await screen.findByRole("article", { name: "Issue #260" });
   await within(page).findByText("Open");
   elsewhere(app, { commentCount: (seeded.commentCount ?? 0) + 1 });
   await userEvent.click(within(page).getByRole("button", { name: "Close as not planned" }));
@@ -60,8 +60,8 @@ test("closing an issue someone commented on since it opened closes it, without a
 
 test("a title saved after someone else edited the description keeps their description", async () => {
   const app = withLongIssue();
-  await app.open("/issues/ace/250");
-  const page = await screen.findByRole("article", { name: "Issue #250" });
+  await app.open("/issues/ace/260");
+  const page = await screen.findByRole("article", { name: "Issue #260" });
   await userEvent.click(await within(page).findByRole("button", { name: "Edit title" }));
   elsewhere(app, { body: "Their newer description." });
   const title = within(page).getByRole("textbox", { name: "Title" });
@@ -75,8 +75,8 @@ test("a title saved after someone else edited the description keeps their descri
 
 test("labels picked in About are added to the issue when the list closes", async () => {
   const app = withLongIssue();
-  await app.open("/issues/ace/250");
-  const page = await screen.findByRole("article", { name: "Issue #250" });
+  await app.open("/issues/ace/260");
+  const page = await screen.findByRole("article", { name: "Issue #260" });
   const about = await within(page).findByRole("region", { name: "About" });
   await userEvent.click(within(about).getByRole("button", { name: "Labels" }));
   const list = await screen.findByRole("dialog", { name: "Labels" });
