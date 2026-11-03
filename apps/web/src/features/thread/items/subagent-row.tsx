@@ -13,7 +13,8 @@ import { useAgent, useItem, useSidebarThread } from "@ace/client-react";
 import type { ReactElement } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { AgentHoverCard, type AgentCardSubject } from "./agent-hover-card.tsx";
+import { useAgentAccount } from "./agent-account.ts";
+import { AgentHoverCard } from "./agent-hover-card.tsx";
 import { useThreadHost } from "@/lib/machine-threads.ts";
 import { SubagentLink, type SubagentTarget } from "@/lib/subagent-link.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -57,7 +58,8 @@ function useMeta(entry: SubagentEntry): string | undefined {
 }
 
 /**
- * One subagent (or thread ace delegated) as a row: its provider's mark, its name and model, its
+ * One subagent (or thread ace delegated) as a row: its provider's mark with its account's badge
+ * (looked up on the machine it runs on), its name and model, its
  * status word and how long it ran, and what it does now or found. The whole row opens it; one
  * that needs the person also offers Review, which opens it where its request waits, and a child
  * on another machine whose pairing is gone offers Stop tracking. A child on another machine
@@ -75,6 +77,12 @@ export function SubagentRow(props: {
   const { detail, kind } = useDetail(props.threadId, entry, props.fresh);
   const host = useThreadHost(entry.machine ? entry.childThreadId : undefined, entry.machineHost);
   const meta = useMeta(entry);
+  const account = useAgentAccount({
+    threadId: props.threadId,
+    childThreadId: entry.childThreadId,
+    elsewhere: entry.machine !== undefined,
+    host,
+  });
   const status = subagentLabels[entry.state];
   const label = entry.machine
     ? `${host ? "Open " : ""}${entry.title} on ${entry.machine}, ${status}`
@@ -83,7 +91,7 @@ export function SubagentRow(props: {
       : `Open ${entry.title}, ${status}`;
   const terminal = subagentTerminal(entry.state);
   const parts: AgentRowParts = {
-    mark: { provider: entry.provider, model: entry.model },
+    mark: { provider: entry.provider, model: entry.model, ...account },
     name: entry.title,
     meta,
     machine: entry.machine,
@@ -101,12 +109,8 @@ export function SubagentRow(props: {
     detailKind: kind,
   };
   const classes = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
-  // What its hover card reads: a delegated thread (here or on another machine), or a subagent.
-  const subject: AgentCardSubject | undefined = entry.childThreadId
-    ? { kind: "delegated", threadId: props.threadId, childThreadId: entry.childThreadId }
-    : entry.agentId
-      ? { kind: "subagent", threadId: props.threadId, agentId: entry.agentId }
-      : undefined;
+  // A hover card describes a delegated thread (here or on another machine) or a subagent.
+  const carded = Boolean(entry.childThreadId || entry.agentId);
   const target: SubagentTarget | undefined =
     entry.machine && entry.childThreadId
       ? host
@@ -128,21 +132,21 @@ export function SubagentRow(props: {
     <li data-subagent-state={entry.state} className="relative">
       {/* A child on a machine this window can't reach has no thread here: it opens the Summary. */}
       {target ? (
-        <WithCard subject={subject} parts={parts}>
+        <WithCard carded={carded} parts={parts}>
           <SubagentLink subagent={target} aria-label={label} className={classes}>
-            <AgentRowContents {...parts} tooltips={!subject} />
+            <AgentRowContents {...parts} tooltips={!carded} />
           </SubagentLink>
         </WithCard>
       ) : (
         // Its agent hasn't been seen yet: the spawn call is all there is, in the Work tree.
-        <WithCard subject={subject} parts={parts}>
+        <WithCard carded={carded} parts={parts}>
           <button
             type="button"
             aria-label={label}
             className={classes}
             onClick={() => workspace.open({ kind: "work" })}
           >
-            <AgentRowContents {...parts} tooltips={!subject} />
+            <AgentRowContents {...parts} tooltips={!carded} />
           </button>
         </WithCard>
       )}
@@ -166,15 +170,9 @@ export function SubagentRow(props: {
 }
 
 /** The row (`children`) with its agent's hover card, when there is an agent to describe. */
-function WithCard(props: {
-  subject: AgentCardSubject | undefined;
-  parts: AgentRowParts;
-  children: ReactElement;
-}) {
-  return props.subject ? (
-    <AgentHoverCard subject={props.subject} parts={props.parts}>
-      {props.children}
-    </AgentHoverCard>
+function WithCard(props: { carded: boolean; parts: AgentRowParts; children: ReactElement }) {
+  return props.carded ? (
+    <AgentHoverCard parts={props.parts}>{props.children}</AgentHoverCard>
   ) : (
     props.children
   );

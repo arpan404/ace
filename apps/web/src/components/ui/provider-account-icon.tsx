@@ -25,13 +25,15 @@ export function ProviderAccountIcon(
   props: ProviderIconProps & {
     instance?: string | undefined;
     account?: AccountView | undefined;
+    /** The accounts `instance` is one of, when not this window's: another machine's. */
+    accounts?: readonly AccountView[] | undefined;
     /** False hides the account mark where room is short; the accessible name keeps it. */
     accountLabel?: boolean;
     tooltip?: boolean;
   },
 ) {
   const accounts = useAccountViews();
-  const mark = providerAccount(accounts.data, {
+  const mark = providerAccount(props.accounts ?? accounts.data, {
     provider: props.provider,
     instance: props.instance,
     account: props.account,
