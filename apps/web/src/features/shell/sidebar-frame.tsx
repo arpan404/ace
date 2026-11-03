@@ -56,15 +56,7 @@ const SidebarSheet = lazy(() =>
  * Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
-  const {
-    layout,
-    setSidebarOpen,
-    setSidebarWidth,
-    hideRightPanel,
-    rightPanelShown,
-    sidebarAside,
-    setSidebarAside,
-  } = useLayout();
+  const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
   // The width while a drag is under way; it is remembered once the drag ends.
   const [dragWidth, setDragWidth] = useState<number>();
   const width = clampSize(dragWidth ?? layout.sidebarWidth, sidebarWidths.min, sidebarWidths.max);
@@ -95,7 +87,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
       sidebar: { open: layout.sidebarOpen, inline: wide && !setup, width: settled + railWidth },
       panel: { open: rightPanelShown, dock: "side", expanded: false, size: 0 },
     }).sidebar === "yielded";
-  const inline = !setup && layout.sidebarOpen && !yielded && !sidebarAside;
+  const inline = !setup && layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
   const value = useMemo<FrameValue>(
     () => ({
@@ -106,8 +98,6 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
         if (!wide) return setSheetOpen(true);
         // Asking for the sidebar back on a crowded window puts the right panel away.
         if (yielded) hideRightPanel();
-        // Shown by hand, it stays while the screen that set it aside is open.
-        setSidebarAside(false);
         setSidebarOpen(true);
       },
       hideSidebar: () => (wide ? setSidebarOpen(false) : setSheetOpen(false)),
@@ -116,18 +106,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
       bodyClaimed: claims > 0,
       claimBody,
     }),
-    [
-      shown,
-      wide,
-      yielded,
-      body,
-      claims,
-      claimBody,
-      setSidebarOpen,
-      setSidebarAside,
-      hideRightPanel,
-      setup,
-    ],
+    [shown, wide, yielded, body, claims, claimBody, setSidebarOpen, hideRightPanel, setup],
   );
   // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
   // window's remembered choice alone), the sidebar beside the content elsewhere.
