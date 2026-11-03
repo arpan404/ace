@@ -56,7 +56,7 @@ test("the hover card shows no model line when the model is unknown", async () =>
 
 const threadsList = async () => within(await screen.findByRole("navigation", { name: "Threads" }));
 
-test("a row draws its provider mark with no account bubble; the hover card names the account", async () => {
+test("with two Claude accounts, a row's provider mark carries the account's badge and the hover card names it", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "hover-account",
@@ -78,7 +78,8 @@ test("a row draws its provider mark with no account bubble; the hover card names
   await app.open("/new");
   const row = await (await threadsList()).findByRole("link", { name: /^Runs on the work account/ });
   expect(within(row).getByRole("img", { name: /^Claude Code/ })).toBeTruthy();
-  expect(row.querySelector("[data-account-badge]")).toBeNull();
+  // The person has more than one Claude account, so the mark says which one runs it.
+  expect(row.querySelector("[data-account-badge]")?.textContent).toBe("W");
   await userEvent.hover(row);
   const tip = await screen.findByLabelText(/^Details for Runs on the work account/);
   expect(tip.textContent).toContain("Work");
