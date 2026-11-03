@@ -12,25 +12,13 @@ import { useNow } from "@/lib/time.ts";
 import { usePrCommits } from "./pr-commits.tsx";
 import { useCodeOptions } from "./pr-code-options.ts";
 import { PrCodeRange } from "./pr-code-range.tsx";
-import type { PrWorkspaceContext } from "./pr-extensions.ts";
+import type { PrFilesProps } from "./pr-files-props.ts";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
 
 /** Warm the diff renderer while a pull request is open, before its Code tab is chosen. */
 export function preloadPrFiles(): void {
   void DeferredFileDiffBlock.preload().catch(() => {});
   void DeferredFileTree.preload().catch(() => {});
-}
-
-export interface PrFilesProps {
-  workspaceId: string;
-  repository: ForgeRepository;
-  detail: ForgePrDetail;
-  context: PrWorkspaceContext;
-  /** A file to scroll to (the Summary's Changes), at a line when given; a new `seq` asks again. */
-  focus?: { path: string; line?: number | undefined; seq: number } | undefined;
-  /** Which commits show, when the page holds the choice (the Timeline's commits open here). */
-  scope?: CodeScope | undefined;
-  onScope?: ((scope: CodeScope) => void) | undefined;
 }
 
 const rangeKey = (range: CodeRange) => `${range.since ?? ""}..${range.commit}`;

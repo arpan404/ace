@@ -33,7 +33,7 @@ function withLongLists() {
   return app;
 }
 
-/** Press Show more until `name` is a loaded row: the last row End reaches. */
+/** Press Load more until `name` is a loaded row: the last row End reaches. */
 async function loadThrough(list: HTMLElement, name: RegExp) {
   const nav = within(list);
   for (let press = 0; press < 10; press++) {
@@ -45,7 +45,7 @@ async function loadThrough(list: HTMLElement, name: RegExp) {
       return active;
     });
     if (name.test(reached.textContent ?? "")) return reached;
-    await userEvent.click(nav.getByRole("button", { name: "Show more" }));
+    await userEvent.click(nav.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(list.getAttribute("aria-busy")).toBe("false"));
   }
   throw new Error(`Never reached ${String(name)}`);
@@ -60,7 +60,7 @@ function focusFirst(list: HTMLElement) {
 /** The list's rows mounted now, of the many loaded. */
 const mounted = (list: HTMLElement) => list.querySelectorAll("[data-view-row]").length;
 
-test("pull requests page in by Show more and mount only a window, End reaching the last loaded", async () => {
+test("pull requests page in by Load more and mount only a window, End reaching the last loaded", async () => {
   const app = withLongLists();
   await app.open("/pulls?project=ace&sort=updated");
   const list = await screen.findByRole("navigation", { name: "Pull requests" });
@@ -85,7 +85,7 @@ test("searching 2,000 pull requests finds one far down the list", async () => {
   expect(found).toBeTruthy();
 });
 
-test("issues page in by Show more and mount only a window, End reaching the last loaded", async () => {
+test("issues page in by Load more and mount only a window, End reaching the last loaded", async () => {
   const app = withLongLists();
   await app.open("/issues?project=ace");
   const list = await screen.findByRole("navigation", { name: "Issues" });
@@ -96,14 +96,14 @@ test("issues page in by Show more and mount only a window, End reaching the last
   expect(mounted(list)).toBeLessThan(40);
 });
 
-test("notifications page in by Show more and mount only a window, End reaching the last loaded", async () => {
+test("notifications page in by Load more and mount only a window, End reaching the last loaded", async () => {
   const app = withLongLists();
   await app.open("/inbox");
   const list = await screen.findByRole("navigation", { name: "Notifications" });
   await within(list).findByText("Long list notification 0001");
-  // Grouped by reason, the last row loaded after three pages is the last mention: 0149.
-  const last = await loadThrough(list, /Long list notification 0149/);
-  expect(last.textContent).toMatch(/Long list notification 0149/);
+  // Grouped by date, newest first: the last row loaded after three pages is 0150.
+  const last = await loadThrough(list, /Long list notification 0150/);
+  expect(last.textContent).toMatch(/Long list notification 0150/);
   expect(mounted(list)).toBeLessThan(40);
   expect(within(list).queryByText("Long list notification 0001")).toBeNull();
 });

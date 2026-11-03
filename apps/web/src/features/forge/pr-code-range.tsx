@@ -38,7 +38,7 @@ import { landingOf, useCodeNavigation } from "./pr-code-nav.ts";
 import { codeThreadStops, shownDiffs, threadsAtHead } from "./pr-code-shown.ts";
 import { PrCodeTree } from "./pr-code-tree.tsx";
 import { prCodeShortcut } from "./pr-shortcuts.ts";
-import type { PrFilesProps } from "./pr-files.tsx";
+import type { PrFilesProps } from "./pr-files-props.ts";
 
 /** Past this many diff rows across the files read, only the files near the viewport mount. */
 const virtualRowsAbove = 2_000;

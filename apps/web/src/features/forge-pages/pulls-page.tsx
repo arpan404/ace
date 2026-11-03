@@ -1,14 +1,7 @@
-import {
-  groupByWork,
-  groupPrs,
-  prQuery,
-  sortPrs,
-  type PullsSearch,
-  type PullsSort,
-  type RowGroup,
-} from "@ace/ui-core";
+import { groupByWork, prQuery, sortPrs, type PullsSearch, type PullsSort } from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
+import { GitMergeIcon, GitPullRequestIcon, XCircleIcon } from "@phosphor-icons/react";
 import type { ForgePrList, ForgePrRow, VerifyRun } from "@ace/protocol";
 import { useVerifyRuns } from "@/lib/verify.ts";
 import { useMergeMethod } from "@/features/forge/index.ts";
@@ -16,7 +9,7 @@ import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen } from "@/features/shell/index.ts";
-import { FiltersMenu } from "./filters-menu.tsx";
+import { FilterMenus, isOn } from "./filters-menu.tsx";
 import { ForgeList } from "./forge-list.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
@@ -24,7 +17,9 @@ import { ListFrame } from "./list-frame.tsx";
 import { useGroupCounts, usePrPages } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
 import { PrRow } from "./pr-row.tsx";
-import { filterSections, viewSections } from "./pull-filters.ts";
+import { pullSections } from "./pull-filters.ts";
+import { prQueryText, prSearchOf } from "./query-text.ts";
+import { QueryField } from "./query-field.tsx";
 import { useReadyPages } from "./ready-pages.ts";
 import { useMergeRun } from "./merge-run.ts";
 import { MergeStrip } from "./merge-strip.tsx";
@@ -32,38 +27,48 @@ import { useRowSteps } from "./row-steps.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
-import { countWords, QuickViews } from "./quick-views.tsx";
+import { ClearLine, countWords, PresetMenu, StateToggles } from "./quick-views.tsx";
 
 const noRuns: readonly VerifyRun[] = [];
 const noRows: readonly ForgePrRow[] = [];
 
 const known = (value: number | undefined) => (value === undefined ? undefined : String(value));
 
-type View = "needs" | "review" | "yours" | "all" | "merged" | "closed";
+type Preset = "needs" | "review" | "yours" | "all";
+type State = "open" | "merged" | "closed";
 
-/** The quick view the address asks for; none for a state no view names ("all"). */
-function viewOf(search: PullsSearch): View | undefined {
-  const state = search.state ?? "open";
-  if (state === "merged" || state === "closed") return state;
-  if (state !== "open") return undefined;
+/** The preset the address asks for: who the list concerns. */
+function presetOf(search: PullsSearch): Preset {
   if (search.view === "needs") return "needs";
   if (search.who === "reviewing") return "review";
   if (search.who === "authored") return "yours";
   return "all";
 }
-const viewPatch: Record<View, Partial<PullsSearch>> = {
-  needs: { state: undefined, view: "needs", who: undefined },
-  review: { state: undefined, view: undefined, who: "reviewing" },
-  yours: { state: undefined, view: undefined, who: "authored" },
-  all: { state: undefined, view: undefined, who: undefined },
-  merged: { state: "merged", view: undefined, who: undefined },
-  closed: { state: "closed", view: undefined, who: undefined },
+const presetPatch: Record<Preset, Partial<PullsSearch>> = {
+  needs: { state: undefined, view: "needs", who: undefined, author: undefined },
+  review: { view: undefined, who: "reviewing" },
+  yours: { view: undefined, who: "authored", author: undefined },
+  all: { view: undefined, who: undefined },
+};
+/** Every filter back to the list as it starts. */
+const cleared: Partial<PullsSearch> = {
+  state: undefined,
+  view: undefined,
+  who: undefined,
+  draft: undefined,
+  review: undefined,
+  checks: undefined,
+  author: undefined,
+  labels: undefined,
+  sort: undefined,
+  q: undefined,
 };
 
 /**
- * Pull requests across the main column, from every project unless some are picked: open ones
- * grouped by who has the next move (Needs you, Agents working, Waiting on others, Ready to
- * merge), each row saying its state in words. Every filter lives in the address.
+ * Pull requests across the main column, from every project unless some are picked, laid out as
+ * GitHub lists them: the search line over one box, its header the Open / Merged / Closed
+ * toggles and the filter menus, then the rows. Open ones sort by who has the next move unless
+ * another sort is picked. Every filter lives in the address.
  */
 export function PullRequestsPage(props: {
   search: PullsSearch;
@@ -88,7 +93,6 @@ export function PullRequestsPage(props: {
   const list = byWork && single !== undefined ? ranked : listed;
   const peopleQuery = prQuery({ ...search, who: undefined }, 1);
   const people = useGroupCounts(open ? projects : [], { by: "pr-people", query: peopleQuery });
-  const totals = useGroupCounts(byWork ? [] : projects, { by: "pr-people", query }).total;
   const linked = useLinkedThreads().pulls;
   // Local checks and the verified merge are a project's own: with one project shown.
   const verify = useVerifyRuns(single);
@@ -102,23 +106,22 @@ export function PullRequestsPage(props: {
     runs,
     command: verify.data?.command,
   });
-  const view = viewOf(search);
+  const preset = presetOf(search);
   const needsYou = list.rows.filter((row) => steps.groupOf(row) === "you");
-  const shown = open && view === "needs" ? needsYou : list.rows;
-  const groups: RowGroup<ForgePrRow>[] = byWork
-    ? groupByWork(shown, (row) => steps.stepOf(row).step, steps.threadOf)
-    : groupPrs(sortPrs(shown, sort === "ready" ? "updated" : sort), list.first?.viewer);
-  const merge = useMergeRun(
-    single ?? "",
-    single ? (groups.find((group) => group.id === "merge")?.rows ?? noRows) : noRows,
-    runs,
-  );
+  const shown = open && preset === "needs" ? needsYou : list.rows;
+  const rows: ForgePrRow[] = byWork
+    ? groupByWork(shown, (row) => steps.stepOf(row).step, steps.threadOf).flatMap(
+        (group) => group.rows,
+      )
+    : sortPrs(shown, sort === "ready" ? "updated" : sort);
+  // Ready rows can be picked for one verified merge, with one project shown.
+  const mergeable = (row: ForgePrRow) =>
+    byWork && single !== undefined && steps.groupOf(row) === "merge";
+  const merge = useMergeRun(single ?? "", single ? rows.filter(mergeable) : noRows, runs);
   const [method, setMethod] = useMergeMethod(single ?? "");
   const navigate = useNavigate();
   const dialogs = useProjectDialogs();
   const complete = !list.more;
-  const count = (group: RowGroup<ForgePrRow>) =>
-    countWords(group.rows.length, byWork ? undefined : totals?.[group.id], complete);
   const sum = (pick: (counts: ForgePrList["counts"]) => number) => {
     if (list.firsts.size < projects.length) return undefined;
     let total = 0;
@@ -132,171 +135,195 @@ export function PullRequestsPage(props: {
   const allOpen = peopleTotal
     ? Object.values(peopleTotal).reduce((a, b) => a + b, 0)
     : sum((c) => c.open + c.draft);
-  const views = (
-    <QuickViews
-      label="Views"
-      value={view}
-      onValue={(next) => onSearch(viewPatch[next])}
-      views={[
-        {
-          id: "needs",
-          label: "Needs you",
-          count: open ? countWords(needsYou.length, undefined, complete) : undefined,
-        },
-        {
-          id: "review",
-          label: "Review requested",
-          count: peopleTotal ? String(peopleTotal["reviewing"] ?? 0) : undefined,
-        },
-        {
-          id: "yours",
-          label: "Yours",
-          count: peopleTotal ? String(peopleTotal["authored"] ?? 0) : undefined,
-        },
-        { id: "all", label: "All open", count: known(allOpen) },
-        { id: "merged", label: "Merged", count: known(sum((c) => c.merged)) },
-        { id: "closed", label: "Closed", count: known(sum((c) => c.closed)) },
-      ]}
-    />
-  );
+  const state: State | undefined = search.state === "all" ? undefined : (search.state ?? "open");
+  const sections = pullSections(search, list.rows, onSearch);
+  const filtered =
+    preset !== "all" ||
+    !!search.q ||
+    !!search.draft ||
+    !!search.sort ||
+    (search.state !== undefined && search.state !== "open") ||
+    sections.some(isOn);
+  const line = prQueryText(search);
+  const lineOf = (text: string) => prQueryText({ ...search, ...prSearchOf(text) });
+  const qualifiers = (patch: Partial<PullsSearch>) =>
+    prQueryText({ ...search, ...patch, q: undefined });
   const openPr = (project: string, number: number) =>
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
       search: { back: listAddress },
     });
-  const rows = (
-    <ListFrame
-      kind="pulls"
-      address={listAddress}
-      ready={list.rows.length > 0}
-      lead={
-        <ProjectMenu
-          choice={choice}
-          counts={openCounts}
-          onPick={(next) =>
-            onSearch({ ...choice.pick(next), labels: undefined, author: undefined })
-          }
-        />
-      }
-      actions={
-        <NewInProject
-          label="New pull request"
-          projects={projects}
-          name={choice.name}
-          onPick={(project) =>
-            void navigate({
-              to: "/pulls/$project/new",
-              params: { project },
-              search: { back: listAddress },
-            })
-          }
-        />
-      }
-      views={views}
-      strip={
-        <>
-          <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
-          {single && (
-            <MergeStrip
-              merge={merge}
-              method={method}
-              onMethod={setMethod}
-              command={verify.data?.command}
-              onSetCommand={() => dialogs.open({ kind: "edit", projectId: single })}
-              onOpenPr={(number) => openPr(single, number)}
-            />
-          )}
-        </>
-      }
-      search={search.q ?? ""}
-      onSearch={(text) => onSearch({ q: text.trim() || undefined })}
-      menus={
-        <FiltersMenu
-          sections={[
-            ...viewSections(search, onSearch),
-            ...filterSections(search, list.rows, onSearch),
-          ]}
-          onClear={() =>
-            onSearch({
-              who: undefined,
-              view: undefined,
-              draft: undefined,
-              review: undefined,
-              checks: undefined,
-              author: undefined,
-              labels: undefined,
-            })
-          }
-        />
-      }
-    >
-      {!projects.length ? (
-        choice.loaded && (
-          <EmptyState
-            title="No projects yet"
-            description="Add a project with a GitHub remote to see its pull requests."
-          />
-        )
-      ) : list.error && !list.first ? (
-        <EmptyState
-          title="Couldn't load pull requests"
-          description={list.error.message}
-          action={
-            <Button size="sm" onClick={list.retry}>
-              Try again
-            </Button>
-          }
-        />
-      ) : list.loading ? (
-        <RowsSkeleton kind="pulls" />
-      ) : !shown.length ? (
-        <EmptyState title={view === "needs" ? "Nothing needs you" : "No pull requests match"} />
-      ) : (
-        <ForgeList
-          label="Pull requests"
-          stale={list.stale}
-          groups={groups.map((group) => ({
-            id: group.id,
-            label: group.label,
-            count: count(group),
-            headed: groups.length > 1 || group.id !== "all",
-            rows: group.rows,
-          }))}
-          rowKey={(row) =>
-            `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`
-          }
-          rowTitle={(row) => row.title}
-          estimate={61}
-          renderRow={(row, group, last) => {
-            const project = list.projectOf(row);
-            return (
-              <PrRow
-                project={project}
-                projectName={single ? undefined : choice.name(project)}
-                back={listAddress}
-                row={row}
-                step={steps.view(row, group === "merge" && single ? merge : undefined)}
-                selected={group === "merge" && single !== undefined && merge.isPicked(row)}
-                last={last}
-              />
-            );
-          }}
-          onMore={
-            list.more
-              ? () =>
-                  byWork && single !== undefined
-                    ? ranked.loadMore()
-                    : setPaging({ key: listKey, pages: pages + 1 })
-              : undefined
-          }
-        />
-      )}
-    </ListFrame>
+  const bar = (
+    <>
+      <PresetMenu
+        label="Views"
+        value={preset}
+        onValue={(next) => onSearch(presetPatch[next])}
+        views={[
+          {
+            id: "needs",
+            label: "Needs you",
+            count: open ? countWords(needsYou.length, undefined, complete) : undefined,
+          },
+          {
+            id: "review",
+            label: "Review requested",
+            count: peopleTotal ? String(peopleTotal["reviewing"] ?? 0) : undefined,
+          },
+          {
+            id: "yours",
+            label: "Yours",
+            count: peopleTotal ? String(peopleTotal["authored"] ?? 0) : undefined,
+          },
+          { id: "all", label: "All pull requests", count: undefined },
+        ]}
+      />
+      <QueryField
+        label="Search pull requests"
+        value={line}
+        lineOf={lineOf}
+        settles={(text) => qualifiers(prSearchOf(text)) === qualifiers({})}
+        onApply={(text) => onSearch(text.trim() ? prSearchOf(text) : cleared)}
+      />
+      <ProjectMenu
+        choice={choice}
+        counts={openCounts}
+        onPick={(next) => onSearch({ ...choice.pick(next), labels: undefined, author: undefined })}
+      />
+      <NewInProject
+        label="New pull request"
+        projects={projects}
+        name={choice.name}
+        onPick={(project) =>
+          void navigate({
+            to: "/pulls/$project/new",
+            params: { project },
+            search: { back: listAddress },
+          })
+        }
+      />
+    </>
+  );
+  const header = (
+    <>
+      <StateToggles
+        label="State"
+        value={state}
+        onValue={(next) =>
+          onSearch({
+            state: next === "open" ? undefined : next,
+            ...(next !== "open" && search.view === "needs" ? { view: undefined } : {}),
+          })
+        }
+        views={[
+          {
+            id: "open",
+            label: "Open",
+            count: known(allOpen),
+            icon: <GitPullRequestIcon aria-hidden size={16} />,
+          },
+          {
+            id: "merged",
+            label: "Merged",
+            count: known(sum((c) => c.merged)),
+            icon: <GitMergeIcon aria-hidden size={16} />,
+          },
+          {
+            id: "closed",
+            label: "Closed",
+            count: known(sum((c) => c.closed)),
+            icon: <XCircleIcon aria-hidden size={16} />,
+          },
+        ]}
+      />
+      <FilterMenus sections={sections} />
+    </>
   );
   return (
     <Screen title="Pull requests" namedByPanel>
-      {rows}
+      <ListFrame
+        kind="pulls"
+        address={listAddress}
+        ready={rows.length > 0}
+        bar={bar}
+        strip={
+          <>
+            {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
+            <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
+            {single && (
+              <MergeStrip
+                merge={merge}
+                method={method}
+                onMethod={setMethod}
+                command={verify.data?.command}
+                onSetCommand={() => dialogs.open({ kind: "edit", projectId: single })}
+                onOpenPr={(number) => openPr(single, number)}
+              />
+            )}
+          </>
+        }
+        header={header}
+      >
+        {!projects.length ? (
+          choice.loaded && (
+            <EmptyState
+              title="No projects yet"
+              description="Add a project with a GitHub remote to see its pull requests."
+            />
+          )
+        ) : list.error && !list.first ? (
+          <EmptyState
+            title="Couldn't load pull requests"
+            description={list.error.message}
+            action={
+              <Button size="sm" onClick={list.retry}>
+                Try again
+              </Button>
+            }
+          />
+        ) : list.loading ? (
+          <RowsSkeleton label="pull requests" />
+        ) : !rows.length ? (
+          <EmptyState
+            title={preset === "needs" ? "Nothing needs you" : "No results matched your search."}
+          />
+        ) : (
+          <ForgeList
+            label="Pull requests"
+            stale={list.stale}
+            rows={rows}
+            rowKey={(row) =>
+              `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`
+            }
+            rowTitle={(row) => row.title}
+            estimate={57}
+            renderRow={(row, _group, last) => {
+              const project = list.projectOf(row);
+              const picking = mergeable(row);
+              return (
+                <PrRow
+                  project={project}
+                  projectName={single ? undefined : choice.name(project)}
+                  back={listAddress}
+                  row={row}
+                  step={steps.view(row, picking ? merge : undefined)}
+                  selected={picking && merge.isPicked(row)}
+                  last={last}
+                />
+              );
+            }}
+            onMore={
+              list.more
+                ? () =>
+                    byWork && single !== undefined
+                      ? ranked.loadMore()
+                      : setPaging({ key: listKey, pages: pages + 1 })
+                : undefined
+            }
+          />
+        )}
+      </ListFrame>
     </Screen>
   );
 }

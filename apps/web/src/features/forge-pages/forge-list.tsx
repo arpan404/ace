@@ -3,45 +3,42 @@ import { Button } from "@/components/ui/button.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
-import { GroupHeader } from "./row-parts.tsx";
 
-/** A group of a list page: its heading (unless it is the only, unnamed one) and its rows. */
+/** A group of rows under a heading band (the inbox's Today, or a repository). */
 export interface ForgeGroup<R> {
   id: string;
   label: string;
-  /** Its count in words ("3", "2 of 12"); none while unknown. */
-  count: string | undefined;
-  /** Drawn with its heading: false for a list with one group that needs no name. */
-  headed: boolean;
   rows: readonly R[];
 }
 
 type Entry<R> =
-  | { kind: "group"; group: ForgeGroup<R>; first: boolean }
+  | { kind: "group"; group: ForgeGroup<R> }
   | { kind: "row"; row: R; group: string; last: boolean };
 
-/** A group's heading line: its words, with 24px above (12px for the first) and 4px below. */
-const headingHeight = 44;
-const firstHeadingHeight = 32;
+/** A group's heading band, as tall as its words with a little room. */
+const headingHeight = 37;
 
 /**
- * The rows of a Code review list (Pull requests, Issues, Inbox) across the main column: its
- * groups' headings and rows as one flat list, so thousands of rows mount a screenful, then Show
- * more while GitHub has more pages. ↑/↓, Home/End and letters reach every row, mounted or not.
+ * The rows inside a list page's box (Pull requests, Issues, Inbox), a hairline between each:
+ * flat, or under heading bands when grouped. One virtual list, so thousands of rows mount a
+ * screenful; Load more closes the box while GitHub has more pages. ↑/↓, Home/End and letters
+ * reach every row, mounted or not.
  */
 export function ForgeList<R>(props: {
   /** The list's name for assistive tech ("Pull requests"). */
   label: string;
   /** A newer page is on its way: the rows dim and the list says it is busy. */
   stale: boolean;
-  groups: readonly ForgeGroup<R>[];
+  /** The rows, flat; or `groups` with heading bands. */
+  rows?: readonly R[] | undefined;
+  groups?: readonly ForgeGroup<R>[] | undefined;
   rowKey(row: R): string;
   /** A row's title, for type-to-jump. */
   rowTitle(row: R): string;
   /** A row's usual height in px; rows are measured once mounted. */
   estimate: number;
   renderRow(row: R, group: string, last: boolean): ReactNode;
-  /** GitHub has more pages: Show more asks for the next. */
+  /** GitHub has more pages: Load more asks for the next. */
   onMore: (() => void) | undefined;
   /**
    * Triage keys: j and k move between rows as ↓ and ↑ do, and any other letter goes to
@@ -51,12 +48,13 @@ export function ForgeList<R>(props: {
 }) {
   const { rowKey, rowTitle } = props;
   const entries: Entry<R>[] = [];
-  for (const group of props.groups) {
-    if (group.headed) entries.push({ kind: "group", group, first: entries.length === 0 });
-    group.rows.forEach((row, index) =>
-      entries.push({ kind: "row", row, group: group.id, last: index === group.rows.length - 1 }),
-    );
+  const groups = props.groups ?? [{ id: "all", label: "", rows: props.rows ?? [] }];
+  for (const group of groups) {
+    if (props.groups) entries.push({ kind: "group", group });
+    for (const row of group.rows) entries.push({ kind: "row", row, group: group.id, last: false });
   }
+  const tail = entries.at(-1);
+  if (tail?.kind === "row" && !props.onMore) tail.last = true;
   const handle = useRef<VirtualRowsHandle>(null);
   const keys = useViewListKeys<HTMLElement>({
     count: entries.length,
@@ -122,7 +120,7 @@ export function ForgeList<R>(props: {
       }}
       onKeyDown={onKeyDown}
       className={cn(
-        "@container/list pb-6",
+        "@container/list",
         props.stale && "opacity-60 transition-opacity duration-(--motion-fast)",
       )}
     >
@@ -133,25 +131,21 @@ export function ForgeList<R>(props: {
         rowKey={(entry) =>
           entry.kind === "group" ? `group:${entry.group.id}` : `row:${rowKey(entry.row)}`
         }
-        estimate={(entry) =>
-          entry.kind === "group"
-            ? entry.first
-              ? firstHeadingHeight
-              : headingHeight
-            : props.estimate
-        }
+        estimate={(entry) => (entry.kind === "group" ? headingHeight : props.estimate)}
         render={(entry) =>
           entry.kind === "group" ? (
-            <GroupHeader label={entry.group.label} count={entry.group.count} first={entry.first} />
+            <h3 className="border-b border-border bg-muted px-4 py-2 text-xs font-semibold text-foreground">
+              {entry.group.label}
+            </h3>
           ) : (
             props.renderRow(entry.row, entry.group, entry.last)
           )
         }
       />
       {onMore && (
-        <div className="px-(--forge-gutter) pt-2">
+        <div className="flex justify-center border-t border-border py-2">
           <Button size="sm" variant="ghost" onClick={onMore}>
-            Show more
+            Load more
           </Button>
         </div>
       )}
