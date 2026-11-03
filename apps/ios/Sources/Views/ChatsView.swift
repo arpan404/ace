@@ -43,8 +43,8 @@ struct ChatsList: View {
                             }
                         } header: {
                             Text(section.label)
-                                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                                .foregroundStyle(AceTheme.Colours.subtleForeground)
                                 .textCase(nil)
                         }
                     }
@@ -61,7 +61,7 @@ struct ChatsList: View {
         let labels = inbox.mergedChats.menuLabels.isEmpty ? inbox.merged.menuLabels : inbox.mergedChats.menuLabels
         Button { actions.open(key) } label: { ChatRow(row: row) }
             .buttonStyle(.row)
-            .listRowInsets(EdgeInsets(top: 0, leading: AceDesign.Space.related, bottom: 0, trailing: AceDesign.Space.related))
+            .listRowInsets(EdgeInsets(top: 0, leading: AceDesign.Size.listInset, bottom: 0, trailing: AceDesign.Size.listInset))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
             .contextMenu {
@@ -133,7 +133,7 @@ private struct ChatRow: View {
                 RowStatusIcon(kind: icon, tone: look?.iconTone ?? "idle", count: look?.count)
             }
         }
-        .padding(.horizontal, AceTheme.Spacing.rowInner)
+        .padding(.horizontal, AceDesign.Size.rowInset)
         .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)

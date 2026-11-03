@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// ace's one segmented control (design language §5): the choices share one capsule track on the
-/// quiet fill, and the chosen one sits on the accent's capsule, which slides between them. Drawn
-/// at the system segmented control's 32pt, taking taps over 44, no glass: it sits on sheets and
-/// pages, not over content.
+/// ace's one segmented control (design language §5, the approved mockup): the choices share one
+/// capsule track on the quiet fill, hugging them, and the chosen one sits raised on it with a
+/// tiny shadow, sliding between them. 28pt tabs on a 3pt inset, taking taps over 44, no glass:
+/// it sits on sheets and pages, not over content.
 struct CapsuleSegments<Value: Hashable>: View {
     struct Choice {
         let value: Value
@@ -21,7 +21,7 @@ struct CapsuleSegments<Value: Hashable>: View {
     @Namespace private var thumb
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.none) {
+        HStack(spacing: AceDesign.Size.segmentInset - 1) {
             ForEach(choices, id: \.value) { choice in segment(choice) }
         }
         .padding(AceDesign.Size.segmentInset)
@@ -43,13 +43,14 @@ struct CapsuleSegments<Value: Hashable>: View {
             }
             .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
             .fontWeight(chosen ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-            .foregroundStyle(chosen ? AceDesign.Ink.onAccent : AceDesign.Ink.muted)
+            .foregroundStyle(chosen ? AceDesign.Ink.primary : AceDesign.Ink.muted)
             .lineLimit(1)
-            .padding(.horizontal, AceDesign.Space.row)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, AceDesign.Space.chipTab)
+            .frame(maxHeight: .infinity)
             .background {
                 if chosen {
-                    AceDesign.Shape.control.fill(AceDesign.Ink.accent)
+                    AceDesign.Shape.control.fill(AceDesign.Surface.raised)
+                        .shadow(color: .black.opacity(AceShadow.tabOpacity), radius: AceShadow.tabRadius, y: AceShadow.tabY)
                         .matchedGeometryEffect(id: "chosen", in: thumb)
                 }
             }

@@ -174,6 +174,8 @@ struct ForgeHome: View {
                 ForgeFiltersMenu(kind: kind, pulls: $pullsFilter, issues: $issuesFilter,
                                  pullList: pulls.list, issueList: issues.list)
             }
+            // The switch hugs its tabs; the row keeps to the leading edge.
+            Spacer(minLength: AceTheme.Spacing.none)
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.xs)
