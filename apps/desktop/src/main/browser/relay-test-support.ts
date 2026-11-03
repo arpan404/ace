@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, vi } from "vitest";
 import { WebSocketServer, WebSocket as ServerSocket } from "ws";
 import { EmbeddedBackend, type EmbeddedTransport } from "@ace/browser";
+import { BrowserBackendClientMessage } from "@ace/protocol";
 import { BrowserBackend, type ViewHost } from "./backend.ts";
 import type { VideoRelaySource } from "./video-relay.ts";
 import { BackendConnection } from "./connection.ts";
@@ -110,7 +111,8 @@ export async function relayDaemon(
           connectionId,
         });
       }
-      if (String(message.type).startsWith("browser.backend.")) relay?.handle(message);
+      if (String(message.type).startsWith("browser.backend."))
+        relay?.handle(BrowserBackendClientMessage.parse(message));
     });
     socket.on("close", () => relay?.disconnect("Desktop app disconnected"));
   });
