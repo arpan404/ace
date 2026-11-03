@@ -139,6 +139,8 @@ import UIKit
         static let segment = AceTheme.TypeStyle(size: 14, lineHeight: 18, weight: 400, tracking: 0)
         /// Project, time, counts, the scope under a title. `.footnote`.
         static let meta = AceTheme.TypeStyle(size: 13, lineHeight: 18, weight: 400, tracking: 0)
+        /// A branch on a row's last line, in mono. `.caption`.
+        static let branch = AceTheme.TypeStyle(size: 12, lineHeight: 16, weight: 400, tracking: 0)
         /// Tiny labels. `.caption2`.
         static let caption = AceTheme.TypeStyle(size: 11, lineHeight: 13, weight: 400, tracking: 0)
         /// A tab's word under its icon. `.caption2`.
@@ -272,7 +274,11 @@ extension AceDesign.Size {
     /// A grouped list's row (More, Settings), as the system's Settings draws one.
     static let settingsRow: CGFloat = 52
     /// A provider mark at a row's trailing edge.
-    static let rowMark: CGFloat = 15
+    static let rowMark: CGFloat = 14
+    /// A three-line row's padding is this much less, so it comes to about 72.
+    static let rowPaddingTrim: CGFloat = 4
+    /// Between a row's lines: three lines come to about 72.
+    static let rowLineGap: CGFloat = 1
     /// The header's glass capsule (More, Pull requests, Search): drawn this tall, each button
     /// still a 44pt target.
     static let headerBar: CGFloat = 40

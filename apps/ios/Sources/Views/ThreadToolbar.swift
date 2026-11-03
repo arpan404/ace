@@ -33,6 +33,8 @@ struct ThreadToolbar: ToolbarContent {
     /// "project · branch" (or the machine where there is no branch).
     let subtitle: String
     let status: StatusDisplay?
+    /// A chat (ADR 0099) leads its line with a bubble; a project thread with its folder.
+    var chat = false
     let pageWidth: CGFloat
     /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
     var rename: (() -> Void)? = nil
@@ -79,11 +81,20 @@ struct ThreadToolbar: ToolbarContent {
             titleRow
             if !subtitle.isEmpty {
                 // The checkout's line opens Work: where the thread runs and what can move it.
+                // Led by the project's folder (a chat's bubble) as the desktop's crumb is, and by a
+                // dot while the thread works or needs the person, as its details button carries.
                 Button(action: openWork) {
-                    Text(subtitle).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.middle)
-                        .frame(width: headingWidth)
-                        .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
+                    HStack(spacing: AceDesign.Space.tight) {
+                        if let dot = workDot {
+                            Circle().fill(dot).frame(width: AceDesign.Size.dotSmall, height: AceDesign.Size.dotSmall)
+                        }
+                        AceIcon(chat ? .chatCircle : .folderSimple, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
+                        Text(subtitle).lineLimit(1).truncationMode(.middle)
+                    }
+                    .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(width: headingWidth)
+                    .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(subtitle)
@@ -96,6 +107,14 @@ struct ThreadToolbar: ToolbarContent {
         .frame(width: headingWidth)
         .clipped()
         .accessibilityElement(children: .contain)
+    }
+    /// The details dot: amber while something needs the person, the working hue while it works.
+    private var workDot: Color? {
+        switch status?.token {
+        case "needsYou": AceDesign.Status.needsYou
+        case "working": AceDesign.Status.working
+        default: nil
+        }
     }
     @ViewBuilder private var titleRow: some View {
         if let rename {

@@ -116,7 +116,7 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), pageWidth: pageWidth,
+                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), chat: metadata?.chat == true, pageWidth: pageWidth,
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
@@ -415,6 +415,8 @@ struct ThreadView: View {
         case "plan": Task { _ = await model.setAccess("read-only") }
         case "model": showModels = true
         case "review": open(.changes)
+        case "fork": open(.forkLast)
+        case "attachments": open(.attachments)
         default: break
         }
     }

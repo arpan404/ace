@@ -312,7 +312,9 @@ private struct InboxThreadCell: View {
                              canMoveUp: canMoveUp, canMoveDown: canMoveDown, step: step)
             }
         } preview: {
-            ThreadPreview(row: row, machine: inbox.showsMachineNames ? inbox.mark(key.machineId) : nil,
+            // The card names the machine always, as the desktop's names "This machine".
+            ThreadPreview(row: row, machine: inbox.mark(key.machineId)
+                              ?? MachineMark(name: inbox.name(key.machineId), glyph: inbox.client(key.machineId)?.machineGlyph ?? .laptop),
                           project: inbox.projectLook(key, workspace: row.workspaceId))
         }
     }

@@ -139,6 +139,45 @@ if (Number.isSafeInteger(streamed) && streamed > 0)
       ).join(""),
     ),
   ]);
+// One row with every field the desktop row shows: pinned, a long branch, two linked pull
+// requests, lines changed, running subagents and an agent using Mac apps.
+daemon.createThread({
+  hasSentMessage: true,
+  id: "ios-rich-row",
+  workspaceId: "ace",
+  title: "Rewrite the relay outbox streams",
+  provider: "claude",
+  details: {
+    ...details("feat/rewrite-the-relay-outbox-streams"),
+    diff: { files: 4, additions: 120, deletions: 8 },
+    linkedPrs: [
+      {
+        number: 1188,
+        state: "open",
+        title: "Rewrite the relay outbox streams",
+        url: "https://github.com/arpan404/ace/pull/1188",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "ace" },
+        updatedAt: 1,
+      },
+      {
+        number: 214,
+        state: "draft",
+        title: "Relay: stream backpressure",
+        url: "https://github.com/arpan404/relay/pull/214",
+        repo: { forge: "github", host: "github.com", owner: "arpan404", name: "relay" },
+        updatedAt: 1,
+      },
+    ],
+  },
+  live: { model: "opus 5.5 · medium", subagentCount: 2, backgroundTaskCount: 0 },
+});
+daemon.apply("ios-rich-row", [facts.rootAgent("claude"), facts.turn("root")]);
+daemon.computerUsing.use("ios-rich-row", ["Simulator", "Xcode"]);
+daemon.command({
+  id: CommandId.parse("seed-rich-row-pin"),
+  deviceId: DeviceId.parse("seed"),
+  payload: { type: "thread.pin", threadId: ThreadId.parse("ios-rich-row"), pinned: true },
+});
 daemon.createThread({
   hasSentMessage: true,
   id: "ios-done",

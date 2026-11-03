@@ -27,6 +27,8 @@ import {
 import { threadRow } from "./presentation.ts";
 import { inboxLook } from "./inbox-look.ts";
 import { rowAccount } from "./inbox-accounts.ts";
+import { rowCard } from "./inbox-card.ts";
+import { noAgentUse, type AgentUse } from "./inbox-agent-use.ts";
 import { inboxSortChoices } from "./inbox-sort.ts";
 
 /** The phone's clock and timers, injected so a snooze's end is testable without waiting. */
@@ -44,6 +46,8 @@ export interface RowContext {
   accounts: readonly AccountView[];
   /** The machine's `threads.sortBy`, which orders the sections. */
   sortBy?: HomeSort;
+  /** What agents drive for each thread now (a browser, Mac apps). */
+  use?: AgentUse;
 }
 
 /**
@@ -64,6 +68,13 @@ export function inboxRow(thread: InboxThread, context: RowContext) {
     status: inboxStatus(thread, context.now),
     look,
     account: rowAccount(context.accounts, entry),
+    ...rowCard(entry, {
+      baseline: context.baseline,
+      now: context.now,
+      settled: look.settled,
+      accounts: context.accounts,
+      use: context.use ?? noAgentUse,
+    }),
     activityAt: entry.activityAt ?? entry.updatedAt,
     archivedAt: entry.archivedAt ?? null,
     pinned: entry.pinned === true,

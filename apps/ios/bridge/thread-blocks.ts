@@ -6,8 +6,10 @@ import {
   ledgerOf,
   startedThreadOf,
   subagentLabels,
-  subagentStatusCounts,
+  subagentGroupCounts,
+  subagentGroupTitle,
   subagentStatusLine,
+  rollupSubagent,
   agentName,
   blockRoom,
   closedMeta,
@@ -30,6 +32,20 @@ import {
 } from "@ace/ui-core";
 import type { StatusToken } from "@ace/ui-core/mobile";
 import { readSubagentGroup, type SubagentEntry } from "@ace/ui-core/subagent-group";
+
+/**
+ * A delegated child's state as the thread list has it (`listedSubagentState`): after a reconnect
+ * it can be newer than the parent's copy on the launch row. Undefined while the list can't say.
+ */
+export type ListedState = (threadId: string) => SubagentState | undefined;
+
+/** An entry at the worse of its own state and the list's: never ended while either says it runs. */
+function rolledUp(entry: SubagentEntry, listed: ListedState | undefined): SubagentEntry {
+  const known = entry.childThreadId ? listed?.(entry.childThreadId) : undefined;
+  const state = known ? rollupSubagent(entry.state, known) : entry.state;
+  if (state === entry.state) return entry;
+  return { ...entry, state, endedAt: subagentTerminal(state) ? entry.endedAt : undefined };
+}
 import { rootRunOf } from "@ace/ui-core";
 import { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import { blockItems, type Block } from "@ace/ui-core/transcript-blocks";
@@ -151,8 +167,8 @@ function agentRow(store: ThreadSource, entry: SubagentEntry, fresh: boolean) {
   };
 }
 
-function subagents(store: ThreadSource, ids: readonly string[]) {
-  const entries = readSubagentGroup(store, ids).value;
+function subagents(store: ThreadSource, ids: readonly string[], listed: ListedState | undefined) {
+  const entries = readSubagentGroup(store, ids).value.map((entry) => rolledUp(entry, listed));
   const states = entries.map((entry) => entry.state);
   // A copy the daemon hasn't confirmed shows its last-seen states and never live activity.
   const fresh = store.unconfirmed !== true;
@@ -160,13 +176,16 @@ function subagents(store: ThreadSource, ids: readonly string[]) {
   const slots = providerSlots(entries.map((entry) => entry.provider));
   return {
     status: preview(subagentStatusLine(states), 256),
-    title: `${entries.length} ${entries.length === 1 ? "subagent" : "subagents"}`,
+    /** "2 subagents" while any works or waits, "2 subagents ran" once all have ended. */
+    title: subagentGroupTitle(states),
+    /** One child still at work shows as its own row; otherwise the group folds. */
+    single: entries.length === 1 && !subagentTerminal(states[0] ?? "done"),
     /** The group reads as its worst child: needs you, failed, working, done. */
     token: groupTokens[subagentGroupStatus(states)],
     /** "Last seen: " leads the counts while a running group's facts are stale. */
     stale: !fresh && span?.running === true,
     /** The status line's parts, worst first, each in its own status colour: "2 working". */
-    counts: subagentStatusCounts(states).map((part) => ({
+    counts: subagentGroupCounts(states).map((part) => ({
       text: `${part.count} ${part.word}`,
       token: tokens[part.state],
     })),
@@ -225,7 +244,12 @@ function turnOf(store: ThreadSource, ids: readonly string[]): number | undefined
   return undefined;
 }
 
-export function blockRow(store: ThreadSource, block: Block, index: number | undefined) {
+export function blockRow(
+  store: ThreadSource,
+  block: Block,
+  index: number | undefined,
+  listed?: ListedState,
+) {
   const read = (id: string) => store.item(id);
   // A step whose turn is over is settled, whatever its stream last said.
   const facts = logFacts(store);
@@ -265,7 +289,7 @@ export function blockRow(store: ThreadSource, block: Block, index: number | unde
       };
     }
     case "subagents":
-      return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds) };
+      return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds, listed) };
     case "question":
       return {
         ...base,
@@ -331,7 +355,14 @@ export function followBlocks(
   store: ThreadSource,
   put: Put,
   scope?: BlockScope,
-): { tap: ChangeTap; block(key: string): Block | undefined; snapshot(): readonly Block[] } {
+  listed?: ListedState,
+): {
+  tap: ChangeTap;
+  /** The thread list moved: subagent groups redraw with their children's listed states. */
+  relist(): void;
+  block(key: string): Block | undefined;
+  snapshot(): readonly Block[];
+} {
   turnTreeOf(store);
   ledgerOf(store);
   const read = createBlockReader(scope?.agentId);
@@ -356,7 +387,7 @@ export function followBlocks(
         type,
         ...lane,
         id: key,
-        row: block ? blockRow(store, block, positions.get(key)) : null,
+        row: block ? blockRow(store, block, positions.get(key), listed) : null,
       };
     });
   const forget = (key: string) => {
@@ -462,5 +493,8 @@ export function followBlocks(
     }
     for (const key of touched) emit(key);
   };
-  return { tap, block: (key) => blocks.get(key), snapshot: () => [...blocks.values()] };
+  const relist = () => {
+    for (const [key, block] of blocks) if (block.kind === "subagents") emit(key);
+  };
+  return { tap, relist, block: (key) => blocks.get(key), snapshot: () => [...blocks.values()] };
 }

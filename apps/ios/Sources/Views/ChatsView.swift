@@ -119,13 +119,17 @@ private struct ChatRow: View {
     var body: some View {
         let look = row.look
         HStack(spacing: AceDesign.Space.row) {
+            // The provider leads, as the desktop's chat row does, with its account's bubble.
+            ProviderMark(provider: row.provider, size: AceDesign.Size.rowMark, account: row.account, quiet: look?.settled == true)
+                .opacity(look?.settled == true ? 1 : AceDesign.Ink.markOpacity)
             Text(row.title)
                 .aceFont(InboxRowType.title, relativeTo: .callout)
                 .fontWeight(look?.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                 .foregroundStyle(look?.settled == true ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
                 .lineLimit(1)
             Spacer(minLength: AceDesign.Space.related)
-            if let icon = look?.icon, icon != "none", look?.settled != true {
+            // A settled chat keeps its mark while it is unread, as the desktop's.
+            if let icon = look?.icon, icon != "none", look?.settled != true || look?.unread == true {
                 RowStatusIcon(kind: icon, tone: look?.iconTone ?? "idle", count: look?.count)
             }
         }
@@ -133,7 +137,7 @@ private struct ChatRow: View {
         .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(look?.meaning.map { "\(row.title). \($0)" } ?? row.title)
+        .accessibilityLabel([row.title, look?.meaning, look?.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
         .accessibilityIdentifier("chat.row")
     }
 }
