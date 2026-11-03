@@ -9,7 +9,8 @@ import type { PrDialog } from "./pr-dialogs.tsx";
 import { PrSection } from "./pr-section.tsx";
 import { lockReasonLabels } from "@ace/ui-core";
 
-function Row(props: { label: string; children: ReactNode; action?: ReactNode }) {
+/** One labelled row of the About section: "Reviewers", "Labels", "Milestone"… */
+export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex min-h-8 items-start gap-3 py-0.5 text-ui">
       <span className="flex h-7 w-24 shrink-0 items-center text-xs text-muted-foreground">
@@ -42,14 +43,24 @@ function IssueLine(props: { issue: ForgeClosingIssue; action?: ReactNode }) {
 }
 
 /**
- * What the pull request is filed under and what it touches on GitHub besides its code: the
+ * About the pull request: who reviews it, who is assigned, its labels and the agent on it
+ * (`people`), then what it is filed under and touches on GitHub besides its code: the
  * milestone, the issues it closes, a locked conversation and the head branch once it is done.
  * Each row shows only when it holds something or this account can change it.
  */
-export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog): void }) {
+export function PrDetails(props: {
+  actions: PrActions;
+  onDialog(dialog: PrDialog): void;
+  people?: ReactNode;
+}) {
   const { lifecycle } = props.actions;
   const snapshot = lifecycle.snapshot;
-  if (!snapshot) return null;
+  if (!snapshot)
+    return props.people ? (
+      <PrSection id="pr-about" title="About" fixed>
+        <div>{props.people}</div>
+      </PrSection>
+    ) : null;
   const busy = lifecycle.blocked;
   const editMilestone = snapshot.editableFields.includes("milestone");
   const issues = snapshot.closingIssues ?? [];
@@ -59,7 +70,7 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
   const rows: ReactNode[] = [];
   if (snapshot.milestone !== undefined && (snapshot.milestone || editMilestone))
     rows.push(
-      <Row
+      <DetailRow
         key="milestone"
         label="Milestone"
         action={
@@ -90,11 +101,11 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
         ) : (
           <span className="flex h-7 items-center text-subtle-foreground">None</span>
         )}
-      </Row>,
+      </DetailRow>,
     );
   if (issues.length || lifecycle.can("issue.link"))
     rows.push(
-      <Row key="issues" label="Closes">
+      <DetailRow key="issues" label="Closes">
         {issues.map((issue) => (
           <IssueLine
             key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
@@ -132,11 +143,11 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
             <span className="flex h-7 items-center text-subtle-foreground">None</span>
           )
         )}
-      </Row>,
+      </DetailRow>,
     );
   if (conversation?.locked)
     rows.push(
-      <Row
+      <DetailRow
         key="conversation"
         label="Conversation"
         action={
@@ -160,7 +171,7 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
             <span className="text-subtle-foreground"> · only collaborators can comment</span>
           )}
         </span>
-      </Row>,
+      </DetailRow>,
     );
   if (
     done &&
@@ -171,7 +182,7 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
       !!branch.usedBy?.length)
   )
     rows.push(
-      <Row
+      <DetailRow
         key="branch"
         label="Branch"
         action={
@@ -227,12 +238,15 @@ export function PrDetails(props: { actions: PrActions; onDialog(dialog: PrDialog
             </span>
           )}
         </span>
-      </Row>,
+      </DetailRow>,
     );
-  if (!rows.length) return null;
+  if (!rows.length && !props.people) return null;
   return (
-    <PrSection title="Details" fixed>
-      <div>{rows}</div>
+    <PrSection id="pr-about" title="About" fixed>
+      <div>
+        {props.people}
+        {rows}
+      </div>
     </PrSection>
   );
 }

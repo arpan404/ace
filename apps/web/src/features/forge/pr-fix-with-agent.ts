@@ -1,6 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrDetail } from "@ace/protocol";
-import { insertTextInComposer, insertTextWhenMounted } from "@/lib/composer-insert.ts";
+import {
+  handTextToNewThread,
+  insertTextInComposer,
+  insertTextWhenMounted,
+} from "@/lib/composer-insert.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { fixRequest, type AttentionItem } from "./pr-summary-model.ts";
@@ -11,11 +15,13 @@ import { useClock } from "@/lib/time.ts";
 /**
  * "Fix with agent": the request goes into the composer of the task working on this PR (the
  * one showing it, else the first linked), for the person to read over and send. Nothing is
- * sent on their behalf. With no linked task, a new task starts from the PR.
+ * sent on their behalf. With no linked task, a new task starts from the PR with the request in
+ * its composer.
  */
 export function useFixWithAgent(props: {
   workspaceId: string;
-  detail: ForgePrDetail;
+  /** Null outside a PR view: nothing is offered then. */
+  detail: ForgePrDetail | null;
   hostThreadId?: string | undefined;
 }) {
   const navigate = useNavigate();
@@ -24,16 +30,18 @@ export function useFixWithAgent(props: {
   const toast = useToast();
   const now = useClock();
   const { detail } = props;
-  const linked = detail.relatedThreads.filter((thread) => !thread.archived);
+  const linked = detail?.relatedThreads.filter((thread) => !thread.archived) ?? [];
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
-  const prKey = JSON.stringify(detail.status.ref);
+  const prKey = detail ? JSON.stringify(detail.status.ref) : "";
   /**
    * Put `request` in the composer of the task working on this PR, for the person to send.
    * `subject` (`thread:<id>` or `check:<id>`) is what it came from, which then shows "Agent
    * fixing this" while that task works, until it pushes and replies.
    */
   const ask = (request: string, subject?: string) => {
+    if (!detail) return;
     if (!target) {
+      handTextToNewThread(detail.status.url, request);
       void navigate({
         to: "/new",
         search: { project: props.workspaceId, pullRequest: detail.status.url, ...machine },
@@ -73,7 +81,11 @@ export function useFixWithAgent(props: {
     target,
     ask,
     fix(item: AttentionItem) {
-      ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }), item.key);
+      if (detail)
+        ask(
+          fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }),
+          item.key,
+        );
     },
   };
 }

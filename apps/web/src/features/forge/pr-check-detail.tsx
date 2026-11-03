@@ -6,7 +6,6 @@ import {
   ClockIcon,
   InfoIcon,
   MinusCircleIcon,
-  SparkleIcon,
   WarningIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
@@ -287,7 +286,6 @@ export function PrCheckDetail(props: {
               )
             }
           >
-            <SparkleIcon aria-hidden size={12} />
             Fix with agent
           </Button>
         )}

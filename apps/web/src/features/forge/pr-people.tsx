@@ -1,19 +1,22 @@
-import { PlusIcon, TagIcon } from "@phosphor-icons/react";
 import { LabelPill } from "@/components/forge-marks.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { cn } from "@/lib/cn.ts";
+import { Button } from "@/components/ui/button.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
 import { reviewerRows, type ReviewerRow } from "@ace/ui-core";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
+import { DetailRow } from "./pr-details.tsx";
+import { PrAgentLine } from "./pr-agent-chip.tsx";
+import { PrAvatar } from "./pr-presentation.tsx";
 
 /**
- * Reviewers and labels on one line: an avatar stack ringed by each reviewer's latest verdict,
- * then the labels as chips at the right end.
+ * The people on the pull request, as the About section's first rows: each reviewer with their
+ * latest verdict in words, who is assigned, the labels, and the agent working on it live.
  */
 export function PrPeople(props: {
   context: PrWorkspaceContext;
   extensions?: PrWorkspaceExtensions | undefined;
+  /** Who is assigned, once the lifecycle read says; undefined hides the row. */
+  assignees?: readonly string[] | undefined;
   onRequestReview: (() => void) | undefined;
   onEdit: (() => void) | undefined;
 }) {
@@ -37,62 +40,73 @@ export function PrPeople(props: {
   const reviewerPicker =
     props.extensions?.reviewers?.(props.context) ??
     (props.onRequestReview && (
-      <IconButton
-        icon={PlusIcon}
-        label="Request review"
-        size="sm"
-        disabled={disabled}
-        onClick={props.onRequestReview}
-      />
+      <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
+        Request review
+      </Button>
     ));
   const labelPicker =
     props.extensions?.labels?.(props.context) ??
     (props.onEdit && (
-      <IconButton
-        icon={TagIcon}
-        label="Edit labels"
-        size="sm"
-        disabled={disabled}
-        onClick={props.onEdit}
-      />
+      <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onEdit}>
+        Edit
+      </Button>
     ));
-  // Nobody asked and no labels: nothing to show. Request review and Edit live in the ⋯ menu.
-  if (!rows.length && !detail.labels.length) return null;
+  const assignees = props.assignees;
   return (
-    <div
-      id="pr-reviewers"
-      className="flex min-h-8 scroll-mt-2 flex-wrap items-center gap-x-3 gap-y-1"
-    >
-      <div role="group" aria-label="Reviewers" className="flex items-center gap-1.5">
-        {rows.length ? (
-          <PrReviewers
-            rows={rows}
-            value={reviewers.data}
-            disabled={disabled}
-            onDismissed={() => void reviewers.refetch()}
-            onRequestReview={props.onRequestReview}
-          />
-        ) : (
-          <span className="text-xs text-muted-foreground">No reviewers yet</span>
-        )}
-        {reviewerPicker}
-      </div>
-      {(detail.labels.length > 0 || labelPicker) && (
-        <div
-          role="group"
-          aria-label="Labels"
-          // The picker's glyph, not its box, ends on the column's edge.
-          className={cn(
-            "ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1",
-            labelPicker && "-mr-1",
+    <>
+      <DetailRow label="Reviewers" action={reviewerPicker}>
+        <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
+          {rows.length ? (
+            <PrReviewers
+              rows={rows}
+              value={reviewers.data}
+              disabled={disabled}
+              onDismissed={() => void reviewers.refetch()}
+              onRequestReview={props.onRequestReview}
+            />
+          ) : (
+            <span className="text-subtle-foreground">No reviewers yet</span>
           )}
-        >
-          {detail.labels.map((label) => (
-            <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />
-          ))}
-          {labelPicker}
         </div>
+      </DetailRow>
+      {assignees && (
+        <DetailRow label={assignees.length === 1 ? "Assignee" : "Assignees"}>
+          <span className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">
+            {assignees.length ? (
+              assignees.map((login) => (
+                <span key={login} className="inline-flex items-center gap-1.5 text-foreground">
+                  <PrAvatar name={login} url={undefined} />
+                  {login}
+                </span>
+              ))
+            ) : (
+              <span className="text-subtle-foreground">Nobody</span>
+            )}
+          </span>
+        </DetailRow>
       )}
-    </div>
+      {(detail.labels.length > 0 || labelPicker) && (
+        <DetailRow label="Labels" action={labelPicker}>
+          <div
+            role="group"
+            aria-label="Labels"
+            className="flex min-h-7 flex-wrap items-center gap-1"
+          >
+            {detail.labels.length ? (
+              detail.labels.map((label) => (
+                <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />
+              ))
+            ) : (
+              <span className="text-subtle-foreground">None</span>
+            )}
+          </div>
+        </DetailRow>
+      )}
+      {detail.relatedThreads.some((thread) => !thread.archived) && (
+        <DetailRow label="Agent">
+          <PrAgentLine detail={detail} />
+        </DetailRow>
+      )}
+    </>
   );
 }

@@ -90,6 +90,8 @@ export const check = (
   status,
   conclusion: status === "pending" ? null : status,
   completedAt: status === "pending" ? null : iso(at),
+  // A run of one to four minutes, steady per name.
+  startedAt: iso(at - (60 + (name.length % 4) * 45) * 1000),
   jobId: null,
   url,
 });
@@ -102,6 +104,8 @@ export const mergeState = (headSha: string, patchState: Partial<ForgeMergeState>
     checksState: "SUCCESS",
     autoMerge: null,
     queue: null,
+    // This catalog's repositories allow squash and rebase, not merge commits.
+    methods: ["squash", "rebase"],
     canEnable: false,
     canDisable: false,
     canDequeue: false,

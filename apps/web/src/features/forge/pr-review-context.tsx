@@ -43,6 +43,8 @@ const Identity = createContext<PrIdentity | null>(null);
 const Detail = createContext<ForgePrDetail | null>(null);
 export interface PrReviewContext {
   state?: ForgeReviewState | undefined;
+  /** The review state couldn't be read; the header says why. */
+  stateFailed: boolean;
   /** A write reported in the status line under the header is on its way. */
   pending: boolean;
   ready: boolean;
@@ -164,6 +166,7 @@ export function PrReviewWorkspace(props: {
   const value = useMemo(
     () => ({
       state: query.data,
+      stateFailed: query.isError,
       pending: pending > 0 || disabled,
       ready: ready && !disabled,
       run,
@@ -176,6 +179,7 @@ export function PrReviewWorkspace(props: {
     }),
     [
       query.data,
+      query.isError,
       pending,
       ready,
       run,

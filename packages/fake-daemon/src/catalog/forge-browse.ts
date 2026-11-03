@@ -52,6 +52,8 @@ export interface PrSketch {
   /** GitHub lets the signed-in account turn auto-merge on. */
   autoMerge?: boolean;
   files: [string, number, number][];
+  /** A review asking for changes, in its author's words, and its line comment. */
+  asks?: { author: string; body: string; file: string; line: number; comment: string };
 }
 
 function sketched(now: number, pr: PrSketch): PullRequestFixture {
@@ -75,8 +77,47 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
       mergeability: pr.conflicting ? "conflicting" : pr.state === "open" ? "mergeable" : "unknown",
       ci: pr.ci,
       checks,
-      comments: [],
-      reviewThreads: [],
+      comments: pr.asks
+        ? [
+            {
+              kind: "review",
+              id: pr.number * 100 + 1,
+              body: pr.asks.body,
+              author: pr.asks.author,
+              file: null,
+              line: null,
+              replyTo: null,
+              createdAt: iso(at - 30 * minute),
+              updatedAt: iso(at - 30 * minute),
+              reviewState: "CHANGES_REQUESTED",
+            },
+          ]
+        : [],
+      reviewThreads: pr.asks
+        ? [
+            {
+              id: `thread-${pr.number}`,
+              resolved: false,
+              outdated: false,
+              file: pr.asks.file,
+              line: pr.asks.line,
+              side: "RIGHT",
+              comments: [
+                {
+                  kind: "inline",
+                  id: pr.number * 100 + 2,
+                  body: pr.asks.comment,
+                  author: pr.asks.author,
+                  file: pr.asks.file,
+                  line: pr.asks.line,
+                  replyTo: null,
+                  createdAt: iso(at - 31 * minute),
+                  updatedAt: iso(at - 31 * minute),
+                },
+              ],
+            },
+          ]
+        : [],
       raw: {},
     },
     body: pr.body,
@@ -161,6 +202,14 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       labels: ["bug", "client"],
       branch: "fix/worker-sleep",
       body: "The worker kept a dead socket after the Mac slept. It now pings on visibility change and reconnects.",
+      asks: {
+        author: "priya",
+        body: "The reconnect loop has no backoff. Add a jittered retry so a dead network doesn't spin.",
+        file: "packages/client-worker/src/socket.ts",
+        line: 42,
+        comment:
+          "Clear the ping timer when the socket closes, or a stale ping fires after reconnect.",
+      },
       files: [
         ["packages/client-worker/src/socket.ts", 42, 9],
         ["packages/client-worker/src/socket.test.ts", 61, 0],

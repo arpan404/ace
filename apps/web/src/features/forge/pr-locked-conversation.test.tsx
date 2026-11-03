@@ -1,11 +1,10 @@
 import type { ReactNode } from "react";
 import { expect, test } from "vitest";
 import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { PrReviewButton } from "./pr-review-popover.tsx";
 import { PrReplyField } from "./pr-thread.tsx";
-import { reviewDetail, reviewHarness, reviewState } from "./review-harness.tsx";
+import { reviewDetail, reviewHarness, reviewState, clickReview } from "./review-harness.tsx";
 
 const reason = "This conversation is locked. Only collaborators who can push can comment.";
 
@@ -45,7 +44,7 @@ test("a locked conversation's reply line says why instead of opening a reply", a
 test("on a locked conversation the Review popover opens but can't submit, and says why", async () => {
   const f = await locked(<PrReviewButton />);
   try {
-    await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await clickReview();
     const summary = await screen.findByRole<HTMLTextAreaElement>("textbox", {
       name: "Review summary",
     });
