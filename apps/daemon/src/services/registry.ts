@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { createCliControlSession } from "./cli-control.ts";
 import { createStorageSession } from "./storage.ts";
@@ -146,16 +147,40 @@ export function createSocketRegistry() {
     createLockedUseSession(context, lockedUseState(context.options.lockedUse ?? placeholder)),
   ];
 }
-export function parseSocketMessage(input: unknown): SocketMessage {
-  for (const schema of [
-    ClientMessage,
-    PluginClientMessage,
-    BrowserClientMessage,
-    BrowserBackendClientMessage,
-    UserBrowserExtensionMessage,
-  ]) {
+const socketSchemas = [
+  ClientMessage,
+  PluginClientMessage,
+  BrowserClientMessage,
+  BrowserBackendClientMessage,
+  UserBrowserExtensionMessage,
+] as const;
+
+/** True when the issues say the frame's `type` itself matched nothing, rather than a field of a known type. */
+function rejectsType(issues: readonly z.core.$ZodIssue[]): boolean {
+  return issues.some(
+    (issue) =>
+      (issue.path.length === 1 && issue.path[0] === "type") ||
+      (issue.code === "invalid_union" &&
+        issue.path.length === 0 &&
+        issue.errors.length > 0 &&
+        issue.errors.every(rejectsType)),
+  );
+}
+
+export type SocketFrame =
+  | { ok: true; message: SocketMessage }
+  | { ok: false; reason: "unknown_type" | "invalid" };
+
+/**
+ * Parses one client frame. A frame whose `type` no schema knows (a retired or newer request) is
+ * `unknown_type`; a known type with malformed fields is `invalid`.
+ */
+export function readSocketFrame(input: unknown): SocketFrame {
+  let unknownType = true;
+  for (const schema of socketSchemas) {
     const result = schema.safeParse(input);
-    if (result.success) return result.data;
+    if (result.success) return { ok: true, message: result.data };
+    if (!rejectsType(result.error.issues)) unknownType = false;
   }
-  throw new Error("Message does not match the protocol");
+  return { ok: false, reason: unknownType ? "unknown_type" : "invalid" };
 }

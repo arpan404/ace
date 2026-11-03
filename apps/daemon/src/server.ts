@@ -3,7 +3,7 @@ import { relayPairing, relayRoute } from "./relay-route.ts";
 import { isHostedRelay } from "./relay-account.ts";
 import type { PairingConnection } from "./pairing-issue.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
-import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
+import { createSocketRegistry, readSocketFrame } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
@@ -375,24 +375,23 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         const frameValue: unknown = JSON.parse(data.toString());
-        if (device) {
+        const frame = readSocketFrame(frameValue);
+        if (frame.ok) message = frame.message;
+        else {
+          // A retired or newer request type is answered, not treated as a broken client.
           const requestShape = z
             .object({ type: z.string(), requestId: z.string().optional() })
             .safeParse(frameValue);
-          if (requestShape.success) {
-            try {
-              message = parseSocketMessage(frameValue);
-            } catch {
-              fail(
-                "unsupported",
-                "Request type is not supported by this daemon",
-                false,
-                requestShape.data.requestId ? { requestId: requestShape.data.requestId } : {},
-              );
-              return;
-            }
-          } else message = parseSocketMessage(frameValue);
-        } else message = parseSocketMessage(frameValue);
+          if (!device || frame.reason !== "unknown_type" || !requestShape.success)
+            throw new Error("Message does not match the protocol");
+          fail(
+            "unsupported",
+            "Request type is not supported by this daemon",
+            false,
+            requestShape.data.requestId ? { requestId: requestShape.data.requestId } : {},
+          );
+          return;
+        }
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
