@@ -197,7 +197,7 @@ test("an edit and an open reply survive their row scrolling away and back, which
     // Asked for by the person, focus arrives.
     await waitFor(() => expect(document.activeElement).toBe(edit));
     await userEvent.type(edit, " Renamed both.");
-    await userEvent.click(screen.getByRole("button", { name: "Reply…" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reply" }));
     await userEvent.type(await screen.findByRole("textbox", { name: "Reply" }), "Thanks");
     // A long list unmounts rows off screen, then mounts them again.
     f.rerender(shown(false));

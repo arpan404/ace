@@ -1,16 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  ChatCircleIcon,
-  CheckIcon,
-  CircleDashedIcon,
-  CircleIcon,
-  EyeIcon,
-  GitBranchIcon,
-  WarningIcon,
-  XCircleIcon,
-  type Icon,
-} from "@phosphor-icons/react";
-import { formatAgo, prFacts, prGates, type Gate, type GateKey, type GateTone } from "@ace/ui-core";
+import { formatAgo, prFacts, prGates, type Gate, type GateKey } from "@ace/ui-core";
 import { hairlineGrid } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -122,19 +111,10 @@ export function PrGatesRow(props: { actions: PrActions; onSelect(key: GateKey): 
   );
 }
 
-const factIcons: Record<GateKey, Partial<Record<GateTone, Icon>>> = {
-  checks: { failed: XCircleIcon, working: CircleDashedIcon, done: CheckIcon },
-  reviews: { failed: ChatCircleIcon, "needs-you": EyeIcon, done: CheckIcon },
-  conflicts: { failed: WarningIcon, working: CircleDashedIcon, done: CheckIcon },
-  branch: { "needs-you": GitBranchIcon, done: CheckIcon },
-  ended: {},
-  into: {},
-};
-
 /**
- * The merge gates as one line of sentences under a page's byline, each with a small status
- * icon ("1 of 3 checks failing · mira requested changes · No conflicts · Up to date with
- * main"), each jumping to its detail; `after` follows the branch fact (Update). Only while the
+ * The merge gates as one line of sentences under a page's byline, in words between dots ("1 of
+ * 3 checks failing · mira requested changes · No conflicts · Up to date with main"), what
+ * stands in the way in its status tone, each jumping to its detail; `after` follows the branch fact (Update). Only while the
  * PR is open: a merged or closed PR's byline already says how it ended.
  */
 export function PrGatesLine(props: {
@@ -157,35 +137,28 @@ export function PrGatesLine(props: {
   });
   const branchLoading = actions.mergeState.query.isPending;
   return (
-    <nav
-      aria-label="Merge gates"
-      className="-ml-1.5 mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-0.5"
-    >
-      {facts.map((fact) => {
+    <nav aria-label="Merge gates" className="-ml-1.5 mt-2.5 flex flex-wrap items-center gap-y-0.5">
+      {facts.map((fact, index) => {
         const loading = fact.key === "branch" && branchLoading;
         const tone = loading ? "idle" : fact.tone;
-        const Glyph = (!loading && factIcons[fact.key][tone]) || CircleIcon;
         const loud = tone === "failed" || tone === "needs-you";
         return (
           <span key={fact.key} className="inline-flex items-center">
+            {index > 0 && (
+              <span aria-hidden className="px-0.5 text-xs text-faint-foreground">
+                ·
+              </span>
+            )}
             <button
               type="button"
               onClick={() => props.onSelect(fact.key)}
               aria-label={`${fact.label}: ${loading ? "checking" : fact.value}`}
               data-tone={tone === "idle" ? undefined : tone}
               className={cn(
-                "inline-flex h-6 items-center gap-1.5 rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
+                "inline-flex h-6 items-center rounded-sm px-1.5 text-xs tabular-nums transition-colors duration-(--motion-fast) focus-ring hover:bg-hover",
                 loud ? "text-(--tone-text)" : "text-muted-foreground",
               )}
             >
-              <Glyph
-                aria-hidden
-                size={14}
-                className={cn(
-                  "shrink-0",
-                  tone === "idle" || tone === "working" ? "text-faint-foreground" : "text-(--tone)",
-                )}
-              />
               {loading ? "Checking the branch" : fact.value}
             </button>
             {fact.key === "branch" && props.after}

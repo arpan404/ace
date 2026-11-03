@@ -67,6 +67,7 @@ export function PrCodeTree(props: {
           files={files}
           current={props.current}
           viewed={viewed}
+          marks={props.marks}
           comments={open}
           onJump={(index) => {
             const file = files[index];

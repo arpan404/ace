@@ -13,6 +13,7 @@ import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 import { PrThreadEarlierCode } from "./pr-earlier-code.tsx";
 import { useFixingNow } from "./pr-fix-marks.ts";
 import { OwnWriteNote, useOwnWrite } from "./pr-own-write.tsx";
+import { TextAction } from "./pr-text-action.tsx";
 
 type ReviewThread = ForgePrStatus["reviewThreads"][number];
 
@@ -35,7 +36,7 @@ export const replyField = (threadId: string, place: ReplyPlace = "thread") =>
   place === "thread" ? threadId : `${place}:${threadId}`;
 
 /**
- * A reply to a review thread: under its conversation, one quiet "Reply…" line until chosen;
+ * A reply to a review thread: under its conversation, a quiet "Reply" text action until chosen;
  * elsewhere, opened by its own Reply button. Then the Markdown editor with Cancel and Reply.
  * Its text survives reloads, and its open state survives the row scrolling away; only the
  * person's own action focuses it.
@@ -113,19 +114,14 @@ export function PrReplyField(props: {
   };
   if (!open)
     return place === "thread" ? (
-      <button
-        type="button"
+      <TextAction
         onClick={() => {
           setAsked(true);
           askFocus();
         }}
-        className={cn(
-          "flex h-8 w-full items-center rounded-md px-3 text-left text-ui text-subtle-foreground shadow-[inset_0_0_0_1px_var(--border-strong)] hover:text-muted-foreground focus-ring",
-          props.className,
-        )}
       >
-        Reply…
-      </button>
+        Reply
+      </TextAction>
     ) : null;
   return (
     <div ref={box} className={cn("space-y-2", props.className)}>
@@ -184,9 +180,7 @@ export function PrResolveButton(props: { thread: ReviewThread }) {
   return (
     <>
       {own.status?.state === "failed" && <OwnWriteNote status={own.status} />}
-      <Button
-        variant="ghost"
-        size="sm"
+      <TextAction
         disabled={!review.ready || own.saving}
         onClick={() =>
           void own.send({
@@ -196,7 +190,7 @@ export function PrResolveButton(props: { thread: ReviewThread }) {
         }
       >
         {thread.resolved ? "Unresolve conversation" : "Resolve conversation"}
-      </Button>
+      </TextAction>
     </>
   );
 }
@@ -299,11 +293,11 @@ export function PrThread(props: {
             ))}
           </ol>
           {first && (
-            <div className="flex flex-wrap items-start gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
               <PrReplyField
                 threadId={thread.id}
                 rootCommentId={first.id}
-                className="min-w-0 flex-1 basis-64"
+                className="min-w-0 flex-1 basis-full"
               />
               <PrResolveButton thread={thread} />
             </div>

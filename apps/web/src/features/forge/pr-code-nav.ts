@@ -31,17 +31,62 @@ export function nextStop(
   return shown[(index + step + shown.length) % shown.length];
 }
 
-function revealThread(scroller: HTMLElement | null, id: string, frames = settleFrames) {
-  const element = scroller
-    ?.closest("[data-pr-code]")
-    ?.querySelector<HTMLElement>(`[data-pr-thread="${CSS.escape(id)}"]`);
+/** How long a conversation or line just landed on stays marked. */
+const landedFor = 1_800;
+
+/** Briefly marks what a jump landed on, so the eye finds it after the scroll. */
+function markLanded(element: HTMLElement) {
+  element.classList.remove("fx-landed");
+  // Restart the fade when the same place is landed on twice in a row.
+  void element.offsetWidth;
+  element.classList.add("fx-landed");
+  setTimeout(() => element.classList.remove("fx-landed"), landedFor);
+}
+
+/** Scrolls to an element once it mounts (a file's rows can take frames), then marks it. */
+function reveal(find: () => HTMLElement | null | undefined, frames = settleFrames) {
+  const element = find();
   if (element) {
     const strip = element.closest("details");
     if (strip) strip.open = true;
     element.scrollIntoView?.({ block: "center" });
+    markLanded(element);
     return;
   }
-  if (frames > 0) requestAnimationFrame(() => revealThread(scroller, id, frames - 1));
+  if (frames > 0) requestAnimationFrame(() => reveal(find, frames - 1));
+}
+
+function revealThread(scroller: HTMLElement | null, id: string) {
+  reveal(() =>
+    scroller
+      ?.closest("[data-pr-code]")
+      ?.querySelector<HTMLElement>(`[data-pr-thread="${CSS.escape(id)}"]`),
+  );
+}
+
+/** A line of the file's new side (the row it sits in), in the file's block. */
+function revealLine(block: () => HTMLElement | null, line: number) {
+  reveal(
+    () =>
+      block()?.querySelector<HTMLElement>(`[data-side="new"][data-line="${line}"]`)?.parentElement,
+  );
+}
+
+/** Where in a file a jump lands: a conversation on it, else one of its lines. */
+export type CodeLanding = { thread: string } | { line: number };
+
+/**
+ * Where a jump to a file's line lands: the conversation on that line when there is one (an
+ * open one first), else the line itself; nowhere in particular without a line.
+ */
+export function landingOf(
+  focus: { path: string; line?: number | undefined },
+  threads: readonly { id: string; file: string; line: number | null; resolved: boolean }[],
+): CodeLanding | undefined {
+  if (focus.line === undefined) return undefined;
+  const on = threads.filter((t) => t.file === focus.path && t.line === focus.line);
+  const thread = on.find((t) => !t.resolved) ?? on[0];
+  return thread ? { thread: thread.id } : { line: focus.line };
 }
 
 /**
@@ -59,18 +104,26 @@ export function useCodeNavigation(options: {
   onPlace?: ((path: string) => void) | undefined;
 }) {
   const { files, more, loadMore, show, scroller, anchor, onPlace } = options;
-  const [seeking, setSeeking] = useState<{ path: string; thread?: string | undefined }>();
+  const [seeking, setSeeking] = useState<{ path: string; at?: CodeLanding | undefined }>();
   const [current, setCurrent] = useState<string>();
   const lastThread = useRef<string | undefined>(undefined);
   const handled = useRef<object | undefined>(undefined);
-  const go = (path: string, thread?: string) => {
+  const land = (path: string, at: CodeLanding | undefined) => {
+    if (!at) return;
+    if ("thread" in at) requestAnimationFrame(() => revealThread(scroller.current, at.thread));
+    else {
+      const index = files.findIndex((file) => file.path === path);
+      revealLine(() => document.getElementById(`${anchor}-${index}`), at.line);
+    }
+  };
+  const go = (path: string, at?: CodeLanding) => {
     setCurrent(path);
     if (!files.some((file) => file.path === path)) {
-      setSeeking({ path, thread });
+      setSeeking({ path, at });
       return;
     }
     show(path);
-    if (thread) requestAnimationFrame(() => revealThread(scroller.current, thread));
+    land(path, at);
   };
   const found = !!seeking && files.some((file) => file.path === seeking.path);
   // A file past the pages read: read on until it shows up, or the list ends without it.
@@ -79,8 +132,7 @@ export function useCodeNavigation(options: {
     if (found) {
       handled.current = seeking;
       show(seeking.path);
-      const thread = seeking.thread;
-      if (thread) requestAnimationFrame(() => revealThread(scroller.current, thread));
+      land(seeking.path, seeking.at);
     } else if (more === "idle") loadMore();
   });
   // The file being read follows the scroll.
@@ -121,7 +173,7 @@ export function useCodeNavigation(options: {
     const stop = nextStop(stops, lastThread.current, step, unresolved);
     if (!stop) return;
     lastThread.current = stop.id;
-    if (stop.path) go(stop.path, stop.id);
+    if (stop.path) go(stop.path, { thread: stop.id });
     else revealThread(scroller.current, stop.id);
   };
   const searching = !!seeking && !found && (more === "idle" || more === "loading");

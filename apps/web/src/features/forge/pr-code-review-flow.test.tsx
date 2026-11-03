@@ -279,3 +279,47 @@ test("Viewed shows at once, a second mark waits its turn, and a refusal puts it 
   expect((await box("src/a.ts")).getAttribute("aria-checked")).toBe("true");
   await view.close();
 });
+
+test("a file's box in the files tree marks it Viewed, and the diff's own box agrees", async () => {
+  const shown = reviewDetail({}, "author");
+  const head = shown.status.headSha;
+  const view = await reviewHarness({
+    detail: shown,
+    state: viewed("UNVIEWED"),
+    ui: (
+      <PrFiles
+        workspaceId="api"
+        repository={shown.status.ref.repository}
+        detail={shown}
+        context={{ workspaceId: "api", detail: shown, disabled: false, refresh: async () => true }}
+      />
+    ),
+  });
+  view.daemon.workspace.setForgeRead(
+    { ...filesOp(head), repository: shown.status.ref.repository, number: 42 },
+    {
+      resource: "prFiles",
+      value: {
+        ref: shown.status.ref,
+        baseSha: shown.baseSha,
+        headSha: head,
+        files: [changed("src/a.ts", "@@ -1 +1 @@\n-a\n+A")],
+        truncated: false,
+      },
+    },
+  );
+  view.hold();
+  const tree = await screen.findByRole("tree", { name: "Changed files" });
+  const ticked = await within(tree).findByRole("checkbox", { name: "Mark src/a.ts viewed" });
+  expect(ticked.getAttribute("aria-checked")).toBe("false");
+  await userEvent.click(ticked);
+  expect(ticked.getAttribute("aria-checked")).toBe("true");
+  expect((await box("src/a.ts")).getAttribute("aria-checked")).toBe("true");
+  view.release();
+  await waitFor(() =>
+    expect(view.sent.map((action) => action.kind === "file.view" && action.path)).toEqual([
+      "src/a.ts",
+    ]),
+  );
+  await view.close();
+});

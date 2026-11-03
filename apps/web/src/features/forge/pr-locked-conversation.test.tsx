@@ -34,7 +34,7 @@ test("a locked conversation's reply line says why instead of opening a reply", a
   const f = await locked(<PrReplyField threadId="T1" rootCommentId={5} />);
   try {
     await screen.findByText(reason);
-    expect(screen.queryByRole("button", { name: "Reply…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull();
   } finally {
     await f.close();

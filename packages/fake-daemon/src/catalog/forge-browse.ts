@@ -165,7 +165,11 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
         }
       : {}),
     lifecycle: state,
-    review: review(headSha, open, { detail }),
+    // GitHub lists every file's Viewed state on a PR the viewer can review; none viewed yet.
+    review: {
+      ...review(headSha, open, { detail }),
+      viewed: pr.files.map(([path]) => ({ path, state: "UNVIEWED" as const })),
+    },
     files: pr.files.map(([path, add, del]) => file(path, add, del)),
     activity,
   };
