@@ -53,7 +53,8 @@ test("a refused send names its row Not sent and draws it as needing the person",
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
   const message = await screen.findByRole("combobox", { name: "Message" });
-  expect(attentionOf(row(/^Dedupe/))).not.toBe("needs-you");
+  // Before the send, the row is only working.
+  await waitFor(() => expect(attentionOf(row(/^Dedupe/))).toBe("active"));
   await userEvent.type(message, "Keep this message{Enter}");
   await screen.findByRole("button", { name: "Retry" });
   await waitFor(() => expect(row(/^Dedupe.*\. Not sent,/)).toBeTruthy());
