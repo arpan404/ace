@@ -352,7 +352,7 @@ function MarkitThreadProse(
   const openThread = useThreadNavigation();
   const root = (meta?.details?.worktree ?? meta?.details?.workspace?.path)?.replace(/\/+$/, "");
   const workspaceId = meta?.workspaceId;
-  const fileLinks = useFileLinks({ client, threadId, root, workspace });
+  const fileLinks = useFileLinks({ client, threadId, itemId, root, workspace });
   // Only an answer that shows an image follows the thread for captures.
   const captures = useThreadStore(props.text.includes("![") ? threadId : undefined);
 

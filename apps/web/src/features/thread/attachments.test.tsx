@@ -196,6 +196,39 @@ test("source links open the thread checkout and links outside it open beside the
   expect(await objectUrls.get(video.getAttribute("src") ?? "")?.text()).toBe("webm bytes");
 });
 
+test("absolute paths an answer writes as code or prose open beside the thread, inside the project or not", async () => {
+  const { app, feed } = await openMessage({}, [
+    facts.message(
+      "root",
+      "answer",
+      "assistant",
+      "Saved `/Users/me/Downloads/report.pdf`; the build wrote /work/shop/dist/build.log:3.",
+    ),
+  ]);
+  const answer = app.daemon.itemId("thread-shots", "answer") ?? "";
+  app.daemon.checkouts.seedLinked(
+    "thread-shots",
+    answer,
+    "/Users/me/Downloads/report.pdf",
+    "%PDF report",
+  );
+  app.daemon.checkouts.seedLinked("thread-shots", answer, "/work/shop/dist/build.log", "built\n");
+
+  await userEvent.click(
+    await within(feed).findByRole("link", { name: "/Users/me/Downloads/report.pdf" }),
+  );
+  const report = await screen.findByRole("region", { name: "report.pdf" });
+  const frame = await within(report).findByTitle("report.pdf");
+  expect(await objectUrls.get(frame.getAttribute("src") ?? "")?.text()).toBe("%PDF report");
+
+  // Under the project but not in its file index (build output): still opens.
+  await userEvent.click(within(feed).getByRole("link", { name: "/work/shop/dist/build.log:3" }));
+  const log = await screen.findByRole("region", { name: "build.log" });
+  expect((await within(log).findByLabelText("Contents of build.log")).textContent).toContain(
+    "built",
+  );
+});
+
 test("a link outside the checkout that the host can't serve says so", async () => {
   const { feed } = await openMessage({}, [
     facts.message("root", "answer", "assistant", "See [other](/remote/other/main.ts)."),

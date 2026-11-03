@@ -1,9 +1,5 @@
-import {
-  codeFileReference,
-  fileTextSpans,
-  type FileReference,
-  type FileResolution,
-} from "@ace/ui-core/file-references";
+import { codeFileReference, fileTextSpans, type FileReference } from "@ace/ui-core/file-references";
+import type { MentionResolution } from "../file-reference.ts";
 
 /*
  * File mentions in markit's output. markit marks every file-like code span as a reference; ace
@@ -13,7 +9,7 @@ import {
  * (`data-markit-reference`), whose click and Enter markit hands to `onReference`.
  */
 
-export type Resolved = Exclude<FileResolution, { kind: "none" }>;
+export type Resolved = Exclude<MentionResolution, { kind: "none" }>;
 
 /** A mention found in the rendered answer: its text as written and what it points at. */
 export interface FileMention {
