@@ -1,12 +1,54 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { AccessClient, parsePairingLink } from "@ace/client/access";
+import { AccessClient, parsePairingLink, RelayPairingError } from "@ace/client/access";
 import { ClientError } from "@ace/client";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { DaemonTarget, type DaemonTarget as Target } from "@/boot/connection-settings.ts";
 import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
+
+/** A relayed redemption's refusal, in words a person can act on. */
+function relayRefusal(error: RelayPairingError): string {
+  if (error.reason === "rate_limited")
+    return "Too many pairing attempts. Wait a minute, then try again.";
+  if (error.reason === "invalid")
+    return "This link expired or has already been used. Create a new one on the host computer.";
+  return "That computer can't pair right now. Check that ace is running there, then try a fresh link.";
+}
+
+/**
+ * Redeem a link that goes through a self-hosted relay (ADR 0070): the code travels in one
+ * pinned relay channel, and the device connects through the same relay with its new token.
+ */
+async function redeemThroughRelay(
+  link: string,
+  name: string,
+  signal: AbortSignal,
+): Promise<Target> {
+  const [{ redeemPairingViaRelay }, { browserDeviceSocket }] = await Promise.all([
+    import("@ace/client/access"),
+    import("@ace/client/devices"),
+  ]);
+  const relayUrl = parsePairingLink(link).relay?.url;
+  if (relayUrl) await authorizeDaemonUrl(relayUrl);
+  const paired = await redeemPairingViaRelay({
+    link,
+    name,
+    socket: browserDeviceSocket,
+    schedule: (callback, delayMs) => {
+      const timer = setTimeout(callback, delayMs);
+      return () => clearTimeout(timer);
+    },
+    signal,
+  });
+  return DaemonTarget.parse({
+    url: paired.relay.url,
+    token: paired.token,
+    pairedDeviceId: paired.device.id,
+    relayHostId: paired.relay.hostId,
+  });
+}
 
 /** A person's confirmation precedes redemption. Fragment credentials never enter HTTP URLs. */
 export function PairingForm(props: {
@@ -36,6 +78,15 @@ export function PairingForm(props: {
       if (code.includes("://")) {
         // A link may open this daemon's own web app or a hosted one that names it in `host=`.
         const parsed = parsePairingLink(code);
+        if (parsed.relay) {
+          if (!name.trim()) throw new Error("Enter the pairing link and a name for this device.");
+          await props.connect(
+            await redeemThroughRelay(code, name.trim(), owned.signal),
+            remember,
+            owned.signal,
+          );
+          return;
+        }
         code = parsed.code;
         origin = parsed.daemon;
       } else {
@@ -69,15 +120,17 @@ export function PairingForm(props: {
     } catch (reason) {
       if (owned.signal.aborted) return;
       setError(
-        reason instanceof ClientError && reason.message === "HTTP 401"
-          ? "This link expired or has already been used. Create a new one on the host computer."
-          : reason instanceof ClientError && reason.message === "HTTP 429"
-            ? "Too many pairing attempts. Wait a minute, then try again."
-            : reason instanceof TypeError || reason instanceof ClientError
-              ? "Couldn't pair with this computer. Check the address, trust its HTTPS certificate in this browser, and try a fresh link."
-              : reason instanceof Error
-                ? reason.message
-                : "Couldn't pair. Create a new link and try again.",
+        reason instanceof RelayPairingError
+          ? relayRefusal(reason)
+          : reason instanceof ClientError && reason.message === "HTTP 401"
+            ? "This link expired or has already been used. Create a new one on the host computer."
+            : reason instanceof ClientError && reason.message === "HTTP 429"
+              ? "Too many pairing attempts. Wait a minute, then try again."
+              : reason instanceof TypeError || reason instanceof ClientError
+                ? "Couldn't pair with this computer. Check the address, trust its HTTPS certificate in this browser, and try a fresh link."
+                : reason instanceof Error
+                  ? reason.message
+                  : "Couldn't pair. Create a new link and try again.",
       );
       setPending(false);
     }

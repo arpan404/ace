@@ -32,6 +32,11 @@ export const DaemonTargetShape = {
    * stored, and never set for a daemon the person connected to by hand.
    */
   localHostId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
+  /**
+   * A machine paired through a self-hosted relay: the relay host key to pin. `url` is then the
+   * relay's address and the daemon is reached only through it (`daemon-route.ts`).
+   */
+  relayHostId: z.optional(z.string().check(z.regex(/^[A-Z2-7]{52}$/))),
 };
 
 export const DaemonTarget = z.object(DaemonTargetShape);
@@ -41,6 +46,7 @@ const keys = {
   url: "ace.daemon.url",
   token: "ace.daemon.token",
   device: "ace.daemon.pairedDevice",
+  relay: "ace.daemon.relayHost",
 } as const;
 
 /**
@@ -56,10 +62,12 @@ export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemon
   const url = safeGet(stores.local, keys.url) ?? fallbackUrl;
   const token = safeGet(stores.session, keys.token) ?? safeGet(stores.local, keys.token);
   const device = safeGet(stores.session, keys.device) ?? safeGet(stores.local, keys.device);
+  const relay = safeGet(stores.local, keys.relay);
   const parsed = DaemonTarget.safeParse({
     url,
     token,
     ...(device ? { pairedDeviceId: device } : {}),
+    ...(relay ? { relayHostId: relay } : {}),
   });
   return {
     url: DaemonUrl.safeParse(url).success ? url : fallbackUrl,
@@ -70,6 +78,8 @@ export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemon
 
 export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remember: boolean) {
   safeSet(stores.local, keys.url, target.url);
+  if (target.relayHostId) safeSet(stores.local, keys.relay, target.relayHostId);
+  else safeRemove(stores.local, keys.relay);
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
   safeSet(remember ? stores.local : stores.session, keys.token, target.token);
