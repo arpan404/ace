@@ -416,6 +416,30 @@ test("follow-up messages wake again on the same native thread and retries do not
   expect(h.store.listThreads()).toHaveLength(2);
 });
 
+test("a message to a child that is already running keeps it reading working in its parent", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "running");
+  await h.engine.flush();
+  expect(h.store.getThread(child.childId)?.status.state).toBe("working");
+  const port = createAgentControlPort(h.store, h.service);
+  const message = {
+    op: "thread.message",
+    threadId: child.childId,
+    requestId: "added",
+    text: "Also handle the offline case",
+    delivery: "queue",
+  } satisfies import("@ace/protocol").AgentControlOperation;
+  expect((await port.execute(parent, message, new AbortController().signal)).ok).toBe(true);
+  await h.engine.flush();
+  // The child never stops working, so no later status change would correct a queued reading.
+  const row = Object.values(h.store.snapshotThread(parent.threadId).agents).find(
+    (agent) => agent.childThreadId === child.childId,
+  );
+  expect(row?.status.state).toBe("working");
+  expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
+});
+
 test("agents page large child output and cannot substitute another thread's stream", async () => {
   const h = setup();
   const parent = await h.parent();
