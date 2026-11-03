@@ -48,7 +48,7 @@ export function ListFrame(props: {
         <div
           role="toolbar"
           aria-label={barLabels[props.kind]}
-          className="@container/bar flex min-w-0 items-center gap-2"
+          className="@container/bar flex min-w-0 flex-wrap items-center gap-2"
         >
           {props.bar}
         </div>

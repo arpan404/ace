@@ -64,7 +64,7 @@ export function QueryField(props: {
         event.preventDefault();
         props.onApply(text);
       }}
-      className="h-8 min-w-0 flex-1 border border-border bg-background"
+      className="h-8 min-w-0 flex-1 basis-64 border border-border bg-background"
     />
   );
 }
