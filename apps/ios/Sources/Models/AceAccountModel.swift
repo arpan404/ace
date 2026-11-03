@@ -88,7 +88,8 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
             guard let self else { return }
             defer { busy = false; login = nil }
             do {
-                let flow: AceAccountLogin = try await call("login", method: "POST")
+                // The browser comes back to `ace://account/signed-in`, which closes the sheet.
+                let flow: AceAccountLogin = try await call("login", method: "POST", body: ["returnTo": AceSignInReturn.address])
                 guard let origin, flow.loginUrl.scheme == origin.scheme,
                       flow.loginUrl.host == origin.host, flow.loginUrl.port == origin.port,
                       flow.loginUrl.path == "/v1/account/login",
@@ -125,6 +126,14 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         work?.cancel()
     }
 
+    /// The sign-in sheet closed on `url`, the browser's return address. The session still comes
+    /// from the claim; a sign-in that didn't finish says so and stops waiting.
+    func returned(_ url: URL) {
+        guard let status = AceSignInReturn.status(url), let message = AceSignInReturn.message(status) else { return }
+        work?.cancel()
+        error = message
+    }
+
     func signOut() async {
         guard let token, !busy else { return }
         busy = true; error = nil
@@ -148,10 +157,14 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
     private func remove(_ path: String, token: String) async throws {
         let _: [String: Bool] = try await call(path, method: "DELETE", token: token)
     }
-    private func call<T: Decodable>(_ path: String, method: String = "GET", token: String? = nil) async throws -> T {
+    private func call<T: Decodable>(_ path: String, method: String = "GET", token: String? = nil, body: [String: String]? = nil) async throws -> T {
         guard let origin else { throw AccountFailure.request }
         var request = URLRequest(url: origin.appending(path: "v1/account/\(path)"))
         request.httpMethod = method; request.timeoutInterval = 15
+        if let body {
+            request.httpBody = try JSONEncoder().encode(body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (bytes, response) = try await http.bytes(for: request)
         guard let response = response as? HTTPURLResponse else { throw AccountFailure.request }

@@ -3,6 +3,7 @@ import { AceAccountError } from "@ace/client/ace-account";
 import type { AceLogin } from "@ace/protocol/ace-account";
 import { initials } from "@ace/ui-core";
 import { UserIcon } from "@phosphor-icons/react";
+import { useSearch } from "@tanstack/react-router";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -25,6 +26,16 @@ function pause(signal: AbortSignal) {
   });
 }
 
+/**
+ * What the desktop app's `ace://account/signed-in` link said about a sign-in that didn't
+ * finish (`?signin=` on this page). A finished one shows as the account itself.
+ */
+const returned: Record<string, string> = {
+  cancelled: "Sign-in was cancelled.",
+  failed: "Couldn't sign in. Try again.",
+  expired: "That sign-in expired or was already used. Try again.",
+};
+
 /** Optional ace identity. Local operation and machine pairing do not depend on this session. */
 export function AceAccountSettings() {
   const [name, setName] = useProfileName();
@@ -35,7 +46,11 @@ export function AceAccountSettings() {
   const [login, setLogin] = useState<AceLogin>();
   const [busy, setBusy] = useState(false);
   const [loginError, setError] = useState("");
-  const error = loginError || accountError;
+  const search: Record<string, unknown> = useSearch({ strict: false });
+  const [returnSeen, setReturnSeen] = useState(false);
+  const returnNote =
+    !returnSeen && typeof search.signin === "string" ? returned[search.signin] : undefined;
+  const error = (!session && returnNote) || loginError || accountError;
   const [openBlocked, setOpenBlocked] = useState(false);
   const work = useRef<AbortController | undefined>(undefined);
   const pending = useRef<AceLogin | undefined>(undefined);
@@ -56,10 +71,14 @@ export function AceAccountSettings() {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(10 * 60_000)]);
     setBusy(true);
     setError("");
+    setReturnSeen(true);
     store.report("");
     setOpenBlocked(false);
     try {
-      const request = client.login(AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
+      const request = client.login(
+        AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+        store.returnTo ? { returnTo: store.returnTo } : {},
+      );
       // Reserve the browser tab during the click, before awaiting the login request.
       void openExternalWhenReady(request.then((next) => next.loginUrl)).catch(() => {
         if (!signal.aborted) setOpenBlocked(true);

@@ -1,4 +1,7 @@
-/** Response helpers for the account API. Every response is uncacheable and frames nothing. */
+/**
+ * Response helpers for the account API. Every response is uncacheable and frames nothing; the
+ * HTML pages are in pages.ts.
+ */
 
 export function json(status: number, body: unknown): Response {
   return Response.json(body, { status });
@@ -7,23 +10,18 @@ export function json(status: number, body: unknown): Response {
 /** Generic error bodies: a code, never a reason that helps an attacker. */
 export const fail = (status: number, error: string) => json(status, { error });
 
-export function page(status: number, message: string): Response {
-  return new Response(
-    `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ace sign-in</title><body><main><h1>ace</h1><p>${message}</p></main></body></html>`,
-    { status, headers: { "Content-Type": "text/html; charset=utf-8" } },
-  );
-}
-
 /** Adds the headers every account response carries, and CORS for an allowed origin. */
 export function secure(response: Response, origin: string | undefined): Response {
   const headers = new Headers(response.headers);
   headers.set("Cache-Control", "no-store");
-  headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set(
-    "Content-Security-Policy",
-    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-  );
+  // Only the sign-in pages (pages.ts) set their own, slightly wider, policies.
+  if (!headers.has("Referrer-Policy")) headers.set("Referrer-Policy", "no-referrer");
+  if (!headers.has("Content-Security-Policy"))
+    headers.set(
+      "Content-Security-Policy",
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    );
   if (origin) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.append("Vary", "Origin");

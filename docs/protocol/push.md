@@ -25,25 +25,18 @@ Example:
 
 ```json
 {
-  "at": 9,
+  "at": 7,
   "id": "example",
   "payload": {
-    "changes": {
-      "activitySeq": 8,
-      "hasSentMessage": false,
-      "live": {
-        "account": "example",
-        "asking": [],
-        "runningSubagentCount": 1,
-        "waitingSince": 6
-      },
-      "readAt": 0,
-      "settleWhenDone": true,
-      "settledAt": 0
-    },
-    "type": "thread.client.updated"
+    "lastFailure": null,
+    "paused": false,
+    "pendingCount": 9,
+    "reason": null,
+    "resumeAt": null,
+    "revision": 5,
+    "type": "queue.updated"
   },
-  "seq": 9,
+  "seq": 5,
   "threadId": "example"
 }
 ```
@@ -3203,33 +3196,173 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 0,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "keep": [],
-    "kind": "threads",
-    "seq": 1,
-    "threads": {},
-    "window": {
-      "attention": {
-        "chats": {
-          "needsYou": 8,
-          "unread": 4
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "kind": "thread",
+    "runs": {},
+    "seq": 0,
+    "thread": {
+      "acpAgentId": "example",
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": true,
+          "planMode": false,
+          "resume": false
         },
-        "threads": {
-          "needsYou": 2,
-          "unread": 6
+        "coverage": "legacy",
+        "mcp": "unavailable",
+        "modeSelection": false,
+        "modelSelection": false,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "subagentSessions": false,
+        "visibility": "limited"
+      },
+      "activitySeq": 8,
+      "capabilities": {
+        "accessModes": [],
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "none",
+        "childFidelity": "placeholder",
+        "fork": false,
+        "goals": false,
+        "imageInput": true,
+        "interruptCascades": false,
+        "launchOptions": [],
+        "planMode": true,
+        "resume": true,
+        "rewindFiles": false,
+        "steer": true,
+        "subagentTranscripts": true,
+        "tokenUsage": false
+      },
+      "createdAt": 3,
+      "effectiveCapabilities": {
+        "approvals": "interactive",
+        "attachmentInput": {
+          "documents": [],
+          "embeddedContext": false,
+          "format": "codex",
+          "maxInlineBytes": 7
+        },
+        "backgroundTaskControl": true,
+        "backgroundVisibility": "none",
+        "childFidelity": "summary",
+        "fork": false,
+        "forkTranscript": true,
+        "imageInput": true,
+        "interruptCascades": false,
+        "launchOptions": [],
+        "planMode": false,
+        "resume": false,
+        "rewindFiles": true,
+        "steer": true,
+        "subagentTranscripts": false,
+        "tokenUsage": false
+      },
+      "goal": {
+        "objective": "example",
+        "status": "paused",
+        "timeUsedSeconds": 1,
+        "tokenBudget": 2,
+        "tokensUsed": 2
+      },
+      "id": "example",
+      "imported": {
+        "importedAt": 5,
+        "instanceId": "example",
+        "native": {
+          "aliases": [],
+          "forkedFromNativeId": "example",
+          "installationId": "example",
+          "provider": "claude"
+        },
+        "sourceId": "example"
+      },
+      "lineage": {
+        "lossy": false,
+        "mode": "portable",
+        "parentAgentId": "example",
+        "parentThreadId": "example",
+        "point": {
+          "itemId": "example",
+          "type": "item"
         }
       },
-      "before": {
-        "at": 3,
-        "id": "example"
+      "live": {
+        "asking": [],
+        "backgroundTaskCount": 6,
+        "provider": "acp",
+        "rootRunId": null,
+        "step": "tests",
+        "workingSince": 4
       },
-      "counts": [],
-      "revision": 2,
-      "total": 7
-    }
+      "permission": {
+        "custom": "example",
+        "effective": "full-access",
+        "override": null,
+        "pending": false
+      },
+      "prSettled": 5,
+      "provider": "antigravity",
+      "queue": {
+        "exited": true,
+        "paused": true,
+        "reason": "restart",
+        "resumeAt": 1,
+        "revision": 8
+      },
+      "queuedLaunch": {
+        "slotLimit": 1,
+        "slotsInUse": 5,
+        "text": "example"
+      },
+      "rootAgentId": "example",
+      "settledAt": 9,
+      "snoozeWake": {
+        "on": "pr",
+        "prs": [
+          {
+            "head": "example",
+            "pr": "example",
+            "state": "closed",
+            "updatedAt": 7
+          }
+        ]
+      },
+      "status": {
+        "agents": 3,
+        "state": "working"
+      },
+      "switch": {
+        "at": 6,
+        "lossy": true,
+        "recommendation": "delegate",
+        "selection": {
+          "instanceId": "example",
+          "provider": "antigravity"
+        },
+        "state": "failed"
+      },
+      "title": "example",
+      "titleSource": "provider",
+      "unread": true,
+      "updatedAt": 6,
+      "workspaceId": "example"
+    },
+    "usage": {},
+    "usageSnapshots": {}
   }
 }
 ```

@@ -50,7 +50,8 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
   let verified = false,
     revoked = false,
-    retry = false;
+    retry = false,
+    started: unknown;
   const grant = {
     token: "t".repeat(43),
     expiresAt: 1_900_000_000_000,
@@ -65,13 +66,15 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   });
   const network: typeof fetch = async (input, init) => {
     const path = new URL(String(input)).pathname;
-    if (path === "/v1/account/login" && init?.method === "POST")
+    if (path === "/v1/account/login" && init?.method === "POST") {
+      started = JSON.parse(String(init.body));
       return Response.json({
         id: "i".repeat(43),
         secret: "s".repeat(43),
         expiresAt: 1_900_000_000_000,
         loginUrl: `${origin}/v1/account/login?id=${"i".repeat(43)}`,
       });
+    }
     if (path.startsWith("/v1/account/login/") && init?.method === "GET") {
       if (!retry) {
         retry = true;
@@ -94,6 +97,8 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
   const signOut = await screen.findByRole("button", { name: "Sign out" }, { timeout: 8000 });
   expect(screen.getByText("Ace Person")).toBeDefined();
+  // The browser comes back to this web app's landing page, not the backend's dead end.
+  expect(started).toEqual({ returnTo: `${location.origin}/account/signed-in` });
   await userEvent.click(signOut);
   await waitFor(() => expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined());
   expect((await network(`${origin}/v1/account/session`, { method: "GET" })).status).toBe(401);
@@ -122,4 +127,13 @@ test("signing out a session the backend already ended still signs this window ou
   expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
+});
+
+test("returning from a cancelled desktop sign-in says so on Profile until the next attempt", async () => {
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", "https://backend.example.com");
+  vi.stubGlobal("fetch", async () => Response.json({ error: "unavailable" }, { status: 503 }));
+  await harness().open("/settings/general?signin=cancelled");
+  expect((await screen.findByRole("alert")).textContent).toBe("Sign-in was cancelled.");
+  await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+  await waitFor(() => expect(screen.queryByText("Sign-in was cancelled.")).toBeNull());
 });

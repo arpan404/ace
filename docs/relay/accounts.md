@@ -25,6 +25,7 @@ By hand, from `apps/relay-cloudflare`:
 1. `bunx wrangler d1 create ace-accounts`, then put the printed id in
    `env.production.d1_databases[0].database_id`.
 2. `bunx wrangler d1 migrations apply ACCOUNTS --remote --env production`.
+   This applies every migration not yet applied, `0002_login_return.sql` included.
 3. In WorkOS, register exactly `https://YOUR_RELAY_DOMAIN/v1/account/callback` as a
    redirect of your AuthKit application. Use a separate WorkOS environment for
    development.
@@ -110,19 +111,30 @@ Responses are never cached. Credentials travel in the Authorization header, neve
 in a URL. Errors are `{ "error": code }`. `@ace/client/ace-account` wraps these
 routes, validates responses and bounds response bodies.
 
-| Route                          | Behaviour                                                                    |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| `POST /v1/account/login`       | Returns `id`, private `secret`, public `loginUrl`, `expiresAt` (10 minutes)  |
-| `GET /v1/account/login?id=…`   | Browser entry, once; sets an HttpOnly binding cookie and redirects to WorkOS |
-| `GET /v1/account/callback`     | WorkOS callback; checks state, the cookie and PKCE                           |
-| `GET /v1/account/login/:id`    | Claim ticket bearer; `pending` or `complete` with the session                |
-| `DELETE /v1/account/login/:id` | Claim ticket bearer; cancels the sign-in and revokes its session             |
-| `GET /v1/account/session`      | Session bearer; refreshes with WorkOS, returns account and expiry            |
-| `DELETE /v1/account/session`   | Session bearer; revokes this session                                         |
-| `GET /v1/keys`                 | Public grant keys: `{ keys: [{ id, publicKey }] }`                           |
-| `POST /v1/grants`              | Session bearer; `{ kind, subject }` returns `{ token, expiresAt }`           |
-| `GET /v1/machines`             | Session bearer; this account's machines, most recently seen first            |
-| `DELETE /v1/machines/:hostId`  | Session bearer; forgets one of this account's machines                       |
+| Route                             | Behaviour                                                                                                            |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/account/login`          | Optional `{ returnTo }`; returns `id`, private `secret`, public `loginUrl`, `expiresAt` (10 minutes)                 |
+| `GET /v1/account/login?id=…`      | Browser entry, any number of times; a "Continue to sign in" page, spends nothing                                     |
+| `POST /v1/account/login/continue` | The page's form (`id`), once, from the backend's own origin; sets an HttpOnly binding cookie and redirects to WorkOS |
+| `GET /v1/account/callback`        | WorkOS callback; checks state, the cookie and PKCE; redirects to `returnTo?status=` when set                         |
+| `GET /v1/account/login/:id`       | Claim ticket bearer; `pending` or `complete` with the session                                                        |
+| `DELETE /v1/account/login/:id`    | Claim ticket bearer; cancels the sign-in and revokes its session                                                     |
+| `GET /v1/account/session`         | Session bearer; refreshes with WorkOS, returns account and expiry                                                    |
+| `DELETE /v1/account/session`      | Session bearer; revokes this session                                                                                 |
+| `GET /v1/keys`                    | Public grant keys: `{ keys: [{ id, publicKey }] }`                                                                   |
+| `POST /v1/grants`                 | Session bearer; `{ kind, subject }` returns `{ token, expiresAt }`                                                   |
+| `GET /v1/machines`                | Session bearer; this account's machines, most recently seen first                                                    |
+| `DELETE /v1/machines/:hostId`     | Session bearer; forgets one of this account's machines                                                               |
+
+`returnTo` is exactly `ace://account/signed-in` (desktop and iOS) or
+`<allowed web origin>/account/signed-in` (the web app's landing page; `app://ace` is
+not a web origin); anything else is 400 `invalid_return`. The callback sends the
+browser there with only `?status=signed-in|cancelled|failed|expired`: never a
+token, code or login id. The app still gets its session from the claim. Without
+`returnTo` the callback shows the backend's own page. The sign-in pages are the only
+responses that allow inline CSS; the continue page's `form-action` allows `'self'`,
+`https:` (the WorkOS and identity-provider redirect chain) and `ace:`, and it sends
+`Referrer-Policy: same-origin` so its post carries `Origin`.
 
 A session (`AceAccountGrant`) has `token`, `expiresAt` (7 days) and an `account`
 with `id`, `email` and `name`. Poll a sign-in every two seconds until its expiry.

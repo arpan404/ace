@@ -22,9 +22,24 @@ access to a machine, change its scopes, or replace Noise host pinning.
 Clients create a short-lived login request, open its public URL in a browser and
 claim the resulting session using a separate private ticket. The backend uses
 WorkOS authorization-code login with PKCE, random state and a browser-bound
-HttpOnly cookie. No client callback scheme or third-party cookie is required.
+HttpOnly cookie. No third-party cookie is required.
 Claim retries return the same session until the request expires. Cancellation
 revokes an unclaimed session and cannot be undone by an in-flight callback.
+
+Opening the login URL spends nothing: it shows a page with one button,
+"Continue to sign in", that posts the login id back to the backend's own origin.
+Only that post binds the browser and goes to WorkOS, so link previews and
+preloaders that fetch the URL cannot use up a sign-in, and another site cannot
+push a login id it holds into the person's browser (the post must carry the
+backend's own `Origin`). A sign-in may name a return address when it starts:
+exactly `ace://account/signed-in` for the desktop and iOS apps, or
+`/account/signed-in` on an allowed web origin. Anything else is refused. When the
+callback ends, the browser goes there with only `?status=signed-in`, `cancelled`,
+`failed` or `expired` appended: never a token, code or login id. The address
+returns the person to the app; it never carries the session, which the app still
+claims with its private ticket. Without a return address the backend shows its
+own page. A callback for a sign-in that is unknown, expired or already used says
+so; "could not be verified" is kept for a different browser.
 
 The backend stores only hashes of ace session tokens. WorkOS refresh tokens are
 encrypted with AES-256-GCM and bound to the hashed session identity. Each session

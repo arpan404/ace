@@ -4,6 +4,7 @@ import {
   AceGrantRequest,
   AceGrantResponse,
   AceLogin,
+  AceLoginRequest,
   AceLoginStatus,
   AceMachine,
   AceMachineList,
@@ -48,8 +49,22 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
     return httpJson(response, 64 * 1024);
   }
   return {
-    async login(signal: AbortSignal) {
-      const login = AceLogin.parse(await call("account/login", "POST", undefined, signal));
+    /**
+     * Starts a sign-in. `returnTo` is where the browser goes when it ends (the apps'
+     * `ace://account/signed-in`, or the web app's landing page); without it the browser stays on
+     * the backend's own page.
+     */
+    async login(signal: AbortSignal, request: AceLoginRequest = {}) {
+      const body = AceLoginRequest.parse(request);
+      const login = AceLogin.parse(
+        await call(
+          "account/login",
+          "POST",
+          undefined,
+          signal,
+          body.returnTo === undefined ? undefined : body,
+        ),
+      );
       const url = new URL(login.loginUrl);
       if (
         url.origin !== origin ||

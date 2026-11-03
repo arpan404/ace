@@ -12,11 +12,13 @@ const Row = z.object({
   verifier: z.string().nullable(),
   session: z.string().nullable(),
   issued: z.string().nullable(),
+  /** Where the browser goes when the sign-in ends (return-to.ts), if the app asked. */
+  return_to: z.string().nullable(),
 });
 export type LoginRow = z.infer<typeof Row>;
 
 const changed = (result: D1Result) => result.meta.changes > 0;
-const columns = "id, secret, expires, phase, binding, verifier, session, issued";
+const columns = "id, secret, expires, phase, binding, verifier, session, issued, return_to";
 
 /**
  * Pending sign-ins. A Worker keeps nothing between requests, so each step is a conditional
@@ -40,21 +42,22 @@ export function loginStore(db: D1Database, sealer: Sealer) {
         .first<{ n: number }>();
       return row?.n ?? 0;
     },
-    async create(id: string, secret: string, expires: number) {
+    async create(id: string, secret: string, expires: number, returnTo: string | null) {
       await db
-        .prepare("INSERT INTO logins (id, secret, expires, phase) VALUES (?, ?, ?, 'new')")
-        .bind(id, secret, expires)
+        .prepare(
+          "INSERT INTO logins (id, secret, expires, phase, return_to) VALUES (?, ?, ?, 'new', ?)",
+        )
+        .bind(id, secret, expires, returnTo)
         .run();
     },
     get: (id: string, now: number) =>
       one(`SELECT ${columns} FROM logins WHERE id = ? AND expires > ?`, id, now),
-    byState: (state: string, now: number) =>
-      one(
-        `SELECT ${columns} FROM logins WHERE state = ? AND phase = 'browser' AND expires > ?`,
-        state,
-        now,
-      ),
-    /** The browser opened the sign-in link: only the first visit gets to go to WorkOS. */
+    /**
+     * The sign-in an OAuth state belongs to, in any phase and even expired (until the sweep), so
+     * a late or repeated callback can say the sign-in is over and where to send the browser.
+     */
+    byState: (state: string) => one(`SELECT ${columns} FROM logins WHERE state = ?`, state),
+    /** The browser continued from the sign-in page: only the first time goes to WorkOS. */
     async openBrowser(
       id: string,
       browser: { state: string; binding: string; verifier: string },
@@ -71,12 +74,12 @@ export function loginStore(db: D1Database, sealer: Sealer) {
     },
     openVerifier: (row: LoginRow) =>
       row.verifier ? sealer.open(row.verifier, row.id) : Promise.resolve(undefined),
-    /** The callback consumes the state once. */
+    /** The callback consumes the state once; its digest stays to recognise a repeat. */
     async startExchange(id: string, now: number) {
       return changed(
         await db
           .prepare(
-            "UPDATE logins SET phase = 'exchanging', state = NULL, binding = NULL WHERE id = ? AND phase = 'browser' AND expires > ?",
+            "UPDATE logins SET phase = 'exchanging', binding = NULL WHERE id = ? AND phase = 'browser' AND expires > ?",
           )
           .bind(id, now)
           .run(),

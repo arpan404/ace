@@ -50,6 +50,31 @@ export const AceLogin = z.object({
   expiresAt: z.number().int().positive(),
 });
 export type AceLogin = z.infer<typeof AceLogin>;
+/**
+ * Where the person's browser goes once ace sign-in ends, carrying only `?status=` (never a
+ * token, code or login id): the apps' own link, or the web app's landing page on an origin the
+ * backend allows.
+ */
+export const ACE_APP_SIGN_IN_RETURN = "ace://account/signed-in";
+export const ACE_WEB_SIGN_IN_PATH = "/account/signed-in";
+
+/** `POST /v1/account/login`; the body is optional. */
+export const AceLoginRequest = z.object({
+  returnTo: z
+    .string()
+    .max(2048)
+    .optional()
+    .meta({
+      examples: [ACE_APP_SIGN_IN_RETURN, `https://app.example.com${ACE_WEB_SIGN_IN_PATH}`],
+      "x-ace-constraint":
+        "Exactly ace://account/signed-in, or an allowed web origin followed by /account/signed-in.",
+    }),
+});
+export type AceLoginRequest = z.infer<typeof AceLoginRequest>;
+/** The `status` a sign-in's return address is opened with. */
+export const AceSignInReturnStatus = z.enum(["signed-in", "cancelled", "failed", "expired"]);
+export type AceSignInReturnStatus = z.infer<typeof AceSignInReturnStatus>;
+
 export const AceLoginStatus = z.discriminatedUnion("status", [
   z.object({ status: z.literal("pending") }),
   z.object({ status: z.literal("complete"), session: AceAccountGrant }),

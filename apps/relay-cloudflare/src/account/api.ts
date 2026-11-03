@@ -15,6 +15,8 @@ export function isAccountPath(pathname: string): boolean {
   return pathname.startsWith("/v1/");
 }
 
+/** The sign-in page's form posts here, from the backend's own origin. */
+const continuePath = "/v1/account/login/continue";
 const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
 
@@ -62,7 +64,7 @@ export function accountApi(
     if (pathname === "/v1/machines" && method === "GET") return directory.list(request);
     const machine = pathname.match(machinePath)?.[1];
     if (machine && method === "DELETE") return directory.forget(request, machine);
-    if (pathname === "/v1/account/login" && method === "POST") return login.start();
+    if (pathname === "/v1/account/login" && method === "POST") return login.start(request);
     if (pathname === "/v1/account/login" && method === "GET") return login.open(url);
     if (pathname === "/v1/account/callback" && method === "GET")
       return login.callback(request, url);
@@ -87,6 +89,17 @@ export function accountApi(
     /** `limited` is the caller's rate-limit verdict for this client address. */
     async handle(request: Request, limited: boolean): Promise<Response> {
       const origin = request.headers.get("Origin") ?? undefined;
+      // The continue form comes only from the backend's own sign-in page: another site cannot
+      // post a login id it holds into the person's browser and on to WorkOS.
+      if (request.method === "POST" && new URL(request.url).pathname === continuePath) {
+        if (origin !== config.publicUrl) return secure(fail(403, "origin_denied"), undefined);
+        if (limited) return secure(fail(429, "rate_limited"), undefined);
+        try {
+          return secure(await login.continue(request), undefined);
+        } catch {
+          return secure(fail(503, "account_unavailable"), undefined);
+        }
+      }
       if (origin && !config.allowedOrigins.some((allowed) => allowed === origin))
         return secure(fail(403, "origin_denied"), undefined);
       if (limited) return secure(fail(429, "rate_limited"), origin);
