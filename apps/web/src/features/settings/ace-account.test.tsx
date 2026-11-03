@@ -206,3 +206,28 @@ test("the account menu shows who is signed in and opens their Profile", async ()
   expect(await screen.findByRole("button", { name: "Sign out" })).toBeDefined();
   expect(screen.getByRole("textbox", { name: "Your name" })).toBeDefined();
 });
+
+test("a sign-in that fails in the browser says it didn't finish, not that it expired", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  vi.stubGlobal("ace", { shell: { openExternal: async () => {} } });
+  vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
+    const path = new URL(input).pathname;
+    if (path === "/v1/account/login" && init?.method === "POST")
+      return Response.json({
+        id: "i".repeat(43),
+        secret: "s".repeat(43),
+        expiresAt: 1_900_000_000_000,
+        loginUrl: `${origin}/v1/account/login?id=${"i".repeat(43)}`,
+      });
+    if (path.startsWith("/v1/account/login/"))
+      return Response.json({ error: "login_failed" }, { status: 410 });
+    return Response.json({ error: "unavailable" }, { status: 503 });
+  });
+  await harness().open("/settings/profile");
+  await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+  expect((await screen.findByRole("alert", {}, { timeout: 8000 })).textContent).toBe(
+    "Sign-in didn't finish. Try again.",
+  );
+  expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined();
+});

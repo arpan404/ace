@@ -71,10 +71,13 @@ export async function browserSignIn(options: {
     }
   } catch (cause) {
     if (signal.aborted) return halted();
-    // The backend forgets a sign-in after ten minutes (410).
-    if (cause instanceof AceAccountError && cause.status === 410) {
-      pending = undefined;
-      return { kind: "failed", error: tooLong };
+    if (cause instanceof AceAccountError) {
+      // 410: the browser finished but the sign-in failed there (the browser page said why).
+      // 401: the backend no longer has it; it expired after ten minutes or was cancelled.
+      if (cause.status === 410 || cause.status === 401) pending = undefined;
+      if (cause.status === 410)
+        return { kind: "failed", error: "Sign-in didn't finish. Try again." };
+      if (cause.status === 401) return { kind: "failed", error: tooLong };
     }
     return { kind: "failed", error: "Couldn't sign in. Try again." };
   } finally {
