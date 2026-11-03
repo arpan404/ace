@@ -68,3 +68,29 @@ test("an issue reopened since search last indexed it joins the open list by its 
   const searched = ForgeIssueSearch.parse({ search: "retry" });
   expect(freshenIssueList(list(issues), searched, 1, [reopened]).items).toHaveLength(2);
 });
+
+test("an issue of another repository or host read in the same project never joins or changes the list", () => {
+  const fork = { ...repository, owner: "sam" };
+  const enterprise = { ...repository, host: "github.example.com" };
+  for (const other of [fork, enterprise]) {
+    const stranger = detail(
+      { ...row(9, "2026-10-04T00:00:00Z"), ref: { repository: other, number: 9 } },
+      {},
+    );
+    const sameNumber = detail(
+      { ...row(3, "2026-10-04T00:00:00Z"), ref: { repository: other, number: 3 } },
+      { state: "closed" },
+    );
+    const fresh = freshenIssueList(list(issues), open, 1, [stranger, sameNumber]);
+    expect(fresh.items.map((item) => item.ref.number)).toEqual([3, 2]);
+    expect(fresh.items[0]?.state).toBe("open");
+  }
+});
+
+test("two changes in one second: the issue's own read wins over search's row with the same time", () => {
+  const labelled = detail(issues[0]!, { labels: ["bug"] });
+  expect(freshenIssueList(list(issues), open, 1, [labelled]).items[0]?.labels).toEqual(["bug"]);
+  // Saying the same thing at the same time changes nothing.
+  const same = list(issues);
+  expect(freshenIssueList(same, open, 1, [detail(issues[0]!, {})])).toBe(same);
+});

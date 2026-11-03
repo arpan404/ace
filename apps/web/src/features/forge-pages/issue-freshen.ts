@@ -3,6 +3,7 @@ import {
   ForgeIssueSearch,
   type ForgeIssueDetail,
   type ForgeIssueList,
+  type ForgeRepository,
 } from "@ace/protocol";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -33,10 +34,23 @@ const opaque = (query: ForgeIssueSearch) =>
 /** The row's fields of an issue read in full. */
 const rowOf = (detail: ForgeIssueDetail): ForgeIssueRow => ForgeIssueRow.parse(detail);
 
-const sameRef = (a: ForgeIssueRow, b: ForgeIssueRow) =>
-  a.ref.number === b.ref.number &&
-  lower(a.ref.repository.owner) === lower(b.ref.repository.owner) &&
-  lower(a.ref.repository.name) === lower(b.ref.repository.name);
+/** One repository: same forge, host, owner and name. A fork or another host is another one. */
+const sameRepository = (a: ForgeRepository, b: ForgeRepository) =>
+  a.forge === b.forge &&
+  lower(a.host) === lower(b.host) &&
+  lower(a.owner) === lower(b.owner) &&
+  lower(a.name) === lower(b.name);
+
+/** What a row shows, so an equal-time read that says the same thing changes nothing. */
+const shown = (row: ForgeIssueRow) =>
+  JSON.stringify([
+    row.title,
+    row.state,
+    row.labels,
+    row.assignees,
+    row.milestone,
+    row.commentCount,
+  ]);
 
 /**
  * One page of a list with each issue read on its own since put in: newer rows replace older
@@ -54,11 +68,16 @@ export function freshenIssueList(
   let total = list.total;
   let changed = false;
   for (const detail of details) {
+    // A project's cache can hold issues of other repositories it has read (a fork, an upstream).
+    if (!sameRepository(detail.ref.repository, list.repository)) continue;
     const fresh = rowOf(detail);
-    const index = items.findIndex((row) => sameRef(row, fresh));
+    const index = items.findIndex((row) => row.ref.number === fresh.ref.number);
     const old = items[index];
     if (old) {
-      if (fresh.updatedAt <= old.updatedAt) continue;
+      // GitHub's update times are to the second, so two changes in one second share one. On a
+      // tie the issue's own read wins: search trails it and never runs ahead of it.
+      if (fresh.updatedAt < old.updatedAt) continue;
+      if (fresh.updatedAt === old.updatedAt && shown(fresh) === shown(old)) continue;
       changed = true;
       if (matches(fresh, query)) {
         items = items.with(index, { ...old, ...fresh });
