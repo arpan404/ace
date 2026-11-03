@@ -203,7 +203,8 @@ const delegated = (child: string, phase: "running" | "settled") => ({
     title: "Relay protocol reference",
     role: "docs",
     phase,
-    status: phase === "settled" ? { state: "done" as const } : { state: "working" as const, agents: 1 },
+    status:
+      phase === "settled" ? { state: "done" as const } : { state: "working" as const, agents: 1 },
     updatedAt: phase === "settled" ? 2000 : 1000,
     generation: 0,
     complete: phase === "settled",
@@ -214,11 +215,21 @@ const delegated = (child: string, phase: "running" | "settled") => ({
 test("a delegated child the thread list still shows working never reads done in its parent", async () => {
   const fake = fixture();
   // The child works on: the list has it as working.
-  fake.createThread({ id: "docs-child", workspaceId: "ace", title: "Relay protocol reference", provider: "codex" });
+  fake.createThread({
+    id: "docs-child",
+    workspaceId: "ace",
+    title: "Relay protocol reference",
+    provider: "codex",
+  });
   fake.apply("docs-child", [facts.rootAgent("codex"), facts.turn("root")]);
   // The parent's own copy of the launch already says done (a stale card after a reconnect).
   fake.createThread({ id: "docs-parent", workspaceId: "ace", title: "Docs", provider: "codex" });
-  fake.apply("docs-parent", [facts.rootAgent("codex"), facts.turn("root"), delegated("docs-child", "settled"), facts.endTurn("root")]);
+  fake.apply("docs-parent", [
+    facts.rootAgent("codex"),
+    facts.turn("root"),
+    delegated("docs-child", "settled"),
+    facts.endTurn("root"),
+  ]);
   open(connect(fake), "docs-parent");
   const group = await until(() => {
     const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
@@ -231,7 +242,9 @@ test("a delegated child the thread list still shows working never reads done in 
   // Once the child ends, the group says the launch ran.
   fake.apply("docs-child", [facts.endTurn("root")]);
   const ended = await until(() => {
-    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as Agents | undefined;
+    const agents = rows("thread.block").find((row) => row.kind === "subagents")?.agents as
+      | Agents
+      | undefined;
     return agents?.title === "1 subagent ran" ? agents : undefined;
   }, "the launch reads as ran");
   expect(ended.token).not.toBe("working");

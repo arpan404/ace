@@ -42,13 +42,18 @@ test("a row carries the desktop card's branch, lines changed, pull requests and 
   expect(card.branchLabel).toMatch(/^work\/rewrite.*….*-streams$/);
   expect(Array.from(card.branchLabel ?? "").length).toBeLessThanOrEqual(24);
   expect(card.work).toEqual({ added: 120, removed: 8 });
-  expect(card.prs).toEqual([{ number: 1188, state: "open", repo: "arpan404/ace", title: "Rewrite the relay outbox" }]);
+  expect(card.prs).toEqual([
+    { number: 1188, state: "open", repo: "arpan404/ace", title: "Rewrite the relay outbox" },
+  ]);
   expect(card.accountLabel).toBe("Work");
 });
 
 test("a thread that changed no lines shows no counts, and an unknown account no name", () => {
   const card = rowCard(
-    entry({ execution: { provider: "codex", instanceId: "other" }, details: { diff: { files: 0, additions: 0, deletions: 0 } } }),
+    entry({
+      execution: { provider: "codex", instanceId: "other" },
+      details: { diff: { files: 0, additions: 0, deletions: 0 } },
+    }),
     context,
   );
   expect(card.work).toBeNull();
@@ -64,19 +69,30 @@ test("the preview says what a thread waits on in the hover card's words", () => 
 });
 
 test("browsing and computer use mark only the threads an agent drives, and say which changed", () => {
-  const browsing = readAgentUse(noAgentUse, ServerMessage.parse({ type: "browser.browsing", threads: ["t1"] }));
+  const browsing = readAgentUse(
+    noAgentUse,
+    ServerMessage.parse({ type: "browser.browsing", threads: ["t1"] }),
+  );
   expect(browsing?.changed).toEqual(["t1"]);
   const using = readAgentUse(
     browsing!.next,
-    ServerMessage.parse({ type: "computer.using", threads: [{ threadId: "t2", apps: ["Calculator", "Notes", "Xcode"] }] }),
+    ServerMessage.parse({
+      type: "computer.using",
+      threads: [{ threadId: "t2", apps: ["Calculator", "Notes", "Xcode"] }],
+    }),
   );
   expect(using?.changed).toEqual(["t2"]);
   const use = using!.next;
-  expect(rowCard(entry(), { ...context, use })).toMatchObject({ browsing: "An agent is browsing", computerUse: null });
+  expect(rowCard(entry(), { ...context, use })).toMatchObject({
+    browsing: "An agent is browsing",
+    computerUse: null,
+  });
   expect(rowCard(entry({ id: "t2" }), { ...context, use })).toMatchObject({
     browsing: null,
     computerUse: "An agent is using Calculator, Notes and 1 more",
   });
   // The browser stops: only that thread changes.
-  expect(readAgentUse(use, ServerMessage.parse({ type: "browser.browsing", threads: [] }))?.changed).toEqual(["t1"]);
+  expect(
+    readAgentUse(use, ServerMessage.parse({ type: "browser.browsing", threads: [] }))?.changed,
+  ).toEqual(["t1"]);
 });

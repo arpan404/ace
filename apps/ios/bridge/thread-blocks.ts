@@ -289,7 +289,11 @@ export function blockRow(
       };
     }
     case "subagents":
-      return { ...base, items: [...block.itemIds], agents: subagents(store, block.itemIds, listed) };
+      return {
+        ...base,
+        items: [...block.itemIds],
+        agents: subagents(store, block.itemIds, listed),
+      };
     case "question":
       return {
         ...base,
