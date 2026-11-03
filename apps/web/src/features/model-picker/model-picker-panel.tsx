@@ -399,23 +399,25 @@ export function ModelPickerPanel(props: {
         className="flex min-h-0 min-w-0 flex-1 flex-col"
       >
         <div className="mx-2 flex h-8 shrink-0 items-center gap-2 border-b border-border text-subtle-foreground focus-within:border-ring/40">
-          <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
-          <input
-            ref={search}
-            role="combobox"
-            aria-label="Search models"
-            aria-controls={listId}
-            aria-expanded
-            aria-activedescendant={items.length ? `${listId}-${active}` : undefined}
-            value={query}
-            placeholder="Search models…"
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setHighlight(0);
-            }}
-            onKeyDown={onSearchKey}
-            className="min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none focus-visible:placeholder:text-muted-foreground placeholder:text-subtle-foreground"
-          />
+          <label className="flex h-full min-w-0 flex-1 items-center gap-2">
+            <MagnifyingGlassIcon aria-hidden size={14} className="shrink-0" />
+            <input
+              ref={search}
+              role="combobox"
+              aria-label="Search models"
+              aria-controls={listId}
+              aria-expanded
+              aria-activedescendant={items.length ? `${listId}-${active}` : undefined}
+              value={query}
+              placeholder="Search models…"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setHighlight(0);
+              }}
+              onKeyDown={onSearchKey}
+              className="h-full min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none focus-visible:placeholder:text-muted-foreground placeholder:text-subtle-foreground"
+            />
+          </label>
           {(props.catalog === "refreshing" || refresh.pending) && (
             <Spinner label="Refreshing models" />
           )}
