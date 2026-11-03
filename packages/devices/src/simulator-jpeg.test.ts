@@ -133,3 +133,151 @@ it("a recording keeps every change coming, and stills resume when it ends", asyn
   await jpeg.configure(deviceStillStream);
   expect(sim.open()).toBe(0);
 });
+
+/**
+ * serve-sim driven by hand: each request waits until the test answers it (or never), and the
+ * test sends each byte. Waits of a second or more (a still's time limit) fire only when told.
+ */
+function handDriven() {
+  const requests: {
+    signal: AbortSignal | undefined;
+    answer(): ReadableStreamDefaultController<Uint8Array>;
+    cancelled(): boolean;
+  }[] = [];
+  const fetcher: typeof fetch = (_url, init) => {
+    const answered = Promise.withResolvers<Response>();
+    let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let cancelled = false;
+    requests.push({
+      signal: init?.signal ?? undefined,
+      answer() {
+        const body = new ReadableStream<Uint8Array>({
+          start: (controller) => void (stream = controller),
+          cancel: () => void (cancelled = true),
+        });
+        answered.resolve(
+          new Response(body, {
+            headers: { "content-type": "multipart/x-mixed-replace; boundary=frame" },
+          }),
+        );
+        if (!stream) throw new Error("No body");
+        return stream;
+      },
+      cancelled: () => cancelled,
+    });
+    return answered.promise;
+  };
+  const limits: (() => void)[] = [];
+  const published: Buffer[] = [];
+  const jpeg = new SimulatorJpeg({
+    url: new URL("http://127.0.0.1:1/helper/x/stream.mjpeg"),
+    fps: 30,
+    fetch: fetcher,
+    now: () => performance.now(),
+    after(ms, run) {
+      if (ms >= 1000) {
+        limits.push(run);
+        return () => {};
+      }
+      const timer = setTimeout(run, ms);
+      return () => clearTimeout(timer);
+    },
+    source() {},
+    publish: (image) => published.push(image.bytes),
+    failure(error) {
+      throw error;
+    },
+  });
+  onTestFinished(() => jpeg.stop());
+  return {
+    jpeg,
+    requests,
+    published,
+    /** Every still's time limit runs out. */
+    expire: () => limits.splice(0).forEach((run) => run()),
+    /** The capture is started, then left on stills. */
+    async idle() {
+      const starting = jpeg.start();
+      await expect.poll(() => requests.length).toBe(1);
+      requests[0]?.answer().enqueue(new Uint8Array(part(await screen(0))));
+      await starting;
+      await expect.poll(() => published.length).toBe(1);
+      await jpeg.configure(deviceStillStream);
+    },
+  };
+}
+const settled = (promise: Promise<unknown>) => {
+  let done = false;
+  void promise.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  return () => done;
+};
+
+it("a still never takes a picture that began arriving before it asked", async () => {
+  const sim = handDriven();
+  await sim.idle();
+  const first = sim.jpeg.replay();
+  await expect.poll(() => sim.requests.length).toBe(2);
+  const stream = sim.requests[1]?.answer();
+  // serve-sim starts sending the screen as it is, then the delivery stalls mid-picture.
+  const before = part(await screen(10));
+  stream?.enqueue(new Uint8Array(before.subarray(0, 200)));
+  await pause(20);
+  // Meanwhile the agent acts and asks for a second still.
+  const second = sim.jpeg.replay();
+  const secondDone = settled(second);
+  stream?.enqueue(new Uint8Array(before.subarray(200)));
+  await first;
+  expect(await red(sim.published.at(-1) ?? Buffer.alloc(0))).toBeLessThan(30);
+  await pause(20);
+  expect(secondDone()).toBe(false);
+  // The next picture is the screen after the action.
+  stream?.enqueue(new Uint8Array(part(await screen(255))));
+  await second;
+  expect(await red(sim.published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
+  expect(sim.requests).toHaveLength(2);
+});
+
+it("a still whose request serve-sim never answers gives up, and the next still asks again", async () => {
+  const sim = handDriven();
+  await sim.idle();
+  const stuck = sim.jpeg.replay();
+  await expect.poll(() => sim.requests.length).toBe(2);
+  sim.expire();
+  await expect(stuck).rejects.toThrow(/no picture in time/);
+  // The unanswered request is cancelled, not left open for later stills.
+  expect(sim.requests[1]?.signal?.aborted).toBe(true);
+  const next = sim.jpeg.replay();
+  await expect.poll(() => sim.requests.length).toBe(3);
+  sim.requests[2]?.answer().enqueue(new Uint8Array(part(await screen(255))));
+  await next;
+  expect(await red(sim.published.at(-1) ?? Buffer.alloc(0))).toBeGreaterThan(200);
+  // Stopping returns although the first request never answered.
+  await sim.jpeg.stop();
+});
+
+it("serve-sim answering after the still gave up publishes nothing from that late answer", async () => {
+  const sim = handDriven();
+  await sim.idle();
+  const late = sim.jpeg.replay();
+  await expect.poll(() => sim.requests.length).toBe(2);
+  sim.expire();
+  await expect(late).rejects.toThrow(/no picture in time/);
+  const published = sim.published.length;
+  const picture = new Uint8Array(part(await screen(200)));
+  sim.requests[1]?.answer().enqueue(picture);
+  await expect.poll(() => sim.requests[1]?.cancelled()).toBe(true);
+  expect(sim.published).toHaveLength(published);
+});
+
+it("stopping cancels a request serve-sim hasn't answered", async () => {
+  const sim = handDriven();
+  await sim.idle();
+  const pending = sim.jpeg.replay();
+  await expect.poll(() => sim.requests.length).toBe(2);
+  await sim.jpeg.stop();
+  await expect(pending).rejects.toThrow();
+  expect(sim.requests[1]?.signal?.aborted).toBe(true);
+});
