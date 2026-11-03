@@ -1,24 +1,63 @@
-import { AceAccountGrant } from "@ace/protocol/ace-account";
+import { AceAccountGrant, AceLoginRequest } from "@ace/protocol/ace-account";
+import type { AceSignInReturnStatus } from "@ace/protocol/ace-account";
 import type { AccountConfig } from "./config.ts";
 import { digest, opaqueToken, pkce, sameDigest } from "./crypto.ts";
 import type { RandomBytes } from "./crypto.ts";
-import type { LoginStore } from "./logins.ts";
-import { bearer, cookie, fail, json, page } from "./respond.ts";
+import type { LoginRow, LoginStore } from "./logins.ts";
+import { continuePage, page } from "./pages.ts";
+import { bearer, cookie, fail, json } from "./respond.ts";
+import { allowedReturnTo, returnAddress } from "./return-to.ts";
 import type { SessionStore } from "./sessions.ts";
 import type { AccountProvider } from "./workos.ts";
+
+/** Sends the browser to the sign-in's return address with `status`, or shows `shown`. */
+function ended(row: LoginRow, status: AceSignInReturnStatus, shown: Response): Response {
+  if (!row.return_to) return shown;
+  return new Response(null, {
+    status: 302,
+    headers: { Location: returnAddress(row.return_to, status) },
+  });
+}
 
 export const LOGIN_LIFETIME_MS = 10 * 60_000;
 export const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60_000;
 /** Pending sign-ins across the whole service; beyond this, new ones are refused as busy. */
 const MAX_PENDING_LOGINS = 1024;
 
-const expired = () => page(410, "This sign-in has expired. Start again in ace.");
+const expired = () =>
+  page(410, "This sign-in has expired or was already used. Start again in ace.");
 const unverified = () => page(400, "Sign-in could not be verified. Start again in ace.");
+const loginId = /^[A-Za-z0-9_-]{43}$/;
+
+/** The optional `POST /v1/account/login` body: undefined when it is not a valid request. */
+async function loginRequest(request: Request): Promise<AceLoginRequest | undefined> {
+  if (Number(request.headers.get("Content-Length") ?? "0") > 4096) return undefined;
+  const text = await request.text();
+  if (text.length > 4096) return undefined;
+  if (text.trim() === "") return {};
+  try {
+    const parsed = AceLoginRequest.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The login id a continue form posts, if well formed. */
+async function formId(request: Request): Promise<string | undefined> {
+  if (Number(request.headers.get("Content-Length") ?? "0") > 1024) return undefined;
+  const text = await request.text();
+  if (text.length > 1024) return undefined;
+  const id = new URLSearchParams(text).get("id") ?? "";
+  return loginId.test(id) ? id : undefined;
+}
 
 /**
  * The sign-in flow (ADR 0100): an app starts a login and keeps its private claim ticket, the
- * person's browser opens the login link and goes to WorkOS with PKCE, the callback must come
- * back to the same browser (an HttpOnly cookie), and the app claims the session with its ticket.
+ * person's browser opens the login link and continues from it to WorkOS with PKCE, the callback
+ * must come back to the same browser (an HttpOnly cookie), and the app claims the session with
+ * its ticket. A sign-in started with a return address sends the browser there at the end with
+ * only a status.
  */
 export function loginRoutes(deps: {
   config: AccountConfig;
@@ -34,15 +73,22 @@ export function loginRoutes(deps: {
     `ace_login_${id}=${value}; HttpOnly; SameSite=Lax; Path=/v1/account/callback; Max-Age=${maxAge}${secure}`;
 
   return {
-    /** POST /v1/account/login */
-    async start(): Promise<Response> {
+    /** POST /v1/account/login, with an optional `{ returnTo }`. */
+    async start(request: Request): Promise<Response> {
+      const body = await loginRequest(request);
+      if (!body) return fail(400, "invalid_request");
+      const returnTo =
+        body.returnTo === undefined
+          ? null
+          : (allowedReturnTo(body.returnTo, config.allowedOrigins) ?? false);
+      if (returnTo === false) return fail(400, "invalid_return");
       const time = now();
       await logins.sweep(time);
       if ((await logins.count(time)) >= MAX_PENDING_LOGINS) return fail(429, "busy");
       const id = opaqueToken(random);
       const secret = opaqueToken(random);
       const expiresAt = time + LOGIN_LIFETIME_MS;
-      await logins.create(await digest(id), await digest(secret), expiresAt);
+      await logins.create(await digest(id), await digest(secret), expiresAt, returnTo);
       return json(201, {
         id,
         secret,
@@ -51,10 +97,22 @@ export function loginRoutes(deps: {
       });
     },
 
-    /** GET /v1/account/login?id= — the person's browser, once. */
+    /**
+     * GET /v1/account/login?id= — the sign-in link. Safe to fetch any number of times (link
+     * previews, preloaders): it only shows the button that continues.
+     */
     async open(url: URL): Promise<Response> {
       const id = url.searchParams.get("id") ?? "";
-      if (!/^[A-Za-z0-9_-]{43}$/.test(id)) return expired();
+      if (!loginId.test(id)) return expired();
+      const row = await logins.get(await digest(id), now());
+      if (row?.phase !== "new") return expired();
+      return continuePage(id, config.allowedOrigins);
+    },
+
+    /** POST /v1/account/login/continue — the person's browser, once: binds it, to WorkOS. */
+    async continue(request: Request): Promise<Response> {
+      const id = await formId(request);
+      if (!id) return expired();
       const auth = await pkce(random);
       const binding = opaqueToken(random);
       const opened = await logins.openBrowser(
@@ -79,9 +137,13 @@ export function loginRoutes(deps: {
     /** GET /v1/account/callback — WorkOS sends the browser back here. */
     async callback(request: Request, url: URL): Promise<Response> {
       const state = url.searchParams.get("state");
-      if (!state || state.length > 256) return unverified();
-      const row = await logins.byState(await digest(state), now());
-      if (!row?.binding) return unverified();
+      if (!state || state.length > 256) return expired();
+      const row = await logins.byState(await digest(state));
+      if (!row) return expired();
+      // How the sign-in ended: to its return address with only a status, or this page.
+      const end = (status: AceSignInReturnStatus, shown: Response) => ended(row, status, shown);
+      if (row.phase !== "browser" || row.expires <= now() || !row.binding)
+        return end("expired", expired());
       // The cookie is named by the public login id; the row only knows the id's digest.
       const presented = [
         ...(request.headers.get("Cookie") ?? "").matchAll(/ace_login_([A-Za-z0-9_-]{43})=/g),
@@ -92,7 +154,8 @@ export function loginRoutes(deps: {
       const value = id ? cookie(request, `ace_login_${id}`) : undefined;
       if (!id || !value || !sameDigest(await digest(value), row.binding)) return unverified();
       const verifier = await logins.openVerifier(row);
-      if (!verifier || !(await logins.startExchange(row.id, now()))) return unverified();
+      if (!verifier) return unverified();
+      if (!(await logins.startExchange(row.id, now()))) return end("expired", expired());
       // The binding is spent: clear the cookie whatever happens next.
       const withCookie = (response: Response) => {
         response.headers.set("Set-Cookie", bindingCookie(id, "", 0));
@@ -101,14 +164,18 @@ export function loginRoutes(deps: {
       const code = url.searchParams.get("code");
       if (!code || url.searchParams.has("error")) {
         await logins.fail(row.id);
-        return withCookie(page(400, "Sign-in was cancelled. You can keep using ace locally."));
+        return withCookie(
+          end("cancelled", page(400, "Sign-in was cancelled. You can keep using ace locally.")),
+        );
       }
       let identity;
       try {
         identity = await provider.exchange(code, verifier);
       } catch {
         await logins.fail(row.id);
-        return withCookie(page(502, "Sign-in could not finish. Start again in ace."));
+        return withCookie(
+          end("failed", page(502, "Sign-in could not finish. Start again in ace.")),
+        );
       }
       const token = opaqueToken(random);
       const hash = await digest(token);
@@ -118,9 +185,11 @@ export function loginRoutes(deps: {
       // A cancellation or expiry while WorkOS answered wins: the new session is discarded.
       if (!(await logins.complete(row.id, hash, grant, now()))) {
         await sessions.remove(hash);
-        return withCookie(expired());
+        return withCookie(end("expired", expired()));
       }
-      return withCookie(page(200, "You're signed in. Return to ace. You can close this tab."));
+      return withCookie(
+        end("signed-in", page(200, "You're signed in. Return to ace. You can close this tab.")),
+      );
     },
 
     /** GET (claim) and DELETE (cancel) /v1/account/login/:id with the claim ticket. */

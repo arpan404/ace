@@ -10,6 +10,8 @@ import { encodeBase64url } from "@ace/account-grant";
 export const grantKey = { id: "test", privateKey: crypto.getRandomValues(new Uint8Array(32)) };
 
 export const allowedOrigin = "https://app.example";
+/** The test Worker's public URL: the Origin its own sign-in page posts with. */
+export const publicUrl = "http://127.0.0.1";
 
 /**
  * The Worker under real workerd (Miniflare), with local D1 migrated. `accounts: false` runs it
@@ -22,7 +24,7 @@ export async function launchWorker(
     options.accounts === false
       ? {}
       : {
-          ACE_ACCOUNT_PUBLIC_URL: "http://127.0.0.1",
+          ACE_ACCOUNT_PUBLIC_URL: publicUrl,
           ACE_ACCOUNT_ALLOWED_ORIGINS: `${allowedOrigin},app://ace`,
           WORKOS_CLIENT_ID: "client_test",
           WORKOS_API_KEY: "sk_test_backend",

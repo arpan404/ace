@@ -15,6 +15,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import { fakeWorkos } from "./testing/fake-workos.ts";
 import type { WorkosUser } from "./testing/fake-workos.ts";
 import { allowedOrigin, startWorker } from "./testing/harness.ts";
+import { continueSignIn } from "./testing/sign-in.ts";
 
 let workos: Awaited<ReturnType<typeof fakeWorkos>>;
 let worker: Awaited<ReturnType<typeof startWorker>>;
@@ -50,7 +51,7 @@ const request = (path: string, init?: RequestInit) =>
   fetch(worker.http + path, { redirect: "manual", ...init });
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
-/** The app starts a sign-in and the person's browser opens its link. */
+/** The app starts a sign-in and the person's browser opens its link and continues to WorkOS. */
 async function begin() {
   const started = await request("/v1/account/login", {
     method: "POST",
@@ -59,10 +60,9 @@ async function begin() {
   expect(started.status).toBe(201);
   expect(started.headers.get("access-control-allow-origin")).toBe(allowedOrigin);
   const flow = AceLogin.parse(await started.json());
-  const opened = await request(new URL(flow.loginUrl).pathname + new URL(flow.loginUrl).search);
-  expect(opened.status).toBe(302);
-  const cookie = opened.headers.get("set-cookie")?.split(";")[0] ?? "";
-  return { flow, cookie, authorizeUrl: opened.headers.get("location") ?? "" };
+  const continued = await continueSignIn(worker.http, flow.loginUrl);
+  expect(continued.status).toBe(302);
+  return { flow, cookie: continued.cookie, authorizeUrl: continued.authorizeUrl };
 }
 
 /** The person signs in at WorkOS, which sends their browser back with a code. */
@@ -97,7 +97,7 @@ it("only the initiating browser and the private claim ticket can complete ace si
   expect((await request(`/v1/account/login/${flow.id}`)).status).toBe(401);
   expect(await (await poll(flow)).json()).toEqual({ status: "pending" });
   expect((await returnFromWorkos(started)).status).toBe(200);
-  expect((await returnFromWorkos(started)).status).toBe(400);
+  expect((await returnFromWorkos(started)).status).toBe(410);
   const response = await poll(flow);
   expect(response.headers.get("cache-control")).toBe("no-store");
   const status = AceLoginStatus.parse(await response.json());
@@ -170,7 +170,7 @@ it("a sign-in cancelled while WorkOS answers cannot create a usable ace session"
 it("expired and refused sign-ins cannot be completed", async () => {
   const late = await begin();
   await worker.db.prepare("UPDATE logins SET expires = 1 WHERE expires > ?").bind(Date.now()).run();
-  expect((await returnFromWorkos(late)).status).toBe(400);
+  expect((await returnFromWorkos(late)).status).toBe(410);
   expect((await poll(late.flow)).status).toBe(401);
   const refused = await begin();
   const state = workos.authorize(refused.authorizeUrl, personA, "unused");
@@ -226,11 +226,7 @@ it("a signed-in machine and device reach each other through the account, and onl
   async function signIn(person: WorkosUser) {
     const login = await client.login(signal);
     expect(await client.poll(login, signal)).toEqual({ status: "pending" });
-    const opened = await fetch(login.loginUrl, { redirect: "manual" });
-    const started = {
-      cookie: opened.headers.get("set-cookie")?.split(";")[0] ?? "",
-      authorizeUrl: opened.headers.get("location") ?? "",
-    };
+    const started = await continueSignIn(worker.http, login.loginUrl);
     expect((await returnFromWorkos(started, person)).status).toBe(200);
     const status = await client.poll(login, signal);
     if (status.status !== "complete") throw new Error("Expected an ace session");
