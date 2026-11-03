@@ -95,7 +95,7 @@ it("account and model series equal a full replay, with cache prices and subscrip
     ).toBeNull();
     expect(h.store.summary(query)).toMatchObject({
       priceVersion: defaultPrices.version,
-      priceAsOf: "2026-10-07",
+      priceAsOf: defaultPrices.asOf,
       costLabel: "estimate",
     });
   } finally {
