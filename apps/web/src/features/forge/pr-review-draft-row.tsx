@@ -58,6 +58,9 @@ export function PrReviewDraftRow(props: { draft: ForgeReviewDraft; headSha: stri
             key: `${index}`,
             kind: " ",
             text,
+            // The kept code ends at the draft's line.
+            [draft.anchor.side === "LEFT" ? "left" : "right"]:
+              draft.anchor.line - (code.length - 1 - index),
             // The draft's own lines end the kept code.
             commented:
               index >=
