@@ -10,10 +10,10 @@ import {
 } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
 import { modelLabel, providerNames, subagentEnded, subagentPhase } from "@ace/ui-core";
-import { RobotIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Suspense, useCallback } from "react";
-import { EmptyState } from "@/components/ui/empty.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import {
   countSubagents,
@@ -93,20 +93,39 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
           crumb={
             agent?.parentId && <SubagentCrumb threadId={threadId} parentAgentId={agent.parentId} />
           }
-          title={agent ? name : error ? "" : meta ? "Subagent" : ""}
+          title={agent ? name : ""}
           tools={meta && !error && <WorkButton threadId={threadId} />}
-          workspace={error ? undefined : { scope: threadId, definition: threadWorkspace }}
+          // A subagent that couldn't be shown has nothing to open beside it or below it.
+          workspace={
+            error || (meta && !agent) ? undefined : { scope: threadId, definition: threadWorkspace }
+          }
         >
           {error ? (
             <ThreadLoadError error={error} />
           ) : !meta ? (
             <SkeletonText lines={4} className={`${readingColumn} pt-16`} />
           ) : !agent ? (
-            <EmptyState
-              icon={RobotIcon}
-              title="This subagent isn't in the loaded thread"
-              description="It may belong to older history that hasn't loaded yet."
-            />
+            <div role="alert" className="h-full">
+              <MissingState
+                title="This subagent isn't in the loaded thread"
+                description="It may belong to older history that hasn't loaded yet."
+                actions={
+                  <>
+                    <Link
+                      to="/t/$threadId"
+                      params={{ threadId }}
+                      search={machine}
+                      className={buttonVariants({ size: "sm", variant: "primary" })}
+                    >
+                      Open the thread
+                    </Link>
+                    <Link to="/" className={buttonVariants({ size: "sm" })}>
+                      Back to Home
+                    </Link>
+                  </>
+                }
+              />
+            </div>
           ) : (
             <div
               data-thread-column
