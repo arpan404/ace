@@ -101,6 +101,12 @@ runs in this Worker; see [accounts](../relay/accounts.md).
   own `connectHostToRelay` and `connectClientViaRelay`: registration, an authenticated
   encrypted exchange, busy rejection, replacement, ticket expiry and a refused host whose
   claimed id does not match its key.
+- `hibernation.process.test.ts` evicts the object between steps with wrangler's
+  `evictDurableObject(…, { webSockets: "hibernate" })`, which drops its memory and keeps its
+  sockets and attachments, as the runtime does. After waking, open streams keep flowing, the
+  daemon stays registered (no re-registration), new devices pair, a full daemon still answers
+  busy, and a waiting device is paired or expired by the alarm. The harness, like the runtime,
+  won't evict an object holding a timer, so a registration mid-handshake is never hibernated.
 
 See [Durable Objects WebSockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
 and [pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/).
