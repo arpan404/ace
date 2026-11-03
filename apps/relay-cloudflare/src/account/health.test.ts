@@ -41,6 +41,12 @@ it("a key WorkOS accepts and a client it knows read as healthy, naming no part o
   expect(JSON.stringify(health)).not.toContain("a1b2");
 });
 
+it("any sk_ key WorkOS accepts reads as ok, whatever follows the prefix", async () => {
+  const key = "sk_a2V5XzAxSjk5";
+  const check = workosHealth(config(key), workos({ up: true, key }), () => 0);
+  expect(await check()).toEqual({ apiKey: "accepted", keyFormat: "ok", clientId: "known" });
+});
+
 it("a key pasted with its setting name around it is refused and reads as unexpected", async () => {
   const pasted = `WORKOS_API_KEY= ${goodKey}`;
   const check = workosHealth(config(pasted), workos({ up: true, key: goodKey }), () => 0);
