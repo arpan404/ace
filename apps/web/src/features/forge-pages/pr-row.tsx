@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow } from "@ace/protocol";
 import { middleTruncateText, prWords } from "@ace/ui-core";
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrStateWord } from "./marks.tsx";
 import {
@@ -140,9 +141,7 @@ export function PrRow(props: {
           <span className="flex min-h-5 items-center gap-1.5 whitespace-nowrap text-subtle-foreground tabular-nums">
             {sized && (
               <>
-                <span title={`${row.additions} added, ${row.deletions} removed`}>
-                  +{row.additions} −{row.deletions}
-                </span>
+                <DiffCounts additions={row.additions ?? 0} deletions={row.deletions ?? 0} />
                 <Dot />
               </>
             )}

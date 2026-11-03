@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
-import { DiffStat } from "@/components/diff-stat.tsx";
+import { DiffCounts, DiffStat } from "@/components/diff-stat.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { plainRow } from "@/components/ui/rules.ts";
@@ -23,11 +23,11 @@ function MicroBar(props: { file: GlanceFile }) {
     >
       <span className="flex h-full" style={{ width: `${Math.max(4, file.scale * 100)}%` }}>
         <span
-          className="h-full bg-status-done"
+          className="h-full bg-diff-add-text"
           style={{ width: `${(file.additions / total) * 100}%` }}
         />
         <span
-          className="h-full bg-status-failed"
+          className="h-full bg-diff-del-text"
           style={{ width: `${(file.deletions / total) * 100}%` }}
         />
       </span>
@@ -111,10 +111,11 @@ function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): voi
               <span className="shrink-0 text-foreground">{file.name}</span>
             </span>
             <MicroBar file={file} />
-            <span className="w-20 shrink-0 text-right font-mono text-xs tabular-nums">
-              <span className="text-status-done">+{file.additions}</span>{" "}
-              <span className="text-status-failed">−{file.deletions}</span>
-            </span>
+            <DiffCounts
+              additions={file.additions}
+              deletions={file.deletions}
+              className="w-20 shrink-0 text-right font-mono text-xs"
+            />
           </button>
         </li>
       ))}
