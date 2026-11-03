@@ -53,9 +53,14 @@ describe("machine code refusals", () => {
   test("reads the daemon's refusal frame and nothing else", () => {
     expect(
       machineCodeRefusal(
-        JSON.stringify({ type: "error", code: "machine_code_locked", message: "Try later." }),
+        JSON.stringify({
+          type: "error",
+          code: "machine_code_locked",
+          message: "Try later.",
+          lockedUntil: 1_800_000,
+        }),
       ),
-    ).toBe("machine_code_locked");
+    ).toEqual({ reason: "machine_code_locked", lockedUntil: 1_800_000 });
     expect(
       machineCodeRefusal(JSON.stringify({ type: "error", code: "unauthorized", message: "No." })),
     ).toBeUndefined();

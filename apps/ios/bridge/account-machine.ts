@@ -18,10 +18,10 @@ export function accountGate(credential: () => Promise<string>): MachineCodeGate 
   let pending = false;
   return {
     credential: () => gate.credential(),
-    refused(reason) {
+    refused(reason, until) {
       if (pending && reason === "machine_code_required") return;
       pending = false;
-      gate.refused(reason);
+      gate.refused(reason, until);
     },
     welcomed() {
       pending = false;
@@ -29,6 +29,9 @@ export function accountGate(credential: () => Promise<string>): MachineCodeGate 
     },
     get asking() {
       return gate.asking;
+    },
+    get lockedUntil() {
+      return gate.lockedUntil;
     },
     enter(value) {
       gate.enter(value);
@@ -51,17 +54,25 @@ export function accountCredential(gate: MachineCodeGate) {
   };
 }
 
-const Refusal = z.object({ type: z.literal("error"), code: MachineCodeRefusal });
+const Refusal = z.object({
+  type: z.literal("error"),
+  code: MachineCodeRefusal,
+  lockedUntil: z.number().int().positive().optional(),
+});
 
 /**
  * Why the daemon refused this hello, when a message says so; undefined otherwise. Only the first
  * messages of a socket are offered here, so the cost never grows with the stream.
  */
-export function machineCodeRefusal(text: string): MachineCodeRefusal | undefined {
+export function machineCodeRefusal(
+  text: string,
+): { reason: MachineCodeRefusal; lockedUntil?: number } | undefined {
   if (text.length > 4096 || !text.includes("machine_code_")) return undefined;
   try {
     const parsed = Refusal.safeParse(JSON.parse(text));
-    return parsed.success ? parsed.data.code : undefined;
+    if (!parsed.success) return undefined;
+    const { code, lockedUntil } = parsed.data;
+    return lockedUntil === undefined ? { reason: code } : { reason: code, lockedUntil };
   } catch {
     return undefined;
   }

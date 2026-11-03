@@ -79,6 +79,12 @@ import Testing
         #expect(throws: RelayFrameError.invalidFragment) { try unknownReceiver.open(try unknown.send.encrypt(Data([6, 1]))) }
     }
 
+    @Test func theDaemonsChannelCloseBecomesTheSocketsCloseCode() {
+        #expect(RelaySocket.channelClose(#"{"type":"channel.close","code":4003,"reason":"revoked"}"#) == 4003)
+        #expect(RelaySocket.channelClose(#"{"type":"channel.close","code":99,"reason":""}"#) == nil)
+        #expect(RelaySocket.channelClose(#"{"type":"error","code":4003}"#) == nil)
+    }
+
     @Test func theHelloOffersDeflateExceptOnSignInChannels() throws {
         let hello = #"{"type":"hello","protocolVersion":1,"deviceId":"ios-1","grant":"g"}"#
         let offered = try #require(try JSONSerialization.jsonObject(with: Data(RelaySocket.offeringCompression(hello).utf8)) as? [String: Any])

@@ -28,7 +28,7 @@ struct MachineCodePrompt: ViewModifier {
                 Button("OK", role: .cancel) { asking?.client.machineCodeDeferred = true }
             }
         } message: {
-            Text(ask?.message ?? "")
+            Text(ask?.message(lockedUntil: asking?.client.machineCodeLockedUntil) ?? "")
         }
     }
 }

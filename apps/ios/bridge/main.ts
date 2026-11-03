@@ -197,18 +197,24 @@ async function start(json: string): Promise<void> {
   // The daemon refuses an account hello with `machine_code_*` until the code is entered.
   const early = account
     ? (text: string) => {
-        const reason = machineCodeRefusal(text);
-        if (reason) account.refused(reason);
+        const refusal = machineCodeRefusal(text);
+        if (refusal) account.refused(refusal.reason, refusal.lockedUntil);
       }
     : undefined;
   if (account) {
     const machineCode = () =>
-      pump.put("machine.code", () => ({ type: "machine.code", asking: account.asking ?? null }));
+      pump.put("machine.code", () => ({
+        type: "machine.code",
+        asking: account.asking ?? null,
+        lockedUntil: account.lockedUntil ?? null,
+      }));
     account.subscribe(machineCode);
   }
   client = new ClientCore({
     deviceId: config.deviceId,
-    expectedHostId: config.hostId,
+    // An account machine's key is pinned by the relay handshake; its welcome names the
+    // daemon's own id, not the relay host id this runtime is keyed by.
+    ...(account ? {} : { expectedHostId: config.hostId }),
     limits: { items: config.itemLimit, text: 8192 },
     transport: () => nativeTransport(trust, early),
     credential,
@@ -300,6 +306,7 @@ async function start(json: string): Promise<void> {
   const featureConfig = {
     deviceId: config.deviceId,
     hostId: config.hostId,
+    expectedHostId: account ? undefined : config.hostId,
     credential,
     id: () => host.uuid(),
     trust,
@@ -531,7 +538,11 @@ function action(json: string): void {
           gate?.enter(value.code);
           client.reconnectNow();
         } catch {
-          pump.put("machine.code", () => ({ type: "machine.code", asking: gate?.asking ?? null }));
+          pump.put("machine.code", () => ({
+            type: "machine.code",
+            asking: gate?.asking ?? null,
+            lockedUntil: gate?.lockedUntil ?? null,
+          }));
         }
         break;
       case "command":

@@ -66,11 +66,16 @@ enum MachineCodeAsk: String, Sendable, Equatable {
     case wrong = "machine_code_wrong"
     case locked = "machine_code_locked"
 
-    var message: String {
+    func message(lockedUntil: Date? = nil) -> String {
         switch self {
         case .required: "This machine has a machine code. Enter it once to open it from this phone."
         case .wrong: "That code isn't right. Try again."
-        case .locked: "Too many wrong codes. Code entry on this machine is paused for 15 minutes."
+        case .locked:
+            if let lockedUntil {
+                "Too many wrong codes. Try again at \(lockedUntil.formatted(date: .omitted, time: .shortened))."
+            } else {
+                "Too many wrong codes. Code entry on this machine is paused for 15 minutes."
+            }
         }
     }
     var canEnter: Bool { self != .locked }

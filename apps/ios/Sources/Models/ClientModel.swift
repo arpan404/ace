@@ -62,6 +62,8 @@ import QuartzCore
     var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
     /// The person chose Not now for this ask; Machines › the machine asks again.
     var machineCodeDeferred = false
+    /// With `.locked`: when code entry on that machine opens again.
+    var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -440,9 +442,11 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
-            case .machineCode(let reason):
+            case .machineCode(let reason, let until):
                 // Every refused retry says it again; only a change redraws.
                 let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))
+                let lockedUntil = until.map { Date(timeIntervalSince1970: $0 / 1000) }
+                if lockedUntil != machineCodeLockedUntil { machineCodeLockedUntil = lockedUntil }
                 if ask != machineCodeAsk { machineCodeAsk = ask }
             case .machineStatus(let info): machineStatus = info
             case .machineProviders(let info): providers = info

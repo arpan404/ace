@@ -38,7 +38,7 @@ struct MachineDetailView: View {
                 if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
                 if let client, let ask = client.machineCodeAsk {
                     HStack {
-                        problemText(ask.message)
+                        problemText(ask.message(lockedUntil: client.machineCodeLockedUntil))
                         Spacer(minLength: AceTheme.Spacing.sm)
                         if ask.canEnter {
                             Button("Enter code") { enteringCode = true }
@@ -128,7 +128,7 @@ struct MachineDetailView: View {
             SecureField("Machine code", text: $code).textContentType(.password).accessibilityIdentifier("machine.code.field")
             Button("Cancel", role: .cancel) { code = "" }
             Button("Open") { let typed = code; code = ""; client?.enterMachineCode(typed) }
-        } message: { Text(client?.machineCodeAsk?.message ?? "") }
+        } message: { Text(client?.machineCodeAsk?.message(lockedUntil: client?.machineCodeLockedUntil) ?? "") }
         .alert("Couldn't rename", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice?.message ?? "") }

@@ -117,6 +117,14 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         return String(decoding: data, as: UTF8.self)
     }
 
+    /// The close code of the daemon's `channel.close`, which it writes with `type` first. Pure.
+    static func channelClose(_ text: String) -> Int? {
+        guard text.hasPrefix(#"{"type":"channel.close""#),
+              let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let code = value["code"] as? Int, (1000...4999).contains(code) else { return nil }
+        return code
+    }
+
     private func write(_ frame: Data) {
         task?.send(.data(frame)) { [weak self] error in
             if error != nil { self?.queue.addOperation { self?.finish(1006) } }
@@ -155,7 +163,11 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 phase = .secured(channel)
                 switch message {
                 case nil: break
-                case .text(let text): event("message", .text(text))
+                case .text(let text):
+                    // The relay has no close frame: the daemon's last message carries the code a
+                    // direct socket's close would (4003 revoked, 4008 idle, resync), and it ends here.
+                    if let code = Self.channelClose(text) { finish(code); return false }
+                    event("message", .text(text))
                 case .binary(let data): return deliver(data)
                 }
             }
