@@ -5,7 +5,6 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
-import { rowText } from "@/test/row-text.ts";
 
 configure({ asyncUtilTimeout: 10000 });
 beforeEach(() => localStorage.clear());
@@ -86,7 +85,7 @@ test("H opens a working row's snooze menu; Until it needs you moves it to Snooze
   await waitFor(() => expect(listed(app, "thread-install-page")?.snoozedUntil).toBeDefined());
   await openTab("Snoozed");
   const snoozed = await within(threads()).findByRole("link", { name: new RegExp(`^${title}`) });
-  expect(rowText(snoozed)).toContain("until it needs you");
+  // The one-line row ends with its work; what it waits for is in its spoken name.
   expect(snoozed.getAttribute("aria-label")).toContain("Snoozed until it needs you");
 });
 

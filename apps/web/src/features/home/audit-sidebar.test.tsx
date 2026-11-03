@@ -44,19 +44,25 @@ async function rename(link: HTMLElement) {
   return screen.findByRole("textbox", { name: "Thread title" });
 }
 
-test("a refused send shows Not sent in both the sidebar and its spoken name", async () => {
+/** The attention level a row is drawn at: rows show no status words, only their mark. */
+const attentionOf = (link: HTMLElement) =>
+  link.closest<HTMLElement>("[data-attention]")?.dataset.attention;
+
+test("a refused send names its row Not sent and draws it as needing the person", async () => {
   const made = app();
   made.daemon.refuseCommands("model_unavailable", "thread.send");
   await made.open("/t/thread-dedupe");
-  await userEvent.type(
-    await screen.findByRole("combobox", { name: "Message" }),
-    "Keep this message{Enter}",
-  );
+  const message = await screen.findByRole("combobox", { name: "Message" });
+  // Before the send, the row is only working.
+  await waitFor(() => expect(attentionOf(row(/^Dedupe/))).toBe("active"));
+  await userEvent.type(message, "Keep this message{Enter}");
   await screen.findByRole("button", { name: "Retry" });
-  await waitFor(() => expect(row(/^Dedupe.*Not sent/)).toBeTruthy());
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  await waitFor(() => expect(row(/^Dedupe.*\. Not sent,/)).toBeTruthy());
+  expect(attentionOf(row(/^Dedupe/))).toBe("needs-you");
   await userEvent.click(screen.getByRole("link", { name: "New thread" }));
-  expect(within(row(/^Dedupe/)).getByText("Not sent")).toBeTruthy();
+  // Away from the thread, the row still says so.
+  expect(row(/^Dedupe.*\. Not sent,/)).toBeTruthy();
+  expect(attentionOf(row(/^Dedupe/))).toBe("needs-you");
 });
 
 test("the palette finds other projects and their threads while the sidebar is filtered", async () => {

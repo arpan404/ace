@@ -72,14 +72,14 @@ test("when the focused row is settled, focus moves to the next row rather than t
   await openApp();
   const all = rows();
   // A thread waiting on the person or still running stays in the list once settled, so the row
-  // settled here is one whose work has stopped.
-  const stays = /^[^.]*\. (?:Waiting for your|Working|Running in background)/;
+  // settled here is one whose work has stopped: its name leads with that meaning.
+  const stopped = /^[^.]*\. (?:Failed|Finished|Done)\b/;
   const settle = within(screen.getByRole("list", { name: "Threads" }))
     .getAllByRole("button", { name: /^Settle /, hidden: true })
     .find((button) => {
       const title = button.getAttribute("aria-label")?.replace(/^Settle /, "");
       const row = all.find((candidate) => titleOf(candidate) === title);
-      return row !== undefined && !stays.test(row.getAttribute("aria-label") ?? "");
+      return row !== undefined && stopped.test(row.getAttribute("aria-label") ?? "");
     });
   if (!settle) throw new Error("A stopped row must offer Settle");
   const title = settle.getAttribute("aria-label")?.replace(/^Settle /, "") ?? "";

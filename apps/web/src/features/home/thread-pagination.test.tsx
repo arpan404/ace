@@ -5,8 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { openSearchSheet } from "@/test/open-search.ts";
 import { harness, memoryKeyValue } from "@/test/harness.tsx";
-/** 46 settled threads in ace, its only threads, all long past the grace period: only in History. */
-async function history() {
+/** `count` settled threads in ace, its only threads, all long past the grace period. */
+async function history(count = 46) {
   const storage = memoryKeyValue();
   storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
   const app = harness({ storage });
@@ -15,7 +15,7 @@ async function history() {
   await app.client.start();
   app.play(scenario).runUntilBlocked();
   await app.client.command({ type: "thread.settle", threadId: ThreadId.parse(scenario.thread.id) });
-  for (let i = 0; i < 45; i++) {
+  for (let i = 0; i < count - 1; i++) {
     const id = `history-${i}`;
     app
       .play({ ...scenario, thread: { ...scenario.thread, id, title: `Finished history ${i}` } })
@@ -56,11 +56,13 @@ test("History pages older settled threads as its end comes into view, and retrie
 });
 
 test("Search finds an older settled thread outside the window and opens it through a direct subscription", async () => {
-  const app = await history();
+  // Settled shows its first 50 at once, so the list pages that far by itself (three pages of
+  // 20); the oldest of 75 stays outside what it loaded.
+  const app = await history(75);
   await app.open("/new");
   const lease = app.client.threads();
   try {
-    await waitFor(() => expect(lease.store.ids).toHaveLength(20));
+    await waitFor(() => expect(lease.store.ids).toHaveLength(60));
     expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
     await userEvent.type(await openSearchSheet(), "Bump Codex app-server");
     const result = await screen.findByRole("option", { name: /Bump/ });
@@ -70,7 +72,7 @@ test("Search finds an older settled thread outside the window and opens it throu
     expect(
       await screen.findByText("Bump the Codex app-server to 0.48 and re-record the fixtures."),
     ).toBeTruthy();
-    expect(lease.store.ids).toHaveLength(20);
+    expect(lease.store.ids).toHaveLength(60);
     expect(lease.store.thread("thread-bump-codex")).toBeUndefined();
   } finally {
     lease.release();

@@ -2,14 +2,15 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /** Open a place from the sidebar's rail, opening the phone's sidebar sheet first when needed. */
-export async function openProfileView(name: "Automations" | "Skills") {
+export async function openProfileView(name: "Automations" | "Skills" | "Usage") {
   if (!screen.queryByRole("navigation", { name: "App" })) {
     await userEvent.click(
       await screen.findByRole("button", { name: /^(Back to threads|Show sidebar)$/ }),
     );
   }
   const rail = await screen.findByRole("navigation", { name: "App" });
-  await userEvent.click(within(rail).getByRole("link", { name }));
+  // Usage's place names its session bars after the word.
+  await userEvent.click(within(rail).getByRole("link", { name: new RegExp(`^${name}`) }));
 }
 
 /** Go back to Threads from the sidebar's rail: the thread (or New thread) the person left. */

@@ -16,6 +16,28 @@ import type { BreakdownLists } from "./where-it-went.tsx";
 type MachineRead = EnvironmentRead & { environment: Machine };
 
 /**
+ * The machines' reads with each model row under its catalog id (`canonical`), so a legacy bare
+ * id and its provider-prefixed id count as one model, as the page's totals already do.
+ */
+export function withCanonicalModels(
+  machines: readonly MachineRead[],
+  canonical: (provider: string, model: string) => string,
+): MachineRead[] {
+  return machines.map((read) => ({
+    ...read,
+    usage: {
+      ...read.usage,
+      models: read.usage.models.map((row) => {
+        const { model, provider } = row.dimensions;
+        if (!model) return row;
+        const id = canonical(provider ?? "", model);
+        return id === model ? row : { ...row, dimensions: { ...row.dimensions, model: id } };
+      }),
+    },
+  }));
+}
+
+/**
  * Every "Where it went" list from the machines read: each daemon's own breakdown rows, the
  * model rows the report already reads, and one figure per machine.
  */
