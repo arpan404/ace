@@ -68,7 +68,7 @@ function readOffer(root: HTMLElement, box: HTMLElement): Offer | undefined {
 /**
  * Select words in what an agent said and Reply puts them above the composer as a quote, caret in
  * the message box, so the reply says which part it answers. Shown once the selection settles
- * (the pointer or a key let go), it follows the selection while scrolling and goes when the
+ * (the pointer let go, a double click, Select All or a key), it follows the selection while scrolling and goes when the
  * selection does. Only where this thread's composer is on screen to take the quote.
  */
 export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLElement | null> }) {
@@ -94,22 +94,37 @@ export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLEl
     const view = doc.defaultView;
     const moved = frameThrottle(() => follow());
     const onMoved = () => moved.request();
-    const onSelection = () => follow();
-    const onRelease = () => settle();
+    // While the pointer is down a drag is still choosing; once it is up, any change to the
+    // selection (a double or triple click, Select All, a key) is a settled choice.
+    let pressed = false;
+    const changed = frameThrottle(() => (pressed ? follow() : settle()));
+    const onSelection = () => changed.request();
+    const onPress = () => {
+      pressed = true;
+    };
+    const onRelease = () => {
+      pressed = false;
+      settle();
+    };
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key !== "Escape") settle();
     };
     const onKeyDown = (event: KeyboardEvent) => dismiss(event);
     doc.addEventListener("selectionchange", onSelection);
+    doc.addEventListener("pointerdown", onPress);
     doc.addEventListener("pointerup", onRelease);
+    doc.addEventListener("pointercancel", onRelease);
     doc.addEventListener("keyup", onKeyUp);
     doc.addEventListener("keydown", onKeyDown);
     scroller.addEventListener("scroll", onMoved, { passive: true });
     view?.addEventListener("resize", onMoved);
     return () => {
       moved.cancel();
+      changed.cancel();
       doc.removeEventListener("selectionchange", onSelection);
+      doc.removeEventListener("pointerdown", onPress);
       doc.removeEventListener("pointerup", onRelease);
+      doc.removeEventListener("pointercancel", onRelease);
       doc.removeEventListener("keyup", onKeyUp);
       doc.removeEventListener("keydown", onKeyDown);
       scroller.removeEventListener("scroll", onMoved);

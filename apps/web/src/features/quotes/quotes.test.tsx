@@ -35,8 +35,8 @@ async function open() {
   return { sent, message: await screen.findByRole("combobox", { name: "Message" }) };
 }
 
-/** Select `words` in the on-screen text that holds them, as a drag would, and let go. */
-function select(words: string) {
+/** Select `words` in the on-screen text that holds them, as a double click would. */
+function pick(words: string) {
   const holder = screen.getByText((_, element) =>
     [...(element?.childNodes ?? [])].some(
       (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes(words),
@@ -51,7 +51,12 @@ function select(words: string) {
   const selection = document.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
-  fireEvent.pointerUp(holder);
+  return holder;
+}
+
+/** Select `words` as a drag would, and let go. */
+function select(words: string) {
+  fireEvent.pointerUp(pick(words));
 }
 
 /** Select `words` in an answer once it has settled into its rendered form, and press Reply. */
@@ -116,6 +121,16 @@ test("a quote waiting in the draft is still there after visiting another thread"
   await userEvent.click(within(threads).getByRole("link", { name: /Document the router/ }));
   const quoted = await screen.findByRole("list", { name: "Replying to" });
   expect(within(quoted).getByText("route 2 renders")).toBeTruthy();
+});
+
+test("a word picked by double click offers Reply once the selection lands", async () => {
+  await open();
+  await waitFor(() => {
+    // The click's release came before the word was selected; only the selection says so.
+    pick("Answer 2");
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
+  });
 });
 
 test("selecting the person's own question offers no reply", async () => {
