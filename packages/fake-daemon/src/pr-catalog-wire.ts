@@ -66,6 +66,17 @@ export class FakePrCatalog {
       },
     }));
   }
+  /** More pull requests beside the seeded ones; one already known by number is replaced. */
+  add(fixtures: readonly PullRequestFixture[]): void {
+    const known = this.fixtures;
+    this.seed(fixtures);
+    const added = this.fixtures;
+    const numbers = new Set(added.map((entry) => entry.detail.status.ref.number));
+    this.fixtures = [
+      ...known.filter((entry) => !numbers.has(entry.detail.status.ref.number)),
+      ...added,
+    ];
+  }
   private find(op: { repository?: unknown; number?: unknown }) {
     return this.fixtures.find(
       (fixture) =>
@@ -96,11 +107,16 @@ export class FakePrCatalog {
    * A push to a catalog PR's branch, for trying the app against a moving head: a new head, and
    * ten lines added above every change, so each new-side line number now names other code.
    * Conversations on the new side move down with their lines, as GitHub moves them; pending
-   * drafts stay on the old head and so read as outdated.
+   * drafts stay on the old head and so read as outdated. A PR with its own `nextPush` plays that.
    */
   push(number: number): boolean {
     const fixture = this.fixtures.find((entry) => entry.detail.status.ref.number === number);
     if (!fixture || fixture.detail.status.state !== "open") return false;
+    // A PR kept as whole files plays its own push: a real commit over its files.
+    if (fixture.nextPush) {
+      this.replace(fixture, fixture.nextPush(fixture, new Date(this.now()).toISOString()));
+      return true;
+    }
     const { status } = fixture.detail;
     const headSha = (status.headSha.slice(2) + status.headSha.slice(0, 2)).replace(/^./, "e");
     const pushed: PullRequestFixture = {
