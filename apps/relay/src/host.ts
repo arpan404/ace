@@ -6,6 +6,7 @@ import { hostId, keyPair } from "@ace/secure-channel";
 import type WebSocket from "ws";
 import { hostMessageChannel } from "./channel.ts";
 import type { HostChannel } from "./channel.ts";
+import type { ClientMessage } from "@ace/protocol";
 import { dial, relayAddress, sendFrame } from "./socket.ts";
 import {
   initiateHandshake,
@@ -21,6 +22,19 @@ import type { Clock } from "./clock.ts";
 import { RelayRefusedError } from "./refusal.ts";
 import type { z } from "zod";
 const noop = () => {};
+/** The `type` of a channel's first message, read without trusting the rest of it. */
+function firstMessageType(message: ClientMessage | Uint8Array | string): string | undefined {
+  if (message instanceof Uint8Array) return undefined;
+  if (typeof message !== "string") return message.type;
+  try {
+    const parsed: unknown = JSON.parse(message);
+    return typeof parsed === "object" && parsed !== null && "type" in parsed
+      ? String(parsed.type)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export type HostRelayConnection = {
   readonly hostId: string;
   readonly generation: number;
@@ -82,6 +96,7 @@ export async function connectHostToRelay(options: {
     const signal = AbortSignal.any([controller.signal, owned.signal]);
     let channel: HostChannel | undefined;
     let seenHello = false;
+    let redeeming = false;
     const expire = clock.schedule(limits.helloTimeoutMs, () => {
       channel?.close();
       owned.abort();
@@ -107,11 +122,15 @@ export async function connectHostToRelay(options: {
         reader,
         transport,
         (message) => {
-          if (!seenHello) {
-            if (message instanceof Uint8Array || message.type !== "hello")
-              throw new Error("First message must be hello");
-            seenHello = true;
+          if (seenHello) return;
+          const type = firstMessageType(message);
+          // A pairing redemption is answered and closed by the daemon; it never authorizes.
+          if (type === "pair.redeem" && !redeeming) {
+            redeeming = true;
+            return;
           }
+          if (type !== "hello" || redeeming) throw new Error("First message must be hello");
+          seenHello = true;
         },
         () => {
           if (!seenHello) throw new Error("Device hello has not been received");

@@ -1,6 +1,7 @@
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
+import type { MainSocket } from "./main-socket.ts";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
 import { WireEncoder, eventFrameBytes } from "./wire-encoder.ts";
 import { mayCompress } from "./compression-policy.ts";
@@ -83,11 +84,11 @@ export class Outbox {
   private bytes = 0;
   private aboveHardSince: number | undefined;
   private options: PressureOptions;
-  private socket: WebSocket;
+  private socket: MainSocket;
   private now: () => number;
   private encoder: WireEncoder;
   constructor(
-    socket: WebSocket,
+    socket: MainSocket,
     options: PressureOptions,
     now = systemDeliveryRuntime.now,
     encoder = new WireEncoder(),

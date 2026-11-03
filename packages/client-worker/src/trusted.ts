@@ -24,6 +24,7 @@ const codes = new Set<string>([
   "auth",
   "identity",
   "storage",
+  "machine_code",
   "daemon",
 ]);
 const isCode = (code: string): code is ClientError["code"] => codes.has(code);

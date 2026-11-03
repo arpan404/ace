@@ -417,6 +417,8 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     /** A refused command. The intent stays pending when `retryable`, and fails otherwise. */
     commandId: CommandId.optional(),
     retryable: z.boolean().optional(),
+    /** With `machine_code_locked`: when code entry opens again (epoch milliseconds). */
+    lockedUntil: z.number().int().positive().optional(),
   }),
   z.object({
     type: z.literal("output.data"),

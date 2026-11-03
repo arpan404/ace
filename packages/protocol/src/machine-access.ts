@@ -49,3 +49,33 @@ export const MachineAccountStatus = z.object({
   }),
 });
 export type MachineAccountStatus = z.infer<typeof MachineAccountStatus>;
+
+const requestId = z.string().min(1).max(128);
+/**
+ * Machine code administration over a daemon connection (admin only): read the account and code
+ * state, set or replace the code, or clear it. The same rules as `PUT`/`DELETE
+ * /v1/machine-code`. An account device that sets the code keeps its own access.
+ */
+export const MachineCodeRequest = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("machine.code.status"), requestId }),
+  z.object({ type: z.literal("machine.code.set"), requestId, code: MachineCode }),
+  z.object({ type: z.literal("machine.code.clear"), requestId }),
+]);
+export type MachineCodeRequest = z.infer<typeof MachineCodeRequest>;
+export const MachineCodeFailure = z.enum([
+  /** The connection doesn't hold admin. */
+  "forbidden",
+  /** This daemon has no ace account support. */
+  "unavailable",
+  /** Another change to the code is still running on this connection. */
+  "busy",
+]);
+export const MachineCodeResult = z.object({
+  type: z.literal("machine.code.result"),
+  requestId,
+  result: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), status: MachineAccountStatus }),
+    z.object({ ok: z.literal(false), error: MachineCodeFailure, message: z.string().max(256) }),
+  ]),
+});
+export type MachineCodeResult = z.infer<typeof MachineCodeResult>;

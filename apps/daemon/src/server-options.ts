@@ -89,6 +89,8 @@ export interface ServerOptions {
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair } | undefined;
+  /** Set by `startServer`: serves a relayed main channel with the main-socket handler. */
+  relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;

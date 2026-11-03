@@ -8,6 +8,8 @@ export type RelayAdmission =
       device: { id: DeviceId };
       /** For an account device: whether it still holds access (account, machine code). */
       stillAdmitted?: () => boolean;
+      /** For an account device: the ace account its grant names. */
+      account?: string;
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -29,12 +31,26 @@ export async function relayHello(
           machineCode: hello.machineCode,
         })
       : ({ admitted: false, code: "unauthorized", message: "Valid hello required" } as const);
-    if (!admission.admitted)
-      return { refusal: { type: "error", code: admission.code, message: admission.message } };
+    if (!admission.admitted) {
+      // A locked machine says until when, so the device can show the time left.
+      const lockedUntil =
+        admission.code === "machine_code_locked"
+          ? options.account?.status().machineCode.lockedUntil
+          : undefined;
+      return {
+        refusal: {
+          type: "error",
+          code: admission.code,
+          message: admission.message,
+          ...(lockedUntil === undefined ? {} : { lockedUntil }),
+        },
+      };
+    }
     const { account } = admission;
     const machine = options.account;
     return {
       device: { id: hello.deviceId },
+      account,
       stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
     };
   }
@@ -44,6 +60,8 @@ export async function relayHello(
       : hello.token !== undefined
         ? options.auth.deviceBearer(hello.token)
         : undefined;
-  if (!device || device.id !== hello.deviceId) return {};
+  // As on a direct socket: the client stops instead of retrying a credential that won't work.
+  if (!device || device.id !== hello.deviceId)
+    return { refusal: { type: "error", code: "unauthorized", message: "Valid hello required" } };
   return { device };
 }

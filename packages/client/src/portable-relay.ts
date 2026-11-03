@@ -16,6 +16,13 @@ export interface PortableSocket {
 export interface PortableRelay {
   send(message: ClientMessage): Promise<void>;
   receive(): Promise<ServerMessage | Uint8Array>;
+  /**
+   * Send JSON text already encoded from a valid client message (the main connection encodes its
+   * own), up to `limit` bytes; 256 KiB unless given.
+   */
+  sendText(text: string, limit?: number): Promise<void>;
+  /** The next message as JSON text (inflated, UTF-8 checked, not schema-parsed) or bytes. */
+  receiveRaw(): Promise<string | Uint8Array>;
   close(): void;
 }
 export interface PortableRelayOptions {
@@ -156,85 +163,100 @@ export async function connectPortableRelay(options: PortableRelayOptions): Promi
       close();
     },
     send(message) {
-      const body = new TextEncoder().encode(JSON.stringify(ClientMessage.parse(message)));
-      if (body.length > 256 * 1024 || queuedBytes + body.length > queueLimit) {
-        body.fill(0);
-        return Promise.reject(new Error("Relay request queue limit"));
-      }
-      queuedBytes += body.length;
-      const task = sending
-        .then(() => {
-          const size = MAX_MESSAGE - 17;
-          for (let offset = 0; offset < body.length; offset += size) {
-            const chunk = body.subarray(offset, offset + size);
-            const plain = new Uint8Array(chunk.length + 1);
-            plain[0] = offset + chunk.length === body.length ? 1 : 0;
-            plain.set(chunk, 1);
-            try {
-              write(secured.send.encrypt(plain));
-            } finally {
-              plain.fill(0);
-            }
-            if (++sendCount % rekeyInterval === 0) secured.send.rekey();
-          }
-        })
-        .catch((failure: unknown) => {
-          close(failure instanceof Error ? failure : new Error("Relay send failed"));
-          throw failure;
-        })
-        .finally(() => {
-          queuedBytes -= body.length;
-          body.fill(0);
-        });
-      sending = task.catch(() => {});
-      return task;
+      return sendBody(new TextEncoder().encode(JSON.stringify(ClientMessage.parse(message))));
+    },
+    sendText(text, limit) {
+      return sendBody(new TextEncoder().encode(text), limit);
     },
     async receive() {
-      if (receiving) throw new Error("Concurrent relay read");
-      receiving = true;
+      const payload = await receivePayload();
+      if (payload instanceof Uint8Array) return payload;
       try {
-        const chunks: Uint8Array[] = [];
-        let length = 0;
-        // 0: JSON, 2: binary, 4: deflated JSON (only after this client's hello asked for it).
-        let kind: number | undefined;
-        while (true) {
-          const plain = secured.receive.decrypt(await next());
-          if (++receiveCount % rekeyInterval === 0) secured.receive.rekey();
-          const flag = plain[0];
-          if (
-            plain.length < 2 ||
-            flag === undefined ||
-            flag > 5 ||
-            (flag % 2 === 0 && plain.length !== MAX_MESSAGE - 16)
-          )
-            throw new Error("Invalid relay fragment");
-          const fragmentKind = flag - (flag % 2);
-          if (kind !== undefined && kind !== fragmentKind)
-            throw new Error("Mixed relay fragment kinds");
-          kind = fragmentKind;
-          length += plain.length - 1;
-          if (length > (kind === 2 ? 64 * 1024 + 16 : logicalLimit))
-            throw new Error("Relay message limit");
-          chunks.push(plain.subarray(1));
-          if (flag % 2) break;
-        }
-        const payload = new Uint8Array(length);
-        let offset = 0;
-        for (const chunk of chunks) {
-          payload.set(chunk, offset);
-          offset += chunk.length;
-        }
-        if (kind === 2) return payload;
-        const json = kind === 4 ? await inflate("deflate-raw", payload, logicalLimit) : payload;
-        return ServerMessage.parse(
-          JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(json)),
-        );
+        return ServerMessage.parse(JSON.parse(payload));
       } catch (failure) {
         close(failure instanceof Error ? failure : new Error("Invalid relay message"));
         throw failure;
-      } finally {
-        receiving = false;
       }
     },
+    receiveRaw: () => receivePayload(),
   };
+  function sendBody(body: Uint8Array, limit = 256 * 1024): Promise<void> {
+    if (body.length > limit || queuedBytes + body.length > queueLimit) {
+      body.fill(0);
+      return Promise.reject(new Error("Relay request queue limit"));
+    }
+    queuedBytes += body.length;
+    const task = sending
+      .then(() => {
+        const size = MAX_MESSAGE - 17;
+        for (let offset = 0; offset < body.length; offset += size) {
+          const chunk = body.subarray(offset, offset + size);
+          const plain = new Uint8Array(chunk.length + 1);
+          plain[0] = offset + chunk.length === body.length ? 1 : 0;
+          plain.set(chunk, 1);
+          try {
+            write(secured.send.encrypt(plain));
+          } finally {
+            plain.fill(0);
+          }
+          if (++sendCount % rekeyInterval === 0) secured.send.rekey();
+        }
+      })
+      .catch((failure: unknown) => {
+        close(failure instanceof Error ? failure : new Error("Relay send failed"));
+        throw failure;
+      })
+      .finally(() => {
+        queuedBytes -= body.length;
+        body.fill(0);
+      });
+    sending = task.catch(() => {});
+    return task;
+  }
+  /** One whole message: bytes, or its JSON text. */
+  async function receivePayload(): Promise<string | Uint8Array> {
+    if (receiving) throw new Error("Concurrent relay read");
+    receiving = true;
+    try {
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      // 0: JSON, 2: binary, 4: deflated JSON (only after this client's hello asked for it).
+      let kind: number | undefined;
+      while (true) {
+        const plain = secured.receive.decrypt(await next());
+        if (++receiveCount % rekeyInterval === 0) secured.receive.rekey();
+        const flag = plain[0];
+        if (
+          plain.length < 2 ||
+          flag === undefined ||
+          flag > 5 ||
+          (flag % 2 === 0 && plain.length !== MAX_MESSAGE - 16)
+        )
+          throw new Error("Invalid relay fragment");
+        const fragmentKind = flag - (flag % 2);
+        if (kind !== undefined && kind !== fragmentKind)
+          throw new Error("Mixed relay fragment kinds");
+        kind = fragmentKind;
+        length += plain.length - 1;
+        if (length > (kind === 2 ? 64 * 1024 + 16 : logicalLimit))
+          throw new Error("Relay message limit");
+        chunks.push(plain.subarray(1));
+        if (flag % 2) break;
+      }
+      const payload = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        payload.set(chunk, offset);
+        offset += chunk.length;
+      }
+      if (kind === 2) return payload;
+      const json = kind === 4 ? await inflate("deflate-raw", payload, logicalLimit) : payload;
+      return new TextDecoder("utf-8", { fatal: true }).decode(json);
+    } catch (failure) {
+      close(failure instanceof Error ? failure : new Error("Invalid relay message"));
+      throw failure;
+    } finally {
+      receiving = false;
+    }
+  }
 }

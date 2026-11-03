@@ -33,7 +33,7 @@ export interface ChannelEvents {
    * The daemon wants this machine's code from an account device (ADR 0111), or refused the one
    * sent. The channel closes after this; open it again with the code (`machineCodeGate`).
    */
-  refused?(reason: MachineCodeRefusal, message: string): void;
+  refused?(reason: MachineCodeRefusal, message: string, lockedUntil?: number): void;
 }
 export interface AuthenticatedChannel {
   open(events: ChannelEvents): void;
@@ -98,7 +98,7 @@ export function authenticatedChannel(
     if (!ready) {
       if (!(frame instanceof Uint8Array) && frame.type === "error") {
         const reason = MachineCodeRefusal.safeParse(frame.code);
-        if (reason.success) events?.refused?.(reason.data, frame.message);
+        if (reason.success) events?.refused?.(reason.data, frame.message, frame.lockedUntil);
       }
       if (frame instanceof Uint8Array || frame.type !== "welcome")
         throw new Error("Authenticated welcome required");
