@@ -5,7 +5,7 @@
 
 export const product = {
   name: "ace",
-  title: "ace: one app for Claude Code, Codex, Cursor and every agent",
+  title: "ace: run Claude Code, Codex and every agent as one team",
   headline: "Stop babysitting your agents.",
   summary:
     "ace runs your agents on many tasks at once, across all your machines. They hand work to each other and call you only when a decision is yours.",
@@ -20,7 +20,22 @@ export const product = {
     "ace is a free, open-source app where Claude Code, Codex and Cursor work as one team across your Mac, Windows and Linux machines, with phone apps.",
   /** The fuller paragraph for structured data and llms.txt. */
   about:
-    "ace is a free, open-source app for running coding agents on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent) and shows which thread is working, waiting or needs you. Sign in to several accounts per provider and pick one per thread. Agents get one MCP toolset in every CLI: they can delegate to other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators from the devices hub. Fleet links your machines so agents on one can start threads and use browsers, simulators and emulators on another. Sign in to an ace account and every machine on it opens from your phone, browser or other computers, from anywhere, through an end-to-end encrypted relay. Each thread can work in its own git worktree with a built-in diff review.",
+    "ace is a free, open-source app that runs your coding agents as one team on Mac, Windows and Linux, with ace for iPhone and iPad to follow and steer them (Android is coming soon). It drives the agent CLIs you already have logged in (Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any ACP agent), so many tasks run at once, each in its own thread and, if you like, its own git worktree with a built-in diff review. Any agent can hand work to agents on other providers and on your other machines, and a thread shows as done only when every agent under it has finished. Agents get one MCP toolset in every CLI: they delegate to and wait on other agents, use a real browser, operate desktop apps through computer use, and test on iOS Simulators and Android emulators, including ones on another of your machines. Sign in to several accounts per provider and move a thread to another when one hits its limit. Sign in to an ace account and every machine on it opens from your phone, browser or other computers, from anywhere, through an end-to-end encrypted relay.",
+  /**
+   * Short, quotable facts for answer engines (llms.txt): each one stands alone, so a quote of
+   * any single line is still true.
+   */
+  facts: [
+    "ace is a free, open-source (Apache-2.0) desktop app for Mac, Windows and Linux, with apps for iPhone and iPad.",
+    "ace runs the coding-agent CLIs you already use: Claude Code, Codex, Cursor, OpenCode, Antigravity, Pi and any Agent Client Protocol (ACP) agent.",
+    "ace never asks for, stores or proxies provider credentials; each agent signs in through its own CLI, on your existing subscription.",
+    "In ace, any agent can delegate work to agents on other providers, for example Claude Code handing a task to Codex, and wait for the results.",
+    "Agents in ace can start threads and use browsers, iOS Simulators and Android emulators on your other linked machines.",
+    "A thread in ace is done only when every agent and background command under it has finished; it shows when any of them needs you.",
+    "ace supports several accounts per provider and moves a thread to another account when one reaches its usage limit.",
+    "Every agent in ace gets the same MCP tools: delegation, a real browser, computer use, simulators and emulators, and automations.",
+    "Each ace thread can work in its own git worktree, with a diff review beside the conversation.",
+  ],
   category: "DeveloperApplication",
   operatingSystem: "macOS, Windows, Linux, iOS, iPadOS",
   license: "Apache-2.0",
@@ -148,6 +163,30 @@ export const faq: { question: string; answer: string }[] = [
     question: "Is ace free?",
     answer:
       "Yes. ace is open source under the Apache-2.0 license. You pay only for the agent subscriptions you already have.",
+  },
+];
+
+/** The security page's questions: two from the FAQ, then the ones only it answers. */
+export const securityQuestions: { question: string; answer: string }[] = [
+  ...faq.filter((entry) =>
+    ["Where does my code go?", "Does ace need my API keys or a new subscription?"].includes(
+      entry.question,
+    ),
+  ),
+  {
+    question: "Who decides what an agent may run?",
+    answer:
+      "The agent's own CLI, in the permission mode you chose for it. ace adds no approval layer of its own and never answers an approval for you.",
+  },
+  {
+    question: "Can another device control my agents?",
+    answer:
+      "Only devices you pair, with the access you choose (view only, or view and act, for as long as you set), and devices signed in to your ace account. A machine code makes even those enter a PIN or password before they get in. Each machine also decides how much other linked machines may do on it.",
+  },
+  {
+    question: "What can ace's relay see?",
+    answer:
+      "The addresses and timing of a connection and the size of its encrypted messages. Traffic between your devices and your machines is end-to-end encrypted, so the relay can't read prompts, code or screens, and it keeps nothing after the connection ends.",
   },
 ];
 

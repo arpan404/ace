@@ -67,3 +67,36 @@ export function agentGuide(slug: string): AgentGuide {
   if (!found) throw new Error(`No agent guide called ${slug}`);
   return found;
 }
+
+/** How to run an agent in ace, step by step, for its page and its Markdown. */
+export function agentSetup(guide: AgentGuide): string[] {
+  const name = guide.label;
+  return [
+    `Install ${name} and sign in, the way its own instructions say. ace uses that login as it is.`,
+    "Download ace for your computer and open a project folder.",
+    `Start a thread and choose ${name}. Give it its own worktree if other agents share the repository.`,
+  ];
+}
+
+/** The questions an agent's page answers, for its page, its structured data and its Markdown. */
+export function agentQuestions(guide: AgentGuide): { question: string; answer: string }[] {
+  const name = guide.label;
+  return [
+    {
+      question: `Does ace need a ${name} API key?`,
+      answer: `No. ace starts ${name} through its own command-line tool, signed in the way you already use it, so your existing plan keeps working. ace never asks for, stores or proxies credentials.`,
+    },
+    {
+      question: `Can I run ${name} beside other agents?`,
+      answer: `Yes. Run ${name}, Claude Code, Codex, Cursor and others side by side, each thread in its own git worktree, and hand a thread from one agent to another with its context.`,
+    },
+    {
+      question: `Can ${name} hand work to other agents?`,
+      answer: `Yes. ${name} can delegate tasks to agents on other providers and on your other machines with ace's delegate tool, and wait for their results.`,
+    },
+    {
+      question: `Can ${name} use a browser and my desktop apps in ace?`,
+      answer: `Yes. ace gives ${name} the same MCP tools as every other agent: a real browser, computer use, phone simulators, and delegating to agents on other machines.`,
+    },
+  ];
+}

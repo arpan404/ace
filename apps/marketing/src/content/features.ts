@@ -4,6 +4,7 @@
  */
 
 export type FeatureSlug =
+  | "orchestration"
   | "computer-use"
   | "fleet"
   | "mobile"
@@ -36,6 +37,86 @@ export interface Feature {
 }
 
 export const features: Feature[] = [
+  {
+    slug: "orchestration",
+    name: "Agent orchestration",
+    title: "Orchestrate Claude Code, Codex and Cursor together: ace",
+    description:
+      "Let one coding agent hand work to others: Claude Code delegates to Codex, Cursor or any agent, on any of your machines, and waits until the whole team is done.",
+    headline: "Agents that hand work to each other",
+    intro:
+      "Any agent in ace can start other agents, on any provider and any of your machines, then wait for their results. The thread shows the whole team and isn't done until all of it is.",
+    points: [
+      "Delegate from any agent to any provider",
+      "Helpers run on this machine or another one",
+      "One thread shows the whole tree of agents",
+      "Done only when every agent has finished",
+    ],
+    sections: [
+      {
+        heading: "One agent, many providers",
+        body: [
+          "Claude Code can plan a change and hand the test to Codex, the review to Cursor and the docs to OpenCode. Each helper runs in its own thread with its provider's own session, history and tools, signed in through that CLI, so you can open any of them and keep talking to it.",
+          "Agents do it with ace's MCP tools, the same in every CLI: delegate starts helpers with a task, wait collects their results as they finish, agents_status shows where each one stands, and agent_message and agent_cancel steer or stop one.",
+        ],
+      },
+      {
+        heading: "Send work to the right machine",
+        body: [
+          "A helper can run on another of your linked machines: the long soak test on the Linux build server, the Windows build on the workstation, the iOS check on the Mac with the Simulator. When that machine is busy, the work waits in its queue instead of failing.",
+        ],
+      },
+      {
+        heading: "Status you can trust",
+        body: [
+          "A thread's status covers its whole tree: every helper, the helpers they started in turn, and their background commands. ace never shows a thread as done while any agent below it is still working or waiting on you, and a question from a helper several levels down shows on the thread you are looking at.",
+          "Stop stops the whole tree. A restart doesn't lose work: results that arrive while ace is down are delivered when it comes back.",
+        ],
+      },
+      {
+        heading: "Limits you set",
+        body: [
+          "A thread can run up to 64 helpers, up to 8 levels deep. In Settings you choose how many agents a thread runs at once, and the rest wait their turn. A helper never gets more access than the agent that started it: it inherits the parent's permission mode and can only lower it.",
+        ],
+      },
+    ],
+    tools: ["delegate", "wait", "agents_status", "agent_message", "agent_cancel", "machines"],
+    questions: [
+      {
+        question: "Can Claude Code delegate work to Codex?",
+        answer:
+          "Yes. In ace, any agent can start another on any installed provider with the delegate tool. Claude Code can hand a task to Codex, Cursor, OpenCode or any ACP agent and wait for the result.",
+      },
+      {
+        question: "Does the parent agent wait for its helpers?",
+        answer:
+          "Yes. A thread isn't done until every helper below it has finished, and it shows as needing you whenever any of them waits on you.",
+      },
+      {
+        question: "Can a helper agent run on another computer?",
+        answer:
+          "Yes. With linked machines, delegate takes a machine and a project, and the helper runs there as an ordinary thread. If that machine is busy, it waits in the machine's queue.",
+      },
+      {
+        question: "How many agents can work at once?",
+        answer:
+          "A thread can run up to 64 helpers, up to 8 levels deep. You can cap how many run at once in Settings; the rest queue.",
+      },
+      {
+        question: "Do helper agents need API keys?",
+        answer:
+          "No. Each helper runs through its provider's own logged-in CLI, on the subscription you already have.",
+      },
+    ],
+    keywords: [
+      "multi-agent orchestration",
+      "Claude Code delegate to Codex",
+      "multi-provider coding agents",
+      "coding agent subagents",
+      "parallel coding agents",
+      "agent orchestration tool",
+    ],
+  },
   {
     slug: "computer-use",
     name: "Computer use",
