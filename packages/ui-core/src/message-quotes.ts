@@ -53,8 +53,13 @@ const collapse = (value: string) => value.replace(/\s+/g, " ");
 function inContext(quote: MessageQuote): string {
   const cutBefore = quote.before.length >= quoteContextChars;
   const cutAfter = quote.after.length >= quoteContextChars;
-  const before = collapse(quote.before).trimStart();
-  const after = collapse(quote.after).trimEnd();
+  // A cut side starts or ends on a whole word.
+  const before = (
+    cutBefore ? collapse(quote.before).replace(/^\S*\s/, "") : collapse(quote.before)
+  ).trimStart();
+  const after = (
+    cutAfter ? collapse(quote.after).replace(/\s\S*$/, " ") : collapse(quote.after)
+  ).trimEnd();
   return `${cutBefore ? "…" : ""}${before}${collapse(quote.text)}${after}${cutAfter ? "…" : ""}`;
 }
 

@@ -34,11 +34,18 @@ test("several quotes are numbered in the order they were picked", () => {
   expect(block).toContain('[2] Passage: "the scripts"\nIn context: "First, the scripts."');
 });
 
-test("context cut short of the message is marked with an ellipsis on that side only", () => {
-  const long = "x".repeat(quoteContextChars);
-  expect(formatMessageQuotes([quote({ before: long, after: "." })])).toContain(
-    `In context: "…${long}double as the guard."`,
-  );
+test("context cut short of the message starts on a whole word, behind an ellipsis", () => {
+  // Cut from a longer message, it begins with the tail of a word: "s words words …".
+  const long = "words ".repeat(30).slice(-quoteContextChars);
+  expect(long.startsWith("s ")).toBe(true);
+  const block = formatMessageQuotes([quote({ before: long, after: "." })]);
+  expect(block).toMatch(/In context: "…words words .*words double as the guard\."/);
+});
+
+test("context cut short after the passage ends on a whole word, before an ellipsis", () => {
+  const long = ` and then ${"y ".repeat(quoteContextChars)}trail`.slice(0, quoteContextChars);
+  const block = formatMessageQuotes([quote({ before: "", after: long })]);
+  expect(block).toMatch(/In context: "double as the guard and then y( y)*…"/);
 });
 
 test("nothing in a passage can close the block early", () => {

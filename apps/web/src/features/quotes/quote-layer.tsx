@@ -3,7 +3,7 @@ import { QuotesIcon } from "@phosphor-icons/react";
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
-import { floatingControl, floatingHover } from "@/features/thread/long/floating.ts";
+import { floatingControl } from "@/features/thread/long/floating.ts";
 import { useQuotePort } from "./store.ts";
 import { contextAround, textOffset } from "./text-offsets.ts";
 
@@ -12,6 +12,13 @@ const quotable = "[data-quotable]";
 /** The Reply pill's height and the gap it keeps from the selected line. */
 const pillRoom = 36;
 const edge = 4;
+
+/**
+ * The pill is clear glass over the words it quotes: a lighter frost and tint than a menu's, so
+ * the text behind still shows through, and hovering lights its rim rather than filling it.
+ */
+const glassPill =
+  "[--glass-blur:5px] [--glass-brightness:0.92] [--glass-contrast:0.9] [--glass-tint:color-mix(in_srgb,var(--surface-2)_30%,transparent)] hover:[--glass-tint:color-mix(in_srgb,var(--surface-2)_50%,transparent)] hover:[--float-edge:var(--ring)] hover:[--glass-edge:var(--ring)]";
 
 /** A selection in one agent message, waiting for Reply. */
 interface Offer {
@@ -125,7 +132,7 @@ export function QuoteLayer(props: { threadId: string; viewport: RefObject<HTMLEl
           }}
           className={cn(
             floatingControl,
-            floatingHover,
+            glassPill,
             "pointer-events-auto absolute pr-3 pl-2.5 font-medium whitespace-nowrap text-foreground",
             "transition-[background-color,box-shadow] duration-(--motion-fast) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
           )}
