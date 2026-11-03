@@ -16,6 +16,7 @@ const order: Exclude<FeatureSlug, "review">[] = [
   "devices",
   "fleet",
   "mobile",
+  "remote-access",
   "accounts",
 ];
 const steps = order.map((slug) => ({ slug, copy: feature(slug) }));

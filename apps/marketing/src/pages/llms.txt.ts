@@ -34,7 +34,7 @@ export const GET: APIRoute = ({ site }) => {
     "## Links",
     "",
     ...downloadLinks,
-    "- ace for iPhone, iPad and Android: pairs with your machines to follow and steer agents",
+    "- ace for iPhone and iPad (Android coming soon): follows and steers agents on every machine you pair or sign in to your ace account",
     `- [Release notes](${downloads.notesUrl})`,
     `- [Source code on GitHub](${links.source}): Apache-2.0`,
     `- [All releases](${links.releases})`,

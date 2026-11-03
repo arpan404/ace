@@ -1,0 +1,92 @@
+---
+/*
+ * Remote access with an ace account: the machines on the account as a phone on cellular sees
+ * them, one reached through the relay and one behind a machine code.
+ */
+import Icon, { type IconName } from "../Icon.astro";
+
+const machines: { name: string; mark: IconName; note: string; end: string; action?: boolean }[] = [
+  { name: "MacBook Pro", mark: "apple-logo", note: "2 threads working", end: "Online" },
+  { name: "build-server", mark: "linux-logo", note: "Through ace relay", end: "Online" },
+  {
+    name: "workstation",
+    mark: "windows-logo",
+    note: "Machine code set",
+    end: "Enter code",
+    action: true,
+  },
+];
+---
+
+<div class="remote">
+  <div class="panel">
+    <div class="panel-row">
+      <span class="panel-label">Machines on your account</span>
+      <span class="panel-end panel-quiet">3</span>
+    </div>
+    {
+      machines.map((machine) => (
+        <div class="panel-row">
+          <span class="mark">
+            <Icon name={machine.mark} size={14} />
+          </span>
+          <span class="text">
+            <span>{machine.name}</span>
+            <span class="note">{machine.note}</span>
+          </span>
+          <span class:list={["panel-end", machine.action ? "panel-action" : "panel-quiet"]}>
+            {machine.end}
+          </span>
+        </div>
+      ))
+    }
+  </div>
+  <div class="panel phone">
+    <div class="panel-row">
+      <Icon name="device-mobile" size={14} />
+      <span>iPhone</span>
+      <span class="panel-end panel-quiet">On cellular</span>
+    </div>
+    <div class="panel-row">
+      <Icon name="lock" size={14} />
+      <span class="text">
+        <span>End-to-end encrypted</span>
+        <span class="note">The relay forwards what it can't read</span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<style>
+  .remote {
+    display: grid;
+    gap: 28px;
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .mark,
+  .remote :global(svg) {
+    color: var(--muted);
+  }
+
+  .mark {
+    display: inline-flex;
+  }
+
+  .text {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .note {
+    color: var(--subtle);
+    font-size: 11.5px;
+  }
+
+  .phone {
+    justify-self: end;
+    max-width: 300px;
+  }
+</style>

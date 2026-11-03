@@ -7,6 +7,7 @@ import ComputerPanel from "./ComputerPanel.astro";
 import DevicesPanel from "./DevicesPanel.astro";
 import FleetPanel from "./FleetPanel.astro";
 import PhonePanel from "./PhonePanel.astro";
+import RemotePanel from "./RemotePanel.astro";
 import StatusBoard from "./StatusBoard.astro";
 
 interface Props {
@@ -22,6 +23,7 @@ const { slug } = Astro.props;
 {slug === "devices" && <DevicesPanel />}
 {slug === "fleet" && <FleetPanel />}
 {slug === "mobile" && <PhonePanel />}
+{slug === "remote-access" && <RemotePanel />}
 {slug === "accounts" && <AccountsPanel />}
 
 <style>
