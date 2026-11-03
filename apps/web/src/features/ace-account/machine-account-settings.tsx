@@ -34,7 +34,10 @@ export function MachineAccountSections(props: {
   access: MachineAccountAccess;
   /** This computer's daemon: its own account can be signed in and out from here. */
   local: boolean;
+  /** The section's heading; "ace account" on a machine's page. */
+  label?: string;
 }) {
+  const label = props.label ?? "ace account";
   const queryClient = useQueryClient();
   const key = statusKey(props.machine);
   const query = useQuery({
@@ -46,7 +49,7 @@ export function MachineAccountSections(props: {
   const status = query.data;
   if (query.isError)
     return (
-      <SettingSection label="ace account" anchor="ace-account">
+      <SettingSection label={label} anchor="ace-account">
         <SettingNote role="alert">
           Couldn't read this machine's account. Reconnect and try again.
         </SettingNote>
@@ -54,7 +57,7 @@ export function MachineAccountSections(props: {
     );
   if (!status) return null;
   return (
-    <SettingSection label="ace account" anchor="ace-account">
+    <SettingSection label={label} anchor="ace-account">
       {props.local && <ThisMachineAccount status={status} access={props.access} onChange={write} />}
       <MachineCodeSetting status={status} access={props.access} onChange={write} />
     </SettingSection>
@@ -81,7 +84,7 @@ function ThisMachineAccount(props: {
     <>
       <SettingRow id="machine.account" title="This machine" description={row.sentence} inline>
         {row.action === "appFirst" && (
-          <Button size="sm" variant="ghost" render={<Link to="/settings/general" />}>
+          <Button size="sm" variant="ghost" render={<Link to="/settings/profile" />}>
             Open Profile
           </Button>
         )}

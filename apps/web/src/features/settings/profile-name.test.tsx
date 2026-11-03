@@ -14,7 +14,7 @@ test("the profile shows the name given in Settings and its initials, and its men
 
   await userEvent.click(screen.getByRole("link", { name: "Settings" }));
   const pages = await screen.findByRole("navigation", { name: "Settings pages" });
-  await userEvent.click(within(pages).getByRole("link", { name: "General" }));
+  await userEvent.click(within(pages).getByRole("link", { name: "Profile" }));
   const name = await screen.findByRole("textbox", { name: "Your name" });
   await userEvent.type(name, "Arpan Bhandari{Enter}");
   await openThreads();
@@ -27,7 +27,7 @@ test("the profile shows the name given in Settings and its initials, and its men
 
 test("the name is kept on this device across reloads", async () => {
   const app = harness();
-  const first = await app.open("/settings/general");
+  const first = await app.open("/settings/profile");
   await userEvent.type(await screen.findByRole("textbox", { name: "Your name" }), "ada lovelace");
   await userEvent.tab();
   first.unmount();

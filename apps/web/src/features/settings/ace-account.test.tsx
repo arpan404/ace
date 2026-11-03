@@ -1,4 +1,4 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { afterEach, expect, test, vi } from "vitest";
@@ -12,7 +12,7 @@ afterEach(() => {
 
 test("local settings remain usable without an ace account deployment", async () => {
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", "");
-  await harness().open("/settings/general");
+  await harness().open("/settings/profile");
   expect((await screen.findByRole("button", { name: "Sign in" })).hasAttribute("disabled")).toBe(
     true,
   );
@@ -38,7 +38,7 @@ test("a saved account finishes restoring before sign-out becomes available", asy
     finish = resolve;
   });
   vi.stubGlobal("fetch", async () => response);
-  await harness().open("/settings/general");
+  await harness().open("/settings/profile");
   const signOut = await screen.findByRole("button", { name: "Sign out" });
   expect(signOut.hasAttribute("disabled")).toBe(true);
   finish?.(Response.json(session));
@@ -94,7 +94,7 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
     return Response.json({ ok: true });
   };
   vi.stubGlobal("fetch", network);
-  await harness().open("/settings/general");
+  await harness().open("/settings/profile");
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
   const signOut = await screen.findByRole("button", { name: "Sign out" }, { timeout: 8000 });
   expect(screen.getByText("Ace Person")).toBeDefined();
@@ -121,7 +121,7 @@ test("signing out a session the backend already ended still signs this window ou
       ? Response.json({ error: "unauthenticated" }, { status: 401 })
       : Response.json(session),
   );
-  await harness().open("/settings/general");
+  await harness().open("/settings/profile");
   const signOut = await screen.findByRole("button", { name: "Sign out" });
   await waitFor(() => expect(signOut.hasAttribute("disabled")).toBe(false));
   await userEvent.click(signOut);
@@ -133,7 +133,7 @@ test("signing out a session the backend already ended still signs this window ou
 test("returning from a cancelled desktop sign-in says so on Profile until the next attempt", async () => {
   vi.stubEnv("VITE_ACE_ACCOUNT_URL", "https://backend.example.com");
   vi.stubGlobal("fetch", async () => Response.json({ error: "unavailable" }, { status: 503 }));
-  await harness().open("/settings/general?signin=cancelled");
+  await harness().open("/settings/profile?signin=cancelled");
   expect((await screen.findByRole("alert")).textContent).toBe("Sign-in was cancelled.");
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
   await waitFor(() => expect(screen.queryByText("Sign-in was cancelled.")).toBeNull());
@@ -169,14 +169,40 @@ test("a sign-in keeps going while the person leaves Settings and finishes in the
       );
     return Response.json({ error: "unavailable" }, { status: 503 });
   });
-  const history = createMemoryHistory({ initialEntries: ["/settings/general"] });
-  await harness({ history }).open("/settings/general");
+  const history = createMemoryHistory({ initialEntries: ["/settings/profile"] });
+  await harness({ history }).open("/settings/profile");
   await userEvent.click(await screen.findByRole("button", { name: "Sign in" }));
-  expect(await screen.findByText("Complete sign-in in your browser")).toBeDefined();
+  expect(await screen.findByText("Finishing sign-in in your browser")).toBeDefined();
   await act(() => history.push("/settings/appearance"));
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Profile" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: "ace account" })).toBeNull());
   finished = true;
-  await act(() => history.push("/settings/general"));
+  await act(() => history.push("/settings/profile"));
   expect(await screen.findByText("Away Person", {}, { timeout: 8000 })).toBeDefined();
   expect(cancelled).toBe(false);
+});
+
+test("the account menu shows who is signed in and opens their Profile", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  const session = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_menu", email: "menu@example.com", name: "Menu Person" },
+  };
+  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  vi.stubGlobal("fetch", async (input: string) =>
+    new URL(input).pathname === "/v1/machines"
+      ? Response.json({ machines: [] })
+      : Response.json(session),
+  );
+  await harness().open("/new");
+  const rail = await screen.findByRole("button", { name: "Menu Person, account" });
+  expect(within(rail).getByText("MP")).toBeDefined();
+  await userEvent.click(rail);
+  const header = await screen.findByRole("menuitem", { name: /Menu Person/ });
+  expect(within(header).getByText("menu@example.com")).toBeDefined();
+  await userEvent.click(header);
+  expect(await screen.findByRole("heading", { level: 2, name: "Profile" })).toBeDefined();
+  expect(await screen.findByRole("button", { name: "Sign out" })).toBeDefined();
+  expect(screen.getByRole("textbox", { name: "Your name" })).toBeDefined();
 });

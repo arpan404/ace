@@ -4,6 +4,7 @@ import { UserIcon } from "@phosphor-icons/react";
 import { initials } from "@ace/ui-core";
 
 import { useProfileName } from "@/lib/profile.ts";
+import { useAceAccount } from "@/features/ace-account/index.ts";
 import { Icon } from "@/components/icon.tsx";
 import { railPlaceClass } from "@/components/rail-place.ts";
 import { connectionDot, connectionLabels } from "./connection-labels.ts";
@@ -13,15 +14,17 @@ const AccountMenuContent = deferredComponent(() =>
   import("./account-menu-content.tsx").then((module) => module.AccountMenuContent),
 );
 /**
- * The profile at the foot of the rail: the person's initials on a neutral disc (a silhouette
- * until they give a name in Settings › General). Connection trouble is a quiet dot on the disc
+ * The profile at the foot of the rail: the person's initials on a neutral disc (their ace
+ * account's name, else the name they gave in Settings › Profile; a silhouette until either). Connection trouble is a quiet dot on the disc
  * (the screen says it in words once); a healthy connection adds none. The connection is part of
  * the button's name rather than a live region, so a flapping connection isn't read out each
  * time. Its menu is the only way to Usage.
  */
 export function AccountMenu() {
   const state = useConnectionState();
-  const [name] = useProfileName();
+  const [profileName] = useProfileName();
+  const { session } = useAceAccount();
+  const name = session?.account.name || profileName;
   const letters = initials(name);
   const shown = name.trim() || "You";
   const label =

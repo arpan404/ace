@@ -162,7 +162,7 @@ test("offline, daemon settings are disabled and say why; this device's stay edit
   const wrapper = worktree.parentElement;
   await userEvent.hover(wrapper ?? worktree);
   expect(await screen.findByText("Reconnect to change settings stored on ace")).toBeTruthy();
-  await goTo("General");
+  await goTo("Profile");
   expect(
     ((await screen.findByRole("textbox", { name: "Your name" })) as HTMLInputElement).disabled,
   ).toBe(false);

@@ -52,19 +52,26 @@ const entries = [
     title: "Prompt files",
     keywords: ["slash", "commands", "templates", "skills"],
   },
-  // General
+  // Profile
   {
     id: "account.signIn",
-    page: "/settings/general",
-    title: "Profile",
-    keywords: ["login", "sign in", "sign out", "WorkOS"],
+    page: "/settings/profile",
+    title: "ace account",
+    keywords: ["login", "sign in", "sign out", "email", "profile"],
+  },
+  {
+    id: "profile.machines",
+    page: "/settings/profile",
+    title: "Machines on your account",
+    keywords: ["account", "remote", "relay", "machine code"],
   },
   {
     id: "profile.name",
-    page: "/settings/general",
+    page: "/settings/profile",
     title: "Your name",
     keywords: ["initials", "avatar", "account"],
   },
+  // General
   {
     id: "app.openAtLogin",
     page: "/settings/general",

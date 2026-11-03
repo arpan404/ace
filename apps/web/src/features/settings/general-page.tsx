@@ -9,7 +9,6 @@ import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
 import { DaemonSettings } from "./daemon-settings.tsx";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { settingRow } from "./settings-index.ts";
-import { AceAccountSettings } from "./ace-account.tsx";
 
 const measures = [
   { value: "week", label: "Week" },
@@ -22,8 +21,7 @@ const places: { value: PanelPlace; label: string }[] = [
 ];
 
 /**
- * What only this device keeps: the desktop app's login item and background behaviour, your
- * name, where terminals and files open, what the rail's Usage bars show, how browser pages show,
+ * What only this device keeps: the desktop app's login item and background behaviour, where terminals and files open, what the rail's Usage bars show, how browser pages show,
  * and which computer this window
  * talks to. Agent
  * defaults belong to a machine (Settings › Agents).
@@ -32,7 +30,6 @@ export function GeneralSettings() {
   return (
     <>
       <DesktopAppPreferences />
-      <AceAccountSettings />
       <SettingSection label="Workspace" card scope="device">
         <TerminalPlaceRow />
         <EditorRow />

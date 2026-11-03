@@ -52,6 +52,6 @@ test("turning on the ace command in Settings says where it went and to open a ne
 
 test("a browser shows no ace command row", async () => {
   await harness().open("/settings/general");
-  await screen.findByText("Your name");
+  await screen.findByText("Terminals open in");
   expect(screen.queryByRole("switch", { name: "ace command in terminals" })).toBeNull();
 });

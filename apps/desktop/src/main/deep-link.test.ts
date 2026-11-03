@@ -28,10 +28,10 @@ describe("ace:// links", () => {
 
   it("brings Profile forward with how sign-in ended when the browser returns from it", () => {
     expect(route("ace://account/signed-in?status=signed-in")).toBe(
-      "/settings/general?signin=signed-in",
+      "/settings/profile?signin=signed-in",
     );
     expect(route("ace://account/signed-in?status=cancelled")).toBe(
-      "/settings/general?signin=cancelled",
+      "/settings/profile?signin=cancelled",
     );
     for (const input of [
       "ace://account/signed-in",

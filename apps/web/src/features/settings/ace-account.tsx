@@ -1,13 +1,11 @@
 import { useState } from "react";
-import { initials } from "@ace/ui-core";
-import { UserIcon } from "@phosphor-icons/react";
 import { useSearch } from "@tanstack/react-router";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
-import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Icon } from "@/components/icon.tsx";
+import { ProfileAvatar } from "@/components/profile-avatar.tsx";
 import { useProfileName } from "@/lib/profile.ts";
 import { settingRow } from "./settings-index.ts";
 
@@ -21,10 +19,13 @@ const returned: Record<string, string> = {
   expired: "That sign-in expired or was already used. Try again.",
 };
 
-/** Optional ace identity. Local operation and machine pairing do not depend on this session. */
-export function AceAccountSettings() {
-  const [name, setName] = useProfileName();
-  const [draftName, setDraftName] = useState(name);
+/**
+ * The top of Profile: who the person is and their ace account. Signed out, one sentence on what
+ * an account adds and Sign in; signing in, where to finish and how to stop; signed in, the
+ * account's name and email with Sign out. ace works without an account.
+ */
+export function ProfileIdentity() {
+  const [name] = useProfileName();
   const store = useAceAccountStore();
   const client = store?.client;
   const { session, restoring, error: accountError, signIn } = useAceAccount();
@@ -36,6 +37,7 @@ export function AceAccountSettings() {
   const returnNote =
     !returnSeen && typeof search.signin === "string" ? returned[search.signin] : undefined;
   const error = (!session && returnNote) || loginError || accountError;
+  const shown = session?.account.name || name.trim();
 
   function startSignIn() {
     if (!store || !client || signIn || restoring) return;
@@ -57,57 +59,76 @@ export function AceAccountSettings() {
   }
 
   return (
-    <SettingSection label="Profile" card scope="device">
-      <SettingRow
-        id="account.signIn"
-        inline
-        title={
-          <div className="flex min-w-0 items-center gap-3 py-2">
-            <span
-              aria-hidden
-              className="grid size-12 shrink-0 place-items-center rounded-full border border-border bg-secondary text-base font-medium text-foreground"
-            >
-              {initials(session?.account.name || name) || <Icon icon={UserIcon} size={20} />}
-            </span>
-            <div className="flex min-w-0 flex-col gap-1">
-              <span className="truncate font-medium">
-                {session?.account.name || name.trim() || "Your profile"}
-              </span>
-              <span className="truncate text-xs text-muted-foreground">
-                {session?.account.email ||
-                  (login ? "Complete sign-in in your browser" : "Not signed in")}
-              </span>
-              {login && signIn?.openBlocked && (
-                <button
-                  type="button"
-                  className="w-fit rounded-sm text-xs text-foreground underline underline-offset-2 focus-ring"
+    <section id="account.signIn" aria-label="ace account" className="mb-8 scroll-mt-32">
+      <div className="flex min-w-0 items-center gap-4">
+        <ProfileAvatar name={shown} className="size-14 text-lg" iconSize={20} />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="truncate text-lg leading-6 font-semibold tracking-[-0.01em]">
+            {shown || "Your profile"}
+          </span>
+          <span className="truncate text-ui text-muted-foreground">
+            {session?.account.email ||
+              (signIn ? "Finishing sign-in in your browser" : "Not signed in")}
+          </span>
+        </div>
+        {session && (
+          <Button variant="ghost" disabled={busy || restoring} onClick={() => void signOut()}>
+            Sign out
+          </Button>
+        )}
+      </div>
+      {!session && (
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <p className="min-w-56 flex-1 text-ui leading-normal text-muted-foreground">
+            {signIn
+              ? "Continue in your browser. This page updates when you're done."
+              : "Sign in to open your machines from your phone or another computer, anywhere. Everything here works without an account."}
+          </p>
+          {signIn ? (
+            <div className="flex items-center gap-2">
+              {login && (
+                <Button
+                  variant="ghost"
                   onClick={() =>
                     void openExternal(login.loginUrl).catch(() =>
                       setError("Couldn't open your browser. Try again."),
                     )
                   }
                 >
-                  Open browser
-                </button>
+                  {signIn.openBlocked ? "Open browser" : "Open browser again"}
+                </Button>
               )}
+              <Button variant="ghost" onClick={() => store?.cancelSignIn()}>
+                Cancel
+              </Button>
             </div>
-          </div>
-        }
-      >
-        {session ? (
-          <Button disabled={busy || restoring} onClick={() => void signOut()}>
-            Sign out
-          </Button>
-        ) : signIn ? (
-          <Button variant="ghost" onClick={() => store?.cancelSignIn()}>
-            Cancel
-          </Button>
-        ) : (
-          <Button disabled={!client || restoring} onClick={startSignIn}>
-            {restoring ? "Connecting…" : "Sign in"}
-          </Button>
-        )}
-      </SettingRow>
+          ) : (
+            <Button variant="primary" disabled={!client || restoring} onClick={startSignIn}>
+              {restoring ? "Connecting…" : "Sign in"}
+            </Button>
+          )}
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 text-ui text-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** The name ace shows beside the person's messages, kept on this device. */
+export function ProfileNameSettings() {
+  const [name, setName] = useProfileName();
+  const [draftName, setDraftName] = useState(name);
+  const save = (value: string) => {
+    const next = value.trim();
+    setDraftName(next);
+    setName(next);
+  };
+  return (
+    <SettingSection label="You" card scope="device">
       <SettingRow {...settingRow("profile.name")} htmlFor="profile-name">
         <Input
           id="profile-name"
@@ -117,25 +138,12 @@ export function AceAccountSettings() {
           autoComplete="name"
           maxLength={80}
           onChange={(event) => setDraftName(event.currentTarget.value)}
-          onBlur={(event) => {
-            const next = event.currentTarget.value.trim();
-            setDraftName(next);
-            setName(next);
-          }}
+          onBlur={(event) => save(event.currentTarget.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              const next = event.currentTarget.value.trim();
-              setDraftName(next);
-              setName(next);
-            }
+            if (event.key === "Enter") save(event.currentTarget.value);
           }}
         />
       </SettingRow>
-      {error && (
-        <SettingNote role="alert" className="text-destructive">
-          {error}
-        </SettingNote>
-      )}
     </SettingSection>
   );
 }

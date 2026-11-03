@@ -1,6 +1,7 @@
-import { AceAccountError } from "@ace/client/ace-account";
+import { AceAccountError, type aceAccountClient } from "@ace/client/ace-account";
 import type { AceAccountGrant, AceLogin } from "@ace/protocol/ace-account";
-import type { AceAccountClient } from "./session-store.ts";
+
+type AceAccountClient = ReturnType<typeof aceAccountClient>;
 
 /** How the backend lets a sign-in wait for its browser (ADR 0100). */
 const SIGN_IN_LIFETIME_MS = 10 * 60_000;

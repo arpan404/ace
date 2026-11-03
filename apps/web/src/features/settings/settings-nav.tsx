@@ -20,10 +20,10 @@ import {
   type SettingsPath,
 } from "./settings-pages.ts";
 
-const groupOrder: readonly SettingsGroup[] = ["device", "machine", "network"];
+const groupOrder: readonly SettingsGroup[] = ["profile", "device", "machine", "network"];
 
 /**
- * Settings' pages as links, the current one marked: under "This device" the pages this screen
+ * Settings' pages as links, the current one marked: Profile first, then under "This device" the pages this screen
  * keeps, then under "Environment" the pages a machine keeps, then Fleet. Also the phone's
  * Settings page.
  */
@@ -45,7 +45,7 @@ export function SettingsPageLinks(props: { pages?: readonly SettingsPath[] }) {
             <PageList pages={inGroup} current={current} />
           </PanelSection>
         ) : (
-          <section key={group} aria-label="Network" className="mt-5 first:mt-1">
+          <section key={group} aria-label="You" className="mt-5 first:mt-1">
             <ul className="flex flex-col gap-px">
               <PageList pages={inGroup} current={current} />
             </ul>

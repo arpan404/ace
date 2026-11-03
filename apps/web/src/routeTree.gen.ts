@@ -36,6 +36,7 @@ import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
 import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
+import { Route as SettingsProfileRouteImport } from "./routes/settings.profile"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
@@ -190,6 +191,11 @@ const SettingsOverviewRoute = SettingsOverviewRouteImport.update({
   path: "/overview",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsProfileRoute = SettingsProfileRouteImport.update({
+  id: "/profile",
+  path: "/profile",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
   id: "/prompts",
   path: "/prompts",
@@ -315,6 +321,7 @@ export interface FileRoutesByFullPath {
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
@@ -358,6 +365,7 @@ export interface FileRoutesByTo {
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
@@ -407,6 +415,7 @@ export interface FileRoutesById {
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
+  "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
@@ -457,6 +466,7 @@ export interface FileRouteTypes {
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
     | "/settings/source-control"
     | "/settings/storage"
@@ -500,6 +510,7 @@ export interface FileRouteTypes {
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
     | "/settings/source-control"
     | "/settings/storage"
@@ -548,6 +559,7 @@ export interface FileRouteTypes {
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
+    | "/settings/profile"
     | "/settings/prompts"
     | "/settings/source-control"
     | "/settings/storage"
@@ -773,6 +785,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsOverviewRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/profile": {
+      id: "/settings/profile"
+      path: "/profile"
+      fullPath: "/settings/profile"
+      preLoaderRoute: typeof SettingsProfileRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/prompts": {
       id: "/settings/prompts"
       path: "/prompts"
@@ -975,6 +994,7 @@ interface SettingsRouteChildren {
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsOverviewRoute: typeof SettingsOverviewRoute
+  SettingsProfileRoute: typeof SettingsProfileRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
@@ -995,6 +1015,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsOverviewRoute: SettingsOverviewRoute,
+  SettingsProfileRoute: SettingsProfileRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,

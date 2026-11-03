@@ -25,7 +25,7 @@ function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undef
   );
 }
 
-export function MachineAccount(props: { machine: Machine }) {
+export function MachineAccount(props: { machine: Machine; label?: string }) {
   const access = useMachineAccountAccess(props.machine);
   if (!access) return null;
   return (
@@ -33,6 +33,7 @@ export function MachineAccount(props: { machine: Machine }) {
       machine={props.machine.id}
       access={access}
       local={props.machine.primary}
+      {...(props.label ? { label: props.label } : {})}
     />
   );
 }

@@ -28,6 +28,20 @@ const GeneralSettings = lazy(() =>
   import("./general-page.tsx").then((module) => ({ default: module.GeneralSettings })),
 );
 
+const ProfileSettings = lazy(() =>
+  import("./profile-page.tsx").then((module) => ({ default: module.ProfileSettings })),
+);
+
+export function ProfileSettingsScreen() {
+  return (
+    <SettingsBody page="Profile">
+      <Suspense fallback={null}>
+        <ProfileSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
 export function GeneralSettingsScreen() {
   return (
     <SettingsBody page="General">

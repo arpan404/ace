@@ -202,7 +202,7 @@ export function deepLinkRoute(link: DeepLink): string {
       return `/new?folder=${encodeURIComponent(link.path)}`;
     // Profile, where the sign-in started; the app's own claim delivers the session.
     case "signed-in":
-      return `/settings/general?signin=${link.status}`;
+      return `/settings/profile?signin=${link.status}`;
   }
 }
 
