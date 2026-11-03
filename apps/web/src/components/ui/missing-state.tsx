@@ -2,8 +2,10 @@ import type { ReactNode } from "react";
 
 /**
  * A whole screen whose subject isn't here: a thread deleted or on another machine, a project
- * removed. Centred in the pane like `EmptyState`: the title, one muted line, the ways on side by
- * side, and under them whatever the person still has of it (a saved message). No glyph, no card.
+ * removed, an address with no page. Centred in the pane like `EmptyState`: the title, one muted
+ * line, the ways on side by side, and under them whatever the person still has of it (a saved
+ * message). No glyph, no card. Its screen has no title in the top bar and no side or bottom panel,
+ * so the title here is the screen's heading.
  */
 export function MissingState(props: {
   title: string;
@@ -18,7 +20,7 @@ export function MissingState(props: {
       data-slot="missing"
       className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto px-6 py-10 text-center"
     >
-      <h2 className="text-base font-medium text-balance text-foreground">{props.title}</h2>
+      <h1 className="text-base font-medium text-balance text-foreground">{props.title}</h1>
       {props.description && (
         <p className="mt-1 max-w-[44ch] text-ui leading-normal text-pretty text-muted-foreground">
           {props.description}

@@ -17,6 +17,12 @@ test("a thread the daemon doesn't have says so in words and offers the way back"
 
   expect(alert.textContent).not.toContain("not_found");
   expect(screen.queryByText("Loading thread…")).toBeNull();
+  // Nothing to work on: no title in the top bar, and no side or bottom panel to open.
+  expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual([
+    "This thread doesn't exist",
+  ]);
+  expect(screen.queryByRole("button", { name: /side panel/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /terminal panel/ })).toBeNull();
 });
 
 test("only a lost or slow connection says the agents keep working", () => {

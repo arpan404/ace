@@ -293,7 +293,7 @@ test("a removed project's draft opens its saved content and recovery guidance in
     screen.queryByText("This preparation's project is no longer registered", { exact: false }),
   ).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
-  await screen.findByRole("heading", { name: "Project unavailable" });
+  await screen.findByRole("heading", { name: /^This project isn't on/ });
   expect(screen.getByLabelText("Saved message").textContent).toBe("Unregistered project content");
 });
 

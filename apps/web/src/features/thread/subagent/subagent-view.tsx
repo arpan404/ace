@@ -93,9 +93,9 @@ export function SubagentView(props: { threadId: string; agentId: string }) {
           crumb={
             agent?.parentId && <SubagentCrumb threadId={threadId} parentAgentId={agent.parentId} />
           }
-          title={agent ? name : error ? "Subagent unavailable" : meta ? "Subagent" : ""}
+          title={agent ? name : error ? "" : meta ? "Subagent" : ""}
           tools={meta && !error && <WorkButton threadId={threadId} />}
-          workspace={{ scope: threadId, definition: threadWorkspace }}
+          workspace={error ? undefined : { scope: threadId, definition: threadWorkspace }}
         >
           {error ? (
             <ThreadLoadError error={error} />

@@ -34,7 +34,7 @@ export function UnavailablePreparation(props: {
   const content = readDraft(storage, key) ?? preparation(storage, props.host, key)?.discardRecovery;
   const kept = !!content?.text || !!content?.attachments.length;
   return (
-    <Screen title="Project unavailable">
+    <Screen title="">
       <div role="alert" className="h-full">
         <MissingState
           title={`This project isn't on ${here}`}

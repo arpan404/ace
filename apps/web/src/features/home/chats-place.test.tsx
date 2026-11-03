@@ -324,5 +324,5 @@ test("deleting the open chat opens a new chat, not its hidden project", async ()
   await waitFor(() => expect(location().pathname).toBe("/new"));
   expect(location().search).toBe("?project=chat");
   expect(await screen.findByRole("button", { name: "Project: none" })).toBeTruthy();
-  expect(screen.queryByText("Project unavailable")).toBeNull();
+  expect(screen.queryByRole("heading", { name: /^This project isn't on/ })).toBeNull();
 });

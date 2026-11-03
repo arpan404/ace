@@ -1,25 +1,29 @@
-import { CompassIcon, WarningCircleIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link, useRouter, useRouterState, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { MissingState } from "@/components/ui/missing-state.tsx";
 import { BootFailure } from "@/features/connect/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 
-/** An address no route matches: inside the shell, with the address and a way home. */
+/** An address no route matches: inside the shell, with the address and the ways on. */
 export function RouteNotFound() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   return (
-    <Screen title="Not found">
-      <EmptyState
-        icon={CompassIcon}
+    <Screen title="">
+      <MissingState
         title="This page doesn't exist"
         description={<code className="font-mono text-sm break-all">{pathname}</code>}
-        action={
-          <Link to="/" className={buttonVariants({ variant: "primary" })}>
-            Go to Home
-          </Link>
+        actions={
+          <>
+            <Link to="/new" className={buttonVariants({ size: "sm", variant: "primary" })}>
+              New thread
+            </Link>
+            <Link to="/" className={buttonVariants({ size: "sm" })}>
+              Back to Home
+            </Link>
+          </>
         }
-        heading
       />
     </Screen>
   );
