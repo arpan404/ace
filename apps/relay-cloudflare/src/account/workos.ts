@@ -21,7 +21,41 @@ const Authenticated = z.object({
   }),
   refresh_token: z.string().min(1),
 });
-const Failure = z.object({ error: z.string().optional(), code: z.string().optional() });
+const Failure = z.object({
+  error: z.string().optional(),
+  code: z.string().optional(),
+  error_description: z.string().optional(),
+  message: z.string().optional(),
+});
+
+/**
+ * One line per WorkOS refusal: its status and error code, the public client id, and the API
+ * key's shape (test or live, length, stray whitespace), never the key, tokens, codes or users.
+ */
+function logRefusal(status: number, raw: unknown, config: AccountConfig): void {
+  const failure = Failure.safeParse(raw);
+  const data = failure.success ? failure.data : {};
+  console.warn(
+    JSON.stringify({
+      event: "workos_authenticate_refused",
+      status,
+      error: data.error ?? data.code,
+      description: (data.error_description ?? data.message)?.slice(0, 200),
+      clientId: config.clientId,
+      key: {
+        kind: config.apiKey.startsWith("sk_live_")
+          ? "live"
+          : config.apiKey.startsWith("sk_test_")
+            ? "test"
+            : config.apiKey.startsWith("sk_")
+              ? "sk"
+              : "other",
+        length: config.apiKey.length,
+        whitespace: /\s/.test(config.apiKey),
+      },
+    }),
+  );
+}
 
 /**
  * WorkOS User Management over its REST API (the Node SDK is not used in the Worker).
@@ -47,6 +81,7 @@ export function workos(config: AccountConfig, fetcher: typeof fetch) {
     });
     const raw: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
+      logRefusal(response.status, raw, config);
       const failure = Failure.safeParse(raw);
       if (
         (response.status === 400 || response.status === 401) &&
@@ -56,7 +91,17 @@ export function workos(config: AccountConfig, fetcher: typeof fetch) {
         throw new InvalidGrantError("WorkOS rejected the grant");
       throw new Error(`WorkOS answered ${response.status}`);
     }
-    const result = Authenticated.parse(raw);
+    const parsed = Authenticated.safeParse(raw);
+    if (!parsed.success) {
+      console.warn(
+        JSON.stringify({
+          event: "workos_authenticate_unexpected",
+          issues: parsed.error.issues.map((issue) => issue.path.join(".")).slice(0, 10),
+        }),
+      );
+      throw new Error("WorkOS answered an unexpected shape");
+    }
+    const result = parsed.data;
     return {
       account: AceAccount.parse({
         id: result.user.id,

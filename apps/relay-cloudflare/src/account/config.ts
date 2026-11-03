@@ -35,8 +35,9 @@ const PreviousGrantKey = z
 
 export const AccountConfig = z.object({
   publicUrl: AceAccountOrigin,
-  clientId: z.string().startsWith("client_").min(8),
-  apiKey: z.string().min(1),
+  // Dashboard pastes often carry a trailing newline or space.
+  clientId: z.string().trim().startsWith("client_").min(8),
+  apiKey: z.string().trim().min(1),
   workosUrl: AceAccountOrigin,
   encryptionKey: z.string().regex(/^[a-fA-F0-9]{64}$/),
   grantKey: GrantKey,
