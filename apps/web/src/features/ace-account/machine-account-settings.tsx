@@ -54,10 +54,10 @@ export function MachineAccountSections(props: {
     );
   if (!status) return null;
   return (
-    <>
+    <SettingSection label="ace account" anchor="ace-account">
       {props.local && <ThisMachineAccount status={status} access={props.access} onChange={write} />}
       <MachineCodeSetting status={status} access={props.access} onChange={write} />
-    </>
+    </SettingSection>
   );
 }
 
@@ -78,7 +78,7 @@ function ThisMachineAccount(props: {
     onSuccess: props.onChange,
   });
   return (
-    <SettingSection label="ace account" anchor="ace-account">
+    <>
       <SettingRow id="machine.account" title="This machine" description={row.sentence} inline>
         {row.action === "appFirst" && (
           <Button size="sm" variant="ghost" render={<Link to="/settings/general" />}>
@@ -106,7 +106,7 @@ function ThisMachineAccount(props: {
           {change.error.message}
         </SettingNote>
       )}
-    </SettingSection>
+    </>
   );
 }
 
@@ -139,7 +139,7 @@ function MachineCodeSetting(props: {
   };
   const locked = machineCode.lockedUntil !== undefined && machineCode.lockedUntil > now;
   return (
-    <SettingSection label="Machine code" anchor="machine-code">
+    <>
       <SettingRow id="machine.code" title="Machine code" description={machineCodeSentence} inline>
         {!editing && (
           <>
@@ -211,6 +211,6 @@ function MachineCodeSetting(props: {
           {problem || change.error?.message}
         </SettingNote>
       )}
-    </SettingSection>
+    </>
   );
 }

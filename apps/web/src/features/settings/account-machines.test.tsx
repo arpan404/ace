@@ -81,7 +81,7 @@ test("a window that isn't signed in to an ace account lists only its paired mach
 
 test("the machine code is set, changed and cleared from this machine's page", async () => {
   await harness().open("/settings/remote/primary");
-  const code = await screen.findByRole("region", { name: "Machine code" });
+  const code = await screen.findByRole("region", { name: "ace account" });
   expect(
     within(code).getByText(/stolen account login; every device enters the code again/),
   ).toBeDefined();
