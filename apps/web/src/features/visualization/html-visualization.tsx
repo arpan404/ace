@@ -22,16 +22,16 @@ import { visualizationTab } from "./visualization-tab.ts";
 const heightsKey: SessionKey<LruCache<string, number>> = { name: "visualization heights" };
 const keptHeights = () => new LruCache<string, number>({ maxEntries: 500 });
 
-/** The full-screen button, dimmed until hovered, focused or pressed. */
-const action =
-  "rounded-full opacity-60 transition-[background-color,color,transform,opacity] hover:opacity-100 focus-visible:opacity-100 active:opacity-100 motion-reduce:transition-none";
+/** The full-screen button's glass pill, glass and icon dimmed together until hovered or focused. */
+const pill =
+  "ace-floating inline-flex rounded-full p-0.5 opacity-60 transition-opacity duration-(--motion-fast) hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none";
 
 /**
  * A published HTML page, inline in the agent's reply at the message column's full width: no
  * card, no title bar, so it reads as part of the conversation. It shows its whole content height,
  * follows the app theme live, and runs its own scripts in a sandbox that cannot reach the app or
- * the network. A full-screen button sits on a small glass pill in a row above it, its icon
- * dimmed until hovered, focused or pressed; it opens the page at the side panel's full size,
+ * the network. A full-screen button sits on a small glass pill in a row above it, the whole
+ * pill dimmed until hovered, focused or pressed; it opens the page at the side panel's full size,
  * whose strip adds open in window, copy source and download.
  */
 export function HtmlVisualizationView(props: {
@@ -79,12 +79,12 @@ export function HtmlVisualizationView(props: {
           aria-label={`${title} actions`}
           className="flex h-7 items-center justify-end"
         >
-          <div className="ace-floating inline-flex rounded-full p-0.5">
+          <div className={pill}>
             <IconButton
               size="sm"
               icon={ArrowsOutSimpleIcon}
               label="Full screen"
-              className={action}
+              className="rounded-full"
               onClick={() => panel.open(visualizationTab(visualization))}
             />
           </div>
