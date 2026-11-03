@@ -211,6 +211,12 @@ test("a conflicting PR offers to resolve its conflicts instead of merging", asyn
   expect(merge.textContent).toContain("Resolve the conflicts with main first");
 });
 
+const summaryRegions = () =>
+  screen
+    .getAllByRole("region")
+    .map((region) => region.getAttribute("aria-label"))
+    .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? ""));
+
 test("the Summary leaves the checks and the conversation to their own tabs", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
@@ -221,12 +227,7 @@ test("the Summary leaves the checks and the conversation to their own tabs", asy
   notStacked(app);
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("heading", { name: "Retry reconnects" });
-  const regions = () =>
-    screen
-      .getAllByRole("region")
-      .map((region) => region.getAttribute("aria-label"))
-      .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? ""));
-  expect(regions()).toEqual(["Description"]);
+  expect(summaryRegions()).toEqual(["Description"]);
   expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
   // The conversation is one step away, in the Timeline, where its comment box is.
   await userEvent.click(
@@ -498,7 +499,10 @@ const reviewState = (drafts: ForgeReviewState["drafts"] = []): ForgeReviewState 
 
 /** Open the review from the header's Review button, named `name` (it counts pending comments). */
 async function openReview(name = "Review") {
-  await userEvent.click(await screen.findByRole("button", { name }, { timeout: 10_000 }));
+  // Review shows, disabled, while the review state is read; it opens once that arrives.
+  const button = () => screen.getByRole<HTMLButtonElement>("button", { name });
+  await waitFor(() => expect(button().disabled).toBe(false), { timeout: 10_000 });
+  await userEvent.click(button());
   return screen.findByRole("dialog", { name: "Finish your review" });
 }
 

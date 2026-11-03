@@ -130,12 +130,13 @@ test("an outdated conversation in needs attention names its file without a dangl
   expect(item?.detail).toBe("src/a.ts");
 });
 
+const keys = (comments: ForgeComment[], threads = [] as ForgePrStatus["reviewThreads"]) =>
+  attentionItems({ checks: [], reviewThreads: threads, comments }).map((item) => item.key);
+
 test("a review asking for changes blocks in the reviewer's words until their next verdict", () => {
   const review = (id: number, author: string, at: string, state: string, body = "") =>
     comment(id, author, at, { kind: "review", reviewState: state, body });
   const asked = review(20, "mira", "2026-01-03", "CHANGES_REQUESTED", "Add a jittered backoff.");
-  const keys = (comments: ForgeComment[], threads = [] as ForgePrStatus["reviewThreads"]) =>
-    attentionItems({ checks: [], reviewThreads: threads, comments }).map((item) => item.key);
   expect(keys([asked])).toEqual(["review:20"]);
   const [item] = attentionItems({ checks: [], reviewThreads: [], comments: [asked] });
   if (!item) throw new Error("expected the review");

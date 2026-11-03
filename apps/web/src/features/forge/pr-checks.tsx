@@ -71,7 +71,9 @@ export function PrChecks(props: {
   const unfinished = status.state === "open" || status.state === "draft";
   const showLocal = local.run !== undefined || (unfinished && local.command !== undefined);
   const now = useNow();
-  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const [opened, setOpened] = useState<ReadonlySet<string>>(
+    () => new Set(props.focus ? [props.focus.id] : []),
+  );
   // A new focus opens its check during render; the row scrolls itself into view.
   const [focused, setFocused] = useState(props.focus);
   if (props.focus !== focused) {

@@ -18,7 +18,8 @@ import { useMachineSearch } from "@/lib/machine-routes.ts";
  */
 export function useFixWithAgent(props: {
   workspaceId: string;
-  detail: ForgePrDetail;
+  /** Null outside a PR view: nothing is offered then. */
+  detail: ForgePrDetail | null;
   hostThreadId?: string | undefined;
 }) {
   const navigate = useNavigate();
@@ -26,10 +27,11 @@ export function useFixWithAgent(props: {
   const workspace = useWorkspaceActions(props.hostThreadId ?? "");
   const toast = useToast();
   const { detail } = props;
-  const linked = detail.relatedThreads.filter((thread) => !thread.archived);
+  const linked = detail?.relatedThreads.filter((thread) => !thread.archived) ?? [];
   const target = linked.find((thread) => thread.id === props.hostThreadId) ?? linked[0];
   /** Put `request` in the composer of the task working on this PR, for the person to send. */
   const ask = (request: string) => {
+    if (!detail) return;
     if (!target) {
       handTextToNewThread(detail.status.url, request);
       void navigate({
@@ -59,7 +61,8 @@ export function useFixWithAgent(props: {
     target,
     ask,
     fix(item: AttentionItem) {
-      ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
+      if (detail)
+        ask(fixRequest(item, { number: detail.status.ref.number, url: detail.status.url }));
     },
   };
 }

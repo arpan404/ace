@@ -127,6 +127,8 @@ export function prGates(facts: GateFacts): Gate[] {
   ];
 }
 
+const plural = (n: number) => (n === 1 ? "check" : "checks");
+
 /** Up to two names, then how many more: "mira", "mira and dana", "mira, dana and 2 more". */
 function names(list: readonly string[]): string {
   if (list.length <= 2) return list.join(" and ");
@@ -144,7 +146,6 @@ export function prFacts(facts: GateFacts): Gate[] {
   const total = status.checks.length + Number(local !== undefined);
   const count = (state: ForgeCheck["status"], localState: LocalCheckResult) =>
     status.checks.filter((c) => c.status === state).length + Number(local === localState);
-  const plural = (n: number) => (n === 1 ? "check" : "checks");
   const failed = count("failure", "failed");
   const running = count("pending", "running");
   const passed = count("success", "passed");

@@ -78,10 +78,11 @@ test("green CI with outstanding reviews still exposes GitHub's auto-merge capabi
     await f.cleanup();
   }
 });
+const settings = (repo: Record<string, unknown>) => ({
+  body: { data: { repository: { ...read().body.data.repository, ...repo } } },
+});
+
 test("the merge state offers only the methods the repository allows", async () => {
-  const settings = (repo: Record<string, unknown>) => ({
-    body: { data: { repository: { ...read().body.data.repository, ...repo } } },
-  });
   const f = await fakeGh({
     graphql: [
       settings({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: true }),

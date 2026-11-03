@@ -38,6 +38,8 @@ const Identity = createContext<PrIdentity | null>(null);
 const Detail = createContext<ForgePrDetail | null>(null);
 const Context = createContext<{
   state?: ForgeReviewState | undefined;
+  /** The review state couldn't be read; the header says why. */
+  stateFailed: boolean;
   pending: boolean;
   ready: boolean;
   run(action: ForgeReviewAction): Promise<boolean>;
@@ -147,6 +149,7 @@ export function PrReviewWorkspace(props: {
   const value = useMemo(
     () => ({
       state: query.data,
+      stateFailed: query.isError,
       pending: pending || disabled,
       ready: ready && !disabled,
       run,
@@ -155,7 +158,18 @@ export function PrReviewWorkspace(props: {
       clearBatch,
       commentsLocked,
     }),
-    [query.data, pending, ready, run, disabled, batch, toggleBatch, clearBatch, commentsLocked],
+    [
+      query.data,
+      query.isError,
+      pending,
+      ready,
+      run,
+      disabled,
+      batch,
+      toggleBatch,
+      clearBatch,
+      commentsLocked,
+    ],
   );
   const uncertain = (query.data?.operations ?? []).filter((op) => op.state === "uncertain");
   return (

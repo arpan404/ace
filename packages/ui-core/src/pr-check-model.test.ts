@@ -68,16 +68,16 @@ describe("what a check's page offers", () => {
   });
 });
 
-describe("the line that says why a check failed", () => {
-  const annotation = (level: "notice" | "warning" | "failure", message: string) => ({
-    path: "src/a.ts",
-    startLine: 3,
-    endLine: 3,
-    level,
-    title: "",
-    message,
-  });
+const annotation = (level: "notice" | "warning" | "failure", message: string) => ({
+  path: "src/a.ts",
+  startLine: 3,
+  endLine: 3,
+  level,
+  title: "",
+  message,
+});
 
+describe("the line that says why a check failed", () => {
   it("is the first failure annotation over warnings and notices", () => {
     const annotations = [
       annotation("notice", "Node 22 is deprecated"),

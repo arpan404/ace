@@ -2,6 +2,7 @@ import { useState } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -30,7 +31,22 @@ export function PrReviewButton() {
     identity ? `${draftKeys.prComment(identity.workspaceId, identity.prKey)}:review` : undefined,
   );
   const state = review?.state;
-  if (!review || !detail || !state) return null;
+  if (!review || !detail) return null;
+  // While the review state loads or can't be read, Review stays where it is and says why.
+  if (!state)
+    return detail.status.state === "open" || detail.status.state === "draft" ? (
+      <DisabledReason
+        reason={
+          review.stateFailed
+            ? "GitHub's review state couldn't be read. Refresh to try again."
+            : "Reading your review from GitHub…"
+        }
+      >
+        <Button variant="secondary" disabled>
+          Review
+        </Button>
+      </DisabledReason>
+    ) : null;
   const drafts = state.drafts;
   const live = detail.status.state === "open" || detail.status.state === "draft";
   const locked = review.commentsLocked;

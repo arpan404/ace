@@ -7,7 +7,13 @@ import { PrConversationBox } from "./pr-conversation-box.tsx";
 import { PrLineComposer } from "./pr-line-composer.tsx";
 import { PrReviewButton } from "./pr-review-popover.tsx";
 import { PrReplyField } from "./pr-thread.tsx";
-import { headSha, reviewDetail, reviewHarness, reviewState } from "./review-harness.tsx";
+import {
+  headSha,
+  reviewDetail,
+  reviewHarness,
+  reviewState,
+  clickReview,
+} from "./review-harness.tsx";
 
 const diff: FileDiff = {
   path: "src/main.ts",
@@ -76,7 +82,7 @@ const boxes: {
     name: "the review's summary",
     ui: <PrReviewButton />,
     open: async () => {
-      await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+      await clickReview();
     },
     field: "Review summary",
     button: "Submit review",
@@ -220,7 +226,7 @@ test("an uncertain review keeps its summary and offers to reconcile", async () =
     ui: <PrReviewButton />,
   });
   try {
-    await userEvent.click(await screen.findByRole("button", { name: "Review" }));
+    await clickReview();
     const summary = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Review summary" });
     await userEvent.type(summary, "Keep my review");
     f.loseTrack();

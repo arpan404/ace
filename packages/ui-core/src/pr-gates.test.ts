@@ -185,8 +185,9 @@ test("a comment-only review after a verdict leaves the verdict standing, as GitH
   expect(outcomes.get("sam")).toBe("commented");
 });
 
+const sentences = (input: GateFacts) => prFacts(input).map((gate) => gate.value);
+
 test("the facts line says each gate as a sentence, naming who asked for changes", () => {
-  const sentences = (input: GateFacts) => prFacts(input).map((gate) => gate.value);
   expect(
     sentences(
       facts({
