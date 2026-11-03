@@ -8,6 +8,8 @@ import { Agent } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { Store } from "./store.ts";
+import { schemaVersionBefore } from "./migrations.ts";
+import { retiredWorkflowMigration } from "./retired-workflow-migration.ts";
 
 // A real persisted database is necessary to exercise the upgrade and SQLite readers together.
 test("upgrading an unfinished Offshift run settles stale work and preserves old events and items", async () => {
@@ -73,10 +75,12 @@ test("upgrading an unfinished Offshift run settles stale work and preserves old 
         ALTER TABLE machine_children DROP COLUMN stop_attempts;
         ALTER TABLE machine_children DROP COLUMN stop_last_at;
         ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed;
-        UPDATE schema_version SET version=version-2;
         CREATE TABLE offshift_runs(thread_id TEXT,id TEXT,body TEXT,PRIMARY KEY(thread_id,id));
         CREATE TABLE offshift_receipts(thread_id TEXT,run_id TEXT,request_id TEXT,input TEXT);
       `);
+      db.prepare("UPDATE schema_version SET version=?").run(
+        schemaVersionBefore(retiredWorkflowMigration),
+      );
       for (const id of [thread.id, active.id]) {
         db.prepare("INSERT INTO offshift_runs VALUES (?, 'run', ?)").run(
           id,

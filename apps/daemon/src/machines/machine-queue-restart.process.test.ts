@@ -6,6 +6,8 @@ import { z } from "zod";
 import { MonitorSnapshot, ThreadId, WaitResult, type AgentControlOperation } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import { pairedMachines } from "./machine-test-support.ts";
+import { schemaVersionBefore } from "../migrations.ts";
+import { machineChildLaunches } from "../machine-tables.ts";
 
 type Pair = Awaited<ReturnType<typeof pairedMachines>>;
 const Delegated = z.object({ threadId: ThreadId });
@@ -188,8 +190,9 @@ it("a delegation made before the slot table existed counts against the limit onc
       db.exec(
         "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; DROP TABLE machine_child_launches; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_cursors; DROP INDEX machine_children_unsettled; DROP INDEX machine_children_parent; DROP INDEX machine_children_undelivered; DROP INDEX machine_children_lost; ALTER TABLE machine_children DROP COLUMN device_id; ALTER TABLE machine_children DROP COLUMN lost_at; ALTER TABLE machine_children DROP COLUMN lost_key; ALTER TABLE machine_children DROP COLUMN lost_ask",
       );
-      const version = Number(db.prepare("SELECT version FROM schema_version").get()?.version);
-      db.prepare("UPDATE schema_version SET version=?").run(version - 7);
+      db.prepare("UPDATE schema_version SET version=?").run(
+        schemaVersionBefore(machineChildLaunches),
+      );
     } finally {
       db.close();
     }

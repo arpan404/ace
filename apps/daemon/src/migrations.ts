@@ -172,6 +172,19 @@ const migrations = [
  * backfill existing rows need to read correctly. Older databases are refused.
  */
 const UPGRADE_FLOOR = 14;
+/** The schema version this build migrates to. */
+export const schemaVersion = migrations.length;
+
+/**
+ * The schema version just before `step` runs, so an upgrade test can put a database back to
+ * the release before it without counting steps from the end.
+ */
+export function schemaVersionBefore(step: (typeof migrations)[number]): number {
+  const index = migrations.indexOf(step);
+  if (index < 0) throw new Error("Not a migration step");
+  return index;
+}
+
 export function migrate(db: DatabaseSync): void {
   removeUpgradeBackups(db);
   db.exec("BEGIN IMMEDIATE");

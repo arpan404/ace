@@ -298,6 +298,8 @@ it("hosts authenticated encrypted file transfers from normal daemon startup and 
     deviceId: DeviceId.parse("owner"),
     token: (await readFile(f.daemon.tokenPath, "utf8")).trim(),
   });
+  // The daemon's own token never works through a relay: refused, then closed.
+  expect(await admin.receive()).toMatchObject({ type: "error", code: "unauthorized" });
   await expect(admin.receive()).rejects.toThrow();
 });
 
@@ -678,6 +680,8 @@ for (const transport of ["websocket", "relay"])
         protocolVersion: 1,
         deviceId: paired.device.id,
         token: paired.token,
+        // A relayed hello without a channel is the main conversation.
+        channel: "files",
       });
       expect(await remote.receive()).toMatchObject({ type: "welcome" });
       client = {

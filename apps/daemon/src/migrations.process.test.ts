@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { expect, test } from "vitest";
 import { Agent, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
+import { schemaVersion } from "./migrations.ts";
 
 test.each([1, 9, 13])(
   "a daemon database at older schema %s is refused untouched instead of upgraded",
@@ -95,7 +96,9 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     }
     const after = new DatabaseSync(path, { readOnly: true });
     try {
-      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(26);
+      expect(after.prepare("SELECT version FROM schema_version").get()?.version).toBe(
+        schemaVersion,
+      );
     } finally {
       after.close();
     }
