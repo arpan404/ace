@@ -15,7 +15,13 @@ import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
-import { prParticipants, prPollInterval, type GateKey } from "@ace/ui-core";
+import {
+  allCommits,
+  prParticipants,
+  prPollInterval,
+  type CodeScope,
+  type GateKey,
+} from "@ace/ui-core";
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -33,6 +39,7 @@ import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { PrReviewButton } from "./pr-review-popover.tsx";
 import { ForgeCompletions } from "./forge-completions.tsx";
 import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
@@ -232,6 +239,12 @@ function PrDetailLoaded(props: {
   const [behindOpen, setBehindOpen] = useState(false);
   const [revealChecks, setRevealChecks] = useState(0);
   const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
+  // Which commits Code shows, held here so a commit in the Timeline opens there.
+  const [codeScope, setCodeScope] = useState<CodeScope>(allCommits);
+  const openCommit = (sha: string) => {
+    setCodeScope({ kind: "commits", from: sha, to: sha });
+    props.onTab("code");
+  };
   const openCode = (path?: string) => {
     props.onTab("code");
     if (path) setCodeFocus((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
@@ -350,6 +363,7 @@ function PrDetailLoaded(props: {
                 disabled={context.disabled}
                 commentsLocked={lockedOut}
                 onRefresh={refresh}
+                onReread={context.reread}
                 header={
                   <div>
                     <div className={readable}>
@@ -429,7 +443,8 @@ function PrDetailLoaded(props: {
                         </Button>
                       </div>
                     ),
-                    code: null,
+                    // Finish review stays in reach while the code scrolls under the bar.
+                    code: <PrReviewButton finish />,
                   }}
                   panels={{
                     summary: (
@@ -454,6 +469,7 @@ function PrDetailLoaded(props: {
                         workspaceId={context.workspaceId}
                         detail={detail}
                         order={order}
+                        onOpenCommit={openCommit}
                         // On a page the column already sets the width and the edges.
                         className={props.page ? "mx-0 max-w-none" : undefined}
                       />
@@ -465,6 +481,8 @@ function PrDetailLoaded(props: {
                         detail={detail}
                         context={context}
                         focus={codeFocus}
+                        scope={codeScope}
+                        onScope={setCodeScope}
                       />
                     ),
                   }}
@@ -559,6 +577,23 @@ export function PrDetail(props: {
       setRefreshing(false);
     }
   };
+  // After a review write: the PR (its threads), or every read of it but its changed files,
+  // without holding other writes the way a refresh someone asked for does.
+  const reread = async (scope: "threads" | "all") => {
+    const status = detail?.status;
+    await Promise.all([
+      query.refetch(),
+      scope === "all" &&
+        status &&
+        cache.refetchQueries({
+          type: "active",
+          predicate: (q) =>
+            belongsTo(q, props.workspaceId, status) &&
+            q.queryKey[3] !== "file-pages" &&
+            q.queryKey[3] !== "review-state",
+        }),
+    ]);
+  };
   const context: PrWorkspaceContext | undefined = detail
     ? {
         workspaceId: props.workspaceId,
@@ -566,6 +601,7 @@ export function PrDetail(props: {
         disabled:
           !fresh || unconfirmed || query.isError || refreshing || detail.writeState !== undefined,
         refresh,
+        reread,
       }
     : undefined;
   return (

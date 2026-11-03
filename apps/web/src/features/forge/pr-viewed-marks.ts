@@ -4,12 +4,17 @@ import { viewedMarks } from "@ace/ui-core";
 import type { PrDiffContext } from "./pr-extensions.ts";
 import { usePrReview } from "./pr-review-context.tsx";
 
-/** A file's Viewed mark at the displayed range. `changed`: pushed to since it was viewed. */
+/**
+ * A file's Viewed mark at the displayed range. `changed`: pushed to since it was viewed.
+ * `saving`: set here and not yet confirmed; `failed`: GitHub refused the last change.
+ */
 export interface PrViewedMark {
   checked: boolean;
   changed: boolean;
   disabled: boolean;
-  change(checked: boolean): Promise<unknown>;
+  saving: boolean;
+  failed: string | undefined;
+  change(checked: boolean): void;
 }
 
 /**
@@ -35,16 +40,27 @@ export function usePrViewedMarks(context: PrDiffContext | undefined) {
     if (!context || !review) return undefined;
     const mark = marks.of(file.path);
     if (!mark) return undefined;
+    const local = review.viewed.changes.get(file.path);
     return {
-      ...mark,
-      disabled: context.disabled || !review.ready || review.pending,
-      change: (checked) =>
-        review.run({
-          kind: checked ? "file.view" : "file.unview",
-          path: file.path,
-          headSha: context.files.headSha,
-        }),
+      checked: local ? local.checked : mark.checked,
+      changed: !local && mark.changed,
+      // Changes wait their turn behind other writes; only a closed connection holds them.
+      disabled: !review.ready,
+      saving: !!local,
+      failed: review.viewed.failed.get(file.path),
+      change: (checked) => review.viewed.set(file.path, checked, context.files.headSha),
     };
   };
-  return { markOf, count: marks.count, availability: marks.availability };
+  // The count follows what each mark shows, changes on their way included.
+  const count =
+    marks.count === undefined
+      ? undefined
+      : marks.count +
+        [...(review?.viewed.changes ?? [])].reduce((sum, [path, change]) => {
+          const was = marks.of(path)?.checked;
+          return was === undefined || was === change.checked
+            ? sum
+            : sum + (change.checked ? 1 : -1);
+        }, 0);
+  return { markOf, count, availability: marks.availability };
 }

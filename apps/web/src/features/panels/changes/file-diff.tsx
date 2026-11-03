@@ -34,8 +34,8 @@ export interface LineRange {
 }
 export const inRange = (range: LineRange | undefined, target: LineTarget) =>
   !!range && range.side === target.side && target.line >= range.start && target.line <= range.end;
-/** The protocol's limit on a comment's lines. */
-const maxRange = 100;
+/** The most lines one comment can cover, as the host's anchor check allows. */
+const maxRange = 1_000;
 /** The line numbers `rows` show on `side`; folded lines that aren't known aren't shown. */
 function shownLines(rows: readonly DiffRow[], side: LineRange["side"]): ReadonlySet<number> {
   const shown = new Set<number>();
@@ -97,19 +97,27 @@ export function FileDiffBlock(props: {
   whitespace?: boolean | undefined;
   /** Shown under the header instead of the lines: an image, a rendered document, a read. */
   body?: ReactNode;
+  /**
+   * Conversations sit under its lines: always drawn as rows, never by the GPU view, which
+   * can't hold them.
+   */
+  annotated?: boolean | undefined;
+  /** A fold whose lines aren't known yet was opened: read them (the fold opens once they are). */
+  onOpenFold?: ((index: number) => void) | undefined;
 }) {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
   const [drag, setDrag] = useState<LineRange>();
   // The GPU view supports one unwrapped column; split and soft wrap use virtualized DOM rows.
-  const renderer = useDiffRenderer(props.mode === "unified" && !props.wrap ? file.rows.length : 0);
+  const plain = props.mode === "unified" && !props.wrap && !props.annotated && !props.onComment;
+  const renderer = useDiffRenderer(plain ? file.rows.length : 0);
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
     row.kind === "fold" && expanded.has(index) && row.lines ? row.lines : [row],
   );
   const indexOf = new Map(file.rows.map((row, index) => [row, index]));
   // A drag from a line's + across more lines picks them; the comment opens on release.
-  const startPick = (target: LineTarget, event: PointerEvent<HTMLButtonElement>) => {
+  const startPick = (target: LineTarget, event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !props.onComment) return;
     event.preventDefault();
     const extending = event.shiftKey && props.selection?.side === target.side;
@@ -146,8 +154,11 @@ export function FileDiffBlock(props: {
   };
   const expand = (row: DiffRow) => {
     const index = indexOf.get(row);
-    if (index !== undefined) onView({ ...view, expanded: new Set(expanded).add(index) });
+    if (index === undefined) return;
+    if (row.kind === "fold" && !row.lines) props.onOpenFold?.(index);
+    else onView({ ...view, expanded: new Set(expanded).add(index) });
   };
+  const canOpen = (row: DiffRow) => row.kind === "fold" && (!!row.lines || !!props.onOpenFold);
   return (
     <DiffCodeScope path={file.path} rows={rows} whitespace={props.whitespace}>
       <section id={props.id} aria-label={file.path} className="min-w-0">
@@ -229,9 +240,9 @@ export function FileDiffBlock(props: {
             )}
           >
             {props.mode === "unified" ? (
-              <Unified rows={rows} expand={expand} {...props} {...picking} />
+              <Unified rows={rows} expand={expand} canOpen={canOpen} {...props} {...picking} />
             ) : (
-              <Split rows={rows} expand={expand} {...props} {...picking} />
+              <Split rows={rows} expand={expand} canOpen={canOpen} {...props} {...picking} />
             )}
           </div>
         )}
@@ -243,7 +254,8 @@ export function FileDiffBlock(props: {
 type RowsProps = Parameters<typeof FileDiffBlock>[0] & {
   rows: DiffRow[];
   expand(row: DiffRow): void;
-  onPick(target: LineTarget, event: PointerEvent<HTMLButtonElement>): void;
+  canOpen(row: DiffRow): boolean;
+  onPick(target: LineTarget, event: PointerEvent<HTMLElement>): void;
 };
 
 /** Data keys for rows: a row's line numbers, plus an occurrence count where patches repeat. */
@@ -281,7 +293,8 @@ function Unified(props: RowsProps) {
     <Rows
       items={keyed(props.rows, lineKey)}
       render={(row) => {
-        if (row.kind === "fold") return <Fold row={row} expand={props.expand} />;
+        if (row.kind === "fold")
+          return <Fold row={row} open={props.canOpen(row)} expand={props.expand} />;
         const target = targetOf(row);
         return (
           <>
@@ -294,8 +307,8 @@ function Unified(props: RowsProps) {
                 target && props.highlighted(target) && commented,
               )}
             >
-              <Gutter line={row} value={row.old} />
-              <Gutter line={row} value={row.new} />
+              <Gutter line={row} value={row.old} target={target} {...props} />
+              <Gutter line={row} value={row.new} target={target} {...props} />
               <Code line={row} target={target} onComment={props.onComment} onPick={props.onPick} />
             </div>
             {target && props.renderAnnotation(target)}
@@ -349,7 +362,8 @@ function Split(props: RowsProps) {
 
 function SplitSideRow(props: RowsProps & { pair: SplitRow; side: "old" | "new" }) {
   const { pair, side } = props;
-  if (pair.kind === "fold") return <Fold row={pair.row} expand={props.expand} />;
+  if (pair.kind === "fold")
+    return <Fold row={pair.row} open={props.canOpen(pair.row)} expand={props.expand} />;
   const line = side === "old" ? pair.left : pair.right;
   const number = side === "old" ? line?.old : line?.new;
   const target = number === undefined ? undefined : { side, line: number };
@@ -365,7 +379,7 @@ function SplitSideRow(props: RowsProps & { pair: SplitRow; side: "old" | "new" }
       >
         {line && (
           <>
-            <Gutter line={line} value={number} />
+            <Gutter line={line} value={number} target={target} {...props} />
             <Code line={line} target={target} onComment={props.onComment} onPick={props.onPick} />
           </>
         )}
@@ -382,14 +396,27 @@ const commented = "bg-ring/8 shadow-[inset_2px_0_0_var(--ring)]";
 const tone = (line: DiffLine) =>
   line.kind === "add" ? "bg-diff-add" : line.kind === "del" ? "bg-diff-del" : "";
 
-function Gutter(props: { line: DiffLine; value: number | undefined }) {
+/** A line number; where comments can start, pressing it picks the line, and a drag more. */
+function Gutter(props: {
+  line: DiffLine;
+  value: number | undefined;
+  target: LineTarget | undefined;
+  onComment?: ((range: LineRange) => void) | undefined;
+  onPick(target: LineTarget, event: PointerEvent<HTMLElement>): void;
+}) {
+  const { target } = props;
+  const pickable = !!target && !!props.onComment && props.value !== undefined;
   return (
     <span
       aria-hidden
+      data-side={pickable ? target.side : undefined}
+      data-line={pickable ? target.line : undefined}
+      onPointerDown={pickable ? (event) => props.onPick(target, event) : undefined}
       className={cn(
         "pr-2.5 text-right text-xs text-subtle-foreground select-none",
         props.line.kind === "add" && "text-status-done",
         props.line.kind === "del" && "text-status-failed",
+        pickable && "cursor-pointer hover:text-foreground",
       )}
     >
       {props.value ?? ""}
@@ -401,7 +428,7 @@ function Code(props: {
   line: DiffLine;
   target: LineTarget | undefined;
   onComment?: ((range: LineRange) => void) | undefined;
-  onPick(target: LineTarget, event: PointerEvent<HTMLButtonElement>): void;
+  onPick(target: LineTarget, event: PointerEvent<HTMLElement>): void;
 }) {
   const { target } = props;
   const sign = props.line.kind === "add" ? "+" : props.line.kind === "del" ? "−" : " ";
@@ -430,16 +457,20 @@ function Code(props: {
   );
 }
 
-function Fold(props: { row: Extract<DiffRow, { kind: "fold" }>; expand(row: DiffRow): void }) {
+function Fold(props: {
+  row: Extract<DiffRow, { kind: "fold" }>;
+  /** Its lines are known, or can be read. */
+  open: boolean;
+  expand(row: DiffRow): void;
+}) {
   const { row } = props;
-  const label = row.count === null ? "Unchanged lines" : `${row.count} unchanged lines`;
   const className =
     "flex w-full items-center justify-center gap-1 bg-muted font-sans text-xs leading-6 text-subtle-foreground";
-  if (!row.lines)
+  if (!props.open)
     return (
       <div className={className}>
         <DotsThreeIcon aria-hidden size={12} weight="bold" />
-        {label}
+        {row.count === null ? "Unchanged lines" : `${row.count} unchanged lines`}
       </div>
     );
   return (
@@ -448,8 +479,7 @@ function Fold(props: { row: Extract<DiffRow, { kind: "fold" }>; expand(row: Diff
       onClick={() => props.expand(row)}
       className={cn(className, "hover:text-foreground")}
     >
-      <CaretDownIcon aria-hidden size={12} />
-      {label}
+      {row.count === null ? "Show unchanged lines" : `Show ${row.count} unchanged lines`}
     </button>
   );
 }

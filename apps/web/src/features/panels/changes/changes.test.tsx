@@ -104,7 +104,7 @@ test("folded unchanged lines expand, and a file collapses from its header", asyn
 
   // Gaps in a provider patch have no text to show, so they are not buttons.
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
-  expect(within(outbox).queryByRole("button", { name: "17 unchanged lines" })).toBeNull();
+  expect(within(outbox).queryByRole("button", { name: /17 unchanged lines/ })).toBeNull();
 
   const header = within(replay).getByRole("button", { name: /replay\.ts/, expanded: true });
   await userEvent.click(header);

@@ -1,10 +1,9 @@
 import type { RefObject } from "react";
 import { CodeIcon } from "@phosphor-icons/react";
-import type { ForgeFile } from "@ace/protocol";
+import type { ForgeFile, ForgePrStatus } from "@ace/protocol";
 import type { FileDiff } from "@ace/ui-core";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { DeferredFileDiffBlock, type FileView } from "@/features/panels/index.ts";
 import type { PrDiffContext } from "./pr-extensions.ts";
 import { PrFileReview } from "./pr-file-review.tsx";
@@ -43,12 +42,16 @@ export function PrCodeFile(props: {
   file: ForgeFile;
   diff: FileDiff | undefined;
   context: PrDiffContext;
+  /** The conversations this range draws on the file's lines. */
+  threads: readonly ForgePrStatus["reviewThreads"][number][] | undefined;
   view: FileView;
   onView(next: FileView): void;
   mode: DiffMode;
   wrap: boolean;
   mark: PrViewedMark | undefined;
   read: HostedFileRead;
+  /** A fold of GitHub's patch was opened: its lines are read from the file. */
+  onOpenFold?: ((index: number) => void) | undefined;
 }) {
   const { file, diff, context, read } = props;
   if (!diff)
@@ -64,7 +67,13 @@ export function PrCodeFile(props: {
   // GitHub counts the lines of every file it lists; files past its list are counted here.
   const counted = file.additions + file.deletions > 0;
   return (
-    <PrFileReview file={file} diff={diff} context={context} mode={props.mode}>
+    <PrFileReview
+      file={file}
+      diff={diff}
+      context={context}
+      threads={props.threads ?? noThreads}
+      mode={props.mode}
+    >
       {(comments) => (
         <FileDiffBlock
           id={props.id}
@@ -83,6 +92,8 @@ export function PrCodeFile(props: {
           onComment={comments.onComment}
           onExtend={comments.onExtend}
           selection={comments.selection}
+          annotated={comments.annotated}
+          onOpenFold={props.onOpenFold}
           viewed={props.mark?.checked}
           body={body}
           actions={
@@ -107,22 +118,23 @@ export function PrCodeFile(props: {
 }
 
 function ViewedMark(props: { path: string; mark: PrViewedMark }) {
-  const toast = useToast();
   const { mark } = props;
   return (
     <span className="flex shrink-0 items-center gap-2 pl-2">
-      {mark.changed && <span className="text-xs text-status-needs-you">Changed</span>}
+      {mark.failed ? (
+        <span role="status" className="text-xs text-status-failed" title={mark.failed}>
+          Couldn't save
+        </span>
+      ) : (
+        mark.changed && <span className="text-xs text-status-needs-you">Changed</span>
+      )}
       {/* The label names the checkbox (Base UI links it by aria-labelledby, which outranks an
           aria-label), so it carries the path for assistive tech beside the visible "Viewed". */}
       <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Checkbox
           checked={mark.checked}
           disabled={mark.disabled}
-          onCheckedChange={(checked) =>
-            void mark
-              .change(checked)
-              .catch(() => toast.error({ title: "Couldn't save viewed state" }))
-          }
+          onCheckedChange={(checked) => mark.change(checked)}
         />
         <span aria-hidden>Viewed</span>
         <span className="sr-only">{`Viewed ${props.path}`}</span>
@@ -130,3 +142,5 @@ function ViewedMark(props: { path: string; mark: PrViewedMark }) {
     </span>
   );
 }
+
+const noThreads: readonly never[] = [];
