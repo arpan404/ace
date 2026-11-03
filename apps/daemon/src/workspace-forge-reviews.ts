@@ -172,18 +172,37 @@ export class WorkspaceForgeReviews {
       throw new Error("action_outcome_uncertain");
   }
 
+  /** Drafts a write whose outcome is still unknown sent: they stay exactly as it sent them. */
+  #fenced(pr: ForgePrRef): Set<string> {
+    const rows = this.#store.atomic((db) =>
+      db
+        .prepare(
+          "SELECT action FROM forge_hosted_writes WHERE scope=? AND state='uncertain' LIMIT 101",
+        )
+        .all(scope(pr)),
+    );
+    return new Set(
+      rows.flatMap((row) =>
+        sentDrafts(ForgeReviewAction.parse(JSON.parse(z.string().parse(row.action)))),
+      ),
+    );
+  }
   /**
    * Move drafts written on earlier commits to `headSha`. Each is replaced only while it is
    * still the draft the move read: an edit or delete meanwhile wins, and no draft is dropped.
+   * A draft an unknown write sent is never moved: once that write is found on GitHub, its
+   * draft is removed only if it is still the text sent, so a move would leave it to post twice.
    */
   async #move(pr: ForgePrRef, headSha: string, backend: GitHubForge, signal: AbortSignal) {
-    const read = this.#drafts(pr);
+    const fenced = this.#fenced(pr);
+    const read = this.#drafts(pr).filter((d) => !fenced.has(d.id));
     const moved = await backend.reviews.moveDrafts(pr.number, headSha, read, signal);
     if (!moved.length) return;
     this.#store.atomic((db) => {
+      const fencedNow = this.#fenced(pr);
       for (const draft of moved) {
         const before = read.find((d) => d.id === draft.id);
-        if (!before) continue;
+        if (!before || fencedNow.has(draft.id)) continue;
         db.prepare("UPDATE forge_hosted_drafts SET draft=? WHERE scope=? AND id=? AND draft=?").run(
           JSON.stringify(ForgeReviewDraft.parse(draft)),
           scope(pr),
@@ -287,6 +306,8 @@ export class WorkspaceForgeReviews {
     // Drafts written before a push follow their lines first; any that can't stay outdated
     // and the review is refused rather than sent without them.
     if (action.kind === "submit") {
+      // A draft an unknown write sent can't move, so say why before trying to move it.
+      this.#assertAvailable(pr, action);
       const named = this.#drafts(pr).filter((d) => action.draftIds.includes(d.id));
       if (named.some((d) => d.anchor.commit !== action.headSha))
         await this.#move(pr, action.headSha, backend, signal);
