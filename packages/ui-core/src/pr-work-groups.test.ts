@@ -51,7 +51,7 @@ test("open pull requests group as needs you, agents working, waiting on others a
 
 test("a pull request stays with its agent while it works, even once it could merge", () => {
   expect(grouped([row(1)], { 1: working })).toEqual({ "Agents working": [1] });
-  expect(prNextAction("merge", working)).toBe("Open thread");
+  expect(prNextAction(row(1), "merge", working, "me")).toBe("Open thread");
 });
 
 test("an agent's question and a review asked of you come first, whatever their age", () => {
@@ -70,7 +70,7 @@ function words(pr: ForgePrRow, thread?: LinkedThread) {
 test("each row says its state in words, in the tone of its status", () => {
   expect(words(row(1, { ci: "failure" }))).toEqual({ words: "Checks failing", tone: "failed" });
   expect(words(row(1, { author: "sam", reviewers: ["me"] }))).toEqual({
-    words: "Your review",
+    words: "sam asked you",
     tone: undefined,
   });
   expect(words(row(1, { behind: true }))).toEqual({ words: "Behind main", tone: "needs-you" });
@@ -83,4 +83,18 @@ test("each row says its state in words, in the tone of its status", () => {
     words(row(1, { author: "sam", reviewDecision: "REVIEW_REQUIRED", reviewers: ["dana", "lee"] })),
   ).toEqual({ words: "Waiting on dana +1", tone: "idle" });
   expect(words(row(1, { state: "merged" }))).toEqual({ words: "Merged", tone: "waiting" });
+});
+
+function action(pr: ForgePrRow) {
+  const { step } = rowStep(pr, "me", undefined, []);
+  return prNextAction(pr, step, undefined, "me");
+}
+
+test("a row's action says what it does, never the row's state", () => {
+  expect(action(row(1, { state: "draft" }))).toBe("Mark ready");
+  expect(action(row(1, { state: "draft", author: "sam" }))).toBe("View");
+  expect(action(row(1, { author: "sam", reviewDecision: "REVIEW_REQUIRED" }))).toBe("View");
+  expect(action(row(1, { state: "merged" }))).toBe("View");
+  expect(action(row(1, { behind: true }))).toBe("Update branch");
+  expect(action(row(1, { author: "sam", reviewers: ["me"] }))).toBe("Review");
 });

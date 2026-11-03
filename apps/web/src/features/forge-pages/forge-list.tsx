@@ -20,8 +20,8 @@ type Entry<R> =
   | { kind: "group"; group: ForgeGroup<R> }
   | { kind: "row"; row: R; group: string; last: boolean };
 
-/** A group's heading line: its words, with 20px above and 6px below. */
-const headingHeight = 42;
+/** A group's heading line: its words, with 24px above and 4px below. */
+const headingHeight = 44;
 
 /**
  * The rows of a Code review list (Pull requests, Issues, Inbox) across the main column: its

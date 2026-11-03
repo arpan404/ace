@@ -1,6 +1,12 @@
-import type { ReactNode } from "react";
-import { ArrowSquareOutIcon, ChatsCircleIcon, PlusIcon } from "@phosphor-icons/react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import type { MouseEvent, ReactNode } from "react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu.tsx";
+import { MenuItem } from "@/components/ui/menu.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
+import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { formatAge, type LinkedThread } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useNow } from "@/lib/time.ts";
@@ -46,12 +52,8 @@ export function Author(props: { login: string; avatar?: string | undefined }) {
 export function Thread(props: { thread: LinkedThread | undefined }) {
   if (!props.thread) return null;
   return (
-    <span
-      className="inline-flex min-w-0 items-center gap-1"
-      title={`Thread: ${props.thread.title}`}
-    >
-      <ChatsCircleIcon aria-hidden size={12} className="shrink-0" />
-      <span className="truncate">{props.thread.title}</span>
+    <span className="min-w-0 truncate" title={`Thread: ${props.thread.title}`}>
+      {`Thread: ${props.thread.title}`}
     </span>
   );
 }
@@ -70,55 +72,109 @@ export function Dot() {
   );
 }
 
-/**
- * A group of rows: its name, its count ("3", or "2 of 12" while some are unread) and a
- * hairline to the edge.
- */
+/** A group of rows: its name and its count ("3", or "2 of 12" while some are unread), with room above and no rule; the rows' own hairlines are the only lines. */
 export function GroupHeader(props: { label: string; count: number | string | undefined }) {
   return (
-    <h2 className="flex items-center gap-2 px-(--forge-gutter) pt-5 pb-1.5 text-xs font-medium text-muted-foreground">
+    <h2 className="flex items-center gap-2 px-(--forge-gutter) pt-6 pb-1 text-xs font-medium text-muted-foreground">
       {props.label}
       {props.count !== undefined && (
         <span className="font-normal text-subtle-foreground tabular-nums">{props.count}</span>
       )}
-      <span aria-hidden className="h-px flex-1 bg-border" />
     </h2>
   );
 }
 
+/** A text action at a row's right: a word in the text colour, brighter on hover. */
+export const rowActionClass =
+  "inline-flex h-6 items-center rounded-sm px-1.5 text-meta font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
+
+/** Open a pull request or issue on GitHub, saying so when the browser can't be reached. */
+export function useOpenOnGitHub() {
+  const openWeb = useOpenWebAddress();
+  const toast = useToast();
+  return (url: string) =>
+    void openWeb(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+}
+
+/** ⌘/Ctrl-click on a row's link opens it on GitHub instead of in ace. */
+export function onModifiedClick(url: string | undefined, open: (url: string) => void) {
+  return (event: MouseEvent<HTMLElement>) => {
+    if (!url || !(event.metaKey || event.ctrlKey)) return;
+    event.preventDefault();
+    open(url);
+  };
+}
+
 /**
- * The actions a hovered or focused row offers without opening it, at its top right, or left of
- * a right column (`beside`) the row keeps for its status.
+ * A list row's frame: the row itself (its link), and what it offers without opening it. On hover
+ * or focus its right column gives way to text actions, right-aligned (the next action, then New
+ * thread); a right click opens a menu with the rest (Open on GitHub, Copy link). `pinned` keeps
+ * the actions showing (a row picked for merging).
  */
-export function RowActions(props: {
-  url: string;
-  onNewThread(): void;
-  onOpenExternal(): void;
-  children?: ReactNode;
-  beside?: boolean | undefined;
+export function RowShell(props: {
+  /** Names the row's menu: "#229 Reconnect the client worker". */
+  label: string;
+  url: string | undefined;
+  /** The row's text actions; New thread goes last when offered. */
+  actions: ReactNode;
+  onNewThread?: (() => void) | undefined;
+  /** Further menu items, before Open on GitHub. */
+  menu?: ReactNode;
+  pinned?: boolean | undefined;
+  selected?: boolean | undefined;
+  /** The last of its group: no rule under it. */
+  last?: boolean | undefined;
+  className?: string | undefined;
+  children: ReactNode;
 }) {
+  const openOnGitHub = useOpenOnGitHub();
+  const url = props.url;
   return (
-    <span
-      className={cn(
-        "absolute hidden items-center gap-0.5 rounded-md bg-hover group-focus-within/row:flex group-hover/row:flex",
-        props.beside
-          ? "top-1/2 right-[calc(var(--forge-gutter)+var(--row-side))] -translate-y-1/2"
-          : "top-1.5 right-[calc(var(--forge-gutter)-0.5rem)]",
-      )}
-    >
-      {props.children}
-      <IconButton
-        size="sm"
-        icon={PlusIcon}
-        label="New thread from this"
-        onClick={props.onNewThread}
-      />
-      <IconButton
-        size="sm"
-        icon={ArrowSquareOutIcon}
-        label="Open on GitHub"
-        onClick={props.onOpenExternal}
-      />
-    </span>
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <div
+            className={cn(
+              "group/row relative",
+              !props.last && "border-b border-border",
+              props.className,
+            )}
+          />
+        }
+      >
+        {props.children}
+        <span
+          className={cn(
+            "absolute inset-y-0 right-0 items-center pr-[calc(var(--forge-gutter)-0.375rem)]",
+            props.pinned ? "flex" : "hidden group-focus-within/row:flex group-hover/row:flex",
+            props.selected ? "bg-active" : "bg-background",
+          )}
+        >
+          <span
+            className={cn("flex h-full items-center gap-0.5 pl-3", !props.selected && "bg-hover")}
+          >
+            {props.actions}
+            {props.onNewThread && (
+              <>
+                {props.actions && <Dot />}
+                <button type="button" className={rowActionClass} onClick={props.onNewThread}>
+                  New thread
+                </button>
+              </>
+            )}
+          </span>
+        </span>
+      </ContextMenuTrigger>
+      <ContextMenuContent aria-label={`Actions for ${props.label}`}>
+        {props.menu}
+        {props.onNewThread && <MenuItem onClick={props.onNewThread}>New thread</MenuItem>}
+        {url && (
+          <>
+            <MenuItem onClick={() => openOnGitHub(url)}>Open on GitHub</MenuItem>
+            <MenuItem onClick={() => void navigator.clipboard?.writeText(url)}>Copy link</MenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

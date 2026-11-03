@@ -85,13 +85,17 @@ test("Reviewing narrows the list to pull requests asking for your review", async
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
 });
 
-test("the state menu counts each state and Merged lists merged pull requests", async () => {
+test("the quick views count each state, and Merged lists merged pull requests", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
-  await userEvent.click(await screen.findByRole("button", { name: /^State: Open/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: /^Merged\s*1$/ }));
+  const views = await screen.findByRole("group", { name: "Views" });
+  await userEvent.click(await within(views).findByRole("button", { name: /^Merged\s*1$/ }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["212"]));
+  expect(within(views).getByRole("button", { name: /^Merged/, pressed: true })).toBeTruthy();
+  // Back to the open list from the same row of views.
+  await userEvent.click(within(views).getByRole("button", { name: /^All open/ }));
+  await waitFor(async () => expect(await numbers("Pull requests")).not.toContain("212"));
 });
 
 test("a label from the Filters menu keeps only pull requests carrying it", async () => {

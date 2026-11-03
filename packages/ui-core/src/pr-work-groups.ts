@@ -93,7 +93,7 @@ function waitingWords(row: ForgePrRow, local: LocalCheckResult): PrStatusWords {
   return { words: "Waiting", tone: "idle" };
 }
 
-/** A row's state in words for its right column ("Checks failing", "Your review", "Ready to merge"). */
+/** A row's state in words for its right column ("Checks failing", "sam asked you", "Ready to merge"). */
 export function prStatusWords(
   row: ForgePrRow,
   step: PrNextStep,
@@ -102,7 +102,8 @@ export function prStatusWords(
 ): PrStatusWords {
   if (step === "none") return { words: prWords[row.state], tone: prTone[row.state] };
   if (step === "answer") return { words: "Agent needs you", tone: "needs-you" };
-  if (step === "review") return { words: "Your review", tone: undefined };
+  // Why it is the person's: who asked, never the group's own words again.
+  if (step === "review") return { words: `${row.author} asked you`, tone: undefined };
   if (thread?.working) return { words: "Agent working", tone: "working" };
   switch (step) {
     case "resolve":
@@ -122,9 +123,20 @@ export function prStatusWords(
   }
 }
 
-/** The word for what moves a row on: its step's button, Open thread for an agent's, else Open. */
-export function prNextAction(step: PrNextStep, thread: LinkedThread | undefined): string {
-  if (step === "answer" || step === "review") return prStepLabels[step] ?? "Open";
+/**
+ * The word for what moves a row on, saying what pressing it does: its step's button (Review,
+ * Merge, Update branch), Open thread for an agent's, Mark ready on the viewer's own draft, else
+ * View. Never a state word ("Open"), so it can't be read as the row's state.
+ */
+export function prNextAction(
+  row: Pick<ForgePrRow, "state" | "author">,
+  step: PrNextStep,
+  thread: LinkedThread | undefined,
+  viewer: string | undefined,
+): string {
+  if (step === "answer" || step === "review") return prStepLabels[step] ?? "View";
   if (thread?.working && step !== "none") return "Open thread";
-  return prStepLabels[step] ?? "Open";
+  if (step === "draft" && viewer && row.author.toLowerCase() === viewer.toLowerCase())
+    return "Mark ready";
+  return prStepLabels[step] ?? "View";
 }

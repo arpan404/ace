@@ -80,3 +80,41 @@ export function inboxTarget(row: {
     url: row.url ?? `https://${row.repository.host}/${row.repository.owner}/${row.repository.name}`,
   };
 }
+
+/**
+ * Why a notification reached the person, as a short sentence about them for the row's second
+ * line, so it never repeats the group it sits in ("Review requested"): "sam asked you to
+ * review", "You were mentioned", "Assigned to you", "Merged". `asker` is the pull request's
+ * author when known: a review is asked by them nearly always.
+ */
+export function inboxWhyWords(
+  row: { reason: string; state?: string | undefined },
+  asker?: string | undefined,
+): string {
+  switch (row.reason) {
+    case "review_requested":
+      return asker ? `${asker} asked you to review` : "You were asked to review";
+    case "mention":
+      return "You were mentioned";
+    case "team_mention":
+      return "Your team was mentioned";
+    case "assign":
+      return "Assigned to you";
+    case "author":
+      return "Activity on yours";
+    case "comment":
+      return "New comments";
+    case "state_change":
+      return row.state === "merged"
+        ? "Merged"
+        : row.state === "closed"
+          ? "Closed"
+          : row.state === "open"
+            ? "Reopened"
+            : "State changed";
+    case "ci_activity":
+      return "Workflow run";
+    default:
+      return inboxReasonWords(row.reason);
+  }
+}

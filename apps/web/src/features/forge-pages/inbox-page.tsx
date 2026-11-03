@@ -5,7 +5,6 @@ import type { ForgeInboxList, ForgeInboxRow } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
@@ -24,7 +23,8 @@ import {
 import { useProjectRepositories } from "./inbox-projects.ts";
 import { TriageKeys } from "./triage-keys.tsx";
 import { ProjectMenu } from "./project-menu.tsx";
-import { countWords } from "./quick-views.tsx";
+import { countWords, QuickViews } from "./quick-views.tsx";
+import { cachedRow } from "./lists.ts";
 import { InboxRow } from "./inbox-row.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
@@ -142,60 +142,70 @@ export function InboxPage(props: {
           </Button>
         ) : null
       }
+      views={
+        <QuickViews
+          label="Views"
+          value={search.view ?? "unread"}
+          onValue={(view) => onSearch({ view: view === "all" ? "all" : undefined })}
+          views={[
+            {
+              id: "unread",
+              label: "Unread",
+              count: countWords(
+                rowsForProjects(everything.rows, choice.picked, projectOf).filter(
+                  (row) => row.unread,
+                ).length,
+                undefined,
+                !everything.more,
+              ),
+            },
+            { id: "all", label: "All", count: undefined },
+          ]}
+        />
+      }
       menus={
-        <>
-          <FilterMenu
-            label="Read state"
-            value={search.view ?? "unread"}
-            options={[
-              { value: "unread" as const, label: "Unread" },
-              { value: "all" as const, label: "All" },
-            ]}
-            onValueChange={(view) => onSearch({ view: view === "all" ? "all" : undefined })}
-          />
-          <FiltersMenu
-            sections={[
-              {
-                kind: "one",
-                id: "only",
-                label: "Involvement",
-                value: search.only ?? "",
-                choices: [
-                  { value: "", label: "Everything" },
-                  { value: "participating", label: "Participating" },
-                ],
-                onChange: (value) =>
-                  onSearch({ only: value === "participating" ? "participating" : undefined }),
-              },
-              {
-                kind: "one",
-                id: "reason",
-                label: "Reason",
-                value: search.reason ?? "",
-                choices: [
-                  { value: "", label: "Any reason" },
-                  ...reasonChoices([...everything.rows, ...allRows], search.reason),
-                ],
-                onChange: (value) => onSearch({ reason: value || undefined }),
-              },
-              {
-                kind: "one",
-                id: "repository",
-                label: "Repository",
-                value: search.repo ?? "",
-                choices: [
-                  { value: "", label: "Every repository" },
-                  ...repositoryChoices(
-                    [...everything.rows, ...seenRows(cache, project)],
-                    search.repo,
-                  ),
-                ],
-                onChange: (value) => onSearch({ repo: value || undefined }),
-              },
-            ]}
-            onClear={() => onSearch({ only: undefined, reason: undefined, repo: undefined })}
-          />
-        </>
+        <FiltersMenu
+          sections={[
+            {
+              kind: "one",
+              id: "only",
+              label: "Involvement",
+              value: search.only ?? "",
+              choices: [
+                { value: "", label: "Everything" },
+                { value: "participating", label: "Participating" },
+              ],
+              onChange: (value) =>
+                onSearch({ only: value === "participating" ? "participating" : undefined }),
+            },
+            {
+              kind: "one",
+              id: "reason",
+              label: "Reason",
+              value: search.reason ?? "",
+              choices: [
+                { value: "", label: "Any reason" },
+                ...reasonChoices([...everything.rows, ...allRows], search.reason),
+              ],
+              onChange: (value) => onSearch({ reason: value || undefined }),
+            },
+            {
+              kind: "one",
+              id: "repository",
+              label: "Repository",
+              value: search.repo ?? "",
+              choices: [
+                { value: "", label: "Every repository" },
+                ...repositoryChoices(
+                  [...everything.rows, ...seenRows(cache, project)],
+                  search.repo,
+                ),
+              ],
+              onChange: (value) => onSearch({ repo: value || undefined }),
+            },
+          ]}
+          onClear={() => onSearch({ only: undefined, reason: undefined, repo: undefined })}
+        />
       }
     >
       {!project ? (
@@ -254,6 +264,12 @@ export function InboxPage(props: {
           renderRow={(row, _group, last) => {
             const repo = repositoryParam(row.repository);
             const owner = projectOf(row);
+            // Who asked for a review: the pull request's author, when a list already read it.
+            const asker =
+              row.reason === "review_requested" && row.type === "PullRequest" && row.number
+                ? cachedRow(cache, owner ?? project ?? "", "prList", row.number, row.repository)
+                    ?.author
+                : undefined;
             return (
               <InboxRow
                 row={row}
@@ -263,6 +279,7 @@ export function InboxPage(props: {
                   repo: owner || repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
                   back: `/inbox${listAddress}`,
                 }}
+                asker={asker}
                 onOpenWeb={open}
                 onWrite={(action) => triage(row, action)}
                 last={last}

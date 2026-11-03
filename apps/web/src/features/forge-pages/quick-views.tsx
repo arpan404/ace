@@ -16,15 +16,19 @@ export interface QuickView<T extends string> {
   count: string | undefined;
 }
 
-/** A list's quick views under its bar ("All open", "Needs you"…): words with their counts. */
+/**
+ * A list's quick views ("Needs you", "All open", "Closed"…): words with their counts, one
+ * pressed. They hold the list's state too, so there is no separate state menu.
+ */
 export function QuickViews<T extends string>(props: {
   label: string;
   views: readonly QuickView<T>[];
-  value: T;
+  /** The pressed view; none when the address asks for something no view names. */
+  value: T | undefined;
   onValue(value: T): void;
 }) {
   return (
-    <div role="group" aria-label={props.label} className="-ml-2 flex flex-wrap gap-0.5 pb-2">
+    <div role="group" aria-label={props.label} className="flex shrink-0 gap-0.5">
       {props.views.map((view) => {
         const on = view.id === props.value;
         return (
@@ -34,7 +38,7 @@ export function QuickViews<T extends string>(props: {
             aria-pressed={on}
             onClick={() => props.onValue(view.id)}
             className={cn(
-              "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-ui transition-colors duration-(--motion-fast) focus-ring",
+              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
               on ? "bg-hover text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >

@@ -14,6 +14,7 @@ import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgePrRow, VerifyRun } from "@ace/protocol";
 import type { MergeRun } from "./merge-run.ts";
+import { useMarkReady } from "./mark-ready.ts";
 import { useStepAction } from "./pr-step.tsx";
 
 const keyOf = (row: ForgePrRow) => workKey(row.ref.repository, row.ref.number);
@@ -53,6 +54,7 @@ export function useRowSteps(input: {
     return found;
   }, [rows, viewer, linked, runs]);
   const act = useStepAction(input.back);
+  const markReady = useMarkReady();
   const navigate = useNavigate();
   const threadOf = (row: ForgePrRow): LinkedThread | undefined => linked.get(keyOf(row));
   const stepOf = (row: ForgePrRow): RowStep =>
@@ -68,7 +70,7 @@ export function useRowSteps(input: {
     const { step, local } = stepOf(row);
     const thread = threadOf(row);
     const status = prStatusWords(row, step, local, thread);
-    const label = prNextAction(step, thread);
+    const label = prNextAction(row, step, thread, viewer);
     const group = groupOf(row);
     // Merging picks the row for a verified merge; one without a known head merges on its page.
     if (group === "merge" && merge && row.headSha)
@@ -88,6 +90,11 @@ export function useRowSteps(input: {
           label,
           onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
         },
+      };
+    if (label === "Mark ready")
+      return {
+        status,
+        action: { label, onPress: () => void markReady(input.projectOf(row), row) },
       };
     if (group === "wait" || group === "merge")
       return { status, action: { label, onPress: () => openPr(row) } };
