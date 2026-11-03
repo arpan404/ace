@@ -50,9 +50,9 @@ function SearchBox(props: { label: string; value: string; onValue(value: string)
 /**
  * A list page's frame: one pinned bar over the rows, with the project menu, search, the quick
  * views and Filters on the left and the list's one action on the right. The page's title is the
- * top bar's (or the Code review panel's), so the bar carries none. While the bar has room the
- * quick views sit on its line; narrower, they take a line of their own under it. Nothing else
- * wraps: the search narrows first. Every band shares one gutter (`--forge-gutter`), so the bar
+ * top bar's (or the Code review panel's), so the bar carries none. The quick views take a line of
+ * their own under it. Bar and rows keep to the same centred column as a pull request's page, so
+ * every Code review page lines up. Nothing else wraps: the search narrows first. Every band shares one gutter (`--forge-gutter`), so the bar
  * and the rows start on the same edge. Nothing changes size while scrolling, so the rows never
  * jump.
  */
@@ -93,18 +93,12 @@ export function ListFrame(props: {
       className={cn("h-full overflow-y-auto", forgeGutter)}
       onScroll={(event) => onScroll(event.currentTarget.scrollTop)}
     >
-      <header
-        ref={header}
-        className={cn(
-          "@container/bar sticky top-0 z-[2] bg-background px-(--forge-gutter)",
-          toolbarEdge,
-        )}
-      >
+      <header ref={header} className={cn("sticky top-0 z-[2] bg-background", toolbarEdge)}>
         <div
           role="toolbar"
           aria-label={filtersLabel[props.kind]}
           style={barGrid(!!props.onSearch, !!props.views)}
-          className="grid min-w-0 [grid-template-areas:var(--bar-areas)] [grid-template-columns:var(--bar-cols)] items-center gap-x-1 py-2 @min-[1080px]/bar:[grid-template-areas:var(--bar-areas-wide)] @min-[1080px]/bar:[grid-template-columns:var(--bar-cols-wide)]"
+          className="mx-auto grid w-full max-w-[64rem] min-w-0 px-(--forge-gutter) [grid-template-areas:var(--bar-areas)] [grid-template-columns:var(--bar-cols)] items-center gap-x-1 py-2"
         >
           <div className="flex min-w-0 [grid-area:lead]">{props.lead}</div>
           {props.onSearch && (
@@ -113,22 +107,20 @@ export function ListFrame(props: {
             </div>
           )}
           {props.views && (
-            // Its own line under the bar while the bar is narrow; on the bar's line once it fits.
-            <div className="-ml-2 flex min-w-0 pt-1 [grid-area:views] @min-[1080px]/bar:ml-0 @min-[1080px]/bar:pt-0">
-              {props.views}
-            </div>
+            // Its own line under the bar, within the page's column.
+            <div className="-ml-2 flex min-w-0 pt-1 [grid-area:views]">{props.views}</div>
           )}
           <div className="flex min-w-0 items-center [grid-area:menus]">{props.menus}</div>
           <div className="flex shrink-0 items-center justify-end [grid-area:actions]">
             {props.actions}
           </div>
         </div>
-        {props.strip}
+        <div className={cn(pageColumn, "px-(--forge-gutter)")}>{props.strip}</div>
       </header>
-      {props.children}
+      <div className={pageColumn}>{props.children}</div>
       {props.footer && (
-        <div className="sticky bottom-0 z-[2] border-t border-border bg-background px-(--forge-gutter)">
-          {props.footer}
+        <div className="sticky bottom-0 z-[2] border-t border-border bg-background">
+          <div className={cn(pageColumn, "px-(--forge-gutter)")}>{props.footer}</div>
         </div>
       )}
     </div>
@@ -136,8 +128,8 @@ export function ListFrame(props: {
 }
 
 /**
- * The bar's grid, by what it holds: the project menu, the search (7–12rem), the quick views, the
- * menus, room, then the action. Narrow, the quick views take a second line across the bar.
+ * The bar's grid, by what it holds: the project menu, the search (7–12rem), the menus, room,
+ * then the action; the quick views take a second line across it.
  */
 interface Cell {
   area: string;
@@ -148,22 +140,17 @@ const areas = (cells: Cell[]) => cells.map((c) => c.area).join(" ");
 const columns = (cells: Cell[]) => cells.map((c) => c.column).join(" ");
 
 function barGrid(search: boolean, views: boolean): CSSProperties {
-  const row = (inline: boolean) => [
+  const row = [
     ...cell("lead", "auto"),
     ...cell("search", "minmax(7rem,12rem)", search),
-    ...cell("views", "auto", views && inline),
     ...cell("menus", "auto"),
     ...cell("gap", "minmax(0,1fr)"),
     ...cell("actions", "auto"),
   ];
-  const narrow = row(false);
-  const wide = row(true);
-  const below = views ? ` "${narrow.map(() => "views").join(" ")}"` : "";
+  const below = views ? ` "${row.map(() => "views").join(" ")}"` : "";
   return {
-    ["--bar-areas" as string]: `"${areas(narrow)}"${below}`,
-    ["--bar-cols" as string]: columns(narrow),
-    ["--bar-areas-wide" as string]: `"${areas(wide)}"`,
-    ["--bar-cols-wide" as string]: columns(wide),
+    ["--bar-areas" as string]: `"${areas(row)}"${below}`,
+    ["--bar-cols" as string]: columns(row),
   };
 }
 
@@ -188,6 +175,9 @@ function useSteadyHeader(scroller: { current: HTMLDivElement | null }) {
   }, [scroller]);
   return header;
 }
+
+/** The lists' column: as wide as a pull request's or an issue's page, centred, so every page lines up. */
+const pageColumn = "mx-auto w-full max-w-[64rem]";
 
 /** The page's one gutter: 16px in a narrow column, 32px beside it. */
 export const forgeGutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
