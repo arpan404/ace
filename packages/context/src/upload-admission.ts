@@ -6,6 +6,8 @@ import { requireContext } from "./errors.ts";
 import { Metadata } from "./metadata.ts";
 import type { UploadOptions, UploadLimits } from "./upload-options.ts";
 
+const UploadCount = z.object({ count: z.number() });
+
 /** A byte limit as people read it: whole MiB or GiB. */
 export function formatLimit(bytes: number): string {
   const gib = bytes / 1024 ** 3;
@@ -39,9 +41,7 @@ export async function beginUpload(
     "quota",
     `ace's attachment storage is full (${formatLimit(limits.globalBytes)} across all threads), which keeps files from filling your disk. Free space in Settings > Storage or delete threads you no longer need, then try again.`,
   );
-  const count = z
-    .object({ count: z.number() })
-    .parse(metadata.get("SELECT COUNT(*) AS count FROM uploads"));
+  const count = UploadCount.parse(metadata.get("SELECT COUNT(*) AS count FROM uploads"));
   requireContext(
     count.count < limits.uploads,
     "quota",

@@ -5,6 +5,8 @@ import { chromeInput } from "./chrome-input.ts";
 import type { EmbeddedTabs } from "./embedded-tabs.ts";
 import { modelScreenshot } from "./model-screenshot.ts";
 
+const Screenshot = z.object({ data: z.string().max(768 * 1024) });
+
 /**
  * One desktop tab's page, driven through that tab's own CDP relay. The shown tab keeps the
  * desktop's native key presses and the panel's size; a background tab uses CDP key events and
@@ -49,9 +51,7 @@ export function embeddedTabPage(
     wheel: (x, y) => input.wheel(x, y),
     screenshot: async (format) => {
       if (format === "jpeg") return modelScreenshot(cdp());
-      const result = z
-        .object({ data: z.string().max(768 * 1024) })
-        .parse(await cdp().send("Page.captureScreenshot", { format }));
+      const result = Screenshot.parse(await cdp().send("Page.captureScreenshot", { format }));
       return Buffer.from(result.data, "base64");
     },
     resize: async (width, height) => {

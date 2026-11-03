@@ -1,6 +1,7 @@
 import type { Command, CommandResult, ThreadId } from "@ace/protocol";
 import type { Engine } from "../engine/index.ts";
 import type { Store } from "../store.ts";
+import { messagedChildStatus } from "./child-status.ts";
 import type { DelegationJournal } from "./journal.ts";
 
 /**
@@ -109,11 +110,9 @@ export function delegationCommandPolicy(deps: {
     }
     const child = deps.store.getThread(p.threadId);
     if (child) {
-      deps.engine.delegationStarted(edge, { ...child, status: { state: "waiting", on: "queue" } });
-      deps.engine.updateChild(edge.parentId, {
-        ...child,
-        status: { state: "waiting", on: "queue" },
-      });
+      const shown = { ...child, status: messagedChildStatus(child.status) };
+      deps.engine.delegationStarted(edge, shown);
+      deps.engine.updateChild(edge.parentId, shown);
     }
     deps.changed();
     return accepted;

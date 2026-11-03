@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// The tabs of the home screen. `compose` is the detached New thread button, never a page.
-/// `pulls` is never a page any more: asking for it (a search command) opens More's Pull requests.
-enum InboxTab: Hashable { case threads, chats, spade, pulls, compose }
+/// The tabs of the home screen: ace (the threads and chats) and Spade. `compose` is the detached
+/// compose button, never a page. `pulls` is never a page: asking for it (the header's button, a
+/// search command) opens Pull requests over the home screen.
+enum InboxTab: Hashable { case threads, spade, pulls, compose }
 
-/// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads,
-/// Chats (plain chats with no project, ADR 0099), Pulls (the web's Pull requests and Issues lists) and the detached New thread button. Grouping
-/// and wording come from each machine's runtime. A row and its thread belong to their machine.
+/// The single inbox (issue #560) across every paired machine, in a system tab bar: ace (Inbox,
+/// Chats, plain chats with no project (ADR 0099), Snoozed and Settled), Spade and the detached
+/// compose button. Grouping and wording come from each machine's runtime. A row and its thread
+/// belong to their machine.
 struct InboxView: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -19,7 +21,6 @@ struct InboxView: View {
     @State private var tab = InboxTab.threads
     @State private var threadsPath: [InboxRoute] = []
     @State private var pullsPath: [InboxRoute] = []
-    @State private var chatsPath: [InboxRoute] = []
     /// Each tab's list as a drawer over its open page in a compact window (`ThreadDrawer`).
     @State private var threadsDrawer = ThreadDrawer()
     @State private var pullsDrawer = ThreadDrawer()
@@ -32,6 +33,8 @@ struct InboxView: View {
     @State private var threadsTab = "inbox"
     @State private var composing = false
     @State private var showingSettings = false
+    /// Pull requests, opened from the header over the home screen.
+    @State private var showingPulls = false
     @State private var pairing = false
     /// Where Settings opens: its root, or Machines from the connection title.
     @State private var settingsStart: [SettingsRoute] = []
@@ -119,32 +122,35 @@ struct InboxView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            Tab("Threads", systemImage: "text.bubble", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
-            Tab("Chats", systemImage: "bubble.left.and.bubble.right", value: InboxTab.chats) { chats }
-            // Spade, ace's cloud agent, before it launches: its own place in the bar. Pull requests
-            // live in More.
-            Tab(value: InboxTab.spade) { SpadeSoonScreen() } label: {
+            Tab("ace", systemImage: "bubble.left", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
+            // Spade, ace's cloud agent, before it launches: its own place in the bar.
+            Tab(value: InboxTab.spade) {
+                SpadeSoonScreen()
+                    .modifier(HomeBottomBar(tab: $tab, compose: inbox.canStartThreads ? { compose() } : nil,
+                                            composeLabel: composesChat ? "New chat" : "New thread"))
+            } label: {
                 Label { Text("Spade") } icon: { Image(uiImage: SpadeMark.tabImage) }
             }
             if inbox.canStartThreads {
-                Tab("New thread", systemImage: "square.and.pencil", value: InboxTab.compose, role: Self.detachedRole) { Color.clear }
+                Tab(composesChat ? "New chat" : "New thread", systemImage: "square.and.pencil", value: InboxTab.compose,
+                    role: Self.detachedRole) { Color.clear }
             }
         }
         .tint(AceTheme.Colours.foreground)
         .onChange(of: tab) { old, new in
             // Coming back to a tab shows its page, never the drawer left out when it was left.
             if new != .compose { threadsDrawer.close(); pullsDrawer.close() }
-            // Pull requests (a search command) open in More, from where the person is.
+            // Pull requests (a search command) open over the home screen, from where the person is.
             if new == .pulls {
                 tab = old == .pulls ? .threads : old
-                settingsStart = [.pulls]
-                showingSettings = true
+                showingPulls = true
                 return
             }
-            // The compose button opens the New thread sheet and leaves the tab where it was.
+            // The compose button starts a chat on Chats, else a thread, and leaves the tab where
+            // it was.
             guard new == .compose else { return }
             tab = old == .compose ? .threads : old
-            startThread()
+            compose()
         }
         .onChange(of: threadsPath) { old, new in
             pathChanged(.threads, old: old, new: new)
@@ -163,7 +169,6 @@ struct InboxView: View {
             if threadsPath.isEmpty { openThread(key) }
         }
         .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
-        .onChange(of: chatsPath) { old, new in pathChanged(.chats, old: old, new: new) }
         .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -181,6 +186,11 @@ struct InboxView: View {
                           machines: machines, lock: lock, start: settingsStart)
                 .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
         }
+        .sheet(isPresented: $showingPulls) {
+            SettingsSheet(inbox: inbox, places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }),
+                          machines: machines, lock: lock, root: .pulls)
+                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
+        }
         .sheet(isPresented: $pairing) {
             if let machines {
                 NavigationStack {
@@ -195,6 +205,13 @@ struct InboxView: View {
                 .tint(AceTheme.Colours.foreground)
             }
         }
+    }
+    /// The tab showing in the list says what compose starts there (the runtimes' tab words).
+    private var composesChat: Bool { inbox.merged.tabs.first { $0.id == threadsTab }?.chats == true }
+    /// The compose button: a new chat while Chats shows, else a new thread.
+    private func compose() {
+        if composesChat { composeProject = NewThreadDraft.chat }
+        startThread()
     }
     /// New thread needs a computer; with none paired it offers pairing instead.
     private func startThread() {
@@ -236,7 +253,9 @@ struct InboxView: View {
                                               page: { route in settingsStart = [.settings] + route; showingSettings = true },
                                               // A search result off the list (archived) opens like a
                                               // row: the open page and its client move together.
-                                              archived: { key in openThread(key, listed: false) }),
+                                              archived: { key in openThread(key, listed: false) },
+                                              pulls: { showingPulls = true },
+                                              newChat: { composeProject = NewThreadDraft.chat; startThread() }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -252,25 +271,6 @@ struct InboxView: View {
             if let client = inbox.client(key.machineId) {
                 ThreadSidePanel(model: client, threadId: key.id, part: part) { child in
                     client.open(child); path.wrappedValue.append(.thread(InboxKey(machineId: key.machineId, id: child)))
-                }
-            }
-        }
-    }
-
-    /// The Chats tab: its list and the chats it opens in the thread view, on its own stack.
-    private var chats: some View {
-        ChatsStack(inbox: inbox, path: $chatsPath,
-                   actions: ChatsActions(open: { key in openThread(key) },
-                                         newChat: {
-                                             composeProject = NewThreadDraft.chat
-                                             startThread()
-                                         },
-                                         rename: { key in renamingRow = key },
-                                         settings: { settingsStart = []; showingSettings = true },
-                                         machines: { settingsStart = [.settings, .machines]; showingSettings = true })) { key in
-            if let client = inbox.client(key.machineId) {
-                ThreadPage(client: client, id: key.id) { child in
-                    client.open(child); chatsPath.append(.thread(InboxKey(machineId: key.machineId, id: child)))
                 }
             }
         }
@@ -413,19 +413,8 @@ struct InboxView: View {
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
         withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close() }
-        // A chat opens on the Chats tab, in the same thread view.
-        if client.inbox[key.id]?.chat == true {
-            tab = .chats
-            if chatsPath == [.thread(key)], openMachine == key.machineId { return }
-            if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
-            if openTab == .threads { threadsPath = [] }
-            openMachine = key.machineId
-            openTab = .chats
-            client.open(key.id)
-            chatsPath = [.thread(key)]
-            return
-        }
-        if openTab == .chats { chatsPath = [] }
+        // A chat opens over the Chats tab, so Back from it lands among the chats.
+        if client.inbox[key.id]?.chat == true, let chats = inbox.merged.tabs.first(where: \.chats) { threadsTab = chats.id }
         tab = .threads
         if threadsPath == [.thread(key)], openMachine == key.machineId { return }
         if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }

@@ -4,6 +4,14 @@ import type { DelegationRecord, QueueFacts, Thread, ThreadStatus } from "@ace/pr
 export const queuedStatus: ThreadStatus = { state: "waiting", on: "queue" };
 /** What a queued child's step says, for a model reading agents_status or wait. */
 export const queuedStep = "queued: starts when a running agent finishes";
+/**
+ * What a parent shows for a child it just sent input to. A child at rest reads as queued until
+ * its run starts, so the parent never looks done meanwhile. A child already running keeps its
+ * own status: no status change follows to correct a queued reading, so it would stick.
+ */
+export function messagedChildStatus(status: ThreadStatus): ThreadStatus {
+  return ["done", "failed", "new"].includes(status.state) ? queuedStatus : status;
+}
 /** The result of a child that settled without ever running. */
 export function unlaunchedResult(outcome: "cancelled" | "failed"): string {
   return outcome === "cancelled" ? "Stopped before it started." : "It could not be started.";

@@ -222,8 +222,8 @@ private struct InboxRowChrome: ViewModifier {
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     func body(content: Content) -> some View {
         content
-            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.xxs, leading: AceDesign.Space.related,
-                                      bottom: AceTheme.Spacing.xxs, trailing: AceDesign.Space.related))
+            .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Size.listInset,
+                                      bottom: AceTheme.Spacing.none, trailing: AceDesign.Size.listInset))
             .listRowBackground(surface)
             .listRowSeparator(.hidden)
     }
@@ -312,7 +312,9 @@ private struct InboxThreadCell: View {
                              canMoveUp: canMoveUp, canMoveDown: canMoveDown, step: step)
             }
         } preview: {
-            ThreadPreview(row: row, machine: inbox.showsMachineNames ? inbox.mark(key.machineId) : nil,
+            // The card names the machine always, as the desktop's names "This machine".
+            ThreadPreview(row: row, machine: inbox.mark(key.machineId)
+                              ?? MachineMark(name: inbox.name(key.machineId), glyph: inbox.client(key.machineId)?.machineGlyph ?? .laptop),
                           project: inbox.projectLook(key, workspace: row.workspaceId))
         }
     }

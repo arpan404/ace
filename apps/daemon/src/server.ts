@@ -1,7 +1,8 @@
 import { shutdownDeadline, trackStage } from "./shutdown.ts";
 import { relayRoute } from "./relay-route.ts";
 import { startTransports, startLocalTransports } from "./services/transports.ts";
-import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
+import { createSocketRegistry } from "./services/registry.ts";
+import { decodeDeviceFrame, parseSocketMessage } from "./services/socket-message.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
@@ -342,22 +343,18 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         const frameValue: unknown = JSON.parse(data.toString());
         if (device) {
-          const requestShape = z
-            .object({ type: z.string(), requestId: z.string().optional() })
-            .safeParse(frameValue);
-          if (requestShape.success) {
-            try {
-              message = parseSocketMessage(frameValue);
-            } catch {
-              fail(
-                "unsupported",
-                "Request type is not supported by this daemon",
-                false,
-                requestShape.data.requestId ? { requestId: requestShape.data.requestId } : {},
-              );
-              return;
-            }
-          } else message = parseSocketMessage(frameValue);
+          const frame = decodeDeviceFrame(frameValue);
+          if (frame.kind === "unsupported") {
+            fail(
+              "unsupported",
+              "Request type is not supported by this daemon",
+              false,
+              frame.requestId ? { requestId: frame.requestId } : {},
+            );
+            return;
+          }
+          if (frame.kind === "invalid") throw new Error("Message does not match the protocol");
+          message = frame.message;
         } else message = parseSocketMessage(frameValue);
       } catch {
         fail(

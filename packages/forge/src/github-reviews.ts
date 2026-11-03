@@ -120,6 +120,9 @@ function hostedPending(
     ...(review.url ? { url: review.url } : {}),
   };
 }
+const MutationIds = z.object({
+  data: z.record(z.string(), z.object({ clientMutationId: text.nullable() }).nullable()),
+});
 export function reviewWriteMarker(operationId: string): string {
   return `<!-- ace-write:${createHash("sha256").update(operationId).digest("hex")} -->`;
 }
@@ -246,7 +249,8 @@ export class GitHubReviews {
   }
   async #records<T>(path: string, schema: z.ZodType<T>, signal: AbortSignal): Promise<T[]> {
     const pages = await this.#api.pages(path, signal, new ReadBudget());
-    return pages.flatMap((p) => decode(z.array(schema).max(100), p.body));
+    const page = z.array(schema).max(100);
+    return pages.flatMap((p) => decode(page, p.body));
   }
   async #comment(number: number, source: "inline" | "issue", id: number, signal: AbortSignal) {
     const path = source === "inline" ? `pulls/${number}/comments` : `issues/${number}/comments`;
@@ -341,12 +345,7 @@ export class GitHubReviews {
       "POST",
       dispatch,
     );
-    const result = decode(
-      z.object({
-        data: z.record(z.string(), z.object({ clientMutationId: text.nullable() }).nullable()),
-      }),
-      response.body,
-    );
+    const result = decode(MutationIds, response.body);
     if (!result.data[name]) throw new ForgeError("invalid_data");
   }
   async write(

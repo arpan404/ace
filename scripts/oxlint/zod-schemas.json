@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["node_modules", "dist", "coverage", "fixtures", "packages/markit/**"],
+  "plugins": [],
+  "jsPlugins": [{ "name": "ace", "specifier": "./ace-plugin.js" }],
+  "rules": { "ace/zod-schema-in-function": "error" }
+}

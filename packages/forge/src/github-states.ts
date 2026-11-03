@@ -30,6 +30,13 @@ const pr = z.object({
     .catch(undefined),
 });
 
+const Numbers = z.array(z.number().int().positive()).max(100);
+const StatesBody = z.object({
+  data: z.object({ repository: z.record(z.string(), pr.nullable()).nullable() }),
+  errors: z.array(z.looseObject({ type: z.string().optional(), path: z.unknown() })).optional(),
+});
+const ErrorPath = z.tuple([z.literal("repository"), z.string()]);
+
 const checksField = (value: z.infer<typeof pr>) => {
   const checks = checksOf(value);
   return checks ? { checks } : {};
@@ -50,24 +57,19 @@ export async function githubStates(
   numbers: readonly number[],
   signal: AbortSignal,
 ): Promise<Map<number, LinkedPullRequest | null>> {
-  z.array(z.number().int().positive()).max(100).parse(numbers);
+  Numbers.parse(numbers);
   const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){${numbers.map((number) => `pr${number}:pullRequest(number:${number}){number title url state isDraft updatedAt headRefOid commits(last:1){nodes{commit{statusCheckRollup{state}}}}}`).join(" ")}}}`;
   const response = await api.request("graphql", signal, {
     query,
     variables: { owner: repo.owner, name: repo.name },
   });
-  const parsed = z
-    .object({
-      data: z.object({ repository: z.record(z.string(), pr.nullable()).nullable() }),
-      errors: z.array(z.looseObject({ type: z.string().optional(), path: z.unknown() })).optional(),
-    })
-    .safeParse(response.body);
+  const parsed = StatesBody.safeParse(response.body);
   if (!parsed.success) throw new ForgeError("invalid_data");
   const aliases = new Set(numbers.map((number) => `pr${number}`));
   // GitHub answers a deleted or inaccessible number with a null alias and a NOT_FOUND error
   // naming it. That marks only that PR missing; any other error fails the whole batch.
   const missingOnly = (parsed.data.errors ?? []).every((error) => {
-    const path = z.tuple([z.literal("repository"), z.string()]).safeParse(error.path);
+    const path = ErrorPath.safeParse(error.path);
     return error.type === "NOT_FOUND" && path.success && aliases.has(path.data[1]);
   });
   if (!missingOnly || !parsed.data.data.repository) throw new ForgeError("forbidden");

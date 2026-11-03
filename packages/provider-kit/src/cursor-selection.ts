@@ -15,6 +15,13 @@ export const CursorModelParams = z
   )
   .max(16);
 
+const CursorModelMetadata = z.object({
+  parameters: z
+    .array(z.object({ id: z.string() }))
+    .max(32)
+    .optional(),
+});
+
 /** Compile account-reported Cursor parameters; UI effort/speed names are not SDK ids. */
 export function cursorModelParams(model: CatalogModel, options: ExecutionOptions) {
   const entries = model.serviceTiers.flatMap((tier) => Object.entries(tier.parameters));
@@ -23,14 +30,7 @@ export function cursorModelParams(model: CatalogModel, options: ExecutionOptions
   );
   if (!effortKey && !model.raw.truncated) {
     try {
-      const metadata = z
-        .object({
-          parameters: z
-            .array(z.object({ id: z.string() }))
-            .max(32)
-            .optional(),
-        })
-        .parse(JSON.parse(model.raw.json));
+      const metadata = CursorModelMetadata.parse(JSON.parse(model.raw.json));
       effortKey = metadata.parameters?.find((parameter) =>
         ["reasoning_effort", "effort", "reasoning"].includes(parameter.id),
       )?.id;

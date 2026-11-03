@@ -63,3 +63,43 @@ test("a remembered card never comes back as the popover in a narrow area", () =>
   // The person's choice is kept for a thread screen with room.
   expect(saved.open).toBe(true);
 });
+
+test("a docked card squeezed out by a narrow area is still open on the next thread screen", () => {
+  const first = memory(false);
+  const before = createWorkCardStore(first.memory);
+  before.setSide(true);
+  before.toggle();
+  // The next thread's side panel opens and squeezes the area for a moment.
+  before.setSide(false);
+  expect(before.get().open).toBe(false);
+  const next = createWorkCardStore(memory(first.saved.open).memory);
+  next.setSide(true);
+  expect(next.get()).toEqual({ open: true, side: true });
+});
+
+test("a squeezed-out card docks again once the area has room", () => {
+  const store = createWorkCardStore(memory(false).memory);
+  store.setSide(true);
+  store.toggle();
+  store.setSide(false);
+  store.setSide(true);
+  expect(store.get()).toEqual({ open: true, side: true });
+});
+
+test("a remembered card waits for room when the first measure is narrow", () => {
+  const store = createWorkCardStore(memory(true).memory);
+  store.setSide(false);
+  store.setSide(true);
+  expect(store.get()).toEqual({ open: true, side: true });
+});
+
+test("a card closed while squeezed out stays closed when the room comes back", () => {
+  const { saved, memory: remembered } = memory(true);
+  const store = createWorkCardStore(remembered);
+  store.setSide(false);
+  store.toggle();
+  store.setOpen(false);
+  store.setSide(true);
+  expect(store.get().open).toBe(false);
+  expect(saved.open).toBe(false);
+});

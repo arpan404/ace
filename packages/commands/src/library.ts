@@ -16,6 +16,17 @@ const context = z.object({
   provider: ProviderKind,
   instance: z.string().min(1).max(128),
 });
+const ProviderInstances = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(128),
+      provider: ProviderKind,
+      home: z.string().min(1).max(4096),
+      skillsHome: z.string().min(1).max(4096).optional(),
+    }),
+  )
+  // The account registry admits 256 accounts, alongside seven legacy CLI identities.
+  .max(263);
 
 interface Entry {
   stopMetadata(): void;
@@ -67,18 +78,7 @@ export class CommandLibrary implements CommandService {
     this.readInstances();
   }
   private readInstances(): ProviderInstance[] {
-    const instances = z
-      .array(
-        z.object({
-          id: z.string().min(1).max(128),
-          provider: ProviderKind,
-          home: z.string().min(1).max(4096),
-          skillsHome: z.string().min(1).max(4096).optional(),
-        }),
-      )
-      // The account registry admits 256 accounts, alongside seven legacy CLI identities.
-      .max(263)
-      .parse(this.instances());
+    const instances = ProviderInstances.parse(this.instances());
     if (new Set(instances.map((i) => i.id)).size !== instances.length)
       throw new Error("Duplicate provider instance");
     return instances;

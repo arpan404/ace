@@ -11,7 +11,6 @@ import {
 import {
   ItemId,
   ThreadId,
-  BrowserBackendClientMessage,
   BrowserBackendPreference,
   BrowserBackendLossPolicy,
 } from "@ace/protocol";
@@ -23,6 +22,7 @@ import { BrowserProjectForget } from "../browser-forget-projects.ts";
 import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
+import { browserBackendMessage } from "./socket-message.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 export async function startBrowser(context: ServiceContext): Promise<void> {
   const { config, options, store, now, id, resources, services } = context;
@@ -284,12 +284,12 @@ export function createBrowserSession(context: SocketContext): SocketService {
       browser.close();
     },
     handle(message, device) {
-      const backendMessage = BrowserBackendClientMessage.safeParse(message);
-      if (backendMessage.success) {
+      const backendMessage = browserBackendMessage(message);
+      if (backendMessage) {
         try {
-          if (backendMessage.data.type === "browser.backend.register") {
+          if (backendMessage.type === "browser.backend.register") {
             const credential = options.store.devices.authenticate(
-              backendMessage.data.credential,
+              backendMessage.credential,
               options.now?.() ?? Date.now(),
             );
             if (
@@ -307,7 +307,7 @@ export function createBrowserSession(context: SocketContext): SocketService {
                 return true;
               },
               close: (reason) => socket.close(4009, reason.slice(0, 120)),
-              video: backendMessage.data.capabilities.video === true,
+              video: backendMessage.capabilities.video === true,
             });
             stopRevocation = options.store.devices.onRevoke((id) => {
               if (id === device) backend?.disconnect("Desktop credential revoked");
@@ -315,22 +315,22 @@ export function createBrowserSession(context: SocketContext): SocketService {
             socket.send(
               JSON.stringify({
                 type: "browser.backend.registered",
-                requestId: backendMessage.data.requestId,
+                requestId: backendMessage.requestId,
                 backendId: backend?.id,
                 connectionId: sessionId,
               }),
             );
-          } else if (backendMessage.data.type === "browser.backend.resumed") {
+          } else if (backendMessage.type === "browser.backend.resumed") {
             // The desktop's computer woke: check every engine, ace's Chrome included (#947).
             if (!backend) throw new Error("Desktop backend not registered");
             options.browser?.wake();
-          } else if (backendMessage.data.type === "browser.backend.drawable") {
+          } else if (backendMessage.type === "browser.backend.drawable") {
             // The desktop's screen locked or unlocked: while it can't draw, its pages move.
             if (!backend) throw new Error("Desktop backend not registered");
-            options.browser?.desktopDrawable(backendMessage.data.drawable);
+            options.browser?.desktopDrawable(backendMessage.drawable);
           } else {
             if (!backend) throw new Error("Desktop backend not registered");
-            backend.handle(backendMessage.data);
+            backend.handle(backendMessage);
           }
         } catch (error) {
           context.fail(

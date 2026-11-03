@@ -4,6 +4,7 @@ import type { Store } from "../store.ts";
 
 /** Rows kept; the oldest go first. A notice for a message this old is no longer useful. */
 const capacity = 10_000;
+const SenderRow = z.object({ sender_thread: ThreadId });
 
 /**
  * Which thread sent each agent message, so a message that fails after the tool returned is
@@ -44,6 +45,6 @@ export class MessageSenders {
         )
         .get(command, thread),
     );
-    return row ? z.object({ sender_thread: ThreadId }).parse(row).sender_thread : undefined;
+    return row ? SenderRow.parse(row).sender_thread : undefined;
   }
 }

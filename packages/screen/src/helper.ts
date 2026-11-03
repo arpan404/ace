@@ -22,6 +22,15 @@ import { localFrameEndpoint, type FrameEndpoint } from "./endpoint.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { FrameDecoder, type Frame } from "./frames.ts";
 
+const PermissionsChangedEvent = z.object({
+  event: z.literal("permissions.changed"),
+  permissions: ScreenPermissions,
+});
+const SessionFailedEvent = z.object({
+  event: z.literal("session.failed"),
+  sessionId: z.string(),
+  error: ScreenError,
+});
 export type HelperOptions = {
   command: string;
   platform?: NodeJS.Platform;
@@ -79,17 +88,13 @@ export class Helper {
       try {
         if (Buffer.byteLength(line) > 128 * 1024) throw new Error("Helper reply exceeds limit");
         const raw: unknown = JSON.parse(line);
-        const event = z
-          .object({ event: z.literal("permissions.changed"), permissions: ScreenPermissions })
-          .safeParse(raw);
+        const event = PermissionsChangedEvent.safeParse(raw);
         if (event.success) {
           this.permissionFacts.changed(event.data.permissions);
           this.options.onPermissionsChanged?.(event.data.permissions);
           return;
         }
-        const failedSession = z
-          .object({ event: z.literal("session.failed"), sessionId: z.string(), error: ScreenError })
-          .safeParse(raw);
+        const failedSession = SessionFailedEvent.safeParse(raw);
         if (failedSession.success) {
           const { sessionId, error } = failedSession.data;
           this.options.onSessionFailure?.(

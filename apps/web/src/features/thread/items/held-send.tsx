@@ -18,7 +18,9 @@ import { beginQueueEdit, cancelQueueEdit, useQueueEdit } from "../composer/queue
 import { failedHead, shortReason } from "../composer/failed-head.ts";
 import { useHeldQueue } from "../composer/queue-notice.tsx";
 import { useRetainedInputDetail } from "../composer/retained-input-detail.tsx";
-import { queuedText, useQueue } from "../composer/use-queue.ts";
+import { useQueue } from "../composer/use-queue.ts";
+import { bubbleContent } from "@ace/ui-core";
+import { QuotesCard } from "@/features/quotes/index.ts";
 import { NotSent } from "./failed-send.tsx";
 import { ClearStaleLock } from "./clear-stale-lock.tsx";
 import { userBubble } from "./user-bubble.ts";
@@ -61,7 +63,9 @@ export function HeldSend(props: { threadId: string }) {
   const busy = queue.acting || (!!message && queue.busy(message.id));
   // Editing it in the composer: Try again would send the words being changed, so it waits.
   const editing = !!message && session?.message.id === message.id;
-  const text = message ? queuedText(message) : "";
+  // Its words as the bubble shows them; marked passages show as their card.
+  const shown = message ? bubbleContent(message.input) : undefined;
+  const text = shown?.text ?? "";
   return (
     <section aria-label="Message not sent" className="mt-4 flex flex-col items-end">
       {message && (
@@ -71,9 +75,14 @@ export function HeldSend(props: { threadId: string }) {
           className={cn("max-w-[80%]", text && "mb-1")}
         />
       )}
-      {message && text && (
+      {message && (text || shown?.quotes) && (
         <div className={userBubble}>
-          <BubbleText text={text} />
+          {shown?.quotes && (
+            <div className={text ? "mb-2" : undefined}>
+              <QuotesCard quotes={shown.quotes} />
+            </div>
+          )}
+          {text && <BubbleText text={text} />}
         </div>
       )}
       <div

@@ -81,11 +81,12 @@ struct StripTextButtonStyle: ButtonStyle {
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .aceFont(AceTheme.Typography.caption, relativeTo: .footnote).fontWeight(prominent ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline).fontWeight(prominent ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(configuration.isPressed || prominent ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-            .padding(.horizontal, AceDesign.Space.related)
-            // 44pt: the smallest comfortable tap.
-            .frame(minHeight: AceDesign.Size.tap)
+            .padding(.horizontal, AceDesign.Space.stripWord)
+            // Drawn on its line; 44pt taps.
+            .frame(minHeight: AceDesign.Size.stripAction)
+            .tapBand(drawn: AceDesign.Size.stripAction)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
             .scaleEffect(configuration.isPressed && !reduceMotion ? AceDesign.Motion.pressScale : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.

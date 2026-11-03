@@ -71,29 +71,34 @@ export function workCardColumnWidth(areaWidth: number, column: number): number {
 }
 
 export interface WorkCardMemory {
-  /** The card was open on the last thread screen. */
+  /** The person left the card open. */
   open: boolean;
-  /** The card opened or closed; kept for the next thread screen. */
+  /** The person opened or closed the card; kept for the next thread screen. */
   remember(open: boolean): void;
 }
 
 /**
- * The card a thread screen starts with. With `memory`, a card left open on the last screen
- * opens again once the area has room beside the column; it never comes back as the header's
- * popover, which would cover the transcript on its own.
+ * The card a thread screen starts with. Only the person's own open or close is remembered: a
+ * card left open docks again whenever the area has room beside the column, on this screen or
+ * the next. A docked card squeezed out by a narrow area closes rather than jumping into the
+ * header's popover, and comes back when the room does; a remembered card never comes back as
+ * the popover, which would cover the transcript on its own.
  */
 export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
   let state: WorkCardState = { open: false, side: false };
-  let restore = memory?.open ?? false;
+  let wanted = memory?.open ?? false;
   const listeners = new Set<() => void>();
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
   const set = (next: WorkCardState) => {
     if (next.open === state.open && next.side === state.side) return;
-    const opened = next.open !== state.open;
     state = next;
-    if (opened) memory?.remember(state.open);
     for (const listener of listeners) listener();
+  };
+  const choose = (open: boolean) => {
+    if (open !== wanted) memory?.remember(open);
+    wanted = open;
+    set({ ...state, open });
   };
   return {
     button: () => button,
@@ -109,21 +114,13 @@ export function createWorkCardStore(memory?: WorkCardMemory): WorkCardStore {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    setOpen: (open) => {
-      restore = false;
-      set({ ...state, open });
-    },
-    toggle: () => {
-      restore = false;
-      set({ ...state, open: !state.open });
-    },
-    // The side card stays until closed on purpose; one that no longer fits closes rather than
-    // jumping into the header's popover. The first measure decides whether a remembered card
-    // comes back.
+    setOpen: choose,
+    toggle: () => choose(!state.open),
+    // Room decides where the card shows, never whether the person wants it: a layout change
+    // (a side panel opening, a window resize) is not a close.
     setSide: (side) => {
-      const reopen = restore && side;
-      restore = false;
-      set({ open: reopen || (state.open && (side || !state.side)), side });
+      const open = side ? state.open || wanted : state.open && !state.side;
+      set({ open, side });
     },
   };
 }

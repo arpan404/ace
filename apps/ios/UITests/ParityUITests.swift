@@ -18,6 +18,32 @@ import XCTest
         capture("start-task")
     }
 
+    func testHeaderPullRequestsButtonOpensPullRequestsAndMoreNoLongerListsThem() {
+        let app = launch()
+        XCTAssertTrue(app.buttons["inbox.pulls"].waitForExistence(timeout: 30))
+        app.buttons["inbox.pulls"].tap()
+        XCTAssertTrue(app.buttons["Issues"].waitForExistence(timeout: 10))
+        // Opened directly: the sheet closes, with no Back to More.
+        app.buttons["settings.close"].tap()
+        app.buttons["inbox.settings"].tap()
+        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["more.pulls"].exists)
+    }
+
+    func testChatsTabListsChatsAndComposeThereStartsAChat() {
+        let app = launch()
+        let chats = app.buttons["threads.tab.chats"]
+        XCTAssertTrue(chats.waitForExistence(timeout: 30))
+        chats.tap()
+        XCTAssertTrue(app.buttons["chat.row"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'")).firstMatch.exists)
+        let compose = app.newThreadButton
+        XCTAssertTrue(compose.waitForExistence(timeout: 5))
+        XCTAssertEqual(compose.label, "New chat")
+        compose.tap()
+        XCTAssertEqual(app.buttons["newThread.project"].waitForExistence(timeout: 10) ? app.buttons["newThread.project"].label : nil, "Project, none")
+    }
+
     func testCanonicalApprovalLabelsAndKeyboardKeepComposerVisible() {
         let app = launch()
         let row = app.buttons["thread.ios-approval"]

@@ -65,6 +65,8 @@ export async function fakeServeSim(
   })
     .jpeg()
     .toBuffer();
+  /** What the screen shows now: like serve-sim, a new MJPEG stream starts with it. */
+  let current = jpeg;
   const server = createServer((req, res) => {
     if (req.url === `${base}/stream.mjpeg`) {
       mjpegOpen++;
@@ -74,8 +76,8 @@ export async function fakeServeSim(
         mjpeg.delete(res);
       });
       res.writeHead(200, { "content-type": "multipart/x-mixed-replace; boundary=frame" });
-      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${jpeg.length}\r\n\r\n`);
-      res.write(jpeg);
+      res.write(`--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${current.length}\r\n\r\n`);
+      res.write(current);
       return;
     }
     if (req.url === `${base}/stream.avcc` && options.video !== false) {
@@ -153,6 +155,7 @@ export async function fakeServeSim(
     mjpegOpen: () => mjpegOpen,
     /** The screen changes: every open MJPEG stream gets `image`, as serve-sim sends a change. */
     paint: (image: Buffer) => {
+      current = image;
       for (const res of mjpeg) {
         res.write(
           `\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${image.length}\r\n\r\n`,

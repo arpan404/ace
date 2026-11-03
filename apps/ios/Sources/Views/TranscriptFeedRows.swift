@@ -25,7 +25,8 @@ struct TranscriptFeedRowView: View {
         // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
         // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
-            .padding(.bottom, row.room * AceTheme.density(densityId).transcriptRoom)
-            .padding(.horizontal, AceDesign.Space.margin)
+            // The approved feed: one 14pt gap between its parts, 20pt from the sides.
+            .padding(.bottom, AceDesign.Space.feedGap * AceTheme.density(densityId).transcriptRoom)
+            .padding(.horizontal, AceDesign.Space.feedSide)
     }
 }

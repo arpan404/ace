@@ -18,7 +18,7 @@ struct SubagentGroupView: View {
     }
 
     var body: some View {
-        if agents.entries.count == 1, let only = agents.entries.first {
+        if agents.single ?? (agents.entries.count == 1), let only = agents.entries.first {
             AgentRow(entry: only, open: open)
         } else {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {

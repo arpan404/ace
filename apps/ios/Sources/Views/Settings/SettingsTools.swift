@@ -33,6 +33,28 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .devices: "iphone"
         }
     }
+    /// The tool's glyph in More, as the approved mockup draws them.
+    var icon: AceIcon.Name {
+        switch self {
+        case .agents: .robot
+        case .projects: .folderSimple
+        case .automations: .timer
+        case .usage: .chartBar
+        case .skills: .sparkle
+        case .providers: .plugsConnected
+        case .sourceControl: .gitBranch
+        case .prompts: .textAlignLeft
+        case .computer: .monitor
+        case .devices: .deviceMobile
+        }
+    }
+    /// The tool's name in More, shorter where the mockup shortens it.
+    var shortTitle: String {
+        switch self {
+        case .skills: "Skills"
+        default: title
+        }
+    }
     /// Kept from the old Browse sheet so automation finds the same rows.
     var identifier: String {
         switch self {
@@ -64,6 +86,8 @@ enum SettingsTool: String, Hashable, CaseIterable {
 struct SettingsTools: View {
     let inbox: MachineInbox
     @Binding var machine: String
+    /// Tools More shows in its own second group instead (Providers).
+    var leaving: Set<SettingsTool> = []
     private var hostId: String {
         inbox.sessions.contains { $0.hostId == machine } ? machine : inbox.sessions.first?.hostId ?? ""
     }
@@ -80,13 +104,14 @@ struct SettingsTools: View {
                     }
                     .accessibilityIdentifier("settings.tools.machine")
                 }
-                ForEach(SettingsTool.allCases, id: \.self) { tool in
-                    NavigationLink(value: SettingsRoute.tool(tool, machine: hostId)) { InsetRow(tool.title, systemImage: tool.symbol) }
+                ForEach(SettingsTool.allCases.filter { !leaving.contains($0) }, id: \.self) { tool in
+                    GroupLink(.tool(tool, machine: hostId)) { InsetRow(tool.shortTitle, icon: tool.icon) }
                         .accessibilityIdentifier(tool.identifier)
                 }
             } header: {
                 HStack {
-                    InsetHeader("Tools")
+                    // The machine the tools run on, by name ("arpan-mbp"); "Tools" with several.
+                    InsetHeader(inbox.sessions.count > 1 ? "Tools" : inbox.name(hostId))
                     Spacer()
                     if inbox.client(hostId)?.connection != "ready" { InsetHeader("Offline") }
                 }

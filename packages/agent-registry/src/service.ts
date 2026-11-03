@@ -19,6 +19,7 @@ import {
 } from "./inventory.ts";
 import { CommittedWriteError } from "./files.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
+const StoredInstallations = z.array(LocalInstallation).max(512);
 export type InventoryStorage = {
   load(): Promise<unknown>;
   /** Reject with CommittedWriteError if publication happened before a durability failure. */
@@ -59,7 +60,7 @@ export class AgentRegistry {
   }
   static async open(options: RegistryServiceOptions): Promise<AgentRegistry> {
     const value = await options.storage.load();
-    const entries = value === undefined ? [] : z.array(LocalInstallation).max(512).parse(value);
+    const entries = value === undefined ? [] : StoredInstallations.parse(value);
     return new AgentRegistry(options, entries);
   }
   has(identity: AcpIdentity): boolean {

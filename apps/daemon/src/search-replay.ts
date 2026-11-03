@@ -5,6 +5,16 @@ import { Event, ItemId, ThreadId } from "@ace/protocol";
 import { SearchReplayEvent, type SearchPage } from "@ace/search";
 import type { HistoryIndex } from "./history-index.ts";
 
+const BoundedThreadPayload = z.object({
+  id: z.string().nullable(),
+  workspaceId: z.string().nullable(),
+  provider: z.string().nullable(),
+  createdAt: z.number().nullable(),
+  updatedAt: z.number().nullable(),
+  status: z.string().nullable(),
+  title: z.string().nullable(),
+});
+
 const Options = z.object({
   afterSeq: z.number().int().nonnegative(),
   limit: z.number().int().min(1).max(256),
@@ -107,17 +117,7 @@ export class SearchReplay {
         if (!item) throw new Error("search_replay_source_unavailable");
         payload = item.type === "search.item" ? item : { type: "item.updated", item };
       } else if (oversized && (row.type === "thread.created" || row.type === "thread.updated")) {
-        const bounded = z
-          .object({
-            id: z.string().nullable(),
-            workspaceId: z.string().nullable(),
-            provider: z.string().nullable(),
-            createdAt: z.number().nullable(),
-            updatedAt: z.number().nullable(),
-            status: z.string().nullable(),
-            title: z.string().nullable(),
-          })
-          .parse(this.threadPayload.get(row.seq));
+        const bounded = BoundedThreadPayload.parse(this.threadPayload.get(row.seq));
         const status: unknown = bounded.status ? JSON.parse(bounded.status) : undefined;
         payload =
           row.type === "thread.created"

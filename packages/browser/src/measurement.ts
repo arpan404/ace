@@ -12,6 +12,8 @@ import { MeasurementTrace } from "./measurement-trace.ts";
 import { MeasurementFrames, measurementFilmstrip } from "./measurement-filmstrip.ts";
 import { BrowserActionError } from "./action-error.ts";
 
+const TracingComplete = z.object({ dataLossOccurred: z.boolean().optional() });
+
 interface MeasurementContext {
   threadId: string;
   backend: BrowserBackendPage;
@@ -75,7 +77,7 @@ async function runMeasurement(
   };
   const completed = Promise.withResolvers<void>();
   const complete = (raw: unknown) => {
-    const result = z.object({ dataLossOccurred: z.boolean().optional() }).safeParse(raw);
+    const result = TracingComplete.safeParse(raw);
     if (result.success && result.data.dataLossOccurred) trace.truncated = true;
     completed.resolve();
   };

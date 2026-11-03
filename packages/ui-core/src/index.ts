@@ -295,6 +295,7 @@ export {
   type RowStatusTone,
 } from "./row-status-display.ts";
 export { hoverStatusLine, type HoverStatusLine } from "./row-hover-status.ts";
+export { appList, browsingLabel, computerUseLabel } from "./agent-use.ts";
 export {
   sanitizeUserText,
   stripAceOriginMarker,
@@ -355,6 +356,7 @@ export * from "./not-sent.ts";
 export * from "./notice-error.ts";
 export * from "./event-view.ts";
 export * from "./forge-timeline.ts";
+export * from "./message-quotes.ts";
 export * from "./forge-comments.ts";
 export * from "./forge-reviewers.ts";
 export * from "./forge-review-rules.ts";

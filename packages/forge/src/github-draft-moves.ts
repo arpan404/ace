@@ -32,6 +32,7 @@ const Compare = z.looseObject({
     .optional(),
 });
 const Content = z.looseObject({ encoding: z.string().max(32), content: z.string() });
+const HostedFile = z.looseObject({ filename: text, patch });
 /** GitHub lists at most this many files in one comparison. */
 const compareFileCap = 300;
 /** Old files read for an outdated draft's code, at most, in one move. */
@@ -51,11 +52,7 @@ export async function moveDrafts(
   const targets = draftsToMove(drafts, headSha);
   if (!targets.length) return [];
   const hosted = (
-    await io.records(
-      `${io.root}/pulls/${number}/files?per_page=100`,
-      z.looseObject({ filename: text, patch }),
-      signal,
-    )
+    await io.records(`${io.root}/pulls/${number}/files?per_page=100`, HostedFile, signal)
   ).map((f) => ({ path: f.filename, patch: f.patch }));
   const comparisons = new Map<string, Comparison>();
   for (const commit of new Set(targets.map((d) => d.anchor.commit))) {

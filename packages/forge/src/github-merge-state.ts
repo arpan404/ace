@@ -98,6 +98,21 @@ const responseSchema = z.looseObject({
       .nullable(),
   }),
 });
+/** Each auto-merge or queue mutation's acknowledgement, keyed by the mutation's name. */
+const MutationPr = z.object({ pullRequest: z.object({ id: text }) });
+type MutationAck = z.ZodType<{ data: Record<string, { pullRequest: { id: string } }> }>;
+const MutationAcks: Record<
+  "enablePullRequestAutoMerge" | "disablePullRequestAutoMerge" | "dequeuePullRequest",
+  MutationAck
+> = {
+  enablePullRequestAutoMerge: z.object({
+    data: z.object({ enablePullRequestAutoMerge: MutationPr }),
+  }),
+  disablePullRequestAutoMerge: z.object({
+    data: z.object({ disablePullRequestAutoMerge: MutationPr }),
+  }),
+  dequeuePullRequest: z.object({ data: z.object({ dequeuePullRequest: MutationPr }) }),
+};
 const fields = `id number headRefOid state isDraft mergeStateStatus reviewDecision statusCheckRollup{state} autoMergeRequest{mergeMethod enabledAt enabledBy{login}} viewerCanEnableAutoMerge viewerCanDisableAutoMerge`;
 const wrap = (selection: string) =>
   `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){viewerPermission mergeCommitAllowed squashMergeAllowed rebaseMergeAllowed pullRequest(number:$number){${selection}}}}`;
@@ -339,13 +354,7 @@ export class GitHubMergeState {
         "POST",
         dispatch,
       );
-      const result = z
-        .object({
-          data: z.object({
-            [mutation]: z.object({ pullRequest: z.object({ id: text }) }),
-          }),
-        })
-        .safeParse(page.body);
+      const result = MutationAcks[mutation].safeParse(page.body);
       if (!result.success || result.data.data[mutation]?.pullRequest.id !== pr.id)
         throw new ForgeMutationOutcome({ number, headSha });
       if (page.identityChanged) throw new ForgeMutationOutcome({ number, headSha });

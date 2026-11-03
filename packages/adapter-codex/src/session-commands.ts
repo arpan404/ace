@@ -12,6 +12,7 @@ import type { ThreadBackgroundTerminalsTerminateParams } from "./generated/v2/Th
 import { childKey, shellKey } from "./native.ts";
 import { approvalResult } from "./resolution.ts";
 import { nativeInput as input } from "./native-input.ts";
+const SteerErrorReply = z.object({ message: z.string() });
 export type Pending = {
   request: ServerRequest;
   answer(value: unknown): void;
@@ -104,7 +105,7 @@ export function createSessionCommands(
       } catch (error) {
         let message = error instanceof Error ? error.message : "";
         try {
-          const reply = z.object({ message: z.string() }).safeParse(JSON.parse(message));
+          const reply = SteerErrorReply.safeParse(JSON.parse(message));
           if (reply.success) message = reply.data.message;
         } catch {
           /* Older peers may return plain error prose. */

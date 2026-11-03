@@ -3,6 +3,7 @@ import { z } from "zod";
 import { readBoundedText } from "./bounded-file.ts";
 
 import { PreviewPort } from "@ace/protocol/preview";
+const MissingFileError = z.object({ code: z.literal("ENOENT") });
 /** Listener tables are snapshots, not history. Malformed OS rows are ignored. */
 export function parseListeningPorts(text: string, format: "lsof" | "proc"): Set<number> {
   if (text.length > 4_194_304) throw new Error("Listener table exceeds limit");
@@ -51,7 +52,7 @@ export async function discoverListeningPorts(
     const tables = await Promise.all([
       readBoundedText("/proc/net/tcp"),
       readBoundedText("/proc/net/tcp6").catch((error: unknown) => {
-        if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return "";
+        if (MissingFileError.safeParse(error).success) return "";
         throw error;
       }),
     ]);

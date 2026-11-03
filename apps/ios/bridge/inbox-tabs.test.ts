@@ -107,7 +107,7 @@ async function following(seed: (daemon: FakeDaemon) => void) {
 
 type Layout = {
   tabs: { inbox: string[]; snoozed: string[]; settled: string[] };
-  tabWords: { id: string; label: string; counted: boolean; empty: string }[];
+  tabWords: { id: string; label: string; counted: boolean; empty: string; compose: string }[];
   attention?: { threads: { needsYou: number } };
 };
 const layout = (sink: RecordingSink) => sink.read("inbox:sections") as Layout | undefined;
@@ -136,10 +136,19 @@ test("each tab lists its own threads: live and pinned in Inbox, snoozed with its
   expect(row(sink, "nap")?.snoozedUntil).toBe(wakesAt);
   expect(row(sink, "done")?.look.settled).toBe(true);
   expect(row(sink, "live")?.look.settled).toBe(false);
-  expect(layout(sink)?.tabWords.map(({ id, label, counted }) => ({ id, label, counted }))).toEqual([
-    { id: "inbox", label: "Inbox", counted: true },
-    { id: "snoozed", label: "Snoozed", counted: true },
-    { id: "settled", label: "Settled", counted: false },
+  // Chats is the second tab; compose starts a chat there and a thread on the others.
+  expect(
+    layout(sink)?.tabWords.map(({ id, label, counted, compose }) => ({
+      id,
+      label,
+      counted,
+      compose,
+    })),
+  ).toEqual([
+    { id: "inbox", label: "Inbox", counted: true, compose: "thread" },
+    { id: "chats", label: "Chats", counted: false, compose: "chat" },
+    { id: "snoozed", label: "Snoozed", counted: true, compose: "thread" },
+    { id: "settled", label: "Settled", counted: false, compose: "thread" },
   ]);
   expect(dot(sink)).toBe(0);
 });

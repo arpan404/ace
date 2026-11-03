@@ -41,6 +41,10 @@ export function receiveComposerText(threadId: string, receive: (text: string) =>
     if (textReceivers.get(threadId) === receive) textReceivers.delete(threadId);
   };
 }
+/** Whether the thread has a composer on screen to take words. */
+export function composerTakesText(threadId: string): boolean {
+  return textReceivers.has(threadId);
+}
 /** Put `text` in the thread's composer at the caret; false when no composer is mounted. */
 export function insertTextInComposer(threadId: string, text: string): boolean {
   const receive = textReceivers.get(threadId);

@@ -111,10 +111,9 @@ struct TargetChip: View {
             }
         }
         .lineLimit(1)
-        .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
-        .background(AceTheme.Colours.fill, in: AceShape.capsule)
+        // Plain mono in the step's own ink, as the approved feed draws it: no chip.
+        .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+        .foregroundStyle(AceTheme.Colours.mutedForeground)
     }
 }
 
@@ -128,7 +127,7 @@ struct StepGlyph: View {
             if step.glyph == "ace" {
                 AceMark().frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
             } else {
-                AceIcon(Self.icon(step.glyph ?? step.icon), size: AceDesign.Size.icon, relativeTo: .subheadline)
+                AceIcon(Self.icon(step.glyph ?? step.icon), size: AceDesign.Size.stepGlyph, relativeTo: .footnote)
             }
         }
         .foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
@@ -269,7 +268,11 @@ struct WorkBlockView: View {
                 }
                 withAnimation(AceDesign.Motion.arriving(reduceMotion)) { thread.disclosures.toggle(blockId) }
             } label: {
-                LogRowBox(open: expanded) { Text(row.work?.label ?? "Worked") }
+                LogRowBox(open: expanded) {
+                    Text(row.work?.label ?? "Worked")
+                        .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                }
             }
             .buttonStyle(.plain)
             .accessibilityLabel([row.work?.label ?? "Worked", row.work?.counts ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))

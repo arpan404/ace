@@ -4,6 +4,7 @@ import { withoutPortableHandoff } from "@ace/projection";
 import { splitAnnotationParts, splitBrowserAnnotations } from "./browser-annotation-parse.ts";
 import { tokensFromInput } from "./composer-tokens.ts";
 import { extensionDisplayName } from "./extension-names.ts";
+import { splitQuoteParts, type ParsedMessageQuote } from "./message-quotes.ts";
 
 /*
  * What the person's bubble shows of a message's parts, decided without I/O: the words as shown
@@ -21,15 +22,26 @@ export interface BubbleContent {
   /** Whether the bubble has anything to read: words or a mention. */
   readable: boolean;
   annotations: ReturnType<typeof splitAnnotationParts>["annotations"];
+  /** Passages of the agent's messages the person commented on. */
+  quotes?: ParsedMessageQuote[] | undefined;
 }
 
 export function bubbleContent(input: readonly ContentPart[]): BubbleContent {
   // Browser annotations travel as a block after the person's words; they show as a card.
+  // Browser annotations and marked passages travel as blocks after the person's words; each
+  // shows as a card.
   const annotated = splitAnnotationParts(withoutPortableHandoff(input));
-  const parts = annotated.parts;
+  const quoted = splitQuoteParts(annotated.parts);
+  const parts = quoted.parts;
   const text = sanitizeUserText(splitBrowserAnnotations(tokensFromInput(parts).text).text);
   const readable = !!text || parts.some((part) => part.type === "mention");
-  return { parts, text, readable, annotations: annotated.annotations };
+  return {
+    parts,
+    text,
+    readable,
+    annotations: annotated.annotations,
+    ...(quoted.quotes ? { quotes: quoted.quotes } : {}),
+  };
 }
 
 /** A mention's chip name: its title, else its catalog name in words. */

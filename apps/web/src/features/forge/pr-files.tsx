@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import {
   allCommits,
   codeRange,
