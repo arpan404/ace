@@ -172,6 +172,6 @@ test("with nothing running in the background, the side panel shows no background
   await open(oneTurnWork());
   await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await within(panel).findByRole("status", { name: /^Thread status: Done/ });
+  await within(panel).findByRole("status", { name: /^Thread status: done/ });
   expect(within(panel).queryByRole("treeitem", { name: /^\$ / })).toBeNull();
 });
