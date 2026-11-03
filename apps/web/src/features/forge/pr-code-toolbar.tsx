@@ -1,4 +1,4 @@
-import { SlidersHorizontalIcon, WarningIcon } from "@phosphor-icons/react";
+import { Fragment } from "react";
 import type { ForgeCommit } from "@ace/protocol";
 import {
   codeScopeKey,
@@ -7,13 +7,12 @@ import {
   type CodeScope,
   type SinceLastReview,
 } from "@ace/ui-core";
-import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import {
   Menu,
   MenuCheckboxItem,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuLabel,
   MenuRadioGroup,
@@ -21,15 +20,23 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import type { CodeOptions, DiffMode } from "./pr-code-options.ts";
+import { TextAction } from "./pr-text-action.tsx";
 
 export type { CodeOptions, DiffMode } from "./pr-code-options.ts";
+
+/** The Code tab's keys (`prCodeShortcut`), listed in the View menu rather than on the bar. */
+const codeKeyHints: readonly (readonly [string, string])[] = [
+  ["n / N", "Next / previous file"],
+  ["c / C", "Next / previous comment"],
+  ["u", "Next unresolved"],
+  ["v / V", "Viewed / next unviewed"],
+];
 
 const short = (sha: string) => sha.slice(0, 7);
 const headline = (commit: ForgeCommit) => commit.message.split("\n")[0] ?? "";
@@ -119,9 +126,10 @@ function PushedNote(props: { at: number }) {
 }
 
 /**
- * The Code tab's toolbar: which commits show and how many files are viewed on the left, with
- * one warning for what can't be shown; then layout, whitespace, and Next comment / Next file
- * with their keys. In a narrow panel (its `@container/code`) the options fold into one menu.
+ * The Code tab's toolbar: which commits show on the left, with a quiet note for what can't be
+ * shown; Next comment and Next file as words (their keys in the tooltip) and one View menu
+ * (layout, whitespace, wrapping, the file tree) on the right. How many files are viewed shows
+ * once: in the tree's header, or here while the tree is hidden.
  */
 export function PrCodeToolbar(props: {
   scope: CodeScope;
@@ -141,14 +149,15 @@ export function PrCodeToolbar(props: {
   onNextFile(): void;
 }) {
   const { options } = props;
-  const counts = `${plural(props.files, "file")}${
-    props.viewed === undefined ? "" : ` · ${props.viewed} / ${props.files} viewed`
-  }`;
+  const counts =
+    props.viewed === undefined
+      ? plural(props.files, "file")
+      : `${props.viewed} of ${plural(props.files, "file")} viewed`;
   return (
     <div
       role="toolbar"
       aria-label="Diff controls"
-      className={cn("flex h-10 shrink-0 items-center gap-2 bg-panel px-3", toolbarEdge)}
+      className={cn("flex h-10 shrink-0 items-center gap-3 bg-panel px-3", toolbarEdge)}
     >
       <CommitChoice
         scope={props.scope}
@@ -156,7 +165,11 @@ export function PrCodeToolbar(props: {
         since={props.since}
         onScope={props.onScope}
       />
-      <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">{counts}</span>
+      {!options.tree && (
+        <span className="min-w-0 truncate text-xs text-muted-foreground tabular-nums">
+          {counts}
+        </span>
+      )}
       {props.caveats.length > 0 && (
         <Tip
           label={
@@ -167,64 +180,33 @@ export function PrCodeToolbar(props: {
             </ul>
           }
         >
-          <button
-            type="button"
-            aria-label={props.caveats.join(" ")}
-            className="grid size-6 shrink-0 place-items-center rounded-sm text-status-needs-you outline-none focus-ring"
-          >
-            <WarningIcon aria-hidden size={14} />
-          </button>
+          <TextAction aria-label={props.caveats.join(" ")} className="shrink-0">
+            {plural(props.caveats.length, "note")}
+          </TextAction>
         </Tip>
       )}
       <span className="flex-1" />
       {props.pushedAt !== undefined && <PushedNote at={props.pushedAt} />}
-      <div className="hidden items-center gap-1 @[44rem]/code:flex">
-        <SegmentedControl
-          label="Diff layout"
-          size="sm"
-          value={options.mode}
-          options={[
-            { value: "unified", label: "Unified" },
-            { value: "split", label: "Split" },
-          ]}
-          onValueChange={(mode: DiffMode) => props.onOptions({ mode })}
-        />
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-pressed={options.hideWhitespace}
-          className={cn(options.hideWhitespace && "text-foreground")}
-          onClick={() => props.onOptions({ hideWhitespace: !options.hideWhitespace })}
-        >
-          Hide whitespace
-        </Button>
-      </div>
-      <div className="hidden items-center gap-1 @[32rem]/code:flex">
+      <div className="hidden items-center gap-3 @[32rem]/code:flex">
         {props.onNextComment && (
-          <Button size="xs" variant="ghost" onClick={props.onNextComment}>
-            Next comment <Kbd variant="bare">c</Kbd>
-          </Button>
+          <Tip label="Next comment" keys="c" resolve={false}>
+            <TextAction onClick={props.onNextComment}>Next comment</TextAction>
+          </Tip>
         )}
-        <Button size="xs" variant="ghost" onClick={props.onNextFile}>
-          Next file <Kbd variant="bare">n</Kbd>
-        </Button>
+        <Tip label="Next file" keys="n" resolve={false}>
+          <TextAction onClick={props.onNextFile}>Next file</TextAction>
+        </Tip>
       </div>
       <Menu>
-        <MenuTrigger
-          render={<IconButton size="sm" icon={SlidersHorizontalIcon} label="Diff options" />}
-        />
-        <MenuContent align="end">
+        <MenuTrigger render={<TextAction className="shrink-0">View</TextAction>} />
+        <MenuContent align="end" className="w-52">
           <MenuRadioGroup
             value={options.mode}
             onValueChange={(mode: DiffMode) => props.onOptions({ mode })}
           >
             <MenuLabel>Layout</MenuLabel>
-            <MenuRadioItem closeOnClick value="unified">
-              Unified
-            </MenuRadioItem>
-            <MenuRadioItem closeOnClick value="split">
-              Split
-            </MenuRadioItem>
+            <MenuRadioItem value="unified">Unified</MenuRadioItem>
+            <MenuRadioItem value="split">Split</MenuRadioItem>
           </MenuRadioGroup>
           <MenuSeparator />
           <MenuCheckboxItem
@@ -245,9 +227,24 @@ export function PrCodeToolbar(props: {
           >
             File tree
           </MenuCheckboxItem>
+          <MenuSeparator />
           <MenuItem onClick={() => props.onCollapseAll(!props.allCollapsed)}>
             {props.allCollapsed ? "Expand all files" : "Collapse all files"}
           </MenuItem>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuLabel>Keys</MenuLabel>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 px-2 pb-1.5 text-xs text-muted-foreground">
+              {codeKeyHints.map(([keys, what]) => (
+                <Fragment key={keys}>
+                  <dt>
+                    <Kbd variant="bare">{keys}</Kbd>
+                  </dt>
+                  <dd>{what}</dd>
+                </Fragment>
+              ))}
+            </dl>
+          </MenuGroup>
         </MenuContent>
       </Menu>
     </div>

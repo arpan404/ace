@@ -209,7 +209,12 @@ function MergeMethodMenu(props: { actions: PrActions; disabled: boolean }) {
  * The header's one primary control (merge, auto-merge, resolve…) with the merge method beside
  * it, and turning auto-merge off.
  */
-export function PrPrimaryControl(props: { actions: PrActions }) {
+export function PrPrimaryControl(props: {
+  actions: PrActions;
+  /** Shows what blocks the merge; with it a blocked merge is words, not a dead button. */
+  onBlocked?: (() => void) | undefined;
+  blockingCount?: number | undefined;
+}) {
   const { actions } = props;
   const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
   return (
@@ -220,6 +225,8 @@ export function PrPrimaryControl(props: { actions: PrActions }) {
         working={working}
         onRun={() => void actions.runPrimary()}
         confirmsItself={actions.editsCommit}
+        onBlocked={props.onBlocked}
+        blockingCount={props.blockingCount}
         onDisable={() => void actions.mergeState.run("disable", actions.method)}
         disableBlocked={
           actions.mergeState.blocked ??
@@ -249,6 +256,8 @@ export function PrHeader(props: {
   onBehindOpen(open: boolean): void;
   onBack?: (() => void) | undefined;
   onOpen(number: number): void;
+  /** Takes the person to what blocks the merge. */
+  onBlocked?: (() => void) | undefined;
 }) {
   const { actions } = props;
   const { context } = actions;
@@ -307,7 +316,7 @@ export function PrHeader(props: {
           {props.extensions?.headerActions?.(context)}
           <PrAgentChip detail={detail} compact={props.condensed} />
           <PrReviewButton />
-          <PrPrimaryControl actions={actions} />
+          <PrPrimaryControl actions={actions} onBlocked={props.onBlocked} />
           {props.menu}
         </div>
       </div>

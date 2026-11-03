@@ -173,6 +173,12 @@ function CheckRow(props: {
  * conversations and failing checks. Each has Fix with agent, and Reply · Show in code (a
  * conversation) or Open log · Re-run (a check). Nothing renders when nothing blocks.
  */
+/** What blocks the merge, as the Summary's Blocking the merge lists it (hidden comments left out). */
+export function useBlockingItems(detail: ForgePrDetail): AttentionItem[] {
+  const state = usePrReview()?.state;
+  return attentionItems(detail.status, (c) => hiddenReasonOf(state, c) !== undefined);
+}
+
 export function PrAttention(props: {
   workspaceId: string;
   detail: ForgePrDetail;
@@ -190,7 +196,7 @@ export function PrAttention(props: {
   const state = review?.state;
   const quote = useQuote();
   // Hidden comments stay out of the list, and so out of any agent's request.
-  const items = attentionItems(detail.status, (c) => hiddenReasonOf(state, c) !== undefined);
+  const items = useBlockingItems(detail);
   const threads = useMemo(
     () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
     [detail.status.reviewThreads],

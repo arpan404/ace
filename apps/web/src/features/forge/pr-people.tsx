@@ -1,4 +1,3 @@
-import { LabelPill } from "@/components/forge-marks.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
@@ -87,19 +86,13 @@ export function PrPeople(props: {
       )}
       {(detail.labels.length > 0 || labelPicker) && (
         <DetailRow label="Labels" action={labelPicker}>
-          <div
-            role="group"
-            aria-label="Labels"
-            className="flex min-h-7 flex-wrap items-center gap-1"
-          >
+          <p aria-label="Labels" className="flex min-h-7 items-center">
             {detail.labels.length ? (
-              detail.labels.map((label) => (
-                <LabelPill key={label} name={label} color={detail.labelColors?.[label]} />
-              ))
+              <LabelNames names={detail.labels} colors={detail.labelColors} />
             ) : (
               <span className="text-subtle-foreground">None</span>
             )}
-          </div>
+          </p>
         </DetailRow>
       )}
       {detail.relatedThreads.some((thread) => !thread.archived) && (
@@ -108,5 +101,37 @@ export function PrPeople(props: {
         </DetailRow>
       )}
     </>
+  );
+}
+
+/**
+ * Labels as their names between commas, each in its own colour (mixed toward the text colour so
+ * it stays readable on either theme), with no box around them.
+ */
+function LabelNames(props: {
+  names: readonly string[];
+  colors?: Readonly<Record<string, string>> | undefined;
+}) {
+  return (
+    <span className="min-w-0">
+      {props.names.map((name, index) => {
+        const color = props.colors?.[name];
+        return (
+          <span key={name}>
+            <span
+              style={
+                color
+                  ? { color: `color-mix(in oklab, #${color} 60%, var(--foreground))` }
+                  : undefined
+              }
+              className={color ? undefined : "text-foreground/85"}
+            >
+              {name}
+            </span>
+            {index < props.names.length - 1 && <span className="text-subtle-foreground">, </span>}
+          </span>
+        );
+      })}
+    </span>
   );
 }

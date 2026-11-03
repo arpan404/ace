@@ -15,6 +15,13 @@ import { reviewState } from "./review-harness.tsx";
 import { detail } from "./pr-workspace.fixture.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 
+/** Picks the diff layout from the toolbar's View menu. */
+async function pickLayout(name: "Split" | "Unified") {
+  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  await userEvent.keyboard("{Escape}");
+}
+
 const repository = detail.status.ref.repository;
 const workspaceId = WorkspaceId.parse("api");
 
@@ -108,7 +115,7 @@ test("every page of changed files joins one scroll without paging buttons", asyn
   expect(await within(diff).findByText("two")).toBeTruthy();
   expect(within(diff).queryByRole("button", { name: /Next files|Previous files/ })).toBeNull();
   expect(
-    within(screen.getByRole("toolbar", { name: "Diff controls" })).getByText("2 files"),
+    within(screen.getByRole("complementary", { name: "Files" })).getByText("2 files"),
   ).toBeTruthy();
 });
 
@@ -169,7 +176,7 @@ test("a file GitHub dismissed after a push reads Changed and stays open", async 
     screen.getByRole("checkbox", { name: "Viewed src/first.ts" }).getAttribute("aria-checked"),
   ).toBe("false");
   expect(screen.getByText("one")).toBeTruthy();
-  expect(screen.getByText("1 file · 0 / 1 viewed")).toBeTruthy();
+  expect(screen.getByText("0 of 1 file viewed")).toBeTruthy();
   expect(
     within(screen.getByRole("toolbar", { name: "Diff controls" })).queryByRole("button", {
       name: /unavailable/,
@@ -368,7 +375,7 @@ test("in split view a comment on the old side of an unchanged line sits in the l
   const shown = { ...detail, status: { ...detail.status, reviewThreads: [leftThread] } };
   await mount(app, reviewed(shown));
   await screen.findByText("Note 6");
-  await userEvent.click(screen.getByRole("button", { name: "Split" }));
+  await pickLayout("Split");
   const before = await screen.findByRole("region", { name: "src/first.ts before" });
   const after = screen.getByRole("region", { name: "src/first.ts after" });
   expect(within(before).getByText("Note 6")).toBeTruthy();
@@ -435,13 +442,13 @@ test("a pick on the old side in split view keeps its place in unified view, in a
   serveReview(app);
   await mount(app, reviewed(detail));
   await screen.findByText("changed 16");
-  await userEvent.click(screen.getByRole("button", { name: "Split" }));
+  await pickLayout("Split");
   await userEvent.click(
     (await screen.findAllByRole("button", { name: /\d+ unchanged lines/ }))[0]!,
   );
   await pickLine("Comment on old line 2");
   await screen.findByText("Commenting on old line 2");
-  await userEvent.click(screen.getByRole("button", { name: "Unified" }));
+  await pickLayout("Unified");
   await screen.findByText("Commenting on old line 2");
   expect(screen.getByRole("textbox", { name: "Line comment" })).toBeTruthy();
 });

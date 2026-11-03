@@ -93,8 +93,25 @@ const viewed = (state: "VIEWED" | "UNVIEWED") =>
   });
 const box = (path: string) => screen.findByRole("checkbox", { name: `Viewed ${path}` });
 
-const pressed = (name: string) =>
-  screen.getByRole("button", { name }).getAttribute("aria-pressed") === "true";
+type ViewItem = ["menuitemradio" | "menuitemcheckbox", string];
+const split: ViewItem = ["menuitemradio", "Split"];
+const noWhitespace: ViewItem = ["menuitemcheckbox", "Hide whitespace"];
+
+/** Opens the View menu and finds a choice there. */
+const viewItem = async ([role, name]: ViewItem) => {
+  await userEvent.click(screen.getByRole("button", { name: "View" }));
+  return screen.findByRole(role, { name });
+};
+/** Whether a View menu choice is on, closing the menu after. */
+const chosen = async (item: ViewItem) => {
+  const on = (await viewItem(item)).getAttribute("aria-checked") === "true";
+  await userEvent.keyboard("{Escape}");
+  return on;
+};
+const choose = async (item: ViewItem) => {
+  await userEvent.click(await viewItem(item));
+  await userEvent.keyboard("{Escape}");
+};
 
 test("a push keeps the layout and whitespace choice, and so does the next visit", async () => {
   const app = harness();
@@ -104,8 +121,8 @@ test("a push keeps the layout and whitespace choice, and so does the next visit"
   );
   const view = await mount(app, codeTab(detail));
   await screen.findByText("first");
-  await userEvent.click(screen.getByRole("button", { name: "Split" }));
-  await userEvent.click(screen.getByRole("button", { name: "Hide whitespace" }));
+  await choose(split);
+  await choose(noWhitespace);
   // An agent pushes: the new head's files are read, the choices stay.
   const head = "e".repeat(40);
   app.daemon.workspace.setForgeRead(
@@ -114,14 +131,14 @@ test("a push keeps the layout and whitespace choice, and so does the next visit"
   );
   view.rerender(codeTab({ ...detail, status: { ...detail.status, headSha: head } }));
   expect(await screen.findAllByText("pushed")).not.toHaveLength(0);
-  expect(pressed("Split")).toBe(true);
-  expect(pressed("Hide whitespace")).toBe(true);
+  expect(await chosen(split)).toBe(true);
+  expect(await chosen(noWhitespace)).toBe(true);
   expect(screen.getByText(/^Pushed .* · your place kept$/)).toBeTruthy();
   // Kept on this device: the Code tab opened again starts the same way.
   view.unmount();
   await mount(app, codeTab(detail));
   await screen.findAllByText("first");
-  expect(pressed("Split")).toBe(true);
+  expect(await chosen(split)).toBe(true);
 });
 
 test("Since your review shows only the commits after the viewer's latest review", async () => {

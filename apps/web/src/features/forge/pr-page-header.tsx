@@ -10,6 +10,7 @@ import { PrAgentChip } from "./pr-agent-chip.tsx";
 import { PrReviewButton } from "./pr-review-popover.tsx";
 import { PrMergeLines } from "./pr-merge-lines.tsx";
 import { PrGatesLine } from "./pr-gates-row.tsx";
+import { useBlockingItems } from "./pr-attention.tsx";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 
 /**
@@ -27,6 +28,8 @@ export function PrPageHeader(props: {
   onGate(key: GateKey): void;
   onBehindOpen(open: boolean): void;
   onBack?: (() => void) | undefined;
+  /** Takes the person to what blocks the merge. */
+  onBlocked(): void;
 }) {
   const { actions } = props;
   const { context } = actions;
@@ -34,6 +37,7 @@ export function PrPageHeader(props: {
   const { status } = detail;
   const backLabel = useBackLabel("Pull requests");
   const commits = `${detail.commits} ${detail.commits === 1 ? "commit" : "commits"}`;
+  const blocking = useBlockingItems(detail);
   const deleted = actions.lifecycle.snapshot?.headBranch?.exists === false;
   return (
     <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4 pb-3">
@@ -46,7 +50,13 @@ export function PrPageHeader(props: {
             <PrAgentChip detail={detail} compact={false} />
             <PrReviewButton />
             {/* A merged or closed PR's state is in words under the title, not a button. */}
-            {actions.primary.kind !== "state" && <PrPrimaryControl actions={actions} />}
+            {actions.primary.kind !== "state" && (
+              <PrPrimaryControl
+                actions={actions}
+                onBlocked={props.onBlocked}
+                blockingCount={blocking.length}
+              />
+            )}
             {props.menu}
           </>
         }

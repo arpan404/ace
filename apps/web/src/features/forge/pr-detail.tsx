@@ -1,14 +1,9 @@
 import {
   useEffect,
   useCallback,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type KeyboardEvent,
-  type ReactNode,
-  type RefObject,
-  type UIEvent,
 } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
@@ -21,7 +16,6 @@ import {
   type CodeScope,
   type GateKey,
 } from "@ace/ui-core";
-import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
@@ -58,8 +52,9 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
 import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
+import { PrTabs, type PrTab } from "./pr-tabs.tsx";
 
-export type PrTab = "summary" | "timeline" | "code" | "checks";
+export type { PrTab } from "./pr-tabs.tsx";
 
 export function prWorkspaceTab(tab: string): PrTab {
   return tab === "timeline" || tab === "commits"
@@ -74,7 +69,7 @@ export function prWorkspaceTab(tab: string): PrTab {
 /** "1 comment", "9 comments". */
 const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-/** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
+/** A page's column: the header and every tab, Code included, keep to it. */
 const pageWidth = "mx-auto w-full max-w-[64rem]";
 
 /** Scrolled this far into a tab, the header folds its title block away. */
@@ -89,137 +84,6 @@ function belongsTo(query: Query, workspaceId: string, status: ForgePrStatus): bo
     key === JSON.stringify(status.ref) ||
     (kind === "stack-memberships" && key === JSON.stringify(status.ref.repository))
   );
-}
-
-/** Summary · Timeline · Code · Checks as words: the current one on the flat selected fill, no shadow. */
-const wordTab =
-  "h-7 rounded-md px-2 text-ui font-normal hover:not-data-active:bg-hover data-active:bg-active data-active:font-medium";
-
-/**
- * The tab bar: Summary · Timeline · Code · Checks as words with a quiet count each, and the
- * active tab's context at its right end. In a panel each tab body is its own scroller. On a page
- * the whole page scrolls as one: the header scrolls away, the bar pins to the top, Summary and
- * Timeline grow with their content, and Code fills the space under the bar with its own
- * scrollers. Switching tabs brings the bar back to the top, so the new tab starts at its start.
- */
-function PrTabs(props: {
-  tab: PrTab;
-  onTab(tab: string): void;
-  context: Record<PrTab, ReactNode>;
-  panels: Record<PrTab, ReactNode>;
-  /** How many each tab holds: comments, changed files, checks. */
-  counts: Partial<Record<PrTab, number>>;
-  onScroll(tab: PrTab, top: number): void;
-  /** On a page of its own: the bar and the reading tabs keep a readable width; Code is full. */
-  readable?: string | undefined;
-}) {
-  const order: PrTab[] = ["summary", "timeline", "code", "checks"];
-  const names: Record<PrTab, string> = {
-    summary: "Summary",
-    timeline: "Timeline",
-    code: "Code",
-    checks: "Checks",
-  };
-  const page = props.readable !== undefined;
-  const bar = useRef<HTMLDivElement | null>(null);
-  const codeHeight = usePageCodeHeight(bar, page);
-  // A reading tab starts at its top; Code, which scrolls inside itself, takes the whole page.
-  const toBar = (tab: string) =>
-    requestAnimationFrame(() => {
-      const element = bar.current;
-      const scroller = element?.closest<HTMLElement>("[data-pr-scroller]");
-      if (!element || !scroller) return;
-      const top =
-        element.getBoundingClientRect().top -
-        scroller.getBoundingClientRect().top +
-        scroller.scrollTop;
-      if (tab === "code" || scroller.scrollTop > top) scroller.scrollTop = top;
-    });
-  return (
-    <Tabs
-      value={props.tab}
-      onValueChange={(value) => {
-        if (typeof value !== "string") return;
-        props.onTab(value);
-        if (page) toBar(value);
-      }}
-      className={page ? "flex flex-col" : "flex min-h-0 flex-1 flex-col"}
-    >
-      <div
-        ref={bar}
-        className={cn(
-          "shrink-0 border-t border-border py-2",
-          page && "sticky top-0 z-[3] border-b bg-panel",
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center justify-between gap-2 px-[var(--forge-gutter,1rem)]",
-            props.readable,
-          )}
-        >
-          <TabsList aria-label="Pull request detail" className="-ml-2">
-            {order.map((tab) => (
-              <TabsTab key={tab} value={tab} className={wordTab}>
-                {names[tab]}
-                {!!props.counts[tab] && (
-                  <span
-                    aria-hidden
-                    className="ml-1 font-normal text-subtle-foreground tabular-nums"
-                  >
-                    {props.counts[tab]}
-                  </span>
-                )}
-              </TabsTab>
-            ))}
-          </TabsList>
-          <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
-        </div>
-      </div>
-      {order.map((tab) => (
-        <TabsPanel
-          key={tab}
-          value={tab}
-          className={cn(
-            !page && "overflow-auto border-t border-border",
-            page && tab === "code" && "flex-none overflow-hidden",
-            page && tab !== "code" && "flex-none",
-          )}
-          style={page && tab === "code" ? { height: codeHeight } : undefined}
-          onScroll={
-            page
-              ? undefined
-              : (e: UIEvent<HTMLDivElement>) => props.onScroll(tab, e.currentTarget.scrollTop)
-          }
-        >
-          {page && tab !== "code" ? (
-            <div className={props.readable}>{props.panels[tab]}</div>
-          ) : (
-            props.panels[tab]
-          )}
-        </TabsPanel>
-      ))}
-    </Tabs>
-  );
-}
-
-/** On a page, the Code tab's height: the page's scroller less the pinned tab bar. */
-function usePageCodeHeight(bar: RefObject<HTMLDivElement | null>, page: boolean) {
-  const [height, setHeight] = useState<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const element = bar.current;
-    const scroller = element?.closest<HTMLElement>("[data-pr-scroller]");
-    if (!page || !element || !scroller) return;
-    const measure = () => setHeight(Math.max(0, scroller.clientHeight - element.offsetHeight));
-    measure();
-    // Without ResizeObserver (old engines, tests) the first measure stands.
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(scroller);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [bar, page]);
-  return height;
 }
 
 /** The Summary tab's context: how many files are marked viewed, else the checks in a line. */
@@ -293,6 +157,15 @@ function PrDetailLoaded(props: {
     else if (key === "branch" && actions.mergeState.state?.mergeState === "BEHIND")
       setBehindOpen(true);
     else if (key === "ended") props.onTab("timeline");
+  };
+  // Blocked, the header's merge says so in words and leads here: the Summary's Blocking the merge.
+  const showBlocking = () => {
+    props.onTab("summary");
+    requestAnimationFrame(() =>
+      document
+        .getElementById("pr-attention")
+        ?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
+    );
   };
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
@@ -393,6 +266,7 @@ function PrDetailLoaded(props: {
                           behindOpen={behindOpen}
                           onBehindOpen={setBehindOpen}
                           onGate={onGate}
+                          onBlocked={showBlocking}
                           onBack={props.onBack}
                           menu={menu}
                         />
@@ -406,6 +280,7 @@ function PrDetailLoaded(props: {
                           gates={<PrGatesRow actions={actions} onSelect={onGate} />}
                           onBack={props.onBack}
                           onOpen={props.onOpen}
+                          onBlocked={showBlocking}
                           menu={menu}
                         />
                       )}
@@ -433,6 +308,8 @@ function PrDetailLoaded(props: {
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}
+                  // Finish review stays in reach once the header (with its Review) scrolls away.
+                  pinned={{ code: <PrReviewButton finish /> }}
                   counts={{
                     timeline: detail.status.comments.length,
                     code: detail.changedFiles,
@@ -459,8 +336,7 @@ function PrDetailLoaded(props: {
                         </TextAction>
                       </div>
                     ),
-                    // Finish review stays in reach while the code scrolls under the bar.
-                    code: <PrReviewButton finish />,
+                    code: null,
                     checks: props.page ? null : <PrChecksPill status={detail.status} />,
                   }}
                   panels={{
