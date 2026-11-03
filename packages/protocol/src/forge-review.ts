@@ -23,7 +23,25 @@ export const ForgeReviewAnchor = z.object({
   startSide: z.enum(["LEFT", "RIGHT"]).optional(),
 });
 export type ForgeReviewAnchor = z.infer<typeof ForgeReviewAnchor>;
-export const ForgeReviewDraft = z.object({ id, body, anchor: ForgeReviewAnchor });
+/** Most lines of earlier code an outdated draft keeps to show what it was written on. */
+export const maxDraftCodeLines = 12;
+export const ForgeReviewDraft = z.object({
+  id,
+  body,
+  anchor: ForgeReviewAnchor,
+  /**
+   * Set when new commits changed the draft's lines, so it can't follow them to the head. The
+   * anchor stays where it was written; `code` is what those lines said, oldest first. It posts
+   * as a comment on its file, never silently dropped.
+   */
+  outdated: z
+    .object({
+      /** The head the move was tried against. */
+      headSha: sha,
+      code: z.array(z.string().max(2_000)).max(maxDraftCodeLines),
+    })
+    .optional(),
+});
 export type ForgeReviewDraft = z.infer<typeof ForgeReviewDraft>;
 /** GitHub's reaction set, named as its REST API names them. */
 export const ForgeReactionContent = z.enum([
@@ -71,6 +89,13 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reconcile"), operationId: id }),
   z.object({ kind: z.literal("draft.save"), draft: ForgeReviewDraft }),
   z.object({ kind: z.literal("draft.delete"), id }),
+  /**
+   * Move pending drafts written on earlier commits to `headSha`: a draft whose lines no commit
+   * since changed follows them; any other is kept, marked outdated with its earlier code.
+   */
+  z.object({ kind: z.literal("drafts.move"), headSha: sha }),
+  /** Post one outdated draft at once as a comment on its file, quoting its earlier code. */
+  z.object({ kind: z.literal("draft.file"), id, headSha: sha }),
   z.object({
     kind: z.literal("submit"),
     headSha: sha,
@@ -86,7 +111,16 @@ export const ForgeReviewAction = z.discriminatedUnion("kind", [
     anchor: ForgeReviewAnchor,
     body: body.min(1),
   }),
-  z.object({ kind: z.literal("reply"), commentId: z.number().int().positive(), body: body.min(1) }),
+  z.object({
+    kind: z.literal("reply"),
+    commentId: z.number().int().positive(),
+    body: body.min(1),
+    /**
+     * Add the reply to the viewer's review pending on GitHub instead of posting it at once:
+     * GitHub's node ids of that review and of the thread.
+     */
+    pendingReview: z.object({ reviewId: id, threadId: id }).optional(),
+  }),
   z.object({
     kind: z.literal("comment.edit"),
     commentId: z.number().int().positive(),
@@ -170,6 +204,13 @@ export const ForgeHostedReviewCommand = z.object({
   pr: ForgePrRef,
   action: ForgeReviewAction,
 });
+/** The viewer's own review started on GitHub and not yet submitted there. */
+export const ForgeHostedPendingReview = z.object({
+  id,
+  comments: z.number().int().nonnegative(),
+  url: z.string().max(4_096).optional(),
+});
+export type ForgeHostedPendingReview = z.infer<typeof ForgeHostedPendingReview>;
 export const ForgeReviewState = z.object({
   viewer: id,
   headSha: sha,
@@ -187,6 +228,8 @@ export const ForgeReviewState = z.object({
   /** Hidden comments only; null when GitHub's hidden state couldn't be read. */
   hidden: z.array(ForgeHiddenComment).max(4_000).nullable().optional(),
   /** Comments the viewer may hide or unhide (GitHub's viewerCanMinimize); null when unread. */
+  /** The viewer's review pending on GitHub; null when none, absent when unread. */
+  hostedPending: ForgeHostedPendingReview.nullable().optional(),
   hideable: z
     .array(
       z.object({ source: z.enum(["issue", "inline"]), commentId: z.number().int().positive() }),
