@@ -14,7 +14,7 @@ const words = product.headline.split(" ");
 ---
 
 <section class="hero">
-  <AsciiField />
+  <AsciiField focus={0.76} scale={0.74} />
   <div class="page hero-copy">
     <ul class="marks" aria-label="Agents ace runs">
       {
@@ -55,11 +55,20 @@ const words = product.headline.split(" ");
     padding-top: 64px;
   }
 
-  /* The ASCII field covers only the copy band, not the screenshot. */
+  /*
+   * The ASCII field covers only the copy band, not the screenshot, and stays inside the page's
+   * content column so the mark lines up with the copy instead of running to the window's edge.
+   * Its sides fade so the drifting field has no hard edge.
+   */
   .hero > :global(.ascii) {
-    bottom: auto;
+    inset: 0 auto auto 50%;
+    width: min(calc(100% - var(--gutter) * 2), var(--page));
     height: 600px;
-    mask-image: linear-gradient(to bottom, black 65%, transparent);
+    translate: -50% 0;
+    mask-image:
+      linear-gradient(to bottom, black 65%, transparent),
+      linear-gradient(to right, transparent, black 4%, black 96%, transparent);
+    mask-composite: intersect;
   }
 
   /* Narrower than this, the mark runs into the headline and buttons, so it steps aside. */

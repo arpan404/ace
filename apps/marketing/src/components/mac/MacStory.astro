@@ -9,6 +9,7 @@
 import { siApple } from "simple-icons";
 import { scenes, type SceneId } from "../../content/stage.ts";
 import AceWindow from "./AceWindow.astro";
+import Pebble from "./Pebble.astro";
 import PhoneLockScreen from "./PhoneLockScreen.astro";
 import SimulatorWindow from "./SimulatorWindow.astro";
 
@@ -98,16 +99,7 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
             >
           </div>
 
-          <span class="pointer" data-pointer aria-hidden="true"
-            ><svg viewBox="0 0 19 26" width="19" height="26"
-              ><path
-                d="M1.5 1.2v20.4l5-4.7 3.4 7.8 3.4-1.5-3.3-7.6h6.9z"
-                fill="#fff"
-                stroke="#000"
-                stroke-width="1.3"
-                stroke-linejoin="round"></path></svg
-            ></span
-          >
+          <span class="pointer" data-pointer aria-hidden="true"><Pebble size={34} /></span>
         </div>
       </div>
     </div>
@@ -414,7 +406,8 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
     transition:
       transform 0.85s cubic-bezier(0.4, 0, 0.2, 1),
       opacity 0.3s;
-    filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.45));
+    color: var(--status-working);
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
     pointer-events: none;
   }
 
@@ -422,11 +415,11 @@ const played: SceneId[] = only ? [only] : scenes.map((scene) => scene.id);
     opacity: 1;
   }
 
-  .pointer svg {
+  .pointer :global(svg) {
     transition: transform 0.12s;
   }
 
-  .pointer:global(.press) svg {
+  .pointer:global(.press) :global(svg) {
     transform: scale(0.86);
   }
 
