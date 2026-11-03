@@ -83,7 +83,7 @@ export function ProjectMenu(props: {
     >
       <PopoverTrigger
         aria-label={`Projects: ${choice.label}`}
-        className="mr-1 inline-flex h-7 min-w-0 shrink items-center gap-1.5 rounded-md px-2 text-ui font-medium text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-hover"
+        className="mr-1 inline-flex h-7 max-w-48 min-w-0 shrink-0 items-center gap-1.5 rounded-md px-2 text-ui font-medium text-foreground focus-ring transition-colors duration-(--motion-fast) hover:bg-hover aria-expanded:bg-hover"
       >
         {marks.length > 0 && (
           <span aria-hidden className="flex shrink-0 gap-0.5">

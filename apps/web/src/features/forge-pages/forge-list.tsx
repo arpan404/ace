@@ -123,7 +123,7 @@ export function ForgeList<R>(props: {
       }}
       onKeyDown={onKeyDown}
       className={cn(
-        "pb-6",
+        "@container/list pb-6",
         props.stale && "opacity-60 transition-opacity duration-(--motion-fast)",
       )}
     >

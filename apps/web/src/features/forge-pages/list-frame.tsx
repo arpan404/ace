@@ -92,7 +92,7 @@ export function ListFrame(props: {
           <div
             role="toolbar"
             aria-label={filtersLabel[props.kind]}
-            className="flex min-w-0 items-center gap-1"
+            className="flex min-w-0 flex-wrap items-center gap-1"
           >
             {props.lead}
             {props.onSearch && (

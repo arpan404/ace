@@ -66,12 +66,15 @@ export function Thread(props: { thread: LinkedThread | undefined }) {
   );
 }
 
-/** The project a row belongs to, at the start of its second line: its mark and name. */
+/**
+ * The project a row belongs to, at the start of its second line: its mark and name; a narrow
+ * list keeps the mark and names it for assistive tech.
+ */
 export function ProjectTag(props: { id: string; name: string }) {
   return (
     <span className="inline-flex min-w-0 shrink items-center gap-1.5 text-muted-foreground">
       <ProjectMark id={props.id} badge={projectBadge({ id: props.id, name: props.name })} />
-      <span className="truncate">{props.name}</span>
+      <span className="sr-only truncate @lg/list:not-sr-only">{props.name}</span>
     </span>
   );
 }

@@ -11,7 +11,7 @@ import { Age, Dot, ProjectTag, RowActions, rowClass } from "./row-parts.tsx";
 import type { RowStepView } from "./row-steps.ts";
 
 /** The right column's width: the status words and the action under them. */
-const side = "[--row-side:8.5rem]";
+const side = "[--row-side:6.5rem] @lg/list:[--row-side:8.5rem]";
 const actionText =
   "inline-flex h-5 items-center rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
 
@@ -82,7 +82,8 @@ export function PrRow(props: {
             <Dot />
             <span className="max-w-40 shrink-0 truncate">{row.author}</span>
             {branch && (
-              <>
+              // A narrow list leaves the branch to the pull request's page.
+              <span className="hidden min-w-0 items-center gap-1.5 @xl/list:flex">
                 <Dot />
                 <span
                   className="min-w-0 truncate font-mono text-xs"
@@ -90,12 +91,16 @@ export function PrRow(props: {
                 >
                   {middleTruncateText(branch, 36)}
                 </span>
-              </>
+              </span>
             )}
             {row.additions !== undefined && row.deletions !== undefined && (
               <>
                 <Dot />
-                <DiffStat additions={row.additions} deletions={row.deletions} />
+                <DiffStat
+                  additions={row.additions}
+                  deletions={row.deletions}
+                  className="shrink-0 whitespace-nowrap"
+                />
               </>
             )}
           </span>
