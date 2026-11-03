@@ -25,7 +25,7 @@ import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 import { fakeOpenWork } from "./open-work-wire.ts";
 import { emptyIssueList, FakeIssueWire } from "./issue-wire.ts";
 import { FakeInboxWire } from "./inbox-wire.ts";
-import { catalogIssueList, matchingIssues } from "./forge-list-wire.ts";
+import { catalogIssueList, matchingIssues, projectRepository } from "./forge-list-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import { FakeGitStates } from "./git-states.ts";
 import { FakeConflicts } from "./conflict-wire.ts";
@@ -47,6 +47,7 @@ export type FakeWorkspaceControls = Pick<
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
+  | "addPullRequests"
   | "mergePullRequest"
   | "submitPullRequestReview"
   | "pushPullRequest"
@@ -116,7 +117,11 @@ export class FakeWorkspaceWire {
   seedPullRequests(fixtures: readonly PullRequestFixture[]): void {
     this.pullRequests.seed(fixtures);
   }
-  /** Push to a catalog PR's branch: a new head with every new-side line moved down by ten. */
+  /** More whole pull requests beside the seeded ones. */
+  addPullRequests(fixtures: readonly PullRequestFixture[]): void {
+    this.pullRequests.add(fixtures);
+  }
+  /** Push to a catalog PR's branch: a new head (its own push, or new-side lines moved by ten). */
   pushPullRequest(number: number): boolean {
     return this.pullRequests.push(number);
   }
@@ -436,6 +441,12 @@ export class FakeWorkspaceWire {
         type: "workspace.result",
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
+      });
+    if (op.op === "forge.repository")
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: { kind: "forge", data: { resource: "repository", value: projectRepository(op) } },
       });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({

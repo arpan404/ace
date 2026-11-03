@@ -2,7 +2,6 @@ import { sketchPullRequests, workbench, type PrSketch } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { listGroup, listGroups } from "@/test/list-groups.ts";
 import { harness } from "@/test/harness.tsx";
 
 const minute = 60_000;
@@ -38,35 +37,22 @@ function withBusyRepository() {
   return app;
 }
 
-/** A group's heading: its name and GitHub's total for it. */
-const heading = (name: string) =>
-  listGroups(screen.getByRole("navigation", { name: "Pull requests" })).find(
-    (group) => group.name === name,
-  )?.heading.textContent;
-
-async function groups() {
+/** The titles listed, in order. */
+async function titles() {
   const nav = await screen.findByRole("navigation", { name: "Pull requests" });
-  return Object.fromEntries(
-    listGroups(nav).map((group) => [
-      group.name,
-      group.rows.flatMap((row) => within(row).queryAllByRole("link")).length,
-    ]),
-  );
+  return within(nav)
+    .queryAllByRole("link")
+    .map((link) => link.textContent ?? "");
 }
 
-test("a ready pull request older than the first page still leads the list", async () => {
+test("a ready pull request older than the first page is still listed, and Load more reads the rest", async () => {
   const app = withBusyRepository();
   await app.open("/pulls?project=ace");
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 25 }));
-  const ready = listGroup(
-    await screen.findByRole("navigation", { name: "Pull requests" }),
-    "Ready to merge",
-  );
-  expect(ready.getByRole("link", { name: /Old but ready/ })).toBeTruthy();
-  // 25 of the 30 waiting are loaded: a group counts its rows once every page is read.
-  expect(heading("Waiting")).toBe("Waiting");
-  await userEvent.click(screen.getByRole("button", { name: "Show more" }));
-  await waitFor(async () => expect(await groups()).toEqual({ "Ready to merge": 1, Waiting: 30 }));
-  await waitFor(() => expect(heading("Waiting")).toBe("Waiting30"));
-  expect(heading("Ready to merge")).toBe("Ready to merge1");
+  // The readiest first through the whole repository: the ready one, then a page of the waiting.
+  await waitFor(async () => expect(await titles()).toHaveLength(26));
+  expect(await titles()).toContain("Old but ready");
+  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await waitFor(async () => expect(await titles()).toHaveLength(31));
+  // Waiting rows come before the ready one in the next-move order.
+  expect((await titles()).at(-1)).toBe("Old but ready");
 });

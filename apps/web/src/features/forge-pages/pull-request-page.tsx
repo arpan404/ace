@@ -9,13 +9,13 @@ import { Screen } from "@/features/shell/index.ts";
 import { BackLabel } from "@/components/back-label.tsx";
 import { backLabel, useBackToList } from "./back-to-list.ts";
 import { cachedRow } from "./lists.ts";
-import { useProjectChoice } from "./project-choice.ts";
+import { useProjectName } from "@/lib/projects.ts";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** The PR view arrives with its page, never with the app's first paint. */
 const PrDetail = lazy(() => loadPrDetail().then((module) => ({ default: module.PrDetail })));
 
-const tabs = ["summary", "timeline", "code"] as const;
+const tabs = ["summary", "timeline", "code", "checks"] as const;
 export type PullRequestTab = (typeof tabs)[number];
 
 /**
@@ -33,9 +33,9 @@ export function PullRequestPage(props: {
   onTab(tab: PullRequestTab | undefined): void;
 }) {
   const { project } = props;
-  const choice = useProjectChoice(project);
+  const choice = { name: useProjectName() };
   const navigate = useNavigate();
-  const back = useBackToList("/pulls", project, props.back);
+  const back = useBackToList("/pulls", props.back);
   const cache = useQueryClient();
   // The list's row for this PR, if one was read: the page shows it at once while the rest loads.
   const seed = cachedRow(cache, project, "prList", props.number, repositoryFromParam(props.repo));

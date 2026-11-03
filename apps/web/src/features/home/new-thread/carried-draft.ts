@@ -2,6 +2,7 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 import { discardDraft, readDraft, writeDraft } from "@/features/thread/index.ts";
 import { primaryMachineId } from "@/lib/machines.ts";
+import { handedNewThreadText } from "@/lib/composer-insert.ts";
 import { discardPreparation } from "./discard-preparation.ts";
 import { preparation } from "./preparations.ts";
 
@@ -62,4 +63,27 @@ export function takeCarriedDraft(
     else discardDraft(storage, carry.from.key);
   }
   return text;
+}
+
+/**
+ * Put the words handed over from `source` ("Fix with agent" on a PR) in the draft at `key`,
+ * after any text it has, and return them. Reading again finds them there and adds nothing.
+ */
+export function takeHandedText(
+  storage: KeyValueStorage | undefined,
+  key: string,
+  source: string | undefined,
+): string | undefined {
+  const text = handedNewThreadText(source);
+  if (!text) return undefined;
+  const draft = readDraft(storage, key);
+  if (draft?.text.includes(text)) return text;
+  const before = draft?.text.trim() ? `${draft.text.trimEnd()}\n\n` : "";
+  const written = writeDraft(storage, key, {
+    ...draft,
+    text: `${before}${text}`,
+    mentions: draft?.mentions ?? [],
+    attachments: draft?.attachments ?? [],
+  });
+  return written ? text : undefined;
 }

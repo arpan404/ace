@@ -35,15 +35,10 @@ function Marks(props: { cards: readonly ThreadCard[] }) {
   );
 }
 
-/**
- * Who is working on this PR: the provider mark of each linked task with the loudest one's
- * status and time. One task opens on click; several open a list. Nothing when none is linked.
- */
-export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean }) {
+/** The tasks linked to this PR as live cards, and the loudest of them with its words. */
+function useLinkedTasks(detail: ForgePrDetail) {
   const now = useNow();
-  const navigate = useNavigate();
-  const machine = useMachineSearch();
-  const ids = props.detail.relatedThreads.filter((t) => !t.archived).map((t) => t.id);
+  const ids = detail.relatedThreads.filter((t) => !t.archived).map((t) => t.id);
   const entries =
     useSidebarAll((reader) =>
       ids.flatMap((id) => {
@@ -55,12 +50,84 @@ export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean })
     threadCard({ entry, baseline: 0, settled: false, now }),
   );
   const lead = presenceLead(cards.map((card) => ({ card, tone: card.status.tone })))?.card;
-  if (!lead) return null;
-  const since = lead.status.since;
-  const words = presenceWords(
-    lead.status,
-    since !== undefined ? formatSpan(since, now) : undefined,
+  const since = lead?.status.since;
+  const words =
+    lead && presenceWords(lead.status, since !== undefined ? formatSpan(since, now) : undefined);
+  return { cards, lead, words };
+}
+
+/**
+ * The About section's Agent row: each linked task's title, what state it's in and for how
+ * long, and Open thread. Nothing when none is linked.
+ */
+export function PrAgentLine(props: { detail: ForgePrDetail }) {
+  const navigate = useNavigate();
+  const machine = useMachineSearch();
+  const now = useNow();
+  const { cards } = useLinkedTasks(props.detail);
+  if (!cards.length) return null;
+  return (
+    <ul className="flex flex-col">
+      {cards.map((card) => {
+        const since = card.status.since;
+        const words = presenceWords(
+          card.status,
+          since !== undefined ? formatSpan(since, now) : undefined,
+        );
+        return (
+          <li key={card.id} className="flex min-h-7 min-w-0 items-center gap-1.5">
+            <ProviderIcon
+              provider={card.provider}
+              acpAgentId={card.acpAgentId}
+              size={14}
+              decorative
+            />
+            <span className="min-w-0 truncate text-foreground">{card.title}</span>
+            <span
+              key={words}
+              data-tone={card.status.tone === "idle" ? undefined : card.status.tone}
+              className={cn(
+                "fx-cross-in shrink-0 first-letter:uppercase",
+                card.status.tone === "idle" || card.status.tone === "done"
+                  ? "text-muted-foreground"
+                  : "text-(--tone-text)",
+              )}
+            >
+              {words}
+            </span>
+            <span aria-hidden className="text-subtle-foreground">
+              ·
+            </span>
+            <button
+              type="button"
+              aria-label={`Open thread: ${card.title}`}
+              className="shrink-0 rounded-xs text-xs text-muted-foreground focus-ring touch-hit hover:text-foreground"
+              onClick={() =>
+                void navigate({
+                  to: "/t/$threadId",
+                  params: { threadId: card.id },
+                  search: machine,
+                })
+              }
+            >
+              Open thread
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
+}
+
+/**
+ * Who is working on this PR: the provider mark of each linked task with the loudest one's
+ * status and time. One task opens on click; several open a list. Nothing when none is linked.
+ */
+export function PrAgentChip(props: { detail: ForgePrDetail; compact?: boolean }) {
+  const navigate = useNavigate();
+  const machine = useMachineSearch();
+  const { cards, lead, words } = useLinkedTasks(props.detail);
+  if (!lead || !words) return null;
   const name = providerDisplayName(lead.provider, lead.acpAgentId);
   const label = `${name} · ${words}`;
   const body = (

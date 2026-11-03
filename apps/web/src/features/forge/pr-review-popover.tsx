@@ -2,11 +2,14 @@ import { useState } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
 import { Button } from "@/components/ui/button.tsx";
+import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { cn } from "@/lib/cn.ts";
-import { draftPlace, verdictBlocked } from "@ace/ui-core";
+import { submitBlocked, verdictBlocked } from "@ace/ui-core";
 import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { useDraftsFollowHead } from "./pr-review-follow.ts";
+import { PrReviewDraftRow } from "./pr-review-draft-row.tsx";
 
 type Verdict = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 const verdicts: readonly { value: Verdict; label: string }[] = [
@@ -20,7 +23,10 @@ const verdicts: readonly { value: Verdict; label: string }[] = [
  * opens the review: a summary, Comment / Approve / Request changes, the pending line comments
  * (each removable), and Submit review, which sends them all as one review.
  */
-export function PrReviewButton() {
+export function PrReviewButton(props: {
+  /** In the Code tab's bar: "Finish review · N", the main action while comments wait. */
+  finish?: boolean | undefined;
+}) {
   const review = usePrReview();
   const [open, setOpen] = useState(false);
   const [verdict, setVerdict] = useState<Verdict>("COMMENT");
@@ -30,21 +36,46 @@ export function PrReviewButton() {
     identity ? `${draftKeys.prComment(identity.workspaceId, identity.prKey)}:review` : undefined,
   );
   const state = review?.state;
-  if (!review || !detail || !state) return null;
+  const follow = useDraftsFollowHead();
+  if (!review || !detail) return null;
+  // While the review state loads or can't be read, Review stays where it is and says why.
+  if (!state)
+    return detail.status.state === "open" || detail.status.state === "draft" ? (
+      <DisabledReason
+        reason={
+          review.stateFailed
+            ? "GitHub's review state couldn't be read. Refresh to try again."
+            : "Reading your review from GitHub…"
+        }
+      >
+        <Button variant="secondary" disabled>
+          Review
+        </Button>
+      </DisabledReason>
+    ) : null;
   const drafts = state.drafts;
   const live = detail.status.state === "open" || detail.status.state === "draft";
   const locked = review.commentsLocked;
   if (!drafts.length && !((state.canComment || locked) && live)) return null;
   const headSha = detail.status.headSha;
-  const outdated = drafts.filter((d) => d.anchor.commit !== headSha);
   const blocked = verdictBlocked(state, detail.author, live);
   const chosen = blocked && verdict !== "COMMENT" ? "COMMENT" : verdict;
   const disabled = !review.ready || review.pending;
-  const refused = locked || !state.canComment;
   const empty = chosen !== "APPROVE" && !draft.text.trim() && !drafts.length;
-  const stale = state.headSha !== headSha;
+  // Why Submit is off, always in words; the lock says so itself above.
+  const why = submitBlocked({
+    ready: review.ready,
+    writing: review.pending,
+    locked,
+    canComment: state.canComment,
+    headSha,
+    stateHead: state.headSha,
+    drafts,
+    hostedPending: state.hostedPending,
+    empty,
+  });
   const submit = () => {
-    if (disabled || empty || outdated.length || stale || refused) return;
+    if (why) return;
     const body = draft.text;
     void review
       .run({ kind: "submit", event: chosen, body, headSha, draftIds: drafts.map((d) => d.id) })
@@ -58,16 +89,30 @@ export function PrReviewButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        render={<Button variant="secondary" />}
-        aria-label={drafts.length ? `Review · ${drafts.length} pending` : undefined}
+        render={
+          <Button
+            variant={props.finish && drafts.length ? "primary" : "secondary"}
+            size={props.finish ? "sm" : "default"}
+          />
+        }
+        aria-label={
+          drafts.length
+            ? `${props.finish ? "Finish review" : "Review"} · ${drafts.length} pending`
+            : undefined
+        }
       >
-        Review
+        {props.finish && drafts.length ? "Finish review" : "Review"}
         {drafts.length > 0 && " "}
         {drafts.length > 0 && (
-          <span className="font-normal text-muted-foreground tabular-nums">
+          <span
+            className={cn(
+              "font-normal tabular-nums",
+              props.finish ? "opacity-80" : "text-muted-foreground",
+            )}
+          >
             {/* A narrow page keeps the count and drops the word; the label still says it. */}
             {`· ${drafts.length}`}
-            <span className="@max-[30rem]/pr:hidden"> pending</span>
+            {!props.finish && <span className="@max-[30rem]/pr:hidden"> pending</span>}
           </span>
         )}
       </PopoverTrigger>
@@ -116,49 +161,43 @@ export function PrReviewButton() {
             <p className="text-xs font-medium text-muted-foreground">
               {drafts.length === 1 ? "1 pending comment" : `${drafts.length} pending comments`}
             </p>
-            <ul className="max-h-48 divide-y divide-border-soft overflow-y-auto">
+            <ul className="max-h-72 divide-y divide-border-soft overflow-y-auto">
               {drafts.map((d) => (
-                <li key={d.id} className="flex min-w-0 items-center gap-2 py-1.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="flex min-w-0 items-center gap-1.5 text-xs text-subtle-foreground">
-                      <span dir="rtl" className="min-w-0 truncate text-left">
-                        <bdi dir="ltr" className="font-mono">
-                          {draftPlace(d.anchor)}
-                        </bdi>
-                      </span>
-                      {d.anchor.commit !== headSha && (
-                        <span className="shrink-0 text-status-needs-you">Outdated</span>
-                      )}
-                    </p>
-                    <p className="truncate text-ui">{d.body.split("\n")[0]}</p>
-                  </div>
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    disabled={disabled}
-                    onClick={() => void review.run({ kind: "draft.delete", id: d.id })}
-                  >
-                    Remove
-                  </Button>
-                </li>
+                <PrReviewDraftRow key={d.id} draft={d} headSha={headSha} />
               ))}
             </ul>
           </div>
         )}
-        {outdated.length > 0 && (
+        {state.hostedPending?.url && (
+          <a
+            href={state.hostedPending.url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-ring"
+          >
+            Open your pending review on GitHub
+          </a>
+        )}
+        {follow.failed && (
+          <p role="status" className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">
+              Couldn't move your pending comments to the new commits.
+            </span>
+            <Button size="xs" variant="ghost" disabled={disabled} onClick={follow.retry}>
+              Try again
+            </Button>
+          </p>
+        )}
+        {why && !locked && (
           <p role="status" className="text-xs text-muted-foreground">
-            New commits moved the lines of outdated comments. Remove them to submit.
+            {why}
           </p>
         )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            disabled={disabled || empty || outdated.length > 0 || stale || refused}
-            onClick={submit}
-          >
+          <Button variant="primary" disabled={!!why} onClick={submit}>
             Submit review
           </Button>
         </div>

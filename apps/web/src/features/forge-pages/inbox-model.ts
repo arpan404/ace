@@ -1,9 +1,10 @@
 import type { ForgeInboxList, ForgeInboxQuery, ForgeInboxRow } from "@ace/protocol";
-import { inboxReasons, inboxReasonWords } from "@ace/ui-core";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** `/inbox?view=all&reason=mention&repo=github.com/acme/ace`: the inbox's filters, in the address. */
 export interface InboxSearch {
+  /** The projects picked; none is every project. */
+  projects?: string[] | undefined;
   project?: string | undefined;
   /** Read notifications too; unread only when absent. */
   view?: "all" | undefined;
@@ -12,6 +13,8 @@ export interface InboxSearch {
   reason?: string | undefined;
   /** One repository (`github.com/acme/ace`). */
   repo?: string | undefined;
+  /** Group by repository; by date when absent. */
+  group?: "repo" | undefined;
 }
 
 /** What GitHub is asked for: unread or all, participating, one repository. Reason is filtered here. */
@@ -41,25 +44,25 @@ export function visibleRows(
   return rows;
 }
 
-const unique = (values: Iterable<string>) => [...new Set(values)];
-
-/** The reason filter's choices: GitHub's usual reasons, then any others the rows name. */
-export function reasonChoices(rows: readonly ForgeInboxRow[], selected: string | undefined) {
-  return unique([
-    ...inboxReasons,
-    ...rows.map((row) => row.reason),
-    ...(selected ? [selected] : []),
-  ]).map((value) => ({ value, label: inboxReasonWords(value) }));
-}
-
-/** The repository filter's choices: every repository the rows come from, by name. */
-export function repositoryChoices(rows: readonly ForgeInboxRow[], selected: string | undefined) {
-  return unique([
-    ...rows.map((row) => repositoryParam(row.repository)),
-    ...(selected ? [selected] : []),
-  ])
-    .toSorted((a, b) => a.localeCompare(b))
-    .map((value) => ({ value, label: value.split("/").slice(1).join("/") }));
+/**
+ * The repositories for the filter column: every one the rows come from (and the one picked),
+ * by name, each with its unread count.
+ */
+export function repositoryCounts(
+  rows: readonly ForgeInboxRow[],
+  selected: string | undefined,
+): { id: string; count: number }[] {
+  const counts = new Map<string, Set<string>>();
+  if (selected) counts.set(selected, new Set());
+  for (const row of rows) {
+    const id = repositoryParam(row.repository);
+    const unread = counts.get(id) ?? new Set<string>();
+    if (row.unread) unread.add(row.id);
+    counts.set(id, unread);
+  }
+  return [...counts]
+    .map(([id, unread]) => ({ id, count: unread.size }))
+    .toSorted((a, b) => a.id.localeCompare(b.id));
 }
 
 /**
@@ -110,4 +113,90 @@ export function inboxPollMs(data: ForgeInboxList | undefined, failure: string | 
   if (failure && settled.has(failure)) return inboxSettledMs;
   if (failure && passing.has(failure)) return inboxBackoffMs;
   return (data?.pollSeconds ?? 60) * 1_000;
+}
+
+export interface InboxGroup {
+  id: string;
+  label: string;
+  rows: ForgeInboxRow[];
+}
+
+const dayMs = 24 * 60 * 60_000;
+const dates = [
+  { id: "today", label: "Today", days: 0 },
+  { id: "yesterday", label: "Yesterday", days: 1 },
+  { id: "week", label: "This week", days: 6 },
+  { id: "month", label: "This month", days: 29 },
+] as const;
+
+/**
+ * The rows under GitHub's group bands, each band keeping GitHub's newest-first order. By date:
+ * Today, Yesterday, This week, This month, Older, by the local day `now` falls on. By
+ * repository: one band per repository, in the order they first appear. Empty bands are left out.
+ */
+export function inboxGroups(
+  rows: readonly ForgeInboxRow[],
+  by: "date" | "repo",
+  now: number,
+): InboxGroup[] {
+  if (by === "repo") {
+    const groups = new Map<string, InboxGroup>();
+    for (const row of rows) {
+      const id = repoKey(row.repository);
+      let group = groups.get(id);
+      if (!group) {
+        group = { id, label: `${row.repository.owner}/${row.repository.name}`, rows: [] };
+        groups.set(id, group);
+      }
+      group.rows.push(row);
+    }
+    return [...groups.values()];
+  }
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const start = midnight.getTime();
+  const groups: InboxGroup[] = [
+    ...dates.map((date) => ({ id: date.id, label: date.label, rows: [] as ForgeInboxRow[] })),
+    { id: "older", label: "Older", rows: [] },
+  ];
+  for (const row of rows) {
+    const at = Date.parse(row.updatedAt);
+    const index = dates.findIndex((date) => at >= start - date.days * dayMs);
+    groups[index === -1 || Number.isNaN(at) ? dates.length : index]?.rows.push(row);
+  }
+  return groups.filter((group) => group.rows.length > 0);
+}
+
+const repoKey = (repository: { host: string; owner: string; name: string }) =>
+  `${repository.host}/${repository.owner}/${repository.name}`.toLowerCase();
+
+/**
+ * Each row's project, by its repository; `projects` maps each project to its repository. A
+ * repository two projects share belongs to the first. Rows of repositories no project is stay
+ * without one.
+ */
+export function inboxProjects(
+  repositories: ReadonlyMap<string, { host: string; owner: string; name: string }>,
+): (row: Pick<ForgeInboxRow, "repository">) => string | undefined {
+  const byRepo = new Map<string, string>();
+  for (const [project, repository] of repositories)
+    if (!byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
+  return (row) => byRepo.get(repoKey(row.repository));
+}
+
+/**
+ * The rows the project choice keeps: every row when every project shows (notifications are the
+ * account's, so repositories outside ace's projects too); else only the picked projects' rows.
+ */
+export function rowsForProjects(
+  rows: readonly ForgeInboxRow[],
+  picked: readonly string[],
+  projectOf: (row: ForgeInboxRow) => string | undefined,
+): ForgeInboxRow[] {
+  if (!picked.length) return [...rows];
+  const wanted = new Set(picked);
+  return rows.filter((row) => {
+    const project = projectOf(row);
+    return project !== undefined && wanted.has(project);
+  });
 }

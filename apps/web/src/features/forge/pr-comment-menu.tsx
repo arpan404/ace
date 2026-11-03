@@ -7,6 +7,7 @@ import {
   LinkSimpleIcon,
   PencilSimpleIcon,
   TrashIcon,
+  WrenchIcon,
 } from "@phosphor-icons/react";
 import type { ForgeComment, ForgeHiddenReason } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -35,6 +36,8 @@ import { commentUrl, hiddenReasons } from "@ace/ui-core";
 /** What the ⋯ menu of one comment can do; each is absent where it doesn't apply. */
 export interface CommentMenuActions {
   quote?: (() => void) | undefined;
+  /** Hand the comment to an agent, as a request in its composer. */
+  fix?: (() => void) | undefined;
   edit?: (() => void) | undefined;
   remove?: (() => void) | undefined;
   hide?: ((reason: ForgeHiddenReason) => void) | undefined;
@@ -43,7 +46,7 @@ export interface CommentMenuActions {
 }
 
 /**
- * A comment's ⋯ menu: Quote reply, Copy link, then Edit and Delete on the viewer's own and
+ * A comment's ⋯ menu: Quote reply, Fix with agent, Copy link, then Edit and Delete on the viewer's own and
  * Hide or Unhide where GitHub allows it. It shows on hover or focus of its comment.
  */
 export function PrCommentMenu(props: {
@@ -102,6 +105,11 @@ export function PrCommentMenu(props: {
               }}
             >
               Quote reply
+            </MenuItem>
+          )}
+          {actions.fix && (
+            <MenuItem icon={<WrenchIcon aria-hidden size={16} />} onClick={actions.fix}>
+              Fix with agent
             </MenuItem>
           )}
           <MenuItem icon={<LinkSimpleIcon aria-hidden size={16} />} onClick={copy}>

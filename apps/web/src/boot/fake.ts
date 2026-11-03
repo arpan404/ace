@@ -26,6 +26,10 @@ import {
   oneTurnWork,
   workbenchServices,
   seedForgeBrowse,
+  seedPrChecks,
+  seedLongIssue,
+  movingPullRequest,
+  seedProjectForge,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -143,13 +147,23 @@ export function bootFake(): {
     // The PR panel's three looks (ready, failing with changes requested, merged) and the
     // Pull requests view's lists.
     seedForgeBrowse(daemon, Date.now());
+    seedLongIssue(daemon, Date.now());
+    // The other projects' pull requests, issues and notifications, for the lists across projects.
+    seedProjectForge(daemon, Date.now());
+    // #229's checks with runs to read, so a failing one quotes its first failure line.
+    seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());
     if (longLists > 0) seedLongLists(daemon, Date.now(), longLists);
+    // A 62-file PR whose head moves while it's reviewed (#250 in acme/ace).
+    daemon.workspace.addPullRequests([movingPullRequest(Date.now())]);
     // From the console, `acePushPullRequest(31)` pushes to a sample PR's branch: a new head
-    // with its lines moved, for trying what survives a push.
+    // with its lines moved, for trying what survives a push. #250 plays a real commit.
     (globalThis as { acePushPullRequest?: (number: number) => boolean }).acePushPullRequest = (
       number,
     ) => daemon.workspace.pushPullRequest(number);
+    // `ACE_FAKE_PR_PUSH_EVERY_MS=60000 bun run dev:fake`: #250 is pushed to on that timer.
+    const pushEvery = Number(import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS);
+    if (pushEvery > 0) setInterval(() => daemon.workspace.pushPullRequest(250), pushEvery);
   }
   // `aceFakeWorld = "computer-use"` (or `?fakeWorld=computer-use`): agents using apps and the
   // browser on this Mac.

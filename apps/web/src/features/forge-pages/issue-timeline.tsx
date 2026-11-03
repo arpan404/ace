@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ForgeBrowserResult, ForgeRepository } from "@ace/protocol";
 import { ForgeProse } from "@/features/forge/index.ts";
@@ -120,37 +120,62 @@ function Activity(props: { event: IssueEvent; text: string }) {
   );
 }
 
-function Page(props: {
+interface PageProps {
   project: string;
   repository: ForgeRepository | undefined;
   number: number;
   page: number;
-}) {
+}
+
+function Events(props: { page: TimelinePage }) {
+  return (
+    <ul className="flex flex-col">
+      {props.page.events.map((event) => {
+        if (event.kind === "issue_comment") return <Comment key={event.id} event={event} />;
+        const text = issueEventText(event);
+        return text ? <Activity key={event.id} event={event} text={text} /> : null;
+      })}
+    </ul>
+  );
+}
+
+function Failed(props: { retry(): void }) {
+  return (
+    <p role="alert" className="flex items-center gap-2 py-3 text-ui text-muted-foreground">
+      Couldn't load the conversation.
+      <Button size="xs" variant="ghost" onClick={props.retry}>
+        Try again
+      </Button>
+    </p>
+  );
+}
+
+const commentsOn = (page: TimelinePage | undefined) =>
+  page?.events.filter((event) => event.kind === "issue_comment").length ?? 0;
+
+/** One page, read when shown; it says how many comments it holds once read. */
+function Page(props: PageProps & { onComments(page: number, count: number): void }) {
   const query = useTimelinePage(props.project, props.repository, props.number, props.page);
+  const count = query.data ? commentsOn(query.data) : undefined;
+  const { onComments, page } = props;
+  useEffect(() => {
+    if (count !== undefined) onComments(page, count);
+  }, [onComments, page, count]);
+  if (query.isError) return <Failed retry={() => void query.refetch()} />;
+  if (!query.data) return <CommentsSkeleton />;
+  return <Events page={query.data} />;
+}
+
+/** A conversation from a daemon that doesn't name its last page: read forward, oldest first. */
+function Forward(props: PageProps & { first: TimelinePage }) {
   const [more, setMore] = useState(false);
-  if (query.isError)
-    return (
-      <p role="alert" className="flex items-center gap-2 py-3 text-ui text-muted-foreground">
-        Couldn't load the conversation.
-        <Button size="xs" variant="ghost" onClick={() => void query.refetch()}>
-          Try again
-        </Button>
-      </p>
-    );
-  if (!query.data) return props.page === 1 ? <CommentsSkeleton /> : null;
-  const page = query.data;
+  const next = props.first.nextPage;
   return (
     <>
-      <ul className="flex flex-col">
-        {page.events.map((event) => {
-          if (event.kind === "issue_comment") return <Comment key={event.id} event={event} />;
-          const text = issueEventText(event);
-          return text ? <Activity key={event.id} event={event} text={text} /> : null;
-        })}
-      </ul>
-      {page.nextPage !== undefined &&
+      <Events page={props.first} />
+      {next !== undefined &&
         (more ? (
-          <Page {...props} page={page.nextPage} />
+          <ForwardPage {...props} page={next} />
         ) : (
           <Button
             size="sm"
@@ -165,15 +190,81 @@ function Page(props: {
   );
 }
 
-/** An issue's comments and activity, oldest first, read a page of 25 at a time. */
+function ForwardPage(props: PageProps) {
+  const query = useTimelinePage(props.project, props.repository, props.number, props.page);
+  if (query.isError) return <Failed retry={() => void query.refetch()} />;
+  if (!query.data) return null;
+  return <Forward {...props} first={query.data} />;
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/**
+ * An issue's comments and activity, oldest at the top as a conversation reads, opened at its end:
+ * the newest page of 25 (and the one before when that's short), with earlier pages read on
+ * request from above. `comments` is the issue's comment count, for saying how many are hidden.
+ */
 export function IssueTimeline(props: {
   project: string;
   repository: ForgeRepository | undefined;
   number: number;
+  comments?: number | undefined;
 }) {
+  const { project, repository, number } = props;
+  const first = useTimelinePage(project, repository, number, 1);
+  const last = first.data ? (first.data.lastPage ?? (first.data.nextPage ? 0 : 1)) : 1;
+  const end = useTimelinePage(project, repository, number, Math.max(1, last));
+  // Pages the person asked to see before the newest ones; 0 until they ask.
+  const [earlier, setEarlier] = useState(0);
+  const short = (end.data?.events.length ?? 25) < 10;
+  const from = Math.max(1, last - (short ? 1 : 0) - earlier);
+  const pages = Array.from({ length: Math.max(0, last - from + 1) }, (_, index) => from + index);
+  // Comments on each page shown, as each reports once read.
+  const [counts, setCounts] = useState<ReadonlyMap<number, number>>(new Map());
+  const onComments = useCallback(
+    (page: number, count: number) =>
+      setCounts((known) => (known.get(page) === count ? known : new Map(known).set(page, count))),
+    [],
+  );
+  let shown = 0;
+  for (const page of pages) shown += counts.get(page) ?? 0;
+  const hidden = props.comments === undefined ? 0 : Math.max(0, props.comments - shown);
+  if (first.isError) return <Failed retry={() => void first.refetch()} />;
+  if (!first.data) return <CommentsSkeleton />;
+  if (last === 0)
+    return (
+      <section aria-label="Conversation" className="mt-6">
+        <Forward
+          project={project}
+          repository={repository}
+          number={number}
+          page={1}
+          first={first.data}
+        />
+      </section>
+    );
   return (
     <section aria-label="Conversation" className="mt-6">
-      <Page project={props.project} repository={props.repository} number={props.number} page={1} />
+      {from > 1 && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="mb-1 text-muted-foreground"
+          onClick={() => setEarlier((count) => count + 1)}
+        >
+          {hidden > 0 ? `Show ${plural(hidden, "earlier comment")}` : "Show earlier activity"}
+        </Button>
+      )}
+      {pages.map((page) => (
+        <Page
+          key={page}
+          project={project}
+          repository={repository}
+          number={number}
+          page={page}
+          onComments={onComments}
+        />
+      ))}
     </section>
   );
 }

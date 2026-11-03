@@ -2141,6 +2141,25 @@ Example:
 }
 ```
 
+## ForgeHostedPendingReview
+
+[JSON Schema](schema/ForgeHostedPendingReview.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| comments | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| url | no | string | {"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "comments": 4,
+  "id": "example"
+}
+```
+
 ## ForgeHostedPrCreateCommand
 
 [JSON Schema](schema/ForgeHostedPrCreateCommand.json), input validation.
@@ -2200,7 +2219,8 @@ Example:
 {
   "action": {
     "commentId": 8,
-    "kind": "comment.unhide",
+    "kind": "comment.hide",
+    "reason": "spam",
     "source": "inline"
   },
   "pr": {
@@ -4323,7 +4343,11 @@ Example:
       "side": "RIGHT"
     },
     "body": "example",
-    "id": "example"
+    "id": "example",
+    "outdated": {
+      "code": [],
+      "headSha": "C25f625421Fe78b7026Dfa96c497FB8CB194be6FeD"
+    }
   },
   "kind": "draft.save"
 }
@@ -4345,6 +4369,40 @@ Example:
 }
 ```
 
+### drafts.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"drafts.move"` |  |
+| headSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "headSha": "ee15aF3eed2BeB29d4AD1Ac969995E46F1FeC32f70c7380bd80eDD2E4F85",
+  "kind": "drafts.move"
+}
+```
+
+### draft.file
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | `"draft.file"` |  |
+| id | yes | string | {"minLength":1,"maxLength":256} |
+| headSha | yes | string | {"pattern":"^[a-fA-F0-9]{40,64}$"} |
+
+Example:
+
+```json
+{
+  "headSha": "92c69DCFfc925A09c0cB5F64498B8C4b9C0c8397bB1a3D6fbc4496c",
+  "id": "example",
+  "kind": "draft.file"
+}
+```
+
 ### submit
 
 | Field | Required | Type | Constraints |
@@ -4361,8 +4419,8 @@ Example:
 {
   "body": "example",
   "draftIds": [],
-  "event": "COMMENT",
-  "headSha": "ee15aF3eed2BeB29d4AD1Ac969995E46F1FeC32f70c7380bd80eDD2E4F85",
+  "event": "REQUEST_CHANGES",
+  "headSha": "5d178Ba6AbA9BfE8bD8ea50E2a64bB3AEd2bD4AFfdcd37bC8f",
   "kind": "submit"
 }
 ```
@@ -4397,13 +4455,14 @@ Example:
 ```json
 {
   "anchor": {
-    "commit": "BEeF32Ba52fb4ddd0BDa51528c7feFe52ec9bB6b2078C4Bdf2B488fb7a49C7",
+    "commit": "3dC470340fDF9C80ed6da7aAAdDf61D43a9cECBbceA27DeD23fe2b51",
     "line": 6,
     "path": "example",
-    "side": "LEFT"
+    "side": "RIGHT",
+    "startSide": "RIGHT"
   },
   "body": "example",
-  "headSha": "5d178Ba6AbA9BfE8bD8ea50E2a64bB3AEd2bD4AFfdcd37bC8f",
+  "headSha": "Bc296cBED882EdA7ac09DA9aEa3FBe25C448D595",
   "kind": "line.comment"
 }
 ```
@@ -4415,14 +4474,19 @@ Example:
 | kind | yes | `"reply"` |  |
 | commentId | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | body | yes | string | {"minLength":1,"maxLength":60000} |
+| pendingReview | no | object | {"properties":{"reviewId":{"type":"string","minLength":1,"maxLength":256},"threadId":{"type":"string","minLength":1,"maxLength":256}},"required":["reviewId","threadId"]} |
 
 Example:
 
 ```json
 {
   "body": "example",
-  "commentId": 3,
-  "kind": "reply"
+  "commentId": 8,
+  "kind": "reply",
+  "pendingReview": {
+    "reviewId": "example",
+    "threadId": "example"
+  }
 }
 ```
 
@@ -4441,10 +4505,10 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 1,
+  "commentId": 6,
   "expectedBody": "example",
   "kind": "comment.edit",
-  "source": "issue"
+  "source": "inline"
 }
 ```
 
@@ -4461,7 +4525,7 @@ Example:
 
 ```json
 {
-  "commentId": 8,
+  "commentId": 3,
   "expectedBody": "example",
   "kind": "comment.delete",
   "source": "issue"
@@ -4481,9 +4545,9 @@ Example:
 
 ```json
 {
-  "commentId": 6,
+  "commentId": 5,
   "kind": "comment.hide",
-  "reason": "off-topic",
+  "reason": "resolved",
   "source": "inline"
 }
 ```
@@ -4500,7 +4564,7 @@ Example:
 
 ```json
 {
-  "commentId": 3,
+  "commentId": 9,
   "kind": "comment.unhide",
   "source": "issue"
 }
@@ -4550,7 +4614,7 @@ Example:
 
 ```json
 {
-  "headSha": "AE8AcF6F6aD8Ae4Ffa0eF9aa38FF4C33DCEF4F1dA",
+  "headSha": "0169Cc61DBD87DA2Ea38AD3De68d965A23b73B2CcFDA6c2",
   "kind": "file.view",
   "path": "example"
 }
@@ -4568,7 +4632,7 @@ Example:
 
 ```json
 {
-  "headSha": "BcCaBaF8FA5fECe2D6F5E3Ced670c45FcEd6eC9aB",
+  "headSha": "8bCcf6601dD81Ba1BFd08e63973BB149bbA3fD2A369370Bdb5BFEEB3",
   "kind": "file.unview",
   "path": "example"
 }
@@ -4589,7 +4653,8 @@ Example:
   "content": "confused",
   "kind": "reaction.add",
   "subject": {
-    "kind": "pr"
+    "commentId": 2,
+    "kind": "inline"
   }
 }
 ```
@@ -4606,10 +4671,10 @@ Example:
 
 ```json
 {
-  "content": "+1",
+  "content": "rocket",
   "kind": "reaction.remove",
   "subject": {
-    "commentId": 10,
+    "commentId": 8,
     "kind": "issue"
   }
 }
@@ -4670,7 +4735,7 @@ Example:
 ```json
 {
   "kind": "review.dismiss",
-  "message": "!",
+  "message": "x",
   "reviewId": 8
 }
 ```
@@ -4689,11 +4754,11 @@ Example:
 ```json
 {
   "commentIds": [
-    7
+    3
   ],
-  "headSha": "d413B111481e0Baed91dfBFeb9ec6D7DEFaDa2A9C91AcC1444114bB3be87Dbbc",
+  "headSha": "3325eD8f76A73f6dc2f726948ab8bA67CbdBb38f5010cBbbFb8366",
   "kind": "suggestions.apply",
-  "message": "P"
+  "message": "x"
 }
 ```
 
@@ -4730,6 +4795,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | body | yes | string | {"maxLength":60000} |
 | anchor | yes | [ForgeReviewAnchor.json](schema/ForgeReviewAnchor.json) |  |
+| outdated | no | object | {"properties":{"headSha":{"type":"string","pattern":"^[a-fA-F0-9]{40,64}$"},"code":{"maxItems":12,"type":"array","items":{"type":"string","maxLength":2000}}},"required":["headSha","code"]} |
 
 Example:
 
@@ -4743,7 +4809,11 @@ Example:
     "startLine": 10
   },
   "body": "example",
-  "id": "example"
+  "id": "example",
+  "outdated": {
+    "code": [],
+    "headSha": "4cc6b5D4fBE1291A60f73Ef6ED3B8Fa56c1F8afDEA"
+  }
 }
 ```
 
@@ -4763,6 +4833,7 @@ Example:
 | operations | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["accepted","uncertain"]}},"required":["id","state"]}} |
 | reactions | no | union | {"anyOf":[{"maxItems":4001,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeReactionSummary.json"}},{"type":"null"}]} |
 | hidden | no | union | {"anyOf":[{"maxItems":4000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/ForgeHiddenComment.json"}},{"type":"null"}]} |
+| hostedPending | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ForgeHostedPendingReview.json"},{"type":"null"}]} |
 | hideable | no | union | {"anyOf":[{"maxItems":4000,"type":"array","items":{"type":"object","properties":{"source":{"type":"string","enum":["issue","inline"]},"commentId":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["source","commentId"]}},{"type":"null"}]} |
 
 Example:
@@ -4773,7 +4844,7 @@ Example:
   "canReview": false,
   "drafts": [],
   "headSha": "Ead5dD880F556f94Af9EfFDbA4446cdaCff5FaB2C508FE57D3b1",
-  "hideable": null,
+  "hostedPending": null,
   "operations": [],
   "resolvableThreads": [],
   "viewed": [],
@@ -4795,6 +4866,10 @@ Example:
 | side | no | ["LEFT","RIGHT"] |  |
 | startLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
 | startSide | no | ["LEFT","RIGHT"] |  |
+| hunk | no | string | {"maxLength":20000} |
+| originalLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
+| originalStartLine | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
+| originalCommit | no | string | {"maxLength":64} |
 | comments | yes | array | {"maxItems":2000,"items":{"$ref":"https://ace.local/protocol/v1/ForgeComment.json"}} |
 
 Example:
@@ -4803,6 +4878,7 @@ Example:
 {
   "comments": [],
   "file": "example",
+  "hunk": "example",
   "id": "example",
   "line": null,
   "outdated": false,

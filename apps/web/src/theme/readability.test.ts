@@ -148,6 +148,23 @@ test("code and diff text read at AA on the code background and on added and remo
     }
 });
 
+test("+/− counts read at AA wherever lists and headers draw them, in every theme", () => {
+  for (const id of themeIds)
+    for (const scheme of schemes) {
+      const tokens = themeDeclarations(id, scheme);
+      expect([
+        id,
+        scheme,
+        below(
+          tokens,
+          ["--diff-add-text", "--diff-del-text"],
+          ["--background", "--sidebar", "--panel", "--surface-1", "--hover"],
+          4.5,
+        ),
+      ]).toEqual([id, scheme, []]);
+    }
+});
+
 /** How far a colour sits from pure white (dark schemes) or pure black (light ones). */
 const fromExtreme = (colour: string | undefined, scheme: Scheme) =>
   ratio(colour, scheme === "dark" ? "#FFFFFF" : "#000000");

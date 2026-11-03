@@ -1,28 +1,24 @@
-import {
-  useEffect,
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-  type RefObject,
-  type UIEvent,
-} from "react";
+import { useEffect, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useConnectionState } from "@ace/client-react";
-import { ChatCircleIcon, GitCommitIcon, ArrowsDownUpIcon } from "@phosphor-icons/react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import type { ForgePrDetail, ForgePrStatus, ForgeRepository } from "@ace/protocol";
-import { prParticipants, prPollInterval, type GateKey } from "@ace/ui-core";
-import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
+import {
+  allCommits,
+  prParticipants,
+  prPollInterval,
+  type CodeScope,
+  type GateKey,
+} from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
 import { PrSummary } from "./pr-summary.tsx";
+import { PrChecks } from "./pr-checks.tsx";
+import { PrPeople } from "./pr-people.tsx";
+import { TextAction } from "./pr-text-action.tsx";
 import { PrQuoteProvider } from "./pr-quote.tsx";
 import { PrUiProvider } from "./pr-ui-store.tsx";
 import { PrChecksPill } from "./pr-presentation.tsx";
@@ -33,6 +29,7 @@ import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { prDetailKey, prDetailStaleMs, readPrDetail } from "@/lib/forge-pr-detail.ts";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewWorkspace, usePrReview } from "./pr-review-context.tsx";
+import { PrReviewButton } from "./pr-review-popover.tsx";
 import { ForgeCompletions } from "./forge-completions.tsx";
 import { PrSuggestionBatch } from "./pr-suggestions.tsx";
 import { usePrActions } from "./pr-actions.ts";
@@ -43,24 +40,30 @@ import { PrMergeCommitDialog } from "./pr-merge-commit.tsx";
 import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
-import { PrGatesLine, PrGatesRow } from "./pr-gates-row.tsx";
+import { PrGatesRow } from "./pr-gates-row.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
 import { useTaskSave } from "./rich/use-task-save.ts";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
+import { PrTabs, type PrTab } from "./pr-tabs.tsx";
 
-export type PrTab = "summary" | "timeline" | "code";
+export type { PrTab } from "./pr-tabs.tsx";
 
 export function prWorkspaceTab(tab: string): PrTab {
   return tab === "timeline" || tab === "commits"
     ? "timeline"
     : tab === "code" || tab === "files"
       ? "code"
-      : "summary";
+      : tab === "checks"
+        ? "checks"
+        : "summary";
 }
 
-/** A page's reading width: the header, summary and timeline; the Code tab takes all of it. */
+/** "1 comment", "9 comments". */
+const counted = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+/** A page's column: the header and every tab, Code included, keep to it. */
 const pageWidth = "mx-auto w-full max-w-[64rem]";
 
 /** Scrolled this far into a tab, the header folds its title block away. */
@@ -75,122 +78,6 @@ function belongsTo(query: Query, workspaceId: string, status: ForgePrStatus): bo
     key === JSON.stringify(status.ref) ||
     (kind === "stack-memberships" && key === JSON.stringify(status.ref.repository))
   );
-}
-
-/** Summary · Timeline · Code as words: the current one on the flat selected fill, no shadow. */
-const wordTab =
-  "h-7 rounded-md px-2 text-ui font-normal hover:not-data-active:bg-hover data-active:bg-active data-active:font-medium";
-
-/**
- * The tab bar: Summary · Timeline · Code as words, with the active tab's context (checks, or
- * counters and order) at its right end. In a panel each tab body is its own scroller. On a page
- * the whole page scrolls as one: the header scrolls away, the bar pins to the top, Summary and
- * Timeline grow with their content, and Code fills the space under the bar with its own
- * scrollers. Switching tabs brings the bar back to the top, so the new tab starts at its start.
- */
-function PrTabs(props: {
-  tab: PrTab;
-  onTab(tab: string): void;
-  context: Record<PrTab, ReactNode>;
-  panels: Record<PrTab, ReactNode>;
-  onScroll(tab: PrTab, top: number): void;
-  /** On a page of its own: the bar and the reading tabs keep a readable width; Code is full. */
-  readable?: string | undefined;
-}) {
-  const order: PrTab[] = ["summary", "timeline", "code"];
-  const names: Record<PrTab, string> = { summary: "Summary", timeline: "Timeline", code: "Code" };
-  const page = props.readable !== undefined;
-  const bar = useRef<HTMLDivElement | null>(null);
-  const codeHeight = usePageCodeHeight(bar, page);
-  // A reading tab starts at its top; Code, which scrolls inside itself, takes the whole page.
-  const toBar = (tab: string) =>
-    requestAnimationFrame(() => {
-      const element = bar.current;
-      const scroller = element?.closest<HTMLElement>("[data-pr-scroller]");
-      if (!element || !scroller) return;
-      const top =
-        element.getBoundingClientRect().top -
-        scroller.getBoundingClientRect().top +
-        scroller.scrollTop;
-      if (tab === "code" || scroller.scrollTop > top) scroller.scrollTop = top;
-    });
-  return (
-    <Tabs
-      value={props.tab}
-      onValueChange={(value) => {
-        if (typeof value !== "string") return;
-        props.onTab(value);
-        if (page) toBar(value);
-      }}
-      className={page ? "flex flex-col" : "flex min-h-0 flex-1 flex-col"}
-    >
-      <div
-        ref={bar}
-        className={cn(
-          "shrink-0 border-t border-border py-2",
-          page && "sticky top-0 z-[3] border-b bg-panel",
-        )}
-      >
-        <div
-          className={cn(
-            "flex items-center justify-between gap-2 px-[var(--forge-gutter,1rem)]",
-            props.readable,
-          )}
-        >
-          <TabsList aria-label="Pull request detail" className="-ml-2">
-            {order.map((tab) => (
-              <TabsTab key={tab} value={tab} className={wordTab}>
-                {names[tab]}
-              </TabsTab>
-            ))}
-          </TabsList>
-          <div className="flex min-w-0 items-center gap-2">{props.context[props.tab]}</div>
-        </div>
-      </div>
-      {order.map((tab) => (
-        <TabsPanel
-          key={tab}
-          value={tab}
-          className={cn(
-            !page && "overflow-auto border-t border-border",
-            page && tab === "code" && "flex-none overflow-hidden",
-            page && tab !== "code" && "flex-none",
-          )}
-          style={page && tab === "code" ? { height: codeHeight } : undefined}
-          onScroll={
-            page
-              ? undefined
-              : (e: UIEvent<HTMLDivElement>) => props.onScroll(tab, e.currentTarget.scrollTop)
-          }
-        >
-          {page && tab !== "code" ? (
-            <div className={props.readable}>{props.panels[tab]}</div>
-          ) : (
-            props.panels[tab]
-          )}
-        </TabsPanel>
-      ))}
-    </Tabs>
-  );
-}
-
-/** On a page, the Code tab's height: the page's scroller less the pinned tab bar. */
-function usePageCodeHeight(bar: RefObject<HTMLDivElement | null>, page: boolean) {
-  const [height, setHeight] = useState<number | undefined>(undefined);
-  useLayoutEffect(() => {
-    const element = bar.current;
-    const scroller = element?.closest<HTMLElement>("[data-pr-scroller]");
-    if (!page || !element || !scroller) return;
-    const measure = () => setHeight(Math.max(0, scroller.clientHeight - element.offsetHeight));
-    measure();
-    // Without ResizeObserver (old engines, tests) the first measure stands.
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(scroller);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [bar, page]);
-  return height;
 }
 
 /** The Summary tab's context: how many files are marked viewed, else the checks in a line. */
@@ -230,18 +117,32 @@ function PrDetailLoaded(props: {
     editCommit: setCommitWhen,
   });
   const [behindOpen, setBehindOpen] = useState(false);
-  const [revealChecks, setRevealChecks] = useState(0);
-  const [codeFocus, setCodeFocus] = useState<{ path: string; seq: number }>();
-  const openCode = (path?: string) => {
+  const [checkFocus, setCheckFocus] = useState<{ id: string; seq: number }>();
+  const [codeFocus, setCodeFocus] = useState<{ path: string; line?: number; seq: number }>();
+  // Which commits Code shows, held here so a commit in the Timeline opens there.
+  const [codeScope, setCodeScope] = useState<CodeScope>(allCommits);
+  const openCommit = (sha: string) => {
+    setCodeScope({ kind: "commits", from: sha, to: sha });
     props.onTab("code");
-    if (path) setCodeFocus((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
+  };
+  // `line` rides along for the Code tab to land on; it opens the file either way.
+  const openCode = (path?: string, line?: number) => {
+    props.onTab("code");
+    if (path)
+      setCodeFocus((current) => ({
+        path,
+        ...(line === undefined ? {} : { line }),
+        seq: (current?.seq ?? 0) + 1,
+      }));
+  };
+  const openCheck = (id?: string) => {
+    props.onTab("checks");
+    if (id) setCheckFocus((current) => ({ id, seq: (current?.seq ?? 0) + 1 }));
   };
   // A gate jumps to its detail: the checks, the reviewers, the conflicts, the update menu.
   const onGate = (key: GateKey) => {
-    if (key === "checks") {
-      props.onTab("summary");
-      setRevealChecks((n) => n + 1);
-    } else if (key === "reviews") {
+    if (key === "checks") openCheck();
+    else if (key === "reviews") {
       props.onTab("summary");
       document
         .getElementById("pr-reviewers")
@@ -251,12 +152,22 @@ function PrDetailLoaded(props: {
       setBehindOpen(true);
     else if (key === "ended") props.onTab("timeline");
   };
+  // Blocked, the header's merge says so in words and leads here: the Summary's Blocking the merge.
+  const showBlocking = () => {
+    props.onTab("summary");
+    requestAnimationFrame(() =>
+      document
+        .getElementById("pr-attention")
+        ?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
+    );
+  };
   const [order, setOrder] = useState<"newest" | "oldest">("newest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
   const [condensed, setCondensed] = useState<Record<PrTab, boolean>>({
     summary: false,
     timeline: false,
     code: false,
+    checks: false,
   });
   const onScroll = (tab: PrTab, top: number) =>
     setCondensed((current) => {
@@ -273,21 +184,9 @@ function PrDetailLoaded(props: {
     const shortcut = prShortcut(event);
     if (!shortcut) return;
     event.preventDefault();
-    if (shortcut === "summary" || shortcut === "timeline" || shortcut === "code")
-      props.onTab(shortcut);
-    else if (shortcut === "open")
+    if (shortcut === "open")
       void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
-    else if (shortcut === "copy-checkout") {
-      const repository = status.ref.repository;
-      void navigator.clipboard
-        ?.writeText(
-          `gh pr checkout ${status.ref.number} --repo ${repository.host}/${repository.owner}/${repository.name}`,
-        )
-        .catch(() => toast.error({ title: "Couldn't copy the checkout command" }));
-    } else
-      event.currentTarget
-        .querySelector<HTMLButtonElement>("[data-pr-primary]:not(:disabled)")
-        ?.click();
+    else props.onTab(shortcut);
   };
   const editable = !!actions.lifecycle.snapshot?.editableFields.length;
   const repository = detail.status.ref.repository;
@@ -350,6 +249,7 @@ function PrDetailLoaded(props: {
                 disabled={context.disabled}
                 commentsLocked={lockedOut}
                 onRefresh={refresh}
+                onReread={context.reread}
                 header={
                   <div>
                     <div className={readable}>
@@ -359,7 +259,8 @@ function PrDetailLoaded(props: {
                           extensions={props.extensions}
                           behindOpen={behindOpen}
                           onBehindOpen={setBehindOpen}
-                          gates={<PrGatesLine actions={actions} onSelect={onGate} />}
+                          onGate={onGate}
+                          onBlocked={showBlocking}
                           onBack={props.onBack}
                           menu={menu}
                         />
@@ -373,6 +274,7 @@ function PrDetailLoaded(props: {
                           gates={<PrGatesRow actions={actions} onSelect={onGate} />}
                           onBack={props.onBack}
                           onOpen={props.onOpen}
+                          onBlocked={showBlocking}
                           menu={menu}
                         />
                       )}
@@ -400,36 +302,36 @@ function PrDetailLoaded(props: {
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}
+                  // Finish review stays in reach once the header (with its Review) scrolls away.
+                  pinned={{ code: <PrReviewButton finish /> }}
+                  counts={{
+                    timeline: detail.status.comments.length,
+                    code: detail.changedFiles,
+                    checks: detail.status.checks.length,
+                  }}
                   context={{
                     // On a page the Summary needs no counter; how many files are viewed is Code's.
                     summary: props.page ? null : <SummaryContext detail={detail} />,
                     timeline: (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span
-                          aria-label={`${detail.status.comments.length} comments`}
-                          className="inline-flex items-center gap-1 tabular-nums"
-                        >
-                          <ChatCircleIcon aria-hidden size={14} />
-                          {detail.status.comments.length}
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
+                        <span>{counted(detail.status.comments.length, "comment")}</span>
+                        <span aria-hidden className="text-subtle-foreground">
+                          ·
                         </span>
-                        <span
-                          aria-label={`${detail.commits} commits`}
-                          className="inline-flex items-center gap-1 tabular-nums"
-                        >
-                          <GitCommitIcon aria-hidden size={14} />
-                          {detail.commits}
+                        <span>{counted(detail.commits, "commit")}</span>
+                        <span aria-hidden className="text-subtle-foreground">
+                          ·
                         </span>
-                        <Button
-                          variant="ghost"
-                          size="xs"
+                        <TextAction
+                          aria-label={`Order: ${order === "newest" ? "newest first" : "oldest first"}`}
                           onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
                         >
-                          <ArrowsDownUpIcon aria-hidden size={14} />
                           {order === "newest" ? "Newest first" : "Oldest first"}
-                        </Button>
+                        </TextAction>
                       </div>
                     ),
                     code: null,
+                    checks: props.page ? null : <PrChecksPill status={detail.status} />,
                   }}
                   panels={{
                     summary: (
@@ -438,14 +340,28 @@ function PrDetailLoaded(props: {
                         extensions={props.extensions}
                         hostThreadId={props.hostThreadId}
                         stack={actions.stack}
-                        refreshing={props.refreshing}
-                        revealChecks={revealChecks}
-                        onRefresh={refresh}
                         onOpen={props.onOpen}
                         onOpenCode={openCode}
-                        onRequestReview={canRequestReview ? () => setDialog("review") : undefined}
+                        onOpenCheck={openCheck}
+                        onTimeline={() => props.onTab("timeline")}
                         onEdit={editable ? () => setDialog("edit") : undefined}
-                        details={<PrDetails actions={actions} onDialog={setDialog} />}
+                        about={
+                          <PrDetails
+                            actions={actions}
+                            onDialog={setDialog}
+                            people={
+                              <PrPeople
+                                context={context}
+                                extensions={props.extensions}
+                                assignees={snapshot?.metadata.assignees}
+                                onRequestReview={
+                                  canRequestReview ? () => setDialog("review") : undefined
+                                }
+                                onEdit={editable ? () => setDialog("edit") : undefined}
+                              />
+                            }
+                          />
+                        }
                         onTasks={descriptionTasks}
                       />
                     ),
@@ -454,9 +370,23 @@ function PrDetailLoaded(props: {
                         workspaceId={context.workspaceId}
                         detail={detail}
                         order={order}
+                        onOpenCommit={openCommit}
                         // On a page the column already sets the width and the edges.
                         className={props.page ? "mx-0 max-w-none" : undefined}
                       />
+                    ),
+                    checks: (
+                      <div className="px-[var(--forge-gutter,1rem)] pt-3 pb-10">
+                        <PrChecks
+                          context={context}
+                          refreshing={props.refreshing}
+                          focus={checkFocus}
+                          hostThreadId={props.hostThreadId}
+                          onRefresh={refresh}
+                          onOpen={props.onOpen}
+                          onOpenCode={openCode}
+                        />
+                      </div>
                     ),
                     code: (
                       <PrFiles
@@ -465,6 +395,8 @@ function PrDetailLoaded(props: {
                         detail={detail}
                         context={context}
                         focus={codeFocus}
+                        scope={codeScope}
+                        onScope={setCodeScope}
                       />
                     ),
                   }}
@@ -559,6 +491,23 @@ export function PrDetail(props: {
       setRefreshing(false);
     }
   };
+  // After a review write: the PR (its threads), or every read of it but its changed files,
+  // without holding other writes the way a refresh someone asked for does.
+  const reread = async (scope: "threads" | "all") => {
+    const status = detail?.status;
+    await Promise.all([
+      query.refetch(),
+      scope === "all" &&
+        status &&
+        cache.refetchQueries({
+          type: "active",
+          predicate: (q) =>
+            belongsTo(q, props.workspaceId, status) &&
+            q.queryKey[3] !== "file-pages" &&
+            q.queryKey[3] !== "review-state",
+        }),
+    ]);
+  };
   const context: PrWorkspaceContext | undefined = detail
     ? {
         workspaceId: props.workspaceId,
@@ -566,6 +515,7 @@ export function PrDetail(props: {
         disabled:
           !fresh || unconfirmed || query.isError || refreshing || detail.writeState !== undefined,
         refresh,
+        reread,
       }
     : undefined;
   return (

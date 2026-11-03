@@ -25,15 +25,17 @@ import { catalogMilestones, closingIssue, withManagement } from "./pr-management
 const minute = 60_000;
 const hour = 60 * minute;
 const iso = (at: number) => new Date(Math.max(0, at)).toISOString();
-const repository: ForgeRepository = {
+const named = (name: string): ForgeRepository => ({
   forge: "github",
   host: "github.com",
   owner: "acme",
-  name: "ace",
-};
+  name,
+});
 
 /** A pull request of `acme/ace` in a few facts, made whole by `sketchPullRequests`. */
 export interface PrSketch {
+  /** Its repository under `acme`; `ace` when absent. */
+  repo?: string;
   number: number;
   title: string;
   state: "open" | "draft" | "merged" | "closed";
@@ -52,9 +54,12 @@ export interface PrSketch {
   /** GitHub lets the signed-in account turn auto-merge on. */
   autoMerge?: boolean;
   files: [string, number, number][];
+  /** A review asking for changes, in its author's words, and its line comment. */
+  asks?: { author: string; body: string; file: string; line: number; comment: string };
 }
 
 function sketched(now: number, pr: PrSketch): PullRequestFixture {
+  const repository = named(pr.repo ?? "ace");
   const headSha = pr.number.toString(16).padStart(40, "e");
   const at = now - pr.updated;
   const checks =
@@ -69,14 +74,53 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
     status: {
       ref: { repository, number: pr.number },
       title: pr.title,
-      url: `https://github.com/acme/ace/pull/${pr.number}`,
+      url: `https://github.com/acme/${repository.name}/pull/${pr.number}`,
       headSha,
       state: pr.state === "draft" ? "draft" : pr.state,
       mergeability: pr.conflicting ? "conflicting" : pr.state === "open" ? "mergeable" : "unknown",
       ci: pr.ci,
       checks,
-      comments: [],
-      reviewThreads: [],
+      comments: pr.asks
+        ? [
+            {
+              kind: "review",
+              id: pr.number * 100 + 1,
+              body: pr.asks.body,
+              author: pr.asks.author,
+              file: null,
+              line: null,
+              replyTo: null,
+              createdAt: iso(at - 30 * minute),
+              updatedAt: iso(at - 30 * minute),
+              reviewState: "CHANGES_REQUESTED",
+            },
+          ]
+        : [],
+      reviewThreads: pr.asks
+        ? [
+            {
+              id: `thread-${pr.number}`,
+              resolved: false,
+              outdated: false,
+              file: pr.asks.file,
+              line: pr.asks.line,
+              side: "RIGHT",
+              comments: [
+                {
+                  kind: "inline",
+                  id: pr.number * 100 + 2,
+                  body: pr.asks.comment,
+                  author: pr.asks.author,
+                  file: pr.asks.file,
+                  line: pr.asks.line,
+                  replyTo: null,
+                  createdAt: iso(at - 31 * minute),
+                  updatedAt: iso(at - 31 * minute),
+                },
+              ],
+            },
+          ]
+        : [],
       raw: {},
     },
     body: pr.body,
@@ -121,7 +165,11 @@ function sketched(now: number, pr: PrSketch): PullRequestFixture {
         }
       : {}),
     lifecycle: state,
-    review: review(headSha, open, { detail }),
+    // GitHub lists every file's Viewed state on a PR the viewer can review; none viewed yet.
+    review: {
+      ...review(headSha, open, { detail }),
+      viewed: pr.files.map(([path]) => ({ path, state: "UNVIEWED" as const })),
+    },
     files: pr.files.map(([path, add, del]) => file(path, add, del)),
     activity,
   };
@@ -161,6 +209,14 @@ export function browsePullRequests(now: number): PullRequestFixture[] {
       labels: ["bug", "client"],
       branch: "fix/worker-sleep",
       body: "The worker kept a dead socket after the Mac slept. It now pings on visibility change and reconnects.",
+      asks: {
+        author: "priya",
+        body: "The reconnect loop has no backoff. Add a jittered retry so a dead network doesn't spin.",
+        file: "packages/client-worker/src/socket.ts",
+        line: 42,
+        comment:
+          "Clear the ping timer when the socket closes, or a stale ping fires after reconnect.",
+      },
       files: [
         ["packages/client-worker/src/socket.ts", 42, 9],
         ["packages/client-worker/src/socket.test.ts", 61, 0],
@@ -294,18 +350,25 @@ export function sketchPullRequests(
   return sketches.map((pr) => sketched(now, pr));
 }
 
-function issue(
+export function issue(
   now: number,
   number: number,
   title: string,
-  patch: { state?: "open" | "closed"; author: string; assignees?: string[]; labels?: string[] },
+  patch: {
+    state?: "open" | "closed";
+    author: string;
+    assignees?: string[];
+    labels?: string[];
+    repo?: string;
+  },
   updated: number,
   body: string,
 ): ForgeIssueDetail {
+  const at = named(patch.repo ?? "ace");
   return ForgeIssueDetail.parse({
-    ref: { repository, number },
+    ref: { repository: at, number },
     title,
-    url: `https://github.com/acme/ace/issues/${number}`,
+    url: `https://github.com/acme/${at.name}/issues/${number}`,
     author: patch.author,
     state: patch.state ?? "open",
     labels: patch.labels ?? [],

@@ -3,7 +3,6 @@ import { VerifyRun, WorkspaceId } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { listGroup } from "@/test/list-groups.ts";
 import { harness } from "@/test/harness.tsx";
 
 const repository = { forge: "github", host: "github.com", owner: "acme", name: "ace" } as const;
@@ -36,18 +35,14 @@ const mine = (number: number, patch: Partial<PrSketch> = {}): PrSketch => ({
   ...patch,
 });
 
-/** The rows under one of the list's group headings, once it is drawn. */
-const group = async (name: string) => {
-  const list = await screen.findByRole("navigation", { name: "Pull requests" });
-  await within(list).findByRole("heading", { name: new RegExp(`^${name}`) });
-  return listGroup(list, name);
-};
+/** The pull request list's rows, once it is drawn. */
+const rows = async () => within(await screen.findByRole("navigation", { name: "Pull requests" }));
 const strip = () => within(screen.getByRole("status", { name: "Merge" }));
 
 test("a pull request waiting on the viewer's review shows Review, which opens its code", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
-  const needs = await group("Needs you");
+  const needs = await rows();
   await userEvent.click(await needs.findByRole("button", { name: /^Review: #229 / }));
   expect(await screen.findByRole("article", { name: "Pull request #229" })).toBeTruthy();
   expect((await screen.findByRole("tab", { name: "Code" })).getAttribute("aria-selected")).toBe(
@@ -58,15 +53,16 @@ test("a pull request waiting on the viewer's review shows Review, which opens it
 test("the viewer's pull request with failing checks offers Fix checks", async () => {
   const app = withRepository([mine(301, { ci: "failure" }), mine(302)]);
   await app.open("/pulls?project=ace");
-  const needs = await group("Needs you");
+  const needs = await rows();
   expect(await needs.findByRole("button", { name: /^Fix checks: #301 / })).toBeTruthy();
-  expect(needs.queryByRole("button", { name: /#302/ })).toBeNull();
+  // The other, green and approved, is ready: it merges.
+  expect(needs.getByRole("button", { name: /^Merge: #302 / })).toBeTruthy();
 });
 
-test("a failing local check moves a ready pull request to Needs you with Fix checks", async () => {
+test("a failing local check turns a ready pull request's Merge into Fix checks", async () => {
   const app = withRepository([mine(302)]);
   await app.open("/pulls?project=ace");
-  const ready = await group("Ready to merge");
+  const ready = await rows();
   expect(await ready.findByRole("button", { name: /^Merge: #302 / })).toBeTruthy();
   app.daemon.services.verify.seed(
     VerifyRun.parse({
@@ -82,16 +78,16 @@ test("a failing local check moves a ready pull request to Needs you with Fix che
       failure: { code: "check_failed", message: "2 tests failed" },
     }),
   );
-  const needs = await group("Needs you");
+  const needs = await rows();
   expect(await needs.findByRole("button", { name: /^Fix checks: #302 / })).toBeTruthy();
-  expect(screen.queryByRole("heading", { name: /^Ready to merge/ })).toBeNull();
+  expect(needs.queryByRole("button", { name: /^Merge: #302 / })).toBeNull();
 });
 
 test("selecting two ready pull requests and pressing Start sends one merge run with both heads in list order", async () => {
   const app = withRepository();
   app.daemon.services.verify.paused = true;
   await app.open("/pulls?project=ace");
-  const ready = await group("Ready to merge");
+  const ready = await rows();
   // Picked in the other order: the run follows the list.
   await userEvent.click(await ready.findByRole("button", { name: /^Merge: #224 / }));
   await userEvent.click(ready.getByRole("button", { name: /^Merge: #233 / }));
@@ -117,7 +113,7 @@ test("a conflict names both pull requests, and retrying without one merges the o
   const app = withRepository();
   app.daemon.services.verify.outcome = () => ({ code: "conflict", pr: 224, with: 233 });
   await app.open("/pulls?project=ace");
-  const ready = await group("Ready to merge");
+  const ready = await rows();
   await userEvent.click(await ready.findByRole("button", { name: /^Merge: #233 / }));
   await userEvent.click(ready.getByRole("button", { name: /^Merge: #224 / }));
   await userEvent.click(strip().getByRole("button", { name: "Start" }));
@@ -128,7 +124,7 @@ test("a conflict names both pull requests, and retrying without one merges the o
   expect(merged?.kind === "merge" && merged.prs.map((pr) => pr.pr.number)).toEqual([233]);
   // What merged leaves the open list.
   await waitFor(async () =>
-    expect((await group("Ready to merge")).queryByRole("button", { name: /#233/ })).toBeNull(),
+    expect((await rows()).queryByRole("button", { name: /#233/ })).toBeNull(),
   );
 });
 
@@ -136,7 +132,7 @@ test("a project without a check command offers to set one", async () => {
   const app = withRepository();
   app.daemon.services.verify.commands.set("ace", null);
   await app.open("/pulls?project=ace");
-  const ready = await group("Ready to merge");
+  const ready = await rows();
   await userEvent.click(await ready.findByRole("button", { name: /^Merge: #224 / }));
   expect(strip().queryByRole("button", { name: "Start" })).toBeNull();
   await userEvent.click(strip().getByRole("button", { name: "Set a check command" }));
@@ -149,7 +145,7 @@ test("a pull request's local check runs from its page and counts in its checks g
   await app.open("/pulls/ace/224");
   const page = within(await screen.findByRole("article", { name: "Pull request #224" }));
   // The checks gate opens the checks.
-  await userEvent.click(await page.findByRole("button", { name: "Checks: 3 passed" }));
+  await userEvent.click(await page.findByRole("button", { name: "Checks: All 3 checks passed" }));
   await userEvent.click(
     await page.findByRole("button", { name: "Local · bun run check: Not run" }),
   );
@@ -157,6 +153,6 @@ test("a pull request's local check runs from its page and counts in its checks g
   expect(
     await page.findByRole("button", { name: "Local · bun run check: Passed" }, { timeout: 3_000 }),
   ).toBeTruthy();
-  expect(await page.findByRole("button", { name: "Checks: 4 passed" })).toBeTruthy();
+  expect(await page.findByRole("button", { name: "Checks: All 4 checks passed" })).toBeTruthy();
   expect(await page.findByRole("log", { name: "Log of Local · bun run check" })).toBeTruthy();
 });

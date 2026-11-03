@@ -5,7 +5,8 @@ import { type FileDiff } from "@ace/ui-core";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useElementWidth } from "@/lib/use-element-width.ts";
-import { usePanelServices, type DiffPrefs } from "../services.ts";
+import { usePanelServices } from "../services.ts";
+import { useDiffPrefs, type DiffPrefs } from "./diff-prefs.ts";
 import { useLocal } from "../store.ts";
 import {
   discardDraft,
@@ -75,7 +76,7 @@ export function ReviewSurface(props: {
     read: (daemon) => refreshDrafts(daemon, services.drafts, threadId),
   });
   const queries = useQueryClient();
-  const prefs = useLocal(services.diffPrefs, identity);
+  const [prefs] = useDiffPrefs();
   const allDrafts = useLocal(services.drafts, identity);
   const drafts = useMemo(
     () => allDrafts.filter((draft) => draft.threadId === threadId),
@@ -233,6 +234,8 @@ export function ReviewSurface(props: {
         view={views.viewOf(file)}
         mode={layout.mode}
         wrap={prefs.wrap}
+        fold={prefs.fold}
+        whitespace={prefs.whitespace}
         viewed={viewed.has(file.path)}
         drafts={draftsByFile.get(file.path) ?? noDrafts}
         composition={composition}

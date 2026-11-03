@@ -13,6 +13,27 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
+    },
+    "outdated": {
+      "properties": {
+        "code": {
+          "items": {
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "maxItems": 12,
+          "type": "array"
+        },
+        "headSha": {
+          "pattern": "^[a-fA-F0-9]{40,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "headSha",
+        "code"
+      ],
+      "type": "object"
     }
   },
   "required": [

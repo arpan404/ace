@@ -241,6 +241,8 @@ export const ForgeBrowserOperations = [
   }),
   z.object({ op: z.literal("forge.pr.list"), ...scope, query: ForgePrSearch }),
   z.object({ op: z.literal("forge.open-work"), ...scope }),
+  /** The project's own repository, read from its checkout's remote: no request to the host. */
+  z.object({ op: z.literal("forge.repository"), workspaceId: WorkspaceId }),
   z.object({ op: z.literal("forge.group-counts"), ...scope, grouping: ForgeGroupCounting }),
   z.object({ op: z.literal("forge.pr.detail"), ...scope, number: z.number().int().positive() }),
   z.object({
@@ -289,6 +291,7 @@ export const ForgeBrowserResult = z.discriminatedUnion("resource", [
   }),
   z.object({ resource: z.literal("prList"), value: ForgePrList }),
   z.object({ resource: z.literal("openWork"), value: ForgeOpenWork }),
+  z.object({ resource: z.literal("repository"), value: ForgeRepository }),
   z.object({
     resource: z.literal("groupCounts"),
     /** Each group's total by id: every item counted once, in its first group. */

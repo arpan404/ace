@@ -116,7 +116,7 @@ async function openCheck() {
   return app;
 }
 
-test("a check opens in the panel with its log, read only once it's opened, and its search finds lines", async () => {
+test("a failing check opens in the Checks tab with its log, read once for the whole view, and its search finds lines", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setForgeRead(detailRead, { resource: "prDetail", value: detail });
@@ -125,7 +125,8 @@ test("a check opens in the panel with its log, read only once it's opened, and i
   await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
   await userEvent.click(await panel().findByRole("button", { name: /^Checks: 1 failing/ }));
   const row = await panel().findByRole("button", { name: "test: Failed" });
-  expect(app.daemon.workspace.forgeReadCount(checkRead)).toBe(0);
+  // Blocking the merge reads the failing run for its first failure line; opening it reuses that.
+  expect(app.daemon.workspace.forgeReadCount(checkRead)).toBeLessThanOrEqual(1);
   await userEvent.click(row);
   const log = await panel().findByRole("log", { name: "Log of test" }, { timeout: 10_000 });
   expect(within(log).getByText("Process completed with exit code 1.")).toBeTruthy();

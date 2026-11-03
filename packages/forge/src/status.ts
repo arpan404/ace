@@ -44,6 +44,7 @@ export function mapCheck(input: unknown): ForgeCheck {
     status,
     conclusion,
     completedAt: check.completed_at,
+    startedAt: check.started_at ?? null,
     jobId: Number.isSafeInteger(job) && job > 0 ? job : null,
     url,
   });

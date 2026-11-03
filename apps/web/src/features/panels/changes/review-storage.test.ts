@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { LocalStore } from "../store.ts";
-import { type DiffPrefs, type ViewedFiles } from "../services.ts";
+import { type ViewedFiles } from "../services.ts";
 import type { ReviewDraft } from "@ace/ui-core/review";
 import { discardDraft, saveDraft } from "@ace/ui-core/review";
 import { persistReview } from "./review-store.ts";
@@ -33,7 +33,6 @@ function memory() {
 async function device(shared: ReturnType<typeof memory>) {
   const services = {
     drafts: new LocalStore<readonly ReviewDraft[]>([]),
-    diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
     viewed: new LocalStore<ViewedFiles>(new Map()),
   };
   persistReview(services, shared.tab(), shared.subscribe);
@@ -148,7 +147,6 @@ test("legacy drafts retain retry identities and settle interrupted operations on
 test("a denied storage write preserves the comment for the current page", () => {
   const services = {
     drafts: new LocalStore<readonly ReviewDraft[]>([]),
-    diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
     viewed: new LocalStore<ViewedFiles>(new Map()),
   };
   persistReview(services, {

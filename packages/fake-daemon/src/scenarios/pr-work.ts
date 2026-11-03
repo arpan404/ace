@@ -44,7 +44,8 @@ const run = (id: number, name: string, patch: Partial<ForgeCheckRun>): ForgeChec
   ...patch,
 });
 
-function seedChecks(daemon: FakeDaemon, now: number): void {
+/** #229's checks as GitHub Actions jobs with runs (logs, steps, annotations) to open. */
+export function seedPrChecks(daemon: FakeDaemon, now: number): void {
   const log = failingLog();
   const runs: ForgeCheckRun[] = [
     run(2291, "lint", {}),
@@ -220,7 +221,7 @@ function seedStack(daemon: FakeDaemon): void {
 }
 
 export function seedPrWork(daemon: FakeDaemon, now: number, project = "ace"): void {
-  seedChecks(daemon, now);
+  seedPrChecks(daemon, now);
   daemon.createThread({
     id: prWorkThread,
     workspaceId: project,

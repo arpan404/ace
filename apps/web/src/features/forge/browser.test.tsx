@@ -211,7 +211,13 @@ test("a conflicting PR offers to resolve its conflicts instead of merging", asyn
   expect(merge.textContent).toContain("Resolve the conflicts with main first");
 });
 
-test("the Summary holds only reviewers, labels, description, checks and comments", async () => {
+const summaryRegions = () =>
+  screen
+    .getAllByRole("region")
+    .map((region) => region.getAttribute("aria-label"))
+    .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? ""));
+
+test("the Summary leaves the checks and the conversation to their own tabs", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setForgeRead(
@@ -221,19 +227,16 @@ test("the Summary holds only reviewers, labels, description, checks and comments
   notStacked(app);
   await openPullRequest(app, { project: "api", number: 42 });
   await screen.findByRole("heading", { name: "Retry reconnects" });
-  expect(
-    screen
-      .getAllByRole("region")
-      .map((region) => region.getAttribute("aria-label"))
-      .filter((name) => ["Description", "Checks", "Comments"].includes(name ?? "")),
-  ).toEqual(["Description", "Checks", "Comments"]);
+  expect(summaryRegions()).toEqual(["Description"]);
   expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
+  // The conversation is one step away, in the Timeline, where its comment box is.
+  await userEvent.click(
+    panel().getByRole("button", { name: /Open the conversation|Leave a comment/ }),
+  );
+  expect(panel().getByRole("tab", { name: /Timeline/, selected: true })).toBeTruthy();
   expect(panel().getByText(/Keep the context\./)).toBeTruthy();
-  // Checks start folded; no Summary control refreshes anything.
-  expect(panel().queryByText("No checks reported.")).toBeNull();
-  await userEvent.click(panel().getByRole("button", { name: "Checks" }));
-  expect(panel().getByText("No checks reported.")).toBeTruthy();
-  expect(panel().queryByRole("button", { name: /^Refresh/ })).toBeNull();
+  await userEvent.click(panel().getByRole("tab", { name: /Checks/ }));
+  expect(await panel().findByRole("region", { name: "Checks" })).toBeTruthy();
 });
 
 test("the same PR number in another repository gets independent full detail and hosted diffs", async () => {
@@ -496,11 +499,14 @@ const reviewState = (drafts: ForgeReviewState["drafts"] = []): ForgeReviewState 
 
 /** Open the review from the header's Review button, named `name` (it counts pending comments). */
 async function openReview(name = "Review") {
-  await userEvent.click(await screen.findByRole("button", { name }, { timeout: 10_000 }));
+  // Review shows, disabled, while the review state is read; it opens once that arrives.
+  const button = () => screen.getByRole<HTMLButtonElement>("button", { name });
+  await waitFor(() => expect(button().disabled).toBe(false), { timeout: 10_000 });
+  await userEvent.click(button());
   return screen.findByRole("dialog", { name: "Finish your review" });
 }
 
-test("new commits visibly invalidate durable hosted drafts and disable all review submission", async () => {
+test("a draft new commits left behind shows its earlier code and why no review can be sent", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.workspace.setForgeRead(
@@ -516,6 +522,8 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
           id: "draft",
           body: "Keep this unsent finding",
           anchor: { commit: "b".repeat(40), path: "src/main.ts", line: 1, side: "RIGHT" },
+          // The daemon tried to move it to the head and found its line changed.
+          outdated: { headSha: "a".repeat(40), code: ["const total = 1;"] },
         },
       ]),
     },
@@ -523,8 +531,14 @@ test("new commits visibly invalidate durable hosted drafts and disable all revie
   const first = await openPullRequest(app, { project: "api", number: 42 });
   const review = await openReview("Review · 1 pending");
   expect(await within(review).findByText("Keep this unsent finding")).toBeTruthy();
-  expect(within(review).getByText("Outdated")).toBeTruthy();
-  expect(within(review).getByText(/New commits moved the lines of outdated comments/)).toBeTruthy();
+  expect(within(review).getByText("Lines changed")).toBeTruthy();
+  expect(within(review).getByText("const total = 1;")).toBeTruthy();
+  expect(within(review).getByRole("button", { name: "Post on file" })).toBeTruthy();
+  expect(
+    within(review).getByText(
+      "New commits changed the lines of 1 comment. Post it on its file or remove it to submit.",
+    ),
+  ).toBeTruthy();
   await userEvent.type(
     within(review).getByRole("textbox", { name: "Review summary" }),
     "Preserve my summary",

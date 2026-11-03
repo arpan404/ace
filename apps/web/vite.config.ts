@@ -59,7 +59,13 @@ export default defineConfig(({ mode }) => ({
     // One React for the app and the markit submodule's binding, which has no node_modules.
     dedupe: ["react", "react-dom"],
   },
-  define: { "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build) },
+  define: {
+    "import.meta.env.VITE_ACE_BUILD": JSON.stringify(build),
+    // The fake app pushes to its moving sample PR this often (ms); off when unset.
+    "import.meta.env.VITE_ACE_FAKE_PR_PUSH_EVERY_MS": JSON.stringify(
+      process.env.ACE_FAKE_PR_PUSH_EVERY_MS ?? "",
+    ),
+  },
   build: {
     target: "es2023",
     // Standard compression keeps the full validated worker within its existing byte budget.

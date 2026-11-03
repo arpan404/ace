@@ -88,3 +88,37 @@ it("a thread that starts on the deleted side and ends on the added side reports 
     await fake.cleanup();
   }
 });
+
+it("an outdated thread carries the tail of GitHub's hunk and where it was written; a malformed origin reads as missing", async () => {
+  const fixtures = standard();
+  fixtures["repos/octo/ace/pulls/7/comments?per_page=100"] = [{ body: [] }];
+  const lines = Array.from({ length: 20 }, (_, i) => ` line ${i + 1}`).join("\n");
+  const outdated = node({
+    isOutdated: true,
+    line: null,
+    originalLine: 20,
+    originalStartLine: null,
+    opener: {
+      nodes: [{ diffHunk: `@@ -1,20 +1,20 @@\n${lines}`, originalCommit: { oid: "a".repeat(40) } }],
+    },
+  });
+  const malformed = node({ id: "T2", originalLine: "twenty", opener: { nodes: "none" } });
+  fixtures.graphql = [{ body: threads([outdated, malformed]) }];
+  const fake = await fakeGh(fixtures);
+  try {
+    const [first, second] = (await fake.forge.status(7, signal())).reviewThreads;
+    expect(first).toMatchObject({
+      outdated: true,
+      originalLine: 20,
+      originalCommit: "a".repeat(40),
+    });
+    const hunk = first?.hunk?.split("\n") ?? [];
+    expect(hunk[0]).toBe("@@ -9,12 +9,12 @@");
+    expect(hunk.at(-1)).toBe(" line 20");
+    expect(second).toMatchObject({ id: "T2", file: "src/main.ts" });
+    expect(second?.hunk).toBeUndefined();
+    expect(second?.originalLine).toBeUndefined();
+  } finally {
+    await fake.cleanup();
+  }
+});

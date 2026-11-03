@@ -1,15 +1,13 @@
-import { CaretDownIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { CaretDownIcon } from "@phosphor-icons/react";
 import { Suspense } from "react";
 import type { Turn } from "@ace/ui-core";
 import { scopeLabel, type Scope } from "@/lib/diffs/use-scoped-diff.ts";
 export { scopeLabel, type Scope };
 import { Button } from "@/components/ui/button.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
   MenuContent,
   MenuItem,
-  MenuCheckboxItem,
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
@@ -20,10 +18,9 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { toolbarEdge } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { useThreadParts } from "../agents/thread-parts.ts";
-import type { DiffPrefs } from "../services.ts";
+import type { DiffPrefs } from "./diff-prefs.ts";
+import { DiffViewMenu } from "./diff-view-menu.tsx";
 import { DiffStat } from "./diff-stat.tsx";
-
-const control = "size-7";
 
 /**
  * Checkout scopes the daemon can't diff yet, listed so the gap is visible rather than guessed:
@@ -90,15 +87,10 @@ export function ChangesGitAction(props: { threadId: string }) {
   );
 }
 
-const modeLabels: Record<DiffPrefs["mode"], string> = {
-  auto: "Auto",
-  unified: "Unified",
-  split: "Split",
-};
-
 /**
- * Changes' toolbar: scope and its totals on the left; the thread's git action, then wrap, fold
- * every file, layout and the files tree on the right. 40px tall with 28px controls on one centre line.
+ * Changes' toolbar: scope and its totals on the left; the thread's git action, then the View
+ * menu every diff viewer shares (layout, wrapping, folds, the files tree) on the right. 40px tall
+ * with 28px controls on one centre line.
  */
 export function ChangesToolbar(props: {
   threadId: string;
@@ -109,7 +101,7 @@ export function ChangesToolbar(props: {
   prefs: DiffPrefs;
   shown: "unified" | "split";
   splitTooNarrow: boolean;
-  onPrefs(change: (prefs: DiffPrefs) => DiffPrefs): void;
+  onPrefs(change: Partial<DiffPrefs>): void;
   allCollapsed: boolean;
   onCollapseAll(folded: boolean): void;
   /** The tree only helps with more than one file. */
@@ -120,7 +112,6 @@ export function ChangesToolbar(props: {
   onRefresh?: (() => void) | undefined;
   refreshing?: boolean | undefined;
 }) {
-  const { prefs } = props;
   return (
     <div
       role="toolbar"
@@ -142,51 +133,25 @@ export function ChangesToolbar(props: {
           Refresh
         </Button>
       )}
-      <Menu>
-        <MenuTrigger
-          render={<IconButton icon={DotsThreeIcon} label="Diff options" className={control} />}
-        />
-        <MenuContent align="end">
-          <MenuCheckboxItem
-            checked={prefs.wrap}
-            onCheckedChange={(wrap) => props.onPrefs((value) => ({ ...value, wrap }))}
-          >
-            Soft wrap at word boundaries
-          </MenuCheckboxItem>
-          <MenuItem onClick={() => props.onCollapseAll(!props.allCollapsed)}>
-            {props.allCollapsed ? "Expand all files" : "Collapse all files"}
-          </MenuItem>
-          {props.canShowTree && (
-            <MenuCheckboxItem
-              checked={prefs.tree}
-              onCheckedChange={(tree) => props.onPrefs((value) => ({ ...value, tree }))}
-            >
-              Show files
-            </MenuCheckboxItem>
-          )}
-          {props.onRefreshReview && (
+      <DiffViewMenu
+        trigger={
+          <Button size="sm" variant="ghost" className="shrink-0">
+            View
+          </Button>
+        }
+        prefs={props.prefs}
+        onPrefs={props.onPrefs}
+        shown={props.shown}
+        splitTooNarrow={props.splitTooNarrow}
+        canShowTree={props.canShowTree}
+        allCollapsed={props.allCollapsed}
+        onCollapseAll={props.onCollapseAll}
+        actions={
+          props.onRefreshReview && (
             <MenuItem onClick={props.onRefreshReview}>Refresh comments</MenuItem>
-          )}
-          <MenuSeparator />
-          <MenuRadioGroup
-            value={prefs.mode}
-            onValueChange={(mode: DiffPrefs["mode"]) =>
-              props.onPrefs((value) => ({ ...value, mode }))
-            }
-          >
-            <MenuLabel>Diff layout</MenuLabel>
-            <MenuRadioItem closeOnClick value="auto">
-              Auto · {modeLabels[props.shown]}
-            </MenuRadioItem>
-            <MenuRadioItem closeOnClick value="unified">
-              Unified
-            </MenuRadioItem>
-            <MenuRadioItem closeOnClick value="split">
-              Split{props.splitTooNarrow && " · needs a wider panel"}
-            </MenuRadioItem>
-          </MenuRadioGroup>
-        </MenuContent>
-      </Menu>
+          )
+        }
+      />
     </div>
   );
 }

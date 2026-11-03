@@ -12,7 +12,7 @@ import { PrRenderedDiff } from "./pr-rendered-diff.tsx";
 const ahead = "600px 0px";
 
 /** Asks once for what it stands in for as it nears the viewport (at once without an observer). */
-function NearView(props: {
+export function NearView(props: {
   root: RefObject<HTMLElement | null>;
   onNear(): void;
   children: ReactNode;

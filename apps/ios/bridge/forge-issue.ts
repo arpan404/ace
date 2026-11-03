@@ -62,6 +62,9 @@ const actionWords = {
   comment: "Your comment",
   edit: "Your edit",
   state: "The state change",
+  labels: "The label change",
+  assignees: "The assignee change",
+  milestone: "The milestone change",
 } as const;
 
 const epoch = (at: string | null | undefined) => {

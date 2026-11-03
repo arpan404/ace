@@ -59,8 +59,14 @@ export const ForgeIssueDetail = ForgeIssueRow.extend({
     close: z.boolean(),
     reopen: z.boolean(),
     comment: z.boolean(),
+    /** Labels, assignees and the milestone may change: triage access or more. */
+    triage: z.boolean().optional(),
     reason: z.string().max(256),
   }),
+  /** Why a closed issue closed, as GitHub records it. */
+  stateReason: z.enum(["completed", "not_planned", "reopened"]).nullable().optional(),
+  /** The milestone's number, for a picker that changes it. */
+  milestoneNumber: z.number().int().positive().nullable().optional(),
   relatedThreads: z.array(z.object({ id: ThreadId, title: text, archived: z.boolean() })).max(100),
   relatedThreadsTruncated: z.boolean(),
 });
@@ -126,19 +132,46 @@ export const ForgeIssueWrite = z.discriminatedUnion("action", [
     expectedUpdatedAt: text,
     title: z.string().min(1).max(256),
     body: text,
+    /**
+     * The title and body the edit started from. With it, only a field someone else changed
+     * since conflicts; activity elsewhere on the issue doesn't. Without it, any change does.
+     */
+    base: z.object({ title: text, body: text }).optional(),
   }),
   z.object({
     action: z.literal("state"),
     number: z.number().int().positive(),
+    /** Kept for older clients; closing or reopening no longer depends on it. */
     expectedUpdatedAt: text,
     state: z.enum(["open", "closed"]),
+    /** Why it closes; GitHub's default is completed. */
+    reason: z.enum(["completed", "not_planned"]).optional(),
+  }),
+  /** Labels added and removed, applied to the issue as it is when the write lands. */
+  z.object({
+    action: z.literal("labels"),
+    number: z.number().int().positive(),
+    add: z.array(z.string().min(1).max(256)).max(100).default([]),
+    remove: z.array(z.string().min(1).max(256)).max(100).default([]),
+  }),
+  /** Assignees added and removed, applied to the issue as it is when the write lands. */
+  z.object({
+    action: z.literal("assignees"),
+    number: z.number().int().positive(),
+    add: z.array(z.string().min(1).max(100)).max(10).default([]),
+    remove: z.array(z.string().min(1).max(100)).max(100).default([]),
+  }),
+  z.object({
+    action: z.literal("milestone"),
+    number: z.number().int().positive(),
+    milestone: z.number().int().positive().nullable(),
   }),
 ]);
 export type ForgeIssueWrite = z.infer<typeof ForgeIssueWrite>;
 export const ForgeIssueAction = z.object({
   id: CommandId,
   state: z.enum(["pending", "uncertain", "succeeded", "failed"]),
-  action: z.enum(["create", "comment", "edit", "state"]),
+  action: z.enum(["create", "comment", "edit", "state", "labels", "assignees", "milestone"]),
   issue: ForgeIssueRef.optional(),
   error: z.string().max(256).optional(),
 });
@@ -165,6 +198,8 @@ export const ForgeIssueResults = [
     resource: z.literal("issueTimeline"),
     events: z.array(ForgeIssueEvent).max(25),
     nextPage: z.number().int().positive().optional(),
+    /** The conversation's last page, so the newest activity can be read first. */
+    lastPage: z.number().int().positive().optional(),
     truncated: z.boolean(),
   }),
   z.object({ resource: z.literal("issueActions"), actions: z.array(ForgeIssueAction).max(25) }),

@@ -10,6 +10,17 @@ import type { PullRequestFixture } from "./catalog/pull-request-details.ts";
 type Operation = WorkspaceActionRequest["operation"];
 type FilesOp = Extract<Operation, { op: "forge.pr.files" }>;
 type ContentOp = Extract<Operation, { op: "forge.file.content" }>;
+/** Files per page, as GitHub pages a PR's files. */
+const filesPerPage = 25;
+
+/** Page `page` of `files`, and the next page when more follow. */
+function paged(files: readonly ForgeFile[], page: number) {
+  const from = (page - 1) * filesPerPage;
+  return {
+    files: files.slice(from, from + filesPerPage),
+    ...(files.length > from + filesPerPage ? { nextPage: page + 1 } : {}),
+  };
+}
 
 export function commitsRead(fixture: PullRequestFixture): ForgeBrowserResult {
   return {
@@ -24,11 +35,12 @@ export function filesRead(
   op: FilesOp,
 ): ForgeBrowserResult | undefined {
   const { detail } = fixture;
+  const page = op.page ?? 1;
   const all = {
     ref: detail.status.ref,
     baseSha: detail.baseSha,
     headSha: detail.status.headSha,
-    files: fixture.files,
+    ...paged(fixture.files, page),
     truncated: false,
   };
   if (!op.commit) return op.since ? undefined : { resource: "prFiles", value: all };
@@ -49,7 +61,7 @@ export function filesRead(
       headSha: op.commit,
       commit: op.commit,
       ...(op.since ? { since: op.since } : {}),
-      files: [...files.values()],
+      ...paged([...files.values()], page),
     },
   };
 }

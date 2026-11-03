@@ -102,10 +102,11 @@ test("a failing check blocks the merge with the blocking gate named, and a refre
   const app = open(detail({ ci: "failure", checks: [{ ...running, status: "failure" }] }));
   await openPullRequest(app, { project: "api", number: 42 });
   const panel = within(await screen.findByRole("article", { name: "Pull request #42" }));
-  const blocked = await panel.findByRole<HTMLButtonElement>("button", { name: "Merge blocked" });
-  expect(blocked.disabled).toBe(true);
+  // Words, not a dead button: how many things block it, leading to them.
+  const blocked = await panel.findByRole("button", { name: "Merge blocked · 1 thing" });
+  expect(panel.queryByRole("button", { name: "Squash and merge" })).toBeNull();
   // The tooltip names what blocks it.
-  await userEvent.hover(blocked.parentElement ?? blocked);
+  await userEvent.hover(blocked);
   expect(await screen.findByText(/Checks: 1 failing · 0 ok/, {}, { timeout: 3_000 })).toBeTruthy();
   app.daemon.workspace.setForgeRead(operation, { resource: "prDetail", value: detail() });
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
