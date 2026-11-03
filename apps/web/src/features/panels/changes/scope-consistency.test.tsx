@@ -84,16 +84,16 @@ test("the uncommitted diff stays on screen while git is read again after the thr
   await waitFor(() => expect(diffText()).toContain("+Before the turn"));
 
   // The thread moves on (here a commit) and git is slow to answer: the last diff stays shown.
-  const release = app.daemon.workspace.holdGitDiff(thread);
-  onTestFinished(release);
+  const held = app.daemon.workspace.holdGitDiff(thread);
+  onTestFinished(held.release);
   app.daemon.workspace.setGitDiff(thread, readmePatch("After the turn"));
   app.daemon.updateThread(thread, { status: { state: "done" } });
   app.daemon.workspace.setDetails(thread, { head: "c".repeat(40) });
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await held.entered;
   expect(diffText()).toContain("+Before the turn");
   expect(within(panel).queryByText("Reading changes…")).toBeNull();
 
-  release();
+  held.release();
   await waitFor(() => expect(diffText()).toContain("+After the turn"));
 });
 

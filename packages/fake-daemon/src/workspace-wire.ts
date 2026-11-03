@@ -217,17 +217,24 @@ export class FakeWorkspaceWire {
       gate.resolve();
     };
   }
+  private entering = new Map<string, () => void>();
   /**
-   * Answer the thread's whole uncommitted diff only once the returned release runs, as git busy
-   * on a large checkout would; the patch sent is the one set by then.
+   * Answer the thread's whole uncommitted diff only once `release` runs, as git busy on a large
+   * checkout would; the patch sent is the one set by then. `entered` settles when a read arrives.
    */
-  holdGitDiff(threadId: string): () => void {
+  holdGitDiff(threadId: string): { entered: Promise<void>; release(): void } {
     const key = JSON.stringify({ op: "git.diff", threadId });
     const gate = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
     this.held.set(key, gate.promise);
-    return () => {
-      if (this.held.get(key) === gate.promise) this.held.delete(key);
-      gate.resolve();
+    this.entering.set(key, arrived.resolve);
+    return {
+      entered: arrived.promise,
+      release: () => {
+        if (this.held.get(key) === gate.promise) this.held.delete(key);
+        this.entering.delete(key);
+        gate.resolve();
+      },
     };
   }
   private failing = new Map<string, string>();
@@ -305,7 +312,10 @@ export class FakeWorkspaceWire {
       this.forgeReadCounts.set(key, (this.forgeReadCounts.get(key) ?? 0) + 1);
     }
     const held = this.held.size ? this.held.get(JSON.stringify(op)) : undefined;
-    if (held) await held;
+    if (held) {
+      this.entering.get(JSON.stringify(op))?.();
+      await held;
+    }
     const failure = this.failing.size ? this.failing.get(JSON.stringify(op)) : undefined;
     if (failure)
       return ServerMessage.parse({
