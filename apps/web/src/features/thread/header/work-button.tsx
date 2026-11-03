@@ -25,7 +25,7 @@ export const DeferredWorkCard = deferredComponent(() =>
  * thread's facts and controls, which are content, so it is never glass.
  */
 export const workSurface =
-  "ace-floating-solid w-[320px] overflow-x-hidden overflow-y-auto overscroll-contain rounded-popup border border-border bg-popover text-popover-foreground shadow-glass";
+  "ace-floating-solid w-[280px] overflow-x-hidden overflow-y-auto overscroll-contain rounded-popup border border-border bg-popover text-popover-foreground shadow-glass";
 
 /** Space kept between the card and the composer below it. */
 const composerGap = 12;
