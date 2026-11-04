@@ -52,8 +52,8 @@ export function AddProjectFlow(props: {
   if (several && picking)
     return (
       <CommandChoices
-        fieldLabel="Search machines"
-        listLabel="Machines"
+        fieldLabel="Search computers"
+        listLabel="Computers"
         placeholder="Add a project on…"
         choices={choices}
         onChoose={(choice) => {
@@ -62,7 +62,7 @@ export function AddProjectFlow(props: {
           setPicking(false);
         }}
         onBack={chosen ? () => setPicking(false) : props.onBack}
-        empty="No machines match"
+        empty="No computers match"
         onSwitchMachines={() => setPicking(false)}
         switchLabel="Sources"
       />
@@ -143,7 +143,7 @@ export function AddProjectFlow(props: {
       empty="No sources match"
       trailing={chip}
       onSwitchMachines={switchMachines}
-      switchLabel="Machine"
+      switchLabel="Computer"
     />
   );
 }

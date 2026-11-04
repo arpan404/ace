@@ -25,7 +25,7 @@ async function addProjectOn(made: ReturnType<typeof harness>, machine: string, s
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  const machines = await screen.findByRole("listbox", { name: "Computers" });
   await userEvent.click(await within(machines).findByRole("option", { name: machine }));
   await userEvent.click(await screen.findByRole("option", { name: source }));
 }
@@ -35,7 +35,7 @@ test("with two machines Add project asks which machine first, and its folders fo
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  const machines = await screen.findByRole("listbox", { name: "Computers" });
   await waitFor(() =>
     expect(
       within(machines)
@@ -48,9 +48,9 @@ test("with two machines Add project asks which machine first, and its folders fo
   expect(await option("services")).toBeTruthy();
 
   // The machine chip changes it again.
-  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
+  await userEvent.click(screen.getByRole("button", { name: "Computer: Build server" }));
   await userEvent.click(
-    within(await screen.findByRole("listbox", { name: "Machines" })).getByRole("option", {
+    within(await screen.findByRole("listbox", { name: "Computers" })).getByRole("option", {
       name: "This Mac",
     }),
   );
@@ -67,7 +67,7 @@ test("a folder added on the build server is added there and opens New thread the
   await userEvent.keyboard("{Enter}");
 
   // New thread opens on the build server, in the project just added.
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/services/api"]);
   expect(paths(made.daemon)).toEqual([]);
@@ -79,7 +79,7 @@ test("a new project is created on the chosen machine and New thread opens there"
   await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
   expect(await screen.findByText("~/jobs")).toBeTruthy();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Project: jobs" })).toBeTruthy();
   expect(paths(build)).toEqual(["/home/ci/jobs"]);
   expect(paths(made.daemon)).toEqual([]);
@@ -141,9 +141,9 @@ test("a chosen machine that leaves the pool stays chosen, so nothing lands on an
   expect(paths(made.daemon)).toEqual([]);
 
   // Choosing this machine is explicit, and then it works here.
-  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
+  await userEvent.click(screen.getByRole("button", { name: "Computer: Build server" }));
   await userEvent.click(
-    within(await screen.findByRole("listbox", { name: "Machines" })).getByRole("option", {
+    within(await screen.findByRole("listbox", { name: "Computers" })).getByRole("option", {
       name: "This Mac",
     }),
   );
@@ -162,8 +162,8 @@ test("with the other machine offline Add project doesn't ask which machine", asy
   made.crashMachine("build");
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   expect(await screen.findByRole("option", { name: "Local folder" })).toBeTruthy();
-  expect(screen.queryByRole("listbox", { name: "Machines" })).toBeNull();
-  expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+  expect(screen.queryByRole("listbox", { name: "Computers" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Computer:/ })).toBeNull();
 });
 
 test("with this machine offline Add project works on the one machine that's online, and says so", async () => {
@@ -173,7 +173,7 @@ test("with this machine offline Add project works on the one machine that's onli
   act(() => made.daemon.refuseConnections(true));
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   const field = await screen.findByRole("combobox", { name: "Folder path" });
   await userEvent.clear(field);
   await userEvent.type(field, "~/services/api/");

@@ -80,7 +80,7 @@ export function linkedMachines(options: { links?: boolean } = {}) {
 export async function continueOn() {
   await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Continue on…" }));
-  return screen.findByRole("dialog", { name: "Continue on another machine" });
+  return screen.findByRole("dialog", { name: "Continue on another computer" });
 }
 
 /** The options step for continuing the thread on `machine`. */

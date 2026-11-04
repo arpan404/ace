@@ -187,7 +187,7 @@ test("a desktop folder link cannot register its local path on a selected remote 
   await made.open(`/new?folder=${encodeURIComponent(`${home}/code/weather`)}`);
   expect(
     await screen.findByText(
-      "This folder is on this computer. Choose a folder on the connected machine instead.",
+      "This folder is on this computer. Choose a folder on the connected computer instead.",
     ),
   ).toBeTruthy();
   expect(registered(made)).not.toContain(`${home}/code/weather`);

@@ -13,7 +13,7 @@ export function ProjectsEmptyState(props: { heading?: boolean; className?: strin
       {...(props.heading ? { heading: true } : {})}
       {...(props.className ? { className: props.className } : {})}
       title="Add your first project"
-      description="A folder on this machine that agents work in."
+      description="A folder on this computer that agents work in."
       action={
         <Button
           onClick={() => projects.open({ kind: "add", tab: "sources" })}

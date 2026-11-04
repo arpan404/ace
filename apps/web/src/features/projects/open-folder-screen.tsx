@@ -43,7 +43,7 @@ export function OpenFolderScreen(props: { folder: string }) {
             code: "local_folder",
             denied: false,
             message:
-              "This folder is on this computer. Choose a folder on the connected machine instead.",
+              "This folder is on this computer. Choose a folder on the connected computer instead.",
           });
         return;
       }

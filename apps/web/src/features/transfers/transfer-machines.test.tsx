@@ -37,8 +37,8 @@ test("Continue on from another machine's thread is sent from that machine", asyn
   await userEvent.click(screen.getByRole("menuitem", { name: "Continue on…" }));
 
   // The build server's links are listed, not this window's.
-  const dialog = await screen.findByRole("dialog", { name: "Continue on another machine" });
-  const machines = await within(dialog).findByRole("listbox", { name: "Machines" });
+  const dialog = await screen.findByRole("dialog", { name: "Continue on another computer" });
+  const machines = await within(dialog).findByRole("listbox", { name: "Computers" });
   await waitFor(() =>
     expect(
       within(machines)
@@ -72,7 +72,7 @@ test("a repository with an origin the other machine lacks is cloned there first"
   await app.open("/t/thread-forecast");
   await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Continue on…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Continue on another machine" });
+  const dialog = await screen.findByRole("dialog", { name: "Continue on another computer" });
   await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Continue on Build server" }));
   await step();
@@ -104,7 +104,7 @@ test("a project the other machine has under another name is reused, keeping its 
   const menu = await screen.findByRole("menu");
   await userEvent.click(await within(menu).findByRole("menuitem", { name: /weather/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open on…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Open on another machine" });
+  const dialog = await screen.findByRole("dialog", { name: "Open on another computer" });
   await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Open on Build server" }));
   await finish();
@@ -135,9 +135,9 @@ test("Open on in a fresh window shows the transfer already running instead of of
   const menu = await screen.findByRole("menu");
   await userEvent.click(await within(menu).findByRole("menuitem", { name: /weather/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open on…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Open on another machine" });
-  expect(await within(dialog).findByText("Checking what this machine is sending…")).toBeTruthy();
-  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+  const dialog = await screen.findByRole("dialog", { name: "Open on another computer" });
+  expect(await within(dialog).findByText("Checking what this computer is sending…")).toBeTruthy();
+  expect(within(dialog).queryByRole("listbox", { name: "Computers" })).toBeNull();
 
   app.daemon.restoreRequests();
   act(() => {
@@ -145,6 +145,6 @@ test("Open on in a fresh window shows the transfer already running instead of of
     app.client.reconnectNow();
   });
   expect(await within(dialog).findByText("Getting ready to send to Build server")).toBeTruthy();
-  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(within(dialog).queryByRole("listbox", { name: "Computers" })).toBeNull();
   expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeTruthy();
 }, 30_000);

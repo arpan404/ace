@@ -49,8 +49,8 @@ export function MachineChip(props: {
   return (
     <button
       type="button"
-      aria-label={`Machine: ${props.name}`}
-      title="Change machine (Ctrl+M)"
+      aria-label={`Computer: ${props.name}`}
+      title="Change computer (Ctrl+M)"
       onClick={props.onClick}
       className="flex h-6 max-w-40 shrink-0 items-center gap-1 rounded-md border border-border px-1.5 text-sm font-medium text-foreground focus-ring hover:bg-accent hover:text-accent-foreground"
     >

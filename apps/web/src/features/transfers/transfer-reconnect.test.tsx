@@ -75,8 +75,8 @@ test("the chooser after a reconnect waits for that connection's list, then shows
   await waitFor(() => expect(app.client.connectionState().getSnapshot()).toBe("ready"));
 
   const dialog = await continueOn();
-  expect(await within(dialog).findByText("Checking what this machine is sending…")).toBeTruthy();
-  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(await within(dialog).findByText("Checking what this computer is sending…")).toBeTruthy();
+  expect(within(dialog).queryByRole("listbox", { name: "Computers" })).toBeNull();
 
   app.daemon.restoreRequests();
   act(() => {
@@ -84,7 +84,7 @@ test("the chooser after a reconnect waits for that connection's list, then shows
     app.client.reconnectNow();
   });
   expect(await within(dialog).findByText("Getting ready to send to Build server")).toBeTruthy();
-  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(within(dialog).queryByRole("listbox", { name: "Computers" })).toBeNull();
 }, 30_000);
 
 test("machines already showing give way to a transfer the reconnect's list reports running", async () => {
@@ -100,5 +100,5 @@ test("machines already showing give way to a transfer the reconnect's list repor
     app.client.reconnectNow();
   });
   expect(await within(dialog).findByText("Getting ready to send to Build server")).toBeTruthy();
-  expect(within(dialog).queryByRole("listbox", { name: "Machines" })).toBeNull();
+  expect(within(dialog).queryByRole("listbox", { name: "Computers" })).toBeNull();
 }, 30_000);

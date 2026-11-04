@@ -56,7 +56,7 @@ test("Try again on a transfer that doesn't say its choices asks for them again",
   await userEvent.keyboard("{Escape}");
   expect(await strip(failure.message)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
-  const again = await screen.findByRole("dialog", { name: "Continue on another machine" });
+  const again = await screen.findByRole("dialog", { name: "Continue on another computer" });
   expect(within(again).getByRole("switch", { name: "Bring uncommitted changes" })).toBeTruthy();
   expect(within(again).getByRole("button", { name: "Continue on Build server" })).toBeTruthy();
   expect(app.daemon.transfers.list()).toHaveLength(1);
@@ -79,10 +79,10 @@ test("a refusal shows the daemon's own words", async () => {
 test.each([
   [
     "machine_not_linked",
-    "This machine isn't linked to Build server. Link them in Settings › Fleet.",
+    "This computer isn't linked to Build server. Link them in Settings › Fleet.",
   ],
   ["workspace_preparing", "The thread's checkout is still being made. Try again once it's ready."],
-  ["thread_not_found", "That thread isn't on this machine any more."],
+  ["thread_not_found", "That thread isn't on this computer any more."],
 ])(
   "a refusal without words says what %s means",
   async (code, words) => {
@@ -133,7 +133,7 @@ test("Cancel can't be pressed twice while it runs, and says why it couldn't canc
   // The connection drops before the daemon answers.
   app.daemon.disconnectAll();
   expect(
-    await within(dialog).findByText("This machine isn't connected. Try again once it is."),
+    await within(dialog).findByText("This computer isn't connected. Try again once it is."),
   ).toBeTruthy();
   expect(within(dialog).getByRole("button", { name: "Cancel" }).hasAttribute("disabled")).toBe(
     false,

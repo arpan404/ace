@@ -14,7 +14,7 @@ test("a thread continues on a linked machine: progress, then the project and a n
   const dialog = await continueOn();
 
   // Linked machines are listed; ones that can't take it now say why and can't be chosen.
-  const machines = await within(dialog).findByRole("listbox", { name: "Machines" });
+  const machines = await within(dialog).findByRole("listbox", { name: "Computers" });
   await waitFor(() =>
     expect(
       within(machines)
@@ -75,7 +75,7 @@ test("Open on a finished transfer switches to the new thread on that machine", a
   expect(
     await screen.findByRole("heading", { name: "Fix the forecast cache (from This Mac)" }),
   ).toBeTruthy();
-  expect(screen.queryByRole("dialog", { name: "Continue on another machine" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Continue on another computer" })).toBeNull();
 }, 30_000);
 
 test("Cancel stops a transfer while it sends, and nothing lands on the other machine", async () => {
@@ -204,7 +204,7 @@ test("Open on… sends a project to a linked machine from the project's menu", a
   const menu = await screen.findByRole("menu");
   await userEvent.click(await within(menu).findByRole("menuitem", { name: /weather/ }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Open on…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Open on another machine" });
+  const dialog = await screen.findByRole("dialog", { name: "Open on another computer" });
   await userEvent.click(await within(dialog).findByRole("option", { name: "Build server" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Open on Build server" }));
   await finish();

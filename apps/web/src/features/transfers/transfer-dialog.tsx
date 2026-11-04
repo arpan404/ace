@@ -101,7 +101,7 @@ export function TransferDialog(props: {
     <CommandDialog
       open={props.open}
       onOpenChange={(open) => !open && props.onClose()}
-      title={`${verb(request)} on another machine`}
+      title={`${verb(request)} on another computer`}
     >
       {step.kind === "checking" ? (
         <CommandStepRow onBack={undefined} closeLabel="Close">
@@ -183,11 +183,11 @@ function MachineStep(props: {
   );
   const what = props.request.kind === "thread" ? `“${props.request.title}”` : props.request.name;
   const empty = links.isPending ? (
-    "Looking for linked machines…"
+    "Looking for linked computers…"
   ) : links.isError ? (
-    "Couldn't read this machine's links. Try again in a moment."
+    "Couldn't read this computer's links. Try again in a moment."
   ) : machines.length ? (
-    "No machines match"
+    "No computers match"
   ) : (
     <>
       No other machines are linked to this one.{" "}
@@ -198,8 +198,8 @@ function MachineStep(props: {
   );
   return (
     <CommandChoices
-      fieldLabel="Search machines"
-      listLabel="Machines"
+      fieldLabel="Search computers"
+      listLabel="Computers"
       placeholder={`${verb(props.request)} ${what} on…`}
       choices={choices}
       onChoose={(choice) => {
