@@ -123,3 +123,23 @@ test("another machine's page pauses that machine only, and a read-only pairing s
   ).toBeTruthy();
   expect(daemon("studio").admission.held("user")).toBe(false);
 });
+
+test("the Paused banner clears when the daemon goes away, and stays clear when it comes back unpaused", async () => {
+  const app = harness();
+  app.daemon.admission.set("user", true);
+  await app.open("/settings/remote/primary");
+  expect(await screen.findByText("New work is on hold.")).toBeTruthy();
+
+  app.daemon.refuseConnections(true);
+  app.daemon.disconnectAll();
+  await waitFor(() => expect(screen.queryByText("New work is on hold.")).toBeNull());
+
+  // It crashed while paused and restarted without the pause.
+  app.daemon.admission.set("user", false);
+  app.daemon.refuseConnections(false);
+  await userEvent.click(await screen.findByRole("button", { name: "Retry now" }));
+  await waitFor(() => expect(app.client.state).toBe("ready"));
+  const row = await pauseRow();
+  expect(await row.findByText("Taking new work")).toBeTruthy();
+  expect(screen.queryByText("New work is on hold.")).toBeNull();
+});

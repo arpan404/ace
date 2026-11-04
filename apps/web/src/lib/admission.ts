@@ -22,9 +22,11 @@ export function pauseOutcome(reply: AdmissionResult, machine: string): PauseOutc
 }
 
 interface Watch {
-  /** Undefined until read, and when the daemon predates pausing from a client. */
+  /** Undefined until read, while not connected, and when the daemon predates pausing from a client. */
   value: Admission | undefined;
   listeners: Set<() => void>;
+  /** Bumped on every connection change, so an answer from an earlier connection is dropped. */
+  connection: number;
 }
 
 const watches = new WeakMap<ClientApi, Watch>();
@@ -38,25 +40,37 @@ function show(watch: Watch, value: Admission | undefined) {
 function watchOf(client: ClientApi): Watch {
   const existing = watches.get(client);
   if (existing) return existing;
-  const watch: Watch = { value: undefined, listeners: new Set() };
+  const watch: Watch = { value: undefined, listeners: new Set(), connection: 0 };
   watches.set(client, watch);
   const read = () => {
     if (client.state !== "ready") return;
+    const asked = watch.connection;
+    const answer = (value: Admission | undefined) => {
+      if (watch.connection === asked) show(watch, value);
+    };
     client
       .request(
         { type: "admission.request", requestId: `admission-${++sequence}`, operation: "status" },
         { timeoutMs: 15_000 },
       )
-      .then((reply) => show(watch, reply.ok ? reply.admission : undefined))
+      .then((reply) => answer(reply.ok ? reply.admission : undefined))
       // An older daemon doesn't know the request: no row and no banner, rather than wrong ones.
-      .catch(() => show(watch, undefined));
+      .catch(() => answer(undefined));
   };
   client.onMessage((message) => {
     if (message.type === "admission.changed") show(watch, message.admission);
   });
   const connection = client.connectionState();
+  let ready = client.state === "ready";
   connection.subscribe(() => {
-    if (connection.getSnapshot() === "ready") read();
+    const now = connection.getSnapshot() === "ready";
+    if (now === ready) return;
+    ready = now;
+    watch.connection += 1;
+    // A daemon that went away may come back unpaused (or be another one): show nothing until
+    // the new connection says.
+    if (now) read();
+    else if (watch.value) show(watch, undefined);
   });
   read();
   return watch;
@@ -83,6 +97,8 @@ export async function setPaused(
   paused: boolean,
   machine: string,
 ): Promise<PauseOutcome> {
+  const watch = watchOf(client);
+  const asked = watch.connection;
   let outcome: PauseOutcome;
   try {
     const reply = await client.request(
@@ -97,6 +113,6 @@ export async function setPaused(
   } catch {
     outcome = { ok: false, problem: `Couldn't reach ${machine}. Try again.` };
   }
-  if (outcome.ok) show(watchOf(client), outcome.admission);
+  if (outcome.ok && watch.connection === asked) show(watch, outcome.admission);
   return outcome;
 }
