@@ -52,10 +52,8 @@
                         "type": "string"
                       },
                       "code": {
-                        "enum": [
-                          "usage_limited",
-                          "provider_failed"
-                        ],
+                        "maxLength": 64,
+                        "minLength": 1,
                         "type": "string"
                       },
                       "message": {
@@ -135,7 +133,8 @@
                       "done",
                       "failed",
                       "cancelled",
-                      "unknown"
+                      "unknown",
+                      "cancelling"
                     ],
                     "type": "string"
                   },
@@ -159,6 +158,11 @@
               "additionalProperties": false,
               "properties": {
                 "cancelled": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "cancelling": {
                   "maximum": 9007199254740991,
                   "minimum": 0,
                   "type": "integer"
@@ -201,7 +205,8 @@
                 "unknown",
                 "done",
                 "failed",
-                "cancelled"
+                "cancelled",
+                "cancelling"
               ],
               "type": "object"
             },
@@ -247,10 +252,8 @@
                       "type": "string"
                     },
                     "code": {
-                      "enum": [
-                        "usage_limited",
-                        "provider_failed"
-                      ],
+                      "maxLength": 64,
+                      "minLength": 1,
                       "type": "string"
                     },
                     "message": {

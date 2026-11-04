@@ -8941,14 +8941,13 @@ Example:
 {
   "generation": 0,
   "outcome": {
-    "before": 2,
+    "before": null,
     "failure": {
-      "accountId": "example",
-      "code": "provider_failed",
-      "message": "example",
-      "resetsAt": 0
+      "accountLabel": "example",
+      "code": "example",
+      "message": "example"
     },
-    "outcome": "cancelled",
+    "outcome": "completed",
     "result": "example",
     "threadId": "example",
     "truncated": true
@@ -10902,7 +10901,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| code | yes | ["usage_limited","provider_failed"] |  |
+| code | yes | string | {"minLength":1,"maxLength":64} |
 | message | yes | string | {"minLength":1,"maxLength":512} |
 | accountId | no | string | {"maxLength":256} |
 | accountLabel | no | string | {"maxLength":256} |
@@ -10912,10 +10911,9 @@ Example:
 
 ```json
 {
-  "accountLabel": "example",
-  "code": "usage_limited",
+  "code": "example",
   "message": "example",
-  "resetsAt": 2
+  "resetsAt": 0
 }
 ```
 
@@ -16277,10 +16275,10 @@ Example:
     {
       "before": null,
       "failure": {
-        "accountId": "example",
         "accountLabel": "example",
-        "code": "provider_failed",
-        "message": "example"
+        "code": "example",
+        "message": "example",
+        "resetsAt": 9
       },
       "outcome": "cancelled",
       "result": "example",
@@ -18393,22 +18391,22 @@ Example:
 
 ```json
 {
-  "contact": "unconfirmed",
-  "elapsedSeconds": 7,
+  "elapsedSeconds": 9,
   "failure": {
     "accountId": "example",
-    "code": "usage_limited",
+    "accountLabel": "example",
+    "code": "example",
     "message": "example"
   },
-  "last": "example",
   "machine": "example",
-  "queuePosition": 9,
+  "queuePosition": 5,
   "requests": [],
-  "slotsInUse": 4,
-  "state": "cancelled",
+  "result": "example",
+  "state": "failed",
   "status": {
-    "on": "network",
-    "slotLimit": 7,
+    "on": "rate_limit",
+    "queuePosition": 7,
+    "slotsInUse": 5,
     "state": "waiting"
   },
   "threadId": "example",
@@ -19661,7 +19659,7 @@ Example:
 
 [JSON Schema](schema/MonitoredState.json), input validation.
 
-Type: ["working","queued","needs_you","done","failed","cancelled","unknown"]. See JSON Schema for constraints.
+Type: ["working","queued","needs_you","done","failed","cancelled","unknown","cancelling"]. See JSON Schema for constraints.
 
 Example:
 
@@ -19677,7 +19675,7 @@ Example:
 | --- | --- | --- | --- |
 | children | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MonitoredChild.json"}} |
 | omitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"]} |
+| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelling":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled","cancelling"]} |
 
 Example:
 
@@ -19686,6 +19684,7 @@ Example:
   "children": [],
   "counts": {
     "cancelled": 9,
+    "cancelling": 8,
     "done": 3,
     "failed": 7,
     "needs_you": 1,

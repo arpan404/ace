@@ -25,9 +25,9 @@ export interface LimitNoticeDependencies {
 }
 
 /**
- * A running delegated child whose turn ended on its usage limit does nothing until the limit
- * resets, so it never settles and its parent would wait on it for hours. The parent hears it
- * once per hold, the way it hears results, unless its own live wait on the child reports it.
+ * A running delegated child whose turn ended on its usage limit, with ace scheduled to resume it
+ * at reset, does nothing until then, so it never settles and its parent would wait on it for
+ * hours. The parent hears it once per hold, the way it hears results, unless its own live wait on the child reports it.
  * What it was told is kept on the edge, so a restart neither repeats nor loses it.
  */
 export class LimitNotices {
@@ -47,10 +47,13 @@ export class LimitNotices {
     const thread = store.getThread(edge.childId);
     if (this.deps.closed() || !thread || edge.phase !== "running") return;
     if (edge.resultDelivery === "owner") return;
-    const hold = usageLimitHold(thread, edge, {
+    const held = usageLimitHold(thread, edge, {
       resuming: this.deps.resuming(edge.childId),
       endedOnLimit: () => this.deps.endedOnLimit(edge.childId),
     });
+    // Only a hold ace resumes by itself keeps the child open; any other stopped limit settles
+    // it as failed, and the settlement is what tells the parent.
+    const hold = held?.resumesAt === undefined ? undefined : held;
     const told = edge.limitNotice;
     if (!hold) {
       if (told?.held) this.save(edge, { ...told, held: false });

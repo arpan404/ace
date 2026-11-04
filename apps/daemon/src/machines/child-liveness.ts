@@ -11,6 +11,10 @@ import type { RequestMirror } from "./mirror.ts";
 
 /** How many lapsed children one poll marks lost; the rest go on the next. */
 const LAPSED_PER_POLL = 64;
+/** After the bounded stop, the cancel still goes out this often until its machine confirms. */
+const CONFIRM_RETRY_MS = 60_000;
+/** How many unconfirmed stops one tick sends the cancel to again; the rest go on the next. */
+const CONFIRM_PER_TICK = 16;
 
 export interface ChildLivenessDeps {
   store: Store;
@@ -29,6 +33,7 @@ export interface ChildLivenessDeps {
   /** Overrides for tests; the defaults are the ADR's. */
   stopPlan?: StopPlan<"cancel"> | undefined;
   leaseMs?: number | undefined;
+  confirmRetryMs?: number | undefined;
 }
 
 /**
@@ -42,6 +47,7 @@ export class ChildLiveness {
   private deps: ChildLivenessDeps;
   private plan: StopPlan<"cancel">;
   private leaseMs: number;
+  private confirmRetryMs: number;
   /** Leases count from here at the earliest: time this daemon wasn't running isn't silence. */
   private bootAt: number;
   private timer: { at: number; cancel: () => void } | undefined;
@@ -50,6 +56,7 @@ export class ChildLiveness {
     this.deps = deps;
     this.plan = deps.stopPlan ?? REMOTE_STOP;
     this.leaseMs = deps.leaseMs ?? REMOTE_CHILD_LEASE_MS;
+    this.confirmRetryMs = deps.confirmRetryMs ?? CONFIRM_RETRY_MS;
     this.bootAt = deps.now();
   }
   close() {
@@ -91,16 +98,27 @@ export class ChildLiveness {
         next = Math.min(next ?? at.next.until, at.next.until);
         continue;
       }
-      this.deps.ledger.stopAttempted(row.id, now);
-      void this.deps
-        .cancel(row)
-        .catch((error: unknown) =>
-          this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) }),
-        );
+      this.sendCancel(row, now);
       const step = this.plan[at.next.step] ?? this.plan[0];
       next = Math.min(next ?? now + step.waitMs, now + step.waitMs);
     }
+    // Settled here unconfirmed: the cancel keeps going out, across reconnects and restarts (the
+    // ledger keeps when it last went), until its machine reports the child ended.
+    for (const row of this.deps.ledger.unconfirmedStops(CONFIRM_PER_TICK)) {
+      const due = (row.stop_last_at ?? 0) + this.confirmRetryMs;
+      if (due <= now) this.sendCancel(row, now);
+      const after = due <= now ? now + this.confirmRetryMs : due;
+      next = Math.min(next ?? after, after);
+    }
     this.arm(next);
+  }
+  private sendCancel(row: ChildRow, now: number): void {
+    this.deps.ledger.stopAttempted(row.id, now);
+    void this.deps
+      .cancel(row)
+      .catch((error: unknown) =>
+        this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) }),
+      );
   }
   /**
    * The lease check: every unsettled child whose machine hasn't reported it within the lease is
@@ -149,8 +167,17 @@ export class ChildLiveness {
    * recorded, but a child still working or waiting there is never live here again.
    */
   late(row: ChildRow, view: MachineThreadView, settled: boolean): void {
-    if (!settled || savedView(row)?.contact !== "unconfirmed") return;
-    this.deps.ledger.recordLateEnd(row.id, JSON.stringify(view));
+    if (!settled) return;
+    if (row.stopped_unconfirmed === 1) {
+      // Confirmed at last: its cancel stops going out and its parent no longer reads it unvouched.
+      const name = this.deps.label(row.machine);
+      this.deps.store.atomic(() => {
+        this.deps.ledger.confirmStop(row.id, JSON.stringify(view));
+        this.parentRow(row, name, undefined, undefined, view);
+      });
+    } else if (savedView(row)?.contact === "unconfirmed")
+      this.deps.ledger.recordLateEnd(row.id, JSON.stringify(view));
+    else return;
     this.deps.emit([row.id]);
   }
   private standingOf(row: ChildRow, now: number) {
@@ -193,7 +220,7 @@ export class ChildLiveness {
     row: ChildRow,
     name: string,
     contact: RemoteContact | undefined,
-    hold: "start" | "end" | "lost",
+    hold: "start" | "end" | "lost" | undefined,
     ended?: MachineThreadView,
   ): void {
     const saved = savedView(row);

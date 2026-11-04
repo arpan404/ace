@@ -72,10 +72,8 @@
                         "type": "string"
                       },
                       "code": {
-                        "enum": [
-                          "usage_limited",
-                          "provider_failed"
-                        ],
+                        "maxLength": 64,
+                        "minLength": 1,
                         "type": "string"
                       },
                       "message": {

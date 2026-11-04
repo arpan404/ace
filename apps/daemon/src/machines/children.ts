@@ -391,9 +391,9 @@ export class MachineChildren implements RemoteChildren {
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.update(row, view);
-              // A slow sibling machine must not hold an already received result.
-              if (!this.closed) this.results.drain();
             }
+            // A slow sibling machine must not hold a result already received from this one.
+            if (!this.closed) this.results.drain();
           } catch (error) {
             const reason = unreadReason(this.deps.label(machine), error);
             for (const id of ids) this.unreachable.set(id, reason);
@@ -482,7 +482,7 @@ export class MachineChildren implements RemoteChildren {
     )
       return;
     // Stopped here without confirmation: its real end is recorded, but it never comes back.
-    if (row.stopped_unconfirmed === 1)
+    if (row.stopped_unconfirmed !== 0)
       return this.liveness.late(
         row,
         view,

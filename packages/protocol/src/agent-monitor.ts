@@ -87,9 +87,12 @@ export const WaitResult = z.object({
 export type WaitResult = z.infer<typeof WaitResult>;
 /**
  * A snapshot row's state. `unknown`: ace could not read this child's facts. It is never settled,
- * so an unreadable child can't make its parent look done.
+ * so an unreadable child can't make its parent look done. `cancelling`: a child on another
+ * machine was stopped here, and ace keeps sending the cancel until that machine confirms it
+ * ended; its work there may still be running. A wait reads it as cancelled, so it never holds
+ * its parent on a machine that may never answer again.
  */
-export const MonitoredState = z.enum([...WatchedState.options, "unknown"]);
+export const MonitoredState = z.enum([...WatchedState.options, "unknown", "cancelling"]);
 export type MonitoredState = z.infer<typeof MonitoredState>;
 /** How many children one snapshot lists; `counts` and `omitted` cover the rest. */
 export const maxMonitoredChildren = 64;
@@ -133,6 +136,7 @@ export const MonitorSnapshot = z.object({
     done: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     cancelled: z.number().int().nonnegative(),
+    cancelling: z.number().int().nonnegative(),
   }),
 });
 export type MonitorSnapshot = z.infer<typeof MonitorSnapshot>;

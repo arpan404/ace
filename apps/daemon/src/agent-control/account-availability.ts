@@ -1,6 +1,10 @@
-import { definiteRefusal, refusalWords, type Candidate } from "@ace/accounts";
+import { accountProvider, blockedUntil, refusalWords, type Candidate } from "@ace/accounts";
 
-/** A known blocked account names alternatives; unknown usage never blocks a launch. */
+/**
+ * A known exhausted account names alternatives; unknown usage never blocks a launch. Only the
+ * usage limit is judged here: sign-in (with its no-auth model exemption), disabled accounts and
+ * unusable homes stay with the callers that already own those checks.
+ */
 export function accountLaunchRefusal(
   candidates: readonly Candidate[],
   id: string,
@@ -9,17 +13,19 @@ export function accountLaunchRefusal(
 ): string | undefined {
   const selected = candidates.find((entry) => entry.instance.id === id);
   if (!selected) return undefined;
-  const provider = selected.instance.provider;
-  const refusal = definiteRefusal(provider, selected, now);
-  if (!refusal) return undefined;
+  const until = blockedUntil(selected.quota, now);
+  if (until === undefined) return undefined;
+  const provider = accountProvider(selected.instance);
   const name = selected.instance.label || id;
-  const reason = refusalWords(`Account ${name} (${id})`, refusal, now, "UTC");
+  const reason = refusalWords(`Account ${name} (${id})`, { reason: "at_limit", until }, now, "UTC");
   const alternatives = candidates.filter(
-    (entry) =>
-      entry.instance.id !== id &&
-      entry.instance.provider === provider &&
-      enabled(entry.instance.id) &&
-      !definiteRefusal(provider, entry, now),
+    ({ instance, quota }) =>
+      instance.id !== id &&
+      accountProvider(instance) === provider &&
+      enabled(instance.id) &&
+      !quota.blockers.homeUnavailable &&
+      quota.auth !== "logged_out" &&
+      blockedUntil(quota, now) === undefined,
   );
   const list = alternatives
     .map(({ instance }) => `${instance.label || instance.id} (${instance.id})`)

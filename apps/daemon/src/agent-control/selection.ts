@@ -104,17 +104,21 @@ function checkAuth(
   instance: string,
   now: number,
 ) {
-  const refusal = accountLaunchRefusal(
-    deps.accounts?.list() ?? [],
-    instance,
-    now,
-    (id) => deps.providerEnabled?.(input.provider, id) !== false,
-  );
+  // A model that needs no sign-in spends no account usage, so neither check applies to it.
+  const free = withoutAuth(deps, model);
+  const refusal = free
+    ? undefined
+    : accountLaunchRefusal(
+        deps.accounts?.list() ?? [],
+        instance,
+        now,
+        (id) => deps.providerEnabled?.(input.provider, id) !== false,
+      );
   if (refusal) throw unavailable(refusal);
   const auth =
     deps.accounts?.get(instance)?.quota.auth ??
     deps.engine.providerAvailability(input.provider).auth;
-  if (auth === "logged_out" && !withoutAuth(deps, model)) {
+  if (auth === "logged_out" && !free) {
     const account = deps.accounts?.get(instance);
     const name = account ? accountName(input.provider, account) : providerNames[input.provider];
     throw unavailable(

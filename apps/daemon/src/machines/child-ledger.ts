@@ -438,6 +438,26 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET view=? WHERE id=? AND settled=1").run(view, id),
     );
   }
+  /**
+   * Its machine reported that a child stopped here without confirmation has ended: its real
+   * end is kept, and its cancel stops being sent (`stopped_unconfirmed` 2: confirmed late).
+   */
+  confirmStop(id: ThreadId, view: string): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE machine_children SET view=?, stopped_unconfirmed=2 WHERE id=? AND settled=1 AND stopped_unconfirmed=1",
+        )
+        .run(view, id),
+    );
+  }
+  /** Children stopped here whose machine hasn't confirmed it yet: their cancel is still sent. */
+  unconfirmedStops(limit: number): ChildRow[] {
+    return this.all(
+      "SELECT * FROM machine_children WHERE settled=1 AND stopped_unconfirmed=1 ORDER BY stop_last_at LIMIT ?",
+      limit,
+    );
+  }
   /** New work for it: any stop before no longer applies. */
   clearStop(id: ThreadId): void {
     this.store.atomic((db) =>
@@ -471,12 +491,14 @@ export class ChildLedger {
       db.prepare("UPDATE machine_children SET delivered=1 WHERE id=? AND settled=1").run(id),
     );
   }
-  /** True while any child settled at or after `since`. */
+  /** True while any child settled at or after `since`, or a stop of one is still unconfirmed. */
   hasRecentlySettled(since: number): boolean {
     return Boolean(
       this.store.atomic((db) =>
         db
-          .prepare("SELECT 1 FROM machine_children WHERE settled=1 AND settled_at>=? LIMIT 1")
+          .prepare(
+            "SELECT 1 FROM machine_children WHERE settled=1 AND (settled_at>=? OR stopped_unconfirmed=1) LIMIT 1",
+          )
           .get(since),
       ),
     );
@@ -487,7 +509,7 @@ export class ChildLedger {
       .atomic((db) =>
         db
           .prepare(
-            "SELECT DISTINCT machine FROM machine_children WHERE settled=1 AND settled_at>=?",
+            "SELECT DISTINCT machine FROM machine_children WHERE settled=1 AND (settled_at>=? OR stopped_unconfirmed=1)",
           )
           .all(since),
       )
@@ -499,7 +521,7 @@ export class ChildLedger {
       .atomic((db) =>
         db
           .prepare(
-            "SELECT * FROM machine_children WHERE settled=1 AND machine=? AND settled_at>=? ORDER BY rechecked, id LIMIT ?",
+            "SELECT * FROM machine_children WHERE settled=1 AND machine=? AND (settled_at>=? OR stopped_unconfirmed=1) ORDER BY rechecked, id LIMIT ?",
           )
           .all(machine, since, limit),
       )

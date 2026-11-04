@@ -82,7 +82,7 @@ export function unconfirmedView(row: ChildRow, name: string, now: number): Machi
     elapsedSeconds: elapsedSeconds(row.created_at, now),
     status: { state: "done" },
     requests: [],
-    result: `Stopped here. ${name} never confirmed it stopped, so its work there may still be running; check on ${name}.`,
+    result: `Stopped here. ${name} hasn't confirmed it stopped, so its work there may still be running; ace keeps sending the cancel until ${name} confirms (agents_status shows it as cancelling until then).`,
     truncated: false,
     contact: "unconfirmed",
   };
@@ -178,14 +178,21 @@ export function monitoredChild(
   name: string,
 ): MonitoredChild {
   const notice = savedView(row)?.notice;
+  // Stopped here, and its machine hasn't confirmed it ended yet: ace is still sending the cancel.
+  const cancelling =
+    row.stopped_unconfirmed === 1 || (row.settled === 0 && row.stop_started_at !== null);
   return {
     ...(view.failure ? { failure: view.failure } : {}),
     ...(view.result !== undefined ? { result: view.result } : {}),
     id: row.id,
     ...(row.parent_thread === caller ? {} : { parent: row.parent_thread }),
     role: clip(row.role, 40),
-    state: view.state,
-    ...(view.step ? { step: clip(view.step, 60) } : {}),
+    state: cancelling ? "cancelling" : view.state,
+    ...(cancelling
+      ? { step: clip(`Cancel sent; waiting for ${name} to confirm`, 60) }
+      : view.step
+        ? { step: clip(view.step, 60) }
+        : {}),
     ...(view.slotLimit !== undefined &&
     view.slotsInUse !== undefined &&
     view.queuePosition !== undefined

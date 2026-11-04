@@ -55,6 +55,8 @@ export class Recovery {
   private cancel: (() => void) | undefined;
   private closed = false;
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
+  /** Told when a thread's limit policy finished loading, whatever it decided. */
+  private policyListeners = new Set<(id: ThreadId) => void>();
   /** Automatic restart continuations in a row, for the loop guard. */
   readonly streaks: RestartStreaks;
   /** What each restart continuation's capture saw, for startup's decision. */
@@ -483,8 +485,25 @@ export class Recovery {
       })
       // The notice itself is a write; a store that refuses it is reported, never unhandled.
       .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
-      .finally(() => this.pendingPolicy.delete(id));
+      .finally(() => {
+        this.pendingPolicy.delete(id);
+        for (const listener of this.policyListeners) {
+          try {
+            listener(id);
+          } catch (error) {
+            (this.ports.onError ?? console.error)(error);
+          }
+        }
+      });
     this.pendingPolicy.set(id, task);
+  }
+  /** The thread's limit policy is still loading, so what ace does at reset isn't known yet. */
+  policyLoading(id: ThreadId): boolean {
+    return this.pendingPolicy.has(id);
+  }
+  onPolicyLoaded(listener: (id: ThreadId) => void): () => void {
+    this.policyListeners.add(listener);
+    return () => this.policyListeners.delete(listener);
   }
   async flush(): Promise<void> {
     await Promise.all(this.pendingPolicy.values());

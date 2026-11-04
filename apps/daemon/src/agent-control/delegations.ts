@@ -1,5 +1,5 @@
 import { childStoppedOnLimit } from "./limit-settlement.ts";
-import { failureAccount } from "./failure-account.ts";
+import { registered, threadAccount } from "./failure-account.ts";
 import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, controlAdmissionError, startsLater } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
@@ -161,7 +161,13 @@ export class DelegationService {
       closed: () => this.closed,
       report: (error) => this.report(error),
     });
-    this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
+    const unsubscribeEvents = deps.store.subscribe((events) => this.observe(events));
+    // A limit policy that loads as "manual" changes nothing in the store, yet settles the child.
+    const unsubscribePolicy = deps.engine.onLimitPolicy((id) => this.policyLoaded(id));
+    this.unsubscribe = () => {
+      unsubscribeEvents();
+      unsubscribePolicy();
+    };
     // Subscribed after the owner, so a wait reads edges this owner settled for the same batch.
     this.monitor = new AgentMonitor({
       store: deps.store,
@@ -555,13 +561,7 @@ export class DelegationService {
   }
   /** The name the person gave an account ("Work"), for what an agent tells them. */
   accountLabel(id: string | undefined): string | undefined {
-    if (!id) return undefined;
-    try {
-      return this.deps.accounts?.get(id)?.instance.label;
-    } catch {
-      // Account homes are still being validated: the answer goes without the name.
-      return undefined;
-    }
+    return id ? registered(this.deps.accounts, id)?.instance.label : undefined;
   }
   /**
    * A restart's first step: everything `threadId` delegated stops, here and on other machines,
@@ -1204,6 +1204,7 @@ export class DelegationService {
         const ended = this.journal.get(event.threadId);
         if (ended) {
           this.reconcile(ended);
+          this.limits.check(ended);
           changed = true;
         }
       }
@@ -1220,14 +1221,9 @@ export class DelegationService {
         !this.journal.get(event.threadId)
       ) {
         const thread = this.deps.store.getThread(event.threadId);
-        if (thread && ["done", "failed"].includes(thread.status.state)) {
-          const outcome = threadOutcome(
-            this.deps.store,
-            thread,
-            this.journal.get(thread.id)?.phase === "cancelling",
-          );
-          this.waiters.deliver(thread.id, outcome);
-        }
+        // No edge, so never a cancelling child: the outcome is the thread's own.
+        if (thread && ["done", "failed"].includes(thread.status.state))
+          this.waiters.deliver(thread.id, threadOutcome(this.deps.store, thread));
       }
       const edge = this.journal.get(event.threadId);
       const participant = this.journal.participant(event.threadId);
@@ -1246,11 +1242,23 @@ export class DelegationService {
       } else {
         if (participant) this.reconcileConversation(event.threadId);
         if (edge) this.reconcile(edge);
+        if (edge && event.payload.type === "thread.updated") this.limits.check(edge);
       }
     }
     // Slots also free when admission reopens.
     if (statuses) this.pumpAll();
     if (changed) this.arm();
+  }
+  private policyLoaded(id: ThreadId) {
+    const edge = this.closed ? undefined : this.journal.get(id);
+    if (edge)
+      try {
+        this.reconcile(edge);
+        this.limits.check(edge);
+        this.arm();
+      } catch (error) {
+        this.report(error);
+      }
   }
   private reconcile(edge: DelegationRecord) {
     const thread = this.deps.store.getThread(edge.childId);
@@ -1297,12 +1305,7 @@ export class DelegationService {
         this.deps.engine.delegationStarted(edge, shown);
         return;
       }
-      const account = failureAccount(
-        thread.provider,
-        this.deps.engine.sessionMetadata(thread.id).instanceId,
-        this.deps.accounts,
-        this.deps.clock.now(),
-      );
+      const account = threadAccount(thread, this.deps.engine, this.deps.accounts, this.now());
       const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling", account);
       this.journal.settle(edge, outcome, this.deps.clock.now() + this.policy.coalesceMs);
       this.deps.engine.delegationStarted(edge, { ...thread, status: childStatus(edge, thread) });
