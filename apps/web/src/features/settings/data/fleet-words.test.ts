@@ -6,6 +6,7 @@ import {
   fleetLede,
   grantSummary,
   machineState,
+  pathWordsFor,
   reachedThrough,
   transferLine,
 } from "./fleet-words.ts";
@@ -146,4 +147,14 @@ test("moving threads says whether work moves and whether ignored files go with i
   expect(transferLine({ on: true, ignored: true, differs: true })).toBe(
     "Differs between machines.",
   );
+});
+
+test("an online machine's row says which way it is reached right now", () => {
+  expect(pathWordsFor("loopback")).toBe("on this computer");
+  expect(pathWordsFor("lan")).toBe("over the local network");
+  expect(pathWordsFor("tailscale")).toBe("over Tailscale");
+  expect(pathWordsFor("relay")).toBe("through your relay");
+  expect(pathWordsFor("account")).toBe("through your ace account");
+  // A machine with a single way in says nothing more.
+  expect(pathWordsFor(undefined)).toBeUndefined();
 });

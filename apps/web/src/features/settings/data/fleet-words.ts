@@ -1,4 +1,9 @@
-import type { MachineCapability, MachineGrantLevel, RemoteNetworks } from "@ace/protocol";
+import type {
+  MachineCapability,
+  MachineGrantLevel,
+  MachinePathKind,
+  RemoteNetworks,
+} from "@ace/protocol";
 import type { MachineStatus } from "@/lib/machines.ts";
 import { listNames } from "./list-names.ts";
 
@@ -81,6 +86,18 @@ export function machineState(
     case "offline":
       return { tone: "off", words: failed ? "Offline · couldn't reach it" : "Offline" };
   }
+}
+
+const pathWords: Record<MachinePathKind, string> = {
+  loopback: "on this computer",
+  lan: "over the local network",
+  tailscale: "over Tailscale",
+  relay: "through your relay",
+  account: "through your ace account",
+};
+/** How an online machine is reached right now (ADR 0114), for its row: "over Tailscale". */
+export function pathWordsFor(path: MachinePathKind | undefined): string | undefined {
+  return path ? pathWords[path] : undefined;
 }
 
 /** Where a network row starts: which network, and whether it's on in settings. */
