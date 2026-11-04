@@ -199,13 +199,13 @@ const entries = [
   },
   {
     id: "devices.enabled",
-    page: "/settings/devices",
+    page: "/settings/simulators",
     title: "Use simulators and emulators",
     keywords: ["devices", "ios", "simulator", "android", "emulator", "disable", "turn off"],
   },
   {
     id: "devices.emulatorWindow",
-    page: "/settings/devices",
+    page: "/settings/simulators",
     title: "Show emulator window",
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },

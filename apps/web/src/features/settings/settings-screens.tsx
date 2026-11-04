@@ -276,15 +276,15 @@ export function BrowserSettingsScreen() {
   );
 }
 
-const DevicesSettings = lazy(() =>
-  import("./devices-page.tsx").then((module) => ({ default: module.DevicesSettings })),
+const SimulatorsSettings = lazy(() =>
+  import("./simulators-page.tsx").then((module) => ({ default: module.SimulatorsSettings })),
 );
 
-export function DevicesSettingsScreen() {
+export function SimulatorsSettingsScreen() {
   return (
-    <SettingsBody page="Devices">
+    <SettingsBody page="Simulators">
       <Suspense fallback={null}>
-        <DevicesSettings />
+        <SimulatorsSettings />
       </Suspense>
     </SettingsBody>
   );

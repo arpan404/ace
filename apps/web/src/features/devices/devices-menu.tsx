@@ -41,7 +41,7 @@ const icon = (Glyph: typeof PackageIcon) => <Glyph aria-hidden size={16} />;
 
 /**
  * The device's ⋯: install and open apps, appearance, location and language, the screen without
- * its frame, the live view, booting and shutting down, and Settings › Devices, where devices
+ * its frame, the live view, booting and shutting down, and Settings › Simulators, where devices
  * are turned on and off for the whole machine.
  */
 export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
@@ -140,7 +140,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
           )}
           <MenuItem
             icon={icon(GearSixIcon)}
-            onClick={() => void navigate({ to: "/settings/devices" })}
+            onClick={() => void navigate({ to: "/settings/simulators" })}
           >
             Settings
           </MenuItem>

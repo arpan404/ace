@@ -1,9 +1,9 @@
 import { useToolchains } from "@/features/diagnostics/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SearchField } from "@/components/search-field.tsx";
@@ -65,7 +65,6 @@ export function DevicesTab(props: { threadId: string }) {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
   const [setUp, setSetUp] = useState(false);
-  const navigate = useNavigate();
   const search = useRef<HTMLDivElement>(null);
   const now = useNow();
   const { view } = devices;
@@ -97,16 +96,16 @@ export function DevicesTab(props: { threadId: string }) {
     ) : (
       <ListSkeleton label="Connecting to devices" shape="row" rows={4} className="px-4 pt-3" />
     );
-  // On and off is a machine setting, kept in Settings › Devices with the rest of them.
+  // On and off is a machine setting, kept in Settings › Simulators with the rest of them.
   if (!view.enabled)
     return (
       <EmptyState
         title="Simulators and emulators are off"
-        description="They're turned off for this machine. Turn them on in Settings › Devices to watch and drive them here and let this thread's agents use them."
+        description="They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them."
         action={
-          <Button variant="primary" onClick={() => void navigate({ to: "/settings/devices" })}>
+          <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
             Open Settings
-          </Button>
+          </Link>
         }
       />
     );

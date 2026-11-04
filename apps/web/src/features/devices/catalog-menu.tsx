@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 
-/** The list's ⋯: read the devices again, Settings › Devices and tool setup. */
+/** The list's ⋯: read the devices again, Settings › Simulators and tool setup. */
 export function CatalogMenu(props: { pending: boolean; onRefresh(): void; onSetUp(): void }) {
   const navigate = useNavigate();
   return (
@@ -19,7 +19,7 @@ export function CatalogMenu(props: { pending: boolean; onRefresh(): void; onSetU
         </MenuItem>
         <MenuItem
           icon={<GearSixIcon aria-hidden size={16} />}
-          onClick={() => void navigate({ to: "/settings/devices" })}
+          onClick={() => void navigate({ to: "/settings/simulators" })}
         >
           Settings
         </MenuItem>

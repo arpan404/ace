@@ -32,13 +32,13 @@ import { Route as SettingsAgentsRouteImport } from "./routes/settings.agents"
 import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
 import { Route as SettingsBrowserRouteImport } from "./routes/settings.browser"
 import { Route as SettingsComputerUseRouteImport } from "./routes/settings.computer-use"
-import { Route as SettingsDevicesRouteImport } from "./routes/settings.devices"
 import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
 import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
 import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
 import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
 import { Route as SettingsProfileRouteImport } from "./routes/settings.profile"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
+import { Route as SettingsSimulatorsRouteImport } from "./routes/settings.simulators"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
@@ -173,11 +173,6 @@ const SettingsComputerUseRoute = SettingsComputerUseRouteImport.update({
   path: "/computer-use",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsDevicesRoute = SettingsDevicesRouteImport.update({
-  id: "/devices",
-  path: "/devices",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: "/general",
   path: "/general",
@@ -206,6 +201,11 @@ const SettingsProfileRoute = SettingsProfileRouteImport.update({
 const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
   id: "/prompts",
   path: "/prompts",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsSimulatorsRoute = SettingsSimulatorsRouteImport.update({
+  id: "/simulators",
+  path: "/simulators",
   getParentRoute: () => SettingsRoute,
 } as any)
 const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
@@ -329,13 +329,13 @@ export interface FileRoutesByFullPath {
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
-  "/settings/devices": typeof SettingsDevicesRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -375,13 +375,13 @@ export interface FileRoutesByTo {
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
-  "/settings/devices": typeof SettingsDevicesRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -427,13 +427,13 @@ export interface FileRoutesById {
   "/settings/appearance": typeof SettingsAppearanceRoute
   "/settings/browser": typeof SettingsBrowserRoute
   "/settings/computer-use": typeof SettingsComputerUseRoute
-  "/settings/devices": typeof SettingsDevicesRoute
   "/settings/general": typeof SettingsGeneralRoute
   "/settings/keyboard": typeof SettingsKeyboardRoute
   "/settings/notifications": typeof SettingsNotificationsRoute
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -480,13 +480,13 @@ export interface FileRouteTypes {
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
-    | "/settings/devices"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -526,13 +526,13 @@ export interface FileRouteTypes {
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
-    | "/settings/devices"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -577,13 +577,13 @@ export interface FileRouteTypes {
     | "/settings/appearance"
     | "/settings/browser"
     | "/settings/computer-use"
-    | "/settings/devices"
     | "/settings/general"
     | "/settings/keyboard"
     | "/settings/notifications"
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -781,13 +781,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsComputerUseRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/devices": {
-      id: "/settings/devices"
-      path: "/devices"
-      fullPath: "/settings/devices"
-      preLoaderRoute: typeof SettingsDevicesRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/general": {
       id: "/settings/general"
       path: "/general"
@@ -828,6 +821,13 @@ declare module "@tanstack/react-router" {
       path: "/prompts"
       fullPath: "/settings/prompts"
       preLoaderRoute: typeof SettingsPromptsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/simulators": {
+      id: "/settings/simulators"
+      path: "/simulators"
+      fullPath: "/settings/simulators"
+      preLoaderRoute: typeof SettingsSimulatorsRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/settings/source-control": {
@@ -1028,13 +1028,13 @@ interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsBrowserRoute: typeof SettingsBrowserRoute
   SettingsComputerUseRoute: typeof SettingsComputerUseRoute
-  SettingsDevicesRoute: typeof SettingsDevicesRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
   SettingsKeyboardRoute: typeof SettingsKeyboardRoute
   SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsOverviewRoute: typeof SettingsOverviewRoute
   SettingsProfileRoute: typeof SettingsProfileRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
+  SettingsSimulatorsRoute: typeof SettingsSimulatorsRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -1051,13 +1051,13 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsBrowserRoute: SettingsBrowserRoute,
   SettingsComputerUseRoute: SettingsComputerUseRoute,
-  SettingsDevicesRoute: SettingsDevicesRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,
   SettingsKeyboardRoute: SettingsKeyboardRoute,
   SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsOverviewRoute: SettingsOverviewRoute,
   SettingsProfileRoute: SettingsProfileRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
+  SettingsSimulatorsRoute: SettingsSimulatorsRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,

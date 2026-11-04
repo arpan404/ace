@@ -280,9 +280,9 @@ export function DeviceTab(props: {
     return (
       <EmptyState
         title="Simulators and emulators are off"
-        description={`They're turned off for this machine. Turn them on in Settings › Devices to see ${name} and let agents in this thread use it.`}
+        description={`They're turned off for this machine. Turn them on in Settings › Simulators to see ${name} and let agents in this thread use it.`}
         action={
-          <Link to="/settings/devices" className={buttonVariants({ variant: "primary" })}>
+          <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
             Open Settings
           </Link>
         }

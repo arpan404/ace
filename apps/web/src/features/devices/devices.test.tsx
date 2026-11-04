@@ -229,7 +229,7 @@ test("devices turned off for the machine send the thread to Settings, with no sw
   ).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: "Enable devices" })).toBeNull();
   expect(within(panel).getByRole("link", { name: "Open Settings" }).getAttribute("href")).toBe(
-    "/settings/devices",
+    "/settings/simulators",
   );
 });
 

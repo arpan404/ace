@@ -29,7 +29,7 @@ export type SettingsPath =
   | "/settings/remote"
   | "/settings/computer-use"
   | "/settings/browser"
-  | "/settings/devices"
+  | "/settings/simulators"
   | "/settings/keyboard"
   | "/settings/advanced"
   | "/settings/storage";
@@ -69,7 +69,7 @@ export const settingsPages: readonly SettingsPage[] = [
   },
   { to: "/settings/browser", title: "Browser", icon: GlobeSimpleIcon, group: "machine" },
   { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon, group: "machine" },
-  { to: "/settings/devices", title: "Devices", icon: DeviceMobileIcon, group: "machine" },
+  { to: "/settings/simulators", title: "Simulators", icon: DeviceMobileIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },
   { to: "/settings/general", title: "General", icon: GearSixIcon, group: "device" },
