@@ -51,7 +51,7 @@
       "type": "integer"
     },
     "result": {
-      "maxLength": 4096,
+      "maxLength": 200,
       "type": "string"
     },
     "role": {

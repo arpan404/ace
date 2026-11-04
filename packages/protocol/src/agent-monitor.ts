@@ -99,7 +99,8 @@ export const maxMonitoredChildren = 64;
 /** One child in a compact tree snapshot. */
 export const MonitoredChild = z.object({
   failure: DelegationFailure.optional(),
-  result: z.string().max(4096).optional(),
+  /** The start of its result once settled; read the child by threadId for all of it. */
+  result: z.string().max(200).optional(),
   id: ThreadId,
   /** Present when the child belongs to another child rather than the caller. */
   parent: ThreadId.optional(),

@@ -1,5 +1,7 @@
 import { expect, test, vi } from "vitest";
+import { MonitorSnapshot } from "@ace/protocol";
 import { setup } from "./test-support.ts";
+import { createAgentControlPort } from "./tools.ts";
 import { end, question, start } from "../engine/test-support.ts";
 
 test("a failed child without an answer returns its provider error to its parent", async () => {
@@ -172,4 +174,25 @@ test("a child stopped on its limit while a request waits on the person is never 
   await h.engine.flush();
   expect(h.service.journal.get(child.childId)?.phase).toBe("running");
   expect(h.service.monitor.snapshot(parent).children[0]?.state).toBe("needs_you");
+});
+
+test("agents_status lists the start of a settled child's result; reading that child gives all of it", async () => {
+  const h = setup();
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  const answer = `Reviewed. ${"Every finding is fixed. ".repeat(40)}The end.`;
+  await h.complete(child.childId, answer);
+  const port = createAgentControlPort(h.store, h.service);
+  const signal = new AbortController().signal;
+
+  const listed = MonitorSnapshot.parse(
+    (await port.execute(parent, { op: "agents.status" }, signal)).data,
+  ).children.find((row) => row.id === child.childId);
+  expect(listed?.state).toBe("done");
+  expect(listed?.result?.startsWith("Reviewed. Every finding is fixed.")).toBe(true);
+  expect(listed?.result?.length).toBeLessThanOrEqual(200);
+
+  const read = await port.execute(parent, { op: "agent.status", threadId: child.childId }, signal);
+  expect(read.data).toMatchObject({ outcome: { result: answer } });
 });

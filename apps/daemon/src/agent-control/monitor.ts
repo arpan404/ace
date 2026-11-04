@@ -38,6 +38,7 @@ import {
   elapsedSeconds,
   lastLine,
   requestPrompt,
+  rowResultLength,
   settledStates,
   shareResults,
   waitOutcome,
@@ -227,7 +228,10 @@ export class AgentMonitor {
     const outcome = settledStates.has(state) ? this.watched(thread.id).outcome : undefined;
     return {
       ...(outcome
-        ? { result: outcome.result, ...(outcome.failure ? { failure: outcome.failure } : {}) }
+        ? {
+            result: clip(outcome.result, rowResultLength),
+            ...(outcome.failure ? { failure: outcome.failure } : {}),
+          }
         : {}),
       id: thread.id,
       ...(edge.parentId === caller.threadId ? {} : { parent: edge.parentId }),

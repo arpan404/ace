@@ -7,7 +7,12 @@ import type {
   ThreadId,
   WatchedThread,
 } from "@ace/protocol";
-import { clip, elapsedSeconds, settledStates } from "../agent-control/watch-view.ts";
+import {
+  clip,
+  elapsedSeconds,
+  rowResultLength,
+  settledStates,
+} from "../agent-control/watch-view.ts";
 import { savedView, type ChildRow } from "./child-ledger.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -212,7 +217,7 @@ export function monitoredChild(
     row.stopped_unconfirmed === 1 || (row.settled === 0 && row.stop_started_at !== null);
   return {
     ...(view.failure ? { failure: view.failure } : {}),
-    ...(view.result !== undefined ? { result: view.result } : {}),
+    ...(view.result !== undefined ? { result: clip(view.result, rowResultLength) } : {}),
     id: row.id,
     ...(row.parent_thread === caller ? {} : { parent: row.parent_thread }),
     role: clip(row.role, 40),

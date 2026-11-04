@@ -19621,7 +19621,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
-| result | no | string | {"maxLength":4096} |
+| result | no | string | {"maxLength":200} |
 | id | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | parent | no | [ThreadId.json](schema/ThreadId.json) |  |
 | role | yes | string | {"maxLength":40} |
