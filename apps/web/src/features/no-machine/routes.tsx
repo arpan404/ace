@@ -25,7 +25,16 @@ function SettingsFrame(props: { children: ReactNode }) {
 }
 
 const root = createRootRoute({ component: NoMachineShell });
-const threads = createRoute({ getParentRoute: () => root, path: "/", component: NoMachineThreads });
+/** Threads, as the app's Threads view frames it. */
+function ThreadsPlace() {
+  return (
+    <ViewFrame label="Threads" place="threads">
+      <NoMachineThreads />
+    </ViewFrame>
+  );
+}
+
+const threads = createRoute({ getParentRoute: () => root, path: "/", component: ThreadsPlace });
 const settings = createRoute({
   getParentRoute: () => root,
   path: "/settings",
@@ -77,6 +86,6 @@ export function createNoMachineRouter(history?: RouterHistory) {
   return createRouter({
     routeTree,
     ...(history ? { history } : {}),
-    defaultNotFoundComponent: NoMachineThreads,
+    defaultNotFoundComponent: ThreadsPlace,
   });
 }
