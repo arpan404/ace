@@ -43,6 +43,19 @@ export const FleetUpdateRun = z.object({
 });
 export type FleetUpdateRun = z.infer<typeof FleetUpdateRun>;
 
+/** A machine's place in a new run: not asked yet. */
+const runEntry = (
+  machine: { id: string; name: string; primary: boolean },
+  version: string,
+): FleetRunMachine => ({
+  id: machine.id,
+  name: machine.name,
+  primary: machine.primary,
+  version,
+  sent: null,
+  failed: null,
+});
+
 /** Start a run from the plan: its targets, and (when waiting for idle) its offline machines. */
 export function newFleetRun(input: {
   id: string;
@@ -52,20 +65,12 @@ export function newFleetRun(input: {
 }): FleetUpdateRun {
   const { plan } = input;
   const fallback = plan.version ?? plan.targets[0]?.version ?? null;
-  const entry = (machine: { id: string; name: string; primary: boolean }, version: string) => ({
-    id: machine.id,
-    name: machine.name,
-    primary: machine.primary,
-    version,
-    sent: null,
-    failed: null,
-  });
   const away =
     input.mode === "idle"
       ? plan.cannot.flatMap((machine) => {
           const version = machine.version ?? fallback;
           return machine.why === "offline" && version
-            ? [entry({ ...machine, primary: false }, version)]
+            ? [runEntry({ ...machine, primary: false }, version)]
             : [];
         })
       : [];
@@ -77,11 +82,11 @@ export function newFleetRun(input: {
     machines: [
       ...plan.targets
         .filter((target) => !target.primary)
-        .map((target) => entry(target, target.version)),
+        .map((target) => runEntry(target, target.version)),
       ...away,
       ...plan.targets
         .filter((target) => target.primary)
-        .map((target) => entry(target, target.version)),
+        .map((target) => runEntry(target, target.version)),
     ],
   };
 }

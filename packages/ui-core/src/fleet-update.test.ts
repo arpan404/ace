@@ -128,6 +128,14 @@ const updatedFleet = (ids: readonly string[]) =>
       : entry,
   );
 
+/** Every machine as if it were online. */
+const online = (machines: readonly UpdateMachine[]) =>
+  machines.map((entry) => Object.assign({}, entry, { online: true }));
+
+/** The fleet with the old laptop back online, offered `available`. */
+const back = (available: string) =>
+  fleet.map((entry) => (entry.id === "Old laptop" ? machine("Old laptop", { available }) : entry));
+
 const sentAll = (run: FleetUpdateRun) =>
   ["Build server", "Windows PC", "This Mac"].reduce((next, id) => fleetRunSent(next, id, 1), run);
 
@@ -137,12 +145,7 @@ test("the summary counts down as machines report updated", () => {
   expect(fleetRunSummary(run, updatedFleet(["Build server", "Windows PC"]), 2).words).toBe(
     "2 of 4 updated · 1 when back online",
   );
-  const all = updatedFleet(["Build server", "Windows PC", "This Mac", "Old laptop"]).map(
-    (entry) => ({
-      ...entry,
-      online: true,
-    }),
-  );
+  const all = online(updatedFleet(["Build server", "Windows PC", "This Mac", "Old laptop"]));
   expect(fleetRunSummary(run, all, 3)).toMatchObject({
     words: "All 4 machines updated to 0.0.19",
     done: true,
@@ -170,16 +173,12 @@ test("a failure is counted and its row offers Try again, which asks it again", (
     action: "retry",
   });
   const retried = fleetRunRetry(run, "Windows PC", "0.0.19");
-  const back = fleet.map((each) => (each.id === "Windows PC" ? machine(each.id) : each));
-  expect(fleetRunNextSends(retried, back, 3).map((each) => each.id)).toEqual(["Windows PC"]);
+  const recovered = fleet.map((each) => (each.id === "Windows PC" ? machine(each.id) : each));
+  expect(fleetRunNextSends(retried, recovered, 3).map((each) => each.id)).toEqual(["Windows PC"]);
 });
 
 test("an offline machine that's back picks the run up while its release is still the latest", () => {
   const run = sentAll(start());
-  const back = (available: string) =>
-    fleet.map((entry) =>
-      entry.id === "Old laptop" ? machine("Old laptop", { available }) : entry,
-    );
   expect(fleetRunNextSends(run, back("0.0.19"), 2).map((entry) => entry.id)).toEqual([
     "Old laptop",
   ]);
@@ -258,9 +257,9 @@ test("Fleet offers Update all, then counts the run down, then offers again once 
     note: "Deb box updates from its release page and this window can only read Kitchen Mac.",
     actions: [],
   });
-  const done = updatedFleet(["Build server", "Windows PC", "This Mac", "Old laptop"])
-    .map((entry) => ({ ...entry, online: true }))
-    .filter((entry) => !["Deb box", "Kitchen Mac", "Busy box"].includes(entry.id));
+  const done = online(
+    updatedFleet(["Build server", "Windows PC", "This Mac", "Old laptop"]),
+  ).filter((entry) => !["Deb box", "Kitchen Mac", "Busy box"].includes(entry.id));
   expect(fleetUpdateHeadline(done, run, 2)?.title).toBe("All 4 machines updated to 0.0.19");
 });
 

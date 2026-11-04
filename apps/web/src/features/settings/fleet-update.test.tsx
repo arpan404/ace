@@ -9,7 +9,7 @@ configure({ asyncUtilTimeout: 10_000 });
 const offer = { state: "available", available: "0.0.19", checkedAt: 1 } as const;
 
 function fleetOf(
-  machines: NonNullable<Parameters<typeof harness>[0]>["machines"],
+  machines: NonNullable<NonNullable<Parameters<typeof harness>[0]>["machines"]>,
   storage = memoryKeyValue(),
 ) {
   const app = harness({ machines, storage });
