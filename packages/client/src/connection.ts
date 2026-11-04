@@ -7,7 +7,11 @@ import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragmen
 import { Heartbeat } from "./heartbeat.ts";
 import { HeldFrames, type Frame } from "./held-frames.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
-import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
+import {
+  MachineCodeRefusal,
+  type ClientMessage,
+  type ServerMessage as Message,
+} from "@ace/protocol";
 import type { WireCodec } from "./wire-codec.ts";
 import {
   ClientError,
@@ -86,6 +90,8 @@ export class Connection {
   #hostId: string | undefined;
   #draining: Draining | undefined;
   #switched: PathSwitched | undefined;
+  /** Drops the path whose welcome named another daemon (`Multipath`). */
+  #refusedPath: (() => void) | undefined;
   /** A warm path to fail over to when the active one drops (`standby`). */
   #standby: { path(): WelcomedPath | undefined; used(): void } | undefined;
   #pongs: (() => void)[] = [];
@@ -401,12 +407,26 @@ export class Connection {
       )
         throw new ClientError("identity", "Unexpected daemon identity");
       if (this.state !== "ready") {
+        if (message.type === "error") {
+          // A direct path refuses an account device's hello by asking for the machine code,
+          // then closes: the person must enter it, so the connection stops (ADR 0111).
+          const refusal = MachineCodeRefusal.safeParse(message.code);
+          if (refusal.success) {
+            this.fail(new ClientError("machine_code", refusal.data, message.lockedUntil));
+            return;
+          }
+        }
         if (message.type === "starting") {
           this.#setState("starting");
           return;
         }
         if (message.type !== "welcome") {
           this.#broken(`Unexpected ${message.type} before welcome`);
+          return;
+        }
+        // Once a daemon welcomed this connection, every later path must reach the same one.
+        if (this.#hostId !== undefined && message.hostId !== this.#hostId) {
+          this.#wrongHost(epoch);
           return;
         }
         this.#cancel?.();
@@ -483,6 +503,19 @@ export class Connection {
       return false;
     }
   }
+  /**
+   * A reconnect reached another daemon than the one this connection speaks to. With several
+   * paths, that path is dropped and the others race again; with one, nothing else can help.
+   */
+  #wrongHost(epoch: number): void {
+    const error = new ClientError("identity", "Path reached another machine");
+    if (!this.#refusedPath) {
+      this.fail(error);
+      return;
+    }
+    this.#refusedPath();
+    if (epoch === this.#epoch) this.#lost(1006, error.message, error);
+  }
   #startHeartbeat(): void {
     this.#heartbeat.start({
       ping: () => this.send({ type: "ping" }) && this.state === "ready",
@@ -497,6 +530,10 @@ export class Connection {
   /** What the client does when the connection moves to another path. */
   onPathSwitch(switched: PathSwitched): void {
     this.#switched = switched;
+  }
+  /** The path the current attempt won reached another daemon: never use it again. */
+  onWrongHost(refused: (() => void) | undefined): void {
+    this.#refusedPath = refused;
   }
   /** Where a dropped active path fails over to at once, before any reconnect backoff. */
   setStandby(standby: { path(): WelcomedPath | undefined; used(): void } | undefined): void {

@@ -175,6 +175,7 @@ export class RemoteClient implements ClientApi {
   private notifications: Notifications;
   private current: ConnectionState = "connecting";
   private path: MachinePathKind | undefined;
+  private generation: number | undefined;
   private failure: ClientError | undefined;
   private intents: IntentCache;
   private sends: SendCache;
@@ -240,6 +241,11 @@ export class RemoteClient implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.current);
+  }
+  connectionGeneration(): Selection<number | undefined> {
+    return this.notifications.select(["connection"], () =>
+      this.current === "ready" ? this.generation : undefined,
+    );
   }
   activePath(): Selection<MachinePathKind | undefined> {
     return this.notifications.select(["connection"], () => this.path);
@@ -965,6 +971,10 @@ export class RemoteClient implements ClientApi {
         if (!isState(message.state)) return;
         this.current = message.state;
         this.path = isPathKind(message.path) ? message.path : undefined;
+        // An older worker names no socket: count each time it says ready instead.
+        this.generation =
+          message.generation ??
+          (message.state === "ready" ? (this.generation ?? 0) + 1 : this.generation);
         this.failure = message.error && toError(message.error);
         this.notifications.emit(["connection"]);
         return;

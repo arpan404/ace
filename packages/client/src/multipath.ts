@@ -26,6 +26,7 @@ export interface PathConnection {
   ping(): Promise<void>;
   failover(reason: string): void;
   setStandby(standby: { path(): WelcomedPath | undefined; used(): void } | undefined): void;
+  onWrongHost(refused: (() => void) | undefined): void;
 }
 
 export interface MultipathOptions {
@@ -68,6 +69,8 @@ export class Multipath {
   #timers: (() => void)[] = [];
   #switching = false;
   #lastWinner: string | undefined;
+  /** Paths that reached another daemon: never used again by this manager. */
+  #refused = new Set<string>();
   #closed = false;
   /** How long the last swap held the client, in ms. */
   lastSwapMs: number | undefined;
@@ -88,12 +91,12 @@ export class Multipath {
     return {
       transport: () => {
         const order = raceOrder(
-          this.#options.routes().map((route) => route.path),
+          this.#routes().map((route) => route.path),
           this.#health,
           this.#options.now(),
           this.#lastWinner,
         );
-        const routes = this.#options.routes();
+        const routes = this.#routes();
         return racingTransport({
           routes: order.flatMap((path) => routes.filter((route) => route.path.key === path.key)),
           scheduler: this.#options.scheduler,
@@ -117,6 +120,9 @@ export class Multipath {
       path: () => this.#standby?.path,
       used: () => this.#failedOver(),
     });
+    connection.onWrongHost(() => {
+      if (this.#racing) this.#refuse(this.#racing);
+    });
     this.#stopState = state.subscribe(() => this.#changed());
     this.#changed();
   }
@@ -133,6 +139,19 @@ export class Multipath {
     this.#stopState?.();
     this.#stopLoops();
     this.#connection?.setStandby(undefined);
+    this.#connection?.onWrongHost(undefined);
+  }
+
+  /** The paths the platform offers, less any that reached another daemon. */
+  #routes(): readonly MachineRoute[] {
+    return this.#options.routes().filter((route) => !this.#refused.has(route.path.key));
+  }
+  /** `route` reached another machine: drop it for good and say so. */
+  #refuse(route: MachineRoute): void {
+    this.#refused.add(route.path.key);
+    if (this.#racing === route) this.#racing = undefined;
+    this.#options.report?.("path.mismatch", { path: route.path.kind });
+    this.#options.mismatch?.(route.path);
   }
 
   #emit(): void {
@@ -227,7 +246,7 @@ export class Multipath {
     const active = this.#active;
     const connection = this.#connection;
     if (!active || !connection || this.#switching || this.#closed) return;
-    const routes = this.#options.routes();
+    const routes = this.#routes();
     const candidates = upgradeCandidates(
       routes.map((route) => route.path),
       active.path,
@@ -277,8 +296,7 @@ export class Multipath {
         opened = await connection.openBeside(route);
       } catch (error) {
         this.#failed(route);
-        if (error instanceof ClientError && error.code === "identity")
-          this.#options.mismatch?.(route.path);
+        if (error instanceof ClientError && error.code === "identity") this.#refuse(route);
         return false;
       }
       if (this.#active !== from || this.#closed) {
@@ -311,7 +329,7 @@ export class Multipath {
     const active = this.#active;
     const connection = this.#connection;
     if (!active || !connection || this.#standby) return;
-    const routes = this.#options.routes();
+    const routes = this.#routes();
     const planned = standbyFor(
       routes.map((route) => route.path),
       active.path,

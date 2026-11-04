@@ -96,6 +96,14 @@ export interface ClientApi {
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
+  /**
+   * The daemon socket the client speaks over: a number that changes with every new socket (each
+   * welcome, and each move to another path, ADR 0114), undefined while not ready. Whatever the
+   * daemon keeps per socket (terminal and browser streams, service subscriptions) ends with the
+   * socket, so a holder re-attaches when this changes, and ignores what the old socket still
+   * sends under the ids it used there. Thread and sidebar views follow on their own.
+   */
+  connectionGeneration(): Selection<number | undefined>;
   /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */
   activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
   /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */

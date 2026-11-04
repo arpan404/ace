@@ -53,6 +53,11 @@ export interface AccountMachineOptions {
   client(route: {
     hostId: string;
     deviceId: string;
+    /**
+     * The daemon this machine's connections reached before, first over a relay that pinned
+     * its host key: a welcome from any other daemon fails the connection (`expectedHostId`).
+     */
+    expectedHostId?: string;
     transport(): Transport;
     credential(): Promise<Credential>;
   }): ClientApi;

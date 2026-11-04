@@ -115,6 +115,11 @@ export class MachinePool {
   private gates = new Map<string, MachineCodeGate>();
   /** What account machines said about their paths; account machines aren't saved. */
   private accountPaths = new Map<string, readonly MachinePath[]>();
+  /**
+   * Account machines' daemon ids, first learned over a relay (whose handshake pins the
+   * machine's host key): every later connection, on any path, must reach the same daemon.
+   */
+  private accountDaemons = new Map<string, string>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -418,14 +423,29 @@ export class MachinePool {
     });
     live.paths = paths;
     const route = paths.route();
+    const daemonId = this.accountDaemons.get(hostId);
     const client = account.client({
       hostId,
       deviceId,
+      ...(daemonId ? { expectedHostId: daemonId } : {}),
       transport: route.transport,
       credential: route.credential,
     });
     client.usePaths?.(paths);
     return client;
+  }
+  /**
+   * The daemon id an account machine must have: the one already learned, or, when this
+   * connection runs over a relay (its handshake pins the machine's host key), the one it
+   * reports now, kept from then on. Undefined over a direct path before any relay vouched.
+   */
+  private accountDaemon(hostId: string, client: ClientApi, daemonId: string): string | undefined {
+    const known = this.accountDaemons.get(hostId);
+    if (known !== undefined) return known;
+    const path = client.activePath?.().getSnapshot();
+    if (path !== "account" && path !== "relay") return undefined;
+    this.accountDaemons.set(hostId, daemonId);
+    return daemonId;
   }
   private async open(live: Live): Promise<void> {
     const target = live.state.entry.target;
@@ -469,7 +489,7 @@ export class MachinePool {
         const refusal = MachineCodeRefusal.safeParse(client.error?.message);
         const gate = this.gates.get(live.state.entry.hostId);
         if (client.error?.code === "machine_code" && refusal.success && gate && !gate.asking)
-          gate.refused(refusal.data);
+          gate.refused(refusal.data, client.error.lockedUntil);
         // A client that is connecting or offline retries by itself; a fatal one never does.
         if (client.state === "fatal") this.recover(live);
         return;
@@ -480,11 +500,13 @@ export class MachinePool {
           async (reply) => {
             if (!this.current(live) || live.verification !== epoch) return;
             // An account machine is known by its relay host id, which the pinned handshake has
-            // already proved; its daemon's own id is another value.
-            if (
-              live.state.entry.target.kind !== "account" &&
-              reply.identity.hostId !== live.state.entry.hostId
-            ) {
+            // already proved; its daemon's own id is another value, learned over a relay and
+            // then held to on every path.
+            const expected =
+              live.state.entry.target.kind === "account"
+                ? this.accountDaemon(live.state.entry.hostId, client, reply.identity.hostId)
+                : live.state.entry.hostId;
+            if (expected !== undefined && reply.identity.hostId !== expected) {
               this.publish(live, {
                 entry: live.state.entry,
                 status: "auth_failed",

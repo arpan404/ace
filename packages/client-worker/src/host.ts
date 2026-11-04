@@ -193,9 +193,21 @@ export class ClientHost {
       const stopPath = client.activePath().subscribe(() => {
         for (const member of created.tabs) member.connection();
       });
+      // A move to another path ends what the daemon kept for the old socket, as a drop does.
+      let socket = client.connectionGeneration().getSnapshot();
+      const stopSocket = client.connectionGeneration().subscribe(() => {
+        const next = client.connectionGeneration().getSnapshot();
+        if (next === socket) return;
+        const moved = socket !== undefined && next !== undefined;
+        socket = next;
+        if (!moved) return;
+        created.generation++;
+        for (const member of created.tabs) member.connection(true);
+      });
       created.unwatch = () => {
         stopState();
         stopPath();
+        stopSocket();
       };
       this.#entries.set(target.key, created);
       entry = created;
@@ -300,15 +312,18 @@ class Tab {
     });
     return !this.#dropped;
   }
-  connection(): void {
+  /** Tell the tab how the connection stands; `moved` when it moved to another socket. */
+  connection(moved = false): void {
     const client = this.#entry?.client;
     if (!client) return;
-    if (client.state !== "ready") this.#channels?.reset();
+    if (moved || client.state !== "ready") this.#channels?.reset();
+    const generation = client.connectionGeneration().getSnapshot();
     this.#post({
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
       ...pathOf(client),
+      ...(generation === undefined ? {} : { generation }),
     });
   }
   #receive(data: unknown): void {

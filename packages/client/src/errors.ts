@@ -26,9 +26,12 @@ export class ClientError extends Error {
      */
     | "machine_code"
     | "daemon";
-  constructor(code: ClientError["code"], message: string = code) {
+  /** With a `machine_code` refusal of `machine_code_locked`: when code entry opens again. */
+  declare readonly lockedUntil?: number;
+  constructor(code: ClientError["code"], message: string = code, lockedUntil?: number) {
     super(message);
     this.name = "ClientError";
     this.code = code;
+    if (lockedUntil !== undefined) this.lockedUntil = lockedUntil;
   }
 }

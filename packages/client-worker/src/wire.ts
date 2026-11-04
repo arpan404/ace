@@ -128,6 +128,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
     error: z.optional(ErrorShape),
     /** The path to the machine the worker's connection uses (ADR 0114). */
     path: z.optional(z.string()),
+    /** The daemon socket the worker's connection speaks over (`connectionGeneration`). */
+    generation: z.optional(z.number()),
   }),
   z.object({
     t: z.literal("pendingSends"),
