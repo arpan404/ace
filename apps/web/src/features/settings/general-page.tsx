@@ -5,8 +5,6 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useEditors } from "@/lib/editors.ts";
 import { useRailMeasure } from "@/lib/rail-measure.ts";
 import { usePreferredPlace, type PanelPlace } from "@/lib/workspace/index.ts";
-import { BrowserDeviceSettings } from "./browser-device-settings.tsx";
-import { DaemonSettings } from "./daemon-settings.tsx";
 import { DesktopAppPreferences } from "./desktop-app.tsx";
 import { settingRow } from "./settings-index.ts";
 
@@ -21,10 +19,10 @@ const places: { value: PanelPlace; label: string }[] = [
 ];
 
 /**
- * What only this device keeps: the desktop app's login item and background behaviour, where terminals and files open, what the rail's Usage bars show, how browser pages show,
- * and which computer this window
- * talks to. Agent
- * defaults belong to a machine (Settings › Agents).
+ * What only this device keeps: the desktop app's login item and background behaviour, where
+ * terminals and files open and what the rail's Usage bars show. Which computer this window
+ * talks to is on Settings › Fleet; how it shows browser pages, on Settings › Browser. Agent defaults belong
+ * to a machine (Settings › Agents).
  */
 export function GeneralSettings() {
   return (
@@ -35,8 +33,6 @@ export function GeneralSettings() {
         <EditorRow />
         <RailMeasureRow />
       </SettingSection>
-      <BrowserDeviceSettings />
-      <DaemonSettings />
     </>
   );
 }

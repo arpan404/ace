@@ -52,6 +52,8 @@ export function createSettingsSession(context: SocketContext): SocketService {
           key !== "sourceControl.preferences" &&
           key !== "projects.roots" &&
           key !== "clients.theme" &&
+          // Older clients still read their shortcuts here; newer ones keep them per device.
+          key !== "clients.keybindings" &&
           (!(key.startsWith("host.") || key.startsWith("remote.")) ||
             (context.local === true && authorize("admin"))) &&
           (key !== "providers.configuration" || authorize("admin")) &&

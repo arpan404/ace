@@ -60,6 +60,8 @@ export type ConnectionProblem =
   | "session_ended"
   /** An account machine: it left the account, or turned this device away. */
   | "not_on_account"
+  /** An account machine chosen on another ace account than the one this window is signed in to. */
+  | "other_account"
   /** An account machine: its daemon wants its machine code, or refused the one sent. */
   | "machine_code";
 
@@ -108,7 +110,9 @@ export interface DaemonConnection {
    * Make a machine on the person's ace account this window's machine, through ace's relay, and
    * keep the choice for a reload. Absent in a build without ace accounts.
    */
-  openAccount?: ((machine: { origin: string; hostId: string; name: string }) => void) | undefined;
+  openAccount?:
+    | ((machine: { origin: string; hostId: string; name: string; accountId?: string }) => void)
+    | undefined;
   /** Absent only before a daemon is chosen. */
   endpoint?: DaemonEndpoint | undefined;
   /** A `#token=` link waiting for the person to agree before anything is saved. */

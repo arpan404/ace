@@ -3,6 +3,7 @@ import {
   createContext,
   use,
   useEffect,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -12,6 +13,9 @@ import { accountOrigin, signInReturnTo } from "@/boot/account-config.ts";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
 import { authorizeDaemonUrl } from "@/boot/daemon-network.ts";
 import { webStorage } from "@/boot/web-storage.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useMachinePool } from "@/lib/machine-pool.ts";
+import { followAccountLeaving } from "./account-switch.ts";
 import {
   aceAccountStore,
   type AceAccountBackend,
@@ -60,6 +64,22 @@ export function AceAccountProvider(props: { children: ReactNode }) {
     const controller = new AbortController();
     void store.restore(controller.signal);
     return () => controller.abort();
+  }, [store]);
+  // What the window opened under an account it no longer holds is closed at once: the pool's
+  // account machines, and the window's own machine when it is one (its next attempt says why).
+  const pool = useMachinePool();
+  const connection = useDaemonConnection();
+  const opened = useRef({ pool, connection });
+  useEffect(() => {
+    opened.current = { pool, connection };
+  });
+  useEffect(() => {
+    if (!store) return;
+    return followAccountLeaving(store, () => {
+      const { pool: machines, connection: main } = opened.current;
+      machines?.closeAccountMachines();
+      if (main.account) main.retry();
+    });
   }, [store]);
   return <StoreContext value={store}>{props.children}</StoreContext>;
 }

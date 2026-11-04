@@ -86,6 +86,9 @@
     "devices.emulatorWindow": {
       "type": "boolean"
     },
+    "devices.enabled": {
+      "type": "boolean"
+    },
     "generation.autoDraftCommits": {
       "type": "boolean"
     },
@@ -469,6 +472,7 @@
     "computer.blockedApps",
     "computer.lockedUse",
     "devices.emulatorWindow",
+    "devices.enabled",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

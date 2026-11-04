@@ -333,7 +333,7 @@ export function usePaletteGroups(
         label: entry.title,
         detail: pageTitle(entry.page),
         icon: "view",
-        run: run(() => void navigate({ to: entryRoute(entry), hash: entry.id })),
+        run: run(() => void navigate({ ...entryRoute(entry), hash: entry.id })),
       })),
     });
     // Windows: the menu bar's Help items, which its frameless window doesn't show.

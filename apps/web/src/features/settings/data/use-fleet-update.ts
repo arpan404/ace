@@ -9,6 +9,7 @@ import {
   fleetUpdatePlan,
   loadFleetRun,
   newFleetRun,
+  pickedUpdatePlan,
   saveFleetRun,
   updateRefusal,
   type FleetUpdateRun,
@@ -116,6 +117,14 @@ export function useFleetUpdate(
     /** Update all: every machine that may update, each when it's idle (or now). */
     startAll: (mode: "idle" | "now") => {
       const next = newFleetRun({ id: crypto.randomUUID(), plan, mode, now: clock() });
+      saveFleetRun(storage, next);
+      setRun(next);
+    },
+    /** Update the machines a person picked, each when it's idle (or now), in Update all's order. */
+    startPicked: (ids: ReadonlySet<string>, mode: "idle" | "now") => {
+      const picked = pickedUpdatePlan(plan, ids);
+      if (picked.targets.length === 0 && picked.cannot.length === 0) return;
+      const next = newFleetRun({ id: crypto.randomUUID(), plan: picked, mode, now: clock() });
       saveFleetRun(storage, next);
       setRun(next);
     },
