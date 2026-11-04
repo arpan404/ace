@@ -10,6 +10,7 @@ struct ThreadView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
+    @Environment(\.threadOrganizer) private var organizer
     @Bindable var model: ClientModel
     @Bindable var thread: ThreadModel
     /// Push another thread (a delegated child or a conversation this one started).
@@ -22,7 +23,12 @@ struct ThreadView: View {
     @State private var showSettings = false
     @State private var afterSettings: (() -> Void)?
     @State private var lane: BlockRow.Agents.Entry?
-    @State private var showFiles = false
+    /// The page showing on a phone (`ThreadPager`), and the one last asked for, which stays in
+    /// the pill row while it shows even before the thread has something for it.
+    @State private var page: ThreadPageKind = .chat
+    @State private var requestedPage: ThreadPageKind?
+    /// A native subagent opened from the Agents page, pushed over the thread.
+    @State private var agentRoute: SubagentRoute?
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
@@ -30,14 +36,10 @@ struct ThreadView: View {
     @State private var showComputer = false
     @State private var devicesRoute: DevicesRoute?
     @State private var activityProblem: String?
-    @State private var showAgents = false
-    @State private var showChanges = false
     @State private var showWork = false
     /// The problem line's and Not sent's ways out: one at a time, with their questions.
     @State private var workRunner = WorkRunner()
     @State private var confirmingLock = false
-    @State private var showTerminal = false
-    @State private var showBrowser = false
     @State private var showLogs = false
     @State private var showSearch = false
     @State private var showQueue = false
@@ -87,6 +89,15 @@ struct ThreadView: View {
         guard let request = thread.approvals.first, request.kind == "question" else { return nil }
         return request
     }
+    /// The pages this thread offers on a phone; beside the iPad's side panel, Chat alone.
+    private var pages: ThreadPages {
+        guard panelPlace == .none else { return ThreadPages(ThreadPageFacts(chat: true)) }
+        let row = model.inbox[thread.id] ?? metadata
+        return ThreadPages(ThreadPageFacts(chat: row?.chat == true, changedFiles: row?.diff?.files ?? 0,
+                                           hasBrowser: model.threadHasBrowser, agents: row?.agents ?? 1,
+                                           requested: requestedPage))
+    }
+    private var shownPage: ThreadPageKind { pages.shown(page) }
     private var subtitle: String {
         guard let metadata else { return "" }
         let place = metadata.branch.isEmpty ? metadata.machine : metadata.branch
@@ -100,7 +111,7 @@ struct ThreadView: View {
         .background { DismissCapture(box: back) }
     }
 
-    private func content(pageWidth: CGFloat) -> some View {
+    private var feed: some View {
         ConversationFeed(model: model, thread: thread, acceptedSend: acceptedSend,
                          links: TranscriptLinks(openThread: openThread, openAgent: { lane = $0 }, steps: StepsLinks(model: model, screen: thread.screen, epoch: thread.epoch),
                                                 openMedia: { media = $0 }, openChanges: { open(.changes) }, openMessage: { DisclosureTrace.shared.asked("message", key: $0.id); fullMessage = $0 },
@@ -109,6 +120,28 @@ struct ThreadView: View {
                          barHeight: barHeight, behind: $behind, jumps: jumps)
             .publishedMedia(model: model, threadId: thread.id)
             .markdownShelf(threadId: thread.id)
+    }
+
+    /// Chat alone, or the thread's pages a swipe apart with Chat first (a phone).
+    @ViewBuilder private var pager: some View {
+        let pages = pages
+        if pages.kinds.count < 2 {
+            feed
+        } else {
+            ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) }), holdsSwipe: shownPage == .browser) { kind in
+                if kind == .chat {
+                    feed
+                } else {
+                    ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle,
+                                   barHeight: barHeight, openThread: openThread, openAgent: { agentRoute = $0 },
+                                   openChat: { select(.chat) }, mention: model.canOperate ? { mention = $0 } : nil)
+                }
+            }
+        }
+    }
+
+    private func content(pageWidth: CGFloat) -> some View {
+        pager
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -119,8 +152,10 @@ struct ThreadView: View {
                 ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), chat: metadata?.chat == true, pageWidth: pageWidth,
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
+                              titleActions: titleActions,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
-                                               open: open, opensInPanel: panelPlace != .none, problem: { activityProblem = $0 }, leave: leave),
+                                               open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
+                                               problem: { activityProblem = $0 }, leave: leave),
                               openWork: { showWork = true },
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen)
             }
@@ -129,15 +164,24 @@ struct ThreadView: View {
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
-            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-                if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
-                    StateLabel(status: status)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
-                        .background(AceTheme.Colours.background)
+            .inboxTopBar {
+                VStack(spacing: AceTheme.Spacing.none) {
+                    if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
+                        StateLabel(status: status)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+                    }
+                    let pages = pages
+                    if pages.kinds.count > 1 {
+                        ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
+                    }
                 }
             }
-            .threadSheets(model: model, thread: thread, openThread: openThread, agents: $showAgents, changes: $showChanges, terminal: $showTerminal, work: $showWork, logs: $showLogs)
+            .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
+            .navigationDestination(item: $agentRoute) { route in
+                SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
+                             openThread: { child in agentRoute = nil; openThread(child) })
+            }
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
             .sensoryFeedback(.success, trigger: forksStarted)
@@ -170,7 +214,7 @@ struct ThreadView: View {
                     ProjectScriptsView(model: model, threadId: thread.id) { url in
                         showScripts = false
                         model.browserNewTab(url)
-                        showBrowser = true
+                        open(.browser)
                     }
                 }.presentationDetents([.large]).presentationDragIndicator(.visible)
             }
@@ -185,7 +229,7 @@ struct ThreadView: View {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
-            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: $showFiles,
+            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: .constant(false),
                                        mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
                 ComposerSettingsSheet(screen: screen,
@@ -235,14 +279,6 @@ struct ThreadView: View {
             // A browser opened mid-turn leaves the state unchanged: follow it, bounded, while this
             // thread is on screen, working and the app is active. Leaving cancels the follow.
             .task(id: browserFollow) { if browserFollow != nil { await model.followBrowser() } }
-            .navigationDestination(isPresented: $showBrowser) {
-                let help = thread.approvals.first { $0.kind == "browser_help" }
-                BrowserScreen(model: model, help: help, toMessage: { tab in
-                    // Back to the thread, the page in the message when asked about.
-                    if let tab, model.canOperate { mention = ComposerMention(path: "", tab: tab) }
-                    showBrowser = false
-                }) { answer in if let help { model.resolve(help, answer: answer) } }
-            }
             .environment(\.openBrowser, { open(.browser) })
             .panelCommands(panelCommands)
             // A file picked in the side panel's Files goes into this composer.
@@ -431,6 +467,11 @@ struct ThreadView: View {
             panel(["op": "open", "kind": tool.rawValue])
             return
         }
+        // On a phone the thread's tools are its pages.
+        if panelPlace == .none, let page = destination.page {
+            select(page)
+            return
+        }
         switch destination {
         case .rename: renaming = true
         case .forkLast: Task { _ = await model.openFork(.latest) }
@@ -438,18 +479,40 @@ struct ThreadView: View {
         case .turns: transitionSheet = .turns
         case .attachments: transitionSheet = .files
         case .work: showWork = true
-        case .changes: showChanges = true
         case .search: showSearch = true
-        case .files: showFiles = true
-        case .terminal: showTerminal = true
         case .scripts: showScripts = true
-        case .browser: showBrowser = true
         case .devices: devicesRoute = .list
         case .computer: showComputer = true
         case .tools: showTools = true
-        case .agents: showAgents = true
         case .logs: showLogs = true
+        // Pages: with the side panel they opened as its tabs above.
+        case .changes, .files, .terminal, .browser, .agents: break
         }
+    }
+    /// The title menu's actions, by the shared menu rules (`threadMenu`) for this thread's row.
+    private var titleActions: ThreadTitleActions {
+        guard model.canOperate, !archived else { return ThreadTitleActions() }
+        let menu = model.inbox[thread.id]?.menu ?? []
+        let labels = model.inboxLayout.menuLabels ?? [:]
+        let run = { (id: String) -> (() -> Void)? in
+            guard menu.contains(id), let organizer, let hostId = model.hostId else { return nil }
+            return { organizer.perform(InboxKey(machineId: hostId, id: thread.id), id) }
+        }
+        var actions = ThreadTitleActions()
+        if screen.transitions?.lastTurn == true { actions.fork = { open(.forkLast) } }
+        actions.copyLink = run("copy-link")
+        if let settle = run("settle") {
+            actions.settle = .init(label: labels["settle"] ?? "Settle", settled: false, run: settle)
+        } else if let unsettle = run("unsettle") {
+            actions.settle = .init(label: labels["unsettle"] ?? "Unsettle", settled: true, run: unsettle)
+        }
+        return actions
+    }
+    /// Shows a page; asking for one keeps its pill while it shows.
+    private func select(_ next: ThreadPageKind) {
+        requestedPage = next == .chat ? nil : next
+        guard page != next else { return }
+        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { page = next }
     }
     /// The panel's keys while it has room beside this thread.
     private var panelCommands: PanelCommands? {

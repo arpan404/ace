@@ -80,7 +80,7 @@ struct RequestSheetItem: Identifiable { let id: String }
 /// A request in full, in a native sheet: a plan as prose with Request changes and Approve plan,
 /// a question with its options, a form, browser help, or an approval with its command, reason
 /// and every option. Answering closes it.
-private struct RequestSheet: View {
+struct RequestSheet: View {
     let request: ApprovalRow
     let model: ClientModel
     @Binding var questionDraft: QuestionDraftState

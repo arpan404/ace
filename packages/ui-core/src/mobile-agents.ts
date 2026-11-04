@@ -2,6 +2,7 @@ import { isInternalTask } from "@ace/projection";
 import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
+import { modelLabel } from "./providers.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
 import {
   agentNodeIcon,
@@ -68,6 +69,8 @@ export interface AgentSheetRow {
   endedAt: number | null;
   /** The provider it runs on (`claude`, `codex`…), for its mark. */
   provider: string;
+  /** The model in words ("Opus 5.5"), empty when unknown. */
+  modelLabel: string;
   /** What its parent asked it to be ("reviewer"), when the provider says. */
   role: string;
   /** The paired machine it runs on, when that is another one. */
@@ -270,6 +273,7 @@ export function agentSheet(
       continue;
     }
     const state = agentWorkState(agent, work, { fresh });
+    const modelId = agent.model ?? usage?.model ?? "";
     const running = work.running.has(agent.id);
     rows.push({
       id: agent.id,
@@ -277,7 +281,7 @@ export function agentSheet(
       depth,
       // An unnamed subagent goes by what the call that started it says it is for.
       name: agentName(agent, agent.spawnedBy ? reader.item(agent.spawnedBy) : undefined),
-      model: agent.model ?? usage?.model ?? "",
+      model: modelId,
       status: { label: state.label, token: toneToken(state.tone) },
       activity: state.activity,
       running,
@@ -291,6 +295,7 @@ export function agentSheet(
       createdAt: agent.createdAt,
       endedAt: agent.endedAt ?? null,
       provider: agent.native.provider,
+      modelLabel: modelId ? modelLabel(modelId) : "",
       role: agent.role ?? "",
       machine: agent.machine?.name ?? null,
       reason: agentNodeReason(agent),

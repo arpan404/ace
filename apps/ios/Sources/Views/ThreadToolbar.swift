@@ -39,6 +39,8 @@ struct ThreadToolbar: ToolbarContent {
     /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
     var rename: (() -> Void)? = nil
     var retitle: (() -> Void)? = nil
+    /// The rest of the title's menu: fork from the last turn, copy the link, settle or unsettle.
+    var titleActions = ThreadTitleActions()
     let menu: ThreadMenu
     /// Opens the thread's Work sheet from the "project · branch" line.
     let openWork: () -> Void
@@ -101,13 +103,25 @@ struct ThreadToolbar: ToolbarContent {
         .accessibilityElement(children: .contain)
     }
     @ViewBuilder private var titleRow: some View {
-        if let rename {
+        if rename != nil || !titleActions.isEmpty {
             Menu {
-                Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename")
-                if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
+                Section {
+                    if let rename { Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename") }
+                    if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
+                }
+                Section {
+                    if let fork = titleActions.fork { Button("Fork from the last turn", ace: .gitFork, action: fork).accessibilityIdentifier("thread.title.fork") }
+                    if let copy = titleActions.copyLink { Button("Copy link", ace: .link, action: copy).accessibilityIdentifier("thread.title.copyLink") }
+                }
+                if let settle = titleActions.settle {
+                    Section {
+                        Button(settle.label, ace: settle.settled ? .arrowUUpLeft : .check, action: settle.run)
+                            .accessibilityIdentifier("thread.title.settle")
+                    }
+                }
             } label: { titleText(chevron: true) }
             .accessibilityIdentifier("thread.title")
-            .accessibilityHint("Rename this thread")
+            .accessibilityHint("Thread actions")
         } else {
             titleText(chevron: false).accessibilityIdentifier("thread.title")
         }
@@ -122,6 +136,15 @@ struct ThreadToolbar: ToolbarContent {
         .accessibilityAddTraits(.isHeader)
         .accessibilityValue(status?.label ?? "")
     }
+}
+
+/// What the title's menu offers beyond its name, each nil where it can't be done now.
+struct ThreadTitleActions {
+    struct Settle { let label: String; let settled: Bool; let run: () -> Void }
+    var fork: (() -> Void)? = nil
+    var copyLink: (() -> Void)? = nil
+    var settle: Settle? = nil
+    var isEmpty: Bool { fork == nil && copyLink == nil && settle == nil }
 }
 
 /// The ⋯ menu: the thread's other places and what can be done to it. It redraws only when what
@@ -141,6 +164,8 @@ struct ThreadMenu: View, Equatable {
     /// Where `open` sends a tool now (the iPad side panel, or over the thread): it is part of
     /// what the menu is, so a change rebuilds the menu with a fresh `open`.
     var opensInPanel = false
+    /// The thread's pages on a phone; nil beside the side panel.
+    var pages: ThreadPages? = nil
     let problem: (String) -> Void
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
@@ -161,7 +186,7 @@ struct ThreadMenu: View, Equatable {
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
                             hasActivity: hasActivity, activityRow: activityRow, open: open,
-                            problem: problem, leave: leave)
+                            problem: problem, leave: leave, pages: pages)
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -172,6 +197,7 @@ struct ThreadMenu: View, Equatable {
     nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
         lhs.model === rhs.model && lhs.thread === rhs.thread && lhs.title == rhs.title
             && lhs.archived == rhs.archived && lhs.hasActivity == rhs.hasActivity && lhs.opensInPanel == rhs.opensInPanel
+            && lhs.pages == rhs.pages
     }
 }
 

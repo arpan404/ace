@@ -88,6 +88,9 @@ struct ThreadMenuPanel: View {
     let open: (ThreadDestination) -> Void
     let problem: (String) -> Void
     let leave: () -> Void
+    /// The thread's pages on a phone, which hold its screens; nil beside the iPad's side panel,
+    /// where the screens open as its tabs from the grid.
+    var pages: ThreadPages? = nil
     @Environment(\.threadOrganizer) private var organizer
     @Environment(\.dismiss) private var dismiss
     private var row: ThreadRow? { model.inbox[thread.id] }
@@ -110,9 +113,12 @@ struct ThreadMenuPanel: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            MenuScreenGrid(open: open, dismiss: dismiss)
-                .padding(.bottom, AceDesign.Space.related)
-            Divider()
+            // On a phone the screens are the thread's pages, in the row under its title.
+            if pages == nil {
+                MenuScreenGrid(open: open, dismiss: dismiss)
+                    .padding(.bottom, AceDesign.Space.related)
+                Divider()
+            }
             Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
                 .accessibilityIdentifier("thread.options.conversation")
                 .menuIndicator(.hidden)
@@ -184,7 +190,14 @@ struct ThreadMenuPanel: View {
 
     /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
     @ViewBuilder private var tools: some View {
-        MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
+        if let pages {
+            // A browser the agent hasn't opened yet: the one way to its page.
+            if !pages.kinds.contains(.browser) {
+                MenuRow(title: "Open browser", icon: .compass, identifier: "thread.browser") { open(.browser); dismiss() }
+            }
+        } else {
+            MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
+        }
         MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }
         Divider()
         MenuRow(title: "Reload from machine", icon: .arrowClockwise, identifier: "thread.reload") {

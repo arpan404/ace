@@ -51,6 +51,8 @@ struct AgentSheet: Codable, Sendable, Equatable {
         let endedAt: Double?
         /// The provider it runs on, for its mark; nil from older bridges.
         var provider: String? = nil
+        /// The model in words ("Opus 5.5").
+        var modelLabel: String? = nil
         var role: String? = nil
         /// The paired machine it runs on, when that is another one.
         var machine: String? = nil
