@@ -88,6 +88,7 @@ const customised: DesktopSettings = {
   preventSleep: true,
   attention: false,
   globalShortcut: "CommandOrControl+J",
+  keybindings: { palette: "mod+y", terminal: "alt+mod+t" },
   browserDownloads: "/Users/me/Downloads",
   terminalCommand: false,
   notifications: {
@@ -105,6 +106,8 @@ const changes: [string, DesktopSettingsPatch][] = [
   ["Bounce dock icon for attention", { attention: true }],
   ["Quick-thread global shortcut", { globalShortcut: "CommandOrControl+Shift+K" }],
   ["Quick-thread global shortcut cleared", { globalShortcut: null }],
+  ["Keyboard shortcuts rebound", { keybindings: { palette: "shift+mod+p" } }],
+  ["Keyboard shortcuts reset", { keybindings: {} }],
   ["notifications on", { notifications: { enabled: true } }],
   ["Browser downloads folder reset", { browserDownloads: null }],
 ];

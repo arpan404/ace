@@ -181,7 +181,10 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody page="Keyboard">
+    <SettingsBody
+      page="Keyboard"
+      lede="These shortcuts are for this device only. Other apps and browsers keep their own."
+    >
       <KeyboardShortcuts />
     </SettingsBody>
   );

@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 /*
- * Preferences the desktop app owns and applies itself: the login item, and which OS
- * notifications this computer shows and when. Its main process stores them and acts on every
+ * Preferences the desktop app owns and applies itself: the login item, its keyboard shortcuts,
+ * and which OS notifications this computer shows and when. Its main process stores them and acts on every
  * change, so Settings edits them through the preload bridge (`window.ace.settings`), never
  * through daemon settings nothing on this machine reads.
  */
@@ -28,6 +28,8 @@ export const DesktopPreferences = z.looseObject({
   preventSleep: z.boolean().default(false),
   attention: z.boolean().default(true),
   globalShortcut: z.string().max(64).nullable().default(null),
+  /** This app's shortcut rebindings; null until it first stores them. Ids are checked on use. */
+  keybindings: z.record(z.string().max(64), z.string().min(1).max(64)).nullable().default(null),
   /** Where this app's own browser saves downloads; null: the system's Downloads folder. */
   browserDownloads: z.string().max(4096).nullable().default(null),
   notifications: Notifications,
@@ -39,6 +41,7 @@ export interface DesktopPreferencesPatch {
   preventSleep?: boolean;
   attention?: boolean;
   globalShortcut?: string | null;
+  keybindings?: Readonly<Record<string, string>>;
   browserDownloads?: string | null;
   notifications?: DesktopPreferences["notifications"];
 }

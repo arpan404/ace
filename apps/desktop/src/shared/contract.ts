@@ -226,6 +226,11 @@ const Minute = z
 /** Minutes after local midnight; `start > end` wraps past midnight. */
 const QuietHours = z.object({ start: Minute, end: Minute });
 const NotificationToggles = z.partialRecord(NotificationCategory, z.boolean());
+/**
+ * This app's own shortcut rebindings (keymap id to keys, only the rebound ones). The page checks
+ * ids and keys against its keymap; this only bounds the size.
+ */
+const Keybindings = z.record(z.string().min(1).max(64), z.string().min(1).max(64));
 export const DesktopSettings = z.object({
   /** Keep the daemon and tray running after the last window closes. */
   background: z.boolean().default(true),
@@ -241,6 +246,11 @@ export const DesktopSettings = z.object({
   attention: z.boolean().default(true),
   /** Electron accelerator for the quick composer; off by default. */
   globalShortcut: z.string().max(64).nullable().default(null),
+  /**
+   * Keyboard shortcuts rebound on this app, per device. Null until the app first stores them,
+   * which is when it adopts what the machine's old shared setting held.
+   */
+  keybindings: Keybindings.nullable().default(null),
   /** Keep the machine awake while agents work. */
   preventSleep: z.boolean().default(false),
   /**
@@ -273,6 +283,7 @@ export const DesktopSettingsPatch = z.object({
     .optional(),
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
+  keybindings: Keybindings.nullable().optional(),
   preventSleep: z.boolean().optional(),
   browserDownloads: z.string().min(1).max(4096).nullable().optional(),
 });

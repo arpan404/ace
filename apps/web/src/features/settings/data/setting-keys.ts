@@ -18,9 +18,6 @@ export const SortBy = SettingsValues.shape["threads.sortBy"];
 export type SortBy = z.infer<typeof SortBy>;
 export const FollowUp = z.enum(["queue", "steer"]);
 export type FollowUp = z.infer<typeof FollowUp>;
-/** Keymap id → keys in keymap notation. Only rebound shortcuts are stored. */
-export const Keybindings = z.record(z.string().max(64), z.string().min(1).max(64));
-export type Keybindings = z.infer<typeof Keybindings>;
 
 export type LimitPolicy = z.infer<typeof LimitPolicy>;
 
@@ -61,7 +58,6 @@ export const settingKeys = {
     null,
   ),
   autoDraftCommits: setting("generation.autoDraftCommits", z.boolean(), true),
-  keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
   limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
   browserEngine: setting("browser.backend", SettingsValues.shape["browser.backend"], "auto"),
   browserProfile: setting("browser.profile", SettingsValues.shape["browser.profile"], "persistent"),
