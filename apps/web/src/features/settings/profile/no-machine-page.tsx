@@ -6,6 +6,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { settingRow } from "../settings-index.ts";
 import { ProfileHero, useProfileAccount } from "./account.tsx";
 import { Legal, NameSetting } from "./you.tsx";
+import { SignOutButton } from "./sign-out-button.tsx";
 
 const none: readonly { id: string }[] = [];
 
@@ -20,18 +21,7 @@ export function NoMachineProfilePage() {
     <Screen
       title="Profile"
       namedByPanel
-      actions={
-        account.session ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={account.busy || account.restoring}
-            onClick={() => void account.signOut()}
-          >
-            Sign out
-          </Button>
-        ) : undefined
-      }
+      actions={account.session ? <SignOutButton account={account} /> : undefined}
     >
       <div className="h-full overflow-auto">
         <div className="@container mx-auto flex w-full max-w-[52rem] flex-col gap-12 px-5 pt-12 pb-20 sm:px-8">
