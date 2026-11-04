@@ -152,6 +152,10 @@ test("a dropped LAN path fails over to the warm relay without the client ever go
     expect(paths.active?.kind).toBe("lan");
     // The relay standby opens and is welcomed beside the LAN path.
     await relay.wait((incoming) => incoming.type === "welcome");
+    // The standby says it is in the background; the daemon handles a socket's messages in
+    // order, and its first presence waits for the notifications worker to start. A standby is
+    // normally long settled when the LAN drops: measure that, not the worker's cold start.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     h.daemon.store.appendEvents(h.thread.id, [created, delta("x")]);
     await when(text, (value) => value === "x");
 

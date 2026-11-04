@@ -303,7 +303,7 @@ export class Connection {
         open: () => {
           if (epoch !== this.#epoch) return;
           void Promise.resolve()
-            .then(() => this.#options.credential())
+            .then(() => transport.credential?.() ?? this.#options.credential())
             .then((credential) => {
               if (epoch === this.#epoch) this.send(this.#hello(transport, credential));
             })
@@ -518,7 +518,7 @@ export class Connection {
   }
   #startHeartbeat(): void {
     this.#heartbeat.start({
-      ping: () => this.send({ type: "ping" }) && this.state === "ready",
+      ping: () => this.#ping(() => {}) && this.state === "ready",
       missed: () => this.#lost(1006, heartbeatMissed),
     });
   }
@@ -546,9 +546,18 @@ export class Connection {
   /** Ping the active path; resolves with its pong. Never rejects: callers set a deadline. */
   ping(): Promise<void> {
     return new Promise((resolve) => {
-      if (this.state !== "ready" || !this.send({ type: "ping" })) return;
-      this.#pongs.push(resolve);
+      if (this.state === "ready") this.#ping(resolve);
     });
+  }
+  /**
+   * Every ping on the active path, the heartbeat's too, waits in one queue: the daemon answers
+   * a socket's pings in order, so each pong settles the oldest ping, never a newer one.
+   */
+  #ping(answered: () => void): boolean {
+    if (!this.send({ type: "ping" })) return false;
+    // A socket that stops answering is dropped by the heartbeat long before this fills.
+    if (this.#pongs.push(answered) > 64) this.#pongs.shift();
+    return true;
   }
   /**
    * Open `route` beside the active path with this device's credential, and wait for the same

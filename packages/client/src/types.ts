@@ -20,6 +20,12 @@ export interface Transport {
    * returns credit as it reads). Absent: the hello asks for none.
    */
   readonly flowControl?: readonly string[];
+  /**
+   * The credential this transport opened with (a relay attempt fetches its own grant or ticket
+   * to dial): its hello carries this one rather than the route's, so concurrent attempts on
+   * one route never take each other's.
+   */
+  credential?(): Promise<Credential>;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;

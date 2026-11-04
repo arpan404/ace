@@ -9,6 +9,7 @@ import {
   restAfter,
   smoothRtt,
   standbyFor,
+  standbyRetryMs,
   switchVerdict,
   upgradeCandidates,
   type PathHealth,
@@ -155,6 +156,19 @@ describe("the warm standby", () => {
     ["a direct path with no relay keeps none", lan, [lan, tailscale], undefined],
   ] as const)("%s", (_name, active, paths, expected) => {
     expect(standbyFor(paths, active)?.key).toBe(expected);
+  });
+  test("a resting relay gives way to the next one, and with none left the standby waits out the rest", () => {
+    const resting = health([["relay", { failures: 1, restUntil: 1_000 }]]);
+    expect(standbyFor(all, lan, resting, 0)?.key).toBe("account");
+    expect(standbyRetryMs(all, lan, resting, 0)).toBeUndefined();
+    const both = health([
+      ["relay", { failures: 2, restUntil: 2_000 }],
+      ["account", { failures: 1, restUntil: 1_000 }],
+    ]);
+    expect(standbyFor(all, lan, both, 0)).toBeUndefined();
+    expect(standbyRetryMs(all, lan, both, 0)).toBe(1_000);
+    expect(standbyFor(all, lan, both, 1_000)?.key).toBe("account");
+    expect(standbyRetryMs(all, loopback, both, 0)).toBeUndefined();
   });
 });
 

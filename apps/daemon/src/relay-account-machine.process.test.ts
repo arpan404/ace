@@ -8,7 +8,7 @@ import { keyPair } from "@ace/secure-channel";
 import { Client, ClientError, machineCodeAdmin, machineCodeGate, relayRoute } from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, HostId } from "@ace/protocol";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
 import { fixture, token } from "./socket-test-support.ts";
@@ -217,6 +217,28 @@ it("the machine pool opens an account machine, asks for its code, and lists it o
 
   await opened.close();
   expect(machines.ids).toEqual([]);
+});
+
+it("a machine also paired from this device steps aside while its account entry is open", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  // Paired earlier, by the daemon's own id ("host"), with whatever scopes pairing gave.
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  expect(machines.ids).toEqual(["host"]);
+
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  // Signing in wins over pairing: the same machine is listed once, as the account's (admin).
+  expect(machines.ids).toEqual([machine.hostId]);
+  expect(machines.machine("host")).toBeUndefined();
+
+  await opened.close();
+  expect(machines.ids).toEqual(["host"]);
 });
 
 it("an account device reads the machine's remote access and account status and its devices through the hosted relay", async () => {

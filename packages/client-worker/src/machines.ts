@@ -120,6 +120,8 @@ export class MachinePool {
    * machine's host key): every later connection, on any path, must reach the same daemon.
    */
   private accountDaemons = new Map<string, string>();
+  /** Paired machines an open account machine (`by`) stands in for, by daemon id. */
+  private superseded = new Map<string, { entry: MachineEntry; by: string }>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -148,7 +150,7 @@ export class MachinePool {
       .load()
       .then((entries) => {
         if (this.closed) return;
-        for (const entry of entries) this.connect(entry);
+        for (const entry of entries) if (!this.superseded.has(entry.hostId)) this.connect(entry);
       })
       .catch((error: unknown) => {
         this.starting = undefined;
@@ -183,6 +185,8 @@ export class MachinePool {
     this.assertOpen();
     const live = this.live.get(hostId);
     if (live?.removing) throw new ClientError("storage", "Machine removal pending");
+    // A paired machine standing aside for its account entry goes for good.
+    this.superseded.delete(hostId);
     if (live) {
       // Disable every async continuation and retained client handle before secret-store I/O.
       live.enabled = false;
@@ -207,6 +211,7 @@ export class MachinePool {
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
+    this.restoreSuperseded(hostId);
   }
   /**
    * Open a machine on the person's ace account (ADR 0111) and add it to the pool like a paired
@@ -356,6 +361,30 @@ export class MachinePool {
       this.stopWorker(live);
       this.connect(live.state.entry);
     });
+  }
+  /**
+   * `daemonId`'s paired entry, if any, steps aside for the account machine `by` that reached
+   * the same daemon: a signed-in device is admin on that machine, whatever scopes its pairing
+   * gave (ADR 0114). It comes back when the account machine closes.
+   */
+  private supersede(daemonId: string, by: string): void {
+    const paired = this.live.get(daemonId);
+    if (!paired || paired.state.entry.target.kind === "account" || paired.removing) return;
+    paired.enabled = false;
+    this.dispose(paired);
+    this.live.delete(daemonId);
+    this.failures.delete(daemonId);
+    this.order = this.order.filter((id) => id !== daemonId);
+    this.superseded.set(daemonId, { entry: paired.state.entry, by });
+    this.notifications.emit(["ids", `machine:${daemonId}`]);
+  }
+  /** The account machine `by` closed: the paired entries it stood in for come back. */
+  private restoreSuperseded(by: string): void {
+    for (const [daemonId, superseded] of this.superseded) {
+      if (superseded.by !== by) continue;
+      this.superseded.delete(daemonId);
+      if (!this.closed && !this.live.has(daemonId)) this.connect(superseded.entry);
+    }
   }
   private connect(entry: MachineEntry): void {
     const live: Live = {
@@ -515,6 +544,10 @@ export class MachinePool {
               this.stopWorker(live);
               return;
             }
+            // Signing in wins over pairing (ADR 0114): the same machine, paired from this
+            // device too, steps aside while its account entry is open.
+            if (live.state.entry.target.kind === "account" && expected !== undefined)
+              this.supersede(expected, live.state.entry.hostId);
             // Account machines come from the account's list, not the saved directory.
             // Paths come only from the machine itself, over this verified connection.
             if (live.state.entry.target.kind !== "account") {

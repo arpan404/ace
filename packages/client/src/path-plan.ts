@@ -164,16 +164,40 @@ export function switchVerdict(input: {
 
 /**
  * The warm standby while on a direct path that may vanish (the LAN or Tailscale): the best
- * relay path, if any. The same computer and relay paths keep none.
+ * relay path that isn't resting after a failure, if any. The same computer and relay paths
+ * keep none.
  */
 export function standbyFor(
   paths: readonly PlannedPath[],
   active: PlannedPath,
+  health: ReadonlyMap<string, PathHealth> = new Map(),
+  now = 0,
 ): PlannedPath | undefined {
-  if (active.kind !== "lan" && active.kind !== "tailscale") return undefined;
+  return standbyRelays(paths, active).find((path) => !resting(health.get(path.key), now));
+}
+
+/**
+ * How long until a standby can be tried again when every relay that could be one is resting
+ * after a failure; undefined when one can be tried now or none is wanted. A standby that failed
+ * comes back once its rest ends, so the LAN or Tailscale never stays without one.
+ */
+export function standbyRetryMs(
+  paths: readonly PlannedPath[],
+  active: PlannedPath,
+  health: ReadonlyMap<string, PathHealth>,
+  now: number,
+): number | undefined {
+  const relays = standbyRelays(paths, active);
+  if (!relays.length || standbyFor(paths, active, health, now)) return undefined;
+  const ends = relays.map((path) => health.get(path.key)?.restUntil ?? now);
+  return Math.max(0, Math.min(...ends) - now);
+}
+
+function standbyRelays(paths: readonly PlannedPath[], active: PlannedPath): PlannedPath[] {
+  if (active.kind !== "lan" && active.kind !== "tailscale") return [];
   return paths
     .filter((path) => !isDirect(path.kind))
-    .toSorted((a, b) => pathRank(a.kind) - pathRank(b.kind))[0];
+    .toSorted((a, b) => pathRank(a.kind) - pathRank(b.kind));
 }
 
 /** How often the active path is pinged: every 5 s while visible, 15 s while hidden. */

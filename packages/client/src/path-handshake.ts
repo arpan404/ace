@@ -8,7 +8,7 @@ export interface PathRoute {
   credential(): Promise<Credential>;
 }
 
-/** A frame a welcomed side path received, held until the connection takes the path. */
+/** A frame a path received. */
 export type PathFrame = string | Uint8Array;
 export interface PathEvents {
   frame(frame: PathFrame): void;
@@ -17,13 +17,13 @@ export interface PathEvents {
 
 /**
  * A second path to the machine, opened beside the active one and welcomed by the same daemon.
- * Nothing it receives reaches the client until the connection `take`s it; until then it can be
- * dropped with `close` and nothing else changes.
+ * Nothing it receives reaches the client until the connection `take`s it (what came before is
+ * dropped); until then it can be closed and nothing else changes.
  */
 export interface WelcomedPath {
   readonly transport: Transport;
   readonly welcome: Extract<ServerMessage, { type: "welcome" }>;
-  /** Deliver held frames, then every later one, to `events`. */
+  /** Deliver every later frame to `events`. */
   take(events: PathEvents): void;
   /** Frames heard before it was taken: a standby's pong proves it alive. */
   readonly heard: number;
@@ -64,7 +64,6 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
     let taken: PathEvents | undefined;
     let closedListener: ((code: number, reason: string) => void) | undefined;
     let closed: [number, string] | undefined;
-    const held: PathFrame[] = [];
     let welcomed: WelcomedPath | undefined;
     let heard = 0;
     const fail = (error: ClientError) => {
@@ -88,12 +87,10 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
           taken.frame(value);
           return;
         }
+        // No view subscribes on a path before it is taken, so what it hears is pongs and
+        // pushes the active path also carried: they only prove it alive. Delivering them on
+        // promotion would repeat them; what changed meanwhile is read again once it is taken.
         heard++;
-        // An idle standby holds nothing but its pongs, which only prove it alive.
-        if (typeof value === "string" && value.startsWith('{"type":"pong"')) return;
-        // No view subscribes on a path before it is taken, so what it hears is only pushes
-        // the active path also carries: keep the newest few, never an unbounded backlog.
-        if (held.push(value) > 64) held.shift();
         return;
       }
       if (typeof value !== "string") {
@@ -127,7 +124,6 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
         },
         take(events) {
           taken = events;
-          for (const kept of held.splice(0)) events.frame(kept);
           if (closed) events.close(...closed);
         },
         send: (text) => transport.send(text),
@@ -147,8 +143,7 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
     };
     transport.open({
       open: () => {
-        void options.route
-          .credential()
+        void (transport.credential?.() ?? options.route.credential())
           .then((credential) => {
             if (!settled) transport.send(options.hello(transport, credential));
           })

@@ -7,6 +7,7 @@ import {
   raceOrder,
   smoothRtt,
   standbyFor,
+  standbyRetryMs,
   switchVerdict,
   upgradeCandidates,
   type PathHealth,
@@ -45,6 +46,11 @@ export interface MultipathOptions {
   /** A path reached another machine: it is dropped and the person should be told. */
   mismatch?(path: PlannedPath): void;
   report?(event: string, data: Record<string, string | number | boolean>): void;
+  /**
+   * Hear network changes (the browser's `online`), each a cue to check better paths; returns
+   * how to stop. Stopped when the manager closes.
+   */
+  watchNetwork?(changed: () => void): () => void;
 }
 
 /**
@@ -54,6 +60,13 @@ export interface MultipathOptions {
  * shell that runs them on timers.
  */
 const noop = () => {};
+/** What a standby tells the daemon once welcomed: an idle socket, not one showing alerts. */
+const standbyPresence = {
+  type: "presence.update",
+  threadId: null,
+  inputAgeMs: 86_400_000,
+  appState: "background",
+} as const;
 
 export class Multipath {
   #options: MultipathOptions;
@@ -61,6 +74,7 @@ export class Multipath {
   #listeners = new Set<() => void>();
   #connection: PathConnection | undefined;
   #stopState: (() => void) | undefined;
+  #stopNetwork: (() => void) | undefined;
   /** The path the race picked for the connecting attempt. */
   #racing: MachineRoute | undefined;
   #active: MachineRoute | undefined;
@@ -68,6 +82,7 @@ export class Multipath {
   #standby: { route: MachineRoute; path: WelcomedPath; stop: () => void } | undefined;
   #timers: (() => void)[] = [];
   #switching = false;
+  #openingStandby = false;
   #lastWinner: string | undefined;
   /** Paths that reached another daemon: never used again by this manager. */
   #refused = new Set<string>();
@@ -124,6 +139,7 @@ export class Multipath {
       if (this.#racing) this.#refuse(this.#racing);
     });
     this.#stopState = state.subscribe(() => this.#changed());
+    this.#stopNetwork ??= this.#options.watchNetwork?.(() => this.networkChanged());
     this.#changed();
   }
   /** The network changed (online, offline, another connection): check better paths now. */
@@ -137,6 +153,8 @@ export class Multipath {
   close(): void {
     this.#closed = true;
     this.#stopState?.();
+    this.#stopNetwork?.();
+    this.#stopNetwork = undefined;
     this.#stopLoops();
     this.#connection?.setStandby(undefined);
     this.#connection?.onWrongHost(undefined);
@@ -324,27 +342,44 @@ export class Multipath {
       this.#switching = false;
     }
   }
-  /** Keep the best relay authenticated and idle while on the LAN or Tailscale. */
+  /**
+   * Keep the best relay authenticated and idle while on the LAN or Tailscale. One that fails
+   * rests, and another relay, or the same one once its rest ends, takes its place.
+   */
   async #openStandby(): Promise<void> {
     const active = this.#active;
     const connection = this.#connection;
-    if (!active || !connection || this.#standby) return;
+    if (!active || !connection || this.#standby || this.#openingStandby || this.#closed) return;
     const routes = this.#routes();
-    const planned = standbyFor(
-      routes.map((route) => route.path),
-      active.path,
-    );
+    const paths = routes.map((route) => route.path);
+    const now = this.#options.now();
+    const planned = standbyFor(paths, active.path, this.#health, now);
     const route = planned && routes.find((entry) => entry.path.key === planned.key);
-    if (!route) return;
+    if (!route) {
+      const retryMs = standbyRetryMs(paths, active.path, this.#health, now);
+      if (retryMs !== undefined) this.#later(retryMs, () => void this.#openStandby());
+      return;
+    }
     let path: WelcomedPath;
+    this.#openingStandby = true;
     try {
       path = await connection.openBeside(route);
     } catch {
-      this.#failed(route);
+      this.#standbyFailed(active, route);
       return;
+    } finally {
+      this.#openingStandby = false;
     }
     if (this.#active !== active || this.#standby || this.#closed) {
       path.close();
+      return;
+    }
+    // An idle standby is no place to show an alert: the daemon counts it as backgrounded.
+    try {
+      path.send(JSON.stringify(standbyPresence));
+    } catch {
+      path.close();
+      this.#standbyFailed(active, route);
       return;
     }
     let stopped = false;
@@ -366,10 +401,10 @@ export class Multipath {
     };
     const drop = () => {
       if (stopped || this.#standby?.path !== path) return;
-      this.#failed(route);
       this.#standby.stop();
       path.close();
       this.#standby = undefined;
+      this.#standbyFailed(active, route);
     };
     path.onClosed(drop);
     this.#standby = {
@@ -381,6 +416,11 @@ export class Multipath {
       },
     };
     ping();
+  }
+  /** The standby `route` failed: it rests, and a standby is sought again while still useful. */
+  #standbyFailed(active: MachineRoute, route: MachineRoute): void {
+    this.#failed(route);
+    if (this.#active === active && !this.#closed) this.#later(0, () => void this.#openStandby());
   }
   /** The connection failed over onto the standby: it is the active path now. */
   #failedOver(): void {

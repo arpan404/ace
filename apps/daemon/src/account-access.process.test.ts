@@ -16,6 +16,8 @@ import { StoredSession } from "./account-access/session-file.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
+import { WebSocket } from "ws";
+import { Client, webSocketTransport } from "@ace/client";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -356,7 +358,7 @@ async function signedInServer() {
     });
     return { client, closed, first: await client.next() };
   };
-  return { account, hello };
+  return { account, hello, grant, url: f.server.url };
 }
 
 it("a device signed in to the account opens a direct socket as admin", async () => {
@@ -393,4 +395,42 @@ it("an account change closes the account device's direct sockets at once", async
   expect(again.first).toMatchObject({ type: "welcome" });
   await daemon.account.signOut();
   expect(await again.closed).toBe(4003);
+});
+
+it("the client stops and asks for the machine code on a direct socket instead of reconnecting", async () => {
+  const daemon = await signedInServer();
+  await daemon.account.setMachineCode("2468");
+  let sockets = 0;
+  const client = new Client({
+    deviceId: DeviceId.parse("phone"),
+    transport: () => {
+      sockets++;
+      return webSocketTransport(() => new WebSocket(daemon.url));
+    },
+    credential: async () => ({ grant: daemon.grant() }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(ms, callback) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: randomUUID,
+    now: Date.now,
+    // Backoff would retry within this test if the refusal were taken as a drop.
+    limits: { retryBaseMs: 1, retryCapMs: 1 },
+  });
+  cleanup.push(() => client.close());
+  const stopped = new Promise<void>((resolve) => {
+    const states = client.connectionState();
+    states.subscribe(() => {
+      if (states.getSnapshot() === "fatal") resolve();
+    });
+  });
+  await client.start();
+  await stopped;
+  expect(client.error).toMatchObject({ code: "machine_code", message: "machine_code_required" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sockets).toBe(1);
 });

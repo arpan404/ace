@@ -31,6 +31,7 @@ export interface RaceOptions {
  */
 export function racingTransport(options: RaceOptions): Transport {
   let winner: Transport | undefined;
+  let winningRoute: MachineRoute | undefined;
   let closed = false;
   const started: { route: MachineRoute; transport: Transport; failed: boolean }[] = [];
   let cancelNext: (() => void) | undefined;
@@ -54,6 +55,11 @@ export function racingTransport(options: RaceOptions): Transport {
     },
     get flowControl() {
       return winner?.flowControl ?? [];
+    },
+    // The winning path's own credential: its transport's, else its route's.
+    credential() {
+      if (!winner || !winningRoute) return Promise.reject(new Error("No path is open"));
+      return winner.credential?.() ?? winningRoute.credential();
     },
     open(events: TransportEvents) {
       let next = 0;
@@ -100,6 +106,7 @@ export function racingTransport(options: RaceOptions): Transport {
               return;
             }
             winner = transport;
+            winningRoute = route;
             closeAll(transport);
             options.won(route);
             events.open();

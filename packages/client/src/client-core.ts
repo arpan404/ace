@@ -38,6 +38,7 @@ import {
   type ServerMessage,
   type CommandPayload,
 } from "@ace/protocol";
+import { RecentIds } from "./recent-ids.ts";
 import type {
   ClientCoreApi,
   ConnectionControl,
@@ -79,6 +80,14 @@ import {
 export type { RegistryQuery } from "./api.ts";
 
 /** Shared connection, stores and validated wire operations used by page and worker clients. */
+/** An app that never said where it is: in the foreground, on no thread. */
+const foregroundPresence = {
+  type: "presence.update",
+  threadId: null,
+  inputAgeMs: 0,
+  appState: "foreground",
+} as const;
+
 export class ClientCore implements ClientCoreApi, ConnectionControl {
   async *attachmentChunks(
     input: import("./attachment-types.ts").AttachmentInput,
@@ -141,6 +150,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #paths: Multipath | undefined;
   /** Counts daemon sockets this client has spoken over (`connectionGeneration`). */
   #socket = 0;
+  /** The app's last presence, said again on a socket it moves to. */
+  #presence: Extract<OneWayMessage, { type: "presence.update" }> | undefined;
+  #alerts = new RecentIds(64);
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
   /** Read snapshots still being written by collections already closed. */
@@ -202,6 +214,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       this.#codec,
       limits,
       (message) => {
+        // Both paths may carry the same alert while the old one drains (ADR 0114): once only.
+        if (message.type === "notification" && this.#alerts.seen(message.notification.id)) return;
         for (const listener of this.#serviceListeners) {
           try {
             listener(message);
@@ -296,7 +310,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#attachmentStreams.receive(bytes);
       },
     );
-    this.connection.onPathSwitch(() => {
+    this.connection.onPathSwitch((mode) => {
       // Everything owed on the old path; replies may still come there while it drains.
       const requests = this.requests.pending();
       // Newer commands wait until these are answered or sent again first, so none overtakes.
@@ -311,6 +325,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       // What the daemon kept for the old socket (terminal and browser streams, service
       // subscriptions) ends with it: their holders attach again here.
       this.#newSocket();
+      // Say where this app is again: a new socket starts in the foreground, and a standby
+      // promoted by a failover was idle as a background one.
+      const presence = this.#presence ?? (mode === "failover" ? foregroundPresence : undefined);
+      if (presence) this.connection.send(presence);
       return () => {
         this.requests.abandon(requests);
         this.#intents.reask(commands);
@@ -570,6 +588,8 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#statusChecks.disconnect();
     this.#serviceListeners.clear();
     this.#streamListeners.clear();
+    // Its paths end with it: timers, the standby and any network watch.
+    this.#paths?.close();
     this.connection.stop();
     return Promise.all([this.#intents.settled(), ...checkpoints]).then(() => {});
   }
@@ -886,6 +906,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     if (control === null) throw new ClientError("protocol", "Invalid one-way message");
     if (this.state !== "ready" || this.closed || !control || !this.connection.send(control))
       throw new ClientError("offline");
+    if (control.type === "presence.update") this.#presence = control;
   }
   /**
    * A one-way control checked against the full schema: null when it is not one, undefined

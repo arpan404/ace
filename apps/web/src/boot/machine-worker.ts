@@ -40,6 +40,11 @@ const host = new ClientHost({
                 now: () => Date.now(),
                 clock: () => performance.now(),
                 lastWinner: lastWinnerKey(routes, target.lastPath),
+                // The network changed: a better path may be back, or the active one gone.
+                watchNetwork: (changed) => {
+                  addEventListener("online", changed);
+                  return () => removeEventListener("online", changed);
+                },
               })
             : undefined;
         const client = new ClientCore({
@@ -51,11 +56,8 @@ const host = new ClientHost({
           }),
           expectedHostId: HostId.parse(target.hostId),
         });
-        if (paths) {
-          client.usePaths(paths);
-          // The network changed: a better path may be back, or the active one gone.
-          addEventListener("online", () => paths.networkChanged());
-        }
+        // Closing the client closes its paths, which stops this network watch.
+        if (paths) client.usePaths(paths);
         return client;
       },
     };
