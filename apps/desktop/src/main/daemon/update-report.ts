@@ -1,4 +1,4 @@
-import type { AppUpdateReport } from "@ace/protocol";
+import type { AppUpdateInstruction, AppUpdateReply, AppUpdateReport } from "@ace/protocol";
 import type { UpdateStatus } from "../../shared/contract.ts";
 
 /** States in which a newer version is on offer: found, on its way, or waiting for a restart. */
@@ -21,12 +21,22 @@ export function appUpdateReport(status: UpdateStatus): AppUpdateReport {
     // Only an in-place update installs on restart; others open the release page.
     restartRequired: downloaded && status.inPlace,
     releaseUrl: status.releaseUrl,
+    // The updater's own state, so an update asked for from elsewhere can follow it (ADR 0113).
+    state: status.state,
+    percent: status.percent,
+    error: status.error?.message ?? null,
+    inPlace: status.inPlace,
   };
 }
 
 export interface UpdateReportPorts {
-  /** Sends one report to the daemon this app runs (`probe.ts` `reportAppUpdate`). */
-  send(report: AppUpdateReport): Promise<void>;
+  /**
+   * Sends one report to the daemon this app runs (`probe.ts` `reportAppUpdate`); resolves with
+   * the daemon's reply, which may carry an instruction.
+   */
+  send(report: AppUpdateReport): Promise<AppUpdateReply | void>;
+  /** The daemon asked for something new (ADR 0113): each instruction id arrives once. */
+  instructed?(instruction: AppUpdateInstruction): void;
   /** Takes the report back (`probe.ts` `withdrawAppUpdate`), as the app quits. */
   withdraw(): Promise<void>;
   log(message: string): void;
@@ -53,6 +63,7 @@ export class UpdateReporter {
   #withdrawn = false;
   #sending: Promise<void> = Promise.resolve();
   #stopRenewing: (() => void) | undefined;
+  #heard: string | undefined;
   constructor(ports: UpdateReportPorts) {
     this.#ports = ports;
   }
@@ -109,8 +120,13 @@ export class UpdateReporter {
       const key = JSON.stringify(report);
       if (key === this.#sent) return;
       try {
-        await this.#ports.send(report);
+        const reply = await this.#ports.send(report);
         this.#sent = key;
+        const instruction = reply?.instruction;
+        if (instruction && instruction.id !== this.#heard) {
+          this.#heard = instruction.id;
+          this.#ports.instructed?.(instruction);
+        }
       } catch (error) {
         this.#ports.log(`Couldn't report the app's update status to its daemon: ${String(error)}`);
       }

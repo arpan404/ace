@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AppUpdateReport } from "@ace/protocol";
+import type { AppUpdateInstruction, AppUpdateReply, AppUpdateReport } from "@ace/protocol";
 import type { UpdateStatus } from "../../shared/contract.ts";
 import { UpdateReporter } from "./update-report.ts";
 
@@ -18,15 +18,18 @@ const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
 });
 
 /** A daemon that keeps what it was told and can refuse while it is down. */
-function daemon() {
+function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   const told: (AppUpdateReport | "withdrawn")[] = [];
+  const instructed: AppUpdateInstruction[] = [];
   let up = true;
   const timers: { run(): void; cancelled: boolean }[] = [];
   const reporter = new UpdateReporter({
     send: async (report) => {
       if (!up) throw new Error("connect ECONNREFUSED");
       told.push(report);
+      return replies.shift();
     },
+    instructed: (instruction) => instructed.push(instruction),
     withdraw: async () => {
       if (!up) throw new Error("connect ECONNREFUSED");
       told.push("withdrawn");
@@ -44,7 +47,7 @@ function daemon() {
   const renew = () => {
     for (const timer of timers.splice(0)) if (!timer.cancelled) timer.run();
   };
-  return { told, reporter, down: (on: boolean) => (up = !on), renew };
+  return { told, instructed, reporter, down: (on: boolean) => (up = !on), renew };
 }
 
 describe("app update reporting", () => {
@@ -65,6 +68,10 @@ describe("app update reporting", () => {
         downloaded: false,
         restartRequired: false,
         releaseUrl: null,
+        state: "checking",
+        percent: null,
+        error: null,
+        inPlace: true,
       },
     ]);
     const url = "https://github.com/arpan404/ace/releases/tag/v1.4.2";
@@ -80,6 +87,10 @@ describe("app update reporting", () => {
         downloaded: false,
         restartRequired: false,
         releaseUrl: url,
+        state: "available",
+        percent: null,
+        error: null,
+        inPlace: true,
       },
       {
         version: "1.4.1",
@@ -87,6 +98,10 @@ describe("app update reporting", () => {
         downloaded: true,
         restartRequired: true,
         releaseUrl: url,
+        state: "downloaded",
+        percent: null,
+        error: null,
+        inPlace: true,
       },
     ]);
   });
@@ -167,5 +182,29 @@ describe("app update reporting", () => {
     renew();
     await reporter.settled();
     expect(told).toEqual([told[0], told[0], "withdrawn"]);
+  });
+
+  it("what the daemon asks in its reply reaches the app once, however often it is repeated", async () => {
+    const install: AppUpdateInstruction = {
+      id: "ask-1:install:1",
+      action: "install",
+      mode: "idle",
+      version: "1.4.2",
+    };
+    const reply = (instruction: AppUpdateInstruction | null): AppUpdateReply => ({
+      report: null,
+      reportedAt: 1,
+      instruction,
+    });
+    const { instructed, reporter, renew } = daemon([reply(null), reply(install), reply(install)]);
+    reporter.connected(true);
+    reporter.status(status());
+    await reporter.settled();
+    expect(instructed).toEqual([]);
+    renew();
+    await reporter.settled();
+    renew();
+    await reporter.settled();
+    expect(instructed).toEqual([install]);
   });
 });
