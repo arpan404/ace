@@ -91,7 +91,15 @@ export function ErrorRow(props: {
               >
                 Sign in
               </Button>
-            ) : elsewhere ? null : (
+            ) : elsewhere ? null : signInTo && signInTo !== "acp" ? (
+              <Link
+                to="/settings/providers/$provider"
+                params={{ provider: signInTo }}
+                className={linkButton}
+              >
+                Sign in
+              </Link>
+            ) : (
               <Link to="/settings/providers" className={linkButton}>
                 Sign in
               </Link>

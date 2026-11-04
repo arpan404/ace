@@ -276,6 +276,24 @@ const entries = [
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },
   {
+    id: "devices.frame",
+    page: "/settings/simulators",
+    title: "Show device frame",
+    keywords: ["simulator", "emulator", "bezel", "phone", "screen only", "window"],
+  },
+  {
+    id: "devices.streamStats",
+    page: "/settings/simulators",
+    title: "Show stream stats",
+    keywords: ["simulator", "emulator", "fps", "frames", "performance", "window"],
+  },
+  {
+    id: "devices.recent",
+    page: "/settings/simulators",
+    title: "Recent devices",
+    keywords: ["simulator", "emulator", "history", "clear", "window"],
+  },
+  {
     id: "browser.userChrome.connection",
     page: "/settings/browser",
     title: "Browser connection",
@@ -323,8 +341,8 @@ const entries = [
   {
     id: "app.attention",
     page: "/settings/general",
-    title: "Bounce dock icon for attention",
-    keywords: ["flash", "window", "taskbar", "urgent"],
+    title: "Get attention when agents need you",
+    keywords: ["bounce", "dock", "flash", "window", "taskbar", "urgent", "attention"],
   },
   {
     id: "app.terminalCommand",
@@ -610,7 +628,7 @@ const entries = [
   {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "App diagnostics",
+    title: "Machine diagnostics",
     keywords: [
       "memory",
       "debug",
