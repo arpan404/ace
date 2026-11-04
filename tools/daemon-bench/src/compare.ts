@@ -157,7 +157,7 @@ function matches(pattern: string, metric: string) {
 export function compare(measured: Measured, baseline: Baseline): Verdict[] {
   const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
-  // Memory and idle costs depend on the runtime: another Node major's numbers don't hold.
+  // Memory and idle costs depend on the runtime: another Node major's (or Bun's) numbers don't hold.
   const sameRuntime = own !== undefined && nodeMajor(own.node) === nodeMajor(measured.node);
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
   if (own)

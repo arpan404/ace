@@ -181,7 +181,8 @@ try {
   const result = BenchResult.parse({
     version: 2,
     platform: `${process.platform}-${process.arch}`,
-    node: process.version,
+    // Bun reports a Node version too; its numbers must never be compared with Node's.
+    node: process.versions.bun ? `bun ${process.versions.bun}` : process.version,
     workload: {
       version: workloadVersion,
       options,
