@@ -27,7 +27,7 @@ ace doctor
 
 `ace start` stays in the foreground and stops on SIGINT or SIGTERM. `ace status` prints JSON with `running: false` when the daemon is stopped. `ace doctor` uses provider-kit discovery for version and authentication probes. It sends no prompts.
 
-In Settings > Remote devices, turn on Remote access and choose LAN or Tailscale. This applies immediately, including in the desktop app; no restart is needed. `host.displayName` names this computer in Settings and machine pickers.
+In Settings > Fleet, turn on Remote access, then turn on the networks it serves: the local network, Tailscale and a relay, in any combination. Each applies immediately, including in the desktop app; no restart is needed. A machine signed in to an ace account is also reachable through ace's relay whenever remote access is on, with nothing else to turn on ([ADR 0112](../adr/0112-remote-networks-together.md)). `host.displayName` names this computer in Settings and machine pickers.
 
 Enable remote access before running `ace pair`. Pairing prints an HTTPS URL and a terminal QR code. A companion client reads the URL's fragment, verifies the daemon's public-key fingerprint during TLS negotiation, then posts the code to the redemption endpoint. The fragment is never part of the HTTP request URL. Opening `/pair` loads the shipped web app from the TLS listener. Confirm this device's name to redeem the code, save its device token and connect using a one-use ticket. The connect screen also accepts a pairing link or a code plus computer address. Browsers require trusted HTTPS and cannot perform native public-key pinning; use only a link obtained from your own computer and trust its certificate before pairing. The Node client helper verifies the fragment's public-key fingerprint before sending credentials.
 
@@ -50,9 +50,28 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 
 LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. When the tailnet has MagicDNS and HTTPS certificates turned on (Tailscale admin console › DNS), the listener serves Tailscale's publicly trusted certificate to clients that ask for this machine's ts.net name, and pairing links name that host (`https://<machine>.<tailnet>.ts.net:<port>`), so browsers pair with no warning. Until that certificate is served, or if it can't be fetched or has expired, links use the 100.x address, which works for native clients and the CLI. The daemon fetches it with `tailscale cert`, refreshes it twice a day and keeps ace's own certificate for every other name. On Linux, let ace fetch it with `sudo tailscale set --operator=$USER`. Native clients still pin ace's key, and also accept a publicly trusted certificate for the exact ts.net name ([ADR 0097](../adr/0097-tailscale-https-certificates.md)). A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
 
-Global `remote.enabled` and `remote.transport` settings control direct access. The legacy `local` transport value selects LAN when enabled. Selecting Relay serves every channel through the encrypted relay at `remote.relayUrl`, without opening a LAN listener: the main conversation, pairing redemption and the file, browser, screen, device and provider sign-in channels. See [Through a relay](#through-a-relay).
+### Networks run together
 
-`ACE_LISTEN`, when explicitly supplied, overrides the direct listener preference, including `local`. `ACE_RELAY_URL` independently forces the outbound relay. Settings shows an override notice and disables network controls while either override is present. Unset the launch override to use runtime settings. Changes close direct remote sockets, relay channels, pending codes and tickets; local host sessions and stored devices survive.
+`remote.enabled` is the switch for all of remote access. Under it, each network has its own global setting, and any combination runs at once ([ADR 0112](../adr/0112-remote-networks-together.md)):
+
+| Setting            | Default | Serves                                                                                        |
+| ------------------ | ------- | --------------------------------------------------------------------------------------------- |
+| `remote.lan`       | on      | The local network: the direct listener on every address                                       |
+| `remote.tailscale` | off     | Tailscale: the direct listener on the 100.x address, with Tailscale's certificate when issued |
+| `remote.relay`     | off     | A relay: `remote.relayUrl` when set, otherwise ace's relay                                    |
+| `remote.relayUrl`  | empty   | Your own relay. Optional: empty means ace's relay                                             |
+
+LAN and Tailscale share one listener. With both on it binds every address (which reaches the Tailscale address too) and links name the Tailscale address, which also works away from the LAN; with Tailscale alone it binds only the 100.x address. A relay serves every channel through the encrypted relay: the main conversation, pairing redemption (self-hosted relays only) and the file, browser, screen, device and provider sign-in channels. See [Through a relay](#through-a-relay).
+
+While remote access is on and the machine is signed in to an ace account, the daemon also registers on ace's relay (`ACE_HOSTED_RELAY_URL`, `wss://relay.acehq.dev` by default) with a fresh machine grant, whatever else it serves. That is what lists the machine on the account and lets the account's devices open it. Signing out stops the registration; signing in to another account registers again under it. The daemon never registers twice on one relay: turning the relay on with no address, or naming ace's relay as your own, is the same registration.
+
+**Failures stay with their network.** Each network starts, fails and recovers on its own. Tailscale being down never stops the LAN or a relay; a relay refusing the machine never stops the LAN. Turning on a network that can't start right now (Tailscale not running, no LAN address) is refused with the reason and nothing else changes. A network that fails later shows its reason in status and is tried again with backoff (1 s doubling to 30 s), except ace's relay waiting for a sign-in or refusing the machine: that waits until the machine signs in again. A relay that drops reconnects with backoff. Remote access never moves to the LAN on its own: with Tailscale alone, a Tailscale outage opens nothing.
+
+**Settings from before.** Earlier versions had one `remote.transport` choice. The settings file migrates forward on its first read: `local` and `lan` become the LAN, `tailscale` becomes Tailscale alone, `relay` becomes the LAN plus the relay (it always kept the LAN for pairing), and a saved `remote.relayUrl` keeps its relay on. The file then holds the three settings instead of `remote.transport`. An older app that writes `remote.transport` still works: the write becomes the networks it means.
+
+**Status.** `ace status` and `GET /v1/status` report `remoteAccess.networks`: `lan`, `tailscale`, `relay` (the relay you turned on) and `account` (ace's relay for your account), each with `state` (`off`, `on`, `waiting` or `failed`), an `error` when it isn't serving, and its `address`. The older fields stay: `enabled` is true while any network serves, `transport` names one network (your relay while it serves, else Tailscale, else LAN, else ace's relay), and `error` repeats the first network error.
+
+`ACE_LISTEN`, when explicitly supplied, overrides the direct listener preferences, including `local`. `ACE_RELAY_URL` independently forces an outbound relay; a signed-in machine still registers on ace's relay beside it. Settings shows an override notice and disables network controls while either override is present. Unset the launch override to use runtime settings. Changes close direct remote sockets, relay channels, pending codes and tickets; local host sessions and stored devices survive.
 
 The loopback listener remains available in both remote modes. The token file is an implicit admin credential accepted only by this listener. The remote TLS listener rejects that credential even for connections originating on loopback.
 
@@ -89,12 +108,14 @@ the app, and tells it when you sign out. On a machine without the app, `ace logi
 sign-in, prints the address to open, and waits until you finish it in a browser; `ace logout`
 signs the machine out. `ace status` shows the account under `remoteAccess.account`.
 
-**ace's relay.** With the relay transport set to ace's hosted relay (`ACE_HOSTED_RELAY_URL`),
-the daemon asks the account backend for a fresh, five-minute machine grant before every
-registration and offers it as the `ace.grant.<grant>` WebSocket subprotocol. While the machine
-is signed out, or after the relay refuses it, remote access shows "Sign in to your ace account
-on this machine…" and does not retry on a timer; signing in starts the relay again. Signing out
-stops it. Self-hosted relays stay anonymous: they echo an offered grant without checking it,
+**ace's relay.** While remote access is on and the machine is signed in, the daemon registers
+on ace's hosted relay (`ACE_HOSTED_RELAY_URL`) beside whatever else it serves: LAN, Tailscale or
+a relay of your own. It asks the account backend for a fresh, five-minute machine grant before
+every registration and offers it as the `ace.grant.<grant>` WebSocket subprotocol. With the
+relay turned on and no address of its own, the relay is ace's: while the machine is signed out,
+or after the relay refuses it, that network shows "Sign in to your ace account on this machine…"
+and does not retry on a timer; signing in starts it again. Signing out stops the registration;
+the LAN and Tailscale keep serving. Self-hosted relays stay anonymous: they echo an offered grant without checking it,
 and the daemon offers them none.
 
 **Account devices.** A client on the account connects to `/client` with a device grant as its
@@ -122,7 +143,7 @@ clearing the code makes every device enter the new one.
 
 **Main conversation.** A client opens a relay channel to `/client?hostId=<relay host id>`, pins that host key in the Noise handshake, and sends the same `hello` it sends a direct socket, without `channel` (a ticket, a paired device's token, or an account `grant`). The daemon serves it with the same handler as its own listener: same scopes, admission, outbox backpressure, snapshot and replay by `afterSeq`, idle timeout and close codes. The relay has no close frame, so the daemon's last message is `{ "type": "channel.close", "code", "reason" }` (4003 revoked, 4008 idle, 4009 backpressure, 4013 capacity, the resync code); a channel that ends without it reads as 1006 and the client reconnects with backoff. A refused hello gets `error` `unauthorized` (or a `machine_code_*` code for an account device) before the channel closes. `hello.compression: ["deflate-raw"]` lets the daemon deflate bulk JSON. In `@ace/client`, `relayRoute({ relayUrl, hostId, credential, socket, schedule })` gives `ClientOptions` its `transport` and `credential`; each attempt fetches its own credential, so a five-minute account grant is fresh every time.
 
-**Pairing through a self-hosted relay.** With no LAN or Tailscale listener and a self-hosted relay running, `POST /v1/pairings` and `fleet.request` issue links that open the web app (app.acehq.dev unless another is chosen) with `#relay=<wss url>&hostId=<relay host id>&code=…&scopes=…`. The client opens a relay channel pinned to that host id and sends `{ "type": "pair.redeem", "code", "name" }` as its only message; the daemon answers `pair.result` (`{ ok: true, device, token }`, or `{ ok: false, error: "invalid" | "rate_limited" | "unavailable" }`) and closes. Codes keep the same rules: five minutes, single use, scopes chosen by the host, nothing logged. Relayed redemptions share one rate limit (five a minute) besides the global one. `redeemPairingViaRelay` in `@ace/client/access` does this. ace's hosted relay admits only devices signed in to an ace account, which never need pairing, so pairing goes through self-hosted relays only.
+**Pairing through a self-hosted relay.** Links name the LAN or Tailscale address while either serves. With neither serving and a self-hosted relay running, `POST /v1/pairings` and `fleet.request` issue links that open the web app (app.acehq.dev unless another is chosen) with `#relay=<wss url>&hostId=<relay host id>&code=…&scopes=…`. The client opens a relay channel pinned to that host id and sends `{ "type": "pair.redeem", "code", "name" }` as its only message; the daemon answers `pair.result` (`{ ok: true, device, token }`, or `{ ok: false, error: "invalid" | "rate_limited" | "unavailable" }`) and closes. Codes keep the same rules: five minutes, single use, scopes chosen by the host, nothing logged. Relayed redemptions share one rate limit (five a minute) besides the global one. `redeemPairingViaRelay` in `@ace/client/access` does this. ace's hosted relay admits only devices signed in to an ace account, which never need pairing, so pairing goes through self-hosted relays only.
 
 **Machine code over the wire.** An admin connection can send `machine.code.status`, `machine.code.set` (`code`, 4 to 128 characters) and `machine.code.clear`, each with a `requestId`; the daemon answers `machine.code.result` with `{ ok: true, status }` (the account and machine code state, as `GET /v1/ace-account` returns it) or `{ ok: false, error: "forbidden" | "unavailable" | "busy" }`. An account device that sets the code keeps its own access. A `machine_code_locked` refusal carries `lockedUntil`.
 
