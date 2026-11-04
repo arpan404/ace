@@ -10,6 +10,7 @@
 import { MachineAccountStatus, type RemoteAccessStatus } from "@ace/protocol";
 import { z } from "zod";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import { directTarget } from "@/boot/main-machine.ts";
 import { machineAccountBridge, type MachineAccountRequest } from "@/boot/machine-account-bridge.ts";
 import type { MachineAccountAccess } from "@/features/ace-account/index.ts";
 import type { ClientApi } from "@ace/client";
@@ -35,8 +36,9 @@ const hostOnly = () =>
   new Error("Only this computer can sign itself in or out. Use the ace app on it, or `ace login`.");
 
 function daemonRoutes(endpoint: DaemonEndpoint) {
-  // Reached only through a relay: its address is the relay's, never the daemon's.
-  if (endpoint.kind === "daemon" && endpoint.target.relayHostId !== undefined)
+  // Reached only through a relay (a self-hosted one, or ace's for a machine on the account): its
+  // address is the relay's, never the daemon's.
+  if (endpoint.kind === "account" || (endpoint.kind === "daemon" && !directTarget(endpoint)))
     return () => Promise.reject(hostOnly());
   const options = accessOptions(endpoint);
   return async (request: AccountRequest) => {

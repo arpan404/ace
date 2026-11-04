@@ -2,13 +2,14 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { lazy, StrictMode, Suspense, useState, type ReactNode } from "react";
+import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
-import { DaemonConnectionContext } from "./boot/connection.tsx";
+import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
+import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { useKeptQueries } from "./boot/kept-queries.ts";
@@ -97,8 +98,10 @@ function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
   const [queryClient] = useState(createQueryClient);
   useKeptQueries(queryClient, props.client, props.connection);
+  const { target, hostId } = props.connection;
+  const kept = useMemo(() => target && { target, hostId }, [target, hostId]);
   return (
-    <KeptTurnStepsConnection.Provider value={props.connection}>
+    <KeptTurnStepsConnection.Provider value={kept}>
       <App
         client={props.client}
         queryClient={queryClient}
@@ -118,21 +121,35 @@ const daemonApp = (client: ClientApi, connection: GateConnection) => (
 const NoMachineApp = lazy(() =>
   import("./features/no-machine/index.ts").then((module) => ({ default: module.NoMachineApp })),
 );
+/** Left the connection screen for Profile or Fleet: the app opens there, before its router reads the address. */
+function AtPlace(props: { place?: NoMachinePlace | undefined; children: ReactNode }) {
+  useState(() => {
+    if (props.place) history.replaceState(null, "", props.place);
+  });
+  return props.children;
+}
 /** A window with no machine yet: the app, empty, with the machine pool for account machines. */
-function NoMachineWindow() {
+function NoMachineWindow(props: { place?: NoMachinePlace | undefined }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
   return (
-    <Suspense fallback={null}>
-      <NoMachineApp
-        storage={local}
-        windowStorage={session}
-        machines={pool}
-        ensureMachines={ensure}
-      />
-    </Suspense>
+    <AtPlace place={props.place}>
+      <Suspense fallback={null}>
+        <NoMachineApp
+          storage={local}
+          windowStorage={session}
+          machines={pool}
+          ensureMachines={ensure}
+        />
+      </Suspense>
+    </AtPlace>
   );
 }
-const noMachineWindow = () => <NoMachineWindow />;
+const noMachineWindow = (place?: NoMachinePlace) => <NoMachineWindow place={place} />;
+/** Machines on the ace account open as this window's machine through ace's relay, on demand. */
+const accountRoutes: AccountRouteSource = (machine) =>
+  import("./boot/account-main-route.ts").then(({ browserAccountRoutes }) =>
+    browserAccountRoutes({ storage: local, session })(machine),
+  );
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 const pairingLink = pairingLinkFromUrl(new URL(location.href));
@@ -158,6 +175,7 @@ function gate(
       pairingLink={pairingLink}
       onFragmentRead={forgetFragment}
       noMachine={noMachineWindow}
+      accountRoutes={accountRoutes}
       manual={options.manual}
     >
       {daemonApp}
@@ -165,25 +183,50 @@ function gate(
   );
 }
 
-/** Fake mode with no machine (`?machine=none`, signed out with `&account=out`), to see it. */
+/** Fake mode with no machine: an address opens the fake daemon's own app, as before. */
+function fakeElsewhere(): Promise<never> {
+  session.removeItem?.("ace.fake.machine");
+  location.assign("/");
+  return new Promise<never>(() => {});
+}
+
+/**
+ * Fake mode with no machine (`?machine=none`, signed out with `&account=out`), to see it: the
+ * real connection gate, where Fleet's Open makes a fake account machine this window's (the
+ * Studio asks for its code, 2468) and a reload opens it again. Kept in this tab only.
+ */
 async function fakeNoMachine(signedOut: boolean): Promise<ReactNode> {
-  const [{ fakeNoMachineAccount, fakeNoMachineConnection }, { fakeAccountConnector }, account] =
+  const [{ fakeNoMachineAccount }, { fakeAccountConnector }, { fakeAccountRoutes }, account, fake] =
     await Promise.all([
       import("./boot/fake-no-machine.ts"),
       import("./boot/fake-account.ts"),
+      import("./boot/fake-account-main.ts"),
       import("./features/ace-account/index.ts"),
+      import("./boot/fake.ts"),
     ]);
   const { AceAccountBackendContext, AccountMachineConnectorContext } = account;
+  const { daemon } = fake.bootFake();
+  const routes = fakeAccountRoutes({ daemon, session, now: Date.now });
   return (
-    <DaemonConnectionContext.Provider value={fakeNoMachineConnection}>
-      <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
-        <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
-          <Suspense fallback={null}>
-            <NoMachineApp storage={local} windowStorage={session} />
-          </Suspense>
-        </AccountMachineConnectorContext>
-      </AceAccountBackendContext>
-    </DaemonConnectionContext.Provider>
+    <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
+      <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
+        <ConnectionGate
+          stores={{ local: session, session }}
+          defaultUrl={defaultDaemonUrl}
+          createClient={fakeElsewhere}
+          accountRoutes={routes}
+          noMachine={(place) => (
+            <AtPlace place={place}>
+              <Suspense fallback={null}>
+                <NoMachineApp storage={local} windowStorage={session} />
+              </Suspense>
+            </AtPlace>
+          )}
+        >
+          {(client) => app(client)}
+        </ConnectionGate>
+      </AccountMachineConnectorContext>
+    </AceAccountBackendContext>
   );
 }
 
@@ -192,7 +235,10 @@ async function content(): Promise<ReactNode> {
   if (import.meta.env.MODE === "fake") {
     // `?machine=none`: the app as a window with no machine sees it.
     const search = new URLSearchParams(location.search);
-    if (search.get("machine") === "none") return fakeNoMachine(search.get("account") === "out");
+    // Kept for the tab, so a reload after opening an account machine (at `/`) stays in it.
+    if (search.get("machine") === "none") session.setItem("ace.fake.machine", "none");
+    if (session.getItem("ace.fake.machine") === "none")
+      return fakeNoMachine(search.get("account") === "out");
     const fake = (await import("./boot/fake.ts")).bootFake();
     const { client } = fake;
     if (!profileName(local)) setProfileName(local, fake.profileName);

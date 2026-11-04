@@ -11,17 +11,29 @@ import {
   type ConnectionProblem,
   type ConnectionStatus,
   type DaemonConnection,
+  type DaemonEndpoint,
+  type NoMachinePlace,
 } from "@/boot/connection.tsx";
 import {
   forgetToken,
+  loadAccountChoice,
   loadTarget,
+  saveAccountChoice,
   saveTarget,
   type ConnectionStores,
   type DaemonTarget,
 } from "@/boot/connection-settings.ts";
+import {
+  AccountMainMachine,
+  accountProblem,
+  type AccountMainRoute,
+  type AccountRouteSource,
+  type MainMachine,
+} from "@/boot/main-machine.ts";
 import { handoffFromFragment, type Handoff } from "@/boot/fragment-handoff.ts";
 import { forgetKnownHost, knownHost, rememberHost } from "@/boot/known-host.ts";
 import { gateView } from "./window-machine.ts";
+import { useAccountRoute } from "./account-route.ts";
 
 /** How long a first attempt may take before the screen says it can't reach the daemon. */
 export const firstAttemptMs = 6_000;
@@ -36,6 +48,10 @@ const timers: Schedule = (delayMs, run) => {
 
 interface GateState {
   target: DaemonTarget | undefined;
+  /** A machine on the ace account chosen instead of an address; never both. */
+  account?: AccountMainMachine | undefined;
+  /** Where the app with no machine opens after the person left the connection screen. */
+  place?: NoMachinePlace | undefined;
   url: string;
   remembered: boolean;
   pending?: Extract<Handoff, { kind: "confirm" }> | undefined;
@@ -53,10 +69,12 @@ interface GateState {
   shown: boolean;
 }
 
-/** One attempt at one target: a client is made for it and shown only while it is current. */
+/** One attempt at one machine: a client is made for it and shown only while it is current. */
 interface ClientRequest {
-  target: DaemonTarget;
+  machine: MainMachine;
   attempt: number;
+  /** An account machine's route, loading or loaded; the same for every attempt at it. */
+  route?: Promise<AccountMainRoute | undefined> | undefined;
 }
 
 /** Where one client got to before its first welcome. */
@@ -69,10 +87,17 @@ type Progress =
 /**
  * What the app is opened for: the target and its host, the one that verified itself there or,
  * until it does, the one it verified as last time (the app then paints what was kept for it).
+ * An account machine has no target: nothing is kept for it between sessions.
  */
 export interface GateConnection {
-  target: DaemonTarget;
+  target: DaemonTarget | undefined;
   hostId: string;
+}
+
+/** A stored account machine, when this build can open one. */
+function storedAccount(stores: ConnectionStores): AccountMainMachine | undefined {
+  const parsed = AccountMainMachine.safeParse(loadAccountChoice(stores));
+  return parsed.success ? parsed.data : undefined;
 }
 
 function problemOf(code: ClientError["code"] | undefined): ConnectionProblem {
@@ -110,10 +135,16 @@ export function ConnectionGate(props: {
   desktop?: boolean;
   pairingLink?: string | undefined;
   /**
-   * The app with no machine, shown while nothing is chosen (`hasNoMachine`). Without it such a
-   * window shows the connection screen.
+   * The app with no machine, shown while nothing is chosen (`hasNoMachine`), opening on `place`
+   * when the person left the connection screen for one. Without it such a window shows the
+   * connection screen.
    */
-  noMachine?: (() => ReactNode) | undefined;
+  noMachine?: ((place?: NoMachinePlace) => ReactNode) | undefined;
+  /**
+   * Opens machines on the person's ace account as this window's machine, through ace's relay
+   * (`account-main-route.ts`). Without it the window can't, and a stored choice is ignored.
+   */
+  accountRoutes?: AccountRouteSource | undefined;
   /** Open on the address form even with nothing chosen (the desktop's Connect manually). */
   manual?: boolean | undefined;
   /** When the first-attempt deadline runs; injected by tests. */
@@ -134,14 +165,21 @@ export function ConnectionGate(props: {
     const stored = loadTarget(stores, defaultUrl);
     // The desktop's target as handed, with the identity of its own daemon, which is never saved.
     const target = props.handed ?? stored.target;
+    const linked = props.pairingLink !== undefined;
+    // Saving either kind of machine forgets the other, so at most one is stored.
+    const account =
+      props.accountRoutes && !props.handed && !linked && !target
+        ? storedAccount(stores)
+        : undefined;
     return {
-      target: props.pairingLink === undefined ? target : undefined,
+      target: linked ? undefined : target,
+      account,
       url: stored.url,
       remembered: stored.remembered,
       pending: handoff.kind === "confirm" ? handoff : undefined,
       editing: props.manual === true,
       attempt: 0,
-      shown: !stored.target || handoff.kind === "confirm",
+      shown: (!stored.target && !account) || handoff.kind === "confirm",
     };
   });
   // Only the app-managed handoff follows the supervisor. Manual selection owns its target.
@@ -162,6 +200,7 @@ export function ConnectionGate(props: {
         return {
           ...previous,
           target,
+          account: undefined,
           url: target.url,
           remembered: false,
           editing: false,
@@ -180,8 +219,20 @@ export function ConnectionGate(props: {
     () => (props.desktop ? watchDesktopTarget(adoptDesktop) : undefined),
     [props.desktop, adoptDesktop],
   );
+  // The machine chosen, as one value, so a request changes only when the choice does.
+  const chosen = useMemo<MainMachine | undefined>(
+    () =>
+      state.target
+        ? { kind: "address", target: state.target }
+        : state.account
+          ? { kind: "account", machine: state.account }
+          : undefined,
+    [state.target, state.account],
+  );
   // Nothing connects while a link waits for an answer or the person edits the target.
-  const active = state.pending || state.editing ? undefined : state.target;
+  const active = state.pending || state.editing ? undefined : chosen;
+  const accountRoutes = props.accountRoutes;
+  const { routing, route } = useAccountRoute(state.account, accountRoutes);
   useEffect(() => {
     if (fragment) onFragmentRead?.();
   }, [fragment, onFragmentRead]);
@@ -207,8 +258,13 @@ export function ConnectionGate(props: {
   // One request per attempt: Try again asks for the same target again, with a fresh client.
   const attempt = state.attempt;
   const request = useMemo<ClientRequest | undefined>(
-    () => active && { target: active, attempt },
-    [active, attempt],
+    () =>
+      active && {
+        machine: active,
+        attempt,
+        route: active.kind === "account" ? routing : undefined,
+      },
+    [active, attempt, routing],
   );
   const client = installed && installed.request === request ? installed : undefined;
   useEffect(() => {
@@ -222,13 +278,20 @@ export function ConnectionGate(props: {
     let current: ClientApi | undefined;
     let replaced = false;
     const stops: (() => void)[] = [];
-    const device = request.target.pairedDeviceId ?? deviceId();
-    const refuse = (error: ClientError | undefined) => {
-      const problem = problemOf(error?.code);
+    const { machine } = request;
+    // Only an address machine is remembered by host: nothing is kept for an account machine.
+    const address = machine.kind === "address" ? machine.target : undefined;
+    const device = address ? (address.pairedDeviceId ?? deviceId()) : "";
+    let opened: AccountMainRoute | undefined;
+    const refuse = (error: ClientError | undefined, account?: ConnectionProblem) => {
+      const problem =
+        account ??
+        (opened && accountProblem(opened.grantProblem(), error?.code)) ??
+        problemOf(error?.code);
       // A refused token or another daemon: the next load waits for an answer before opening.
-      if (stores.local && (problem === "auth" || problem === "identity"))
-        forgetKnownHost(stores.local, request.target, device);
-      const detail = detailOf(error);
+      if (stores.local && address && (problem === "auth" || problem === "identity"))
+        forgetKnownHost(stores.local, address, device);
+      const detail = opened ? undefined : detailOf(error);
       // The screen names the problem; the console keeps the client's own words for support.
       console.error(`ace: connection stopped (${error?.code ?? "unknown"})`, detail ?? "");
       setState((previous) => ({ ...previous, editing: true, problem, detail, shown: true }));
@@ -248,7 +311,7 @@ export function ConnectionGate(props: {
             ? { ...previous, progress: value }
             : previous,
         );
-      const known = stores.local ? knownHost(stores.local, request.target, device) : undefined;
+      const known = stores.local && address ? knownHost(stores.local, address, device) : undefined;
       setClient({ client: next, key, progress: { kind: "connecting" }, request, known });
       let welcomed = false;
       const states = next.connectionState();
@@ -274,7 +337,7 @@ export function ConnectionGate(props: {
                 identified = true;
                 stopWaiting();
                 if (replaced) return;
-                if (stores.local) rememberHost(stores.local, request.target, device, hostId);
+                if (stores.local && address) rememberHost(stores.local, address, device, hostId);
                 if (next.state === "ready") progress({ kind: "ready", hostId });
               },
               (error: unknown) => {
@@ -296,8 +359,15 @@ export function ConnectionGate(props: {
         } else if (now === "fatal") {
           // Before the first welcome every refusal is shown here; afterwards only a rejected
           // token or another daemon is (the shell's notice says the rest), since the person
-          // must paste another token or decide to forget the daemon they met.
-          if (!welcomed || next.error?.code === "auth" || next.error?.code === "identity")
+          // must paste another token or decide to forget the daemon they met. An account
+          // machine that wants its code again needs the person too.
+          const code = next.error?.code;
+          if (
+            !welcomed ||
+            code === "auth" ||
+            code === "identity" ||
+            (opened && code === "machine_code")
+          )
             refuse(next.error);
         } else if (!welcomed && now === "reconnecting")
           progress({
@@ -325,13 +395,28 @@ export function ConnectionGate(props: {
         /* The client reports a fatal state, which `follow` shows. */
       });
     };
-    const created = createClient(request.target);
-    // The in-page client loads on demand; a worker-backed one is ready at once.
-    if (created instanceof Promise)
-      created.then(adopt, (error: unknown) => {
-        if (!replaced) setFailure({ error });
-      });
-    else adopt(created);
+    if (machine.kind === "account") {
+      // No route: this build can't open it, or it was chosen on another account backend.
+      void (request.route ?? Promise.resolve(undefined)).then(
+        (loaded) => {
+          if (replaced) return;
+          if (!loaded) return refuse(undefined, "signed_out");
+          opened = loaded;
+          adopt(loaded.client());
+        },
+        (error: unknown) => {
+          if (!replaced) setFailure({ error });
+        },
+      );
+    } else {
+      const created = createClient(machine.target);
+      // The in-page client loads on demand; a worker-backed one is ready at once.
+      if (created instanceof Promise)
+        created.then(adopt, (error: unknown) => {
+          if (!replaced) setFailure({ error });
+        });
+      else adopt(created);
+    }
     const online = () => current?.networkOnline(true);
     const offline = () => current?.networkOnline(false);
     addEventListener("online", online);
@@ -351,6 +436,7 @@ export function ConnectionGate(props: {
       saveTarget(stores, target, remember);
       setState((previous) => ({
         target,
+        account: undefined,
         url: target.url,
         remembered: remember,
         editing: false,
@@ -382,11 +468,30 @@ export function ConnectionGate(props: {
       shown: true,
     }));
   }, []);
+  const openAccount = useCallback(
+    (machine: { origin: string; hostId: string; name: string }) => {
+      const parsed = AccountMainMachine.safeParse(machine);
+      if (!parsed.success) return;
+      managed.current = false;
+      saveAccountChoice(stores, parsed.data);
+      setState((previous) => ({
+        target: undefined,
+        account: parsed.data,
+        url: previous.url,
+        remembered: false,
+        editing: false,
+        attempt: previous.attempt + 1,
+        shown: true,
+      }));
+    },
+    [stores],
+  );
   const disconnect = useCallback(() => {
     managed.current = false;
     forgetToken(stores);
     setState((previous) => ({
       target: undefined,
+      account: undefined,
       url: previous.url,
       remembered: false,
       editing: false,
@@ -402,11 +507,13 @@ export function ConnectionGate(props: {
   const leave = useMemo(
     () =>
       canRunEmpty && !props.handed && !linked
-        ? () => {
+        ? (place?: NoMachinePlace) => {
             managed.current = false;
             setState((previous) => ({
               ...previous,
               target: undefined,
+              account: undefined,
+              place,
               editing: false,
               problem: undefined,
               detail: undefined,
@@ -463,11 +570,13 @@ export function ConnectionGate(props: {
       disconnect,
       forgetIdentity,
       leave,
-      endpoint: active && {
-        kind: "daemon",
-        target: active,
-        deviceId: active.pairedDeviceId ?? deviceId(),
+      account: state.account && {
+        hostId: state.account.hostId,
+        name: state.account.name,
+        code: route?.code,
       },
+      openAccount: accountRoutes ? openAccount : undefined,
+      endpoint: endpointOf(active, route),
       handoff,
     }),
     [
@@ -484,6 +593,10 @@ export function ConnectionGate(props: {
       disconnect,
       forgetIdentity,
       leave,
+      state.account,
+      route,
+      accountRoutes,
+      openAccount,
       handoff,
     ],
   );
@@ -492,18 +605,21 @@ export function ConnectionGate(props: {
   // as before: the app opens on what this device kept for it while the daemon answers. Any
   // refusal still returns to the connection screen, since it ends the request.
   const opened = client?.progress.kind === "ready" ? client.progress.hostId : client?.known;
-  const target = client?.request.target;
+  const machine = client?.request.machine;
   // One object per target and host, so what reads it re-renders only when either changes.
   const appConnection = useMemo<GateConnection | undefined>(
-    () => (target && opened ? { target, hostId: opened } : undefined),
-    [target, opened],
+    () =>
+      machine && opened
+        ? { target: machine.kind === "address" ? machine.target : undefined, hostId: opened }
+        : undefined,
+    [machine, opened],
   );
 
   if (failure) throw failure.error;
   const view = gateView({
     opened: Boolean(client && appConnection),
     status,
-    hasTarget: state.target !== undefined,
+    hasTarget: chosen !== undefined,
     editing: state.editing,
     handoff: state.pending !== undefined,
     pairingLink: props.pairingLink !== undefined,
@@ -528,10 +644,25 @@ export function ConnectionGate(props: {
           onConnectManually={manually}
         />
       ) : view === "no-machine" && props.noMachine ? (
-        props.noMachine()
+        props.noMachine(state.place)
       ) : (
         <ConnectionScreen />
       )}
     </DaemonConnectionContext.Provider>
   );
+}
+
+/** How features reach the machine outside its client: at its address, or only through it. */
+function endpointOf(
+  active: MainMachine | undefined,
+  route: AccountMainRoute | undefined,
+): DaemonEndpoint | undefined {
+  if (!active) return undefined;
+  if (active.kind === "address")
+    return {
+      kind: "daemon",
+      target: active.target,
+      deviceId: active.target.pairedDeviceId ?? deviceId(),
+    };
+  return route && { kind: "account", hostId: active.machine.hostId, deviceId: route.deviceId };
 }

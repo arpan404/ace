@@ -1,6 +1,7 @@
 import { AceAccountError } from "@ace/client/ace-account";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useAceAccount, useAceAccountStore } from "./account-context.tsx";
 import { accountMachineLists, type AccountMachineLists } from "./account-machines.ts";
 
@@ -11,6 +12,9 @@ const empty: AccountMachineLists = { only: [], alsoOnAccount: new Set() };
  * duplicates, and forgetting one. Nothing while signed out or without an account backend.
  */
 export function useAccountMachines(listed: readonly { id: string }[]) {
+  // This window's own machine, when it is one on the account, lists as the window's machine.
+  const own = useDaemonConnection().account?.hostId;
+  const shown = useMemo(() => (own ? [...listed, { id: own }] : listed), [listed, own]);
   const store = useAceAccountStore();
   const { session } = useAceAccount();
   const token = session?.token;
@@ -52,7 +56,7 @@ export function useAccountMachines(listed: readonly { id: string }[]) {
       ),
   });
   const data = query.data;
-  const lists = useMemo(() => (data ? accountMachineLists(listed, data) : empty), [listed, data]);
+  const lists = useMemo(() => (data ? accountMachineLists(shown, data) : empty), [shown, data]);
   return {
     ...lists,
     signedIn: Boolean(token),

@@ -80,6 +80,13 @@ export function DevicesTab(props: { threadId: string }) {
     actions.open(deviceTab(row));
   };
 
+  if (view.throughAccount)
+    return (
+      <EmptyState
+        title="Simulators and emulators"
+        description="Opened through your ace account, which doesn't carry devices yet. Pair this device with the machine to use its simulators and emulators."
+      />
+    );
   if (!view.connected)
     return view.failure ? (
       <EmptyState
