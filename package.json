@@ -19,6 +19,7 @@
     "test:process": "node scripts/test-run.ts process",
     "test:slow": "node scripts/test-run.ts slow",
     "test:changed": "node scripts/test-run.ts changed",
+    "test:bun": "bun scripts/test-run.ts",
     "test:timings": "node scripts/test-timings.ts",
     "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:annotate && bun run check:extension && bun run check:ui && bun run check:deps && bun run typecheck && bun run test && bun run check:perf",
     "record": "bun run --filter @ace/recorder record",
@@ -37,7 +38,7 @@
     "web:build": "bun run --filter @ace/web build",
     "web:e2e": "bun run --filter @ace/web-e2e e2e",
     "web:screens": "bun run --filter @ace/web-e2e screens",
-    "ace": "node apps/daemon/src/cli.ts",
+    "ace": "bun apps/daemon/src/cli.ts",
     "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native && bun run --filter @ace/markit-web sync-assets",
     "docs:protocol": "bun tools/protocol-docs/src/cli.ts",
     "docs:protocol:compat": "bun tools/protocol-docs/src/cli.ts --compat",
@@ -77,7 +78,7 @@
   "engines": {
     "node": ">=26"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.4",
   "trustedDependencies": [
     "node-pty",
     "electron"

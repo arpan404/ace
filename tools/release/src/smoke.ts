@@ -18,7 +18,7 @@ if (process.platform === "win32") {
 const node = join(artifact, "bin/node");
 const pty = await checked(runProcess, node, [
   "-e",
-  `const p=require(${JSON.stringify(join(artifact, "node_modules/node-pty"))});let output="";const t=p.spawn("/bin/sh",["-c","printf ace-pty-smoke"],{name:"xterm",cols:80,rows:24,cwd:${JSON.stringify(artifact)},env:process.env});t.onData(s=>{output+=s;if(output.length>1024)throw new Error("Unexpected output");});t.onExit(e=>{if(e.exitCode!==0||!output.includes("ace-pty-smoke"))process.exitCode=1;else process.stdout.write("PTY passed\\n");});`,
+  ptySmoke(["/bin/sh", "-c", "printf ace-pty-smoke"], artifact),
 ]);
 process.stdout.write(pty.stdout);
 const root = await mkdtemp(join(tmpdir(), "ace-release-smoke-"));
@@ -73,6 +73,14 @@ try {
 }
 
 /**
+ * A script for the shipped runtime (Bun) that runs `command` in a terminal the way the daemon's
+ * terminals do, through Bun's own PTY, and passes only on its output and a clean exit.
+ */
+function ptySmoke(command: string[], cwd: string): string {
+  return `let output="";const p=Bun.spawn(${JSON.stringify(command)},{cwd:${JSON.stringify(cwd)},terminal:{cols:80,rows:24,data(_t,d){output+=new TextDecoder().decode(d);if(output.length>4096)throw new Error("Unexpected output");}}});p.exited.then(c=>setImmediate(()=>{const ok=c===0&&output.includes("ace-pty-smoke");process.stdout.write(ok?"PTY passed\\n":"PTY failed\\n",()=>process.exit(ok?0:1));}));`;
+}
+
+/**
  * The Windows artifact: a ConPTY terminal, then the daemon on an isolated ACE_HOME, stopped
  * the way the service stops it (`POST /v1/stop`; `kill` there is TerminateProcess).
  */
@@ -80,7 +88,7 @@ async function smokeWindows(release: string, version: string): Promise<void> {
   const nodeExe = join(release, "bin", "node.exe");
   const terminal = await checked(runProcess, nodeExe, [
     "-e",
-    `const p=require(${JSON.stringify(join(release, "node_modules/node-pty"))});let output="";const t=p.spawn(process.env.ComSpec||"cmd.exe",["/d","/c","echo ace-pty-smoke"],{name:"xterm",cols:80,rows:24,cwd:${JSON.stringify(release)},env:process.env,useConptyDll:true});t.onData(s=>{output+=s;if(output.length>4096)throw new Error("Unexpected output");});t.onExit(e=>{const ok=e.exitCode===0&&output.includes("ace-pty-smoke");process.stdout.write(ok?"PTY passed\\n":"PTY failed\\n",()=>process.exit(ok?0:1));});`,
+    ptySmoke([process.env.ComSpec ?? "cmd.exe", "/d", "/c", "echo ace-pty-smoke"], release),
   ]);
   process.stdout.write(terminal.stdout);
   const home = await mkdtemp(join(tmpdir(), "ace-release-smoke-"));

@@ -53,7 +53,8 @@ The generated [protocol reference](docs/protocol/README.md) covers WebSocket mes
 
 ### Prerequisites
 
-- **Bun** 1.3+ (package manager and script runner) and **Node 26+** (the daemon runtime).
+- **Bun** 1.4.4+ (package manager, script runner and the daemon runtime) and **Node 26+**
+  (release builds and tooling).
 - **macOS:** the Xcode Command Line Tools (`xcode-select --install`) for git, `cc` and `swiftc`
   (native addons and the screen helper). Full Xcode only for the iOS Simulator.
 - **Optional:** the Android SDK (`ANDROID_HOME`) for emulators; Rust (`cargo`) to build the
@@ -107,10 +108,11 @@ device, rather than the host token printed by `ace token`. In the browser build,
 address, paired-device token and paired device ID on the connection screen.
 
 **node-pty and Electron.** node-pty 1.x is a Node-API addon, so its npm prebuilds load in
-Electron's Node (ABI 149 in Electron 44) as well as in Node 26. The desktop app runs the daemon
-with Electron's own Node (`ELECTRON_RUN_AS_NODE`), never inside the Electron main process. Linux
-has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` there, or whenever
-`bun run doctor` reports that node-pty cannot load.
+Electron's Node (ABI 149 in Electron 44) as well as in Node 26. On Bun the daemon's terminals use
+Bun's own PTY instead. The packaged desktop app runs the daemon on its bundled Bun runtime, never
+inside the Electron main process. Linux has no node-pty prebuilds: run
+`bun run desktop:rebuild-native` before `desktop:build` there, or whenever `bun run doctor`
+reports that node-pty cannot load.
 
 ### Troubleshooting
 

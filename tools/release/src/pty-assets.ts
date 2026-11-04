@@ -2,7 +2,7 @@ import { cp, mkdir, stat, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { ReleaseTarget } from "@ace/protocol";
 import { copyRuntimePackage } from "./copy-runtime-package.ts";
-import { isWindowsTarget, type WindowsTarget } from "./node-runtime.ts";
+import { isWindowsTarget, type WindowsTarget } from "./daemon-runtime.ts";
 
 /** The bundler owns runtime dependencies, including the native PTY now used at startup. */
 export async function stagePtyRuntime(repo: string, root: string, target: string): Promise<string> {

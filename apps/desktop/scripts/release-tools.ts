@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { nodeVersion } from "@ace/release/node-runtime";
+import { nodeVersion } from "@ace/release/daemon-runtime";
 import { releaseRepository, releaseTag } from "../src/packaging/release-plan.ts";
 import { developerIdIdentities, notaryCredentials } from "../src/packaging/release-signing.ts";
 import { repo } from "./common.ts";

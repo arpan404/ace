@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
 import { findExecutable } from "@ace/provider-kit/discovery";
@@ -12,11 +12,15 @@ test("missing jq refuses a run before admission", async () => {
   const f = await daemonFixture();
   try {
     const before = f.daemon.store.listThreads().map((thread) => thread.id);
+    // A folder with no jq. An empty PATH is no use: Bun then searches the system's default
+    // path, where macOS ships /usr/bin/jq.
+    const empty = join(f.h.home, "no-jq");
+    await mkdir(empty);
     const output = await invoke(
       join(f.h.home, "daemon"),
       ["run", "must not run", "--project", f.workspace, "--jq", ".", "--json"],
       "",
-      { PATH: "" },
+      { PATH: empty },
     );
     expect(output.code).toBe(4);
     expect(f.daemon.store.listThreads().map((thread) => thread.id)).toEqual(before);

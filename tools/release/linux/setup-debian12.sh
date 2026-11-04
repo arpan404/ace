@@ -10,7 +10,7 @@ set -eu
 [ "$ID" = debian ] && [ "$VERSION_ID" = 12 ] || { echo 'Expected Debian 12' >&2; exit 1; }
 
 NODE_VERSION=26.12.1
-BUN_VERSION=1.4.0
+BUN_VERSION=1.4.4
 RUST_VERSION=1.91.1
 case "$(uname -m)" in
   x86_64) node_arch=x64; node_sha=0fd1eb7770598f52a21995edf6ed35fc690400fa437c2386af329519e9143132;;

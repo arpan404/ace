@@ -18,11 +18,8 @@ process.stdin.resume();
 process.stdin.once("end", stop);
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
-encoder.once("error", () => {
-  process.exitCode = 1;
-  process.stdin.destroy();
-});
-encoder.once("close", (code) => {
-  process.exitCode = code ?? 1;
-  process.stdin.destroy();
-});
+// The helper writes nothing, so it exits as soon as the encoder ends. Destroying stdin is not
+// enough: on Bun, stdin destroyed in the tick it was resumed (a spawn failure arrives that
+// early) keeps the process alive.
+encoder.once("error", () => process.exit(1));
+encoder.once("close", (code) => process.exit(code ?? 1));

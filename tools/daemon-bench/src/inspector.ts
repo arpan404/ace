@@ -6,9 +6,11 @@ const Reply = z.object({
   result: z.unknown().optional(),
   error: z.object({ message: z.string() }).optional(),
 });
+/** V8 (Node) reports a thrown expression in exceptionDetails, WebKit (Bun) with wasThrown. */
 const Evaluated = z.object({
-  result: z.object({ value: z.unknown().optional() }),
+  result: z.object({ value: z.unknown().optional(), description: z.string().optional() }),
   exceptionDetails: z.object({ text: z.string() }).optional(),
+  wasThrown: z.boolean().optional(),
 });
 /** Process-wide counters read inside the daemon; CPU includes every worker thread. */
 const Counters = z.object({
@@ -44,6 +46,7 @@ const calibrationExpression = `(() => {
 /** The daemon's V8 inspector: forced GC, in-process counters and calibration. */
 export class Inspector {
   private next = 0;
+  private webKit = false;
   private readonly pending = new Map<number, (reply: z.infer<typeof Reply>) => void>();
   private readonly socket: WebSocket;
   private constructor(socket: WebSocket) {
@@ -79,6 +82,7 @@ export class Inspector {
       await this.send("Runtime.evaluate", { expression, returnByValue: true }),
     );
     if (evaluated.exceptionDetails) throw new Error(evaluated.exceptionDetails.text);
+    if (evaluated.wasThrown) throw new Error(evaluated.result.description ?? "Evaluation threw");
     return evaluated.result.value;
   }
   counters(): Promise<Counters> {
@@ -86,10 +90,22 @@ export class Inspector {
   }
   /** Main-isolate heap after a full collection, plus process RSS at that moment. */
   async collected(): Promise<Counters> {
-    await this.send("HeapProfiler.collectGarbage");
     // A second pass frees what the first one's finalizers released.
-    await this.send("HeapProfiler.collectGarbage");
+    for (let pass = 0; pass < 2; pass++) await this.collectGarbage();
     return this.counters();
+  }
+  /** V8's (Node) full collection, or WebKit's (Bun) where V8's method is unknown. */
+  private async collectGarbage(): Promise<void> {
+    if (this.webKit) {
+      await this.send("Heap.gc");
+      return;
+    }
+    try {
+      await this.send("HeapProfiler.collectGarbage");
+    } catch {
+      this.webKit = true;
+      await this.send("Heap.gc");
+    }
   }
   /** Fastest of several runs: interference from a loaded machine only ever adds time. */
   async calibrate(runs = 7): Promise<number> {
