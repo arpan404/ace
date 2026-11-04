@@ -73,6 +73,8 @@ export { readServerQueue } from "./queue-read.ts";
 export { listThreadAttachments } from "./thread-attachment-list.ts";
 export { subscribeSettings } from "./settings-subscription.ts";
 export { subscribeLockedUse } from "./locked-use-subscription.ts";
+export { onSocketMove } from "./socket-moves.ts";
+export type { SocketSource } from "./socket-moves.ts";
 export type { LockedUseOwner } from "./locked-use-subscription.ts";
 export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 
