@@ -37,6 +37,13 @@ export interface AccountMachineOptions {
   grant(): Promise<string>;
   socket(url: string, protocols?: string[]): PortableSocket;
   /**
+   * Hear network changes (a browser's `online`), each a cue to look for a better path (ADR
+   * 0114); returns how to stop.
+   */
+  watchNetwork?(changed: () => void): () => void;
+  /** High resolution, for timing a path switch (`performance.now`). */
+  clock?(): number;
+  /**
    * A direct path (the same computer, the LAN, Tailscale) this app can reach with the
    * machine's identity checked (ADR 0114), carrying `credential`; undefined when it can't check
    * it (a browser can't pin a self-signed certificate). Relays are always usable: their host

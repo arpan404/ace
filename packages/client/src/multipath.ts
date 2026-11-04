@@ -14,6 +14,7 @@ import {
   type PlannedPath,
 } from "./path-plan.ts";
 import { racingTransport, type MachineRoute } from "./path-race.ts";
+import { GRANT_EXPIRED_CLOSE, GRANT_RETRY_MS } from "./grant-keeper.ts";
 export type { MachineRoute } from "./path-race.ts";
 import { ClientError, type ConnectionState, type Scheduler } from "./types.ts";
 import type { Selection } from "./observable.ts";
@@ -26,8 +27,26 @@ export interface PathConnection {
   swap(path: WelcomedPath, mode: "switch" | "failover"): boolean;
   ping(): Promise<void>;
   failover(reason: string): void;
-  setStandby(standby: { path(): WelcomedPath | undefined; used(): void } | undefined): void;
+  setStandby(standby: PathStandby | undefined): void;
   onWrongHost(refused: (() => void) | undefined): void;
+}
+
+/** Where a dropped active path fails over to; `used` hears the active path's close code. */
+export interface PathStandby {
+  path(): WelcomedPath | undefined;
+  used(code: number): void;
+}
+
+/**
+ * Whether a failure was the account grant's, not the path's: `close` for a socket closed as
+ * its grant ran out (4014), `credential` for a credential that couldn't be fetched or was
+ * refused. Undefined for anything else.
+ */
+function grantTrouble(cause: unknown): "close" | "credential" | undefined {
+  if (cause === GRANT_EXPIRED_CLOSE) return "close";
+  if (cause instanceof ClientError && (cause.code === "auth" || cause.code === "machine_code"))
+    return "credential";
+  return undefined;
 }
 
 export interface MultipathOptions {
@@ -133,7 +152,7 @@ export class Multipath {
     this.#connection = connection;
     connection.setStandby({
       path: () => this.#standby?.path,
-      used: () => this.#failedOver(),
+      used: (code) => this.#failedOver(code),
     });
     connection.onWrongHost(() => {
       if (this.#racing) this.#refuse(this.#racing);
@@ -364,14 +383,16 @@ export class Multipath {
     this.#openingStandby = true;
     try {
       path = await connection.openBeside(route);
-    } catch {
-      this.#standbyFailed(active, route);
-      return;
-    } finally {
+    } catch (error) {
       this.#openingStandby = false;
+      this.#standbyFailed(active, route, error);
+      this.#standbyAfter(active);
+      return;
     }
+    this.#openingStandby = false;
     if (this.#active !== active || this.#standby || this.#closed) {
       path.close();
+      this.#standbyAfter(active);
       return;
     }
     // An idle standby is no place to show an alert: the daemon counts it as backgrounded.
@@ -399,14 +420,14 @@ export class Multipath {
         });
       });
     };
-    const drop = () => {
+    const drop = (code?: number) => {
       if (stopped || this.#standby?.path !== path) return;
       this.#standby.stop();
       path.close();
       this.#standby = undefined;
-      this.#standbyFailed(active, route);
+      this.#standbyFailed(active, route, code);
     };
-    path.onClosed(drop);
+    path.onClosed((code) => drop(code));
     this.#standby = {
       route,
       path,
@@ -417,18 +438,33 @@ export class Multipath {
     };
     ping();
   }
-  /** The standby `route` failed: it rests, and a standby is sought again while still useful. */
-  #standbyFailed(active: MachineRoute, route: MachineRoute): void {
-    this.#failed(route);
-    if (this.#active === active && !this.#closed) this.#later(0, () => void this.#openStandby());
+  /**
+   * The standby `route` failed: it rests, and a standby is sought again while still useful. A
+   * failure of the account grant (`cause`: a 4014 close, or a refused or unavailable
+   * credential) is no fault of the route: it doesn't rest, and the next try waits a little
+   * when the credential itself was the trouble.
+   */
+  #standbyFailed(active: MachineRoute, route: MachineRoute, cause?: unknown): void {
+    const grant = grantTrouble(cause);
+    if (!grant) this.#failed(route);
+    if (this.#active === active && !this.#closed)
+      this.#later(grant === "credential" ? GRANT_RETRY_MS : 0, () => void this.#openStandby());
+  }
+  /**
+   * A standby opening for `opened` settled after the connection moved to another path: the
+   * new active path may want a standby of its own, which this opening held back.
+   */
+  #standbyAfter(opened: MachineRoute): void {
+    if (!this.#closed && this.#active && this.#active !== opened) void this.#openStandby();
   }
   /** The connection failed over onto the standby: it is the active path now. */
-  #failedOver(): void {
+  #failedOver(code: number): void {
     const standby = this.#standby;
     if (!standby) return;
     standby.stop();
     this.#standby = undefined;
-    if (this.#active) this.#failed(this.#active);
+    // A grant that ran out closes a socket on any path: the path itself is fine.
+    if (this.#active && code !== GRANT_EXPIRED_CLOSE) this.#failed(this.#active);
     this.#switchedAt = this.#options.now();
     this.#settle(standby.route);
   }

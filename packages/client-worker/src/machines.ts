@@ -120,6 +120,12 @@ export class MachinePool {
    * machine's host key): every later connection, on any path, must reach the same daemon.
    */
   private accountDaemons = new Map<string, string>();
+  /**
+   * Daemons an account machine has proved it reaches, by daemon id, with that account
+   * machine's host id: a paired entry for the same daemon stays aside while it holds, whenever
+   * that entry would connect (ADR 0114).
+   */
+  private owners = new Map<string, string>();
   /** Paired machines an open account machine (`by`) stands in for, by daemon id. */
   private superseded = new Map<string, { entry: MachineEntry; by: string }>();
   private closed = false;
@@ -211,7 +217,7 @@ export class MachinePool {
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
-    this.restoreSuperseded(hostId);
+    this.release(hostId);
   }
   /**
    * Open a machine on the person's ace account (ADR 0111) and add it to the pool like a paired
@@ -334,6 +340,13 @@ export class MachinePool {
     live.state = state;
     if (state.status === "online") this.failures.delete(state.entry.hostId);
     this.notifications.emit([`machine:${state.entry.hostId}`]);
+    // An account machine that can't open (signed out, another account, its code to enter)
+    // gives the paired entry it stood in for back until it proves itself again.
+    if (
+      state.entry.target.kind === "account" &&
+      (state.status === "auth_failed" || state.status === "machine_code")
+    )
+      this.release(state.entry.hostId);
   }
   /**
    * The connection ended where nothing inside it will try again (its worker died, its client
@@ -368,6 +381,7 @@ export class MachinePool {
    * gave (ADR 0114). It comes back when the account machine closes.
    */
   private supersede(daemonId: string, by: string): void {
+    this.owners.set(daemonId, by);
     const paired = this.live.get(daemonId);
     if (!paired || paired.state.entry.target.kind === "account" || paired.removing) return;
     paired.enabled = false;
@@ -378,8 +392,12 @@ export class MachinePool {
     this.superseded.set(daemonId, { entry: paired.state.entry, by });
     this.notifications.emit(["ids", `machine:${daemonId}`]);
   }
-  /** The account machine `by` closed: the paired entries it stood in for come back. */
-  private restoreSuperseded(by: string): void {
+  /**
+   * The account machine `by` closed or can't open: it no longer stands in for any daemon, and
+   * the paired entries it stood in for come back.
+   */
+  private release(by: string): void {
+    for (const [daemonId, owner] of this.owners) if (owner === by) this.owners.delete(daemonId);
     for (const [daemonId, superseded] of this.superseded) {
       if (superseded.by !== by) continue;
       this.superseded.delete(daemonId);
@@ -387,6 +405,13 @@ export class MachinePool {
     }
   }
   private connect(entry: MachineEntry): void {
+    // A paired entry whose daemon an open account machine already reaches stays aside, however
+    // it got here: the directory loading late, a pairing added afterwards, or a reconnect.
+    const owner = entry.target.kind === "account" ? undefined : this.owners.get(entry.hostId);
+    if (owner !== undefined) {
+      this.superseded.set(entry.hostId, { entry, by: owner });
+      return;
+    }
     const live: Live = {
       state: { entry, status: "connecting" },
       verification: 0,
@@ -444,11 +469,16 @@ export class MachinePool {
       scheduler,
       paths: () => this.accountPaths.get(hostId) ?? [],
     });
+    const visibility = this.options.remote.visibility;
     const paths = new Multipath({
       routes,
       scheduler,
       // The shell's clock; an app that injects none gets the wall clock here, at the boundary.
       now: this.options.remote.now ?? Date.now,
+      ...(account.clock ? { clock: account.clock } : {}),
+      // A hidden window pings its machine less often.
+      ...(visibility ? { visible: () => visibility.visible() } : {}),
+      ...(account.watchNetwork ? { watchNetwork: account.watchNetwork } : {}),
     });
     live.paths = paths;
     const route = paths.route();

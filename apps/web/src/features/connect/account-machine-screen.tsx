@@ -1,5 +1,5 @@
 import type { MachineCodeGate } from "@ace/client";
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   versionMismatchWords,
@@ -85,7 +85,12 @@ export function AccountMachineScreen(props: {
       <div className="mt-2 flex flex-wrap gap-2">
         {signIn && leave && <Button onClick={() => leave("/settings/profile")}>Sign in</Button>}
         {retry && <Button onClick={connection.retry}>Try again</Button>}
-        <Leave connection={connection}>Choose another machine</Leave>
+        {/* Never a Disconnect here: that would delete what this window kept (signing out never does). */}
+        {leave && (
+          <Button variant="ghost" onClick={() => leave("/settings/remote")}>
+            Choose another machine
+          </Button>
+        )}
       </div>
     </ConnectCard>
   );
@@ -102,15 +107,5 @@ function CodePrompt(props: { code: MachineCodeGate; name: string; onEntered(): v
       lockedUntil={lockedUntil}
       onEntered={props.onEntered}
     />
-  );
-}
-
-/** Back to the app with no machine, on Fleet; where the window can't run empty, Disconnect. */
-function Leave(props: { connection: DaemonConnection; children: ReactNode }) {
-  const { leave, disconnect } = props.connection;
-  return (
-    <Button variant="ghost" onClick={() => (leave ? leave("/settings/remote") : disconnect())}>
-      {props.children}
-    </Button>
   );
 }

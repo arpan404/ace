@@ -507,9 +507,13 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   activePath(): Selection<MachinePathKind | undefined> {
     return this.notifications.select(["path"], () => this.#paths?.active?.kind);
   }
-  /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
+  /**
+   * The app is in front again: check the socket now and skip a waiting backoff
+   * (`Connection.wake`), and look for a better path, as the network may have changed meanwhile.
+   */
   wake(): void {
     this.connection.wake();
+    this.#paths?.wake();
   }
   /** Worker-owned allocation also supplies tab prefixes; no tab reaches for randomness. */
   commandId(): string {

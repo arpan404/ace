@@ -6,7 +6,13 @@ import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { HeldFrames, type Frame } from "./held-frames.ts";
-import { keepGrant } from "./grant-keeper.ts";
+import {
+  ACCESS_CHANGED_CLOSE,
+  keepGrant,
+  type GrantKeeper,
+  type GrantRefreshResult,
+} from "./grant-keeper.ts";
+import type { PathStandby } from "./multipath.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import {
   DeviceRevokedClose,
@@ -95,10 +101,10 @@ export class Connection {
   /** Drops the path whose welcome named another daemon (`Multipath`). */
   #refusedPath: (() => void) | undefined;
   /** A warm path to fail over to when the active one drops (`standby`). */
-  #standby: { path(): WelcomedPath | undefined; used(): void } | undefined;
+  #standby: PathStandby | undefined;
   #pongs: (() => void)[] = [];
   /** Each open socket's grant refresh, for an account device (ADR 0114): stopped when it ends. */
-  #keepers = new Map<Transport, () => void>();
+  #keepers = new Map<Transport, GrantKeeper>();
   /** Frames heard on the active path, so a late pong behind a busy stream isn't a miss. */
   #heard = 0;
   constructor(
@@ -407,12 +413,6 @@ export class Connection {
         this.fail(new ClientError("auth"));
         return;
       }
-      if (
-        message.type === "welcome" &&
-        this.#options.expectedHostId !== undefined &&
-        message.hostId !== this.#options.expectedHostId
-      )
-        throw new ClientError("identity", "Unexpected daemon identity");
       if (this.state !== "ready") {
         if (message.type === "error") {
           // A direct path refuses an account device's hello by asking for the machine code,
@@ -431,8 +431,9 @@ export class Connection {
           this.#broken(`Unexpected ${message.type} before welcome`);
           return;
         }
-        // Once a daemon welcomed this connection, every later path must reach the same one.
-        if (this.#hostId !== undefined && message.hostId !== this.#hostId) {
+        // Every path must reach the daemon this connection was pinned to or first welcomed by.
+        const expected = this.#hostId ?? this.#options.expectedHostId;
+        if (expected !== undefined && message.hostId !== expected) {
           this.#wrongHost(epoch);
           return;
         }
@@ -469,6 +470,10 @@ export class Connection {
       }
       if (message.type === "snapshot.part" || message.type === "entities.page.part") {
         this.#receiveFragment(message, epoch);
+        return;
+      }
+      if (message.type === "account.grant.refresh.result") {
+        this.#grantAnswered(this.#transport, message);
         return;
       }
       if (message.type === "pong") this.#pongs.shift()?.();
@@ -512,15 +517,15 @@ export class Connection {
     }
   }
   /**
-   * A reconnect reached another daemon than the one this connection speaks to. With several
-   * paths, that path is dropped and the others race again; with one, nothing else can help.
+   * A path reached another daemon than the one this connection speaks to. With several paths,
+   * that path is dropped and the others race again; with one, nothing else can help.
    */
   #wrongHost(epoch: number): void {
-    const error = new ClientError("identity", "Path reached another machine");
     if (!this.#refusedPath) {
-      this.fail(error);
+      this.fail(new ClientError("identity", "Unexpected daemon identity"));
       return;
     }
+    const error = new ClientError("identity", "Path reached another machine");
     this.#refusedPath();
     if (epoch === this.#epoch) this.#lost(1006, error.message, error);
   }
@@ -544,7 +549,7 @@ export class Connection {
     this.#refusedPath = refused;
   }
   /** Where a dropped active path fails over to at once, before any reconnect backoff. */
-  setStandby(standby: { path(): WelcomedPath | undefined; used(): void } | undefined): void {
+  setStandby(standby: PathStandby | undefined): void {
     this.#standby = standby;
   }
   /** Frames heard on the active path so far: a ping that hears anything was not missed. */
@@ -584,6 +589,17 @@ export class Connection {
       hello: (transport, credential) =>
         JSON.stringify(this.#codec.encode(this.#hello(transport, credential))),
       decode: (text) => this.#codec.decode(JSON.parse(text)),
+      // A standby hears nothing else it needs before it is taken, but its grant's answers.
+      untaken: (transport, frame) => {
+        if (typeof frame !== "string" || !frame.includes('"account.grant.refresh.result"')) return;
+        try {
+          const message = this.#codec.decode(JSON.parse(frame));
+          if (message?.type === "account.grant.refresh.result")
+            this.#grantAnswered(transport, message);
+        } catch {
+          /* Not an answer this keeper can use; the standby's own checks handle a bad path. */
+        }
+      },
     }).then((path) => this.#kept(path));
   }
   /**
@@ -602,13 +618,34 @@ export class Connection {
         scheduler: this.#options.scheduler,
         id: () => this.#options.id(),
         send: (message) => transport.send(JSON.stringify(this.#codec.encode(message))),
+        refused: () => this.#grantRefused(transport),
       }),
     );
   }
   #unkeep(transport: Transport | undefined): void {
     if (!transport) return;
-    this.#keepers.get(transport)?.();
+    this.#keepers.get(transport)?.stop();
     this.#keepers.delete(transport);
+  }
+  #grantAnswered(transport: Transport | undefined, message: GrantRefreshResult): void {
+    if (transport) this.#keepers.get(transport)?.answered(message);
+  }
+  /**
+   * The daemon refused a socket's refresh for good (the machine code, or this account's
+   * grants): end that socket now. The active one reconnects, and its next hello gets the
+   * refusal the person can act on; another path only closes.
+   */
+  #grantRefused(transport: Transport): void {
+    this.#unkeep(transport);
+    if (transport === this.#transport) {
+      this.#lost(ACCESS_CHANGED_CLOSE, "Account access changed");
+      return;
+    }
+    try {
+      transport.close();
+    } catch {
+      /* Already gone. */
+    }
   }
   /** A path opened beside the active one, whose grant is kept fresh until it closes. */
   #kept(path: WelcomedPath): WelcomedPath {
@@ -679,10 +716,11 @@ export class Connection {
     if (this.state === "ready") this.#lost(1006, reason);
   }
   #failover(code: number, reason: string): boolean {
-    if (this.state !== "ready" || this.#draining) return false;
+    // Access changed on every path at once: the standby can't carry on either.
+    if (this.state !== "ready" || this.#draining || code === ACCESS_CHANGED_CLOSE) return false;
     const standby = this.#standby?.path();
     if (!standby || !this.swap(standby, "failover")) return false;
-    this.#standby?.used();
+    this.#standby?.used(code);
     this.#report("connection.failover", { code, reason: reason.slice(0, 120) });
     return true;
   }
@@ -698,6 +736,10 @@ export class Connection {
     try {
       const message = this.#codec.decode(JSON.parse(frame));
       if (!message || message.type === "pong") return;
+      if (message.type === "account.grant.refresh.result") {
+        this.#grantAnswered(draining.transport, message);
+        return;
+      }
       if (message.type === "snapshot.part" || message.type === "entities.page.part") {
         const data = draining.fragments.add(message, () => {});
         const complete = data === undefined ? undefined : this.#codec.decode(JSON.parse(data));

@@ -39,6 +39,8 @@ const host = new ClientHost({
                 scheduler: timers,
                 now: () => Date.now(),
                 clock: () => performance.now(),
+                // Pings slow down while no tab of this window shows anything.
+                visible: () => host.visible(),
                 lastWinner: lastWinnerKey(routes, target.lastPath),
                 // The network changed: a better path may be back, or the active one gone.
                 watchNetwork: (changed) => {

@@ -60,6 +60,12 @@ export function accountMachineOptions(options: {
       return grant.token;
     },
     socket: browserDeviceSocket,
+    // The network changed: a better path may be back, or the active one gone.
+    watchNetwork: (changed) => {
+      addEventListener("online", changed);
+      return () => removeEventListener("online", changed);
+    },
+    clock: () => performance.now(),
     // A direct path only where the browser checks the machine's certificate (ADR 0114).
     directRoute: (path, credential) =>
       browserChecksDirect(path)

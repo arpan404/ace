@@ -241,6 +241,36 @@ it("a machine also paired from this device steps aside while its account entry i
   expect(machines.ids).toEqual(["host"]);
 });
 
+it("a paired entry stays aside even when added later, and comes back while the account entry asks for its code", async () => {
+  const machine = await accountMachine();
+  const admin = await machine.device("laptop").connect();
+  const machines = machine.pool("tablet");
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+
+  // Paired after the account entry proved the daemon: it never shows beside it.
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  // The machine code changes while connected: the account entry reconnects and asks for it
+  // (not a revocation), and meanwhile the paired entry is back.
+  expect((await admin.request({ type: "machine.code.set", code: "8642" })).result.ok).toBe(true);
+  await expect
+    .poll(() => opened.get(), { timeout: 10_000 })
+    .toEqual({ kind: "asking", reason: "machine_code_required" });
+  expect(machines.ids).toContain("host");
+
+  // The code entered: the account entry opens again and the paired one steps aside again.
+  opened.enter("8642");
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+});
+
 it("an account device reads the machine's remote access and account status and its devices through the hosted relay", async () => {
   const machine = await accountMachine();
   const laptop = await machine.device("laptop").connect();

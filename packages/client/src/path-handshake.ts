@@ -44,6 +44,8 @@ export interface HandshakeOptions {
   hostId: string;
   scheduler: Scheduler;
   timeoutMs: number;
+  /** A frame the path heard once welcomed but before it was taken (a grant refresh's answer). */
+  untaken?(transport: Transport, frame: PathFrame): void;
 }
 
 /**
@@ -91,6 +93,7 @@ export function handshakePath(options: HandshakeOptions): Promise<WelcomedPath> 
         // pushes the active path also carried: they only prove it alive. Delivering them on
         // promotion would repeat them; what changed meanwhile is read again once it is taken.
         heard++;
+        options.untaken?.(transport, value);
         return;
       }
       if (typeof value !== "string") {

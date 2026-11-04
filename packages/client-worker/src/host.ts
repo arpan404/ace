@@ -154,6 +154,11 @@ export class ClientHost {
   get clients(): number {
     return this.#entries.size;
   }
+  /** Whether any tab this worker serves is on screen; true while none has said otherwise. */
+  visible(): boolean {
+    for (const tab of this.#tabs) if (tab.visible) return true;
+    return this.#tabs.size === 0;
+  }
   /** @internal */
   join(tab: Tab, config: unknown): Entry {
     const target = this.#options.target(config);
@@ -296,6 +301,10 @@ class Tab {
     } catch {
       this.drop();
     }
+  }
+  /** Whether this tab says it is on screen. */
+  get visible(): boolean {
+    return this.#visible;
   }
   /** Whether this tab has been silent too long to be alive; a tab with a lock never is. */
   silentSince(now: number, silence: number, hiddenSilence: number): boolean {
