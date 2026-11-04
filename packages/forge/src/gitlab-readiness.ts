@@ -29,9 +29,8 @@ async function gitlabIdentity(
   if (result.unreachable) throw new ForgeError("offline");
   const split = /\r?\n\r?\n/.exec(result.stdout);
   if (!split) {
-    // No HTTP response at all: glab refused before reaching the host, which is
-    // the local sign-in answer, not a server verdict.
-    if (result.code !== 0) throw new ForgeError("forbidden");
+    // An exit without an HTTP response cannot prove a sign-in problem.
+    if (result.code !== 0) throw new ForgeError("cli");
     throw new ForgeError("invalid_data");
   }
   const headerText = result.stdout.slice(0, split.index);

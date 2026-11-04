@@ -91,12 +91,12 @@ describe("gitlab readiness", () => {
     expect(status.instructions).toContain("glab auth login --hostname gitlab.com");
   });
 
-  it("asks to log in when glab refuses before any HTTP response", async () => {
+  it("reports an inconclusive check when glab exits without an HTTP response", async () => {
     const f = ready((request) =>
       request.args[0] === "--version" ? version : { code: 1, stdout: "" },
     );
     const status = await gitlabReadiness(f.runner, preferences, signal());
-    expect(status).toMatchObject({ cli: "available", api: "login_required", account: null });
+    expect(status).toMatchObject({ cli: "available", api: "unavailable", account: null });
   });
 
   it("reports an expected-account mismatch without switching", async () => {
