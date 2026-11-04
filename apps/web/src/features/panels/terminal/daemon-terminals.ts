@@ -1,4 +1,4 @@
-import type { ClientApi } from "@ace/client";
+import { onSocketMove, type ClientApi } from "@ace/client";
 import {
   ThreadId,
   type ServerMessage,
@@ -16,6 +16,8 @@ type Output = Extract<ServerMessage, { type: "terminal.output" }>;
 
 interface Stream {
   terminalId: string;
+  /** The next output offset to ask for when the stream is subscribed again. */
+  offset: number;
   listener: (event: TerminalEvent) => void;
 }
 
@@ -145,6 +147,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
   const subscribe = (stream: Stream, fromOffset: number): string => {
     const subscriptionId = `${prefix}-${++subscriptions}`;
     const scope = scopeOf(stream.terminalId);
+    stream.offset = fromOffset;
     streams.set(subscriptionId, stream);
     if (!scope) return subscriptionId;
     request({
@@ -166,6 +169,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     if (!stream) return;
     const event = message.event;
     if (event.type === "data") {
+      stream.offset = event.endOffset;
       stream.listener(event);
       credit(message.subscriptionId);
       return;
@@ -194,6 +198,13 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       if (link === "connected")
         for (const threadId of lists.keys()) void refresh(threadId).catch(() => {});
       changed();
+    });
+    // A move to another socket ends the daemon's streams there; each resumes from its offset
+    // under a new id, and what the old socket still sends under the old ids is dropped.
+    onSocketMove(client, () => {
+      const moving = [...streams.values()];
+      streams.clear();
+      for (const stream of moving) reattached.set(stream, subscribe(stream, stream.offset));
     });
   } catch {
     // A closed client: nothing will ever arrive.
@@ -238,7 +249,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       return opened;
     },
     attach(id, fromOffset, listener) {
-      const stream: Stream = { terminalId: id, listener };
+      const stream: Stream = { terminalId: id, offset: fromOffset, listener };
       const first = subscribe(stream, fromOffset);
       return () => {
         const current = reattached.get(stream) ?? first;

@@ -138,7 +138,10 @@ export function chromeSection(status: UserBrowserStatus, preview: Preview) {
 }
 
 export class ComputerAccess {
-  #owner: Pick<ClientCore, "request" | "state" | "connectionState" | "onMessage">;
+  #owner: Pick<
+    ClientCore,
+    "request" | "state" | "connectionState" | "connectionGeneration" | "onMessage"
+  >;
   #sink: PatchSink;
   #preview: Preview;
   #schedule: Schedule;
@@ -160,7 +163,10 @@ export class ComputerAccess {
    */
   #admin: boolean | undefined;
   constructor(
-    owner: Pick<ClientCore, "request" | "state" | "connectionState" | "onMessage">,
+    owner: Pick<
+      ClientCore,
+      "request" | "state" | "connectionState" | "connectionGeneration" | "onMessage"
+    >,
     sink: PatchSink,
     preview: Preview,
     schedule: Schedule,

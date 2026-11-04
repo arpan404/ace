@@ -45,7 +45,7 @@ import { readPage } from "./checkout-pages.ts";
 /** What the Files screen needs of the SDK. */
 export type FilesOwner = Pick<
   ClientCore,
-  "request" | "state" | "connectionState" | "send" | "cachedThread"
+  "request" | "state" | "connectionState" | "connectionGeneration" | "send" | "cachedThread"
 >;
 /** A project's file search before a thread exists (`ComposeSearch.complete`). */
 export type ProjectSearch = (

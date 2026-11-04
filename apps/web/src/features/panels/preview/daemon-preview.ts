@@ -580,15 +580,19 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         sounds.receive(message.threadId, message.chunk);
     });
     if (stopStream) stops.push(stopStream);
+    // A drop, or a move to another socket (ADR 0114), ends the daemon's subscriptions there.
+    const socket = client.connectionGeneration();
+    let current = socket.getSnapshot();
     stops.push(
-      client.connectionState().subscribe(() => {
-        const ready = client.state === "ready";
+      socket.subscribe(() => {
+        const next = socket.getSnapshot();
+        if (next === current) return;
+        current = next;
         for (const [threadId, watch] of watches) {
-          // The daemon dropped this connection's subscriptions.
           watch.subscribed = false;
           invalidate(threadId, watch);
           watch.cancel?.();
-          if (ready) poll(threadId);
+          if (next !== undefined) poll(threadId);
         }
       }),
     );

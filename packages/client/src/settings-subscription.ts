@@ -1,8 +1,12 @@
 import type { SettingsEntry, SettingsKey, SettingsScope } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
+import { onSocketMove } from "./socket-moves.ts";
 
 /** What a settings subscription needs from the connection. */
-export type SettingsOwner = Pick<ClientApi, "state" | "connectionState" | "request" | "onMessage">;
+export type SettingsOwner = Pick<
+  ClientApi,
+  "state" | "connectionState" | "connectionGeneration" | "request" | "onMessage"
+>;
 
 /** Retry timers, injected so a failed read's backoff is testable without waiting. */
 export interface RetryTimers {
@@ -67,6 +71,13 @@ export function subscribeSettings(
         generation++;
         cancel?.();
       } else ask();
+    }),
+    // The daemon's subscription ended with the old socket (ADR 0114): renew it on the new one.
+    onSocketMove(client, () => {
+      subscribed = false;
+      generation++;
+      cancel?.();
+      ask();
     }),
   ];
   ask();

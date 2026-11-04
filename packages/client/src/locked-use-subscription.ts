@@ -1,9 +1,13 @@
 import type { LockedUseStatus } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
+import { onSocketMove } from "./socket-moves.ts";
 import type { RetryTimers } from "./settings-subscription.ts";
 
 /** What a locked use subscription needs from the connection. */
-export type LockedUseOwner = Pick<ClientApi, "state" | "connectionState" | "request" | "onMessage">;
+export type LockedUseOwner = Pick<
+  ClientApi,
+  "state" | "connectionState" | "connectionGeneration" | "request" | "onMessage"
+>;
 
 /**
  * Follow this Mac's locked computer use state: a `lockedUse.subscribe` while connected, renewed
@@ -62,6 +66,13 @@ export function subscribeLockedUse(
         generation++;
         cancel?.();
       } else ask();
+    }),
+    // The daemon's subscription ended with the old socket (ADR 0114): renew it on the new one.
+    onSocketMove(client, () => {
+      subscribed = false;
+      generation++;
+      cancel?.();
+      ask();
     }),
   ];
   ask();
