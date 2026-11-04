@@ -4,6 +4,12 @@ import { createMemoryHistory } from "@tanstack/react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+/** Sign out asks first; this answers it. */
+async function confirmSignOut() {
+  const ask = await screen.findByRole("dialog", { name: /^Sign out of/ });
+  await userEvent.click(within(ask).getByRole("button", { name: "Sign out" }));
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -101,6 +107,7 @@ test("browser sign-in survives a transient backend failure and sign-out removes 
   // The browser comes back to this web app's landing page, not the backend's dead end.
   expect(started).toEqual({ returnTo: `${location.origin}/account/signed-in` });
   await userEvent.click(signOut);
+  await confirmSignOut();
   await waitFor(() => expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined());
   expect((await network(`${origin}/v1/account/session`, { method: "GET" })).status).toBe(401);
   expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
@@ -125,9 +132,39 @@ test("signing out a session the backend already ended still signs this window ou
   const signOut = await screen.findByRole("button", { name: "Sign out" });
   await waitFor(() => expect(signOut.hasAttribute("disabled")).toBe(false));
   await userEvent.click(signOut);
+  await confirmSignOut();
   expect(await screen.findByRole("button", { name: "Sign in" })).toBeDefined();
   expect(screen.queryByRole("alert")).toBeNull();
   expect(sessionStorage.getItem(`ace.account.session:${origin}`)).toBeNull();
+});
+
+test("Sign out asks first, says the person's work stays, and Cancel keeps them signed in", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  const session = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_kept", email: "kept@example.com", name: "Kept Person" },
+  };
+  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  const deletes: string[] = [];
+  vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
+    if (init?.method === "DELETE") deletes.push(input);
+    return Response.json(session);
+  });
+  await harness().open("/settings/profile");
+  const signOut = await screen.findByRole("button", { name: "Sign out" });
+  await waitFor(() => expect(signOut.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(signOut);
+  const ask = await screen.findByRole("dialog", { name: "Sign out of kept@example.com?" });
+  expect(
+    within(ask).getByText(/Your threads, drafts and anything waiting to send stay here\./),
+  ).toBeDefined();
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(deletes).toEqual([]);
+  expect(screen.getByText("Kept Person")).toBeDefined();
+  expect(sessionStorage.getItem(`ace.account.session:${origin}`)).not.toBeNull();
 });
 
 test("returning from a cancelled desktop sign-in says so on Profile until the next attempt", async () => {

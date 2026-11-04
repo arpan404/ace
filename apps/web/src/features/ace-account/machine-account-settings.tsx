@@ -4,11 +4,13 @@ import { formatShortClock } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useNow } from "@/lib/time.ts";
 import { machineCodeSentence } from "./machine-account-copy.ts";
+import { machineSignOutQuestion } from "./sign-out-copy.ts";
 import {
   useMachineAccountStatus,
   useThisMachineAccount,
@@ -56,7 +58,9 @@ function ThisMachineAccount(props: {
   onChange(next: MachineAccountStatus): void;
 }) {
   const { row, change } = useThisMachineAccount(props.status, props.access, props.onChange);
+  const [confirming, setConfirming] = useState<Confirming>();
   if (!row) return null;
+  const email = props.status.signedIn ? props.status.account?.email : undefined;
   return (
     <>
       <SettingRow id="machine.account" title="ace account" description={row.sentence} inline>
@@ -80,12 +84,18 @@ function ThisMachineAccount(props: {
             size="sm"
             variant="ghost"
             disabled={change.isPending}
-            onClick={() => change.mutate("signOut")}
+            onClick={() =>
+              setConfirming({
+                ...machineSignOutQuestion({ email }),
+                run: () => change.mutate("signOut"),
+              })
+            }
           >
             Sign out
           </Button>
         )}
       </SettingRow>
+      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
       {change.isError && (
         <SettingNote role="alert" className="text-destructive">
           {change.error.message}
