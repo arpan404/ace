@@ -49,8 +49,27 @@
       "maxLength": 2048,
       "type": "string"
     },
+    "sessionId": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "signedIn": {
       "type": "boolean"
+    },
+    "source": {
+      "enum": [
+        "login",
+        "handover"
+      ],
+      "type": "string"
     }
   },
   "required": [
