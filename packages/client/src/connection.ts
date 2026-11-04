@@ -9,6 +9,7 @@ import { HeldFrames, type Frame } from "./held-frames.ts";
 import { keepGrant } from "./grant-keeper.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import {
+  DeviceRevokedClose,
   MachineCodeRefusal,
   type ClientMessage,
   type ServerMessage as Message,
@@ -247,7 +248,9 @@ export class Connection {
           ? new ClientError("machine_code", reason)
           : code === 4403
             ? new ClientError("auth", "This machine isn't on your ace account.")
-            : new ClientError(code === 4002 ? "protocol" : "auth"),
+            : DeviceRevokedClose.safeParse({ code, reason }).success
+              ? ClientError.revoked(reason)
+              : new ClientError(code === 4002 ? "protocol" : "auth"),
       );
       return;
     }

@@ -24,7 +24,13 @@ import { activeDevice, allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
+import {
+  HostId,
+  DeviceId,
+  DeviceRevokedClose,
+  type ServerMessage,
+  type Notification,
+} from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
@@ -218,7 +224,11 @@ export async function startServer(options: ServerOptions): Promise<{
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
         cleanups.get(socket)?.();
-        closer.gracefulClose(socket, 4003, "Device revoked");
+        closer.gracefulClose(
+          socket,
+          DeviceRevokedClose.shape.code.value,
+          DeviceRevokedClose.shape.reason.value,
+        );
       }
   });
   // Account devices on any path keep access only while the machine stays on their account and

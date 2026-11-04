@@ -60,7 +60,10 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
   } else if (type === "trust") socket.trust?.report(value);
   else if (type === "close") {
     sockets.delete(id);
-    socket.events.close(Number(value));
+    // "<code>" or "<code> <reason>": the reason tells the owner's revocation from any other 4003.
+    const space = value.indexOf(" ");
+    if (space < 0) socket.events.close(Number(value));
+    else socket.events.close(Number(value.slice(0, space)), value.slice(space + 1));
   }
 }
 

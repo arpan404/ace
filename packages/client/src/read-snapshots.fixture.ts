@@ -123,7 +123,7 @@ export function harness(
     }),
   });
   const deliver = (message: unknown) => socket?.message(JSON.stringify(message));
-  const closeSocket = (code: number) => socket?.close(code);
+  const closeSocket = (code: number, reason?: string) => socket?.close(code, reason);
   return {
     client,
     sent,

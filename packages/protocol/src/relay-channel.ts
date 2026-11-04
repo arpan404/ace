@@ -15,6 +15,18 @@ export const ChannelClose = z.object({
 export type ChannelClose = z.infer<typeof ChannelClose>;
 
 /**
+ * The close a paired device gets when the machine's owner revokes it: code 4003 with exactly
+ * this reason, on a direct socket or as a relay `channel.close`. Only this close lets a client
+ * delete what it read from the machine; signing out, another account, an expired or refused
+ * grant and a new machine code never do.
+ */
+export const DeviceRevokedClose = z.object({
+  code: z.literal(4003),
+  reason: z.literal("Device revoked"),
+});
+export type DeviceRevokedClose = z.infer<typeof DeviceRevokedClose>;
+
+/**
  * Redeem a pairing code through a relay (ADR 0070), as the first and only message of a relay
  * channel, in place of a hello. The daemon answers with `pair.result` and closes the channel.
  * Only self-hosted relays carry it: ace's hosted relay admits signed-in account devices only.

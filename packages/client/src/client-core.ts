@@ -287,8 +287,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         }
       },
       () => {
-        // Revoked, or a credential the daemon no longer accepts: what was read through it goes.
-        if (this.state === "fatal" && this.connection.error?.code === "auth")
+        // Only the machine's owner revoking this device deletes what was read through it.
+        // Signing out, another account, an expired or refused grant or a new machine code
+        // keep it all: it comes back when the person signs in again.
+        if (this.state === "fatal" && this.connection.error?.revoked === true)
           void this.#snapshots?.forget();
         this.notifications.emit(["connection"]);
       },
