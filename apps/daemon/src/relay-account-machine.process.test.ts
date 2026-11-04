@@ -308,3 +308,20 @@ it("the window's account leaving closes its account machines, and they open agai
   await expect.poll(() => again.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
   expect(machines.ids).toEqual([machine.hostId]);
 });
+
+it("the window's account leaving brings back the paired entry its account machine stood in for", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  machines.closeAccountMachines();
+  expect(machines.ids).toEqual(["host"]);
+});

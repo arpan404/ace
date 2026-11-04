@@ -265,7 +265,8 @@ export class MachinePool {
   /**
    * The window's ace session ended or moved to another account: close every account machine
    * and forget its machine code gate, so nothing opened under the old session keeps its
-   * connection or sends another account's code. Paired machines stay. Opening an account
+   * connection or sends another account's code. Paired machines stay, and any one stood aside
+   * for an account machine is back. Saved threads and queued work are kept. Opening an account
    * machine again starts afresh, under whatever session the window then holds.
    */
   closeAccountMachines(): void {
@@ -283,6 +284,8 @@ export class MachinePool {
     if (gone.length === 0) return;
     this.order = this.order.filter((id) => !gone.includes(id));
     this.notifications.emit(["ids", ...gone.map((id) => `machine:${id}`)]);
+    // A paired entry one of them stood in for comes back.
+    for (const hostId of gone) this.release(hostId);
   }
   /** Retry after authorization replacement or a worker failure, retaining cached thread facts. */
   reconnect(hostId: string): void {
