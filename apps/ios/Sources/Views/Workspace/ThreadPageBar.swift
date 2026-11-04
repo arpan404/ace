@@ -16,8 +16,10 @@ struct ThreadPageBar: View {
                 HStack(spacing: AceTheme.Spacing.none) {
                     ForEach(pages.kinds) { kind in pill(kind).id(kind) }
                 }
-                .padding(.horizontal, AceDesign.Space.margin - AceDesign.Space.chipTab)
             }
+            // The first capsule's edge sits on the page margin; past it the row scrolls to the
+            // screen's edges when there are more pages than fit.
+            .contentMargins(.horizontal, AceDesign.Space.margin, for: .scrollContent)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .onChange(of: shown, initial: true) { _, page in
                 withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo(page, anchor: .center) }

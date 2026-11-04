@@ -58,6 +58,9 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The height of the header drawn over the pages: the page pills, and the status line at
+    /// accessibility sizes.
+    @State private var headerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// The composer's `@`, `/` and + lists.
@@ -118,15 +121,16 @@ struct ThreadView: View {
     @ViewBuilder private var pager: some View {
         let pages = pages
         if pages.kinds.count < 2 {
-            feed
+            feed.modifier(PageHeaderClearance(height: headerHeight))
         } else {
             ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) }), holdsSwipe: shownPage == .browser) { kind in
                 if kind == .chat {
-                    feed
+                    feed.modifier(PageHeaderClearance(height: headerHeight))
                 } else {
                     ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, changesFile: changesFile,
                                    barHeight: barHeight, openThread: openThread, openAgent: { agentRoute = $0 },
                                    openChat: { select(.chat) }, mention: model.canOperate ? { mention = $0 } : nil)
+                        .modifier(PageHeaderClearance(height: headerHeight))
                 }
             }
         }
@@ -157,7 +161,10 @@ struct ThreadView: View {
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
-            .inboxTopBar {
+            // The header's lower part (the status at accessibility sizes, the page pills) is drawn
+            // once over the pages, so it stays put while they swipe, over a soft fade
+            // (`ThreadHeaderFade`); each page starts below it (`PageHeaderClearance`).
+            .overlay(alignment: .top) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
                         StateLabel(status: status)
@@ -169,6 +176,10 @@ struct ThreadView: View {
                         ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
                     }
                 }
+                .background { if headerHeight > 0 { ThreadHeaderFade() } }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
+                // Read before the page under it.
+                .accessibilitySortPriority(1)
             }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
             .navigationDestination(item: $agentRoute) { route in

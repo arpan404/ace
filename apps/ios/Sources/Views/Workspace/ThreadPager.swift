@@ -1,5 +1,37 @@
 import SwiftUI
 
+/// The room a page leaves under the thread's header (the page pills drawn over the pages), so
+/// its first row starts below them; rows still scroll beneath, under the header's fade.
+struct PageHeaderClearance: ViewModifier {
+    let height: CGFloat
+    func body(content: Content) -> some View {
+        content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+            Color.clear.frame(height: height).accessibilityHidden(true)
+        }
+    }
+}
+
+/// The header's soft edge under the navigation bar: rows fade into the page colour behind the
+/// page pills and out again below them, as they fade under the bar above. The system's own edge
+/// effect only reaches a list that no other scroll view holds, and the pages sit in the pager's,
+/// so this draws the same fade the composer's floor does at the bottom (`BarFloor`). Never a box:
+/// it has no edge of its own.
+struct ThreadHeaderFade: View {
+    private let fade = AceDesign.Space.fade
+    var body: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+            AceTheme.Colours.background
+            LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+        }
+        .padding(.vertical, -fade)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
 /// The thread's pages side by side, a swipe apart, one screen wide each. Chat is always built, so
 /// the transcript keeps its place and its reading position while another page shows. Every
 /// other page is built only while some of it is on screen (the one showing, and its neighbour
