@@ -178,23 +178,24 @@ test("five wrong codes lock code entry for 15 minutes", async () => {
   expect(screen.queryByText(/Working on/)).toBeNull();
 });
 
+// A relay that never answers: the connection's state stays unknown.
+const silent: AccountRouteSource = async () => ({
+  code: machineCodeGate(async () => "grant"),
+  deviceId: "device",
+  grantProblem: () => undefined,
+  client: () =>
+    createBrowserClient({
+      deviceId: "device",
+      transport: () => ({ open() {}, send() {}, close() {} }),
+      credential: async () => "grant",
+      storage: memoryStorage(),
+    }),
+});
+
 test("an account machine the relay can't reach says so and never opens the app on nothing", async () => {
   const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
   const stores = windowStores();
   saveAccountChoice(stores, laptop);
-  // A relay that never answers: the connection's state stays unknown.
-  const silent: AccountRouteSource = async () => ({
-    code: machineCodeGate(async () => "grant"),
-    deviceId: "device",
-    grantProblem: () => undefined,
-    client: () =>
-      createBrowserClient({
-        deviceId: "device",
-        transport: () => ({ open() {}, send() {}, close() {} }),
-        credential: async () => "grant",
-        storage: memoryStorage(),
-      }),
-  });
   const deadlines: (() => void)[] = [];
   openWindow({
     daemon,
