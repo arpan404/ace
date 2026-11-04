@@ -14890,6 +14890,7 @@ Example:
 | type | yes | `"host.identity.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | identity | yes | [HostIdentity.json](schema/HostIdentity.json) |  |
+| paths | no | [MachinePaths.json](schema/MachinePaths.json) |  |
 
 Example:
 
@@ -18149,6 +18150,70 @@ Example:
 
 ```json
 "bwtF1tPs9ETmo4TQAyRM2WrRIS4Cw9GHTAQ68WSxLnM7WuuwO5VjYAjeV0YN9i4"
+```
+
+## MachinePath
+
+[JSON Schema](schema/MachinePath.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["loopback","lan","tailscale"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| fingerprint | yes | string | {"pattern":"^[0-9a-f]{64}$"} |
+
+Example:
+
+```json
+{
+  "fingerprint": "3663bd5751cb84552e95347e61768b49c204df033ac8889f8d0d2cc290176736",
+  "kind": "tailscale",
+  "url": "https://192.168.1.4:7443"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["relay","account"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| relayHostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+
+Example:
+
+```json
+{
+  "kind": "relay",
+  "relayHostId": "WMOLCRJQAXHXTKMPKANCOQS5PVLORPZ2XHQIPK3OVRZAJMVYKIQP",
+  "url": "wss://relay.example.com"
+}
+```
+
+## MachinePathKind
+
+[JSON Schema](schema/MachinePathKind.json), input validation.
+
+Type: ["loopback","lan","tailscale","relay","account"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"account"
+```
+
+## MachinePaths
+
+[JSON Schema](schema/MachinePaths.json), input validation.
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[]
 ```
 
 ## MachinePendingRequest

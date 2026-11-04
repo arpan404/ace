@@ -21,7 +21,11 @@ const address = z
       !url.search &&
       !url.hash
     );
-  }, "Expected a credential-free https or wss address");
+  }, "Expected a credential-free https or wss address")
+  .meta({
+    "x-ace-constraint": "An https: or wss: URL with no credentials, query or fragment.",
+    examples: ["https://192.168.1.4:7443", "wss://relay.example.com"],
+  });
 
 /** A direct path: the daemon's TLS listener, pinned to its public-key fingerprint. */
 const DirectPath = z.object({
@@ -41,14 +45,10 @@ export type MachinePath = z.infer<typeof MachinePath>;
 /**
  * The paths a machine serves right now, sent only on an authenticated connection with the
  * machine's identity (`host.identity.result.paths`). Clients never learn paths from the network.
+ * A kind this build doesn't know is kept as raw data; readers use the entries `MachinePath`
+ * accepts.
  */
 export const MachinePaths = z
-  .array(z.unknown())
-  .max(16)
-  .transform((entries) =>
-    entries.flatMap((entry) => {
-      const path = MachinePath.safeParse(entry);
-      return path.success ? [path.data] : [];
-    }),
-  );
+  .array(z.union([MachinePath, z.looseObject({ kind: z.string().max(64) })]))
+  .max(16);
 export type MachinePaths = z.infer<typeof MachinePaths>;

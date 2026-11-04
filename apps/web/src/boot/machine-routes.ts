@@ -1,5 +1,11 @@
-import { isPathKind, webSocketTransport, type MachineRoute, type Transport } from "@ace/client";
-import { MachinePaths, type MachinePath, type MachinePathKind } from "@ace/protocol";
+import {
+  isPathKind,
+  knownPaths,
+  webSocketTransport,
+  type MachineRoute,
+  type Transport,
+} from "@ace/client";
+import type { MachinePath, MachinePathKind } from "@ace/protocol";
 import { daemonRoute } from "./daemon-route.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import type { DaemonTarget } from "./connection-settings.ts";
@@ -47,7 +53,7 @@ type Usable = { kind: MachinePathKind; url: string; relayHostId?: string };
 function usablePaths(target: DaemonTarget, saved: readonly unknown[] | undefined): Usable[] {
   const seen = new Set([origin(target.url)]);
   const usable: Usable[] = [];
-  for (const path of MachinePaths.parse(saved ?? [])) {
+  for (const path of knownPaths(saved)) {
     const url = socketUrl(path.url);
     if (seen.has(origin(url))) continue;
     if (path.kind === "relay") usable.push({ kind: "relay", url, relayHostId: path.relayHostId });

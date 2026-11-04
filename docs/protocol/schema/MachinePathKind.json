@@ -1,0 +1,12 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinePathKind.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "loopback",
+    "lan",
+    "tailscale",
+    "relay",
+    "account"
+  ],
+  "type": "string"
+}

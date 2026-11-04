@@ -1,4 +1,4 @@
-import type { MachinePathKind } from "@ace/protocol";
+import { MachinePath, type MachinePathKind } from "@ace/protocol";
 
 /**
  * Path selection for one machine (ADR 0114): which path to try first, when a measured path is
@@ -41,6 +41,13 @@ const ranks: Record<MachinePathKind, number> = {
 /** Lower is better: the same computer, the LAN, Tailscale, the person's relay, ace's relay. */
 export function pathRank(kind: MachinePathKind): number {
   return ranks[kind];
+}
+/** The paths in a machine's list this build knows how to use; the rest are skipped. */
+export function knownPaths(entries: readonly unknown[] | undefined): MachinePath[] {
+  return (entries ?? []).flatMap((entry) => {
+    const path = MachinePath.safeParse(entry);
+    return path.success ? [path.data] : [];
+  });
 }
 /** A path kind this build knows; a newer daemon's other kinds are skipped. */
 export function isPathKind(value: unknown): value is MachinePathKind {

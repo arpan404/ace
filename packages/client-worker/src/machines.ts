@@ -2,6 +2,7 @@ import {
   ClientError,
   Multipath,
   Notifications,
+  knownPaths,
   machineCodeGate,
   type MachineCodeGate,
   type ClientApi,
@@ -502,9 +503,10 @@ export class MachinePool {
               );
               if (reply.paths)
                 await this.options.directory.remember(live.state.entry.hostId, {
-                  paths: reply.paths,
+                  paths: knownPaths(reply.paths),
                 });
-            } else if (reply.paths) this.accountPaths.set(live.state.entry.hostId, reply.paths);
+            } else if (reply.paths)
+              this.accountPaths.set(live.state.entry.hostId, knownPaths(reply.paths));
             if (!this.current(live) || live.verification !== epoch) return;
             const entry = {
               ...live.state.entry,

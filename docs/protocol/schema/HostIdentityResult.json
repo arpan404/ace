@@ -5,6 +5,9 @@
     "identity": {
       "$ref": "https://ace.local/protocol/v1/HostIdentity.json"
     },
+    "paths": {
+      "$ref": "https://ace.local/protocol/v1/MachinePaths.json"
+    },
     "requestId": {
       "maxLength": 128,
       "minLength": 1,
