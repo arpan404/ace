@@ -261,6 +261,18 @@ export function agentSheet(
   for (const { agent } of order)
     if (agent.parentId && work.running.has(agent.id))
       runningChildren.set(agent.parentId, (runningChildren.get(agent.parentId) ?? 0) + 1);
+  // The oldest request each branch waits on, so an ancestor's icon says what kind it is.
+  const askedBelow = new Map<string, Interaction>();
+  for (const interaction of interactions) {
+    const asker = byId.get(interaction.agentId);
+    if (!asker || ownRequests(asker, [interaction]).length === 0) continue;
+    for (
+      let at: Agent | undefined = asker;
+      at && !askedBelow.has(at.id);
+      at = at.parentId ? byId.get(at.parentId) : undefined
+    )
+      askedBelow.set(at.id, interaction);
+  }
   for (const { agent, depth } of order) {
     const own = ownRequests(agent, interactions);
     if (own.length > 0) asking++;
@@ -299,7 +311,13 @@ export function agentSheet(
       role: agent.role ?? "",
       machine: agent.machine?.name ?? null,
       reason: agentNodeReason(agent),
-      icon: agentNodeIcon(agent, work, own, runningChildren.get(agent.id) ?? 0, fresh),
+      icon: agentNodeIcon(
+        agent,
+        work,
+        own[0] ?? askedBelow.get(agent.id),
+        runningChildren.get(agent.id) ?? 0,
+        fresh,
+      ),
       requests: own.map((interaction) => interaction.id),
     });
   }

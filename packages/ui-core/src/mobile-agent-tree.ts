@@ -50,13 +50,14 @@ const limited = (agent: Agent) =>
 export function agentNodeIcon(
   agent: Agent,
   work: Work,
-  own: readonly Interaction[],
+  /** The oldest request this node's branch waits on the person for: its own, or one below it. */
+  asked: Interaction | undefined,
   runningChildren: number,
   fresh: boolean,
 ): AgentNodeIcon {
   const running = work.running.has(agent.id);
   if (work.needsYou.has(agent.id)) {
-    const question = own[0]?.request.kind === "question";
+    const question = asked?.request.kind === "question";
     return { kind: question ? "question" : "approve", tone: "needs-you", count: null };
   }
   if (!fresh && running) return { kind: "waiting", tone: "waiting", count: null };

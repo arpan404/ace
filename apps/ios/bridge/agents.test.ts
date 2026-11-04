@@ -258,6 +258,9 @@ describe("Agents sheet", () => {
     const asker = sheet(sink).rows.find((row) => row.name === "Asker");
     expect(asker?.needsYou).toBe(true);
     expect(sheet(sink).rows).toHaveLength(10);
+    // The main agent waits on that question: its icon says a question, not an approval.
+    expect(sheet(sink).rows[0]?.icon).toMatchObject({ kind: "question", tone: "needs-you" });
+    expect(asker?.icon.kind).toBe("question");
   });
 
   test("the tree's sentence waits on its agents and says who needs the person, never finished early", async () => {

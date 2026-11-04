@@ -37,6 +37,8 @@ struct AgentTreeNode: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var settled: Bool { !row.running && !row.needsYou }
+    /// Live work shows its running time.
+    private var ticking: Bool { row.running && !row.needsYou && row.endedAt == nil }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
@@ -46,8 +48,8 @@ struct AgentTreeNode: View {
                     .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
                     .foregroundStyle(settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
-                // A settled agent with nothing more to say keeps to one line.
-                if !(metaWords.isEmpty && !row.running) { meta }
+                // With nothing more to say (no words, no running time) a node keeps to one line.
+                if !metaWords.isEmpty || ticking { meta }
                 if let request { answers(request) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,7 +79,7 @@ struct AgentTreeNode: View {
         HStack(spacing: AceDesign.Space.tight + 1) {
             ProviderMark(provider: row.provider ?? provider, size: AceDesign.Size.rowMark)
                 .opacity(AceDesign.Ink.markOpacity)
-            if row.running && !row.needsYou && row.endedAt == nil {
+            if ticking {
                 // Live work: the running time after the words, ticking only while it works.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text([metaWords, Elapsed.words(since: row.createdAt, now: context.date)].filter { !$0.isEmpty }.joined(separator: " · "))
