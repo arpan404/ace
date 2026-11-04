@@ -24,13 +24,13 @@ export function AddMachine(props: { onClose(): void; onAdded?(hostId: string): v
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add machine</DialogTitle>
+          <DialogTitle>Add computer</DialogTitle>
           <DialogDescription>
             Use a pairing link from the computer you want to add. Once connected, it is linked with
             your other machines so agents can work across them.
           </DialogDescription>
           <ol className="list-decimal space-y-2 pl-5 text-ui text-muted-foreground">
-            <li>On the other computer, open ace → Settings → Fleet → Pair a device.</li>
+            <li>On the other computer, open ace → Settings → Fleet → Pair phone or browser.</li>
             <li>Choose Administrator access and create a link.</li>
             <li>Paste that link below.</li>
           </ol>
@@ -41,13 +41,13 @@ export function AddMachine(props: { onClose(): void; onAdded?(hostId: string): v
         </DialogHeader>
         <PairingForm
           url=""
-          submitLabel="Add machine"
+          submitLabel="Add computer"
           renderActions={(actions) => <DialogFooter>{actions}</DialogFooter>}
           cancel={props.onClose}
           connect={async (target, remember, signal) => {
             const chosen: MachinePool | undefined = pool ?? (await ensure?.());
             if (!chosen)
-              throw new Error("Couldn't open your machine directory. Reconnect and try again.");
+              throw new Error("Couldn't open your computer directory. Reconnect and try again.");
             signal.throwIfAborted();
             const entry = await chosen.pair(target.url, () =>
               readPairedMachine(target, remember, signal),

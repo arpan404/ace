@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 export function MachineDirectory<T extends { id: string; name: string }>(props: {
   machines: readonly T[];
   label: string;
+  searchThreshold?: number;
   children(rows: readonly T[]): ReactNode;
 }) {
   const [query, setQuery] = useState("");
@@ -20,25 +21,27 @@ export function MachineDirectory<T extends { id: string; name: string }>(props: 
   const rows = matching.slice(start, start + pageSize);
   return (
     <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-3 py-3">
-        <SearchField
-          label={props.label}
-          placeholder="Search machines"
-          value={query}
-          onValueChange={(value) => {
-            setQuery(value);
-            setPage(0);
-          }}
-          className="max-w-72"
-        />
-        <span role="status" className="text-xs text-muted-foreground">
-          {matching.length} {matching.length === 1 ? "machine" : "machines"}
-        </span>
-      </div>
+      {(props.machines.length >= (props.searchThreshold ?? 0) || query) && (
+        <div className="flex flex-wrap items-center gap-3 py-3">
+          <SearchField
+            label={props.label}
+            placeholder="Search computers"
+            value={query}
+            onValueChange={(value) => {
+              setQuery(value);
+              setPage(0);
+            }}
+            className="max-w-72"
+          />
+          <span role="status" className="text-xs text-muted-foreground">
+            {matching.length} {matching.length === 1 ? "machine" : "machines"}
+          </span>
+        </div>
+      )}
       {matching.length === 0 ? (
-        <EmptyState variant="inline" title="No matching machines" />
+        <EmptyState variant="inline" title="No matching computers" />
       ) : (
-        props.children(rows)
+        <div className="divide-y divide-border-soft">{props.children(rows)}</div>
       )}
       {matching.length > pageSize && (
         <nav

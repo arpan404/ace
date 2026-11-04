@@ -254,7 +254,7 @@ export function SettingListItem({ className, id, ref, ...props }: ComponentProps
 }
 
 /**
- * A row that is itself the action (Add account, Pair a device; `SettingAddRow` adds its plus): a full-width button whose
+ * A row that is itself the action (Add account, Pair phone or browser; `SettingAddRow` adds its plus): a full-width button whose
  * label starts on the row text's edge. Works as a card child or inside a `SettingList`. Like a
  * row, a link naming its `id` scrolls to it and flashes it.
  */
@@ -285,7 +285,7 @@ export function SettingAction({
   });
 }
 
-/** The one "add" row (Add account, Pair a device, Add machine): a plus, then what it adds. */
+/** The one "add" row (Add account, Pair phone or browser, Add computer): a plus, then what it adds. */
 export function SettingAddRow({ children, ...props }: ComponentProps<typeof SettingAction>) {
   return (
     <SettingAction {...props}>

@@ -25,19 +25,19 @@ test("settings search reveals and highlights the pairing control before it opens
   await harness().open("/settings/general");
   await userEvent.type(
     await screen.findByRole("searchbox", { name: "Search settings" }),
-    "Pair a device",
+    "Pair phone or browser",
   );
-  await userEvent.click(await screen.findByRole("link", { name: /Pair a device.*Fleet/ }));
-  const button = await screen.findByRole("button", { name: "Pair a device" });
+  await userEvent.click(await screen.findByRole("link", { name: /Pair phone or browser.*Fleet/ }));
+  const button = await screen.findByRole("button", { name: /Pair (a device|phone or browser)/ });
   await waitFor(() => expect(button.closest(".bg-accent")).not.toBeNull());
-  expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Pair phone or browser" })).toBeNull();
   await userEvent.click(button);
-  expect(await screen.findByRole("dialog", { name: "Pair a device" })).toBeTruthy();
+  expect(await screen.findByRole("dialog", { name: "Pair phone or browser" })).toBeTruthy();
 });
 
 test("pair opens pairing instead of a thread and creates a code only when requested", async () => {
   await harness().open("/pair");
-  await screen.findByRole("heading", { level: 2, name: "Pair a device" });
+  await screen.findByRole("heading", { level: 2, name: "Pair phone or browser" });
   expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull();
   expect(screen.queryByRole("textbox", { name: "Pairing link" })).toBeNull();
   await userEvent.click(await screen.findByRole("button", { name: "Create link" }));

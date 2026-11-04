@@ -126,10 +126,7 @@ export function ProviderDetailScreen(props: { id: string }) {
 
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody
-      page="Fleet"
-      lede="Connect your computers and manage the devices that can access them."
-    >
+    <SettingsBody page="Fleet">
       <Suspense fallback={<ListSkeleton label="fleet" shape="row" rows={4} />}>
         <FleetPage />
       </Suspense>
@@ -146,7 +143,7 @@ export function FleetMachineScreen(props: { id: string }) {
           page="Fleet"
           lede="Connect your computers and manage the devices that can access them."
         >
-          <ListSkeleton label="machine" shape="row" rows={4} />
+          <ListSkeleton label="computer" shape="row" rows={4} />
         </SettingsBody>
       }
     >
@@ -220,7 +217,7 @@ const PairDevicePage = lazy(() =>
 );
 export function PairDeviceScreen() {
   return (
-    <Suspense fallback={<SettingsBody page="Pair a device" />}>
+    <Suspense fallback={<SettingsBody page="Pair phone or browser" />}>
       <PairDevicePage />
     </Suspense>
   );
@@ -233,7 +230,7 @@ export function SourceControlSettingsScreen() {
   return (
     <SettingsBody
       page="Source control"
-      lede="GitHub through this machine's gh CLI. Credentials stay with gh and Git."
+      lede="GitHub through this computer's gh CLI. Credentials stay with gh and Git."
     >
       <Suspense fallback={null}>
         <SourceControlSettings />

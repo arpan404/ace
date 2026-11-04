@@ -19,7 +19,7 @@ vi.mock("@/boot/page-client.ts", () => ({
 afterEach(() => vi.unstubAllGlobals());
 
 test.each([false, true])(
-  "Settings pairs on demand and cancelling identity verification leaves no machine (cancel: %s)",
+  "Settings pairs on demand and cancelling identity verification leaves no computer (cancel: %s)",
   async (cancel) => {
     const remote = new FakeDaemon({
       hostId: "office",
@@ -73,25 +73,27 @@ test.each([false, true])(
       </AppFrame>,
     );
     expect(local.getItem("ace.machines")).toBeNull();
-    await userEvent.click(await screen.findByRole("button", { name: "Add machine" }));
-    const dialog = await screen.findByRole("dialog", { name: "Add machine" });
+    await userEvent.click(await screen.findByRole("button", { name: "Add computer" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add computer" });
     await userEvent.type(within(dialog).getByLabelText("Pairing link or code"), link.url);
     await userEvent.type(
       within(dialog).getByRole("textbox", { name: "This device's name" }),
       "My laptop",
     );
-    await userEvent.click(within(dialog).getByRole("button", { name: "Add machine" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Add computer" }));
     if (cancel) {
       await entered;
       await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
       release?.();
-      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
+      await waitFor(() =>
+        expect(screen.queryByRole("dialog", { name: "Add computer" })).toBeNull(),
+      );
       expect(local.getItem("ace.machines")).toBeNull();
       return;
     }
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add machine" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add computer" })).toBeNull());
     expect(
-      await within(screen.getByRole("region", { name: "Machines" })).findByText("Office computer"),
+      await within(screen.getByRole("region", { name: "Computers" })).findByText("Office computer"),
     ).toBeTruthy();
     expect(local.getItem("ace.machines")).toContain("Office computer");
     expect([...local.data.values()].join("")).not.toContain("b".repeat(64));

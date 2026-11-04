@@ -27,17 +27,17 @@ export const capabilityRows: readonly {
   note: string;
 }[] = [
   { capability: "agents", title: "Agents", note: "Start threads here, message and stop them." },
-  { capability: "browser", title: "Browser", note: "Read and use this machine's browser." },
+  { capability: "browser", title: "Browser", note: "Read and use this computer's browser." },
   {
     capability: "devices",
     title: "Simulators & emulators",
     note: "List, start, drive and screenshot them.",
   },
-  { capability: "screen", title: "Computer use", note: "See and use this machine's apps." },
+  { capability: "screen", title: "Computer use", note: "See and use this computer's apps." },
   {
     capability: "commands",
     title: "Commands",
-    note: "Run any command here as you, without asking each time. A command starts in a project but can reach all your files, ace's data and your network, so turn this on only for a machine you trust like this one. Every command is logged.",
+    note: "Run any command here as you, without asking each time. A command starts in a project but can reach all your files, ace's data and your network, so turn this on only for a computer you trust like this one. Every command is logged.",
   },
 ];
 
@@ -51,7 +51,7 @@ export async function machineGrants(
     op: "grants",
     deviceIds: deviceIds.map((id) => DeviceId.parse(id)),
   });
-  if (result.kind !== "grants") throw new Error("That machine didn't answer with its grants.");
+  if (result.kind !== "grants") throw new Error("That computer didn't answer with its grants.");
   return result;
 }
 
@@ -67,5 +67,5 @@ export async function setGrant(
     capability,
     level,
   });
-  if (result.kind !== "grants") throw new Error("That machine didn't keep the change.");
+  if (result.kind !== "grants") throw new Error("That computer didn't keep the change.");
 }

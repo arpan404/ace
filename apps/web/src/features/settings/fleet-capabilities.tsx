@@ -25,7 +25,7 @@ export function FleetMachineAccess(props: { fleet: Fleet }) {
       fleet={props.fleet}
       peer={peer}
       onPeerChange={setPeer}
-      hostLabel="the connected fleet machines"
+      hostLabel="the connected fleet computers"
     />
   );
 }
@@ -87,7 +87,7 @@ function MachineAccessEditor(props: {
       }
       if (failed.length)
         throw new Error(
-          `Couldn't save permissions for ${failed.length} of ${targets.length} links: ${failed.slice(0, 3).join(", ")}. Saved changes on the other machines are kept. Retry to apply this level again.`,
+          `Couldn't save permissions for ${failed.length} of ${targets.length} links: ${failed.slice(0, 3).join(", ")}. Saved changes on the other computers are kept. Retry to apply this level again.`,
         );
     },
     onSettled: () =>
@@ -104,8 +104,8 @@ function MachineAccessEditor(props: {
   const limited = results.some((result) => result.data?.master === "read");
   const label =
     props.peer === "all"
-      ? "All linked machines"
-      : (fleet.byId(props.peer)?.name ?? "Selected machine");
+      ? "All linked computers"
+      : (fleet.byId(props.peer)?.name ?? "Selected computer");
   const loaded =
     targets.length > 0 &&
     targets.every((target) =>
@@ -114,24 +114,24 @@ function MachineAccessEditor(props: {
   const sourceCount = new Set(targets.map((target) => target.id)).size;
   return (
     <SettingSection
-      label="Linked machine permissions"
+      label="Linked computer permissions"
       anchor="linked-access"
-      note={`What the selected machines' agents may do on ${props.hostLabel}.`}
+      note={`What the selected computers' agents may do on ${props.hostLabel}.`}
     >
       {props.onPeerChange && (
         <SettingRow
           title="Apply to"
           description={
             props.peer === "all"
-              ? `Changes apply to all ${sourceCount} currently linked machines. New links use their defaults.`
+              ? `Changes apply to all ${sourceCount} currently linked computers. New links use their defaults.`
               : `Changes apply only to ${label}.`
           }
         >
           <Select
-            label="Machines to configure"
+            label="Computers to configure"
             value={props.peer}
             options={[
-              { value: "all", label: "All linked machines" },
+              { value: "all", label: "All linked computers" },
               ...fleet.machines
                 .filter((entry) => props.machines.length > 1 || entry.id !== props.machines[0]?.id)
                 .map((entry) => ({ value: entry.id, label: entry.name })),
@@ -150,7 +150,7 @@ function MachineAccessEditor(props: {
         <SettingNote>Connect to {props.hostLabel} to change permissions.</SettingNote>
       )}
       {targets.length === 0 && (
-        <SettingNote>Link the machines first to configure their permissions.</SettingNote>
+        <SettingNote>Link the computers first to configure their permissions.</SettingNote>
       )}
       {closed && (
         <SettingNote>

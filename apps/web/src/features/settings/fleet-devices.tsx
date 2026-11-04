@@ -16,18 +16,18 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { listNames } from "./data/list-names.ts";
 import { PairDevice } from "./pair-device.tsx";
 
-/** Where a device is paired, in words: "All machines" when it's on every one. */
+/** Where a device is paired, in words: "All computers" when it's on every one. */
 function machinesLine(device: FleetDevice, fleet: Fleet): string {
   if (fleet.machines.length > 1 && device.on.length === fleet.machines.length)
-    return "All machines";
-  return listNames(device.on.map((entry) => fleet.byId(entry.machine)?.name ?? "A machine"));
+    return "All computers";
+  return listNames(device.on.map((entry) => fleet.byId(entry.machine)?.name ?? "A computer"));
 }
 
 /** Its access, or that it differs, since each machine holds its own grant. */
 function accessLine(device: FleetDevice): string {
   const labels = new Set(device.on.map((entry) => deviceScopeLabels(entry.device.scopes)));
   const [only] = labels;
-  return labels.size === 1 && only ? only : "Access differs by machine";
+  return labels.size === 1 && only ? only : "Access differs by computer";
 }
 
 function expiryLine(expiresAt: number | null, now: number): string | undefined {
@@ -53,7 +53,7 @@ export function FleetDevices(props: { fleet: Fleet }) {
     mutationFn: async (targets: FleetDevice["on"]) => {
       for (const target of targets) {
         const client = fleet.byId(target.machine)?.client;
-        if (!client) throw new Error("Connect to that machine to revoke the device there.");
+        if (!client) throw new Error("Connect to that computer to revoke the device there.");
         await revokeDevice(client, target.device.id);
       }
       await fleet.refresh(targets.map((target) => target.machine));
@@ -67,7 +67,7 @@ export function FleetDevices(props: { fleet: Fleet }) {
         ? "This is the device you're using. This window disconnects at once and has to be paired again."
         : targets.length === device.on.length
           ? "It disconnects at once and has to be paired again to see or control threads."
-          : `It disconnects from ${listNames(targets.map((target) => fleet.byId(target.machine)?.name ?? ""))} and keeps its other machines.`,
+          : `It disconnects from ${listNames(targets.map((target) => fleet.byId(target.machine)?.name ?? ""))} and keeps its other computers.`,
       confirm: "Revoke",
       run: () => revoke.mutate(targets),
     });
@@ -75,10 +75,9 @@ export function FleetDevices(props: { fleet: Fleet }) {
     <>
       <SettingSection
         card
-        label="Devices"
+        label="Paired devices"
+        note="Where you access Ace"
         anchor="fleet-devices"
-        note="Phones, tablets and browsers paired to your machines. Pair a device to view conversations and control agents from it. Access is set separately for each device."
-        actions={<PairDevice />}
       >
         {loading && fleet.joined.length === 0 && (
           <ListSkeleton label="paired devices" shape="row" rows={2} />
@@ -120,6 +119,7 @@ export function FleetDevices(props: { fleet: Fleet }) {
             </SettingRow>
           );
         })}
+        <PairDevice row />
       </SettingSection>
       <OpenLinks fleet={fleet} now={now} />
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
@@ -150,7 +150,7 @@ function OpenLinks(props: { fleet: Fleet; now: number }) {
       card
       label="Unused pairing links"
       anchor="fleet-links"
-      note="Waiting for a device to connect. Each link works once. Cancel a link to prevent it from being used."
+      note="Each link can pair one device. Cancel it to prevent access."
     >
       {open.map(({ machine, pairing }) => {
         const keeps = deviceLifetimes.find((entry) => entry.value === (pairing.deviceTtlMs ?? 0));

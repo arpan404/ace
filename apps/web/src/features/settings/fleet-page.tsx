@@ -1,6 +1,7 @@
+import { CaretRightIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -49,9 +50,9 @@ function FleetMachines(props: { fleet: Fleet }) {
   );
   const linkAll = (gaps: readonly LinkGap[]) =>
     fleet.link.mutate(gaps, {
-      onSuccess: () => toast.add({ title: "Machines linked" }),
+      onSuccess: () => toast.add({ title: "Computers linked" }),
       onError: (error) =>
-        toast.error({ title: "Some machines didn't link", description: error.message }),
+        toast.error({ title: "Some computers didn't link", description: error.message }),
     });
   // A machine just added links with every other one as soon as its links can be read.
   const newGaps = added ? fleet.gaps.filter((gap) => gap.from === added || gap.to === added) : [];
@@ -65,13 +66,9 @@ function FleetMachines(props: { fleet: Fleet }) {
   return (
     <SettingSection
       card
-      label="Machines"
+      label="Computers"
+      note="Where your agents run"
       anchor="fleet.link"
-      note={
-        fleet.machines.length > 1
-          ? "Computers running your agents. Add a machine to connect this window to it. Link machines to let their agents work across computers, within the permissions you allow."
-          : "This computer runs your agents. Add another computer running ace to work across both."
-      }
       actions={
         <>
           {fleet.gaps.length > 0 && (
@@ -81,16 +78,13 @@ function FleetMachines(props: { fleet: Fleet }) {
               disabled={fleet.link.isPending}
               onClick={() => linkAll(fleet.gaps)}
             >
-              {fleet.link.isPending ? "Linking…" : "Link all machines"}
+              {fleet.link.isPending ? "Linking…" : "Link all computers"}
             </Button>
           )}
-          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-            Add machine
-          </Button>
         </>
       }
     >
-      <MachineDirectory machines={listed} label="Search fleet machines">
+      <MachineDirectory machines={listed} label="Search fleet computers" searchThreshold={6}>
         {(rows) =>
           rows.map((row) =>
             row.account ? (
@@ -111,6 +105,7 @@ function FleetMachines(props: { fleet: Fleet }) {
           )
         }
       </MachineDirectory>
+      <SettingAddRow onClick={() => setAdding(true)}>Add computer</SettingAddRow>
       {account.error && (
         <SettingNote role="alert">
           Couldn't list the machines on your ace account. Try again later.
@@ -156,7 +151,7 @@ function connectionLine(machine: Machine, fleet: Fleet): string {
   const closed =
     self &&
     fleet.facts.some((other) => other.id !== machine.id && reach(other, self).kind === "closed");
-  const parts = [machine.primary ? "This machine" : "Connected"];
+  const parts = [machine.primary ? "This computer" : "Connected"];
   if (closed) parts.push("Remote agents blocked");
   return parts.join(" · ");
 }
@@ -167,7 +162,7 @@ function connectionLine(machine: Machine, fleet: Fleet): string {
  */
 function gapLine(machine: string, fleet: Fleet): string {
   const names = (ids: readonly string[]) =>
-    summarizeNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
+    summarizeNames(ids.map((id) => fleet.byId(id)?.name ?? "a computer"));
   const gaps = machineGaps(machine, fleet.gaps);
   const parts: string[] = [];
   if (gaps.unlinked.length) parts.push(`Not linked with ${names(gaps.unlinked)}`);
@@ -192,14 +187,14 @@ function MachineRow(props: {
     <div
       id={machine.primary ? "host.displayName" : undefined}
       data-fleet-machine=""
-      className="group/setting relative flex min-h-(--setting-row-height) items-center gap-3 py-(--setting-row-y)"
+      className="group/setting relative flex min-h-(--setting-row-height) flex-wrap items-center gap-x-3 gap-y-2 py-(--setting-row-y)"
     >
       <MachineMark icon={machine.icon} primary={machine.primary} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 basis-24 flex-col gap-0.5">
         <Link
           to="/settings/remote/$machine"
           params={{ machine: machine.primary ? primaryMachineId : machine.id }}
-          className="w-fit rounded-sm text-md text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
+          className="w-fit rounded-sm text-ui font-medium text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
         >
           {machine.name}
         </Link>
@@ -219,13 +214,22 @@ function MachineRow(props: {
             disabled={fleet.link.isPending}
             onClick={() => props.onLink(gaps)}
           >
-            Link machines
+            Link computers
           </Button>
         </>
       ) : (
         known &&
         online > 1 && <span className="text-xs text-subtle-foreground">Linked with all</span>
       )}
+      <Link
+        to="/settings/remote/$machine"
+        params={{ machine: machine.primary ? primaryMachineId : machine.id }}
+        aria-label={`Manage ${machine.name}`}
+        className="relative inline-flex min-h-8 items-center gap-1 rounded-md text-ui text-muted-foreground focus-ring hover:text-foreground"
+      >
+        Manage
+        <CaretRightIcon aria-hidden size={14} />
+      </Link>
     </div>
   );
 }

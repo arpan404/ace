@@ -65,14 +65,14 @@ export function MachineLinks(props: { machine: Machine; fleet: Fleet }) {
       <SettingSection
         label="Links"
         anchor="links"
-        note="Select one machine or all machines. The selection also applies to the permissions below."
+        note="Select one computer or all computers. The selection also applies to the permissions below."
       >
         <SettingRow title="Manage connections">
           <Select
-            label="Machines to configure"
+            label="Computers to configure"
             value={selected}
             options={[
-              { value: "all", label: "All linked machines" },
+              { value: "all", label: "All linked computers" },
               ...others.map((other) => ({ value: other.id, label: other.name })),
             ]}
             onValueChange={setSelected}
@@ -100,7 +100,7 @@ export function MachineLinks(props: { machine: Machine; fleet: Fleet }) {
                 onClick={() =>
                   setConfirming({
                     title: `Unlink ${machine.name} and ${targets[0]?.name}?`,
-                    body: "Agents on either machine stop using the other. Link them again any time.",
+                    body: "Agents on either computer stop using the other. Link them again any time.",
                     confirm: "Unlink",
                     run: () =>
                       fleet.unlink.mutate(
@@ -119,21 +119,21 @@ export function MachineLinks(props: { machine: Machine; fleet: Fleet }) {
           )}
         </SettingRow>
         {others.length === 0 && (
-          <SettingNote>Add another machine to link it with this one.</SettingNote>
+          <SettingNote>Add another computer to link it with this one.</SettingNote>
         )}
         {linksError && <SettingNote role="alert">{fleetProblem(linksError)}</SettingNote>}
         {peers.length > 0 && (
           <>
             <SettingRow
-              title={`${machine.name} → selected machines`}
-              description="What this machine's agents can do on the selection."
+              title={`${machine.name} → selected computers`}
+              description="What this computer's agents can do on the selection."
             >
               <span className="text-ui text-muted-foreground">
                 {summarizeReach(peers.map((peer) => reach(self, peer)))}
               </span>
             </SettingRow>
             <SettingRow
-              title={`Selected machines → ${machine.name}`}
+              title={`Selected computers → ${machine.name}`}
               description="What their agents can do here, subject to the permissions below."
             >
               <span className="text-ui text-muted-foreground">

@@ -35,8 +35,8 @@ function refusalCode(error: unknown): string {
 export function fleetProblem(error: unknown): string {
   const code = refusalCode(error);
   if (code === "forbidden")
-    return "This window doesn't have administrator access to this machine. Pair it again as Administrator to manage it.";
-  return error instanceof Error && error.message ? error.message : "That machine didn't answer.";
+    return "This window doesn't have administrator access to this computer. Pair it again as Administrator to manage it.";
+  return error instanceof Error && error.message ? error.message : "That computer didn't answer.";
 }
 
 export { machineLinks };
@@ -86,11 +86,11 @@ export async function createPairing(client: ClientApi, options: PairingOptions) 
     ...(options.ttlMs ? { ttlMs: options.ttlMs } : {}),
     ...(options.deviceTtlMs ? { deviceTtlMs: options.deviceTtlMs } : {}),
   });
-  if (result.kind !== "pairing") throw new Error("That machine didn't make a pairing.");
+  if (result.kind !== "pairing") throw new Error("That computer didn't make a pairing.");
   return result;
 }
 
-/** Links made on this machine that no device has used yet (never their code). */
+/** Links made on this computer that no device has used yet (never their code). */
 export async function pendingPairings(client: ClientApi) {
   const result = await fleet(client, { op: "pairings" });
   return result.kind === "pairings" ? result.pairings : [];
@@ -112,7 +112,7 @@ const redeemProblem = (error: unknown, source: Machine, target: Machine) =>
   linkRedeemProblem(refusalCode(error), source.name, target.name);
 
 export async function linkMachine(from: Machine, to: Machine, access: LinkAccess) {
-  if (!from.client || !to.client) throw new Error("Both machines must be online to link them.");
+  if (!from.client || !to.client) throw new Error("Both computers must be online to link them.");
   const toClient = to.client;
   const fromClient = from.client;
   const pairing = await createPairing(toClient, {

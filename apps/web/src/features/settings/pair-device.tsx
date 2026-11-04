@@ -1,4 +1,4 @@
-import { SettingDisclosure, useHashFlash } from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingDisclosure, useHashFlash } from "@/components/setting-row.tsx";
 import { Navigate, useLocation } from "@tanstack/react-router";
 import { Switch } from "@/components/ui/switch.tsx";
 import { deviceScopeLabels, deviceAccessOptions } from "./device-scopes.ts";
@@ -132,7 +132,7 @@ function useReach(machine: Machine | undefined) {
     ? "Checking remote access…"
     : reachable
       ? transport === "relay"
-        ? "Your device pairs through this machine's relay, from any network."
+        ? "Your device pairs through this computer's relay, from any network."
         : `Connect your device to ${transport === "tailscale" ? "your Tailscale network" : "the same local network"} to pair.`
       : remote.isError
         ? "Couldn't check remote access. Reconnect and try again."
@@ -170,7 +170,7 @@ function PairingFlow({
   const [known, setKnown] = useState<ReadonlySet<string>>();
   const pair = useMutation({
     mutationFn: async () => {
-      if (!machine?.client) throw new Error("Connect to a machine first.");
+      if (!machine?.client) throw new Error("Connect to a computer first.");
       // The devices paired before this code, so the one it pairs stands out.
       const before = await machineDevices(machine.client);
       setKnown(new Set(before.map((device) => device.id)));
@@ -347,8 +347,8 @@ function PairingFlow({
   );
 }
 
-/** Fleet's Pair a device action opens the same flow as /pair; `machine` picks it to start with. */
-export function PairDevice(props: { machine?: string }) {
+/** Fleet's Pair phone or browser action opens the same flow as /pair; `machine` picks it to start with. */
+export function PairDevice(props: { machine?: string; row?: boolean }) {
   // `/pair` lands here with #pair: the dialog opens over the page it belongs to.
   const hash = useLocation({ select: (location) => location.hash });
   const [open, setOpen] = useState(hash === "pair");
@@ -356,22 +356,22 @@ export function PairDevice(props: { machine?: string }) {
   const trigger = useRef<HTMLButtonElement>(null);
   // Settings search lands on `#remote.pair`: the button flashes like a row would.
   const flashing = useHashFlash("remote.pair", trigger);
+  const Trigger = props.row ? SettingAddRow : Button;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button
+      <Trigger
         ref={trigger}
         id="remote.pair"
         data-flash={flashing || undefined}
-        size="sm"
-        variant="ghost"
+        {...(props.row ? {} : { size: "sm" as const, variant: "ghost" as const })}
         className={cn(flashing && "bg-accent")}
         onClick={() => setOpen(true)}
       >
-        Pair a device
-      </Button>
+        Pair phone or browser
+      </Trigger>
       <DialogContent initialFocus={flow}>
         <DialogHeader>
-          <DialogTitle>Pair a device</DialogTitle>
+          <DialogTitle>Pair phone or browser</DialogTitle>
         </DialogHeader>
         {open && <PairingFlow ref={flow} machine={props.machine} close={() => setOpen(false)} />}
       </DialogContent>

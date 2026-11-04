@@ -44,15 +44,15 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
     <>
       <SettingSection
         card
-        label="Machines"
-        note="This window isn't connected to a machine. Pair it with a computer running ace to start working there."
+        label="Computers"
+        note="This window isn't connected to a computer. Pair it with a computer running ace to start working there."
         actions={
           <>
             <Button size="sm" variant="secondary" onClick={() => setAdding("address")}>
               Connect by address
             </Button>
             <Button size="sm" variant="secondary" onClick={() => setAdding("pair")}>
-              Pair a machine
+              Add computer
             </Button>
           </>
         }
@@ -69,10 +69,10 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
           {adding === "pair" ? (
             <>
               <DialogHeader>
-                <DialogTitle>Pair a machine</DialogTitle>
+                <DialogTitle>Add computer</DialogTitle>
                 <DialogDescription>
-                  On the computer running ace, open Settings › Fleet › Pair a device, then paste its
-                  link or code here.
+                  On the computer running ace, open Settings › Fleet › Pair phone or browser, then
+                  paste its link or code here.
                 </DialogDescription>
               </DialogHeader>
               <PairingForm url={connection.url} connect={connect} cancel={close} />
@@ -145,7 +145,9 @@ function AccountMachines() {
           Couldn't list the machines on your ace account. Try again later.
         </SettingNote>
       ) : (
-        account.only.length === 0 && <SettingNote>No machines on your ace account yet.</SettingNote>
+        account.only.length === 0 && (
+          <SettingNote>No computers on your ace account yet.</SettingNote>
+        )
       )}
     </>
   );

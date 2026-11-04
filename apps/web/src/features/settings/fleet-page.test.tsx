@@ -8,7 +8,7 @@ configure({ asyncUtilTimeout: 10_000 });
 function withBuildServer() {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   const remote = app.machines.get("build");
-  if (!remote) throw new Error("Missing machine");
+  if (!remote) throw new Error("Missing computer");
   return { app, remote };
 }
 
@@ -18,24 +18,28 @@ const linkedHosts = (links: readonly { hostId?: string | undefined }[]) =>
 test("Link all links every machine with every other, both ways", async () => {
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
+  await userEvent.click(
+    await within(machines).findByRole("button", { name: "Link all computers" }),
+  );
   await waitFor(() => {
     expect(linkedHosts(app.daemon.services.fleet.links())).toEqual(["build"]);
     expect(linkedHosts(remote.services.fleet.links())).toEqual(["this-mac"]);
   });
   expect((await within(machines).findAllByText("Linked with all")).length).toBe(2);
-  expect(within(machines).queryByRole("button", { name: "Link all machines" })).toBeNull();
+  expect(within(machines).queryByRole("button", { name: "Link all computers" })).toBeNull();
 }, 30_000);
 
 test("a machine that can't make a pairing link says what to do, and the other direction still links", async () => {
   const { app, remote } = withBuildServer();
   remote.services.settings.write("remote.enabled", false);
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
+  await userEvent.click(
+    await within(machines).findByRole("button", { name: "Link all computers" }),
+  );
   // The toast's card is aria-hidden; its words are announced through the live region.
   expect(
     (await screen.findAllByText(/Turn on remote access on Build server\./)).length,
@@ -48,13 +52,15 @@ test("a machine that can't make a pairing link says what to do, and the other di
 test("unlinking two machines on a machine's page asks first, then removes both directions", async () => {
   const { app, remote } = withBuildServer();
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await within(machines).findByRole("button", { name: "Link all machines" }));
+  await userEvent.click(
+    await within(machines).findByRole("button", { name: "Link all computers" }),
+  );
   await within(machines).findAllByText("Linked with all");
   await userEvent.click(within(machines).getByRole("link", { name: "Build server" }));
   const links = await screen.findByRole("region", { name: "Links" });
-  await userEvent.click(within(links).getByRole("combobox", { name: "Machines to configure" }));
+  await userEvent.click(within(links).getByRole("combobox", { name: "Computers to configure" }));
   await userEvent.click(await screen.findByRole("option", { name: "This Mac" }));
   expect(within(links).getAllByText("Read and act")).toHaveLength(2);
   await userEvent.click(within(links).getByRole("button", { name: "Actions for This Mac" }));
@@ -75,7 +81,7 @@ test("access rules land on every machine, and a machine that disagrees says Diff
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   const access = await screen.findByRole("region", { name: "Access" });
   expect(await within(access).findByText("Differs")).toBeTruthy();
-  const agents = within(access).getByRole("group", { name: "Agents from other machines" });
+  const agents = within(access).getByRole("group", { name: "Agents from other computers" });
   await userEvent.click(within(agents).getByRole("button", { name: "Read and act" }));
   await waitFor(() => {
     expect(app.daemon.services.settings.get("remote.agentAccess")).toBe("operate");
@@ -166,7 +172,7 @@ test("turning a network off while other machines are connected asks first", asyn
 test("a paired device is listed once, and revoking it asks first", async () => {
   const app = harness();
   await app.open("/settings/remote");
-  const devices = await screen.findByRole("region", { name: "Devices" });
+  const devices = await screen.findByRole("region", { name: "Paired devices" });
   expect(await within(devices).findByText("iPhone 16 Pro")).toBeTruthy();
   await userEvent.click(within(devices).getByRole("button", { name: "Actions for iPhone 16 Pro" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Revoke" }));
@@ -187,10 +193,10 @@ test("a paired device is listed once, and revoking it asks first", async () => {
 test("an offline machine says so; its page reconnects it, and removing it takes it out of the fleet", async () => {
   const { app } = withBuildServer();
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   app.crashMachine("build");
-  expect(await within(machines).findByText(/Couldn't reach this machine|Offline/)).toBeTruthy();
+  expect(await within(machines).findByText(/Couldn't reach this computer|Offline/)).toBeTruthy();
   await userEvent.click(within(machines).getByRole("link", { name: "Build server" }));
   await userEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
@@ -200,7 +206,7 @@ test("an offline machine says so; its page reconnects it, and removing it takes 
       await screen.findByRole("dialog", { name: "Remove Build server from the fleet?" }),
     ).getByRole("button", { name: "Remove" }),
   );
-  const fleet = await screen.findByRole("region", { name: "Machines" });
+  const fleet = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(within(fleet).queryByText("Build server")).toBeNull());
 }, 30_000);
 
@@ -210,7 +216,7 @@ test("agents may move work to other machines until the switch is turned off on e
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   const access = await screen.findByRole("region", { name: "Access" });
   const toggle = await within(access).findByRole("switch", {
-    name: "Agents can move projects and threads to other machines",
+    name: "Agents can move projects and threads to other computers",
     checked: true,
   });
   await userEvent.click(toggle);

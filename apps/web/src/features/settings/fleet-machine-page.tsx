@@ -50,7 +50,7 @@ export function FleetMachinePage(props: { id: string }) {
       : fleet.byId(props.id);
   if (!machine)
     return (
-      <SettingsBody page="Machine not found" back={back}>
+      <SettingsBody page="Computer not found" back={back}>
         <p role="alert" className="mt-4 text-muted-foreground">
           This machine isn't in the fleet any more.
         </p>
@@ -59,7 +59,7 @@ export function FleetMachinePage(props: { id: string }) {
   const status =
     machine.status === "online"
       ? machine.primary
-        ? "This machine"
+        ? "This computer"
         : "Connected"
       : machine.status === "auth_failed" || machine.failed
         ? machineProblem(machine.status, !!machine.failed)
@@ -98,7 +98,7 @@ function Identity(props: { machine: Machine }) {
   const [editing, setEditing] = useState(false);
   return (
     <>
-      <SettingSection card label="Machine" anchor="machine">
+      <SettingSection card label="Computer" anchor="machine">
         <SettingRow id="host.displayName" title="Name and icon" inline>
           <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
           <Button
@@ -153,7 +153,8 @@ function MachineDevices(props: { machine: Machine; fleet: Fleet }) {
   return (
     <SettingSection
       card
-      label="Devices"
+      label="Paired devices"
+      note="Where you access Ace"
       anchor="devices"
       actions={machine.client ? <PairDevice machine={machine.id} /> : undefined}
     >
@@ -233,7 +234,7 @@ function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
         title: `${machine.name} removed from the fleet`,
         ...(unlinked
           ? {}
-          : { description: "Some links couldn't be undone while a machine was offline." }),
+          : { description: "Some links couldn't be undone while a computer was offline." }),
       });
       void navigate({ to: "/settings/remote" });
     },
@@ -243,7 +244,7 @@ function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
     <SettingSection card label="Remove" anchor="remove">
       <SettingRow
         title="Remove from fleet"
-        description="Unlinks it from every machine and disconnects it here. Its threads stay on it."
+        description="Unlinks it from every computer and disconnects it here. Its threads stay on it."
         inline
       >
         <Button

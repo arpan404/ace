@@ -79,12 +79,12 @@ export function MachineEditor(props: {
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{props.machine.primary ? "This machine" : "Edit machine"}</DialogTitle>
+          <DialogTitle>{props.machine.primary ? "This computer" : "Edit computer"}</DialogTitle>
           <DialogDescription>Every device shows this name and icon.</DialogDescription>
         </DialogHeader>
         {/* A form, so Enter in the name saves. */}
         <form
-          aria-label="Edit machine"
+          aria-label="Edit computer"
           className="contents"
           onSubmit={(event) => {
             event.preventDefault();
@@ -92,7 +92,7 @@ export function MachineEditor(props: {
           }}
         >
           <label className="text-sm" htmlFor="machine-name">
-            Machine name
+            Computer name
           </label>
           <Input
             id="machine-name"
@@ -126,7 +126,11 @@ export function MachineEditor(props: {
             onValueChange={(color) => setIcon({ ...icon, color })}
             disabled={saving}
           />
-          <MachineLabel name={name || "This machine"} icon={icon} primary={props.machine.primary} />
+          <MachineLabel
+            name={name || "This computer"}
+            icon={icon}
+            primary={props.machine.primary}
+          />
           {error && (
             <p role="alert" className="text-sm text-destructive">
               Couldn't save the machine identity. Check the connection and administrator access,

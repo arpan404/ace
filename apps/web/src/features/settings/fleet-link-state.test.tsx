@@ -8,11 +8,11 @@ configure({ asyncUtilTimeout: 10_000 });
 async function fleet(links: { macToBuild: boolean; buildToMac: boolean }) {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   const build = app.machines.get("build");
-  if (!build) throw new Error("Missing machine");
+  if (!build) throw new Error("Missing computer");
   if (links.macToBuild) app.daemon.linkTo(build);
   if (links.buildToMac) build.linkTo(app.daemon);
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   const row = (name: string) => {
     const found = within(machines).getByRole("link", { name }).closest("[data-fleet-machine]");
@@ -26,7 +26,7 @@ test("two machines linked both ways read as linked with all, with no Link button
   const { machines } = await fleet({ macToBuild: true, buildToMac: true });
   await waitFor(() => expect(within(machines).getAllByText("Linked with all")).toHaveLength(2));
   expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
-  expect(within(machines).queryByRole("button", { name: "Link machines" })).toBeNull();
+  expect(within(machines).queryByRole("button", { name: "Link computers" })).toBeNull();
 }, 30_000);
 
 test("a link held one way says which machine can't use the other, not that they're unlinked", async () => {
@@ -37,7 +37,7 @@ test("a link held one way says which machine can't use the other, not that they'
   expect(within(row("Build server")).getByText("Can't use This Mac")).toBeTruthy();
   expect(within(machines).queryByText(/Not linked/)).toBeNull();
   // The missing direction can still be linked from either row.
-  expect(within(row("This Mac")).getByRole("button", { name: "Link machines" })).toBeTruthy();
+  expect(within(row("This Mac")).getByRole("button", { name: "Link computers" })).toBeTruthy();
 }, 30_000);
 
 test("two machines with no link either way read as not linked with each other", async () => {

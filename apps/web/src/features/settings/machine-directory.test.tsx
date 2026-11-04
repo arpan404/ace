@@ -9,9 +9,9 @@ test("a hundred machines can be paged and searched without rendering a hundred r
     name: `Worker ${String(index + 1).padStart(3, "0")}`,
   }));
   render(
-    <MachineDirectory machines={machines} label="Search machines">
+    <MachineDirectory machines={machines} label="Search computers">
       {(rows) => (
-        <ul aria-label="Machines">
+        <ul aria-label="Computers">
           {rows.map((row) => (
             <li key={row.id}>{row.name}</li>
           ))}
@@ -19,13 +19,13 @@ test("a hundred machines can be paged and searched without rendering a hundred r
       )}
     </MachineDirectory>,
   );
-  const list = screen.getByRole("list", { name: "Machines" });
+  const list = screen.getByRole("list", { name: "Computers" });
   expect(within(list).getAllByRole("listitem")).toHaveLength(20);
   expect(within(list).getByText("Worker 001")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(within(list).getByText("Worker 021")).toBeTruthy();
   expect(within(list).queryByText("Worker 001")).toBeNull();
-  await userEvent.type(screen.getByRole("searchbox", { name: "Search machines" }), "Worker 100");
+  await userEvent.type(screen.getByRole("searchbox", { name: "Search computers" }), "Worker 100");
   expect(within(list).getAllByRole("listitem")).toHaveLength(1);
   expect(within(list).getByText("Worker 100")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Clear" }));

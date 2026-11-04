@@ -9,7 +9,7 @@ configure({ asyncUtilTimeout: 10_000 });
 
 /** The aria label of the mark beside a machine's name in Fleet's machine list. */
 async function machineMark(name: string) {
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   const link = await within(machines).findByRole("link", { name });
   return link
     .closest("[data-fleet-machine]")
@@ -19,14 +19,14 @@ async function machineMark(name: string) {
 
 /** Opens a machine's page from Fleet (this window's machine is listed first). */
 async function openMachine(machine: "this" | string) {
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   const [own] = await within(machines).findAllByRole("link");
   const link =
     machine === "this" ? own : await within(machines).findByRole("link", { name: machine });
-  if (!link) throw new Error("No machine listed");
+  if (!link) throw new Error("No computer listed");
   await userEvent.click(link);
   // The machine page loads on first visit.
-  return screen.findByRole("region", { name: "Machine" }, { timeout: 10_000 });
+  return screen.findByRole("region", { name: "Computer" }, { timeout: 10_000 });
 }
 
 /** Opens the name and icon editor on the machine's page. */
@@ -40,7 +40,7 @@ async function editMachine(machine: "this" | string) {
 async function renameMachine(machine: "this" | string, name: string, icon: string) {
   await editMachine(machine);
   const dialog = await screen.findByRole("dialog");
-  const input = within(dialog).getByRole("textbox", { name: "Machine name" });
+  const input = within(dialog).getByRole("textbox", { name: "Computer name" });
   await userEvent.clear(input);
   await userEvent.type(input, name);
   await userEvent.click(within(dialog).getByRole("button", { name: icon }));
@@ -54,13 +54,16 @@ test("editing this machine updates Settings and the thread's details card", asyn
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
-  await within(await screen.findByRole("region", { name: "Machines" })).findByText("Fake machine", {
-    exact: true,
-  });
+  await within(await screen.findByRole("region", { name: "Computers" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await renameMachine("this", "Workshop Mac", "Desktop");
-  const machines = screen.getByRole("region", { name: "Machine" });
+  const machines = screen.getByRole("region", { name: "Computer" });
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
-  expect(within(machines).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
+  expect(within(machines).getByRole("img", { name: "desktop computer icon" })).toBeTruthy();
   expect(app.daemon.services.settings.get("host.icon")).toMatchObject({
     kind: "desktop",
     color: "green",
@@ -97,7 +100,7 @@ test("editing a paired machine saves on that host and replaces stale thread labe
     name: /Replay cursor resets.*Running on Build server/,
   });
   // Two devices are connected: the row shows the machine's icon, never its name (3ab05f4f4).
-  expect(within(row).getByRole("img", { name: "server machine icon" })).toBeTruthy();
+  expect(within(row).getByRole("img", { name: "server computer icon" })).toBeTruthy();
   await userEvent.hover(row);
   expect((await screen.findByLabelText(/^Details for /)).textContent).toContain("Build server");
   expect(sidebar.textContent).not.toContain("Old server");
@@ -158,9 +161,12 @@ test("a chosen machine icon survives leaving Settings and returning to it", asyn
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   const view = await app.open("/settings/remote");
-  await within(await screen.findByRole("region", { name: "Machines" })).findByText("Fake machine", {
-    exact: true,
-  });
+  await within(await screen.findByRole("region", { name: "Computers" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await editMachine("this");
   const dialog = await screen.findByRole("dialog");
   await userEvent.click(within(dialog).getByRole("button", { name: "Terminal" }));
@@ -172,7 +178,7 @@ test("a chosen machine icon survives leaving Settings and returning to it", asyn
   cleanup();
   await app.open("/settings/remote");
   await waitFor(async () =>
-    expect(await machineMark("Fake machine")).toBe("terminal machine icon"),
+    expect(await machineMark("Fake machine")).toBe("terminal computer icon"),
   );
 });
 
@@ -204,11 +210,11 @@ test("a paired machine's updated host identity replaces the cached label after r
   const row = await within(sidebar).findByRole("link", {
     name: /Replay cursor resets.*Running on Build server/,
   });
-  expect(within(row).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
+  expect(within(row).getByRole("img", { name: "cloud computer icon" })).toBeTruthy();
   await userEvent.hover(row);
   const details = await screen.findByLabelText(/^Details for /);
   expect(details.textContent).toContain("Build server");
-  expect(within(details).getByRole("img", { name: "cloud machine icon" })).toBeTruthy();
+  expect(within(details).getByRole("img", { name: "cloud computer icon" })).toBeTruthy();
   expect(sidebar.textContent).not.toContain("Old server");
 });
 
@@ -216,37 +222,40 @@ test("clearing a custom machine name restores the computer name", async () => {
   const app = harness();
   app.daemon.services.settings.seed({ "host.displayName": "Workshop Mac" });
   await app.open("/settings/remote");
-  await within(await screen.findByRole("region", { name: "Machines" })).findByText("Workshop Mac");
+  await within(await screen.findByRole("region", { name: "Computers" })).findByText("Workshop Mac");
   await editMachine("this");
   const dialog = await screen.findByRole("dialog");
-  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Machine name" }));
+  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Computer name" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(
-    await within(screen.getByRole("region", { name: "Machine" })).findByText("Fake machine"),
+    await within(screen.getByRole("region", { name: "Computer" })).findByText("Fake machine"),
   ).toBeTruthy();
 }, 30_000);
 
 test("with no icon chosen, this machine shows a laptop and a paired machine a server", async () => {
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   await app.open("/settings/remote");
-  expect(await machineMark("This Mac")).toBe("laptop machine icon");
-  expect(await machineMark("Build server")).toBe("server machine icon");
+  expect(await machineMark("This Mac")).toBe("laptop computer icon");
+  expect(await machineMark("Build server")).toBe("server computer icon");
 });
 
 test("Enter in the machine name saves it", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   await app.open("/settings/remote");
-  await within(await screen.findByRole("region", { name: "Machines" })).findByText("Fake machine", {
-    exact: true,
-  });
+  await within(await screen.findByRole("region", { name: "Computers" })).findByText(
+    "Fake machine",
+    {
+      exact: true,
+    },
+  );
   await editMachine("this");
   const dialog = await screen.findByRole("dialog");
-  const input = within(dialog).getByRole("textbox", { name: "Machine name" });
+  const input = within(dialog).getByRole("textbox", { name: "Computer name" });
   await userEvent.clear(input);
   await userEvent.type(input, "Studio Mac{Enter}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  const machines = screen.getByRole("region", { name: "Machine" });
+  const machines = screen.getByRole("region", { name: "Computer" });
   expect(await within(machines).findByText("Studio Mac")).toBeTruthy();
 }, 30_000);

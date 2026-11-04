@@ -1,3 +1,4 @@
+import { computerCopy } from "@/lib/computer-copy.ts";
 import { useId, useState } from "react";
 import type { RemoteNetworks, RemoteNetworkStatus } from "@ace/protocol";
 import {
@@ -6,7 +7,7 @@ import {
   remoteNetworks,
   type RemoteNetworkKey,
 } from "@ace/ui-core";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
@@ -37,7 +38,7 @@ function networkSentence(
       : `On through ${hostOf(live.address)}, from anywhere.`;
   }
   if (key === "remote.relay" && on) return "Through ace's relay unless you name your own below.";
-  return remoteNetworkNotes[key];
+  return computerCopy(remoteNetworkNotes[key]);
 }
 
 function hostOf(url: string): string {
@@ -68,7 +69,8 @@ export function RemoteNetworkRows(props: { remote: readonly Machine[]; enabled: 
     live?.account.address ?? (live?.relay.state === "waiting" ? live.relay.address : undefined);
   const account = live?.account;
   return (
-    <SettingSection label="Networks" anchor="remote-networks" note={accountReachNote}>
+    <>
+      <SettingNote>{computerCopy(accountReachNote)}</SettingNote>
       {remoteNetworks.map((network) => {
         const control = controls[network.key];
         const turn = (on: boolean) => {
@@ -133,11 +135,11 @@ export function RemoteNetworkRows(props: { remote: readonly Machine[]; enabled: 
           title="Your ace account"
           description={
             account.error ??
-            "This machine is reachable through ace's relay from your account's devices."
+            "This computer is reachable through ace's relay from your account's devices."
           }
         />
       )}
       <ConfirmDialog confirming={risky} onDone={() => setRisky(undefined)} />
-    </SettingSection>
+    </>
   );
 }

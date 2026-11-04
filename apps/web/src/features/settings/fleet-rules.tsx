@@ -1,3 +1,4 @@
+import { computerCopy } from "@/lib/computer-copy.ts";
 import { useId, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -11,10 +12,15 @@ import { useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot } from "./setting-control.tsx";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { listNames, summarizeNames } from "./data/list-names.ts";
-import { agentAccessNotes, agentAccessOptions } from "@ace/ui-core";
+import { agentAccessNotes as sharedAgentAccessNotes, agentAccessOptions } from "@ace/ui-core";
 import { RemoteNetworkRows } from "./remote-networks.tsx";
 
-export { agentAccessNotes, agentAccessOptions };
+export { agentAccessOptions };
+export const agentAccessNotes = {
+  off: computerCopy(sharedAgentAccessNotes.off),
+  read: computerCopy(sharedAgentAccessNotes.read),
+  operate: computerCopy(sharedAgentAccessNotes.operate),
+};
 
 /**
  * How the fleet's machines open up, set on every connected machine at once: remote access, the
@@ -27,14 +33,8 @@ export function FleetRules(props: { fleet: Fleet }) {
   return (
     <AllMachinesScope machines={props.fleet.machines}>
       <section aria-label="Access">
-        <div className="mb-6">
-          <h3 className="text-md font-medium">Shared settings</h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Changes below apply to {names || "this machine"}. Offline machines keep their settings.
-            Open a machine above to change only its settings.
-          </p>
-        </div>
         <AccessRows
+          note={`Applies to ${names || "this computer"}. Offline computers keep their settings.`}
           remote={props.fleet.machines.filter((machine) => !machine.primary && machine.client)}
         />
         <FleetMachineAccess fleet={props.fleet} />
@@ -44,27 +44,23 @@ export function FleetRules(props: { fleet: Fleet }) {
 }
 
 /** Remote access, its networks and agents from other machines, for the machine(s) in scope. */
-export function AccessRows(props: { remote: readonly Machine[] }) {
+export function AccessRows(props: { remote: readonly Machine[]; note?: string }) {
   const id = useId();
   const [risky, setRisky] = useState<Confirming>();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
-  const hosted = useSettingControl(
-    settingKeys.hostedPairingLink,
-    "Pairing links open app.acehq.dev",
-  );
-  const agents = useSettingControl(settingKeys.agentAccess, "Agents from other machines");
+  const agents = useSettingControl(settingKeys.agentAccess, "Agents from other computers");
   const transfers = useSettingControl(
     settingKeys.agentTransfers,
-    "Agents can move projects and threads to other machines",
+    "Agents can move projects and threads to other computers",
   );
   const ignored = useSettingControl(settingKeys.transferIgnoredFiles, "Bring ignored files");
   return (
     <>
-      <SettingSection card label="Remote connections" anchor="fleet-access">
+      <SettingSection label="Networks" anchor="remote-networks" note={props.note}>
         <SettingRow
           id="remote.enabled"
           title="Remote access"
-          description="Allow paired phones, browsers and linked machines to connect. Turning this off disconnects them."
+          description="Allow paired phones, browsers and linked computers to connect. Turning this off disconnects them."
           htmlFor={id}
           inline
         >
@@ -77,7 +73,7 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
                 if (on || !props.remote.length) return void enabled.set(on);
                 setRisky({
                   title: "Turn off remote access everywhere?",
-                  body: `This window reaches ${listNames(props.remote.map((machine) => machine.name))} through remote access. Turning it off disconnects them here, and their paired devices too, until it's turned on again on each machine.`,
+                  body: `This window reaches ${listNames(props.remote.map((machine) => machine.name))} through remote access. Turning it off disconnects them here, and their paired devices too, until it's turned on again on each computer.`,
                   confirm: "Turn off",
                   run: () => void enabled.set(false),
                 });
@@ -85,22 +81,18 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
             />
           </DaemonSlot>
         </SettingRow>
+        <RemoteNetworkRows remote={props.remote} enabled={enabled.value} />
+        <HostedPairingRow id={id} />
       </SettingSection>
-      <RemoteNetworkRows remote={props.remote} enabled={enabled.value} />
-      <SettingSection
-        card
-        label="Agent access"
-        anchor="agent-access"
-        note="The maximum access allowed for agents from linked machines. Individual machine permissions can restrict it further."
-      >
+      <SettingSection card label="Agent access" anchor="agent-access">
         <SettingRow
           id="remote.agentAccess"
-          title="Agents from other machines"
+          title="Agents from other computers"
           description={agentAccessNotes[agents.value]}
         >
           <DaemonSlot control={agents}>
             <SegmentedControl
-              label="Agents from other machines"
+              label="Agents from other computers"
               value={agents.value}
               options={agentAccessOptions}
               disabled={agents.offline || agents.pending}
@@ -108,12 +100,10 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
             />
           </DaemonSlot>
         </SettingRow>
-      </SettingSection>
-      <SettingSection card label="Moving work between machines" anchor="work-transfers">
         <SettingRow
           id="remote.agentTransfers"
-          title="Agents can move projects and threads to other machines"
-          description="Allow agents to transfer work to another machine so it can continue there."
+          title="Agents can move projects and threads to other computers"
+          description="Allow agents to transfer work to another computer so it can continue there."
           htmlFor={`${id}-transfers`}
           inline
         >
@@ -143,25 +133,32 @@ export function AccessRows(props: { remote: readonly Machine[] }) {
           </DaemonSlot>
         </SettingRow>
       </SettingSection>
-      <SettingSection card label="Pairing links" anchor="pairing-links">
-        <SettingRow
-          id="remote.hostedPairingLink"
-          title="Pairing links open app.acehq.dev"
-          description="On, pairing links open the hosted web client. Off, they open the web client served by the machine being paired."
-          htmlFor={`${id}-hosted`}
-          inline
-        >
-          <DaemonSlot control={hosted}>
-            <Switch
-              id={`${id}-hosted`}
-              checked={hosted.value}
-              disabled={hosted.offline || hosted.pending}
-              onCheckedChange={(on) => void hosted.set(on)}
-            />
-          </DaemonSlot>
-        </SettingRow>
-      </SettingSection>
       <ConfirmDialog confirming={risky} onDone={() => setRisky(undefined)} />
     </>
+  );
+}
+
+function HostedPairingRow(props: { id: string }) {
+  const hosted = useSettingControl(
+    settingKeys.hostedPairingLink,
+    "Pairing links open app.acehq.dev",
+  );
+  return (
+    <SettingRow
+      id="remote.hostedPairingLink"
+      title="Pairing links open app.acehq.dev"
+      description="On, pairing links open the hosted web client. Off, they open the web client served by the computer being paired."
+      htmlFor={`${props.id}-hosted`}
+      inline
+    >
+      <DaemonSlot control={hosted}>
+        <Switch
+          id={`${props.id}-hosted`}
+          checked={hosted.value}
+          disabled={hosted.offline || hosted.pending}
+          onCheckedChange={(on) => void hosted.set(on)}
+        />
+      </DaemonSlot>
+    </SettingRow>
   );
 }
