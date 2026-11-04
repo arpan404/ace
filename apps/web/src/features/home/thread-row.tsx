@@ -117,7 +117,7 @@ export function ThreadRow(props: {
   // A thread this window started reads its provisional title until the daemon titles it.
   const titled =
     started && data.card.title === "New thread" ? { ...data.card, title: started } : data.card;
-  // Read under its own machine's client, the card would call that machine "this machine".
+  // Read under its own machine's client, the card would call that machine "this computer".
   const card = machine ? { ...titled, machine: machine.name, machineIcon: machine.icon } : titled;
   const handle = card.flags.pinned && !renaming;
   // The open thread reads at full contrast; every other row is as loud as its attention level.

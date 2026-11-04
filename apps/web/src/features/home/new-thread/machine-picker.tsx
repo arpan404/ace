@@ -93,11 +93,11 @@ function MachineMenu(props: {
   };
   return (
     <Menu onOpenChange={(open) => open && askAhead()}>
-      <Tip label="Change machine" side="top">
+      <Tip label="Change computer" side="top">
         <MenuTrigger
           onPointerEnter={askAhead}
           onFocus={askAhead}
-          aria-label={`Machine: ${current.name}`}
+          aria-label={`Computer: ${current.name}`}
           className="inline-flex max-w-full items-center gap-1 rounded-sm text-foreground underline decoration-muted-foreground/60 decoration-dotted decoration-2 underline-offset-[0.25em] transition-colors duration-(--motion-fast) focus-ring hover:decoration-foreground data-popup-open:decoration-foreground"
         >
           <span className="truncate">{current.name}</span>
@@ -107,7 +107,7 @@ function MachineMenu(props: {
       <MenuContent
         side="bottom"
         align="center"
-        aria-label="Machines"
+        aria-label="Computers"
         finalFocus={props.returnFocus}
       >
         <MenuRadioGroup

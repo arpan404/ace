@@ -57,8 +57,8 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
   if (several && picking)
     return (
       <CommandChoices
-        fieldLabel="Search machines"
-        listLabel="Machines"
+        fieldLabel="Search computers"
+        listLabel="Computers"
         placeholder="New thread on…"
         choices={choices}
         onChoose={(choice) => {
@@ -67,7 +67,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
           setPicking(false);
         }}
         onBack={() => setPicking(false)}
-        empty="No machines match"
+        empty="No computers match"
         onSwitchMachines={() => setPicking(false)}
         switchLabel="Projects"
       />
@@ -182,7 +182,7 @@ function Projects(props: {
       empty={props.empty}
       trailing={props.chip}
       onSwitchMachines={props.onSwitchMachines}
-      switchLabel="Machine"
+      switchLabel="Computer"
     />
   );
 }

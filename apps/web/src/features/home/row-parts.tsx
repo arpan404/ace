@@ -326,7 +326,7 @@ export function RowContext(props: {
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.remote && (
-          <Tip label={card.machine ?? "Another machine"}>
+          <Tip label={card.machine ?? "Another computer"}>
             <span data-machine-mark="" className="inline-flex">
               <MachineMark icon={card.machineIcon} primary={false} />
             </span>

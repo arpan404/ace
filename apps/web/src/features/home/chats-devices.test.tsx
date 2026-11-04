@@ -97,7 +97,7 @@ test("New chat with a device chosen starts on that device and makes its chat pro
   expect(history.location.search).toContain("machine=build");
   expect(history.location.search).toContain("project=chat");
   // The page's own machine line names the device, and lets the person move it.
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   const chatProjects = () => build.projects.list().workspaces.filter((p) => p.kind === "chat");
   await waitFor(() => expect(chatProjects().length).toBe(2));
   expect(app.daemon.projects.list().workspaces.filter((p) => p.kind === "chat")).toHaveLength(1);

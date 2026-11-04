@@ -26,7 +26,7 @@ const titles = (daemon: FakeDaemon) => {
 };
 
 async function chooseMachine(from: string, to: string) {
-  await userEvent.click(await screen.findByRole("button", { name: `Machine: ${from}` }));
+  await userEvent.click(await screen.findByRole("button", { name: `Computer: ${from}` }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: to }));
 }
 
@@ -50,7 +50,7 @@ test("picking Build server starts the thread there, opens it here and lists it i
   await chooseMachine("This Mac", "Build server");
   // The page now reads the build server: its project, and the picker names it.
   expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Computer: Build server" })).toBeTruthy();
 
   await sendWhenReady("Add a health check");
   expect(await screen.findByRole("heading", { level: 1, name: "Add a health check" })).toBeTruthy();
@@ -74,7 +74,7 @@ test("a machine that isn't connected shows why in the picker and can't be picked
   await screen.findByRole("button", { name: "Project: weather" });
   made.crashMachine("studio");
 
-  await userEvent.click(await screen.findByRole("button", { name: "Machine: This Mac" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Computer: This Mac" }));
   const studio = await screen.findByRole("menuitemradio", { name: "Studio, Offline" });
   expect(studio.getAttribute("aria-disabled")).toBe("true");
   await userEvent.click(studio);
@@ -103,7 +103,7 @@ test("a draft written on Build server reopens on Build server", async () => {
   const drafts = await screen.findByRole("list", { name: "Draft threads on Build server" });
   await userEvent.click(within(drafts).getByRole("link", { name: /^Rotate the keys\. Draft/ }));
 
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project: api" })).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe("Rotate the keys"),
@@ -139,7 +139,7 @@ test("New thread here on another machine's thread opens New thread there, in tha
   await made.open("/t/thread-on-build?machine=build");
   await screen.findByRole("heading", { level: 1, name: "Add rate limits" });
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
 });
 
@@ -223,7 +223,7 @@ test("a project the other machine lacks is copied there when the message is sent
   // The project stays chosen on the build server, and the strip says it travels on send.
   await chooseMachine("This Mac", "Build server");
   expect(await screen.findByRole("button", { name: "Project: sandbox" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(await screen.findByText("Copied from This Mac when sent")).toBeTruthy();
   await waitFor(() =>
     expect(screen.getByRole("combobox", { name: "Message" }).textContent).toBe(
@@ -310,11 +310,11 @@ test("a plain folder is copied on send, runs in its own folder, and is never cop
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   expect(await screen.findByRole("button", { name: "Project: scratch" })).toBeTruthy();
   await chooseMachine("Build server", "This Mac");
-  expect(await screen.findByRole("button", { name: "Machine: This Mac" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: This Mac" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project: scratch" })).toBeTruthy();
   expect(screen.queryByText(/^Copied from/)).toBeNull();
   await chooseMachine("This Mac", "Build server");
-  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Computer: Build server" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Project: scratch" })).toBeTruthy();
   expect(screen.queryByText(/^Copied from/)).toBeNull();
   expect(copies()).toHaveLength(1);

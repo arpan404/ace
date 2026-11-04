@@ -1033,7 +1033,7 @@ function PreparationPage(props: {
                             onMode={chooseMode}
                             noWorktree={noWorktree}
                             copyFrom={
-                              props.copyFrom ? (copy.source ?? "another machine") : undefined
+                              props.copyFrom ? (copy.source ?? "another computer") : undefined
                             }
                             branches={branches}
                             base={base}

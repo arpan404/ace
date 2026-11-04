@@ -56,7 +56,7 @@ export function MachineMark(props: {
     <span
       {...(props.decorative
         ? { "aria-hidden": true }
-        : { role: "img", "aria-label": `${entry?.kind ?? "laptop"} machine icon` })}
+        : { role: "img", "aria-label": `${entry?.kind ?? "laptop"} computer icon` })}
       className="inline-flex shrink-0 items-center"
       style={{ color: colors[icon.color ?? "default"] }}
     >

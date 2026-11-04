@@ -17,7 +17,7 @@ function world() {
   made.daemon.projects.command({ type: "workspace.add", path: "/Users/dev/code/weather" });
   const weather = made.daemon.projects.list().workspaces[0];
   const build = made.machines.get("build");
-  if (!weather || !build) throw new Error("no machines");
+  if (!weather || !build) throw new Error("no computers");
   build.projects.seedFolders("/home/ci", [{ path: "/home/ci/services/api", git: true }]);
   build.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
   const api = build.projects.list().workspaces[0];

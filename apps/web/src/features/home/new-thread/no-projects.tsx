@@ -25,7 +25,7 @@ export function NoProjects() {
       <EmptyState
         icon={FolderSimpleIcon}
         title={`No projects on ${choice.current.name}`}
-        description="Add a folder there for agents to work in, or start on another machine."
+        description="Add a folder there for agents to work in, or start on another computer."
         action={
           <span className="flex items-center gap-4">
             <button

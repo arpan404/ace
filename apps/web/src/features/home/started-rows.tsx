@@ -128,7 +128,7 @@ function StartedRow(props: { send: PendingSend }) {
         </span>
         <span className="w-full truncate text-base leading-5">{titleOf(send)}</span>
         <span className="flex w-full min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="truncate">{host?.displayName ?? "This machine"}</span>
+          <span className="truncate">{host?.displayName ?? "This computer"}</span>
           {send.payload.type === "thread.create" && (
             <ProviderIcon
               provider={send.payload.provider}

@@ -199,7 +199,7 @@ test("renaming an empty draft cannot turn it into a task", async () => {
 });
 
 test.each([false, true])(
-  "an Active row shows a device icon only for another machine, never its name (remote=%s)",
+  "an Active row shows a device icon only for another computer, never its name (remote=%s)",
   async (remote) => {
     const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
     app.daemon.services.settings.seed({
@@ -237,8 +237,8 @@ test.each([false, true])(
     // Another machine's thread draws that machine's icon, its name only in the tooltip; one on
     // this machine draws none.
     await waitFor(() => expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`));
-    if (remote) expect(within(row).getByRole("img", { name: /machine icon$/ })).toBeTruthy();
-    else expect(within(row).queryByRole("img", { name: /machine icon$/ })).toBeNull();
+    if (remote) expect(within(row).getByRole("img", { name: /computer icon$/ })).toBeTruthy();
+    else expect(within(row).queryByRole("img", { name: /computer icon$/ })).toBeNull();
     expect(within(row).queryByText(name, { exact: true })).toBeNull();
     expect(row.textContent).not.toContain("Stale server");
     expect(row.getAttribute("aria-label")).toContain(`Running on ${name}`);

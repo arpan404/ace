@@ -141,7 +141,7 @@ export function HomeSidebar() {
                 tab !== "inbox"
                   ? undefined
                   : none && !narrowed
-                    ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and machine land here.`
+                    ? `Start one${keys.newThread ? ` with ${formatKeys(keys.newThread)}` : ""}. Threads from every project and computer land here.`
                     : emptyInboxLine
               }
               action={

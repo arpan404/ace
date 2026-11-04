@@ -75,7 +75,7 @@ test("where the thread runs is one row in the strip above the composer; a notice
   ).toBeTruthy();
   expect(within(where).getByRole("checkbox", { name: "Worktree" })).toBeTruthy();
   // One device: the machine goes without saying.
-  expect(within(where).queryByRole("img", { name: /machine icon/ })).toBeNull();
+  expect(within(where).queryByRole("img", { name: /computer icon/ })).toBeNull();
 
   refuse = true;
   await userEvent.type(message, "Keep this editor open");
@@ -116,7 +116,7 @@ test("the machine is named under the question only while more than one device is
   const app = harness({ machines: [{ hostId: "build", name: "Build server" }] });
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");
-  const machine = await screen.findByRole("button", { name: "Machine: This Mac" });
+  const machine = await screen.findByRole("button", { name: "Computer: This Mac" });
   const question = within(screen.getByRole("main")).getByRole("heading", { level: 2 });
   const composer = document.querySelector("[data-slot=composer]");
   // Between the question and the composer, and not in the composer's strip.
@@ -134,6 +134,6 @@ test("with one device the page doesn't name the machine", async () => {
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/new?project=relay");
   await screen.findByRole("combobox", { name: "Message" });
-  expect(screen.queryByRole("button", { name: /^Machine:/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Computer:/ })).toBeNull();
   expect(within(screen.getByRole("main")).queryByText(/^on /)).toBeNull();
 });

@@ -89,7 +89,7 @@ function ForkDraftRow(props: {
         <span className="truncate text-base leading-5 text-foreground">{title}</span>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MachineMark icon={props.machine?.icon} />
-          <span className="min-w-0 truncate">{props.machine?.displayName ?? "This machine"}</span>
+          <span className="min-w-0 truncate">{props.machine?.displayName ?? "This computer"}</span>
           {parent?.provider && (
             <ProviderIcon provider={parent.provider} size={14} className="ml-auto" decorative />
           )}

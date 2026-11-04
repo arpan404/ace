@@ -38,7 +38,7 @@ export function UnavailablePreparation(props: {
       <div role="alert" className="h-full">
         <MissingState
           title={`This project isn't on ${here}`}
-          description="It may have been removed, or it lives on another machine. Add it here to keep going, or start in another project."
+          description="It may have been removed, or it lives on another computer. Add it here to keep going, or start in another project."
           actions={
             <>
               <Button

@@ -148,7 +148,7 @@ export function CommandChoices(props: {
         hints={[
           ...(rows.length ? [navigateHint, selectHint] : []),
           ...(props.onSwitchMachines
-            ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Machine" }]
+            ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Computer" }]
             : []),
           ...(props.onBack ? [backHint] : []),
           escapeHint(text),

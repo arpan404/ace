@@ -37,8 +37,8 @@ export function OnMachine(props: {
   if (!machine)
     return away(
       pool
-        ? "This window isn't paired with that machine. Add it in Settings › Fleet."
-        : "Connecting to your other machines…",
+        ? "This window isn't paired with that computer. Add it in Settings › Fleet."
+        : "Connecting to your other computers…",
     );
   return (
     <MachineScope key={machine.id} machine={machine} unavailable={away(machineAwayText(machine))}>

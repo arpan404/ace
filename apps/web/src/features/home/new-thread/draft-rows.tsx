@@ -34,7 +34,7 @@ export function DraftRows(props: {
         <MachineDrafts
           only={props.project}
           host={identity.hostId}
-          name={identity.displayName ?? "This machine"}
+          name={identity.displayName ?? "This computer"}
           icon={identity.icon}
         />
       )}

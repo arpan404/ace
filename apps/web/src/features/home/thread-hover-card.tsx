@@ -87,7 +87,7 @@ export function ThreadHoverContent(props: {
         </Fact>
         <Fact>
           <MachineMark icon={card.machineIcon} />
-          <span className="min-w-0 truncate">{card.machine ?? "This machine"}</span>
+          <span className="min-w-0 truncate">{card.machine ?? "This computer"}</span>
         </Fact>
         {card.branch && (
           <Fact>
