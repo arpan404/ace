@@ -14,3 +14,4 @@ export {
 } from "./document.ts";
 export { fileIO, scheduler, atomicWrite, readBounded, type FileIO, type Scheduler } from "./io.ts";
 export { createFileWatcher } from "./file-watch.ts";
+export { transportNetworks, type RemoteNetworkChoice } from "./remote-networks-migration.ts";

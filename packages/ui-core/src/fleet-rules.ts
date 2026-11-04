@@ -1,21 +1,27 @@
 /*
  * The rules a person sets on every machine at once (the web's Fleet › Access, the phone's Fleet
- * rules): remote access, the network machines are reached over, and what agents from other
+ * rules): remote access, the networks machines are reached over, and what agents from other
  * machines may do. Each rule names its daemon setting; clients read and write it per machine.
  */
 
-export const transportOptions = [
-  { value: "lan", label: "Local network" },
-  { value: "tailscale", label: "Tailscale" },
-  { value: "relay", label: "Relay" },
+/** The networks remote access serves, together (ADR 0112), each turned on or off. */
+export const remoteNetworks = [
+  { key: "remote.lan", label: "Local network" },
+  { key: "remote.tailscale", label: "Tailscale" },
+  { key: "remote.relay", label: "Relay" },
 ] as const;
+export type RemoteNetworkKey = (typeof remoteNetworks)[number]["key"];
 
-export const transportNotes: Record<(typeof transportOptions)[number]["value"], string> = {
-  lan: "Same network only. Browsers must trust its HTTPS certificate.",
-  tailscale:
+export const remoteNetworkNotes: Record<RemoteNetworkKey, string> = {
+  "remote.lan": "Devices on the same network. Browsers must trust its HTTPS certificate.",
+  "remote.tailscale":
     "Your private Tailscale network, from anywhere. For browsers, turn on HTTPS certificates in Tailscale.",
-  relay: "Through a relay you host. The local network stays on for pairing.",
+  "remote.relay": "From anywhere, through ace's relay or one you host.",
 };
+
+/** Why a machine is reachable with nothing turned on but remote access. */
+export const accountReachNote =
+  "A machine signed in to your ace account is also reachable through ace's relay from your account's devices.";
 
 export const agentAccessOptions = [
   { value: "off", label: "Off" },
@@ -58,17 +64,17 @@ export const fleetRules: readonly FleetRule[] = [
       action: "Turn off",
     },
   },
-  {
-    key: "remote.transport",
-    title: "Reached over",
-    control: "choice",
-    options: withNotes(transportOptions, transportNotes),
+  ...remoteNetworks.map((network): FleetRule => ({
+    key: network.key,
+    title: network.label,
+    note: remoteNetworkNotes[network.key],
+    control: "toggle",
     confirm: {
-      title: "Change the network every machine is reached over?",
-      body: "Machines may disconnect from this phone until it can reach them on the new network.",
-      action: "Change",
+      title: `Turn off ${network.label} on every machine?`,
+      body: "Machines this phone reaches that way may disconnect until it can reach them on another network.",
+      action: "Turn off",
     },
-  },
+  })),
   {
     key: "remote.hostedPairingLink",
     title: "Pairing links open app.acehq.dev",

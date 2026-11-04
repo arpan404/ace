@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { setOnItsOwn } from "@ace/settings/batch";
 import { defaults } from "@ace/settings/defaults";
+import { remoteNetworksMigration } from "@ace/settings/remote-networks";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
 export type Push = (message: ServerMessage) => void;
@@ -50,6 +51,31 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
+    this.migrateNetworks();
+  }
+  /** A saved `remote.transport` becomes the networks it meant, as the daemon's file does. */
+  private migrateNetworks(): SettingsKey[] {
+    const keys = [
+      "remote.transport",
+      "remote.relayUrl",
+      "remote.lan",
+      "remote.tailscale",
+      "remote.relay",
+    ] as const;
+    const read = SettingsValues.pick({
+      "remote.transport": true,
+      "remote.relayUrl": true,
+      "remote.lan": true,
+      "remote.tailscale": true,
+      "remote.relay": true,
+    })
+      .partial()
+      .safeParse(Object.fromEntries(keys.map((key) => [key, this.global.get(key)])));
+    const migration = read.success ? remoteNetworksMigration(read.data) : undefined;
+    if (!migration) return [];
+    for (const [key, value] of Object.entries(migration.networks)) this.global.set(key, value);
+    if (migration.dropTransport) this.global.delete("remote.transport");
+    return ["remote.lan", "remote.tailscale", "remote.relay", "remote.transport"];
   }
   /** Write a global value as the daemon does for its own commands, telling subscribers. */
   write(key: SettingsKey, value: unknown): void {
@@ -200,6 +226,7 @@ export class FakeSettings {
         }
         values.set(key.data, value.data);
         this.notify(key.data);
+        if (values === this.global) this.notifyMany(this.migrateNetworks());
         const scope: SettingsScope =
           layer.kind === "thread"
             ? { threadId: layer.threadId }

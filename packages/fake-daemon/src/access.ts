@@ -178,7 +178,7 @@ export class FakeAccess {
     if (path === "/v1/devices" && method === "GET") return reply(200, this.list());
     if (path === "/v1/pairings" && method === "POST") {
       const remote = this.remoteStatus();
-      if (!remote.enabled || !["lan", "tailscale"].includes(remote.transport))
+      if (remote.networks?.lan.state !== "on" && remote.networks?.tailscale.state !== "on")
         return reply(409, { error: "Remote access unavailable" });
       const body: unknown = typeof init.body === "string" ? JSON.parse(init.body) : {};
       if (!PairingRequest.safeParse(body).success) return reply(400, { error: "Invalid scopes" });

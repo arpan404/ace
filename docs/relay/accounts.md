@@ -177,3 +177,9 @@ label it in the machine list. A client passes `grant` to `connectClientViaRelay`
 After the Noise handshake proves the host key, the relay records host id →
 account in D1. A machine signing in to another account moves to it. A machine
 forgotten from the list returns the next time it registers.
+
+A daemon registers whenever remote access is on and it is signed in, whatever
+other networks it serves: LAN and Tailscale run beside the relay, never instead
+of it ([ADR 0112](../adr/0112-remote-networks-together.md)). So signing a machine
+in is all it takes to list it here; one that never registered (remote access
+off, or an older daemon on LAN or Tailscale alone) isn't in `machines`.

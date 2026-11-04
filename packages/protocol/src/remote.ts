@@ -83,9 +83,39 @@ export const SocketTicket = z.object({
   expiresAt: timestamp,
 });
 
+/**
+ * One remote network's state: `off` (not wanted), `on` (serving), `waiting` (wanted, waiting on
+ * the person, such as a sign-in) or `failed` (wanted, not serving; `error` says why). A newer
+ * daemon may add states: readers treat one they don't know as neither serving nor failed.
+ */
+export const RemoteNetworkStatus = z.object({
+  state: z.union([z.enum(["off", "on", "waiting", "failed"]), z.string().max(64)]),
+  error: z.string().max(256).optional(),
+  /** Where it's reached: `https://host:port` for LAN and Tailscale, the relay's URL for a relay. */
+  address: z.string().max(2048).optional(),
+});
+export type RemoteNetworkStatus = z.infer<typeof RemoteNetworkStatus>;
+
+/**
+ * Each network remote access runs together (ADR 0112). `relay` is the relay the person turned on
+ * (theirs, or ace's when they named none); `account` is ace's relay, which a machine signed in to
+ * an ace account is on whenever remote access is. Absent from older daemons.
+ */
+export const RemoteNetworks = z.object({
+  lan: RemoteNetworkStatus,
+  tailscale: RemoteNetworkStatus,
+  relay: RemoteNetworkStatus,
+  account: RemoteNetworkStatus,
+});
+export type RemoteNetworks = z.infer<typeof RemoteNetworks>;
+
 /** Current network resources and launch overrides, independent of saved preferences. */
 export const RemoteAccessStatus = z.object({
   enabled: z.boolean(),
+  /**
+   * The one network older clients show: the person's relay while it serves, else Tailscale,
+   * else LAN, else any relay. `networks` has each.
+   */
   transport: z.enum(["local", "lan", "tailscale", "relay"]),
   listenOverride: z.enum(["local", "lan", "tailscale"]).nullable(),
   relayOverride: z.boolean(),
@@ -103,5 +133,6 @@ export const RemoteAccessStatus = z.object({
     .optional(),
   /** This machine's ace account and machine code (ADR 0111). Absent from older daemons. */
   account: MachineAccountStatus.optional(),
+  networks: RemoteNetworks.optional(),
 });
 export type RemoteAccessStatus = z.infer<typeof RemoteAccessStatus>;

@@ -9,7 +9,7 @@ import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
-import { DeviceId } from "@ace/protocol";
+import { DeviceCredential, DeviceId, PairingResponse } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import {
   fakeWorkos,
@@ -18,7 +18,10 @@ import {
   startRelayWorker,
   type WorkosUser,
 } from "@ace/relay-cloudflare/testing";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token as adminToken } from "./socket-test-support.ts";
+import { accessRequest } from "./client-access.ts";
+import { loadIdentity } from "./tls-identity.ts";
+import { tlsFixtureHome } from "./process-test-support.ts";
 import { readConfig } from "./config.ts";
 import { message } from "./payload-test-support.ts";
 import type { CommandHandler } from "./commands.ts";
@@ -76,16 +79,25 @@ const answering: CommandHandler = {
   },
 };
 
-/** A daemon with remote access on ace's relay (the Worker), not yet signed in. */
-async function hostedDaemon() {
+/**
+ * A daemon not yet signed in. By default remote access is on ace's relay (the Worker) only;
+ * `direct` serves the LAN and Tailscale instead and names no relay at all.
+ */
+async function hostedDaemon(direct = false) {
   const home = await mkdtemp(join(tmpdir(), "ace-relay-e2e-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const settings = new SettingsService({ dataDir: home });
   cleanup.push(() => settings.close());
   await settings.set("remote.enabled", true, { kind: "global" });
-  await settings.set("remote.transport", "relay", { kind: "global" });
-  await settings.set("remote.relayUrl", worker.relayUrl, { kind: "global" });
+  if (direct) {
+    await settings.set("remote.lan", true, { kind: "global" });
+    await settings.set("remote.tailscale", true, { kind: "global" });
+  } else {
+    await settings.set("remote.transport", "relay", { kind: "global" });
+    await settings.set("remote.relayUrl", worker.relayUrl, { kind: "global" });
+  }
   let account: MachineAccount | undefined;
+  const identity = direct ? loadIdentity(tlsFixtureHome()) : undefined;
   const f = await fixture(
     {
       settings,
@@ -93,9 +105,22 @@ async function hostedDaemon() {
       remoteConfig: readConfig({
         ACE_HOME: home,
         ACE_PORT: "0",
-        ACE_LISTEN: "local",
+        ...(direct ? { ACE_ADVERTISE_HOST: "127.0.0.1" } : { ACE_LISTEN: "local" }),
         ACE_HOSTED_RELAY_URL: worker.relayUrl,
       }),
+      ...(identity
+        ? {
+            network: {
+              identity: () => identity,
+              interfaces: () => ({}),
+              status: async () =>
+                JSON.stringify({ BackendState: "Running", TailscaleIPs: ["127.0.0.1"] }),
+              certificate: async () => {
+                throw new Error("HTTPS certificates are off for this tailnet");
+              },
+            },
+          }
+        : {}),
       hostName: "Build box",
       platform: "linux",
     },
@@ -118,7 +143,7 @@ async function hostedDaemon() {
   if (!account) throw new Error("Machine account missing");
   const machine = account;
   cleanup.push(() => machine.close());
-  return { f, account: machine };
+  return { f, account: machine, fingerprint: identity?.fingerprint };
 }
 
 const accounts = () => aceAccountClient({ origin: worker.http, fetch: globalThis.fetch });
@@ -245,4 +270,44 @@ it("a device on another account cannot reach the machine, and signing the machin
     code: 1008,
     reason: "Host unavailable",
   });
+});
+
+it("a signed-in machine on the LAN and Tailscale is also on ace's relay; signing out leaves the LAN serving", async () => {
+  const { f, account, fingerprint } = await hostedDaemon(true);
+  const session = await signInThroughWorker(worker.http, workos, owner);
+  await account.handover(worker.http, session.token);
+  // Signing in is all it takes: the phone's account lists the machine and opens it.
+  await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeDefined();
+  const hostId = f.server.relayHostId ?? "";
+  await expect
+    .poll(async () => (await accounts().machines(session.token, signal())).map((m) => m.hostId), {
+      timeout: 10_000,
+    })
+    .toContain(hostId);
+  const opened = pool(session.token, "phone").openAccountMachine({ hostId, name: "Build box" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+
+  await account.signOut();
+  await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeUndefined();
+  // The LAN still serves, and pairing links name it.
+  const pairing = PairingResponse.parse(
+    await accessRequest(f.server.httpUrl, "/v1/pairings", {
+      token: adminToken,
+      method: "POST",
+      body: {},
+    }),
+  );
+  const link = new URL(pairing.url);
+  expect(link.protocol).toBe("https:");
+  const paired = DeviceCredential.parse(
+    await accessRequest(link.origin, "/v1/pair", {
+      ...(fingerprint ? { fingerprint } : {}),
+      method: "POST",
+      body: {
+        code: new URLSearchParams(link.hash.slice(1)).get("code"),
+        name: "Laptop on the LAN",
+      },
+    }),
+  );
+  expect(paired.device.name).toBe("Laptop on the LAN");
 });

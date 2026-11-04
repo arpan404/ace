@@ -349,10 +349,22 @@ const entries = [
     keywords: ["lan", "tailscale", "relay", "fleet", "network"],
   },
   {
-    id: "remote.transport",
+    id: "remote.lan",
     page: "/settings/remote",
-    title: "Reached over",
-    keywords: ["lan", "tailscale", "relay", "transport", "network"],
+    title: "Local network",
+    keywords: ["lan", "wifi", "network", "transport"],
+  },
+  {
+    id: "remote.tailscale",
+    page: "/settings/remote",
+    title: "Tailscale",
+    keywords: ["tailscale", "tailnet", "vpn", "network", "transport"],
+  },
+  {
+    id: "remote.relay",
+    page: "/settings/remote",
+    title: "Relay",
+    keywords: ["relay", "account", "anywhere", "network", "transport"],
   },
   {
     id: "remote.hostedPairingLink",

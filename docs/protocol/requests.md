@@ -1481,7 +1481,7 @@ Example:
 ```json
 {
   "keys": [
-    "providers.coder.model"
+    "providers.coder.tier"
   ],
   "requestId": "example",
   "scope": {},

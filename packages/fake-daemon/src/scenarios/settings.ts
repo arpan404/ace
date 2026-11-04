@@ -397,6 +397,7 @@ export function settingsValues(): Partial<SettingsValues> & Record<string, unkno
   return {
     "providers.default": "claude",
     "remote.enabled": true,
-    "remote.transport": "tailscale",
+    "remote.lan": false,
+    "remote.tailscale": true,
   };
 }

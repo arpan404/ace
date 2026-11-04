@@ -240,11 +240,14 @@ export const settingsQueries = {
 export function useRemoteStatus() {
   const backend = useSettingsBackend();
   const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
-  const transport = useSettingControl(settingKeys.remoteTransport, "Transport");
-  const relay = useSettingControl(settingKeys.relayUrl, "Relay address");
+  const lan = useSettingControl(settingKeys.remoteLan, "Local network");
+  const tailscale = useSettingControl(settingKeys.remoteTailscale, "Tailscale");
+  const relayOn = useSettingControl(settingKeys.remoteRelay, "Relay");
+  const relay = useSettingControl(settingKeys.relayUrl, "Your own relay");
+  const values = [enabled, lan, tailscale, relayOn, relay];
   return useQuery({
-    queryKey: ["settings", "remote-status", enabled.value, transport.value, relay.value],
-    enabled: enabled.loaded && transport.loaded && relay.loaded,
+    queryKey: ["settings", "remote-status", ...values.map((control) => control.value)],
+    enabled: values.every((control) => control.loaded),
     staleTime: 0,
     queryFn: () => backend.remoteStatus(),
     retry: false,

@@ -1,32 +1,39 @@
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
-import { createServer } from "node:https";
 import type { RequestListener, Server } from "node:http";
-import { join } from "node:path";
-import { loadOrCreateHostKeys } from "@ace/secure-channel/node";
 import { SettingsValues } from "@ace/protocol";
-import { SettingsError } from "@ace/settings";
-import { remoteListener, systemNetwork, urlHost } from "./network.ts";
-import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
-import { bindListener, closeListener } from "./listener.ts";
-import { startRelayTransport } from "./services/transports.ts";
+import { SettingsError, transportNetworks } from "@ace/settings";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { relayPairing, relayRoute } from "./relay-route.ts";
 import { computerName } from "./computer-name.ts";
-import { RelayRefusedError } from "@ace/relay";
+import { remoteDirect } from "./remote-direct.ts";
+import { remoteRelays } from "./remote-relays.ts";
+import { remoteNetworksStatus } from "./remote-status.ts";
 import {
-  RelayNeedsAccount,
-  hostedRelayAccess,
-  isHostedRelay,
-  relayRefusedMachine,
-} from "./relay-account.ts";
+  addedDirect,
+  remotePlan,
+  remotePreferenceKeys,
+  type RemotePlan,
+  type RemotePreferences as Preferences,
+} from "./remote-policy.ts";
 
-import { remotePlan, type RemotePreferences as Preferences } from "./remote-policy.ts";
-const keys = ["remote.enabled", "remote.transport", "remote.relayUrl"] as const;
+/** Settings this runtime applies: the networks, and the older single choice it translates. */
+const keys = [...remotePreferenceKeys, "remote.transport"] as const;
 /** How often the address remote access listens on is checked against the network's. */
 export const addressCheckMs = 30_000;
+const Stored = SettingsValues.pick({
+  "remote.enabled": true,
+  "remote.lan": true,
+  "remote.tailscale": true,
+  "remote.relay": true,
+  "remote.relayUrl": true,
+});
 
-/** Owns network resources separately from local sessions and their event history. */
+/**
+ * Owns network resources separately from local sessions and their event history: the direct
+ * listener (LAN and Tailscale) and every relay, each run together and failing on its own
+ * (ADR 0112).
+ */
 export function remoteRuntime(
   options: ServerOptions,
   auth: RemoteAuth,
@@ -38,24 +45,15 @@ export function remoteRuntime(
   const delay = options.runtime?.delay ?? systemDeliveryRuntime.delay;
   const every = options.runtime?.every ?? systemDeliveryRuntime.every;
   let stopWatch: (() => void) | undefined;
-  /** The address the direct listener is bound to and links name, while one is open. */
-  let bound: string | undefined;
   let retry: (() => void) | undefined;
   let retryMs = 1000;
-  let error: string | undefined;
-  let listener: Server | undefined;
-  let trusted: TrustedCertificate | undefined;
-  let connection: { origin: string; fingerprint: string; port: number } | undefined;
-  let relay: Awaited<ReturnType<typeof startRelayTransport>>;
-  /** The running relay is ace's hosted one. */
-  let hostedActive = false;
-  let preferences: Preferences = {
+  let preferences: Preferences = Stored.parse({
     "remote.enabled": false,
-    "remote.transport": "local",
+    "remote.lan": true,
+    "remote.tailscale": false,
+    "remote.relay": false,
     "remote.relayUrl": "",
-  };
-  let active = "";
-  let directSignature = "";
+  });
   let closed = false;
   let tail = Promise.resolve();
   let stop: (() => void) | undefined;
@@ -63,7 +61,6 @@ export function remoteRuntime(
   let stopAccount: (() => void) | undefined;
   let reconciling = false;
   let dirty = false;
-  let directTransport: "local" | "lan" | "tailscale" = "local";
   const serialize = (run: () => Promise<void>) => {
     if (queued >= 64)
       return Promise.reject(new SettingsError("limit", "Remote access is busy. Try again."));
@@ -74,44 +71,8 @@ export function remoteRuntime(
     tail = next.catch(() => {});
     return next;
   };
-  const retire = async () => {
-    // Links name the address and key being replaced. Starting or stopping the daemon replaces
-    // nothing, so links issued before a restart stay valid until they expire.
-    if (!closed && (connection || listener || relay)) auth.clearPending();
-    connection = undefined;
-    directTransport = "local";
-    disconnect();
-    trusted?.stop();
-    trusted = undefined;
-    await relay?.close();
-    relay = undefined;
-    options.relay = undefined;
-    if (listener) await closeListener(listener);
-    listener = undefined;
-    active = "";
-    directSignature = "";
-    bound = undefined;
-  };
-  /**
-   * The network gave this machine another address (Tailscale reassigned it, or the LAN changed):
-   * the listener on the old one is unreachable, so it moves to the new one. A check that fails
-   * leaves a working listener alone; only an address that resolves and differs moves it.
-   */
-  const recheck = async () => {
-    const config = options.remoteConfig;
-    if (closed || !config || bound === undefined || directTransport === "local") return;
-    let remote;
-    try {
-      remote = await remoteListener({ ...config, listen: directTransport }, options.network);
-    } catch {
-      return;
-    }
-    if (closed || !remote || `${remote.host} ${remote.advertisedHost}` === bound) return;
-    options.log?.(
-      new Error(`Remote access moved from ${bound.split(" ")[1]} to ${remote.advertisedHost}`),
-    );
-    await retire();
-    await apply(preferences);
+  const clearPending = () => {
+    if (!closed) auth.clearPending();
   };
   // How this machine is labelled in the account's machine list, as host.identity names it.
   const machineName = async () => {
@@ -119,196 +80,123 @@ export function remoteRuntime(
     if (typeof saved?.value === "string" && saved.value) return saved.value;
     return options.hostName ?? (await computerName().catch(() => undefined));
   };
-  const apply = async (next: Preferences) => {
-    if (closed) return;
+  const direct = remoteDirect({ options, http, attach, disconnect, clearPending });
+  // Links name the relay only while no direct address serves; then closing it withdraws them.
+  const relays = remoteRelays({
+    options,
+    auth,
+    machineName,
+    serialize,
+    clearPending: () => {
+      if (!direct.open()) clearPending();
+    },
+  });
+  const accountId = () => options.machineAccount?.account()?.id;
+  const plan = (next: Preferences): RemotePlan | undefined => {
     const config = options.remoteConfig;
-    if (!config) return;
-    const plan = remotePlan(config, next);
-    const { listen, relayUrl } = plan;
-    if (next["remote.enabled"] && next["remote.transport"] === "relay" && !relayUrl)
-      throw new SettingsError("validation", "Enter your self-hosted relay address first.");
-    const hosted = isHostedRelay(relayUrl, config.hostedRelayUrl);
-    // ace's relay registers this machine under its account, so another account is another plan.
-    const signature = hosted
-      ? JSON.stringify([plan.signature, options.machineAccount?.account()?.id ?? null])
-      : plan.signature;
-    if (signature === active) {
-      preferences = next;
-      error = undefined;
-      return;
-    }
-    // Resolve prerequisites before taking an existing listener down. Never fall back to LAN.
-    let remote;
-    try {
-      remote = await remoteListener({ ...config, listen }, options.network);
-    } catch {
-      if (process.platform === "win32" && listen === "lan")
-        throw new SettingsError(
-          "io",
-          "Couldn't find this computer's LAN address. Connect it to a network, or set ACE_ADVERTISE_HOST to its LAN address, then try again.",
-        );
-      throw new SettingsError(
-        "io",
-        listen === "tailscale"
-          ? "Start Tailscale on this computer, then try again."
-          : "Couldn't prepare encrypted LAN access. Check your network and OpenSSL installation, then try again.",
-      );
-    }
-    const relayKeys = relayUrl
-      ? await loadOrCreateHostKeys(join(config.dataDir, "relay"))
-      : undefined;
-    const relayOptions = relayUrl && relayKeys ? { url: relayUrl, keys: relayKeys } : undefined;
-    let relayAccess: ReturnType<typeof hostedRelayAccess> | undefined;
-    try {
-      relayAccess =
-        hosted && relayKeys
-          ? hostedRelayAccess(options.machineAccount, relayKeys, {
-              name: await machineName(),
-              platform: options.platform ?? process.platform,
-            })
-          : undefined;
-    } catch (failure) {
-      // Signed out: a relay registered under the old session stops; direct access stays.
-      active = "";
-      await relay?.close();
-      relay = undefined;
-      options.relay = undefined;
-      throw failure;
-    }
-    if (closed) return;
-    const keepDirect = directSignature === listen;
-    if (!keepDirect) await retire();
-    else {
-      // The applied signature is invalid as soon as its relay resource is retired.
-      active = "";
-      await relay?.close();
-      relay = undefined;
-      options.relay = undefined;
-    }
-    try {
-      if (remote && !keepDirect) {
-        const name = remote.tailnetName;
-        trusted = name
-          ? trustedCertificate({
-              name,
-              fetch: (host) => (options.network ?? systemNetwork).certificate(host),
-              now: options.now ?? options.runtime?.now ?? systemDeliveryRuntime.now,
-              delay,
-              log: (failure) => options.log?.(failure),
-            })
-          : undefined;
-        const certificates = trusted;
-        // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
-        // client (and every client until it arrives) gets ace's own, pinned certificate.
-        listener = createServer(
-          {
-            ...remote.identity,
-            minVersion: "TLSv1.2",
-            ...(certificates
-              ? {
-                  SNICallback: (servername, done) => done(null, certificates.select(servername)),
-                }
-              : {}),
-          },
-          http,
-        );
-        listener.requestTimeout = 0;
-        listener.headersTimeout = 10_000;
-        attach(listener);
-        const port = await bindListener(listener, remote.host, remote.port);
-        directTransport = listen;
-        bound = `${remote.host} ${remote.advertisedHost}`;
-        connection = {
-          origin: `https://${urlHost(remote.advertisedHost)}:${port}`,
-          fingerprint: remote.identity.fingerprint,
-          port,
-        };
-      }
-      directSignature = listen;
-      if (relayOptions)
-        // `options` itself, not a copy: its service getters must stay live for relay channels.
-        relay = await startRelayTransport(options, auth, relayOptions, {
-          ...(relayAccess ? { account: relayAccess.account } : {}),
-          onRefused: () => {
-            error = hosted ? relayRefusedMachine : "The relay refused this machine.";
-            options.log?.(new Error(error));
-            void serialize(async () => {
-              active = "";
-              await relay?.close();
-              relay = undefined;
-              options.relay = undefined;
-            }).catch(() => {});
-          },
-        });
-      options.relay = relay ? relayOptions : undefined;
-      hostedActive = relay !== undefined && hosted;
-      preferences = next;
-      active = signature;
-      error = undefined;
-      retryMs = 1000;
-    } catch (failure) {
-      // A relay outage must leave the direct pairing and conversation listener available.
-      if (!connection) await retire();
-      // ace's relay refuses a machine whose account it can't confirm; a self-hosted relay's own
-      // refusal (an allowlist) keeps the ordinary retry below.
-      if (failure instanceof RelayRefusedError && hosted)
-        throw new RelayNeedsAccount(relayRefusedMachine);
-      throw new SettingsError(
-        "io",
-        "Couldn't start remote access. Check the selected network or relay address and try again.",
-      );
-    }
+    return config ? remotePlan(config, next, accountId()) : undefined;
   };
-  const recover = (failure: unknown) => {
-    error =
-      failure instanceof SettingsError
-        ? failure.message
-        : "Couldn't start remote access. Check your network or relay address.";
-    options.log?.(new Error(error));
-    // Waits for the person: signing in (or changing settings) applies it again.
-    if (closed || retry || failure instanceof RelayNeedsAccount) return;
+  const scheduleRetry = () => {
+    if (closed || retry) return;
     retry = delay(() => {
       retry = undefined;
       void serialize(() => apply(preferences)).catch(recover);
     }, retryMs);
     retryMs = Math.min(retryMs * 2, 30000);
   };
+  /**
+   * Brings every network to `next`. With `refuseFrom`, a network this change turns on that can't
+   * start refuses the change before anything is taken down: the person learns now, and the
+   * networks already serving stay as they were. Otherwise failures show in status and retry.
+   */
+  const apply = async (
+    next: Preferences,
+    refuseFrom?: Preferences,
+    retryRefused = false,
+  ): Promise<void> => {
+    if (closed) return;
+    const wanted = plan(next);
+    if (!wanted) return;
+    const resolution = await direct.resolve(wanted.direct);
+    if (refuseFrom) {
+      const before = plan(refuseFrom);
+      const added = before ? addedDirect(before.direct, wanted.direct) : wanted.direct;
+      for (const network of ["tailscale", "lan"] as const) {
+        const read = resolution[network];
+        if (added[network] && read instanceof Error) throw read;
+      }
+    }
+    if (closed) return;
+    preferences = next;
+    await direct.commit(resolution);
+    await relays.apply(wanted.relays, retryRefused);
+    if (refuseFrom) {
+      const before = plan(refuseFrom);
+      const addedDirectNetworks = before
+        ? addedDirect(before.direct, wanted.direct)
+        : wanted.direct;
+      const listening = (["tailscale", "lan"] as const).find(
+        (network) => addedDirectNetworks[network] && direct.errors()[network],
+      );
+      if (listening) throw new SettingsError("io", direct.errors()[listening] ?? "");
+      const added = wanted.relays.find(
+        (relay) =>
+          !relay.hosted &&
+          relays.failed(relay.key) &&
+          !before?.relays.some((old) => old.key === relay.key),
+      );
+      if (added)
+        throw new SettingsError(
+          "io",
+          "Couldn't start remote access through that relay. Check its address and try again.",
+        );
+    }
+    const directErrors = Object.values(direct.errors());
+    for (const error of directErrors) options.log?.(new Error(error));
+    const directFailed = directErrors.length > 0;
+    if (directFailed || relays.retryable()) scheduleRetry();
+    else retryMs = 1000;
+  };
+  const recover = (failure: unknown) => {
+    const message =
+      failure instanceof SettingsError
+        ? failure.message
+        : "Couldn't start remote access. Check your network or relay address.";
+    options.log?.(new Error(message));
+    scheduleRetry();
+  };
+  const read = async (base: Preferences): Promise<Preferences> => {
+    const entries = (await options.settings?.read({ keys: [...remotePreferenceKeys], scope: {} }))
+      ?.entries;
+    const next: Record<string, unknown> = { ...base };
+    for (const entry of entries ?? []) next[entry.key] = entry.value;
+    const parsed = Stored.safeParse(next);
+    return parsed.success ? parsed.data : base;
+  };
   return {
-    // A link names the ts.net host only while browsers would trust it there; otherwise the
-    // 100.x (or LAN) address, which works wherever the pinned certificate does.
-    pairing: () => {
-      // Without a direct listener, a self-hosted relay carries the redemption (ADR 0070); ace's
-      // relay admits account devices only, which never pair.
-      if (!connection)
-        return relay && options.relay && !hostedActive ? relayPairing(options.relay) : undefined;
-      const { origin, fingerprint, port } = connection;
-      const name = trusted?.active() ? trusted.name : undefined;
-      return { origin: name ? `https://${name}:${port}` : origin, fingerprint };
+    /**
+     * What a pairing link names: the direct address while LAN or Tailscale serves, else the
+     * person's own relay (ADR 0070). ace's relay admits account devices only, which never pair.
+     */
+    pairing: () =>
+      direct.connection() ??
+      (relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined),
+    status: () => {
+      const config = options.remoteConfig;
+      const networks = remoteNetworksStatus({
+        direct: { serving: direct.serving(), errors: direct.errors(), address: direct.address },
+        relays: relays.view(),
+      });
+      return {
+        ...networks,
+        listenOverride: config?.listenOverride ? config.listen : null,
+        relayOverride: config?.relayUrl !== undefined,
+        ...(options.relay ? relayRoute(options.relay, options.hostId) : {}),
+      };
     },
-    status: () => ({
-      ...(error ? { error } : {}),
-      enabled: connection !== undefined || relay !== undefined,
-      transport: relay ? ("relay" as const) : directTransport,
-      listenOverride: options.remoteConfig?.listenOverride ? options.remoteConfig.listen : null,
-      relayOverride: options.remoteConfig?.relayUrl !== undefined,
-      ...(relay ? relayRoute(options.relay, options.hostId) : {}),
-    }),
     async start() {
       if (!options.remoteConfig) return;
-      if (options.settings) {
-        const read = await options.settings.read({ keys: [...keys], scope: {} });
-        for (const entry of read.entries) {
-          if (entry.key === "remote.enabled" && typeof entry.value === "boolean")
-            preferences[entry.key] = entry.value;
-          if (
-            entry.key === "remote.transport" &&
-            ["local", "lan", "tailscale", "relay"].includes(String(entry.value))
-          )
-            preferences[entry.key] = SettingsValues.shape["remote.transport"].parse(entry.value);
-          if (entry.key === "remote.relayUrl" && typeof entry.value === "string")
-            preferences[entry.key] = entry.value;
-        }
-      }
+      preferences = await read(preferences);
       await serialize(() => apply(preferences)).catch(recover);
       const reconcile = () => {
         dirty = true;
@@ -318,18 +206,7 @@ export function remoteRuntime(
           while (dirty) {
             if (closed) break;
             dirty = false;
-            const read = await options.settings?.read({ keys: [...keys], scope: {} });
-            const next = { ...preferences };
-            for (const entry of read?.entries ?? []) {
-              if (entry.key === "remote.enabled" && typeof entry.value === "boolean")
-                next[entry.key] = entry.value;
-              if (entry.key === "remote.transport")
-                next[entry.key] = SettingsValues.shape["remote.transport"].parse(entry.value);
-              if (entry.key === "remote.relayUrl" && typeof entry.value === "string")
-                next[entry.key] = entry.value;
-            }
-            preferences = next;
-            await apply(next);
+            await apply(await read(preferences));
           }
         })
           .catch(recover)
@@ -341,19 +218,21 @@ export function remoteRuntime(
       stop = await options.settings?.subscribe({ keys: [...keys], scope: {} }, (event) => {
         if (event.type === "changed") reconcile();
       });
+      // Signing in, out or to another account changes ace's relay registration; a refusal
+      // waiting for a sign-in is tried again.
       stopAccount = options.machineAccount?.onChange(() => {
         if (closed) return;
         retry?.();
         retry = undefined;
-        void serialize(() => apply(preferences)).catch(recover);
+        void serialize(() => apply(preferences, undefined, true)).catch(recover);
       });
       if (!closed)
         stopWatch = every(() => {
-          if (bound !== undefined && !closed) void serialize(recheck).catch(recover);
+          if (direct.open() && !closed) void serialize(() => apply(preferences)).catch(recover);
         }, addressCheckMs);
     },
     get relayHostId() {
-      return relay?.relayHostId;
+      return relays.relayHostId();
     },
     set(key: string, value: unknown, commit: () => Promise<void>) {
       if (!keys.some((item) => item === key)) return commit();
@@ -361,19 +240,24 @@ export function remoteRuntime(
         retry?.();
         retry = undefined;
         const before = preferences;
+        // An older app's single network choice becomes the networks it meant.
+        const change =
+          key === "remote.transport"
+            ? transportNetworks(
+                SettingsValues.shape["remote.transport"].parse(value),
+                before["remote.relayUrl"],
+              )
+            : { [key]: value };
         try {
-          await apply(
-            SettingsValues.pick({
-              "remote.enabled": true,
-              "remote.transport": true,
-              "remote.relayUrl": true,
-            }).parse({ ...preferences, [key]: value }),
-          );
+          await apply(Stored.parse({ ...before, ...change }), before);
           await commit();
         } catch (failure) {
           await apply(before).catch(recover);
           throw failure;
         }
+        // The saved settings are the truth: a write may have changed others with it.
+        const saved = await read(preferences);
+        if (JSON.stringify(saved) !== JSON.stringify(preferences)) await apply(saved);
       });
     },
     async close() {
@@ -385,7 +269,8 @@ export function remoteRuntime(
       retry = undefined;
       stop?.();
       await tail;
-      await retire();
+      await relays.close(false);
+      await direct.close();
     },
   };
 }
