@@ -265,30 +265,36 @@ test("a child stopped by its usage limit tells its parent once instead of leavin
   const { h, parent, child } = await runningChild(true);
   await h.emit(child, quotaEnd);
   expect(h.store.getThread(child)?.status.state).toBe("limited");
-  const told = () =>
-    received(h, parent.threadId).filter((text) => text.includes("hit its usage limit"));
+  later(h, 100);
+  await h.engine.flush();
+  const told = () => received(h, parent.threadId).filter((text) => text.includes("usage_limited"));
   expect(told()).toHaveLength(1);
   expect(told()[0]).toContain(child);
   // Nothing more happening to the held child tells the parent again.
   later(h, 5000);
   await h.engine.flush();
   expect(told()).toHaveLength(1);
-  // A wait on it returns at once, saying why, and the child is still open, never done.
+  // A wait returns the same failed outcome immediately, without cancelling the child.
   expect(await waitOn(h, parent, child)).toMatchObject({
-    status: "limited",
-    threads: [{ threadId: child, state: "working", step: expect.stringContaining("usage limit") }],
+    status: "ready",
+    threads: [{ threadId: child, state: "failed", failure: { code: "usage_limited" } }],
   });
-  expect(h.service.journal.get(child)?.phase).toBe("running");
+  expect(h.service.monitor.snapshot(parent).children[0]?.state).toBe("failed");
 });
 
-test("a wait on a child that hits its usage limit returns limited, and no second notice follows", async () => {
+test("a wait on a child that hits its usage limit returns its failure, and no second notice follows", async () => {
   const { h, parent, child } = await runningChild(true);
   const pending = waitOn(h, parent, child);
   await h.engine.flush();
   await h.emit(child, quotaEnd);
-  expect(await pending).toMatchObject({ status: "limited", threads: [{ threadId: child }] });
+  expect(await pending).toMatchObject({
+    status: "ready",
+    threads: [{ threadId: child, state: "failed", failure: { code: "usage_limited" } }],
+  });
   // The wait told the parent; no message repeats it.
-  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
+  later(h, 100);
+  await h.engine.flush();
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
 });
 
 test("a provider retrying a rate limit inside its turn is still working: no notice, and a wait keeps waiting", async () => {
@@ -306,7 +312,7 @@ test("a provider retrying a rate limit inside its turn is still working: no noti
   await h.engine.flush();
   for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setImmediate(resolve));
   expect(returned).toBe(false);
-  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
   await h.complete(child, "done after the retry");
   expect(await pending).toMatchObject({ status: "ready", threads: [{ state: "done" }] });
 });
@@ -315,9 +321,11 @@ test("a limit the provider first retried, then ended the turn on, still tells th
   const { h, parent, child } = await runningChild(true);
   // Codex reports the quota error, then completes the turn with it, in separate batches.
   await h.emit(child, { type: "retry", agent: "root", on: "rate_limit" });
-  expect(received(h, parent.threadId).join("\n")).not.toContain("hit its usage limit");
+  expect(received(h, parent.threadId).join("\n")).not.toContain("usage_limited");
   await h.emit(child, quotaEnd);
+  later(h, 100);
+  await h.engine.flush();
   expect(
-    received(h, parent.threadId).filter((text) => text.includes("hit its usage limit")),
+    received(h, parent.threadId).filter((text) => text.includes("usage_limited")),
   ).toHaveLength(1);
 });

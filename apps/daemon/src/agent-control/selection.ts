@@ -1,3 +1,4 @@
+import { accountLaunchRefusal } from "./account-availability.ts";
 import {
   accountProvider,
   automaticRefusal,
@@ -101,7 +102,15 @@ function checkAuth(
   input: DelegationRequest,
   model: CatalogModel,
   instance: string,
+  now: number,
 ) {
+  const refusal = accountLaunchRefusal(
+    deps.accounts?.list() ?? [],
+    instance,
+    now,
+    (id) => deps.providerEnabled?.(input.provider, id) !== false,
+  );
+  if (refusal) throw unavailable(refusal);
   const auth =
     deps.accounts?.get(instance)?.quota.auth ??
     deps.engine.providerAvailability(input.provider).auth;
@@ -139,7 +148,14 @@ function admitted(
 ) {
   const result = explicitInstance(request, candidate, now);
   if ("refusal" in result)
-    throw unavailable(refused(deps, request.provider, candidate, result.refusal, now));
+    throw unavailable(
+      accountLaunchRefusal(
+        deps.accounts?.list() ?? [],
+        candidate.instance.id,
+        now,
+        (id) => deps.providerEnabled?.(request.provider, id) !== false,
+      ) ?? refused(deps, request.provider, candidate, result.refusal, now),
+    );
   return result.instance;
 }
 
@@ -222,7 +238,7 @@ export function delegationSelection(
     input.instanceId ??
     (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`);
   const model = selectedDelegationModel(deps.models, input, parent, instance, configured);
-  checkAuth(deps, input, model, instance);
+  checkAuth(deps, input, model, instance, now);
   const resolvedEffort = delegationEffort(model, input, parent);
   return {
     ...(selected ? { accountId: selected.id } : {}),
@@ -251,7 +267,7 @@ export function validateDelegationSelection(
   const resolved = filter && deps.models.resolve({ ...filter, role: input.role, model: modelId });
   if (!resolved?.ok || executionModelId(resolved.model) !== modelId)
     throw new AgentControlError("model_unavailable", "Selected model is no longer available");
-  checkAuth(deps, input, resolved.model, instance);
+  checkAuth(deps, input, resolved.model, instance, now);
   if (!accountId) return;
   if (input.provider === "antigravity") {
     antigravityAccount(deps, accountId);

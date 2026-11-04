@@ -614,7 +614,8 @@ export class Engine {
         : { instanceId: this.targetInstance(provider, selection) }),
     });
   }
-  private targetInstance(
+  /** Resolve the account a launch will use, before creating any thread or provider work. */
+  targetInstance(
     provider: ProviderKind,
     selection?: Partial<import("@ace/protocol").AgentSelection>,
   ) {
@@ -1201,7 +1202,15 @@ export class Engine {
   endedOnLimit(id: ThreadId): boolean {
     const state = this.repo.state(id);
     const root = state?.rootKey === undefined ? undefined : state.agents[state.rootKey];
-    return root?.limited !== undefined && !root.activeRun && !root.retry;
+    return (
+      root?.limited !== undefined &&
+      !root.activeRun &&
+      !root.retry &&
+      state !== undefined &&
+      Object.keys(state.indexes.runningTasks).length === 0 &&
+      Object.keys(state.indexes.pendingInteractions).length === 0 &&
+      Object.values(state.agents).every((record) => !record.activeRun && !record.retry)
+    );
   }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));

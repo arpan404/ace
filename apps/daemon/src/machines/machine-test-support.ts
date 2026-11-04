@@ -12,6 +12,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
+import { setup } from "../agent-control/test-support.ts";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
@@ -36,6 +37,7 @@ const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexist
  */
 export async function pairedMachines(
   options: {
+    sourceSteer?: boolean;
     scopes?: DeviceScope[];
     access?: MachineAgentAccess;
     /** The target's engine limits, e.g. one active thread so its engine is full. */
@@ -61,14 +63,33 @@ export async function pairedMachines(
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
-  const source = await daemonFixture(undefined, {
-    browser: browser(),
-    ...options.sourceScreen,
-    machines: {
-      pollMs: 50,
-      ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+  const source = await daemonFixture(
+    undefined,
+    {
+      browser: browser(),
+      ...options.sourceScreen,
+      machines: {
+        pollMs: 50,
+        ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+      },
     },
-  });
+    {},
+    options.sourceSteer
+      ? setup(
+          {},
+          undefined,
+          false,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        )
+      : undefined,
+  );
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");

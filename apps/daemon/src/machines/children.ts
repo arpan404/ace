@@ -391,6 +391,8 @@ export class MachineChildren implements RemoteChildren {
             for (const view of views) {
               const row = rows.find((candidate) => candidate.id === view.threadId);
               if (row && !this.closed) this.update(row, view);
+              // A slow sibling machine must not hold an already received result.
+              if (!this.closed) this.results.drain();
             }
           } catch (error) {
             const reason = unreadReason(this.deps.label(machine), error);
@@ -536,6 +538,7 @@ export class MachineChildren implements RemoteChildren {
             ? {
                 threadId: row.id,
                 outcome: outcomeOf(view.state),
+                ...(view.failure ? { failure: view.failure } : {}),
                 result: view.result ?? "",
                 truncated: view.truncated ?? false,
                 before: null,

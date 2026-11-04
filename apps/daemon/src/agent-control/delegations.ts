@@ -1,3 +1,5 @@
+import { childStoppedOnLimit } from "./limit-settlement.ts";
+import { failureAccount } from "./failure-account.ts";
 import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, controlAdmissionError, startsLater } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
@@ -1200,15 +1202,23 @@ export class DelegationService {
       // A turn that ends on a limit its provider was already retrying changes no status.
       if (event.payload.type === "run.ended") {
         const ended = this.journal.get(event.threadId);
-        if (ended) this.limits.check(ended);
+        if (ended) {
+          this.reconcile(ended);
+          changed = true;
+        }
       }
       if (
         event.payload.type !== "thread.updated" &&
         event.payload.type !== "usage.updated" &&
-        event.payload.type !== "run.started"
+        event.payload.type !== "run.started" &&
+        event.payload.type !== "background_task.updated"
       )
         continue;
-      if (event.payload.type === "thread.updated" && this.waiters.has(event.threadId)) {
+      if (
+        event.payload.type === "thread.updated" &&
+        this.waiters.has(event.threadId) &&
+        !this.journal.get(event.threadId)
+      ) {
         const thread = this.deps.store.getThread(event.threadId);
         if (thread && ["done", "failed"].includes(thread.status.state)) {
           const outcome = threadOutcome(
@@ -1220,7 +1230,6 @@ export class DelegationService {
         }
       }
       const edge = this.journal.get(event.threadId);
-      if (edge && event.payload.type === "thread.updated") this.limits.check(edge);
       const participant = this.journal.participant(event.threadId);
       if (!edge && !participant) continue;
       const root = edge?.rootId ?? participant?.root_id;
@@ -1247,7 +1256,12 @@ export class DelegationService {
     const thread = this.deps.store.getThread(edge.childId);
     if (!thread) return;
     this.deps.store.atomic(() => {
-      if (edge.phase === "settled" && !["done", "failed", "new"].includes(thread.status.state)) {
+      const stoppedOnLimit = childStoppedOnLimit(thread, this.deps.engine, this.journal);
+      if (
+        edge.phase === "settled" &&
+        !stoppedOnLimit &&
+        !["done", "failed", "new"].includes(thread.status.state)
+      ) {
         // Revived work always continues, whatever the counts. Only a cancelled child stays stopped.
         this.journal.revive(edge);
         if (this.journal.stopped(edge.childId) || this.journal.ancestorStopped(edge.childId)) {
@@ -1272,14 +1286,26 @@ export class DelegationService {
           ? queuedChildStatus(this.queueFacts(edge.childId))
           : childStatus(edge, thread),
       };
-      this.deps.engine.updateChild(edge.parentId, shown);
-      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
+      this.deps.engine.updateChild(
+        edge.parentId,
+        stoppedOnLimit ? { ...shown, status: { state: "failed" } } : shown,
+      );
+      if (
+        edge.phase === "settled" ||
+        (!stoppedOnLimit && !["done", "failed"].includes(thread.status.state))
+      ) {
         this.deps.engine.delegationStarted(edge, shown);
         return;
       }
-      const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling");
+      const account = failureAccount(
+        thread.provider,
+        this.deps.engine.sessionMetadata(thread.id).instanceId,
+        this.deps.accounts,
+        this.deps.clock.now(),
+      );
+      const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling", account);
       this.journal.settle(edge, outcome, this.deps.clock.now() + this.policy.coalesceMs);
-      this.deps.engine.delegationStarted(edge, thread);
+      this.deps.engine.delegationStarted(edge, { ...thread, status: childStatus(edge, thread) });
       this.waiters.deliver(thread.id, outcome);
       // The settled child's slot goes to the next one waiting.
       this.pump(edge.parentId);
@@ -1296,7 +1322,9 @@ export class DelegationService {
     if (!thread) throw new Error("Unknown thread");
     const record = this.journal.get(threadId);
     const outcome =
-      record?.phase === "settled" && record.outcome && thread.status.state === "new"
+      record?.phase === "settled" &&
+      record.outcome &&
+      ["new", "limited"].includes(thread.status.state)
         ? record.outcome
         : ["done", "failed"].includes(thread.status.state)
           ? (record?.outcome ?? threadOutcome(this.deps.store, thread))

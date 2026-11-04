@@ -1,0 +1,126 @@
+import { join } from "node:path";
+import { createInstance, openRegistry } from "@ace/accounts";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import { expect, test, vi } from "vitest";
+import { ThreadId } from "@ace/protocol";
+import { z } from "zod";
+import { start } from "../engine/test-support.ts";
+import { pairedMachines } from "./machine-test-support.ts";
+
+const delegated = z.object({ threadId: ThreadId });
+const task = {
+  op: "delegate_task",
+  requestId: "settle",
+  task: "Review changes",
+  role: "Review-delegation-failures",
+  provider: "claude",
+  machine: "studio",
+  project: "project",
+} as const;
+
+test("a remote success reaches an active steering parent before that parent ends its turn", async () => {
+  const pair = await pairedMachines({ access: "operate", sourceSteer: true });
+  await pair.source.call({ op: "machines" });
+  const child = delegated.parse((await pair.source.call(task)).data).threadId;
+  const parent = pair.source.caller.threadId;
+  pair.source.h.contexts.get(parent)?.onFrame(pair.source.h.frames.frame(start));
+  await pair.source.daemon.engine?.flush();
+  expect(pair.source.daemon.store.getThread(parent)?.status.state).toBe("working");
+  await pair.finishTask(child, task.task, "Reviewed successfully");
+  await vi.waitFor(
+    () => expect(pair.source.h.inputs.get(parent)?.join("\n")).toContain("Reviewed successfully"),
+    { timeout: 10_000 },
+  );
+  expect(pair.source.h.inputMessages.get(parent)?.at(-1)?.delivery).toBe("steer");
+});
+
+test("remote usage failure is readable and delivered without cancellation, including after source restart", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.source.call({ op: "machines" });
+  const child = delegated.parse((await pair.source.call(task)).data).threadId;
+  await vi.waitFor(() => expect(pair.target.h.inputs.get(child)?.join("\n")).toContain(task.task), {
+    timeout: 10_000,
+  });
+  await pair.emit(
+    child,
+    { type: "retry", agent: "root", on: "rate_limit", until: 5000, message: "Quota exhausted" },
+    {
+      type: "turn.ended",
+      agent: "root",
+      outcome: "failed",
+      error: { kind: "quota", message: "Quota exhausted" },
+    },
+  );
+  await vi.waitFor(
+    async () => {
+      const status = await pair.source.call({ op: "agents.status" });
+      expect(status.data).toMatchObject({
+        children: [
+          expect.objectContaining({
+            id: child,
+            state: "failed",
+            failure: expect.objectContaining({
+              code: "usage_limited",
+              resetsAt: 5000,
+              accountId: "claude-cli-default",
+              message: expect.any(String),
+            }),
+            result: expect.stringContaining("Usage limit reached"),
+          }),
+        ],
+      });
+    },
+    { timeout: 10_000 },
+  );
+  await vi.waitFor(
+    () =>
+      expect(pair.source.h.inputs.get(pair.source.caller.threadId)?.join("\n")).toContain(
+        "Usage limit reached",
+      ),
+    { timeout: 10_000 },
+  );
+  await pair.restartSource();
+  const status = await pair.source.call({ op: "agents.status" });
+  expect(status.data).toMatchObject({
+    children: [
+      expect.objectContaining({
+        id: child,
+        state: "failed",
+        failure: expect.objectContaining({ code: "usage_limited" }),
+      }),
+    ],
+  });
+});
+
+test("a known limited remote account is refused before launch and names other available accounts", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  const registry = await openRegistry(join(pair.target.h.home, "daemon", "accounts.sqlite"));
+  try {
+    await registry.register(
+      createInstance({
+        id: "available",
+        label: "Available",
+        provider: "claude",
+        homeDir: pair.target.h.home,
+      }),
+    );
+    registry.ingest("claude-cli-default", {
+      provider: "claude",
+      observedAt: pair.target.h.clock.now(),
+      timeZone: "UTC",
+      payload: new ProviderPayload(
+        JSON.stringify({ usageWindows: { session: { usedPercent: 100, resetsAt: 500000 } } }),
+      ),
+    });
+  } finally {
+    registry.close();
+  }
+  await pair.source.call({ op: "machines" });
+  const before = pair.target.daemon.store.listThreads().length;
+  await expect(
+    pair.source.call({ ...task, accountId: "claude-cli-default" }),
+  ).rejects.toMatchObject({
+    detail: expect.stringMatching(/at its limit.*Available \(available\)/),
+  });
+  expect(pair.target.daemon.store.listThreads()).toHaveLength(before);
+});
