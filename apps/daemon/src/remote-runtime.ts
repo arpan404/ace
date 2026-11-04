@@ -127,19 +127,18 @@ export function remoteRuntime(
       }
     }
     if (closed) return;
-    try {
-      await direct.commit(resolution);
-    } catch {
-      throw new SettingsError(
-        "io",
-        "Couldn't start remote access. Check the selected network and try again.",
-      );
-    } finally {
-      preferences = next;
-    }
+    preferences = next;
+    await direct.commit(resolution);
     await relays.apply(wanted.relays, retryRefused);
     if (refuseFrom) {
       const before = plan(refuseFrom);
+      const addedDirectNetworks = before
+        ? addedDirect(before.direct, wanted.direct)
+        : wanted.direct;
+      const listening = (["tailscale", "lan"] as const).find(
+        (network) => addedDirectNetworks[network] && direct.errors()[network],
+      );
+      if (listening) throw new SettingsError("io", direct.errors()[listening] ?? "");
       const added = wanted.relays.find(
         (relay) =>
           !relay.hosted &&

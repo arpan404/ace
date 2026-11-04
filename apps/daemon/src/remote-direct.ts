@@ -91,7 +91,10 @@ export function remoteDirect(deps: {
       }
       return resolution;
     },
-    /** Opens, moves, re-advertises or closes the listener to serve what `resolution` allows. */
+    /**
+     * Opens, moves, re-advertises or closes the listener to serve what `resolution` allows. A
+     * listener that can't open is reported in `errors`, never thrown.
+     */
     async commit(resolution: DirectResolution): Promise<void> {
       last = resolution;
       errors = {};
@@ -131,10 +134,15 @@ export function remoteDirect(deps: {
         deps.attach(server);
         try {
           port = await bindListener(server, target.host, target.port);
-        } catch (failure) {
+        } catch {
+          // The port is taken or the address went away: these networks fail; relays go on.
           await closeListener(server);
           stopTrusted();
-          throw failure;
+          for (const network of ["lan", "tailscale"] as const)
+            if (target.serves[network])
+              errors[network] =
+                `Couldn't listen on port ${target.port}. Free it or set ACE_REMOTE_PORT, then try again.`;
+          return;
         }
         listener = server;
         bindHost = target.host;

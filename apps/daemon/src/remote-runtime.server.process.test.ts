@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { once } from "node:events";
+import { createServer } from "node:net";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { SettingsService } from "@ace/settings";
@@ -37,6 +38,8 @@ async function runtime(
     hostedRelayUrl?: string;
     /** This machine's ace account, on the fixture's store. */
     account?: (store: Store, home: string) => MachineAccount;
+    /** ACE_REMOTE_PORT; ephemeral by default. */
+    remotePort?: number;
   } = {},
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-remote-runtime-"));
@@ -79,6 +82,7 @@ async function runtime(
     ACE_ADVERTISE_HOST: "127.0.0.1",
     ...(overrides.listen ? { ACE_LISTEN: overrides.listen } : {}),
     ...(overrides.hostedRelayUrl ? { ACE_HOSTED_RELAY_URL: overrides.hostedRelayUrl } : {}),
+    ...(overrides.remotePort ? { ACE_REMOTE_PORT: String(overrides.remotePort) } : {}),
   });
   const makeAccount = overrides.account;
   const identity = loadIdentity(tlsFixtureHome());
@@ -808,5 +812,38 @@ test("LAN and Tailscale serve together, and Tailscale failing never closes the L
     expect(await networks()).toMatchObject({ lan: { state: "on" }, tailscale: { state: "off" } });
   } finally {
     await f.close();
+  }
+});
+
+test("a LAN listener that can't open its port leaves the relay serving", async () => {
+  const relay = await startRelay();
+  const taken = createServer();
+  await new Promise<void>((resolve) => taken.listen(0, "0.0.0.0", resolve));
+  const address = taken.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const f = await runtime({
+    enabled: true,
+    transport: "relay",
+    relayUrl: relay.url,
+    remotePort: address.port,
+    runtime: { delay: () => () => {} },
+  });
+  try {
+    expect(RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks).toMatchObject({
+      lan: { state: "failed", error: expect.stringContaining(`port ${address.port}`) },
+      relay: { state: "on" },
+    });
+    const keys = await loadOrCreateHostKeys(join(f.config.dataDir, "relay"));
+    const pin = fingerprint(keys.publicKey);
+    const channel = await connectClientViaRelay({
+      relayUrl: relay.url,
+      hostId: pin,
+      pinnedFingerprint: pin,
+    });
+    channel.close();
+  } finally {
+    await f.close();
+    await new Promise((resolve) => taken.close(resolve));
+    await relay.close();
   }
 });
