@@ -45,6 +45,8 @@ export interface DevicesOptions extends LifecycleOptions {
   log?: DeviceLog;
   /** How often the inventory is read again while a client watches (default four seconds). */
   inventoryIntervalMs?: number;
+  /** Whether devices start on (default); the daemon passes the saved `devices.enabled`. */
+  enabled?: boolean;
 }
 export class DevicesService {
   /** Element refs and how-to state for device agents, shared by the sim_* tools and `ace sim`. */
@@ -64,6 +66,7 @@ export class DevicesService {
   private readonly inventory: InventoryWatch;
   constructor(options: DevicesOptions) {
     this.options = options;
+    this.enabled = options.enabled ?? true;
     this.inventory = new InventoryWatch({
       read: () => this.list(),
       after: options.runtime.after,

@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 
-/** Disabling is machine-wide while the panel is per thread, so it asks first. */
+/** Turning devices off ends what agents and live views are doing on them, so it asks first. */
 export function DisableDevicesDialog(props: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -20,10 +20,10 @@ export function DisableDevicesDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent initialFocus={cancel}>
         <DialogHeader>
-          <DialogTitle>Disable devices on this machine?</DialogTitle>
+          <DialogTitle>Turn off simulators and emulators?</DialogTitle>
           <DialogDescription>
-            This turns devices off for every thread, not just this one. Agents lose the devices they
-            are using, and live views stop. Devices turn on again when the daemon restarts.
+            This turns them off for every thread on this machine. Agents lose the devices they are
+            using, and live views stop. They stay off until you turn them on here.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -43,7 +43,7 @@ export function DisableDevicesDialog(props: {
               props.onDisable();
             }}
           >
-            Disable devices
+            Turn off
           </Button>
         </DialogFooter>
       </DialogContent>

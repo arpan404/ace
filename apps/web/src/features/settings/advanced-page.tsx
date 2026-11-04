@@ -104,8 +104,9 @@ function ResetAll() {
         <DialogHeader>
           <DialogTitle>Reset all settings?</DialogTitle>
           <DialogDescription>
-            Defaults for new threads, shortcuts and thresholds are restored on this machine, for
-            every device that uses it. Appearance, themes and notifications stay.
+            Defaults for new threads and thresholds are restored on this machine, for every device
+            that uses it. Appearance, themes, notifications and each device's keyboard shortcuts
+            stay.
           </DialogDescription>
         </DialogHeader>
         {error && (

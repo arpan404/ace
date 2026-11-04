@@ -1,8 +1,8 @@
-import { useToolchains } from "@/features/diagnostics/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
+import { Link } from "@tanstack/react-router";
 import { useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SearchField } from "@/components/search-field.tsx";
@@ -17,9 +17,8 @@ import { deviceCatalog, type PlatformFilter } from "@ace/ui-core/devices";
 import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
-import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import { RunningTiles } from "./running-tiles.tsx";
-import { ToolReadiness, ToolSetupDialog } from "./tool-readiness.tsx";
+import { ToolReadiness } from "./tool-readiness.tsx";
 import { useDevices } from "./use-devices.ts";
 
 /** The workspace tab that shows one device (`device` kind, one tab per simulator or emulator). */
@@ -58,14 +57,11 @@ function Section(props: { label: string; count?: number; children: ReactNode }) 
  */
 export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);
-  const toolchains = useToolchains();
   const actions = useWorkspaceActions(props.threadId);
   const workspace = useScopeWorkspace(props.threadId);
   const uses = useRecentUses();
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
-  const [setUp, setSetUp] = useState(false);
-  const [disabling, setDisabling] = useState(false);
   const search = useRef<HTMLDivElement>(null);
   const now = useNow();
   const { view } = devices;
@@ -97,23 +93,16 @@ export function DevicesTab(props: { threadId: string }) {
     ) : (
       <ListSkeleton label="Connecting to devices" shape="row" rows={4} className="px-4 pt-3" />
     );
+  // On and off is a machine setting, kept in Settings › Simulators with the rest of them.
   if (!view.enabled)
     return (
       <EmptyState
-        title="Simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators, and let this thread's agents use them."
+        title="Simulators and emulators are off"
+        description="They're turned off for this machine. Turn them on in Settings › Simulators to watch and drive them here and let this thread's agents use them."
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
-              Enable devices
-            </Button>
-            {view.problem && (
-              <Problem
-                problem={view.problem}
-                className="max-w-[44ch] text-sm text-muted-foreground"
-              />
-            )}
-          </div>
+          <Link to="/settings/simulators" className={buttonVariants({ variant: "primary" })}>
+            Open Settings
+          </Link>
         }
       />
     );
@@ -139,12 +128,7 @@ export function DevicesTab(props: { threadId: string }) {
           options={platforms}
           onValueChange={setPlatform}
         />
-        <CatalogMenu
-          pending={view.pending}
-          onRefresh={devices.refresh}
-          onSetUp={() => setSetUp(true)}
-          onDisable={() => setDisabling(true)}
-        />
+        <CatalogMenu pending={view.pending} onRefresh={devices.refresh} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-3 pb-4">
         {view.problem && (
@@ -161,9 +145,13 @@ export function DevicesTab(props: { threadId: string }) {
               description="Create one in Xcode or Android Studio, then refresh."
               action={
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => setSetUp(true)}>
-                    Set up device tools…
-                  </Button>
+                  <Link
+                    to="/settings/simulators"
+                    hash="tools"
+                    className={buttonVariants({ size: "sm" })}
+                  >
+                    Set up tools…
+                  </Link>
                   <Button size="sm" onClick={devices.refresh}>
                     Refresh
                   </Button>
@@ -252,25 +240,9 @@ export function DevicesTab(props: { threadId: string }) {
           </Button>
         )}
         <div className="mt-auto px-2">
-          <ToolReadiness onSetUp={() => setSetUp(true)} />
+          <ToolReadiness />
         </div>
       </div>
-      <ToolSetupDialog
-        open={setUp}
-        onOpenChange={setSetUp}
-        toolsMissing={view.toolsMissing}
-        downloadingTools={view.downloadingTools}
-        onDownload={devices.downloadTools}
-        onRefresh={() => {
-          void toolchains.refetch();
-          devices.refresh();
-        }}
-      />
-      <DisableDevicesDialog
-        open={disabling}
-        onOpenChange={setDisabling}
-        onDisable={() => devices.enable(false)}
-      />
     </div>
   );
 }

@@ -9,8 +9,6 @@ import { listNames } from "./list-names.ts";
 
 export type Tone = "on" | "warn" | "off";
 
-const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
-
 /** Whether anything reaches this computer from away from its network. */
 function fromAnywhere(networks: RemoteNetworks): boolean {
   return (
@@ -21,32 +19,20 @@ function fromAnywhere(networks: RemoteNetworks): boolean {
 }
 
 /**
- * The page's one sentence under "Fleet": how many machines and devices, then whether this
- * computer can be reached, and what's missing when it can't. Nothing about reach while it loads.
+ * The line under "Fleet", only when this computer is harder to reach than it should be: remote
+ * access off, nothing on, or only the local network. Undefined while it loads and when devices
+ * can reach it from anywhere: the lists below already say how many there are.
  */
-export function fleetLede(input: {
-  machines: number;
-  devices: number;
+export function fleetWarning(input: {
   enabled: boolean;
   networks: RemoteNetworks | undefined;
-}): string {
-  const { machines, devices } = input;
-  const counts =
-    machines <= 1
-      ? devices === 0
-        ? "Just this computer so far."
-        : `This computer and ${plural(devices, "device")}.`
-      : devices === 0
-        ? `${plural(machines, "machine")}.`
-        : `${plural(machines, "machine")} and ${plural(devices, "device")}.`;
-  if (!input.enabled) return `${counts} Remote access is off, so only this computer can open it.`;
+}): string | undefined {
+  if (!input.enabled) return "Remote access is off, so only this computer can open it.";
   const networks = input.networks;
-  if (!networks) return counts;
-  if (fromAnywhere(networks))
-    return `${counts} Your devices can reach this computer from anywhere.`;
+  if (!networks || fromAnywhere(networks)) return undefined;
   if (networks.lan.state === "on")
-    return `${counts} Devices on the same network can reach it. Sign in or turn on Tailscale to reach it from anywhere.`;
-  return `${counts} Nothing can reach this computer yet. Turn on a network below.`;
+    return "Only devices on the same network can reach this computer. Sign in or turn on Tailscale to reach it from anywhere.";
+  return "Nothing can reach this computer yet. Turn on a network under Overview.";
 }
 
 /** Under this computer's name in the machine list: the networks that reach it. */

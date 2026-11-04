@@ -43,6 +43,7 @@
     "computer.blockedApps",
     "computer.lockedUse",
     "devices.emulatorWindow",
+    "devices.enabled",
     "access.defaultMode",
     "access.nativeModes",
     "threads.useWorktree",

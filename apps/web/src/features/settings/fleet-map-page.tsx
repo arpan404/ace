@@ -7,8 +7,7 @@ import { useFleetMap } from "./data/use-fleet-map.ts";
 import { useAccountOpenings } from "./fleet-map-openings.ts";
 import { MapList, MapPanel } from "./fleet-map-panel.tsx";
 import { FleetMapSvg } from "./fleet-map-svg.tsx";
-import { FleetTabs } from "./fleet-tabs.tsx";
-import { SettingsBody } from "./settings-body.tsx";
+import { FleetFrame } from "./fleet-frame.tsx";
 
 /** The map's smallest words are 12px: drawn smaller than this scale they'd fall under 11px. */
 export const minScale = 11 / 12;
@@ -53,7 +52,7 @@ export function FleetMapPage() {
     ownId;
   const selected = map.nodes.find((node) => node.id === selectedId);
   return (
-    <SettingsBody page="Fleet" tabs={<FleetTabs />} wide>
+    <FleetFrame>
       <div
         ref={body}
         className={cn("grid gap-6", beside ? "grid-cols-[minmax(0,1fr)_260px]" : "grid-cols-1")}
@@ -91,6 +90,6 @@ export function FleetMapPage() {
           </div>
         )}
       </div>
-    </SettingsBody>
+    </FleetFrame>
   );
 }
