@@ -35,6 +35,7 @@ import {
   withLongAutomations,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
+import { HostId } from "@ace/protocol";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
@@ -42,7 +43,7 @@ import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
-import { withFakeMachineAccount } from "./fake-account.ts";
+import { fakeOrigin, fakePerson, withFakeMachineAccount } from "./fake-account.ts";
 
 const timer = {
   set(delayMs: number, callback: () => void) {
@@ -272,13 +273,23 @@ export function bootFake(): {
     },
   );
   if (!empty) seedLimitReadings(daemon, Date.now());
-  const machines = fakeMachinePool([server], (other) =>
-    createBrowserClient({
-      deviceId: "web-fake-device",
-      transport: () => fakeTransport(other),
-      credential: async () => other.token,
-      storage: memoryStorage(),
-    }),
+  // This Mac is signed in to the fake ace account, so Fleet shows it reachable from anywhere,
+  // and one pairing link waits for a device.
+  (daemon.access.machineAccount ??= new FakeMachineAccount()).signIn(fakeOrigin, fakePerson);
+  if (!empty)
+    daemon.access.pair({ scopes: ["read", "operate"], label: "Kitchen iPad", ttlMs: 3_600_000 });
+  // A laptop paired here that's switched off, so Fleet shows a machine offline.
+  const away = empty ? [] : [{ hostId: HostId.parse("old-laptop"), displayName: "Old laptop" }];
+  const machines = fakeMachinePool(
+    [server],
+    (other) =>
+      createBrowserClient({
+        deviceId: "web-fake-device",
+        transport: () => fakeTransport(other),
+        credential: async () => other.token,
+        storage: memoryStorage(),
+      }),
+    away,
   ).then((fake) => fake.pool);
   return {
     client,

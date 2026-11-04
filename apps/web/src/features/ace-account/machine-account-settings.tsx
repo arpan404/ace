@@ -1,28 +1,21 @@
 import type { MachineAccountStatus } from "@ace/protocol";
 import { MachineCode } from "@ace/protocol";
 import { formatShortClock } from "@ace/ui-core";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { useNow } from "@/lib/time.ts";
-import { useAceAccount, useAceAccountStore } from "./account-context.tsx";
-import { machineAccountRow, machineCodeSentence } from "./machine-account-copy.ts";
+import { machineCodeSentence } from "./machine-account-copy.ts";
+import {
+  useMachineAccountStatus,
+  useThisMachineAccount,
+  type MachineAccountAccess,
+} from "./machine-account-state.ts";
 
-/** A machine's ace account and machine code: read, sign in or out, set or clear the code. */
-export interface MachineAccountAccess {
-  /** Undefined from a daemon too old to have ace accounts. */
-  status(): Promise<MachineAccountStatus | undefined>;
-  /** Signs the machine in with this app's session. */
-  signIn(origin: string, token: string): Promise<MachineAccountStatus>;
-  signOut(): Promise<MachineAccountStatus>;
-  setCode(code: string): Promise<MachineAccountStatus>;
-  clearCode(): Promise<MachineAccountStatus>;
-}
-
-const statusKey = (machine: string) => ["ace-account", "machine", machine] as const;
+export type { MachineAccountAccess };
 
 /**
  * A machine's page in Settings, for ace accounts (ADR 0111): whether the machine is signed in to
@@ -38,14 +31,7 @@ export function MachineAccountSections(props: {
   label?: string;
 }) {
   const label = props.label ?? "ace account";
-  const queryClient = useQueryClient();
-  const key = statusKey(props.machine);
-  const query = useQuery({
-    queryKey: key,
-    queryFn: async () => (await props.access.status()) ?? null,
-    retry: false,
-  });
-  const write = (next: MachineAccountStatus) => queryClient.setQueryData(key, next);
+  const { query, write } = useMachineAccountStatus(props.machine, props.access);
   const status = query.data;
   if (query.isError)
     return (
@@ -69,20 +55,11 @@ function ThisMachineAccount(props: {
   access: MachineAccountAccess;
   onChange(next: MachineAccountStatus): void;
 }) {
-  const store = useAceAccountStore();
-  const { session } = useAceAccount();
-  const row = machineAccountRow(props.status, session?.account);
-  const change = useMutation({
-    mutationFn: (op: "signIn" | "signOut") => {
-      if (op === "signOut") return props.access.signOut();
-      if (!store || !session) throw new Error("Sign in to your ace account under Profile first.");
-      return props.access.signIn(store.origin, session.token);
-    },
-    onSuccess: props.onChange,
-  });
+  const { row, change } = useThisMachineAccount(props.status, props.access, props.onChange);
+  if (!row) return null;
   return (
     <>
-      <SettingRow id="machine.account" title="This machine" description={row.sentence} inline>
+      <SettingRow id="machine.account" title="ace account" description={row.sentence} inline>
         {row.action === "appFirst" && (
           <Button size="sm" variant="ghost" render={<Link to="/settings/profile" />}>
             Open Profile

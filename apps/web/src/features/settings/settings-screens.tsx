@@ -124,16 +124,18 @@ export function ProviderDetailScreen(props: { id: string }) {
   );
 }
 
+/** Settings › Fleet; the page says its own sentence under the title once it has read the fleet. */
 export function RemoteSettingsScreen() {
   return (
-    <SettingsBody
-      page="Fleet"
-      lede="Connect your computers and manage the devices that can access them."
+    <Suspense
+      fallback={
+        <SettingsBody page="Fleet">
+          <ListSkeleton label="fleet" shape="row" rows={4} />
+        </SettingsBody>
+      }
     >
-      <Suspense fallback={<ListSkeleton label="fleet" shape="row" rows={4} />}>
-        <FleetPage />
-      </Suspense>
-    </SettingsBody>
+      <FleetPage />
+    </Suspense>
   );
 }
 
@@ -142,10 +144,7 @@ export function FleetMachineScreen(props: { id: string }) {
   return (
     <Suspense
       fallback={
-        <SettingsBody
-          page="Fleet"
-          lede="Connect your computers and manage the devices that can access them."
-        >
+        <SettingsBody page="Fleet">
           <ListSkeleton label="machine" shape="row" rows={4} />
         </SettingsBody>
       }

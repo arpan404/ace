@@ -1,231 +1,126 @@
-import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
+import { DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-icons/react";
+import { useState } from "react";
+import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { MachineMark } from "@/components/ui/machine-label.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
-import { machineProblem, machineStatus } from "@/lib/machine-status.ts";
-import { primaryMachineId, type Machine } from "@/lib/machines.ts";
-import { MachineDirectory } from "./machine-directory.tsx";
+import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { AddMachine } from "./add-machine.tsx";
-import { fleetProblem } from "./data/fleet.ts";
-import { summarizeNames } from "./data/list-names.ts";
-import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
+import { linkersOf } from "./data/fleet-links.ts";
+import { fleetLede, reachedThrough } from "./data/fleet-words.ts";
+import { settingKeys } from "./data/setting-keys.ts";
 import { useFleet, type Fleet } from "./data/use-fleet.ts";
+import { useRemoteStatus, useSettingControl } from "./data/use-settings.ts";
 import { FleetDevices } from "./fleet-devices.tsx";
-import { FleetRules } from "./fleet-rules.tsx";
-import {
-  AccountMachineRow,
-  useAccountMachines,
-  type AccountMachine,
-} from "@/features/ace-account/index.ts";
+import { FleetMachines } from "./fleet-machines.tsx";
+import { MoreOptions } from "./fleet-more.tsx";
+import { ReachRows } from "./fleet-reach.tsx";
+import { WorkingAcrossMachines } from "./fleet-working.tsx";
+import { PairDevice } from "./pair-device.tsx";
+import { SettingsBody } from "./settings-body.tsx";
 
-/**
- * Settings › Fleet: every machine this window reaches and whether each can use the others, the
- * access rules they share, and the phones, tablets and browsers paired to them.
- */
-export function FleetPage() {
-  const fleet = useFleet();
-  return (
-    <>
-      <FleetMachines fleet={fleet} />
-      <FleetDevices fleet={fleet} />
-      <FleetRules fleet={fleet} />
-    </>
-  );
-}
-
-function FleetMachines(props: { fleet: Fleet }) {
-  const { fleet } = props;
-  const [adding, setAdding] = useState(false);
-  const [added, setAdded] = useState<string>();
-  const handled = useRef<string>(undefined);
-  const toast = useToast();
-  const account = useAccountMachines(fleet.machines);
-  // Paired machines first, then the ones only on the ace account; a machine that is both lists once.
-  const listed = useMemo(
-    () => directoryRows(fleet.machines, account.only),
-    [fleet.machines, account.only],
-  );
-  const linkAll = (gaps: readonly LinkGap[]) =>
-    fleet.link.mutate(gaps, {
-      onSuccess: () => toast.add({ title: "Machines linked" }),
-      onError: (error) =>
-        toast.error({ title: "Some machines didn't link", description: error.message }),
-    });
-  // A machine just added links with every other one as soon as its links can be read.
-  const newGaps = added ? fleet.gaps.filter((gap) => gap.from === added || gap.to === added) : [];
-  const ready = added !== undefined && fleet.links.get(added)?.isSuccess === true;
-  useEffect(() => {
-    if (!ready || !added || handled.current === added || fleet.link.isPending) return;
-    handled.current = added;
-    if (newGaps.length) linkAll(newGaps);
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs once the new machine is readable
-  }, [ready]);
-  return (
-    <SettingSection
-      card
-      label="Machines"
-      anchor="fleet.link"
-      note={
-        fleet.machines.length > 1
-          ? "Computers running your agents. Add a machine to connect this window to it. Link machines to let their agents work across computers, within the permissions you allow."
-          : "This computer runs your agents. Add another computer running ace to work across both."
-      }
-      actions={
-        <>
-          {fleet.gaps.length > 0 && (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={fleet.link.isPending}
-              onClick={() => linkAll(fleet.gaps)}
-            >
-              {fleet.link.isPending ? "Linking…" : "Link all machines"}
-            </Button>
-          )}
-          <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
-            Add machine
-          </Button>
-        </>
-      }
-    >
-      <MachineDirectory machines={listed} label="Search fleet machines">
-        {(rows) =>
-          rows.map((row) =>
-            row.account ? (
-              <AccountMachineRow
-                key={row.id}
-                machine={row.account}
-                onForget={(hostId) => account.forget.mutateAsync(hostId)}
-              />
-            ) : (
-              <MachineRow
-                key={row.id}
-                machine={row.machine}
-                fleet={fleet}
-                onAccount={account.alsoOnAccount.has(row.id)}
-                onLink={linkAll}
-              />
-            ),
-          )
-        }
-      </MachineDirectory>
-      {account.error && (
-        <SettingNote role="alert">
-          Couldn't list the machines on your ace account. Try again later.
-        </SettingNote>
-      )}
-      {listed.length === 1 && (
-        <SettingNote>Add another computer running ace to work across both.</SettingNote>
-      )}
-      {adding && <AddMachine onClose={() => setAdding(false)} onAdded={setAdded} />}
-    </SettingSection>
-  );
-}
-
-type DirectoryRow =
-  | { id: string; name: string; machine: Machine; account?: undefined }
-  | { id: string; name: string; account: AccountMachine };
-
-function directoryRows(
-  machines: readonly Machine[],
-  account: readonly AccountMachine[],
-): DirectoryRow[] {
+/** What reaches this computer now: its paired devices and the machines linked to it. */
+function dependentsOf(fleet: Fleet): string[] {
+  const own = fleet.machines.find((machine) => machine.primary);
+  if (!own) return [];
   return [
-    ...machines.map((machine) => ({ id: machine.id, name: machine.name, machine })),
-    ...account.map((entry) => ({ id: entry.hostId, name: entry.name, account: entry })),
+    ...fleet.joined
+      .filter((device) => device.on.some((entry) => entry.machine === own.id))
+      .map((device) => device.name),
+    ...linkersOf(own.id, fleet.facts).map((linker) => linker.name),
   ];
 }
 
-/** What a machine row says under its name: its connection, and anything blocking its links. */
-function machineLine(machine: Machine, fleet: Fleet, onAccount: boolean): string {
-  const line = connectionLine(machine, fleet);
-  return onAccount ? `${line} · On your ace account` : line;
-}
-
-function connectionLine(machine: Machine, fleet: Fleet): string {
-  if (machine.status !== "online")
-    return machine.status === "auth_failed" || machine.failed
-      ? machineProblem(machine.status, !!machine.failed)
-      : machineStatus[machine.status].label;
-  const links = fleet.links.get(machine.id);
-  if (links?.isError) return fleetProblem(links.error);
-  const self = fleet.facts.find((entry) => entry.id === machine.id);
-  // Whether it lets agents in shows in how the others' links to it fare.
-  const closed =
-    self &&
-    fleet.facts.some((other) => other.id !== machine.id && reach(other, self).kind === "closed");
-  const parts = [machine.primary ? "This machine" : "Connected"];
-  if (closed) parts.push("Remote agents blocked");
-  return parts.join(" · ");
-}
-
 /**
- * What a machine is missing, per direction: "Not linked with A" when neither holds a link, and
- * which side can't use the other when only one does.
+ * Settings › Fleet: one sentence on whether this computer can be reached, every machine and
+ * device as a quiet row that opens it, how this computer is reached, how the machines work
+ * together, and the rarer choices folded under More options. A fleet of one says what to do
+ * next instead of showing empty lists.
  */
-function gapLine(machine: string, fleet: Fleet): string {
-  const names = (ids: readonly string[]) =>
-    summarizeNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
-  const gaps = machineGaps(machine, fleet.gaps);
-  const parts: string[] = [];
-  if (gaps.unlinked.length) parts.push(`Not linked with ${names(gaps.unlinked)}`);
-  if (gaps.cantUse.length) parts.push(`Can't use ${names(gaps.cantUse)}`);
-  if (gaps.notUsedBy.length) parts.push(`${names(gaps.notUsedBy)} can't use it`);
-  return parts.join(" · ");
+export function FleetPage() {
+  const fleet = useFleet();
+  const account = useAccountMachines(fleet.machines);
+  const enabled = useSettingControl(settingKeys.remoteEnabled, "Remote access");
+  const networks = useRemoteStatus().data?.networks;
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState<string>();
+  const own = fleet.machines.find((machine) => machine.primary);
+  const count = fleet.machines.length + account.only.length;
+  const solo = count <= 1;
+  const on = enabled.loaded ? enabled.value : true;
+  const dependents = dependentsOf(fleet);
+  const add = (
+    <Button size="sm" variant="primary" onClick={() => setAdding(true)}>
+      Add machine
+    </Button>
+  );
+  return (
+    <SettingsBody
+      page="Fleet"
+      lede={fleetLede({
+        machines: count,
+        devices: fleet.joined.length,
+        enabled: on,
+        networks: enabled.loaded ? networks : undefined,
+      })}
+      titleActions={
+        !solo && (
+          <>
+            <PairDevice />
+            {add}
+          </>
+        )
+      }
+    >
+      <FleetMachines
+        fleet={fleet}
+        account={account}
+        ownLine={reachedThrough(on, networks)}
+        added={added}
+      />
+      {solo && <NextSteps onAdd={() => setAdding(true)} />}
+      <FleetDevices fleet={fleet} />
+      {own && (
+        <ReachRows
+          machine={own}
+          label="How this computer is reached"
+          dependents={dependents}
+          signIn
+        />
+      )}
+      {!solo && <WorkingAcrossMachines fleet={fleet} />}
+      <MoreOptions dependents={dependents} />
+      {adding && <AddMachine onClose={() => setAdding(false)} onAdded={setAdded} />}
+    </SettingsBody>
+  );
 }
 
-function MachineRow(props: {
-  machine: Machine;
-  fleet: Fleet;
-  onAccount: boolean;
-  onLink(gaps: readonly LinkGap[]): void;
-}) {
-  const { machine, fleet } = props;
-  const missing = unlinkedWith(machine.id, fleet.gaps);
-  const gaps = fleet.gaps.filter((gap) => gap.from === machine.id || gap.to === machine.id);
-  const online = fleet.machines.filter((entry) => entry.client).length;
-  const known = fleet.links.get(machine.id)?.isSuccess;
+/** A fleet of one: two sentences on what to add, each with its action. */
+function NextSteps(props: { onAdd(): void }) {
   return (
-    // The whole row opens the machine's page; its Link button sits above that.
-    <div
-      id={machine.primary ? "host.displayName" : undefined}
-      data-fleet-machine=""
-      className="group/setting relative flex min-h-(--setting-row-height) items-center gap-3 py-(--setting-row-y)"
-    >
-      <MachineMark icon={machine.icon} primary={machine.primary} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <Link
-          to="/settings/remote/$machine"
-          params={{ machine: machine.primary ? primaryMachineId : machine.id }}
-          className="w-fit rounded-sm text-md text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
-        >
-          {machine.name}
-        </Link>
-        <span className="text-xs text-muted-foreground">
-          {machineLine(machine, fleet, props.onAccount)}
-        </span>
-        {missing.length > 0 && (
-          <span className="text-xs text-muted-foreground">{gapLine(machine.id, fleet)}</span>
-        )}
-      </div>
-      {missing.length > 0 ? (
-        <>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="relative -mr-2.5"
-            disabled={fleet.link.isPending}
-            onClick={() => props.onLink(gaps)}
-          >
-            Link machines
-          </Button>
-        </>
-      ) : (
-        known &&
-        online > 1 && <span className="text-xs text-subtle-foreground">Linked with all</span>
-      )}
-    </div>
+    <RowGroup label="Next">
+      <HairlineRow
+        tile={
+          <RowTile>
+            <DesktopTowerIcon aria-hidden size={15} />
+          </RowTile>
+        }
+        title="Add your other computers"
+        sub="Install ace there and sign in with the same account, or pair it. Your agents can then work across them."
+        actions={
+          <RowAction className="text-foreground" onClick={props.onAdd}>
+            Add machine
+          </RowAction>
+        }
+      />
+      <HairlineRow
+        tile={
+          <RowTile>
+            <DeviceMobileIcon aria-hidden size={15} />
+          </RowTile>
+        }
+        title="Follow along on your phone"
+        sub="Open app.acehq.dev on it and sign in, or pair it with a code."
+        actions={<PairDevice variant="ghost" />}
+      />
+    </RowGroup>
   );
 }

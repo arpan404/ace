@@ -3,7 +3,10 @@ import { SearchField } from "@/components/search-field.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 
-/** Bounded machine lists, shared by the fleet directory and a machine's connections. */
+/**
+ * A bounded machine list: twenty rows a page, and a search once there are more than a few, so
+ * a hundred machines never render a hundred rows.
+ */
 export function MachineDirectory<T extends { id: string; name: string }>(props: {
   machines: readonly T[];
   label: string;
@@ -18,23 +21,26 @@ export function MachineDirectory<T extends { id: string; name: string }>(props: 
   const page = Math.min(requestedPage, Math.max(0, Math.ceil(matching.length / pageSize) - 1));
   const start = page * pageSize;
   const rows = matching.slice(start, start + pageSize);
+  const searchable = props.machines.length > 8;
   return (
     <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-3 py-3">
-        <SearchField
-          label={props.label}
-          placeholder="Search machines"
-          value={query}
-          onValueChange={(value) => {
-            setQuery(value);
-            setPage(0);
-          }}
-          className="max-w-72"
-        />
-        <span role="status" className="text-xs text-muted-foreground">
-          {matching.length} {matching.length === 1 ? "machine" : "machines"}
-        </span>
-      </div>
+      {searchable && (
+        <div className="flex flex-wrap items-center gap-3 py-3">
+          <SearchField
+            label={props.label}
+            placeholder="Search machines"
+            value={query}
+            onValueChange={(value) => {
+              setQuery(value);
+              setPage(0);
+            }}
+            className="max-w-72"
+          />
+          <span role="status" className="text-xs text-muted-foreground">
+            {matching.length} {matching.length === 1 ? "machine" : "machines"}
+          </span>
+        </div>
+      )}
       {matching.length === 0 ? (
         <EmptyState variant="inline" title="No matching machines" />
       ) : (

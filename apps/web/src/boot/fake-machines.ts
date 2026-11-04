@@ -4,6 +4,7 @@ import { MachineDirectory } from "@ace/client/machines";
 import { ClientHost } from "@ace/client-worker";
 import { MachinePool } from "@ace/client-worker/machines";
 import type { FakeDaemon } from "@ace/fake-daemon";
+import type { HostId } from "@ace/protocol";
 import { memoryStorage } from "./client.ts";
 
 const timers = {
@@ -31,6 +32,8 @@ export interface FakeMachines {
 export async function fakeMachinePool(
   daemons: readonly FakeDaemon[],
   client: (daemon: FakeDaemon) => Client,
+  /** Paired machines that never answer, so the directory shows them offline. */
+  away: readonly { hostId: HostId; displayName: string }[] = [],
 ): Promise<FakeMachines> {
   const failures = new Map<string, Set<(error: ClientError) => void>>();
   const secrets = new Map<string, string>();
@@ -71,12 +74,12 @@ export async function fakeMachinePool(
     },
   });
   await pool.start();
-  for (const daemon of daemons)
+  for (const daemon of [...daemons, ...away])
     await pool.add({
       identity: {
         hostId: daemon.hostId,
         displayName: daemon.displayName,
-        icon: daemon.icon,
+        ...("icon" in daemon && daemon.icon ? { icon: daemon.icon } : {}),
         version: "0.0.0-fake",
       },
       target: { kind: "direct", url: `ws://${daemon.hostId}.local:4242` },

@@ -6,7 +6,7 @@ import type { CSSProperties, ReactNode } from "react";
 /**
  * One-of-n choice (Light / Dark / System, Unified / Split). A pill track with a flat thumb
  * that slides to the pressed segment on the spring. Pressing the current segment keeps it
- * selected.
+ * selected. A value that is none of the options (machines that differ) presses nothing.
  */
 function SegmentedControl<T extends string>(props: {
   label: string;
@@ -17,10 +17,8 @@ function SegmentedControl<T extends string>(props: {
   className?: string;
   disabled?: boolean | undefined;
 }) {
-  const index = Math.max(
-    0,
-    props.options.findIndex((option) => option.value === props.value),
-  );
+  const found = props.options.findIndex((option) => option.value === props.value);
+  const index = Math.max(0, found);
   const style = { "--n": props.options.length, "--i": index } as CSSProperties;
   return (
     <ToggleGroup
@@ -40,7 +38,10 @@ function SegmentedControl<T extends string>(props: {
     >
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) transition-transform duration-(--motion-slow) ease-spring motion-reduce:transition-none"
+        className={cn(
+          "absolute inset-y-0.5 left-0.5 w-[calc((100%-4px)/var(--n))] translate-x-[calc(var(--i)*100%)] rounded-full bg-(--seg-thumb) transition-transform duration-(--motion-slow) ease-spring motion-reduce:transition-none",
+          found < 0 && "opacity-0",
+        )}
       />
       {props.options.map((option) => (
         <Toggle

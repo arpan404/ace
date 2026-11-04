@@ -12,7 +12,9 @@ import type { MachineCodeRefusal } from "@ace/protocol";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
-const person = { id: "user_fake", email: "arpan@example.com", name: "Arpan Bhandari" };
+/** The person the fake ace account belongs to. */
+export const fakePerson = { id: "user_fake", email: "arpan@example.com", name: "Arpan Bhandari" };
+const person = fakePerson;
 export const fakeOrigin = "https://account.example.com";
 
 const json = (status: number, body: unknown) => Response.json(body, { status });
