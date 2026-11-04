@@ -141,7 +141,8 @@ struct NewThreadComposer: View {
             .foregroundStyle(dictation.listening ? AceTheme.Colours.background : AceTheme.Colours.foreground)
             .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .background { NewThreadRound(fill: dictation.listening ? AceTheme.Colours.foreground : AceTheme.Colours.fill) }
-            .contentShape(Circle())
+            // The whole 44-point square answers, not just the round drawn in it.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(sending)

@@ -14,7 +14,7 @@ import XCTest
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         let screen = app.windows.firstMatch.frame
         // The pills wrap rather than run off the edge; Send stays reachable.
-        for identifier in ["newThread.project", "newThread.access", "newThread.agent", "newThread.tune", "newThread.start"] {
+        for identifier in ["newThread.project", "newThread.access", "newThread.agent", "newThread.start"] {
             let button = app.buttons[identifier]
             if button.exists {
                 XCTAssertGreaterThanOrEqual(button.frame.minX, screen.minX, identifier)
@@ -176,9 +176,10 @@ import XCTest
         tuned.tap()
         app.buttons["modelSheet.done"].tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForNonExistence(timeout: 10))
-        // Effort and speed have their own panel from the model chip's effort part.
-        XCTAssertTrue(app.buttons["newThread.tune"].waitForExistence(timeout: 10))
-        app.buttons["newThread.tune"].tap()
+        // Effort and speed have their own panel from the model pill's long press, as in a thread.
+        XCTAssertTrue(app.buttons["newThread.agent"].waitForExistence(timeout: 10))
+        app.buttons["newThread.agent"].press(forDuration: 1)
+        app.buttons["Effort and speed"].firstMatch.tap()
         XCTAssertTrue(element(app, "newThread.speed").waitForExistence(timeout: 10))
         screenshot("newthread-tuning")
         app.otherElements["tunePanel"].swipeDown(velocity: .fast)

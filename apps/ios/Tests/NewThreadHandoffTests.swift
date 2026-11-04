@@ -138,7 +138,34 @@ import Foundation
         #expect(sheet.draft.text == "Shared link" && sheet.draft.autoSend)
         sheet.admitted()
         #expect(sheet.draft.text == "My own half-written idea" && sheet.draft.handoff == nil)
-        #expect(file.aside == nil)
+        #expect(file.aside.isEmpty)
+    }
+    @Test func everyDraftAHandoffDisplacesComesBackWholeOneAtATimeNeverJoined() {
+        let file = NewThreadDraftStore(url: temp("drafts").appendingPathComponent("new-thread-draft.json"))
+        let sheet = NewThreadDraftModel(store: file)
+        sheet.edit { $0.machineId = "mac"; $0.projectId = "ace"; $0.text = "First idea" }
+        // A share arrives; the person closes the sheet without sending it and keeps editing it.
+        file.seed(NewThreadHandoff.draft(handoff(text: "Shared page"), on: "mac", memory: NewThreadMemory(), files: []))
+        let second = NewThreadDraftModel(store: file)
+        second.edit { $0.autoSend = false; $0.text = "Shared page, with my notes" }
+        // A second share takes the sheet: neither earlier draft may be lost or merged.
+        file.seed(NewThreadHandoff.draft(handoff(text: "Second share"), on: "mac", memory: NewThreadMemory(), files: []))
+        let third = NewThreadDraftModel(store: file)
+        #expect(third.draft.text == "Second share")
+        third.admitted()
+        #expect(third.draft.text == "Shared page, with my notes" && !third.draft.autoSend)
+        third.admitted()
+        #expect(third.draft.text == "First idea")
+        third.admitted()
+        #expect(third.draft.text == "" && file.aside.isEmpty)
+    }
+    @Test func aDraftSetAsideReturnsWhenTheSheetOpensEmpty() {
+        let file = NewThreadDraftStore(url: temp("drafts").appendingPathComponent("new-thread-draft.json"))
+        NewThreadDraftModel(store: file).edit { $0.projectId = "ace"; $0.text = "Mine" }
+        file.seed(NewThreadHandoff.draft(handoff(text: "Shared"), on: "mac", memory: NewThreadMemory(), files: []))
+        // The person cleared the handed-over words and closed the sheet.
+        NewThreadDraftModel(store: file).edit { $0.text = ""; $0.autoSend = false; $0.handoff = nil }
+        #expect(NewThreadDraftModel(store: file).draft.text == "Mine")
     }
     @Test func typingInAHandedOverDraftStopsItStartingByItself() {
         let file = NewThreadDraftStore(url: temp("drafts").appendingPathComponent("new-thread-draft.json"))

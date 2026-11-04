@@ -96,6 +96,9 @@ struct NewThreadEntry: ViewModifier {
     }
     /// True when the draft now holds a handoff it didn't before.
     static func take(inbox: MachineInbox, into drafts: NewThreadDraftStore) -> Bool {
+        // One handoff at a time: the next waits until the one in the sheet is sent or closed.
+        let current = drafts.load()
+        if current.autoSend, current.handoff != nil { return false }
         guard let store = HandoffStore.shared(), let handoff = store.pending().first else { return false }
         let memory = NewThreadMemoryStore.standard().load()
         guard let machine = NewThreadHandoff.machine(for: handoff, options: options(inbox), remembered: memory.machine) else { return false }

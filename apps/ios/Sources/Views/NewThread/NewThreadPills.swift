@@ -30,8 +30,10 @@ struct NewThreadPillsModel {
     var provider: String?
     var model: String
     var loadingModel: Bool
-    /// "High", "Med · Fast"; nil when the model has nothing to tune.
+    /// "High", "Med · Fast"; nil when the model has nothing to tune or no level is known yet.
     var tune: String?
+    /// The model has levels or speeds to choose, whether or not one is known yet.
+    var tunable = false
     /// Where it runs, when the project is a folder with branches; nil for a chat or a PR's worktree.
     var place: Place?
     var access: ComposeAccess?
@@ -66,28 +68,35 @@ struct NewThreadPills: View {
                 .accessibilityLabel("Project").accessibilityValue(model.project)
                 .accessibilityIdentifier("newThread.project")
             if model.machines.count > 1 { machine }
-            Button(action: chooseModel) {
-                NewThreadPill {
-                    HStack(spacing: AceDesign.Space.tight) {
-                        if model.loadingModel { ProgressView().controlSize(.mini) }
-                        else if let provider = model.provider { ProviderMark(provider: provider, size: AceDesign.Size.metaIcon) }
-                        Text(model.model)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Model").accessibilityValue(model.model)
-            .accessibilityIdentifier("newThread.agent")
-            if let tune = model.tune {
-                Button(action: chooseTune) { NewThreadPill { Text(tune) } }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Effort and speed").accessibilityValue(tune)
-                    .accessibilityIdentifier("newThread.tune")
-            }
+            modelPill
             if let place = model.place { placePill(place) }
             if let access = model.access, !access.choices.isEmpty { accessPill(access) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Opus 5.5 · Med": the model and its effort as one fact, as the thread's composer shows
+    /// them. A tap opens the model picker; a long press offers effort and speed too.
+    private var modelPill: some View {
+        let label = model.tune.map { "\(model.model) · \($0)" } ?? model.model
+        return Button(action: chooseModel) {
+            NewThreadPill {
+                HStack(spacing: AceDesign.Space.tight) {
+                    if model.loadingModel { ProgressView().controlSize(.mini) }
+                    else if let provider = model.provider { ProviderMark(provider: provider, size: AceDesign.Size.metaIcon) }
+                    Text(model.model).truncationMode(.middle)
+                    if let tune = model.tune { Text("· \(tune)").fixedSize() }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Choose model", ace: .sparkle, action: chooseModel)
+            if model.tunable { Button("Effort and speed", ace: .slidersHorizontal, action: chooseTune) }
+        }
+        .accessibilityLabel("Model").accessibilityValue(label.replacingOccurrences(of: " · ", with: ", "))
+        .accessibilityAction(named: "Effort and speed") { if model.tunable { chooseTune() } }
+        .accessibilityIdentifier("newThread.agent")
     }
 
     private var machine: some View {

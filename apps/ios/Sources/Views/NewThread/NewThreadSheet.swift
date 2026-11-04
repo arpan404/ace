@@ -180,7 +180,8 @@ struct NewThreadSheet: View {
             project: projectName,
             machines: inbox.sessions.map { .init(id: $0.hostId, name: inbox.name($0.hostId), canOperate: $0.client.canOperate) },
             machineId: machineId, provider: choice.agent?.provider, model: modelName, loadingModel: loading,
-            tune: tune, place: place, access: access)
+            tune: tune, tunable: (choice.model?.efforts.count ?? 0) > 1 || (choice.model?.speeds ?? []).count > 1,
+            place: place, access: access)
     }
     /// That machine's last project and model come back, as the web's do.
     private func chooseMachine(_ id: String) {
@@ -188,14 +189,15 @@ struct NewThreadSheet: View {
         drafts.edit { $0 = memory.load().open($0, on: id) }
         memory.remember(draft)
     }
+    /// The effort part of the model pill: the level in brief and a speed other than standard.
+    /// Nothing at all rather than a word that says nothing ("Default") when no level is known.
     private var tune: String? {
         guard let model = choice.model else { return nil }
-        let speeds = model.speeds ?? []
-        let effort = model.efforts.first { $0.id == choice.effort }
+        let effort = model.efforts.count > 1 ? model.efforts.first { $0.id == choice.effort }.map { $0.label == "Medium" ? "Med" : $0.label } : nil
         let speedID = draft.speed ?? model.defaultSpeed ?? "standard"
-        let speed = speeds.first { $0.speed == speedID && $0.speed != "standard" }
-        return TuneSummary.text(effort: effort.map { $0.label == "Medium" ? "Med" : $0.label }, speed: speed?.label,
-                                hasLevels: model.efforts.count > 1, hasSpeeds: speeds.count > 1)
+        let speed = (model.speeds ?? []).first { $0.speed == speedID && $0.speed != "standard" }?.label
+        let parts = [effort, speed].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// What holds Send back, why the last start didn't save, and the issue or pull request the

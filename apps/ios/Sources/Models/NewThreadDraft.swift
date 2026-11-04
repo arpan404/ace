@@ -47,6 +47,11 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     var autoSend = false
 }
 
+extension NewThreadDraft {
+    /// Words or files the person would lose if the draft were replaced.
+    var hasContent: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+}
+
 /// A pull request a new thread starts on, pinned to the head the person saw.
 struct NewThreadPull: Codable, Equatable, Sendable {
     let repository: ForgeRepository
@@ -71,8 +76,19 @@ struct NewThreadDraftStore: Sendable {
     var files: AttachmentStaging { AttachmentStaging(root: url.deletingPathExtension().appendingPathExtension("files")) }
     static func standard() -> NewThreadDraftStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return NewThreadDraftStore(url: base.appendingPathComponent("ace", isDirectory: true).appendingPathComponent("new-thread-draft.json"))
+        let store = NewThreadDraftStore(url: base.appendingPathComponent("ace", isDirectory: true).appendingPathComponent("new-thread-draft.json"))
+        _ = spikeReset
+        return store
     }
+    /// Spike launches start New thread empty, as they start thread drafts empty
+    /// (`SpikeConfiguration.threadDrafts`), so one UI test's words never reach the next;
+    /// `--spike-keep-state` keeps them. Once per process.
+    private static let spikeReset: Void = {
+        guard SpikeConfiguration.enabled, !ProcessInfo.processInfo.arguments.contains("--spike-keep-state") else { return }
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("ace", isDirectory: true)
+        let store = NewThreadDraftStore(url: base.appendingPathComponent("new-thread-draft.json"))
+        for url in [store.url, store.asideURL, store.files.root] { try? FileManager.default.removeItem(at: url) }
+    }()
     func load() -> NewThreadDraft {
         DraftFile<NewThreadDraft>(url: url).load() ?? NewThreadDraft()
     }
@@ -115,23 +131,30 @@ struct NewThreadDraftStore: Sendable {
     func save(_ draft: NewThreadDraft) {
         try? DraftFile<NewThreadDraft>(url: url).save(draft)
     }
-    /// Where the person's own draft waits while a handoff takes the sheet.
+    /// Drafts waiting while a handoff has the sheet, oldest first: each is set aside whole and
+    /// comes back whole, never merged with another.
     private var asideURL: URL { url.deletingPathExtension().appendingPathExtension("aside.json") }
-    var aside: NewThreadDraft? { DraftFile<NewThreadDraft>(url: asideURL).load() }
-    /// A handoff takes the sheet: the draft there goes aside first when it holds words or files
-    /// (one already aside stays), and comes back once the handoff is saved. A handoff the person
-    /// closed without sending counts as their own draft.
+    var aside: [NewThreadDraft] { DraftFile<[NewThreadDraft]>(url: asideURL).load() ?? [] }
+    /// A handoff takes the sheet. Whatever was there with words or files goes on top of the
+    /// drafts set aside, to be sent by hand; it comes back once a start is saved, or when the
+    /// sheet next opens empty.
     func seed(_ handoff: NewThreadDraft) {
         let current = load()
-        let own = !current.autoSend && (!current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current.files.isEmpty)
-        if own, aside == nil { try? DraftFile<NewThreadDraft>(url: asideURL).save(current) }
+        if current.hasContent {
+            var kept = current
+            kept.commandId = nil
+            kept.autoSend = false
+            try? DraftFile<[NewThreadDraft]>(url: asideURL).save(aside + [kept])
+        }
         save(handoff)
     }
-    /// The draft set aside, taken back.
+    /// The draft set aside last, taken back.
     func takeAside() -> NewThreadDraft? {
-        guard let kept = aside else { return nil }
-        try? FileManager.default.removeItem(at: asideURL)
-        return kept
+        var kept = aside
+        guard let last = kept.popLast() else { return nil }
+        if kept.isEmpty { try? FileManager.default.removeItem(at: asideURL) }
+        else { try? DraftFile<[NewThreadDraft]>(url: asideURL).save(kept) }
+        return last
     }
 }
 
@@ -147,8 +170,11 @@ struct NewThreadDraftStore: Sendable {
         // A copy the system or a crash took can't be sent; a copy no draft names is left over.
         let staging = store.files
         loaded.files.removeAll { !staging.holds($0.localId) }
-        staging.sweep(keeping: Set((loaded.files + (store.aside?.files ?? [])).map(\.localId)))
+        let aside = store.aside
+        staging.sweep(keeping: Set((loaded.files + aside.flatMap(\.files)).map(\.localId)))
         draft = loaded
+        // A draft set aside is never hidden behind an empty sheet.
+        if !loaded.hasContent, loaded.handoff == nil, let kept = store.takeAside() { commit(kept) }
     }
 
     /// The draft as saved, after something outside the sheet wrote it (a handoff).
@@ -205,8 +231,8 @@ struct NewThreadDraftStore: Sendable {
         next.pullRequest = nil
         next.handoff = nil
         next.autoSend = false
-        // A handoff's start is saved: the person's own draft comes back as they left it.
-        if draft.handoff != nil, let kept = store.takeAside() { next = kept }
+        // A start is saved: the draft set aside last comes back as the person left it.
+        if let kept = store.takeAside() { next = kept }
         commit(next)
     }
     /// Saves the draft first, then lets go of the copies it no longer names.
