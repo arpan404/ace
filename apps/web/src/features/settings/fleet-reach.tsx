@@ -201,7 +201,7 @@ function ThisComputerAccount(props: {
                   disabled={change.isPending}
                   onClick={() =>
                     setConfirming({
-                      ...machineSignOutQuestion({ email }),
+                      ...machineSignOutQuestion(),
                       run: () => change.mutate("signOut"),
                     })
                   }

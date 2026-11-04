@@ -60,7 +60,6 @@ function ThisMachineAccount(props: {
   const { row, change } = useThisMachineAccount(props.status, props.access, props.onChange);
   const [confirming, setConfirming] = useState<Confirming>();
   if (!row) return null;
-  const email = props.status.signedIn ? props.status.account?.email : undefined;
   return (
     <>
       <SettingRow id="machine.account" title="ace account" description={row.sentence} inline>
@@ -86,7 +85,7 @@ function ThisMachineAccount(props: {
             disabled={change.isPending}
             onClick={() =>
               setConfirming({
-                ...machineSignOutQuestion({ email }),
+                ...machineSignOutQuestion(),
                 run: () => change.mutate("signOut"),
               })
             }
