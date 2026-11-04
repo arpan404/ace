@@ -4,8 +4,8 @@ import { DeviceCredential, PairingRedemption } from "./remote.ts";
 /**
  * The daemon is closing a relayed main channel, sent as its last message. A relay channel has
  * no WebSocket close frame of its own, so this carries the code and reason a direct socket's
- * close would (4003 revoked, 4008 idle, 4009 backpressure, 4013 capacity, 4014 account grant
- * expired, the resync code).
+ * close would (4003 revoked, 4008 idle, 4009 backpressure, 4012 account access changed, 4013
+ * capacity, 4014 account grant expired, the resync code).
  */
 export const ChannelClose = z.object({
   type: z.literal("channel.close"),

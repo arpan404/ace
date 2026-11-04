@@ -11,7 +11,8 @@ export function retryDelay(attempt: number, base: number, cap: number, random: n
  * neither text nor binary (4002, raised locally), or the daemon wants a machine code the
  * person has to type (4011, raised by a relay route), or ace's hosted relay found the machine on
  * another account (4403). Everything else, including 1009 (a frame
- * too large) and server frames the client can't read, reconnects with backoff.
+ * too large), 4012 (an account device's access changed: its next hello learns why) and server
+ * frames the client can't read, reconnects with backoff.
  */
 export function disconnectDecision(
   active: boolean,

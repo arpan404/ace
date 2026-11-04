@@ -385,16 +385,60 @@ it("a direct socket asks an account device for the machine code as the relay doe
   expect((await daemon.hello({ machineCode: "2468" })).first).toMatchObject({ type: "welcome" });
 });
 
-it("an account change closes the account device's direct sockets at once", async () => {
+it("an account change closes the account device's direct sockets at once, as a change, not a revocation", async () => {
   const daemon = await signedInServer();
   const opened = await daemon.hello();
   expect(opened.first).toMatchObject({ type: "welcome" });
   await daemon.account.setMachineCode("2468");
-  expect(await opened.closed).toBe(4003);
+  expect(await opened.closed).toBe(4012);
   const again = await daemon.hello({ machineCode: "2468" });
   expect(again.first).toMatchObject({ type: "welcome" });
   await daemon.account.signOut();
-  expect(await again.closed).toBe(4003);
+  expect(await again.closed).toBe(4012);
+});
+
+it("a machine code set while a device is connected asks for the code, and entering it reconnects with its threads kept", async () => {
+  const daemon = await signedInServer();
+  let code: string | undefined;
+  let cleared = 0;
+  const options = () => ({
+    deviceId: DeviceId.parse("phone"),
+    transport: () => webSocketTransport(() => new WebSocket(daemon.url)),
+    credential: async () => ({ grant: daemon.grant(), ...(code ? { machineCode: code } : {}) }),
+    storage: { load: async () => null, save: async () => {} },
+    readSnapshots: {
+      get: async () => undefined,
+      set: async () => {},
+      clear: async () => void cleared++,
+    },
+    scheduler: {
+      set(ms: number, callback: () => void) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: randomUUID,
+    now: Date.now,
+    limits: { retryBaseMs: 1, retryCapMs: 1 },
+  });
+  const client = new Client(options());
+  cleanup.push(() => client.close());
+  await client.start();
+  await expect.poll(() => client.state).toBe("ready");
+
+  await daemon.account.setMachineCode("2468");
+  await expect.poll(() => client.state).toBe("fatal");
+  expect(client.error).toMatchObject({ code: "machine_code", message: "machine_code_required" });
+  // Asked for the code, not refused: what the phone read from this machine stays.
+  expect(cleared).toBe(0);
+
+  code = "2468";
+  const entered = new Client(options());
+  cleanup.push(() => entered.close());
+  await entered.start();
+  await expect.poll(() => entered.state).toBe("ready");
+  expect(cleared).toBe(0);
 });
 
 it("the client stops and asks for the machine code on a direct socket instead of reconnecting", async () => {

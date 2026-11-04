@@ -37,7 +37,12 @@ import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
 import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
-import { GRANT_EXPIRED_CLOSE, GRANT_EXPIRED_REASON } from "./account-access/grant-lease.ts";
+import {
+  ACCESS_CHANGED_CLOSE,
+  ACCESS_CHANGED_REASON,
+  GRANT_EXPIRED_CLOSE,
+  GRANT_EXPIRED_REASON,
+} from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
@@ -218,12 +223,13 @@ export async function startServer(options: ServerOptions): Promise<{
   });
   // Account devices on any path keep access only while the machine stays on their account and
   // they hold the current machine code; an account change closes every path at once (ADR 0114).
+  // Not as a revocation: the client reconnects and its next hello gets the refusal that fits.
   const accountSockets = new Map<MainSocket, () => boolean>();
   const stopAccountChange = options.machineAccount?.onChange(() => {
     for (const [socket, admitted] of accountSockets)
       if (!admitted()) {
         cleanups.get(socket)?.();
-        closer.gracefulClose(socket, 4003, "Account access ended");
+        closer.gracefulClose(socket, ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON);
       }
   });
   const createServiceSessions = createSocketRegistry();

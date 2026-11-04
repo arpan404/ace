@@ -8,6 +8,13 @@ export const GRANT_GRACE_MS = 30_000;
 /** The close code for an account socket whose grant ran out: not final, the client reconnects. */
 export const GRANT_EXPIRED_CLOSE = 4014;
 export const GRANT_EXPIRED_REASON = "Account grant expired";
+/**
+ * The close code for an account socket whose access changed (the machine signed out, moved to
+ * another account, or set a new machine code). Not final: the client reconnects, and the next
+ * hello gets the refusal that fits (the machine code question, or `unauthorized`).
+ */
+export const ACCESS_CHANGED_CLOSE = 4012;
+export const ACCESS_CHANGED_REASON = "Account access changed";
 
 /**
  * Whether an account socket still holds a grant at `now` (ADR 0111, ADR 0114): it does until
