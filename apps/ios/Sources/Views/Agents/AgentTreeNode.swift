@@ -46,7 +46,8 @@ struct AgentTreeNode: View {
                     .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
                     .foregroundStyle(settled ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                     .lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
-                meta
+                // A settled agent with nothing more to say keeps to one line.
+                if !(metaWords.isEmpty && !row.running) { meta }
                 if let request { answers(request) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

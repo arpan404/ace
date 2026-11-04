@@ -157,7 +157,8 @@ struct ThreadView: View {
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
                                                problem: { activityProblem = $0 }, leave: leave),
                               openWork: { showWork = true },
-                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen)
+                              panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
+                              pageButtons: shownPage.barButtons)
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)

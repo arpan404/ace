@@ -47,20 +47,24 @@ struct ThreadToolbar: ToolbarContent {
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
     var coveredByDrawer = false
+    /// Buttons the page showing adds to the bar (a thread's Browser or Terminal page).
+    var pageButtons = 0
 
     private var headingWidth: CGFloat {
         max(0, min(AceDesign.Size.tap * 5,
-                   pageWidth - (panel == nil ? 2 : 4) * AceDesign.Size.tap - 2 * AceDesign.Space.margin))
+                   pageWidth - CGFloat((panel == nil ? 0 : 2) + 2 * max(1, pageButtons)) * AceDesign.Size.tap - 2 * AceDesign.Space.margin))
     }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
-            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
-                .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
+            if pageButtons == 0 {
+                ToolbarItem(placement: .topBarTrailing) { displayedMenu }
+                    .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
+            }
         } else {
             ToolbarItem(placement: .principal) { heading }
-            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
+            if pageButtons == 0 { ToolbarItem(placement: .topBarTrailing) { displayedMenu } }
         }
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
