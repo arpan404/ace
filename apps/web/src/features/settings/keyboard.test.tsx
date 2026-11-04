@@ -1,9 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import { fakeDesktopSettings } from "@/test/desktop-settings.ts";
 import { harness } from "@/test/harness.tsx";
 import { overrideKeyboardEnv } from "@/lib/keybindings.ts";
-afterEach(() => overrideKeyboardEnv(undefined));
+afterEach(() => {
+  overrideKeyboardEnv(undefined);
+  vi.unstubAllGlobals();
+});
 
 import { recordChord } from "./keybindings.ts";
 
@@ -151,28 +155,27 @@ test("a conflict can be swapped from the keyboard: Shift+Tab reaches Use anyway"
 });
 
 test("retrying an older refused change never undoes a newer one that was saved", async () => {
+  // The desktop app saves shortcuts in its own settings store, which can refuse a save.
+  const device = fakeDesktopSettings();
   const app = harness();
   await app.open("/settings/keyboard");
+  await waitFor(() => expect(device.stored().keybindings).toEqual({}));
   // A: refused, so it goes back.
-  app.daemon.failRequests("settings.set");
+  device.refuse(true);
   const agents = await shortcut("Summary");
   await userEvent.click(agents);
   press(agents, { key: "y", code: "KeyY", ctrlKey: true, altKey: true });
   await waitFor(async () => expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A"));
 
   // B: saved.
-  app.daemon.restoreRequests();
+  device.refuse(false);
   const settings = await shortcut("Settings");
   await userEvent.click(settings);
   press(settings, { key: "y", code: "KeyY", ctrlKey: true, shiftKey: true });
-  await waitFor(() =>
-    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
-      settings: "shift+mod+y",
-    }),
-  );
+  await waitFor(() => expect(device.stored().keybindings).toEqual({ settings: "shift+mod+y" }));
 
-  // Retry A, refused again: B stays, on screen and on the daemon.
-  app.daemon.failRequests("settings.set");
+  // Retry A, refused again: B stays, on screen and on the device.
+  device.refuse(true);
   await userEvent.click(
     (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
   );
@@ -182,13 +185,13 @@ test("retrying an older refused change never undoes a newer one that was saved",
   expect((await shortcut("Settings")).textContent).toBe("Shift+Ctrl+Y");
   expect((await shortcut("Summary")).textContent).toBe("Ctrl+Shift+A");
 
-  // Retry A once the daemon takes it: A lands on top of B, not instead of it.
-  app.daemon.restoreRequests();
+  // Retry A once the device takes it: A lands on top of B, not instead of it.
+  device.refuse(false);
   await userEvent.click(
     (await screen.findAllByRole("button", { name: "Retry", hidden: true }))[0] ?? document.body,
   );
   await waitFor(() =>
-    expect(app.daemon.services.settings.get("clients.keybindings")).toEqual({
+    expect(device.stored().keybindings).toEqual({
       settings: "shift+mod+y",
       agents: "alt+mod+y",
     }),

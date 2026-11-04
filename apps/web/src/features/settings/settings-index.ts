@@ -253,7 +253,12 @@ const entries = [
   },
   { id: "app.background", page: "/settings/general", title: "Keep running in background" },
   { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
-  { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
+  {
+    id: "app.globalShortcut",
+    page: "/settings/keyboard",
+    title: "Quick-thread global shortcut",
+    keywords: ["global", "hotkey", "quick thread", "background"],
+  },
   {
     id: "app.attention",
     page: "/settings/general",
