@@ -62,9 +62,13 @@ function fakePorts(overrides: Partial<RemoteAccessPorts>): RemoteAccessPorts {
   };
 }
 
-it("with remote access off, doctor says so and nothing needs attention", async () => {
-  const { context, cleanup } = await doctorTestContext();
+it("with remote access turned off, doctor says so and nothing needs attention", async () => {
+  const { context, dataDir, cleanup } = await doctorTestContext();
   cleanups.push(cleanup);
+  await writeFile(
+    join(dataDir, "settings.json"),
+    JSON.stringify({ version: 2, settings: { "remote.enabled": false } }),
+  );
   const results = await verdicts(context);
   expect(results.get("remote.access")).toMatchObject({
     status: "ok",

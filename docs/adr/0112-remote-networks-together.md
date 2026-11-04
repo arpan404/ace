@@ -17,6 +17,9 @@ relay of its own.
 
 ## Decision
 
+- Remote access is on by default (owner decision of 2026-11-04): a fresh install serves the
+  LAN, and a signed-in machine is on ace's relay. Tailscale and the person's own relay stay off
+  until turned on. A saved value always wins.
 - Remote access serves the LAN, Tailscale and a relay together. Each is its own global setting
   (`remote.lan`, `remote.tailscale`, `remote.relay`) under the `remote.enabled` switch. Any
   combination runs.

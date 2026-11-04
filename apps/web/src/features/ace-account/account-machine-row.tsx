@@ -1,9 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { HairlineRow, RowAction, RowTile, StateWords } from "@/components/hairline-row.tsx";
 import { MachineMark } from "@/components/ui/machine-label.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
-import { RowMenu } from "@/components/ui/row-menu.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { accountMachineLine, type AccountMachine } from "./account-machines.ts";
@@ -18,8 +16,8 @@ const idle = () => () => {};
 
 /**
  * A machine on the person's ace account that this window isn't connected to: its name,
- * platform and last seen, Open (through ace's relay, asking for its machine code here when it
- * has one) and Forget, which takes it off the account's list until it signs in again.
+ * platform and last seen. The row opens it (through ace's relay, asking for its machine code
+ * here when it has one); Forget takes it off the account's list until it signs in again.
  */
 export function AccountMachineRow(props: {
   machine: AccountMachine;
@@ -63,61 +61,66 @@ export function AccountMachineRow(props: {
       )
       .finally(() => setOpening(false));
   };
+  const asking = connection !== undefined && state?.kind === "asking";
   const line = opening
-    ? "Opening…"
+    ? { tone: "off" as const, words: "Opening…" }
     : problem
-      ? problem
+      ? { tone: "warn" as const, words: problem }
       : state?.kind === "connecting"
-        ? "Opening…"
+        ? { tone: "off" as const, words: "Opening…" }
         : state?.kind === "open"
-          ? "Connected"
+          ? { tone: "on" as const, words: "Online" }
           : state?.kind === "failed"
-            ? state.message
-            : accountMachineLine(machine, now);
+            ? { tone: "warn" as const, words: state.message }
+            : asking
+              ? { tone: "warn" as const, words: "Asks for its machine code" }
+              : {
+                  tone: "off" as const,
+                  words: `On your ace account · ${accountMachineLine(machine, now)}`,
+                };
+  const canOpen =
+    (props.onOpen || connector) && !opening && (state === undefined || state.kind === "failed");
   return (
-    <div data-account-machine="" className="group/setting">
-      <div className="flex min-h-(--setting-row-height) items-center gap-3 py-(--setting-row-y)">
-        <MachineMark primary={false} />
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="truncate text-md text-foreground">{machine.name}</span>
-          <span
-            role={state || opening || problem ? "status" : undefined}
-            className="text-xs text-muted-foreground"
-          >
-            {line}
-          </span>
-        </div>
-        {(props.onOpen || connector) &&
-          !opening &&
-          (state === undefined || state.kind === "failed") && (
-            <Button size="sm" variant="ghost" className="-mr-1" onClick={open}>
-              Open
-            </Button>
-          )}
-        <RowMenu label={`Actions for ${machine.name}`}>
-          <MenuItem
-            danger
-            onClick={() =>
-              setConfirming({
-                title: `Forget ${machine.name}?`,
-                body: "It leaves your ace account's machines until it signs in to the account again.",
-                confirm: "Forget",
-                run: () =>
-                  void props.onForget(machine.hostId).catch((error: unknown) =>
-                    toast.error({
-                      title: "Couldn't forget it",
-                      description: error instanceof Error ? error.message : undefined,
-                    }),
-                  ),
-              })
-            }
-          >
-            Forget
-          </MenuItem>
-        </RowMenu>
-      </div>
-      {connection && state?.kind === "asking" && (
-        <div className="pl-9">
+    <HairlineRow
+      data-row="account-machine"
+      tile={
+        <RowTile>
+          <MachineMark primary={false} decorative size={15} />
+        </RowTile>
+      }
+      title={machine.name}
+      label={`Open ${machine.name}`}
+      {...(canOpen ? { onOpen: open } : {})}
+      sub={
+        <span role={state || opening || problem ? "status" : undefined}>
+          <StateWords tone={line.tone}>{line.words}</StateWords>
+        </span>
+      }
+      actions={
+        <RowAction
+          reveal
+          aria-label={`Forget ${machine.name}`}
+          onClick={() =>
+            setConfirming({
+              title: `Forget ${machine.name}?`,
+              body: "It leaves your ace account's machines until it signs in to the account again.",
+              confirm: "Forget",
+              run: () =>
+                void props.onForget(machine.hostId).catch((error: unknown) =>
+                  toast.error({
+                    title: "Couldn't forget it",
+                    description: error instanceof Error ? error.message : undefined,
+                  }),
+                ),
+            })
+          }
+        >
+          Forget
+        </RowAction>
+      }
+    >
+      {connection && asking && (
+        <div className="pb-3 pl-10">
           <MachineCodePrompt
             gate={connection.gate}
             machine={machine.name}
@@ -127,6 +130,6 @@ export function AccountMachineRow(props: {
         </div>
       )}
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </div>
+    </HairlineRow>
   );
 }

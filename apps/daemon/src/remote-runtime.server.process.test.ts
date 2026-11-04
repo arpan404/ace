@@ -26,6 +26,8 @@ async function runtime(
   overrides: {
     listen?: "local" | "lan";
     enabled?: boolean;
+    /** Nothing saved: the home as a fresh install leaves it. */
+    fresh?: boolean;
     unavailable?: boolean;
     transport?: "tailscale" | "relay";
     relayUrl?: string;
@@ -66,7 +68,9 @@ async function runtime(
     id: () => `file-${++ids}`,
     authorize: () => true,
   });
-  if (overrides.enabled) await settings.set("remote.enabled", true, { kind: "global" });
+  // Remote access is on in a fresh home; these tests start from a saved choice unless `fresh`.
+  if (!overrides.fresh)
+    await settings.set("remote.enabled", overrides.enabled === true, { kind: "global" });
   if (overrides.transport)
     await settings.set("remote.transport", overrides.transport, { kind: "global" });
   if (overrides.relayUrl)
@@ -845,5 +849,40 @@ test("a LAN listener that can't open its port leaves the relay serving", async (
     await f.close();
     await new Promise((resolve) => taken.close(resolve));
     await relay.close();
+  }
+});
+
+test("a fresh home serves the LAN with nothing saved, and a taken port leaves the daemon running", async () => {
+  const fresh = await runtime({ fresh: true });
+  try {
+    expect((await fresh.settings.get("remote.enabled")).provenance).toBe("defaults");
+    expect(RemoteStatus.parse(await fresh.local("/v1/status")).remoteAccess.networks).toMatchObject(
+      {
+        lan: { state: "on" },
+        tailscale: { state: "off" },
+        relay: { state: "off" },
+      },
+    );
+  } finally {
+    await fresh.close();
+  }
+  const taken = createServer();
+  await new Promise<void>((resolve) => taken.listen(0, "0.0.0.0", resolve));
+  const address = taken.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const f = await runtime({
+    fresh: true,
+    remotePort: address.port,
+    runtime: { delay: () => () => {} },
+  });
+  try {
+    expect(RemoteStatus.parse(await f.local("/v1/status")).remoteAccess.networks).toMatchObject({
+      lan: { state: "failed", error: expect.stringContaining(`port ${address.port}`) },
+    });
+    f.client.send({ type: "host.identity", requestId: "still-local" });
+    expect(await f.client.next()).toMatchObject({ identity: { displayName: "Office Mac" } });
+  } finally {
+    await f.close();
+    await new Promise((resolve) => taken.close(resolve));
   }
 });

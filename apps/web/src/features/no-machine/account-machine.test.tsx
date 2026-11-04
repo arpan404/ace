@@ -1,6 +1,6 @@
 import { FakeDaemon } from "@ace/fake-daemon";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { AppFrame } from "@/app.tsx";
@@ -84,11 +84,9 @@ function windowStores() {
   return { local: memoryKeyValue(), session: memoryKeyValue() };
 }
 
-/** Fleet's row for a machine on the account, and its Open. */
+/** Opens a machine on the account from its row in Fleet. */
 async function openFromFleet(name: string) {
-  const row = (await screen.findByText(name)).closest("[data-account-machine]");
-  if (!(row instanceof HTMLElement)) throw new Error(`No account row for ${name}`);
-  await userEvent.click(within(row).getByRole("button", { name: "Open" }));
+  await userEvent.click(await screen.findByRole("button", { name: `Open ${name}` }));
 }
 
 test("opening an account machine from the app with no machine makes it this window's machine", async () => {

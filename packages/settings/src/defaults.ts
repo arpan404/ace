@@ -64,7 +64,7 @@ export const defaults: SettingsValues = {
   "threads.settleOnClose": false,
   "threads.sortBy": "activity",
   "threads.keepSettledFor": "3d",
-  "remote.enabled": false,
+  "remote.enabled": true,
   "remote.transport": "local",
   "remote.lan": true,
   "remote.tailscale": false,

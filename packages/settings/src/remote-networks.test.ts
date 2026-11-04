@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { expect, test } from "vitest";
+import { SettingsService } from "./service.ts";
 import { fixture } from "./test-support.ts";
 
 const networks = async (f: Awaited<ReturnType<typeof fixture>>) => ({
@@ -93,6 +94,30 @@ test("networks chosen after the change are not rewritten by a later relay addres
     await f.service.set("remote.relay", false, { kind: "global" });
     await f.service.set("remote.relayUrl", "wss://relay.example.com/", { kind: "global" });
     expect(await networks(f)).toEqual({ lan: true, tailscale: false, relay: false });
+  } finally {
+    await f.close();
+  }
+});
+
+test("remote access is on in a fresh home, and a saved off stays off after a restart", async () => {
+  const f = await fixture();
+  try {
+    expect(await f.service.get("remote.enabled")).toMatchObject({
+      value: true,
+      provenance: "defaults",
+    });
+    expect(await networks(f)).toEqual({ lan: true, tailscale: false, relay: false });
+    await f.service.set("remote.enabled", false, { kind: "global" });
+    await f.service.close();
+    const restarted = new SettingsService({ dataDir: f.dataDir, io: f.edges.io });
+    try {
+      expect(await restarted.get("remote.enabled")).toMatchObject({
+        value: false,
+        provenance: "global",
+      });
+    } finally {
+      await restarted.close();
+    }
   } finally {
     await f.close();
   }

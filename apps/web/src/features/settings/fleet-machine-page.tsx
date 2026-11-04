@@ -1,30 +1,23 @@
 import { CaretLeftIcon } from "@phosphor-icons/react";
-import { formatAgo, formatCountdown } from "@ace/ui-core";
-import { Link, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { RowTile, StateWords } from "@/components/hairline-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { MachineLabel, MachineMark } from "@/components/ui/machine-label.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
-import { RowMenu } from "@/components/ui/row-menu.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
+import { MachineMark } from "@/components/ui/machine-label.tsx";
 import { useMachinePool } from "@/lib/machine-pool.ts";
-import { machineProblem, machineStatus } from "@/lib/machine-status.ts";
-import { primaryMachineId, type Machine } from "@/lib/machines.ts";
-import { useNow } from "@/lib/time.ts";
-import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { fleetProblem, revokeDevice } from "./data/fleet.ts";
-import { linkDeviceIds } from "./data/fleet-links.ts";
-import { useFleet, type Fleet } from "./data/use-fleet.ts";
-import { deviceScopeLabels } from "./device-scopes.ts";
-import { AccessRows } from "./fleet-rules.tsx";
-import { MachineLinks } from "./machine-links.tsx";
-import { MachineEditor } from "./machine-editor.tsx";
 import { MachineScope } from "@/lib/machine-scope.tsx";
-import { PairDevice } from "./pair-device.tsx";
-import { SettingsBody } from "./settings-body.tsx";
+import { primaryMachineId, type Machine } from "@/lib/machines.ts";
+import { linkersOf } from "./data/fleet-links.ts";
+import { machineState } from "./data/fleet-words.ts";
+import { useFleet, type Fleet } from "./data/use-fleet.ts";
+import { MoreOptions } from "./fleet-more.tsx";
+import { ReachRows } from "./fleet-reach.tsx";
 import { MachineAccount } from "./machine-account.tsx";
+import { MachineAgents } from "./machine-agents.tsx";
+import { MachineDevices, RemoveMachine } from "./machine-devices.tsx";
+import { MachineEditor } from "./machine-editor.tsx";
+import { useMachineAction } from "./machine-unlock.tsx";
+import { SettingsBody } from "./settings-body.tsx";
 
 const back = (
   <Link
@@ -37,9 +30,21 @@ const back = (
   </Link>
 );
 
+/** What reaches `machine` now: this window (for another machine), its devices and its linkers. */
+function dependentsOf(machine: Machine, fleet: Fleet): string[] {
+  return [
+    ...(machine.primary ? [] : ["This window"]),
+    ...(fleet.devices.get(machine.id)?.data ?? [])
+      .filter((device) => !device.self)
+      .map((device) => device.name),
+    ...linkersOf(machine.id, fleet.facts).map((linker) => linker.name),
+  ];
+}
+
 /**
- * One machine in the fleet: its name and how it opens up, which machines it uses and which use
- * it, the devices paired to it, and removing it from the fleet.
+ * One machine in the fleet: its state and the one action it needs, how it's reached, its
+ * security, its agents both ways, the devices that open it and, alone at the bottom, removing
+ * it from the fleet.
  */
 export function FleetMachinePage(props: { id: string }) {
   const fleet = useFleet();
@@ -56,70 +61,65 @@ export function FleetMachinePage(props: { id: string }) {
         </p>
       </SettingsBody>
     );
-  const status =
-    machine.status === "online"
-      ? machine.primary
-        ? "This machine"
-        : "Connected"
-      : machine.status === "auth_failed" || machine.failed
-        ? machineProblem(machine.status, !!machine.failed)
-        : machineStatus[machine.status].label;
+  return <MachinePage machine={machine} fleet={fleet} />;
+}
+
+function MachinePage(props: { machine: Machine; fleet: Fleet }) {
+  const { machine, fleet } = props;
+  const pool = useMachinePool();
+  const [editing, setEditing] = useState(false);
+  const action = useMachineAction(machine);
+  const state = machineState(machine.status, !!machine.failed);
+  const dependents = dependentsOf(machine, fleet);
   return (
     <SettingsBody
       page={machine.name}
       back={back}
-      icon={<MachineMark icon={machine.icon} primary={machine.primary} />}
-      lede={status}
-      titleActions={!machine.primary && <Reconnect machine={machine} />}
-    >
-      <Identity machine={machine} />
-      <MachineAccount machine={machine} />
-      <MachineLinks machine={machine} fleet={fleet} />
-      <MachineDevices machine={machine} fleet={fleet} />
-      {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}
-    </SettingsBody>
-  );
-}
-
-/** Try an offline machine again now instead of waiting for the next automatic attempt. */
-function Reconnect(props: { machine: Machine }) {
-  const pool = useMachinePool();
-  if (props.machine.status === "online" || props.machine.status === "connecting") return null;
-  return (
-    <Button size="sm" variant="ghost" onClick={() => pool?.reconnect(props.machine.id)}>
-      Reconnect
-    </Button>
-  );
-}
-
-function Identity(props: { machine: Machine }) {
-  const { machine } = props;
-  const pool = useMachinePool();
-  const [editing, setEditing] = useState(false);
-  return (
-    <>
-      <SettingSection card label="Machine" anchor="machine">
-        <SettingRow id="host.displayName" title="Name and icon" inline>
-          <MachineLabel name={machine.name} icon={machine.icon} primary={machine.primary} />
+      icon={
+        <RowTile size="page">
+          <MachineMark icon={machine.icon} primary={machine.primary} size={20} />
+        </RowTile>
+      }
+      lede={
+        <>
+          <StateWords tone={state.tone}>{state.words}</StateWords>
+          {machine.primary && " · this computer"}
+          {action.prompt && <div className="mt-2">{action.prompt}</div>}
+        </>
+      }
+      titleActions={
+        <>
           <Button
+            id="host.displayName"
             size="sm"
             variant="ghost"
             disabled={!machine.client}
             onClick={() => setEditing(true)}
           >
-            Edit
+            Rename
           </Button>
-        </SettingRow>
-      </SettingSection>
+          {action.button}
+        </>
+      }
+    >
       {machine.client ? (
         <MachineScope machine={machine}>
-          <AccessRows remote={machine.primary ? [] : [machine]} />
+          <ReachRows machine={machine} label="How it's reached" dependents={dependents} />
         </MachineScope>
       ) : (
-        <SettingSection card label="Remote connections">
-          <SettingNote>Its access settings show when it's back online.</SettingNote>
-        </SettingSection>
+        <p className="text-ui text-muted-foreground">
+          How it's reached, its agents and its devices show when it's back online.
+        </p>
       )}
+      <MachineAccount machine={machine} label="Security" />
+      <MachineAgents machine={machine} fleet={fleet} />
+      <MachineDevices machine={machine} fleet={fleet} />
+      {machine.client && (
+        <MachineScope machine={machine}>
+          <MoreOptions dependents={dependents} />
+        </MachineScope>
+      )}
+      {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}
       {editing && (
         <MachineEditor
           machine={machine}
@@ -129,141 +129,6 @@ function Identity(props: { machine: Machine }) {
           }}
         />
       )}
-    </>
-  );
-}
-
-/** The phones, tablets and browsers paired to this machine, each revocable. */
-function MachineDevices(props: { machine: Machine; fleet: Fleet }) {
-  const { machine, fleet } = props;
-  const now = useNow();
-  const toast = useToast();
-  const [confirming, setConfirming] = useState<Confirming>();
-  const query = fleet.devices.get(machine.id);
-  const links = linkDeviceIds(fleet.facts);
-  const devices = (query?.data ?? []).filter((device) => !links.has(device.id));
-  const revoke = useMutation({
-    mutationFn: async (id: string) => {
-      if (!machine.client) throw new Error(`${machine.name} is offline.`);
-      await revokeDevice(machine.client, id);
-      await fleet.refresh([machine.id]);
-    },
-    onError: (error) => toast.error({ title: "Couldn't revoke", description: error.message }),
-  });
-  return (
-    <SettingSection
-      card
-      label="Devices"
-      anchor="devices"
-      actions={machine.client ? <PairDevice machine={machine.id} /> : undefined}
-    >
-      {!machine.client && <SettingNote>Its devices show when it's back online.</SettingNote>}
-      {query?.isError && <SettingNote role="alert">{fleetProblem(query.error)}</SettingNote>}
-      {machine.client && query?.isSuccess && devices.length === 0 && (
-        <SettingNote>No paired devices.</SettingNote>
-      )}
-      {devices.map((device) => {
-        const expires = device.expiresAt ?? null;
-        return (
-          <SettingRow
-            key={device.id}
-            title={device.name}
-            description={[
-              deviceScopeLabels(device.scopes),
-              expires === null
-                ? undefined
-                : expires <= now
-                  ? "Expired"
-                  : `Expires in ${formatCountdown(expires - now)}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-            inline
-          >
-            <span className="text-xs text-subtle-foreground tabular-nums">
-              Seen {formatAgo(device.lastSeenAt, now)}
-            </span>
-            <RowMenu label={`Actions for ${device.name}`}>
-              <MenuItem
-                danger
-                onClick={() =>
-                  setConfirming({
-                    title: `Revoke ${device.name}?`,
-                    body: `It disconnects from ${machine.name} at once and has to be paired again.`,
-                    confirm: "Revoke",
-                    run: () => revoke.mutate(device.id),
-                  })
-                }
-              >
-                Revoke
-              </MenuItem>
-            </RowMenu>
-          </SettingRow>
-        );
-      })}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </SettingSection>
-  );
-}
-
-/**
- * Take a machine out of the fleet: unlink it from every machine both ways, then forget it here.
- * Its threads stay on it; it can be added again with a fresh pairing link.
- */
-function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
-  const { machine, fleet } = props;
-  const pool = useMachinePool();
-  const toast = useToast();
-  const navigate = useNavigate();
-  const [confirming, setConfirming] = useState<Confirming>();
-  const remove = useMutation({
-    mutationFn: async () => {
-      const others = fleet.machines.filter((entry) => entry.id !== machine.id);
-      // Unlink what can be reached now; an offline machine's own side can't be, and forgetting it
-      // here still takes it out of this window's fleet.
-      const unlinked = await fleet.unlink.mutateAsync({ machine, others }).then(
-        () => true,
-        () => false,
-      );
-      await pool?.remove(machine.id);
-      return unlinked;
-    },
-    onSuccess: (unlinked) => {
-      toast.add({
-        title: `${machine.name} removed from the fleet`,
-        ...(unlinked
-          ? {}
-          : { description: "Some links couldn't be undone while a machine was offline." }),
-      });
-      void navigate({ to: "/settings/remote" });
-    },
-    onError: (error) => toast.error({ title: "Couldn't remove it", description: error.message }),
-  });
-  return (
-    <SettingSection card label="Remove" anchor="remove">
-      <SettingRow
-        title="Remove from fleet"
-        description="Unlinks it from every machine and disconnects it here. Its threads stay on it."
-        inline
-      >
-        <Button
-          size="sm"
-          variant="ghost"
-          className="text-destructive"
-          disabled={remove.isPending}
-          onClick={() =>
-            setConfirming({
-              title: `Remove ${machine.name} from the fleet?`,
-              body: "Agents stop using it and it stops using the others. Add it again with a fresh pairing link.",
-              confirm: "Remove",
-              run: () => remove.mutate(),
-            })
-          }
-        >
-          Remove
-        </Button>
-      </SettingRow>
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </SettingSection>
+    </SettingsBody>
   );
 }

@@ -1,141 +1,81 @@
+import {
+  BrowserIcon,
+  DeviceMobileIcon,
+  DeviceTabletIcon,
+  LinkSimpleIcon,
+} from "@phosphor-icons/react";
 import { formatAgo, formatCountdown } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
-import { MenuItem } from "@/components/ui/menu.tsx";
-import { RowMenu } from "@/components/ui/row-menu.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
+import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
 import type { FleetDevice } from "./data/fleet-links.ts";
+import { listNames } from "./data/list-names.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
-import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
-import { listNames } from "./data/list-names.ts";
-import { PairDevice } from "./pair-device.tsx";
 
-/** Where a device is paired, in words: "All machines" when it's on every one. */
+/** A device's glyph from the name it gives: phones, tablets, else a browser. */
+export function DeviceGlyph(props: { name: string }) {
+  const name = props.name.toLowerCase();
+  const Glyph = /ipad|tablet|tab s/.test(name)
+    ? DeviceTabletIcon
+    : /iphone|pixel|android|phone|galaxy/.test(name)
+      ? DeviceMobileIcon
+      : BrowserIcon;
+  return <Glyph aria-hidden size={15} />;
+}
+
+/** Where a device is paired, in words: "Every machine" when it's on all of them. */
 function machinesLine(device: FleetDevice, fleet: Fleet): string {
   if (fleet.machines.length > 1 && device.on.length === fleet.machines.length)
-    return "All machines";
+    return "Every machine";
   return listNames(device.on.map((entry) => fleet.byId(entry.machine)?.name ?? "A machine"));
 }
 
-/** Its access, or that it differs, since each machine holds its own grant. */
-function accessLine(device: FleetDevice): string {
-  const labels = new Set(device.on.map((entry) => deviceScopeLabels(entry.device.scopes)));
-  const [only] = labels;
-  return labels.size === 1 && only ? only : "Access differs by machine";
+/** Its access in the row's words, or that it differs, since each machine holds its own grant. */
+export function accessWords(labels: readonly string[]): string {
+  const unique = new Set(labels);
+  const [only] = unique;
+  return unique.size === 1 && only ? only.toLowerCase() : "access differs by machine";
 }
 
 function expiryLine(expiresAt: number | null, now: number): string | undefined {
   if (expiresAt === null) return undefined;
-  return expiresAt <= now ? "Expired" : `Expires in ${formatCountdown(expiresAt - now)}`;
+  return expiresAt <= now ? "expired" : `expires in ${formatCountdown(expiresAt - now)}`;
 }
 
 /**
- * The phones, tablets and browsers paired with the fleet's machines: the same device on several
- * machines is one row. Then the pairing links nobody has used yet, each cancellable.
+ * The phones, tablets and browsers paired with the fleet's machines, the same device on several
+ * machines as one row, each removable. Then the pairing links nobody has used yet, each
+ * cancellable. Nothing at all while there are neither.
  */
 export function FleetDevices(props: { fleet: Fleet }) {
   const { fleet } = props;
   const now = useNow();
   const toast = useToast();
   const [confirming, setConfirming] = useState<Confirming>();
-  const loading = fleet.machines.some((machine) => fleet.devices.get(machine.id)?.isPending);
-  const failed = fleet.machines.flatMap((machine) => {
-    const query = fleet.devices.get(machine.id);
-    return query?.isError ? [machine.name] : [];
-  });
-  const revoke = useMutation({
-    mutationFn: async (targets: FleetDevice["on"]) => {
-      for (const target of targets) {
-        const client = fleet.byId(target.machine)?.client;
-        if (!client) throw new Error("Connect to that machine to revoke the device there.");
-        await revokeDevice(client, target.device.id);
-      }
-      await fleet.refresh(targets.map((target) => target.machine));
-    },
-    onError: (error) => toast.error({ title: "Couldn't revoke", description: error.message }),
-  });
-  const confirmRevoke = (device: FleetDevice, targets: FleetDevice["on"]) =>
-    setConfirming({
-      title: `Revoke ${device.name}?`,
-      body: device.self
-        ? "This is the device you're using. This window disconnects at once and has to be paired again."
-        : targets.length === device.on.length
-          ? "It disconnects at once and has to be paired again to see or control threads."
-          : `It disconnects from ${listNames(targets.map((target) => fleet.byId(target.machine)?.name ?? ""))} and keeps its other machines.`,
-      confirm: "Revoke",
-      run: () => revoke.mutate(targets),
-    });
-  return (
-    <>
-      <SettingSection
-        card
-        label="Devices"
-        anchor="fleet-devices"
-        note="Phones, tablets and browsers paired to your machines. Pair a device to view conversations and control agents from it. Access is set separately for each device."
-        actions={<PairDevice />}
-      >
-        {loading && fleet.joined.length === 0 && (
-          <ListSkeleton label="paired devices" shape="row" rows={2} />
-        )}
-        {!loading && fleet.joined.length === 0 && <SettingNote>No paired devices.</SettingNote>}
-        {failed.length > 0 && (
-          <SettingNote role="alert">Couldn't read the devices on {listNames(failed)}.</SettingNote>
-        )}
-        {fleet.joined.map((device) => {
-          const expiry = expiryLine(device.expiresAt, now);
-          return (
-            <SettingRow
-              key={device.key}
-              title={device.name}
-              description={[
-                device.self ? "This device" : undefined,
-                machinesLine(device, fleet),
-                accessLine(device),
-                expiry,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-              inline
-            >
-              <span className="text-xs text-subtle-foreground tabular-nums">
-                Seen {formatAgo(device.lastSeenAt, now)}
-              </span>
-              <RowMenu label={`Actions for ${device.name}`}>
-                <MenuItem danger onClick={() => confirmRevoke(device, device.on)}>
-                  Revoke
-                </MenuItem>
-                {device.on.length > 1 &&
-                  device.on.map((target) => (
-                    <MenuItem key={target.machine} onClick={() => confirmRevoke(device, [target])}>
-                      Revoke on {fleet.byId(target.machine)?.name}
-                    </MenuItem>
-                  ))}
-              </RowMenu>
-            </SettingRow>
-          );
-        })}
-      </SettingSection>
-      <OpenLinks fleet={fleet} now={now} />
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
-    </>
+  const failed = fleet.machines.flatMap((machine) =>
+    fleet.devices.get(machine.id)?.isError ? [machine.name] : [],
   );
-}
-
-/** Pairing links made but not used yet, on any machine: what each grants and when it lapses. */
-function OpenLinks(props: { fleet: Fleet; now: number }) {
-  const { fleet, now } = props;
-  const toast = useToast();
   const open = fleet.machines.flatMap((machine) =>
     (fleet.pairings.get(machine.id)?.data ?? [])
       .filter((pairing) => pairing.expiresAt > now)
       .map((pairing) => ({ machine, pairing })),
   );
+  const revoke = useMutation({
+    mutationFn: async (targets: FleetDevice["on"]) => {
+      for (const target of targets) {
+        const client = fleet.byId(target.machine)?.client;
+        if (!client) throw new Error("Connect to that machine to remove the device there.");
+        await revokeDevice(client, target.device.id);
+      }
+      await fleet.refresh(targets.map((target) => target.machine));
+    },
+    onError: (error) => toast.error({ title: "Couldn't remove it", description: error.message }),
+  });
   const cancel = useMutation({
     mutationFn: async (entry: (typeof open)[number]) => {
       if (!entry.machine.client) throw new Error(`${entry.machine.name} is offline.`);
@@ -144,43 +84,86 @@ function OpenLinks(props: { fleet: Fleet; now: number }) {
     },
     onError: (error) => toast.error({ title: "Couldn't cancel", description: error.message }),
   });
-  if (open.length === 0) return null;
+  if (fleet.joined.length === 0 && open.length === 0 && failed.length === 0) return null;
   return (
-    <SettingSection
-      card
-      label="Unused pairing links"
-      anchor="fleet-links"
-      note="Waiting for a device to connect. Each link works once. Cancel a link to prevent it from being used."
-    >
+    <RowGroup label="Devices" count={fleet.joined.length} anchor="fleet-devices">
+      {failed.length > 0 && (
+        <p role="alert" className="py-2.5 text-xs text-muted-foreground">
+          Couldn't read the devices on {listNames(failed)}.
+        </p>
+      )}
+      {fleet.joined.map((device) => (
+        <HairlineRow
+          key={device.key}
+          tile={
+            <RowTile>
+              <DeviceGlyph name={device.name} />
+            </RowTile>
+          }
+          title={device.name}
+          tag={device.self ? "this device" : undefined}
+          sub={[
+            machinesLine(device, fleet),
+            accessWords(device.on.map((entry) => deviceScopeLabels(entry.device.scopes))),
+            expiryLine(device.expiresAt, now),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          meta={formatAgo(device.lastSeenAt, now)}
+          actions={
+            <RowAction
+              reveal
+              aria-label={`Remove ${device.name}`}
+              disabled={revoke.isPending}
+              onClick={() =>
+                setConfirming({
+                  title: `Remove ${device.name}?`,
+                  body: device.self
+                    ? "This is the device you're using. This window disconnects at once and has to be paired again."
+                    : "It disconnects at once and has to be paired again to see or steer threads.",
+                  confirm: "Remove",
+                  run: () => revoke.mutate(device.on),
+                })
+              }
+            >
+              Remove
+            </RowAction>
+          }
+        />
+      ))}
       {open.map(({ machine, pairing }) => {
         const keeps = deviceLifetimes.find((entry) => entry.value === (pairing.deviceTtlMs ?? 0));
         return (
-          <SettingRow
+          <HairlineRow
             key={`${machine.id}:${pairing.id}`}
-            title={pairing.label ?? "Pairing link"}
-            description={[
-              machine.name,
-              deviceScopeLabels(pairing.scopes),
+            data-row="pairing-link"
+            tile={
+              <RowTile>
+                <LinkSimpleIcon aria-hidden size={15} />
+              </RowTile>
+            }
+            title={pairing.label ? `Pairing link for ${pairing.label}` : "Pairing link waiting"}
+            sub={[
+              `Expires in ${formatCountdown(pairing.expiresAt - now)}`,
+              fleet.machines.length > 1 ? machine.name : undefined,
+              deviceScopeLabels(pairing.scopes).toLowerCase(),
               pairing.deviceTtlMs ? `access for ${keeps?.label ?? "a while"}` : undefined,
             ]
               .filter(Boolean)
               .join(" · ")}
-            inline
-          >
-            <span className="text-xs text-subtle-foreground tabular-nums">
-              Expires in {formatCountdown(pairing.expiresAt - now)}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate({ machine, pairing })}
-            >
-              Cancel
-            </Button>
-          </SettingRow>
+            actions={
+              <RowAction
+                aria-label={`Cancel ${pairing.label ? `the link for ${pairing.label}` : "the pairing link"}`}
+                disabled={cancel.isPending}
+                onClick={() => cancel.mutate({ machine, pairing })}
+              >
+                Cancel
+              </RowAction>
+            }
+          />
         );
       })}
-    </SettingSection>
+      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+    </RowGroup>
   );
 }

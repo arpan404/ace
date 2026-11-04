@@ -208,7 +208,10 @@ export class FakeDaemon implements Host {
       },
     });
     this.access = new FakeAccess(options.clock, () =>
-      fakeRemoteStatus((key) => this.services.settings.get(key)),
+      fakeRemoteStatus(
+        (key) => this.services.settings.get(key),
+        this.access.machineAccount?.status().signedIn === true,
+      ),
     );
     this.appDevices = new FakeAppDevices(options.clock);
     let screenSequence = 0;

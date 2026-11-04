@@ -16,8 +16,10 @@ export { AccountMachineRow } from "./account-machine-row.tsx";
 export { MachineCodePrompt, type CodeGate } from "./machine-code-prompt.tsx";
 export {
   AccountMachineConnectorContext,
+  useAccountMachineConnector,
   type AccountMachineConnector,
   type AccountMachineConnection,
   type AccountMachineState,
 } from "./machine-connector.ts";
 export { MachineAccountSections, type MachineAccountAccess } from "./machine-account-settings.tsx";
+export { useMachineAccountStatus, useThisMachineAccount } from "./machine-account-state.ts";

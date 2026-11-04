@@ -16,7 +16,7 @@ export type MachineGrantsAnswer = Extract<FleetOutcome, { kind: "grants" }>;
 
 export const grantLevels = [
   { value: "off", label: "Off" },
-  { value: "read", label: "Read only" },
+  { value: "read", label: "Read" },
   { value: "operate", label: "Read and act" },
 ] as const satisfies readonly { value: MachineGrantLevel; label: string }[];
 
@@ -25,6 +25,8 @@ export const capabilityRows: readonly {
   capability: MachineCapability;
   title: string;
   note: string;
+  /** Said in the warning colour under the note: what turning it on gives away. */
+  warning?: string;
 }[] = [
   { capability: "agents", title: "Agents", note: "Start threads here, message and stop them." },
   { capability: "browser", title: "Browser", note: "Read and use this machine's browser." },
@@ -37,7 +39,9 @@ export const capabilityRows: readonly {
   {
     capability: "commands",
     title: "Commands",
-    note: "Run any command here as you, without asking each time. A command starts in a project but can reach all your files, ace's data and your network, so turn this on only for a machine you trust like this one. Every command is logged.",
+    note: "Run any command as you, without asking.",
+    warning:
+      "Only for machines you trust: a command can reach all your files, ace's data and your network. Every command is logged.",
   },
 ];
 

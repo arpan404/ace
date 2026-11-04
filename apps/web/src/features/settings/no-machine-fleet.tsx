@@ -1,7 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { SettingNote, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { DesktopTowerIcon, GlobeIcon } from "@phosphor-icons/react";
+import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import {
   Dialog,
   DialogContent,
@@ -42,23 +42,39 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
   };
   return (
     <>
-      <SettingSection
-        card
-        label="Machines"
-        note="This window isn't connected to a machine. Pair it with a computer running ace to start working there."
-        actions={
-          <>
-            <Button size="sm" variant="secondary" onClick={() => setAdding("address")}>
-              Connect by address
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setAdding("pair")}>
-              Pair a machine
-            </Button>
-          </>
-        }
-      >
+      <RowGroup label="Machines" anchor="fleet.link">
         <AccountMachines />
-      </SettingSection>
+      </RowGroup>
+      <RowGroup label="Add a machine">
+        <HairlineRow
+          tile={
+            <RowTile>
+              <DesktopTowerIcon aria-hidden size={15} />
+            </RowTile>
+          }
+          title="Pair with a code"
+          sub="On the computer running ace open Settings › Fleet › Pair a device, then enter its link or code here."
+          actions={
+            <RowAction className="text-foreground" onClick={() => setAdding("pair")}>
+              Pair a machine
+            </RowAction>
+          }
+        />
+        <HairlineRow
+          tile={
+            <RowTile>
+              <GlobeIcon aria-hidden size={15} />
+            </RowTile>
+          }
+          title="Connect by address"
+          sub="Type the address of ace on that computer and its access token."
+          actions={
+            <RowAction className="text-foreground" onClick={() => setAdding("address")}>
+              Connect by address
+            </RowAction>
+          }
+        />
+      </RowGroup>
       <Dialog
         open={adding !== undefined}
         onOpenChange={(open) => {
@@ -123,12 +139,12 @@ function AccountMachines() {
   if (!store || restoring || account.loading) return null;
   if (!session)
     return (
-      <SettingNote>
+      <p className="py-3 text-xs text-muted-foreground">
         <Link to="/settings/profile" className="text-foreground underline underline-offset-3">
           Sign in
         </Link>{" "}
         to open the machines on your ace account.
-      </SettingNote>
+      </p>
     );
   return (
     <>
@@ -141,11 +157,13 @@ function AccountMachines() {
         />
       ))}
       {account.error ? (
-        <SettingNote role="alert">
+        <p role="alert" className="py-3 text-xs text-muted-foreground">
           Couldn't list the machines on your ace account. Try again later.
-        </SettingNote>
+        </p>
       ) : (
-        account.only.length === 0 && <SettingNote>No machines on your ace account yet.</SettingNote>
+        account.only.length === 0 && (
+          <p className="py-3 text-xs text-muted-foreground">No machines on your ace account yet.</p>
+        )
       )}
     </>
   );

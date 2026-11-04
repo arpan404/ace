@@ -11,7 +11,7 @@ import { useSettingsBackend } from "./data/use-settings.ts";
  * this computer may also sign in and out, and any other connected machine's code, each over its
  * own connection. A machine that is offline, or where this device isn't an admin, shows nothing.
  */
-function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undefined {
+export function useMachineAccountAccess(machine: Machine): MachineAccountAccess | undefined {
   const backend = useSettingsBackend();
   const { endpoint } = useDaemonConnection();
   return useMemo(
