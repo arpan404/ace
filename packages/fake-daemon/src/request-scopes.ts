@@ -93,6 +93,25 @@ export function scopeRefusal(
       return { type: "onboarding.result", requestId, result };
     return { type: "provider.login.result", requestId, result };
   }
+  // As the daemon: anyone may read a machine's update; only an administrator changes it.
+  if (
+    message.type === "machineUpdate.request" &&
+    message.operation !== "status" &&
+    !scopes?.includes("admin")
+  )
+    return {
+      type: "machineUpdate.result",
+      requestId: message.requestId,
+      ok: false,
+      error: "forbidden",
+    };
+  if (message.type === "fleet.request" && !scopes?.includes("admin"))
+    return {
+      type: "error",
+      code: "forbidden",
+      message: "Only an administrator can manage this machine's links and devices.",
+      requestId: message.requestId,
+    };
   // As the daemon: Use my Chrome (status included) and changing locked use are the owner's.
   if (message.type === "user_browser.settings" && !scopes?.includes("admin"))
     return {
