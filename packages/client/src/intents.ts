@@ -468,6 +468,22 @@ export class Intents {
   settled(): Promise<void> {
     return this.#chain;
   }
+  /** Commands sent on the current path that have no receipt yet. */
+  inFlight(): string[] {
+    return [...this.#inFlight];
+  }
+  /**
+   * The path these commands went out on is gone without answering them: send each one still
+   * waiting for its receipt again, by the same id, on the active path (ADR 0114). The daemon
+   * answers a command it already has from its receipt instead of running it twice.
+   */
+  reask(ids: readonly string[]): void {
+    for (const id of ids) {
+      const intent = this.#records.get(id);
+      if (!this.awaitingReceipt(id) || !intent) continue;
+      this.#options.send(intent.command);
+    }
+  }
   disconnect(): void {
     this.#connected = false;
     this.#inFlight.clear();

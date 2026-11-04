@@ -46,6 +46,7 @@ import type {
   ThreadSource,
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
+import type { Multipath } from "./multipath.ts";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
 import { WireCodec, loadServiceWire, type ServiceWire } from "./wire-codec.ts";
@@ -290,6 +291,24 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
         this.#attachmentStreams.receive(bytes);
       },
     );
+    this.connection.onPathSwitch(() => {
+      // Everything owed on the old path; replies may still come there while it drains.
+      const requests = this.requests.pending();
+      const commands = this.#intents.inFlight();
+      // Every view catches up on the new path from its last applied seq; events it already
+      // holds are dropped by seq. The old path's subscriptions are left to close with it.
+      this.#subscriptions.disconnect();
+      for (const sidebar of this.#collections) sidebar.disconnect();
+      this.#readMarkers.disconnect();
+      this.#statusChecks.disconnect();
+      this.#subscriptions.reconnect();
+      for (const sidebar of this.#collections) sidebar.reconnect();
+      this.#readMarkers.reconnect();
+      return () => {
+        this.requests.abandon(requests);
+        this.#intents.reask(commands);
+      };
+    });
     this.#subscriptions = new Subscriptions(
       limits,
       (message) => this.connection.send(message),
@@ -442,6 +461,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   reconnectNow(): void {
     this.connection.reconnectNow();
+  }
+  /** Let `paths` keep this connection on the machine's fastest working path (ADR 0114). */
+  usePaths(paths: Multipath): void {
+    paths.attach(this.connection, this.connectionState());
   }
   /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
   wake(): void {

@@ -93,6 +93,15 @@ export class Requests {
   reject(id: string, error: ClientError): void {
     this.#remove(id)?.reject(error);
   }
+  /** Requests waiting now that end with their connection (not durable commands). */
+  pending(): string[] {
+    return [...this.#waiters].flatMap(([id, waiter]) => (waiter.durable ? [] : [id]));
+  }
+  /** These requests' path is gone: those still waiting fail as offline, as on a disconnect. */
+  abandon(ids: readonly string[]): void {
+    for (const id of ids)
+      if (this.#waiters.get(id)?.durable === false) this.reject(id, new ClientError("offline"));
+  }
   disconnect(): void {
     for (const [id, waiter] of this.#waiters)
       if (!waiter.durable) this.reject(id, new ClientError("offline"));
