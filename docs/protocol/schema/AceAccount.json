@@ -15,6 +15,9 @@
     "name": {
       "maxLength": 256,
       "type": "string"
+    },
+    "picture": {
+      "type": "boolean"
     }
   },
   "required": [

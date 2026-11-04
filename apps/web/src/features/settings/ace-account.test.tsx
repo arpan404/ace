@@ -233,3 +233,64 @@ test("a sign-in that fails in the browser says it didn't finish, not that it exp
   );
   expect(screen.getByRole("button", { name: "Sign in" })).toBeDefined();
 });
+
+test("an account's picture shows on the rail, in the account menu and on Profile", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  const session = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_pic", email: "pic@example.com", name: "Pic Person", picture: true },
+  };
+  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  const png = Uint8Array.from(
+    atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+    ),
+    (char) => char.charCodeAt(0),
+  );
+  let pictureReads = 0;
+  vi.stubGlobal("fetch", async (input: string) => {
+    const path = new URL(input).pathname;
+    if (path === "/v1/account/picture") {
+      pictureReads += 1;
+      return new Response(png, { headers: { "Content-Type": "image/png" } });
+    }
+    if (path === "/v1/machines") return Response.json({ machines: [] });
+    return Response.json(session);
+  });
+  await harness().open("/settings/profile");
+  const rail = await screen.findByRole("button", { name: "Pic Person, account" });
+  await waitFor(() =>
+    expect(rail.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/png;base64,/),
+  );
+  const profile = screen.getByRole("region", { name: "ace account" });
+  expect(profile.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/png/);
+  await userEvent.click(rail);
+  const header = await screen.findByRole("menuitem", { name: /Pic Person/ });
+  expect(header.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/png/);
+  // One read serves every place it shows.
+  expect(pictureReads).toBe(1);
+});
+
+test("an account without a picture keeps its initials and never asks for one", async () => {
+  const origin = "https://backend.example.com";
+  vi.stubEnv("VITE_ACE_ACCOUNT_URL", origin);
+  const session = {
+    token: "t".repeat(43),
+    expiresAt: 1_900_000_000_000,
+    account: { id: "user_plain", email: "plain@example.com", name: "Plain Person" },
+  };
+  sessionStorage.setItem(`ace.account.session:${origin}`, JSON.stringify(session));
+  const asked: string[] = [];
+  vi.stubGlobal("fetch", async (input: string) => {
+    asked.push(new URL(input).pathname);
+    if (new URL(input).pathname === "/v1/machines") return Response.json({ machines: [] });
+    return Response.json(session);
+  });
+  await harness().open("/settings/profile");
+  const rail = await screen.findByRole("button", { name: "Plain Person, account" });
+  expect(within(rail).getByText("PP")).toBeDefined();
+  expect(rail.querySelector("img")).toBeNull();
+  expect(asked).not.toContain("/v1/account/picture");
+});

@@ -849,6 +849,7 @@ Example:
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | email | yes | string | {"maxLength":320,"pattern":"^[^\\s@]+@[^\\s@]+$"} |
 | name | yes | string | {"maxLength":256} |
+| picture | no | boolean |  |
 
 Example:
 
@@ -856,7 +857,8 @@ Example:
 {
   "email": "q]hRb^;>}qE@*Q[cq",
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "picture": false
 }
 ```
 
@@ -877,10 +879,11 @@ Example:
   "account": {
     "email": "^<aU2@hMeJHqQD",
     "id": "example",
-    "name": "example"
+    "name": "example",
+    "picture": false
   },
-  "expiresAt": 1,
-  "token": "rVlEg3Y7YF4tExoYeRM1J_BsSZboxIOgpDf4C3yGdho"
+  "expiresAt": 7,
+  "token": "lEg3Y7YF4tExoYeRM1J_BsSZboxIOgpDf4C3yGdhol3"
 }
 ```
 
@@ -948,9 +951,10 @@ Example:
   "account": {
     "email": "09MIm}e@f",
     "id": "example",
-    "name": "example"
+    "name": "example",
+    "picture": false
   },
-  "expiresAt": 3
+  "expiresAt": 10
 }
 ```
 
@@ -1061,8 +1065,8 @@ Example:
       "id": "example",
       "name": "example"
     },
-    "expiresAt": 6,
-    "token": "jOC3etED1t_qpqs76g-nib0Ew0qcILcF67sbVd-RK-q"
+    "expiresAt": 2,
+    "token": "OC3etED1t_qpqs76g-nib0Ew0qcILcF67sbVd-RK-qx"
   },
   "status": "complete"
 }
