@@ -11,6 +11,7 @@ import {
 } from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
+import { browserChecksDirect, checkedSocketTransport } from "./machine-routes.ts";
 
 /** An account machine's outbox, kept for this window so a reload doesn't drop queued work. */
 function outbox(storage: KeyValueStorage, hostId: string): Storage {
@@ -59,6 +60,11 @@ export function accountMachineOptions(options: {
       return grant.token;
     },
     socket: browserDeviceSocket,
+    // A direct path only where the browser checks the machine's certificate (ADR 0114).
+    directRoute: (path, credential) =>
+      browserChecksDirect(path)
+        ? { transport: () => checkedSocketTransport(path.url), credential }
+        : undefined,
     client: (route) =>
       createBrowserClient({
         deviceId: route.deviceId,
