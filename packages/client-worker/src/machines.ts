@@ -1,8 +1,8 @@
 import {
   ClientError,
+  Multipath,
   Notifications,
   machineCodeGate,
-  relayRoute,
   type MachineCodeGate,
   type ClientApi,
   type RequestOptions,
@@ -17,9 +17,17 @@ import {
   type MachineThreadRef,
   type PairedMachine,
 } from "@ace/client/machines";
-import type { CommandPayload, HostIdentity, MachineIcon } from "@ace/protocol";
+import {
+  MachineCodeRefusal,
+  type CommandPayload,
+  type HostIdentity,
+  type MachineIcon,
+  type MachinePath,
+  type MachinePathKind,
+} from "@ace/protocol";
 import { RemoteClient, type RemoteOptions } from "./remote.ts";
 import {
+  accountRoutes,
   accountMachineEntry,
   accountMachineState,
   type AccountMachine,
@@ -35,6 +43,8 @@ export interface MachineState {
   status: MachineStatus;
   identity?: HostIdentity;
   error?: ClientError;
+  /** The path the connection uses now (ADR 0114), when the machine has more than one. */
+  path?: MachinePathKind;
 }
 /** One dedicated worker per endpoint. No worker may be reused between machine entries. */
 export interface MachineWorker {
@@ -58,7 +68,10 @@ interface Live {
   state: MachineState;
   worker?: MachineWorker;
   client?: ClientApi;
+  /** Moves an account machine's connection between its paths. */
+  paths?: Multipath;
   stop?: () => void;
+  stopPath?: (() => void) | undefined;
   stopFailure?: () => void;
   /** Cancels the scheduled automatic reconnect, while one waits. */
   retry?: () => void;
@@ -99,6 +112,8 @@ export class MachinePool {
   private failures = new Map<string, number>();
   /** Account machines' code gates, kept across reconnects so an entered code is sent once. */
   private gates = new Map<string, MachineCodeGate>();
+  /** What account machines said about their paths; account machines aren't saved. */
+  private accountPaths = new Map<string, readonly MachinePath[]>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -385,21 +400,31 @@ export class MachinePool {
     const gate = this.gates.get(live.state.entry.hostId);
     if (!account || !gate) throw new ClientError("auth", "ace account sign-in is unavailable");
     const { hostId, deviceId } = live.state.entry;
-    const route = relayRoute({
+    const scheduler = this.options.remote.scheduler;
+    const routes = accountRoutes({
       relayUrl,
       hostId,
-      credential: () => gate.credential(),
-      socket: account.socket,
-      schedule: (callback, delayMs) => this.options.remote.scheduler.set(delayMs, callback),
-      refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
-      welcomed: () => gate.welcomed(),
+      account,
+      gate,
+      scheduler,
+      paths: () => this.accountPaths.get(hostId) ?? [],
     });
-    return account.client({
+    const paths = new Multipath({
+      routes,
+      scheduler,
+      // The shell's clock; an app that injects none gets the wall clock here, at the boundary.
+      now: this.options.remote.now ?? Date.now,
+    });
+    live.paths = paths;
+    const route = paths.route();
+    const client = account.client({
       hostId,
       deviceId,
       transport: route.transport,
       credential: route.credential,
     });
+    client.usePaths?.(paths);
+    return client;
   }
   private async open(live: Live): Promise<void> {
     const target = live.state.entry.target;
@@ -412,6 +437,16 @@ export class MachinePool {
       return;
     }
     live.client = client;
+    live.stopPath = client.activePath?.().subscribe(() => {
+      if (!this.current(live)) return;
+      const path = client.activePath?.().getSnapshot();
+      const { path: _previous, ...rest } = live.state;
+      this.publish(live, { ...rest, ...(path ? { path } : {}) });
+      if (path && live.state.entry.target.kind !== "account")
+        void this.options.directory
+          .remember(live.state.entry.hostId, { lastPath: path })
+          .catch(() => {});
+    });
     const changed = () => {
       if (!this.current(live)) return;
       const epoch = ++live.verification;
@@ -429,6 +464,11 @@ export class MachinePool {
                   : "offline",
           ...(client.error ? { error: client.error } : {}),
         });
+        // A direct path asks for the machine code by closing; the gate shows the question.
+        const refusal = MachineCodeRefusal.safeParse(client.error?.message);
+        const gate = this.gates.get(live.state.entry.hostId);
+        if (client.error?.code === "machine_code" && refusal.success && gate && !gate.asking)
+          gate.refused(refusal.data);
         // A client that is connecting or offline retries by itself; a fatal one never does.
         if (client.state === "fatal") this.recover(live);
         return;
@@ -453,12 +493,18 @@ export class MachinePool {
               return;
             }
             // Account machines come from the account's list, not the saved directory.
-            if (live.state.entry.target.kind !== "account")
+            // Paths come only from the machine itself, over this verified connection.
+            if (live.state.entry.target.kind !== "account") {
               await this.options.directory.rename(
                 live.state.entry.hostId,
                 reply.identity.displayName,
                 reply.identity.icon,
               );
+              if (reply.paths)
+                await this.options.directory.remember(live.state.entry.hostId, {
+                  paths: reply.paths,
+                });
+            } else if (reply.paths) this.accountPaths.set(live.state.entry.hostId, reply.paths);
             if (!this.current(live) || live.verification !== epoch) return;
             const entry = {
               ...live.state.entry,
@@ -505,10 +551,14 @@ export class MachinePool {
     live.retry?.();
     delete live.retry;
     live.stop?.();
+    live.stopPath?.();
+    live.paths?.close();
     live.stopFailure?.();
     if (live.client) void live.client.close().catch(() => {});
     live.worker?.terminate();
     delete live.stop;
+    delete live.stopPath;
+    delete live.paths;
     delete live.stopFailure;
     delete live.client;
     delete live.worker;

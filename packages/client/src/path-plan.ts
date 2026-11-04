@@ -42,6 +42,10 @@ const ranks: Record<MachinePathKind, number> = {
 export function pathRank(kind: MachinePathKind): number {
   return ranks[kind];
 }
+/** A path kind this build knows; a newer daemon's other kinds are skipped. */
+export function isPathKind(value: unknown): value is MachinePathKind {
+  return typeof value === "string" && Object.hasOwn(ranks, value);
+}
 export function isDirect(kind: MachinePathKind): boolean {
   return kind === "loopback" || kind === "lan" || kind === "tailscale";
 }

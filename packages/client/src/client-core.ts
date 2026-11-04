@@ -47,6 +47,7 @@ import type {
 } from "./api.ts";
 import { Connection, sameConnectionInfo } from "./connection.ts";
 import type { Multipath } from "./multipath.ts";
+import type { MachinePathKind } from "@ace/protocol";
 import { StreamMessages } from "./stream-messages.ts";
 import { isStreamPiece, type StreamMessage } from "@ace/browser/stream";
 import { WireCodec, loadServiceWire, type ServiceWire } from "./wire-codec.ts";
@@ -137,6 +138,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   #codec = new WireCodec();
   protected requests: Requests;
   #subscriptions: Subscriptions;
+  #paths: Multipath | undefined;
   #sidebar: Sidebar;
   #collections = new Set<Sidebar>();
   /** Read snapshots still being written by collections already closed. */
@@ -464,7 +466,12 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   }
   /** Let `paths` keep this connection on the machine's fastest working path (ADR 0114). */
   usePaths(paths: Multipath): void {
+    this.#paths = paths;
+    paths.subscribe(() => this.notifications.emit(["path"]));
     paths.attach(this.connection, this.connectionState());
+  }
+  activePath(): Selection<MachinePathKind | undefined> {
+    return this.notifications.select(["path"], () => this.#paths?.active?.kind);
   }
   /** The app is in front again: check the socket now and skip a waiting backoff (`Connection.wake`). */
   wake(): void {

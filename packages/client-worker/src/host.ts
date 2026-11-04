@@ -186,10 +186,17 @@ export class ClientHost {
         linger: undefined,
       };
       const selection = client.connectionState();
-      created.unwatch = selection.subscribe(() => {
+      const stopState = selection.subscribe(() => {
         if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
+      const stopPath = client.activePath().subscribe(() => {
+        for (const member of created.tabs) member.connection();
+      });
+      created.unwatch = () => {
+        stopState();
+        stopPath();
+      };
       this.#entries.set(target.key, created);
       entry = created;
     }
@@ -301,6 +308,7 @@ class Tab {
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
+      ...pathOf(client),
     });
   }
   #receive(data: unknown): void {
@@ -751,4 +759,10 @@ class Tab {
     this.#host.forget(this);
     this.#entry = undefined;
   }
+}
+
+/** The machine path a client's connection uses, when it moves between paths (ADR 0114). */
+function pathOf(client: { activePath(): { getSnapshot(): string | undefined } }) {
+  const path = client.activePath().getSnapshot();
+  return path ? { path } : {};
 }

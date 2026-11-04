@@ -1,12 +1,17 @@
-import type {
-  ClientApi,
-  Credential,
-  MachineCodeGate,
-  PortableSocket,
-  Transport,
+import {
+  isDirect,
+  relayRoute,
+  type ClientApi,
+  type Credential,
+  type MachineCodeGate,
+  type MachineRoute,
+  type PathRoute,
+  type PortableSocket,
+  type Scheduler,
+  type Transport,
 } from "@ace/client";
 import { MachineEntry } from "@ace/client/machines";
-import type { MachineCodeRefusal } from "@ace/protocol";
+import type { MachineCodeRefusal, MachinePath } from "@ace/protocol";
 
 /** A machine the ace account backend lists (`GET /v1/machines`). */
 export interface AccountMachine {
@@ -31,6 +36,16 @@ export interface AccountMachineOptions {
    */
   grant(): Promise<string>;
   socket(url: string, protocols?: string[]): PortableSocket;
+  /**
+   * A direct path (the same computer, the LAN, Tailscale) this app can reach with the
+   * machine's identity checked (ADR 0114), carrying `credential`; undefined when it can't check
+   * it (a browser can't pin a self-signed certificate). Relays are always usable: their host
+   * key is pinned in the handshake.
+   */
+  directRoute?(
+    path: Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }>,
+    credential: () => Promise<Credential>,
+  ): PathRoute | undefined;
   /**
    * The machine's client, in this thread: `new Client({ deviceId, transport, credential, … })`
    * with the route given. Its outbox and storage are the app's to choose, keyed by `hostId`.
@@ -94,4 +109,54 @@ export function accountMachineState(
     return { kind: "failed", message: state.error?.message ?? "Sign in to ace again." };
   // Offline retries by itself; until then it reads as connecting.
   return { kind: "connecting" };
+}
+
+/**
+ * Every path to an account machine this app can use (ADR 0114): ace's relay always, then what
+ * the machine said over a verified connection. Relays pin the machine's relay host key; a
+ * direct path is used only when the app can check the machine's certificate (`directRoute`).
+ * All carry the same device grant (and machine code), so access is the same on every path.
+ */
+export function accountRoutes(input: {
+  relayUrl: string;
+  hostId: string;
+  account: AccountMachineOptions;
+  gate: MachineCodeGate;
+  scheduler: Scheduler;
+  paths(): readonly MachinePath[];
+}): () => MachineRoute[] {
+  const { account, gate, hostId } = input;
+  const credential = () => gate.credential();
+  const relay = (url: string, kind: "relay" | "account"): MachineRoute => ({
+    path: { key: `${kind} ${url}`, kind },
+    ...relayRoute({
+      relayUrl: url,
+      hostId,
+      credential,
+      socket: account.socket,
+      schedule: (callback, delayMs) => input.scheduler.set(delayMs, callback),
+      refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
+      welcomed: () => gate.welcomed(),
+    }),
+  });
+  const home = relay(input.relayUrl, "account");
+  // Built once per path: a relay route keeps the credential of the attempt it opened.
+  const built = new Map<string, MachineRoute>([[home.path.key, home]]);
+  return () => {
+    const usable = [home];
+    for (const path of input.paths()) {
+      const key = `${path.kind} ${path.url}`;
+      let route = built.get(key);
+      if (!route) {
+        if (isDirect(path.kind) && "fingerprint" in path) {
+          const direct = account.directRoute?.(path, credential);
+          route = direct && { path: { key, kind: path.kind }, ...direct };
+        } else if ("relayHostId" in path && path.relayHostId === hostId)
+          route = relay(path.url, path.kind === "account" ? "account" : "relay");
+        if (route) built.set(key, route);
+      }
+      if (route && !usable.includes(route)) usable.push(route);
+    }
+    return usable;
+  };
 }

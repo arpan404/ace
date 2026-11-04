@@ -50,7 +50,7 @@ export { relayRoute, MACHINE_CODE_CLOSE } from "./relay-route.ts";
 export { Multipath } from "./multipath.ts";
 export type { MachineRoute, MultipathOptions, PathConnection } from "./multipath.ts";
 export type { PathRoute } from "./path-handshake.ts";
-export { pathRank, isDirect, type PlannedPath } from "./path-plan.ts";
+export { pathRank, isDirect, isPathKind, type PlannedPath } from "./path-plan.ts";
 export { machineCodeAdmin } from "./machine-code-admin.ts";
 export type { MachineCodeAdmin } from "./machine-code-admin.ts";
 export type { RelayRouteOptions } from "./relay-route.ts";

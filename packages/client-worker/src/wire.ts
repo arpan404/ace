@@ -122,7 +122,13 @@ export const WorkerMessage = z.discriminatedUnion("t", [
     error: z.optional(ErrorShape),
     idPrefix: z.optional(z.string()),
   }),
-  z.object({ t: z.literal("connection"), state: z.string(), error: z.optional(ErrorShape) }),
+  z.object({
+    t: z.literal("connection"),
+    state: z.string(),
+    error: z.optional(ErrorShape),
+    /** The path to the machine the worker's connection uses (ADR 0114). */
+    path: z.optional(z.string()),
+  }),
   z.object({
     t: z.literal("pendingSends"),
     reset: z.optional(z.boolean()),

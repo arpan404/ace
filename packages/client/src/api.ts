@@ -96,6 +96,10 @@ export interface ClientApi {
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
+  /** The path to the machine the connection uses now (ADR 0114); absent with a single route. */
+  activePath?(): Selection<import("@ace/protocol").MachinePathKind | undefined>;
+  /** Let `paths` keep the connection on the machine's fastest working path (ADR 0114). */
+  usePaths?(paths: import("./multipath.ts").Multipath): void;
   intent(id: string): Selection<Intent | undefined>;
   pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
   /** One kept send, as `pendingSends` lists it, read now. */
