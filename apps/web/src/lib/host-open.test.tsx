@@ -127,7 +127,7 @@ test("a host path outside every project says only the owner can open it", async 
   await openResearch();
 
   const toasts = within(await screen.findByRole("region", { name: "Notifications" }));
-  expect(await toasts.findByText("Only the machine's owner can open this.")).toBeTruthy();
+  expect(await toasts.findByText("Only the computer's owner can open this.")).toBeTruthy();
   expect(daemon.workspace.opened).toEqual([]);
 });
 

@@ -9,7 +9,7 @@ test("a thread the daemon doesn't have says so in words and offers the way back"
   const alert = await screen.findByRole("alert");
   expect(within(alert).getByRole("heading", { name: "This thread doesn't exist" })).toBeTruthy();
   expect(alert.textContent).toContain(
-    "It may have been deleted, or it belongs to another machine.",
+    "It may have been deleted, or it belongs to another computer.",
   );
   // Nothing went wrong with the connection, so nothing is said about agents still working.
   expect(alert.textContent).not.toContain("keep working");

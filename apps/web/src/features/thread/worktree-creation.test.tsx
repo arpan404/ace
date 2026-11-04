@@ -254,7 +254,7 @@ test("a start refused before its worktree began says why and stops saying a work
 test("a worktree refused without its own words still names the worktree", async () => {
   const made = app();
   made.daemon.refuseCommands("workspace_unavailable", "thread.create");
-  await startWorktree(made, "Split the relay reconnect state machine").catch(() => undefined);
+  await startWorktree(made, "Split the relay reconnect state computer").catch(() => undefined);
   await made.stepUntil(
     () => screen.queryByRole("heading", { level: 1, name: "New thread" }) !== null,
   );

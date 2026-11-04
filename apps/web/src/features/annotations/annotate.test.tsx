@@ -101,7 +101,7 @@ test("pinned comments join the draft with their crops, and the page's Send sends
       void browser.annotations.pin(threadId, {
         comment: "Make this bolder",
         tag: "h1",
-        text: "Pair a device",
+        text: "Pair phone or browser",
       }),
   );
   await screen.findByRole("button", { name: "Show 1 annotation" });
@@ -125,7 +125,7 @@ test("pinned comments join the draft with their crops, and the page's Send sends
   expect(words).toEqual({ type: "text", text: "Tighten the pairing screen" });
   if (block?.type !== "text") throw new Error("no annotation block");
   expect(block.text).toContain('<browser_annotations version="1" count="2">');
-  expect(block.text).toContain('[1] <h1> "Pair a device"');
+  expect(block.text).toContain('[1] <h1> "Pair phone or browser"');
   expect(block.text).toContain("Comment: Too much padding");
   expect(block.text).toContain("Images: the last 3 images of this message, in order:");
   expect(sent.attachments?.map((file) => file.name)).toEqual([
@@ -302,7 +302,7 @@ test("a dragged-out region joins the draft as a region that lists what it holds"
         title: "Devices",
         point: { x: 0.5, y: 0.5 },
         comment: "Too cramped",
-        element: contained("section", "Pair a device"),
+        element: contained("section", "Pair phone or browser"),
         region: {
           box: { x: 40, y: 80, width: 400, height: 200 },
           elements: [contained("button", "Get started"), contained("p", "Cancel any time")],
@@ -318,7 +318,7 @@ test("a dragged-out region joins the draft as a region that lists what it holds"
   expect(within(list).getByText("button “Get started”, p “Cancel any time”")).toBeTruthy();
   expect(within(list).getByText("Too cramped")).toBeTruthy();
   // The section around the region is context for the agent, not the row's text.
-  expect(within(list).queryByText("Pair a device")).toBeNull();
+  expect(within(list).queryByText("Pair phone or browser")).toBeNull();
 });
 
 /** Page screenshots wait here until released, as a busy or slow page makes them wait. */

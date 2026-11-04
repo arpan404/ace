@@ -314,7 +314,7 @@ test("the environment filter shows every connected environment, or just the one 
   expect(await screen.findByRole("article", { name: "Codex · Team · Build server" })).toBeTruthy();
   expect(await screen.findByRole("article", { name: "Codex · Personal · This Mac" })).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "Machine: All machines" }));
+  await userEvent.click(screen.getByRole("button", { name: "Computer: All computers" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Build server" }));
   await waitFor(() =>
     expect(screen.queryByRole("article", { name: /^Codex · Personal/ })).toBeNull(),
@@ -323,8 +323,8 @@ test("the environment filter shows every connected environment, or just the one 
 
   await userEvent.click(await screen.findByRole("button", { name: "Today" }));
   await waitFor(() => expect(stat("Tokens")).toBe("100K"));
-  await userEvent.click(screen.getByRole("button", { name: "Machine: Build server" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "All machines" }));
+  await userEvent.click(screen.getByRole("button", { name: "Computer: Build server" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "All computers" }));
   await waitFor(() => expect(stat("Tokens")).toBe("200K"));
 });
 
@@ -464,13 +464,13 @@ test("the figures count every machine, and one that goes offline is named, not d
   app.crashMachine("build-server");
   await waitFor(() =>
     expect(screen.getByTestId("usage-coverage").textContent).toBe(
-      "1 of 2 machines · Build server is offline",
+      "1 of 2 computers · Build server is offline",
     ),
   );
   await waitFor(() => expect(stat("Tokens")).toBe("100K"));
 
   expect(screen.getByTestId("usage-coverage").textContent).toBe(
-    "1 of 2 machines · Build server is offline",
+    "1 of 2 computers · Build server is offline",
   );
   expect(screen.queryByRole("article", { name: /· Build server$/ })).toBeNull();
 });

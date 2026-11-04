@@ -121,7 +121,7 @@ function Indicator(props: { kind: StripKind; counts: StripCounts; onPick(kind: S
                     : props.kind === "transfer"
                       ? [
                           <Icon key="i" size={12} icon={DesktopIcon} />,
-                          counts.transfer ?? "Machine",
+                          counts.transfer ?? "Computer",
                           `Show the move to ${counts.transfer ?? "another machine"}`,
                         ]
                       : [

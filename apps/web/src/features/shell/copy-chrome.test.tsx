@@ -31,7 +31,7 @@ test("the connected machine keeps its name in menus, settings and the details ca
   ).toBeTruthy();
   await userEvent.click(screen.getByRole("link", { name: "Fleet", current: false }));
   expect(
-    await within(await screen.findByRole("region", { name: "Machines" })).findByText(
+    await within(await screen.findByRole("region", { name: "Computers" })).findByText(
       "Workshop Mac",
     ),
   ).toBeTruthy();

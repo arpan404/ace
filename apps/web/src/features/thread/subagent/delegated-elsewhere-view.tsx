@@ -35,7 +35,7 @@ export function DelegatedElsewhereView(props: {
       </p>
     </Screen>
   );
-  if (!machine) return away("This window isn't paired with the machine this subagent runs on.");
+  if (!machine) return away("This window isn't paired with the computer this subagent runs on.");
   return (
     <MachineScope
       key={machine.id}

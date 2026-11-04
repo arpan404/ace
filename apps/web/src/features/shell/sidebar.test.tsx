@@ -146,7 +146,7 @@ test("the profile menu holds the account and connection actions; Usage is a rail
   await userEvent.click(await screen.findByRole("menuitem", { name: "Connection" }));
   const daemon = await screen.findByRole("menu", { name: "Connection" });
   expect(within(daemon).getByText(/Connected$/)).toBeTruthy();
-  await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair a device…" }));
+  await userEvent.click(within(daemon).getByRole("menuitem", { name: "Pair phone or browser…" }));
   await screen.findByRole("heading", { level: 2, name: "Fleet" });
   await userEvent.click(place(/^Threads/));
   await title("New thread");

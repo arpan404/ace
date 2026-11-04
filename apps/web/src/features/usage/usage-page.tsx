@@ -172,12 +172,12 @@ export function UsagePage() {
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
             <h2 className="mr-auto text-2xl leading-8 font-semibold tracking-title">Usage</h2>
             <FilterMenu
-              label="Machine"
+              label="Computer"
               value={environmentId}
               options={[
                 {
                   value: all,
-                  label: "All machines",
+                  label: "All computers",
                   icon: <DevicesIcon size={16} className="text-subtle-foreground" />,
                 },
                 ...machines.map((machine) => ({
@@ -265,7 +265,7 @@ export function UsagePage() {
                 now={now}
                 redeem={async (entry, idempotencyKey) => {
                   const machine = machineFor(entry.environmentId);
-                  if (!machine?.client) throw new Error("Machine is offline");
+                  if (!machine?.client) throw new Error("Computer is offline");
                   const reply = await machine.client.request({
                     type: "accounts.consumeReset",
                     instanceId: entry.account.id,

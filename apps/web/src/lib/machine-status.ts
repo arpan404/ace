@@ -10,8 +10,8 @@ export const machineStatus: Record<MachineStatus, { label: string; tone: Tone }>
 };
 export function machineProblem(status: MachineStatus, failed: boolean) {
   if (status === "auth_failed")
-    return "Access was refused. Forget this machine and add it with a fresh pairing link.";
+    return "Access was refused. Forget this computer and add it with a fresh pairing link.";
   if (failed && status === "offline")
-    return "Couldn't reach this machine. Check that it is on and connected, then reconnect.";
-  return "Paired machine";
+    return "Couldn't reach this computer. Check that it is on and connected, then reconnect.";
+  return "Paired computer";
 }

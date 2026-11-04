@@ -151,7 +151,7 @@ test("the machine menu holds the checkout, its path and a terminal, and no scrip
   expect(within(menu).getByRole("menuitem", { name: "Open terminal" })).toBeTruthy();
   expect(within(menu).queryByRole("menuitem", { name: /^Run / })).toBeNull();
   expect(within(menu).queryByRole("menuitem", { name: /dev:relay/ })).toBeNull();
-  expect(within(menu).queryByRole("menuitem", { name: /^Machine settings/ })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: /^Computer settings/ })).toBeNull();
 });
 
 test("Run a script lists each script by name with its command, and runs it in a terminal of the bottom panel", async () => {

@@ -32,7 +32,7 @@ export function useHasParentCrumb(threadId: string): boolean {
  * crumb names the machine rather than linking to a thread this machine doesn't have.
  */
 function RemoteParentCrumb(props: { from: DelegatedFrom }) {
-  const machine = props.from.hostName ?? "another machine";
+  const machine = props.from.hostName ?? "another computer";
   return (
     <Tip label={`Delegated by a thread on ${machine}`}>
       <span className="truncate">{machine}</span>

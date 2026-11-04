@@ -48,7 +48,7 @@ export function RewindControl(props: { threadId: string; entryId: string }) {
             ? "Wait for all agents to finish"
             : ready.ready
               ? undefined
-              : "Reconnect to ace on this machine"
+              : "Reconnect to ace on this computer"
         }
         onClick={() => {
           setError(undefined);

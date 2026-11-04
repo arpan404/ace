@@ -19,7 +19,7 @@ export function threadLoadFailure(error: unknown): {
   if (missing.has(code))
     return {
       title: "This thread doesn't exist",
-      description: "It may have been deleted, or it belongs to another machine.",
+      description: "It may have been deleted, or it belongs to another computer.",
       code,
     };
   const reason = describeDaemonError(code);

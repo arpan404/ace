@@ -18,7 +18,7 @@ export function DaemonMenuItems() {
   const connection = useDaemonConnection();
   const navigate = useNavigate();
   const identity = useHostIdentity();
-  const host = identity?.displayName ?? "This machine";
+  const host = identity?.displayName ?? "This computer";
   return (
     <>
       <MenuGroup>
@@ -32,7 +32,7 @@ export function DaemonMenuItems() {
         icon={<DeviceMobileIcon aria-hidden />}
         onClick={() => void navigate({ to: "/settings/remote" })}
       >
-        Pair a device…
+        Pair phone or browser…
       </MenuItem>
       <MenuItem
         icon={<PlugsIcon aria-hidden />}

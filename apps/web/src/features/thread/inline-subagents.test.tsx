@@ -581,6 +581,6 @@ test("hovering an agent row opens a card with its status and the machine it runs
   // Its name and status as the row says them, then where it runs: this machine.
   expect(card.textContent).toContain("Review first");
   expect(card.textContent).toContain("Running");
-  expect(card.textContent).toMatch(/This machine|Fake machine/);
+  expect(card.textContent).toMatch(/This computer|Fake machine/);
   await userEvent.unhover(row);
 });

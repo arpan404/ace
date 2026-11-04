@@ -85,7 +85,7 @@ function BreakdownList(props: {
     <div aria-label={title} role="group" data-kind={kind}>
       <h3 className="mb-1 text-xs font-semibold text-subtle-foreground">{title}</h3>
       {lines === undefined ? (
-        <p className="py-1.5 text-xs text-subtle-foreground">Not recorded on this machine</p>
+        <p className="py-1.5 text-xs text-subtle-foreground">Not recorded on this computer</p>
       ) : lines.length === 0 ? (
         <p className="py-1.5 text-xs text-subtle-foreground">None in this period</p>
       ) : (

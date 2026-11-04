@@ -12,7 +12,7 @@ const linked = `${line} focus-ring cursor-pointer rounded-sm transition-colors d
 
 /**
  * The quiet line above a message another thread's agent sent: the sender's provider mark, then
- * "Sent by <thread title>", with " · <machine>" when the sender is on another machine. The title
+ * "Sent by <thread title>", with " · <computer>" when the sender is on another machine. The title
  * is the thread's current one where this machine lists it; a long one ends in an ellipsis, with
  * the whole line in the tooltip. It opens the sending thread: on this machine, or on the paired
  * machine while that machine is reachable. Out of reach, or unknown, it is plain text.

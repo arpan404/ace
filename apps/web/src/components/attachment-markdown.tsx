@@ -45,7 +45,7 @@ export function MarkdownImage(props: { src: string; alt: string }) {
   if (scope) return <ThreadReference reference={src} image alt={alt} />;
   const name = displayName(src, "Image");
   return (
-    <Tip label="An image file on the agent's machine; it isn't loaded here">
+    <Tip label="An image file on the agent's computer; it isn't loaded here">
       {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
       <span tabIndex={0} className={chipClass}>
         <ImageIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
