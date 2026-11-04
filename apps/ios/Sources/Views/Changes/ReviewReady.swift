@@ -317,6 +317,7 @@ struct ReviewFileRow: View {
         let row = HStack(spacing: AceDesign.Space.related) {
             ChangedPath(path: file.path)
             Spacer(minLength: AceDesign.Space.related)
+            FileStatusWord(status: file.status)
             if viewed {
                 Text("Viewed").foregroundStyle(AceDesign.Ink.subtle)
             } else if file.binary {

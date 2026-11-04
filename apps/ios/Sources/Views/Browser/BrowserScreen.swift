@@ -206,7 +206,8 @@ struct BrowserScreen: View {
             }
             .disabled(model.approvalSubmissions[help.id] != nil || !model.canOperate)
         }
-        if let shown = state?.shown, let tabId = state?.activeTabId {
+        // While drawing, the drawing strip is the one sentence; who has the page comes back after.
+        if !annotating, let shown = state?.shown, let tabId = state?.activeTabId {
             if shown.private {
                 BrowserStrip(sentence: "Agents are kept out of this page") {
                     if model.canOperate {
@@ -260,8 +261,8 @@ extension BrowserScreen {
     }
 }
 
-/// The round glass pen over the live page: drawing on or off. On, it fills with the accent, the
-/// colour the drawings are made in.
+/// The round pen over the live page. Off, it is glass like every floating button; on, it is a
+/// solid accent disc with a rim in the background colour, so on reads as on over any page.
 struct DrawButton: View {
     let on: Bool
     let unavailable: String?
@@ -271,8 +272,7 @@ struct DrawButton: View {
             AceIcon(.pencilSimpleLine, size: AceDesign.Size.barIcon, relativeTo: .title3)
                 .foregroundStyle(on ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                .background { if on { Circle().fill(AceTheme.Colours.accent) } }
-                .modifier(GlassUnlessOn(on: on))
+                .modifier(PenSurface(on: on))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -280,16 +280,22 @@ struct DrawButton: View {
         .sensoryFeedback(.selection, trigger: on)
         .accessibilityLabel(on ? "Stop drawing" : "Draw on the page")
         .accessibilityValue(on ? "On" : "Off")
-        .accessibilityHint(unavailable ?? "Circle or underline what to change; the drawing goes with your message")
+        .accessibilityHint(unavailable ?? "Circle what to change; the drawing goes with your message")
         .accessibilityIdentifier("browser.annotate")
     }
 }
 
-/// Glass while the pen is off; the accent's own fill while it is on (never glass under a fill).
-private struct GlassUnlessOn: ViewModifier {
+/// Glass while the pen is off; the accent's solid fill, ringed, while it is on (never glass under a fill).
+private struct PenSurface: ViewModifier {
     let on: Bool
     func body(content: Content) -> some View {
-        if on { content } else { content.aceGlass(in: Circle(), interactive: true) }
+        if on {
+            content
+                .background(AceTheme.Colours.accent, in: Circle())
+                .overlay { Circle().strokeBorder(AceTheme.Colours.background, lineWidth: AceDesign.Size.inkStroke) }
+        } else {
+            content.aceGlass(in: Circle(), interactive: true)
+        }
     }
 }
 

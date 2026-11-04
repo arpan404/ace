@@ -10,7 +10,7 @@ extension ClientModel {
         guard canOperate, let thread else { return false }
         // Words, files or both; the bridge checks again with the shared rule.
         let words = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard !thread.screen.attachments.isEmpty || sheets.chip != nil || words else { return false }
+        guard !thread.screen.attachments.isEmpty || !thread.screen.annotations.isEmpty || sheets.chip != nil || words else { return false }
         // Line comments on the chip go first, as the review's own message quoting file:line; the
         // words then steer into that turn or queue behind it.
         if sheets.chip != nil, thread.screen.controls?.continues != true {

@@ -257,13 +257,11 @@ struct ReviewBar: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
 
     private var review: ChangesReview? { model.sheets.review }
-    @Environment(\.changesCommentable) private var commentable
     @Environment(\.threadPage) private var inPage
     /// A line to show when there is no pick and no review yet: why comments can't go here, or
     /// why the phone can't keep them.
     private var note: (String, Bool)? {
         if let storage = review?.storage, !storage.isEmpty { return (storage, true) }
-        if !commentable { return (model.sheets.changes?.review?.reason ?? "", false) }
         return nil
     }
 

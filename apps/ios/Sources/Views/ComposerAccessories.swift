@@ -5,6 +5,9 @@ import SwiftUI
 /// model sheet. Every check (size, what the agent can read, which levels exist) is the bridge's;
 /// this view draws what the bridge says.
 struct ComposerAccessories: View {
+    /// Where the field's words start in the glass block: + (a full tap with its inset), then the
+    /// row's and the field's insets.
+    static let fieldEdge = AceDesign.Space.tight * 3 + AceDesign.Size.tap
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
     let problem: String?
@@ -41,7 +44,9 @@ struct ComposerAccessories: View {
                 }
                 ServiceProblem(message: problem)
             }
-            .padding(.horizontal, AceDesign.Space.related).padding(.top, AceDesign.Space.related)
+            // One edge with the field's words: past +, its inset and the field's own.
+            .padding(.leading, Self.fieldEdge).padding(.trailing, AceDesign.Space.related)
+            .padding(.top, AceDesign.Space.related)
         }
     }
 }
