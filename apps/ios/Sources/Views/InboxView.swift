@@ -119,13 +119,13 @@ struct InboxView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            Tab(HomeTabs.title(.threads), systemImage: HomeTabs.symbol(.threads), value: InboxTab.threads) {
+            Tab(value: InboxTab.threads) {
                 stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
-            }
+            } label: { Label { Text(HomeTabs.title(.threads)) } icon: { HomeTabs.tabImage(.threads) } }
             .accessibilityIdentifier("tab.threads")
-            Tab(HomeTabs.title(.chats), systemImage: HomeTabs.symbol(.chats), value: InboxTab.chats) {
+            Tab(value: InboxTab.chats) {
                 stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
-            }
+            } label: { Label { Text(HomeTabs.title(.chats)) } icon: { HomeTabs.tabImage(.chats) } }
             .accessibilityIdentifier("tab.chats")
             // Spade, ace's cloud agent, keeps its slot between Chats and Search until it launches.
             if HomeTabs.showsSpade {

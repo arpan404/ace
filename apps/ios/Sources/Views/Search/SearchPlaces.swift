@@ -49,8 +49,8 @@ enum SearchPlace: String, CaseIterable, Identifiable {
     }
 }
 
-/// The places as capsules that wrap to the next line: each one its glyph and its name, Pull
-/// requests with how many are open in the project it opens on.
+/// The places as capsules that wrap to the next line: words only (design language §2.3), Pull
+/// requests with how many are open in the project it opens on, in the subtle ink.
 struct SearchPlaceCapsules: View {
     let places: [SearchPlace]
     /// Open pull requests in the project Pull requests opens on; nil until read.
@@ -71,7 +71,6 @@ struct SearchPlaceCapsules: View {
 
     private func capsule(_ place: SearchPlace) -> some View {
         HStack(spacing: AceDesign.Space.related) {
-            AceIcon(place.icon, size: AceDesign.Size.icon, relativeTo: .body)
             Text(place.title).lineLimit(1)
             if place == .pulls, let openPulls, openPulls > 0 {
                 Text(openPulls.formatted()).monospacedDigit()

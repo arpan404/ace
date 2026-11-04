@@ -24,7 +24,8 @@ enum HomeTabs {
         }
     }
 
-    /// The tab bar's SF Symbol, matched to the web rail's Phosphor glyph.
+    /// The tab bar's SF Symbol, matched to the web rail's Phosphor glyph (Folders for Threads,
+    /// ChatsCircle for Chats).
     static func symbol(_ tab: InboxTab) -> String {
         switch tab {
         case .threads: "folder"
@@ -33,6 +34,12 @@ enum HomeTabs {
         case .search: "magnifyingglass"
         case .compose: "square.and.pencil"
         }
+    }
+
+    /// The tab bar's glyph in its outline form, as the web rail draws it. Handed over as a fixed
+    /// image: given the symbol's name, the system bar draws every tab's filled variant.
+    static func tabImage(_ tab: InboxTab) -> Image {
+        Image(uiImage: UIImage(systemName: symbol(tab)) ?? UIImage())
     }
 
     /// The iPad sidebar's glyph, the web rail's own.
