@@ -39,7 +39,7 @@ function hosts() {
   for (const [address, secret, title] of [
     [url, token, "Original desktop thread"],
     [nextUrl, nextToken, "Replacement desktop thread"],
-    ["wss://remote.example/", token, "Remote machine thread"],
+    ["wss://remote.example/", token, "Remote computer thread"],
   ]) {
     if (!address || !secret || !title) throw new Error("Incomplete host fixture");
     const daemon = new FakeDaemon({ clock: () => 1, token: secret });
@@ -142,11 +142,11 @@ test("manual remote selection and its draft survive a local desktop endpoint rep
   );
   const mounted = render(view({ url, token }));
   await screen.findByText("Original desktop thread");
-  await userEvent.click(screen.getByRole("button", { name: "Remote machine" }));
-  await screen.findByText("Remote machine thread");
+  await userEvent.click(screen.getByRole("button", { name: "Remote computer" }));
+  await screen.findByText("Remote computer thread");
   await userEvent.type(screen.getByLabelText("Draft"), "Remote draft");
   await act(async () => mounted.rerender(view({ url: nextUrl, token: nextToken })));
-  expect(screen.getByText("Remote machine thread")).toBeTruthy();
+  expect(screen.getByText("Remote computer thread")).toBeTruthy();
   expect(screen.queryByText("Replacement desktop thread")).toBeNull();
   expect(screen.getByLabelText<HTMLInputElement>("Draft").value).toBe("Remote draft");
 });

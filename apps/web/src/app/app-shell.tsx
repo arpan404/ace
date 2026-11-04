@@ -104,7 +104,7 @@ export function AppShell() {
                 <LocalBoundary label="the project picker" fallback={null}>
                   <MoveToProjectHost />
                 </LocalBoundary>
-                <LocalBoundary label="the machine chooser" fallback={null}>
+                <LocalBoundary label="the computer chooser" fallback={null}>
                   <TransferHost />
                 </LocalBoundary>
                 <LocalBoundary label="the delete confirmation" fallback={null}>

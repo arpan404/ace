@@ -327,7 +327,7 @@ export function ConnectionGate(props: {
               refuse(
                 new ClientError(
                   "timeout",
-                  `ace answered but didn't say which machine it is within ${identityMs / 1000}s.`,
+                  `ace answered but didn't say which computer it is within ${identityMs / 1000}s.`,
                 ),
               );
             });

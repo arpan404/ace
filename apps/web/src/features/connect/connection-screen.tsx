@@ -17,18 +17,18 @@ import { HandoffScreen } from "./handoff-screen.tsx";
 import { AccountMachineScreen } from "./account-machine-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
-  auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
+  auth: "This computer didn't accept the access token. Copy a fresh token from ace there and try again.",
   identity:
     "This is a different ace than the one this window connected to at this address before. If you trust it, forget the old one: work saved for the old one and never sent is discarded.",
   protocol:
-    "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.",
-  storage: "This window couldn't read the work it saved for this machine. Try again.",
+    "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that computer.",
+  storage: "This window couldn't read the work it saved for this computer. Try again.",
   failed: "ace closed the connection. Check the address, then try again.",
   // An account machine's own screen says these with its name (`account-machine-screen.tsx`).
-  signed_out: "Sign in to your ace account to open this machine.",
+  signed_out: "Sign in to your ace account to open this computer.",
   session_ended: "Your ace session ended. Sign in again.",
-  not_on_account: "This machine isn't on your ace account any more.",
-  machine_code: "This machine wants its machine code.",
+  not_on_account: "This computer isn't on your ace account any more.",
+  machine_code: "This computer wants its computer code.",
 };
 
 /**
@@ -69,8 +69,8 @@ export function ConnectionScreen() {
           "Give this device a name so you can recognize and revoke its access later."
         ) : pairing ? (
           <>
-            On the computer running ace, open Settings › Pair a device and scan its QR code or open
-            its link here. You can also paste the link below.
+            On the computer running ace, open Settings › Pair phone or browser and scan its QR code
+            or open its link here. You can also paste the link below.
           </>
         ) : connection.desktop ? (
           <>

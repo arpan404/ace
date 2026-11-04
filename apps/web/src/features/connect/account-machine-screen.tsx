@@ -32,9 +32,9 @@ function sentence(status: ConnectionStatus, name: string): string {
         case "machine_code":
           return "";
         case "protocol":
-          return "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.";
+          return "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that computer.";
         case "storage":
-          return "This window couldn't read the work it saved for this machine. Try again.";
+          return "This window couldn't read the work it saved for this computer. Try again.";
         case undefined:
           return `${name} is on your ace account.`;
         default:
@@ -85,7 +85,7 @@ export function AccountMachineScreen(props: {
       <div className="mt-2 flex flex-wrap gap-2">
         {signIn && leave && <Button onClick={() => leave("/settings/profile")}>Sign in</Button>}
         {retry && <Button onClick={connection.retry}>Try again</Button>}
-        <Leave connection={connection}>Choose another machine</Leave>
+        <Leave connection={connection}>Choose another computer</Leave>
       </div>
     </ConnectCard>
   );

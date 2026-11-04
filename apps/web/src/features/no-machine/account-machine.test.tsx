@@ -97,7 +97,7 @@ test("opening an account machine from the app with no machine makes it this wind
   openWindow({ daemon, stores: windowStores(), session, signedIn: true, at: "/settings/remote" });
   await openFromFleet("Travel laptop");
   expect(await screen.findByText(`Working on ${daemon.hostId} via account`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Threads run on a computer. Add one to start.")).toBeNull();
 });
 
 test("a reload opens the account machine again through the relay, keeping no grant or token", async () => {
@@ -141,8 +141,8 @@ test("a machine that left the account says so, and Choose another machine opens 
     "Travel laptop isn't on your ace account any more, or it turned this device away.",
   );
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
-  await userEvent.click(screen.getByRole("button", { name: "Choose another machine" }));
-  expect(await screen.findByRole("button", { name: "Pair a machine" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Choose another computer" }));
+  expect(await screen.findByRole("button", { name: "Add computer" })).toBeTruthy();
 });
 
 test("a machine that wants its code asks for it on the connection screen, then opens", async () => {
@@ -150,13 +150,13 @@ test("a machine that wants its code asks for it on the connection screen, then o
   const session = memoryKeyValue();
   openWindow({ daemon, stores: windowStores(), session, signedIn: true, at: "/settings/remote" });
   await openFromFleet("Studio");
-  expect(await screen.findByText("Enter Studio's machine code to open it.")).toBeTruthy();
+  expect(await screen.findByText("Enter Studio's computer code to open it.")).toBeTruthy();
 
-  await userEvent.type(screen.getByLabelText("Machine code"), "1111");
+  await userEvent.type(screen.getByLabelText("Computer code"), "1111");
   await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
   expect(await screen.findByText("That code didn't match. Try again.")).toBeTruthy();
 
-  await userEvent.type(screen.getByLabelText("Machine code"), "2468");
+  await userEvent.type(screen.getByLabelText("Computer code"), "2468");
   await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
   expect(await screen.findByText(`Working on ${daemon.hostId} via account`)).toBeTruthy();
 });
@@ -168,13 +168,13 @@ test("five wrong codes lock code entry for 15 minutes", async () => {
   saveAccountChoice(stores, { origin: fakeOrigin, hostId: fakeHostIds.studio, name: "Studio" });
   openWindow({ daemon, stores, session, signedIn: true });
   for (let wrong = 0; wrong < 5; wrong++) {
-    const field = await screen.findByLabelText("Machine code");
+    const field = await screen.findByLabelText("Computer code");
     await userEvent.type(field, "1111");
     await userEvent.click(screen.getByRole("button", { name: "Unlock" }));
     if (wrong < 4) await screen.findByText("That code didn't match. Try again.");
   }
   expect(await screen.findByText("Too many wrong codes. Try again in 15 minutes.")).toBeTruthy();
-  expect(screen.getByLabelText("Machine code").hasAttribute("disabled")).toBe(true);
+  expect(screen.getByLabelText("Computer code").hasAttribute("disabled")).toBe(true);
   expect(screen.queryByText(/Working on/)).toBeNull();
 });
 
@@ -235,5 +235,5 @@ test("a window without ace accounts ignores a stored account machine and opens e
       </ConnectionGate>
     </AppFrame>,
   );
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Threads run on a computer. Add one to start.")).toBeTruthy();
 });

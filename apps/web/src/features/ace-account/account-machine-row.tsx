@@ -100,7 +100,7 @@ export function AccountMachineRow(props: {
             onClick={() =>
               setConfirming({
                 title: `Forget ${machine.name}?`,
-                body: "It leaves your ace account's machines until it signs in to the account again.",
+                body: "It leaves your ace account's computers until it signs in to the account again.",
                 confirm: "Forget",
                 run: () =>
                   void props.onForget(machine.hostId).catch((error: unknown) =>

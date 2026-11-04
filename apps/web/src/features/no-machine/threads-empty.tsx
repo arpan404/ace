@@ -8,7 +8,7 @@ export function NoMachineThreads() {
   return (
     <Screen title="Threads" namedByPanel>
       <EmptyState
-        title="Threads run on a machine. Add one to start."
+        title="Threads run on a computer. Add one to start."
         action={
           <Button variant="ghost" render={<Link to="/settings/remote" />}>
             Add a machine

@@ -484,7 +484,7 @@ test("a connected client that never learns its host identity fails once the wait
   expect(shell()).toBeNull();
   runOut(identityMs);
   expect((await screen.findByRole("alert")).textContent).toContain(
-    "didn't say which machine it is",
+    "didn't say which computer it is",
   );
   expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });

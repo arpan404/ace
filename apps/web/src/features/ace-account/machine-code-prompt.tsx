@@ -31,7 +31,7 @@ export function MachineCodePrompt(props: {
   const prompt = machineCodePrompt(asking, props.machine, props.lockedUntil, now);
   const submit = () => {
     if (!MachineCode.safeParse(code).success) {
-      setProblem("A machine code has at least 4 characters.");
+      setProblem("A computer code has at least 4 characters.");
       return;
     }
     gate.enter(code);
@@ -41,7 +41,7 @@ export function MachineCodePrompt(props: {
   };
   return (
     <form
-      aria-label={`Machine code for ${props.machine}`}
+      aria-label={`Computer code for ${props.machine}`}
       className="flex flex-col gap-2 py-3"
       onSubmit={(event) => {
         event.preventDefault();
@@ -53,7 +53,7 @@ export function MachineCodePrompt(props: {
       </p>
       <div className="flex items-center gap-2">
         <Input
-          aria-label="Machine code"
+          aria-label="Computer code"
           aria-describedby={id}
           type="password"
           autoComplete="off"

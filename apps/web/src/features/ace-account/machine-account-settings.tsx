@@ -82,7 +82,7 @@ function ThisMachineAccount(props: {
   });
   return (
     <>
-      <SettingRow id="machine.account" title="This machine" description={row.sentence} inline>
+      <SettingRow id="machine.account" title="This computer" description={row.sentence} inline>
         {row.action === "appFirst" && (
           <Button size="sm" variant="ghost" render={<Link to="/settings/profile" />}>
             Open Profile
@@ -134,7 +134,7 @@ function MachineCodeSetting(props: {
   });
   const save = () => {
     if (!MachineCode.safeParse(code).success) {
-      setProblem("A machine code has 4 to 128 characters.");
+      setProblem("A computer code has 4 to 128 characters.");
       return;
     }
     setProblem("");
@@ -143,7 +143,7 @@ function MachineCodeSetting(props: {
   const locked = machineCode.lockedUntil !== undefined && machineCode.lockedUntil > now;
   return (
     <>
-      <SettingRow id="machine.code" title="Machine code" description={machineCodeSentence} inline>
+      <SettingRow id="machine.code" title="Computer code" description={machineCodeSentence} inline>
         {!editing && (
           <>
             <span className="text-xs text-subtle-foreground">
@@ -168,7 +168,7 @@ function MachineCodeSetting(props: {
       </SettingRow>
       {editing && (
         <form
-          aria-label="Change machine code"
+          aria-label="Change computer code"
           data-setting-slot=""
           className="flex items-center gap-2 py-3"
           onSubmit={(event) => {
@@ -177,7 +177,7 @@ function MachineCodeSetting(props: {
           }}
         >
           <Input
-            aria-label="New machine code"
+            aria-label="New computer code"
             type="password"
             autoComplete="new-password"
             autoFocus

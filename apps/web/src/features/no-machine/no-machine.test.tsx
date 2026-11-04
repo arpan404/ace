@@ -68,7 +68,7 @@ const noConnectScreen = () =>
 test("a fresh window opens the app, not the connect screen, and Profile offers Sign in", async () => {
   const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
   openWindow({ daemon, stores: stores() });
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Threads run on a computer. Add one to start.")).toBeTruthy();
   noConnectScreen();
   await userEvent.click(screen.getByRole("link", { name: "Profile" }));
   const signIn = await screen.findByRole("button", { name: "Sign in" });
@@ -103,8 +103,8 @@ test("pairing from inside the app makes it this window's machine, and a reload k
   const window = stores();
   const first = openWindow({ daemon, stores: window });
 
-  await userEvent.click(await screen.findByRole("link", { name: "Add a machine" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Pair a machine" }));
+  await userEvent.click(await screen.findByRole("link", { name: "Add a computer" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add computer" }));
   const dialog = await screen.findByRole("dialog");
   await userEvent.type(within(dialog).getByLabelText("Pairing link or code"), pairing.url);
   await userEvent.type(within(dialog).getByRole("textbox", { name: "This device's name" }), "Lab");
@@ -115,7 +115,7 @@ test("pairing from inside the app makes it this window's machine, and a reload k
   first.unmount();
   openWindow({ daemon, stores: window });
   expect(await screen.findByText(`Working on ${daemon.hostId}`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Threads run on a computer. Add one to start.")).toBeNull();
 });
 
 test("connecting by address that fails can go back to the app with no machine", async () => {
@@ -128,7 +128,7 @@ test("connecting by address that fails can go back to the app with no machine", 
   await userEvent.click(within(dialog).getByRole("button", { name: "Connect" }));
   expect((await screen.findByRole("alert")).textContent).toMatch(/Couldn't reach/);
   await userEvent.click(screen.getByRole("button", { name: "Not now" }));
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Threads run on a computer. Add one to start.")).toBeTruthy();
 });
 
 test("a stored machine still opens straight into its app", async () => {
@@ -137,14 +137,14 @@ test("a stored machine still opens straight into its app", async () => {
   saveTarget(window, { url, token: daemon.token }, true);
   openWindow({ daemon, stores: window });
   expect(await screen.findByText(`Working on ${daemon.hostId}`)).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Threads run on a computer. Add one to start.")).toBeNull();
   noConnectScreen();
 });
 
 test("a desktop with no daemon of its own opens the app with no machine", async () => {
   const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
   openWindow({ daemon, stores: stores(), desktop: true });
-  expect(await screen.findByText("Threads run on a machine. Add one to start.")).toBeTruthy();
+  expect(await screen.findByText("Threads run on a computer. Add one to start.")).toBeTruthy();
   noConnectScreen();
 });
 
@@ -162,5 +162,5 @@ test("a stored machine that refuses this window says so on the connect screen, n
   openWindow({ daemon, stores: window, token: "c".repeat(64) });
   expect((await screen.findByRole("alert")).textContent).toContain("didn't accept");
   expect(screen.getByRole("heading", { name: "Connect to ace" })).toBeTruthy();
-  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
+  expect(screen.queryByText("Threads run on a computer. Add one to start.")).toBeNull();
 });

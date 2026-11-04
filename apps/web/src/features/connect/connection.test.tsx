@@ -210,7 +210,7 @@ test("a link to a daemon on another machine asks first, and declining keeps the 
     rememberedToken: token,
     fragment: `#token=${attacker}&daemon=wss://evil.example/`,
   });
-  await screen.findByRole("heading", { name: "Connect to ace on this machine?" });
+  await screen.findByRole("heading", { name: "Connect to ace on this computer?" });
   expect(screen.getByText("wss://evil.example/")).toBeTruthy();
   // The safe answer is the default, and says what it keeps.
   expect(document.activeElement).toBe(screen.getByRole("button", { name: "Don't connect" }));
