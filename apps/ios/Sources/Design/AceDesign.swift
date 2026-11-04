@@ -222,6 +222,8 @@ import UIKit
         static let approve = SensoryFeedback.success
         static let tab = SensoryFeedback.selection
         static let refresh = SensoryFeedback.impact(weight: .light)
+        /// A row's swipe action taken (pin, snooze, settle).
+        static let rowAction = SensoryFeedback.impact(weight: .light)
     }
 }
 
@@ -361,6 +363,11 @@ extension AceDesign.Size {
     static let sendGlyph: CGFloat = 15
     /// A strip's line of words.
     static let stripAction: CGFloat = 24
+    /// The line a needs-you inbox row grows under its title, and the command capsule on it.
+    static let rowNeedLine: CGFloat = 28
+    static let needCode: CGFloat = 22
+    /// The needs-you run's progress track under its title.
+    static let runTrack: CGFloat = 3
 }
 
 extension AceDesign.Space {
