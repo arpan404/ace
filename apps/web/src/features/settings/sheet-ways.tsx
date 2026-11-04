@@ -27,7 +27,7 @@ export function SheetWays<K extends string>(props: {
           >
             <span
               aria-hidden
-              className="mt-px grid size-[22px] shrink-0 place-items-center rounded-full text-[11px] text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] tabular-nums"
+              className="mt-px grid size-[22px] shrink-0 place-items-center rounded-full text-2xs text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] tabular-nums"
             >
               {index + 1}
             </span>
@@ -35,7 +35,7 @@ export function SheetWays<K extends string>(props: {
               <span className="text-ui text-foreground">
                 {way.title}
                 {way.recommended && (
-                  <span className="ml-1.5 text-[11px] font-medium text-link">Recommended</span>
+                  <span className="ml-1.5 text-2xs font-medium text-link">Recommended</span>
                 )}
               </span>
               <span className="text-xs leading-relaxed text-muted-foreground">{way.sub}</span>
