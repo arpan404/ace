@@ -185,6 +185,7 @@ function gate(
 
 /** Fake mode with no machine: an address opens the fake daemon's own app, as before. */
 function fakeElsewhere(): Promise<never> {
+  session.removeItem?.("ace.fake.machine");
   location.assign("/");
   return new Promise<never>(() => {});
 }
@@ -234,7 +235,10 @@ async function content(): Promise<ReactNode> {
   if (import.meta.env.MODE === "fake") {
     // `?machine=none`: the app as a window with no machine sees it.
     const search = new URLSearchParams(location.search);
-    if (search.get("machine") === "none") return fakeNoMachine(search.get("account") === "out");
+    // Kept for the tab, so a reload after opening an account machine (at `/`) stays in it.
+    if (search.get("machine") === "none") session.setItem("ace.fake.machine", "none");
+    if (session.getItem("ace.fake.machine") === "none")
+      return fakeNoMachine(search.get("account") === "out");
     const fake = (await import("./boot/fake.ts")).bootFake();
     const { client } = fake;
     if (!profileName(local)) setProfileName(local, fake.profileName);
