@@ -19,7 +19,12 @@ import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
 import { nativeTransport, socketEvent } from "./socket.ts";
-import { accountCredential, accountGate, machineCodeRefusal } from "./account-machine.ts";
+import {
+  accountCredential,
+  accountGate,
+  deviceGrant,
+  machineCodeRefusal,
+} from "./account-machine.ts";
 import type { MachineCodeGate } from "@ace/client";
 import { followMachine, MachineProviders } from "./machine-info.ts";
 import { MachineFollowers } from "./machine-followers.ts";
@@ -218,6 +223,9 @@ async function start(json: string): Promise<void> {
     limits: { items: config.itemLimit, text: 8192 },
     transport: () => nativeTransport(trust, early),
     credential,
+    // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
+    // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
+    ...(account ? { grant: deviceGrant(() => call("credential.fresh")) } : {}),
     storage: {
       load: async () => (await call("storage.load")) || null,
       save: async (value) => {

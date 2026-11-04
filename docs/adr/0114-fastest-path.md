@@ -142,7 +142,7 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
   If no valid refresh arrives by the expiry plus 30 s, the daemon closes the socket with 4014
   "Account grant expired". 4014 is not final: the client reconnects as after any drop, with a
   fresh grant, since every connection attempt already fetches one. A client that never
-  refreshes (an older build, or iOS until it adopts this) is closed at expiry and reconnects
+  refreshes (an older build) is closed at expiry and reconnects
   the same way; a daemon that doesn't send `grantTtlMs` is never sent a refresh. Dedicated
   channels (files, devices, browser, screen, sign-in) aren't timed: they end when the
   account changes, as before, and their grant is checked when they open.
@@ -178,6 +178,11 @@ The native iOS client (ADR 0074) is out of scope here. It needs: the directory's
 `lastPath`; a dialer per path that pins the TLS public-key fingerprint (URLSession delegate) and
 the relay host key; a cheap probe (a pinned TLS handshake); `NWPathMonitor` for network changes
 and wake; and to hand those routes to the shared `Multipath` through its host contract, so the
-decisions stay in the shared JavaScript. It also needs to pass a fresh-grant source
-(`ClientOptions.grant`) so its account sockets refresh their grant instead of reconnecting
-every five minutes.
+decisions stay in the shared JavaScript.
+
+Grant refresh is done (2026-11-04): the bridge passes `ClientOptions.grant` for an account
+machine, so the shared connection keeps each account socket's grant fresh with
+`grant-keeper.ts`, as on the web. The grant comes from the host operation `credential.fresh`,
+which always fetches a new device grant (`AccountGrants.fresh()`); the hello's `credential`
+may hand back the grant its relay socket just fetched, and a refresh sent with an older grant
+would be timed from that grant's whole lifetime and run out early.
