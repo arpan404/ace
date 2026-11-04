@@ -91,6 +91,7 @@ export async function startFilesRelay(
               actor,
               stillAdmitted: admitted.stillAdmitted,
               account: admitted.account,
+              grantExpiresAt: admitted.grantExpiresAt,
               deflate: hello.compression?.includes("deflate-raw") === true,
             });
             await channel.closed;

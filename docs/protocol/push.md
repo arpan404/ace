@@ -3341,6 +3341,7 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | protocolVersion | yes | `1` |  |
 | headSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -3837,5 +3838,27 @@ Example:
 ```json
 {
   "type": "pong"
+}
+```
+
+### account.grant.refresh.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"grantTtlMs":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["ok","grantTtlMs"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "code": "example",
+    "message": "example",
+    "ok": false
+  },
+  "type": "account.grant.refresh.result"
 }
 ```

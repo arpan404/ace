@@ -434,3 +434,116 @@ it("the client stops and asks for the machine code on a direct socket instead of
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(sockets).toBe(1);
 });
+
+/** A daemon serving its own sockets on a clock the test moves, signed in to the fake account. */
+async function clockedServer() {
+  let offset = 0;
+  const now = () => Date.now() + offset;
+  const backend = await startFakeAccountBackend(now);
+  cleanup.push(() => backend.close());
+  let account: ReturnType<typeof machineAccount> | undefined;
+  // The idle timeout reads the same clock: keep it out of the way of the jumps below.
+  const f = await fixture({ now, idleTimeoutMs: 24 * 60 * 60_000 }, (store, home) => {
+    account = machineAccount({
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanup.push(async () => {
+    await account?.close();
+    await f.close();
+  });
+  if (!account) throw new Error("No machine account");
+  await account.handover(backend.origin, backend.token);
+  let grants = 0;
+  const grant = () => {
+    grants++;
+    const iat = now();
+    return signGrant(
+      { kind: "device", account: "user_a", subject: "phone", iat, exp: iat + GRANT_LIFETIME_MS },
+      backend.signingKey,
+    );
+  };
+  // Long timers (a grant refresh) run when the test moves the clock past them; short ones are real.
+  const long: { at: number; run(): void }[] = [];
+  const scheduler = {
+    set(ms: number, callback: () => void) {
+      if (ms >= 60_000) {
+        const timer = { at: now() + ms, run: callback };
+        long.push(timer);
+        return () => long.splice(long.indexOf(timer) >>> 0, 1);
+      }
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  };
+  const client = (refresh: boolean) => {
+    let sockets = 0;
+    const api = new Client({
+      deviceId: DeviceId.parse("phone"),
+      transport: () => {
+        sockets++;
+        return webSocketTransport(() => new WebSocket(f.server.url));
+      },
+      credential: async () => ({ grant: grant() }),
+      ...(refresh ? { grant: async () => grant() } : {}),
+      storage: { load: async () => null, save: async () => {} },
+      scheduler,
+      random: () => 0.5,
+      id: randomUUID,
+      now,
+      limits: { retryBaseMs: 1, retryCapMs: 1 },
+    });
+    cleanup.push(() => api.close());
+    return { api, sockets: () => sockets };
+  };
+  return {
+    client,
+    grants: () => grants,
+    /** Move the clock on, run the long timers now due, and let a daemon tick pass (1 s). */
+    async advance(milliseconds: number) {
+      offset += milliseconds;
+      for (const timer of long.filter((candidate) => candidate.at <= now())) {
+        long.splice(long.indexOf(timer), 1);
+        timer.run();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_300));
+    },
+  };
+}
+const ready = (client: Client) => client.connectionState().getSnapshot() === "ready";
+
+it("an account socket that refreshes its grant stays open past the first grant's expiry", async () => {
+  const daemon = await clockedServer();
+  const { api, sockets } = daemon.client(true);
+  await api.start();
+  await expect.poll(() => ready(api)).toBe(true);
+  // At four minutes the client sends a fresh grant on the same socket.
+  await daemon.advance(4 * 60_000);
+  expect(daemon.grants()).toBe(2);
+  // Past the first grant's expiry and its grace: the same socket is still open.
+  await daemon.advance(2 * 60_000);
+  expect(ready(api)).toBe(true);
+  expect(sockets()).toBe(1);
+  expect(api.connectionInfo().getSnapshot().lastClose).toBeUndefined();
+});
+
+it("an account socket that never refreshes is closed at expiry and the client reconnects", async () => {
+  const daemon = await clockedServer();
+  const { api, sockets } = daemon.client(false);
+  await api.start();
+  await expect.poll(() => ready(api)).toBe(true);
+  await daemon.advance(GRANT_LIFETIME_MS + 31_000);
+  await expect.poll(() => sockets()).toBe(2);
+  await expect.poll(() => ready(api)).toBe(true);
+  expect(api.connectionInfo().getSnapshot().lastClose).toMatchObject({
+    code: 4014,
+    reason: "Account grant expired",
+  });
+  expect(api.error).toBeUndefined();
+});

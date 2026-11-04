@@ -10,7 +10,8 @@ import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machin
 import { readSession, writeSession, type StoredSession } from "./session-file.ts";
 
 export type DeviceAdmission =
-  | { admitted: true; account: string }
+  /** `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then. */
+  | { admitted: true; account: string; expiresAt: number }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -229,6 +230,7 @@ export function machineAccount(options: {
       });
       if (!verdict.accepted) return unauthorized();
       const account = verdict.claims.account;
+      const expiresAt = verdict.claims.exp;
       // One code check at a time, so concurrent wrong codes all count toward the lock.
       const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
         const code = options.codes.current();
@@ -239,10 +241,10 @@ export function machineAccount(options: {
           lock: options.codes.lock(),
           now: options.now(),
         });
-        if (step.kind === "admit") return { admitted: true, account };
+        if (step.kind === "admit") return { admitted: true, account, expiresAt };
         if (step.kind === "refuse")
           return { admitted: false, code: step.reason, message: refusals[step.reason] };
-        if (!code) return { admitted: true, account };
+        if (!code) return { admitted: true, account, expiresAt };
         const correct = await machineCodeMatches(step.code, code.hash);
         // The code changed while it was checked: the device enters the new one.
         if (options.codes.current()?.version !== code.version)
@@ -256,7 +258,7 @@ export function machineAccount(options: {
         if (next.step.kind === "refuse")
           return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
         options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-        return { admitted: true, account };
+        return { admitted: true, account, expiresAt };
       });
       codeChecks = run.catch(() => {});
       return run;

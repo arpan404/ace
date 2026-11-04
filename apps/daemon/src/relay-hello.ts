@@ -11,6 +11,8 @@ export type RelayAdmission =
       stillAdmitted?: () => boolean;
       /** For an account device: the ace account its grant names. */
       account?: string;
+      /** For an account device: when its grant runs out, unless the socket refreshes it. */
+      grantExpiresAt?: number;
       refusal?: undefined;
     }
   | { device?: undefined; refusal?: Extract<ServerMessage, { type: "error" }> };
@@ -70,10 +72,11 @@ export async function accountHello(
       },
     };
   }
-  const { account } = admission;
+  const { account, expiresAt } = admission;
   return {
     device: { id: hello.deviceId },
     account,
+    grantExpiresAt: expiresAt,
     stillAdmitted: () => machine?.stillAdmitted(hello.deviceId, account) === true,
   };
 }

@@ -36,6 +36,8 @@ import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
 import { accountDeviceActor, accountHello } from "./relay-hello.ts";
+import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
+import { GRANT_EXPIRED_CLOSE, GRANT_EXPIRED_REASON } from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
@@ -296,6 +298,18 @@ export async function startServer(options: ServerOptions): Promise<{
     // whichever path its hello came by.
     let accountAdmitted = relayed?.stillAdmitted;
     let accountId = relayed?.account;
+    // An account device's main socket stays open only while it holds an unexpired grant.
+    let grant: AccountGrantSocket | undefined;
+    const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
+      if (expiresAt === undefined || accountId === undefined) return;
+      grant = accountGrantSocket({
+        expiresAt,
+        account: accountId,
+        deviceId,
+        machine: options.machineAccount,
+        now: () => auth.now(),
+      });
+    };
     const stillAdmitted = () => accountAdmitted?.() !== false;
     const authorize = (scope: import("@ace/protocol").DeviceScope) => {
       if (!stillAdmitted()) return false;
@@ -379,6 +393,11 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
+      if (grant?.expired()) {
+        cleanups.get(socket)?.();
+        closer.gracefulClose(socket, GRANT_EXPIRED_CLOSE, GRANT_EXPIRED_REASON);
+        return;
+      }
       if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
@@ -452,12 +471,15 @@ export async function startServer(options: ServerOptions): Promise<{
           actor = accountDeviceActor(message.deviceId, auth.now());
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;
+          // Dedicated channels end with their main connection's access; the main socket refreshes.
+          if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, message.deviceId);
         } else actor = helloActor(message, auth, isLocal);
         if (!actor) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
         if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
+        if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
         peer.access =
@@ -519,6 +541,7 @@ export async function startServer(options: ServerOptions): Promise<{
           hostId,
           protocolVersion: 1,
           headSeq: options.store.headSeq(),
+          ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
         });
         for (const service of sessions) service.welcomed?.();
         return;
@@ -532,6 +555,19 @@ export async function startServer(options: ServerOptions): Promise<{
         case "ping":
           send({ type: "pong" });
           return;
+        case "account.grant.refresh": {
+          const { requestId } = message;
+          const result = grant
+            ? await grant.refresh(message.grant)
+            : ({
+                ok: false,
+                code: "unsupported",
+                message: "No account grant to refresh.",
+              } as const);
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.grant.refresh.result", requestId, result });
+          return;
+        }
         case "command":
           await admitCommand(message.command, {
             options,

@@ -312,6 +312,17 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     commandIds: z.array(CommandId).min(1).max(64),
   }),
   z.object({ type: z.literal("ping") }),
+  /**
+   * A fresh ace account device grant for this socket (ADR 0111, ADR 0114): an account socket
+   * stays open only while it holds an unexpired grant, so the client sends a new one before
+   * `welcome.grantTtlMs` runs out. Checked like the hello's grant; answered with
+   * `account.grant.refresh.result`.
+   */
+  z.object({
+    type: z.literal("account.grant.refresh"),
+    requestId: z.string().min(1).max(128),
+    grant: z.string().min(1).max(2048),
+  }),
 ]);
 export type CoreClientMessage = z.infer<typeof CoreClientMessage>;
 /** The core server messages, in the order the full `ServerMessage` lists them. */
@@ -360,6 +371,12 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     hostId: HostId,
     protocolVersion: z.literal(1),
     headSeq: seq,
+    /**
+     * For an ace account device: how long this socket's grant has left, in milliseconds. The
+     * daemon closes the socket (4014) soon after unless `account.grant.refresh` brings a fresh
+     * one. Absent for other credentials and from daemons that don't enforce it.
+     */
+    grantTtlMs: z.number().int().nonnegative().optional(),
   }),
   z
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })
@@ -451,6 +468,15 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     commands: z.array(z.object({ commandId: CommandId, state: CommandStatusState })),
   }),
   z.object({ type: z.literal("pong") }),
+  /** The answer to `account.grant.refresh`: how long the socket's grant now has, or why not. */
+  z.object({
+    type: z.literal("account.grant.refresh.result"),
+    requestId: z.string(),
+    result: z.discriminatedUnion("ok", [
+      z.object({ ok: z.literal(true), grantTtlMs: z.number().int().nonnegative() }),
+      z.object({ ok: z.literal(false), code: z.string().max(64), message: z.string().max(256) }),
+    ]),
+  }),
 ]);
 export type CoreServerMessage = z.infer<typeof CoreServerMessage>;
 /** `type` of every core client message. */
@@ -465,6 +491,7 @@ export const coreClientTypes: ReadonlySet<string> = new Set([
   "entities.page",
   "command.status",
   "ping",
+  "account.grant.refresh",
 ]);
 /** `type` of every core server message. */
 export const coreServerTypes: ReadonlySet<string> = new Set([
@@ -486,4 +513,5 @@ export const coreServerTypes: ReadonlySet<string> = new Set([
   "entities.page.part",
   "command.status",
   "pong",
+  "account.grant.refresh.result",
 ]);
