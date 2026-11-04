@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import WidgetKit
 
 /// Keeps everything outside the app current: the one agents Live Activity and the widgets'
@@ -21,6 +22,7 @@ import WidgetKit
     static let coalesce: Duration = .milliseconds(300)
     /// An unchanged snapshot is rewritten this often, so the widgets' "as of" time moves on.
     static let snapshotRenewal: TimeInterval = 5 * 60
+    private static let log = Logger(subsystem: "app.ace.ios", category: "lockScreen")
 
     private let edges: Edges
     private let now: () -> Date
@@ -84,6 +86,7 @@ import WidgetKit
         let permitted = allowed && activity.systemAllowed
         var step = AgentsActivityPlan.step(next, running: activity.running, allowed: permitted,
                                            foreground: foreground, quietSince: quietSince, now: at)
+        Self.log.debug("lock screen \(String(describing: step), privacy: .public): \(next.needsYou) need, \(next.working) working, current \(next.current)")
         // "Show on Lock Screen" starts it even while nothing runs; it ends like any quiet one.
         if step == .none, shownByHand, permitted, !activity.running { step = .start }
         shownByHand = false
@@ -92,7 +95,8 @@ import WidgetKit
         switch step {
         case .none: return
         case .start:
-            do { try activity.start(content, staleDate: stale); sent = (content, at) } catch { return }
+            do { try activity.start(content, staleDate: stale); sent = (content, at) }
+            catch { Self.log.error("Live Activity didn't start: \(error.localizedDescription, privacy: .public)") }
         case .update:
             guard AgentsActivityPlan.shouldSend(content, last: sent?.summary, sentAt: sent?.at, now: at) else { return }
             sent = (content, at)

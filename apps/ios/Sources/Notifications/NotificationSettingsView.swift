@@ -139,6 +139,9 @@ struct NotificationHooks: ViewModifier {
             .task(id: inbox.sessions.contains { $0.client.inboxLoaded && !$0.client.inbox.isEmpty && $0.client.connection == "ready" }) {
                 await notifications?.askAfterFirstThread()
             }
+            #if DEBUG
+            .fullScreenCover(isPresented: .constant(LockGallery.requested)) { LockGallery() }
+            #endif
     }
 }
 extension View {
