@@ -12,6 +12,9 @@ import { ViewListPage } from "@/features/shell/index.ts";
 const FleetPage = lazy(() =>
   import("./fleet-page.tsx").then((module) => ({ default: module.FleetPage })),
 );
+const FleetMapPage = lazy(() =>
+  import("./fleet-map-page.tsx").then((module) => ({ default: module.FleetMapPage })),
+);
 const FleetMachinePage = lazy(() =>
   import("./fleet-machine-page.tsx").then((module) => ({ default: module.FleetMachinePage })),
 );
@@ -135,6 +138,21 @@ export function RemoteSettingsScreen() {
       }
     >
       <FleetPage />
+    </Suspense>
+  );
+}
+
+/** Settings › Fleet › Map: the fleet as a network diagram. */
+export function FleetMapScreen() {
+  return (
+    <Suspense
+      fallback={
+        <SettingsBody page="Fleet">
+          <ListSkeleton label="fleet map" shape="row" rows={4} />
+        </SettingsBody>
+      }
+    >
+      <FleetMapPage />
     </Suspense>
   );
 }

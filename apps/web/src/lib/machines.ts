@@ -1,5 +1,6 @@
 import type { MachineIcon } from "@ace/protocol";
 import type { ClientApi, ConnectionState } from "@ace/client";
+import type { MachineEntry } from "@ace/client/machines";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { arrayEqual, useClient, useConnectionState, useSelection } from "@ace/client-react";
 import { useHostIdentity } from "./host-name.ts";
@@ -27,7 +28,22 @@ export interface Machine {
   /** This window's own daemon: the one the rest of the app shows. */
   primary: boolean;
   failed?: boolean;
+  /**
+   * How this window reaches it, from its saved target: straight to an address (LAN, Tailscale),
+   * through a relay, or through ace's relay as an account machine. Undefined for this window's own.
+   */
+  via?: MachineVia | undefined;
 }
+
+export type MachineVia =
+  | { kind: "direct"; url: string }
+  | { kind: "relay"; url: string }
+  | { kind: "account"; url: string };
+
+const viaOf = (target: MachineEntry["target"]): MachineVia =>
+  target.kind === "account"
+    ? { kind: "account", url: target.relayUrl }
+    : { kind: target.kind, url: target.url };
 
 export const primaryMachineId = "primary";
 
@@ -93,6 +109,7 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
             client: reach,
             primary: false,
             failed: !!machine.error,
+            via: viaOf(machine.entry.target),
           },
         ];
       }),

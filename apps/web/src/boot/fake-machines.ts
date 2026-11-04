@@ -34,6 +34,8 @@ export async function fakeMachinePool(
   client: (daemon: FakeDaemon) => Client,
   /** Paired machines that never answer, so the directory shows them offline. */
   away: readonly { hostId: HostId; displayName: string }[] = [],
+  /** Where a machine is dialled, by host id; `ws://<host id>.local:4242` otherwise. */
+  addresses: Readonly<Record<string, string>> = {},
 ): Promise<FakeMachines> {
   const failures = new Map<string, Set<(error: ClientError) => void>>();
   const secrets = new Map<string, string>();
@@ -82,7 +84,10 @@ export async function fakeMachinePool(
         ...("icon" in daemon && daemon.icon ? { icon: daemon.icon } : {}),
         version: "0.0.0-fake",
       },
-      target: { kind: "direct", url: `ws://${daemon.hostId}.local:4242` },
+      target: {
+        kind: "direct",
+        url: addresses[daemon.hostId] ?? `ws://${daemon.hostId}.local:4242`,
+      },
       deviceId: "web-fake-device",
       token,
     });

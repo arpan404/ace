@@ -14,6 +14,7 @@ import { FleetMachines } from "./fleet-machines.tsx";
 import { MoreOptions } from "./fleet-more.tsx";
 import { ReachRows } from "./fleet-reach.tsx";
 import { FleetSoftware } from "./fleet-software.tsx";
+import { FleetTabs } from "./fleet-tabs.tsx";
 import { WorkingAcrossMachines } from "./fleet-working.tsx";
 import { PairDevice } from "./pair-device.tsx";
 import { SettingsBody } from "./settings-body.tsx";
@@ -56,6 +57,7 @@ export function FleetPage() {
   return (
     <SettingsBody
       page="Fleet"
+      tabs={<FleetTabs />}
       lede={fleetLede({
         machines: count,
         devices: fleet.joined.length,

@@ -297,6 +297,8 @@ export function bootFake(): {
         storage: memoryStorage(),
       }),
     away,
+    // The build server is reached over the tailnet, as the Fleet map draws it.
+    { "build-server": "ws://100.64.0.7:4242" },
   ).then((fake) => fake.pool);
   return {
     client,

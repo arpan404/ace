@@ -14,6 +14,7 @@ const idle = () => () => {};
 /**
  * A machine page's one action, when it has one: Unlock for an account machine that asks for its
  * machine code (the prompt then opens under the title), Reconnect for one that's offline.
+ * `unlock` starts the same as the button, for a caller drawing its own.
  */
 export function useMachineAction(machine: Machine) {
   const pool = useMachinePool();
@@ -61,5 +62,5 @@ export function useMachineAction(machine: Machine) {
         {problem}
       </p>
     ) : null;
-  return { button, prompt };
+  return { button, prompt, unlock, canUnlock: connector !== undefined && !connection };
 }

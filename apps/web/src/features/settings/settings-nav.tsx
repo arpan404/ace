@@ -10,7 +10,7 @@ import {
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { pageTitle, searchSettings } from "./settings-index.ts";
+import { entryRoute, pageTitle, searchSettings } from "./settings-index.ts";
 import {
   settingsGroupTitles,
   settingsPageOf,
@@ -110,7 +110,7 @@ export function SettingsNav() {
             {found.map((entry) => (
               <li key={entry.id}>
                 <Link
-                  to={entry.page}
+                  to={entryRoute(entry)}
                   hash={entry.id}
                   {...panelRow("h-auto flex-col items-start gap-0 py-1.5")}
                 >

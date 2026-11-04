@@ -103,14 +103,17 @@ export function MachineDevices(props: { machine: Machine; fleet: Fleet }) {
 }
 
 /**
- * Take a machine out of the fleet: unlink it from every machine both ways, then forget it here.
- * Its threads stay on it; it can be added again with a fresh pairing link.
+ * Taking a machine out of the fleet: asks first, unlinks it from every machine both ways that
+ * can be reached, then forgets it here. Its threads stay on it; it can be added again with a
+ * fresh pairing link. `ask` opens the question; render `dialog` beside the button.
  */
-export function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
-  const { machine, fleet } = props;
+export function useRemoveMachine(
+  machine: Machine,
+  fleet: Fleet,
+  options: { onRemoved?: () => void } = {},
+) {
   const pool = useMachinePool();
   const toast = useToast();
-  const navigate = useNavigate();
   const [confirming, setConfirming] = useState<Confirming>();
   const remove = useMutation({
     mutationFn: async () => {
@@ -131,9 +134,29 @@ export function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
           ? {}
           : { description: "Some links couldn't be undone while a machine was offline." }),
       });
-      void navigate({ to: "/settings/remote" });
+      options.onRemoved?.();
     },
     onError: (error) => toast.error({ title: "Couldn't remove it", description: error.message }),
+  });
+  return {
+    pending: remove.isPending,
+    ask: () =>
+      setConfirming({
+        title: `Remove ${machine.name} from the fleet?`,
+        body: "Agents stop using it and it stops using the others. Add it again with a fresh pairing link.",
+        confirm: "Remove",
+        run: () => remove.mutate(),
+      }),
+    dialog: <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />,
+  };
+}
+
+/** The machine page's Remove row. */
+export function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
+  const { machine, fleet } = props;
+  const navigate = useNavigate();
+  const remove = useRemoveMachine(machine, fleet, {
+    onRemoved: () => void navigate({ to: "/settings/remote" }),
   });
   return (
     <section id="remove" aria-label="Remove" className="mt-8">
@@ -142,24 +165,13 @@ export function RemoveMachine(props: { machine: Machine; fleet: Fleet }) {
           title={`Remove ${machine.name} from your fleet`}
           sub={`Its links end and this window forgets it. ${machine.name} keeps its threads.`}
           actions={
-            <RowAction
-              tone="danger"
-              disabled={remove.isPending}
-              onClick={() =>
-                setConfirming({
-                  title: `Remove ${machine.name} from the fleet?`,
-                  body: "Agents stop using it and it stops using the others. Add it again with a fresh pairing link.",
-                  confirm: "Remove",
-                  run: () => remove.mutate(),
-                })
-              }
-            >
+            <RowAction tone="danger" disabled={remove.pending} onClick={remove.ask}>
               Remove
             </RowAction>
           }
         />
       </HairlineList>
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+      {remove.dialog}
     </section>
   );
 }
