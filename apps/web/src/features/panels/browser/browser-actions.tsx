@@ -13,7 +13,6 @@ import {
   FileCodeIcon,
   GearSixIcon,
   EyeIcon,
-  GlobeIcon,
   MagnifyingGlassIcon,
   PrinterIcon,
   PuzzlePieceIcon,
@@ -31,8 +30,6 @@ import {
   MenuCheckboxItem,
   MenuContent,
   MenuItem,
-  MenuRadioGroup,
-  MenuRadioItem,
   MenuSeparator,
   MenuSub,
   MenuSubTrigger,
@@ -52,6 +49,7 @@ import type { PageTools } from "./use-page-tools.ts";
 import { ZoomRow } from "./zoom-controls.tsx";
 import { AskAgentItem } from "./ask-agent-item.tsx";
 import { LatencyItem } from "./latency-item.tsx";
+import { EngineMenu } from "./engine-menu.tsx";
 
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
@@ -144,8 +142,6 @@ export function BrowserActions(props: {
   const pageTool = usable && actions.available;
   // The in-app browser lives in the desktop app only; elsewhere there is nothing to pick.
   const desktop = desktopBrowserViews() !== undefined;
-  // The group stays controlled (nothing checked) before the thread has a browser.
-  const picked = props.engine === "embedded" || props.engine === "headless" ? props.engine : "";
   return (
     <Menu>
       <MenuTrigger
@@ -256,26 +252,7 @@ export function BrowserActions(props: {
           {recording ? "Stop recording" : "Record the page"}
         </MenuItem>
         {desktop && (
-          <MenuSub>
-            <MenuSubTrigger icon={icon(GlobeIcon)} disabled={!props.online}>
-              Engine
-            </MenuSubTrigger>
-            <MenuContent side="inline-start" align="start" sideOffset={4}>
-              <MenuRadioGroup
-                value={picked}
-                onValueChange={(next: unknown) => {
-                  if (next === "embedded" || next === "headless") props.onEngine(next);
-                }}
-              >
-                <MenuRadioItem value="embedded" disabled={!props.online}>
-                  In-app browser
-                </MenuRadioItem>
-                <MenuRadioItem value="headless" disabled={!props.online}>
-                  ace&apos;s Chrome
-                </MenuRadioItem>
-              </MenuRadioGroup>
-            </MenuContent>
-          </MenuSub>
+          <EngineMenu engine={props.engine} online={props.online} onEngine={props.onEngine} />
         )}
         <MenuItem
           icon={icon(CopyIcon)}
