@@ -17,7 +17,9 @@ export function workspaceRepository(
     return repositoryFromRemote(
       remote,
       preferences
-        ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
+        ? Object.fromEntries(
+            preferences.hosts.map((entry) => [entry.host, entry.forge ?? "github"]),
+          )
         : {},
       aliases,
     );

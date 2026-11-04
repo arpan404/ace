@@ -7,7 +7,7 @@ import { z } from "zod";
 export const maxForgeTextLength = 65_536;
 const text = z.string().max(maxForgeTextLength);
 export const ForgeRepository = z.object({
-  forge: z.enum(["github", "gitlab"]),
+  forge: z.enum(["github", "gitlab", "gitbucket", "bitbucket", "gitea", "forgejo"]),
   host: z
     .string()
     .regex(/^[a-zA-Z0-9.-]+$/)

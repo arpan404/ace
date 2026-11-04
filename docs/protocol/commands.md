@@ -601,7 +601,7 @@ Example:
     "ref": {
       "number": 6,
       "repository": {
-        "forge": "gitlab",
+        "forge": "gitea",
         "host": "zwPcUs7r",
         "name": "V7cUBOKV",
         "owner": "b3K/KvXtPc7wv/8OATux/7OHynRD/a1_qTqNF/Nws8U/HP9YHAM/7IuyDVHSjXi/eZwpZsb_/sdtUs2-._Cf/LJ_hESf"
@@ -633,7 +633,7 @@ Example:
   "pr": {
     "number": 6,
     "repository": {
-      "forge": "gitlab",
+      "forge": "bitbucket",
       "host": "43T.O9",
       "name": "B8",
       "owner": "ulx/5P/tNhHqke"
@@ -667,7 +667,7 @@ Example:
   "pr": {
     "number": 8,
     "repository": {
-      "forge": "gitlab",
+      "forge": "forgejo",
       "host": "hKxvtJtk",
       "name": "B",
       "owner": "PKJBD/GQ89CDbuhN/Dsh4AFCGwg"
@@ -700,7 +700,7 @@ Example:
   "pr": {
     "number": 4,
     "repository": {
-      "forge": "gitlab",
+      "forge": "bitbucket",
       "host": "MfAsmn",
       "name": "HC4j",
       "owner": "nx-6hzx/wE0jSlYoi/rLngg4"
@@ -731,7 +731,7 @@ Example:
   "pr": {
     "number": 2,
     "repository": {
-      "forge": "gitlab",
+      "forge": "gitea",
       "host": "GQ6F.ykU",
       "name": "J5WI.G",
       "owner": "SLVs/B71n/rwIz6H0Vz/9I/93Ac9by/gRBoUe4eJp2/rgtXhU/-j/TgACA/xBDNaG4wSPm"
@@ -764,7 +764,7 @@ Example:
   "pr": {
     "number": 7,
     "repository": {
-      "forge": "gitlab",
+      "forge": "forgejo",
       "host": "bj3IgT2Qwxq",
       "name": "AVF6.7x",
       "owner": "u6/eavJbO/F5MANEhUe/576aOAmmM"
@@ -804,7 +804,7 @@ Example:
     "owner": "Ih7CnnyPz"
   },
   "repository": {
-    "forge": "github",
+    "forge": "gitbucket",
     "host": "ESby",
     "name": "EhfVC",
     "owner": "SY2kwq4nO/MD-l/Zdo8yM.qe"
@@ -1329,7 +1329,7 @@ Example:
     "pr": {
       "number": 7,
       "repository": {
-        "forge": "github",
+        "forge": "gitbucket",
         "host": "HtND",
         "name": "Q6j5ysXYzod",
         "owner": "h_Y6i8uK1Vj/2Xs5FI-zHFW/G/6B/H/enrFF6NzY/Os0077/M6uxl__RKS"
@@ -1357,7 +1357,7 @@ Example:
     "pr": {
       "number": 1,
       "repository": {
-        "forge": "gitlab",
+        "forge": "bitbucket",
         "host": "cYJHbES",
         "name": "nTK4GFtAhk",
         "owner": "-0MWM7Xl/9K/k/O9Eix0eqS/xe/V/LfT.YN6Jv/hPpzIE.8z/RWMrCOxP.n/e-R"
@@ -1421,7 +1421,7 @@ Example:
     "pr": {
       "number": 1,
       "repository": {
-        "forge": "github",
+        "forge": "gitlab",
         "host": "743n",
         "name": "cPS8lYpbPp",
         "owner": "BJfNY/zxO/4_oZJGthbcE/y-/EYWSe7Tv/ydI/3_sfgSMK"
@@ -1502,7 +1502,7 @@ Example:
     "pr": {
       "number": 1,
       "repository": {
-        "forge": "gitlab",
+        "forge": "gitea",
         "host": "tll-lPJFi",
         "name": "8SM",
         "owner": "A73t.dE/oo9tlt/yslwkuE.P/jQ"
@@ -1540,7 +1540,7 @@ Example:
     "pr": {
       "number": 7,
       "repository": {
-        "forge": "gitlab",
+        "forge": "bitbucket",
         "host": "YSo7ft2",
         "name": "fwBE",
         "owner": "d9WF1n-"
@@ -1571,7 +1571,7 @@ Example:
     "pr": {
       "number": 7,
       "repository": {
-        "forge": "gitlab",
+        "forge": "bitbucket",
         "host": "mrEQKN",
         "name": "T0zmv",
         "owner": "4XMCv/32GjWEVs5/yuVcVpLg/yr/vN-/xQ/aJ0VefVuPN/0U"
@@ -1602,7 +1602,7 @@ Example:
     "number": 4
   },
   "repository": {
-    "forge": "github",
+    "forge": "gitbucket",
     "host": "RYIN",
     "name": "YZBf20y",
     "owner": "qU8U7Y/R1Zw9OR/a/LzphkRn0/6CnUx8L/jk9a/d/-p64l_KBRvr/PNVX/vN87MH/ul4de3Go"
@@ -1627,7 +1627,7 @@ Example:
 {
   "actionId": "example",
   "repository": {
-    "forge": "gitlab",
+    "forge": "forgejo",
     "host": "opyXXsYW58X",
     "name": "a4",
     "owner": "U96/H.do2x2wD9/5rglLpzmr/TU0PK.KvBsW/mM3sM/KLX5yJxsQ/jeGOQcw/GKGs/0yQE8n/QaiG1az/PfTuk8"
@@ -1652,7 +1652,7 @@ Example:
   "issue": {
     "number": 3,
     "repository": {
-      "forge": "gitlab",
+      "forge": "gitea",
       "host": "TWBUR9g0",
       "name": "oT",
       "owner": "qgXS344Rv4/KhWxyv/0qwPxuvTtsv/MjT_dLLl7JW"
@@ -2280,7 +2280,7 @@ Example:
     "revertPr": {
       "number": 9,
       "repository": {
-        "forge": "github",
+        "forge": "gitlab",
         "host": "W7pS",
         "name": "xCrYQv1dBgA",
         "owner": "CDPM-uaWB/L1e/pm-zJhzicz/j2zdQ/5nlwW/xKNaH2AG"
@@ -2311,7 +2311,7 @@ Example:
     "ref": {
       "number": 1,
       "repository": {
-        "forge": "gitlab",
+        "forge": "forgejo",
         "host": "VkqAZFay",
         "name": "_z_10I2ce",
         "owner": "Cm6DwSyJH/6c/sz-/GHd/h/ldUx/URfvVbDHfYx/D88dG0s1g/_LUcEYyoXf4/-Iq/Xh0t_H"
@@ -2340,7 +2340,7 @@ Example:
       "fork": false,
       "id": 9,
       "repository": {
-        "forge": "gitlab",
+        "forge": "gitea",
         "host": "Dv",
         "name": "eu",
         "owner": "-/u/L7t0oO/PR/YOv/WW1tm/llDHy"

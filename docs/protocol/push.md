@@ -1279,7 +1279,7 @@ Example:
         "pr": {
           "number": 8,
           "repository": {
-            "forge": "gitlab",
+            "forge": "forgejo",
             "host": "M4r6s",
             "name": "N.hPXs",
             "owner": "XBP1/-h/c/VO_"
@@ -3447,7 +3447,7 @@ Example:
           "contextTruncated": false,
           "headBranch": "example",
           "headRepository": {
-            "forge": "gitlab",
+            "forge": "bitbucket",
             "host": "obNsr2",
             "name": "h",
             "owner": "Uh_zqP/yn4wJf/EA/VzHy.YQ_/4XAZ8hUi/b/ZCs_BYvD"
@@ -3456,7 +3456,7 @@ Example:
           "ref": {
             "number": 5,
             "repository": {
-              "forge": "gitlab",
+              "forge": "bitbucket",
               "host": "WC2ISl",
               "name": "zFQu4k",
               "owner": "SLLT3/D8O/Z5ii_fm_/Venu/Lo-Qe/S/hZgzivOZk/2WIx5vt"
@@ -3677,7 +3677,7 @@ Example:
   "pr": {
     "number": 8,
     "repository": {
-      "forge": "gitlab",
+      "forge": "forgejo",
       "host": "ueb",
       "name": "rwi7MeEWPo",
       "owner": "hf-naCim.RD/r6wcBWPcN9/JcQn5zArB/OR/oG/bIq/ZOD/Qi_/P6Ny"
@@ -3702,7 +3702,7 @@ Example:
       "fork": true,
       "id": 9,
       "repository": {
-        "forge": "gitlab",
+        "forge": "forgejo",
         "host": "ObU1h8aWz",
         "name": "kK",
         "owner": "GuThyiWGE/.mSm4Wym/v/EMIrcilN5g/Z8Pf/Xfua3.Vxqr/h/djGIfqFZZW"
