@@ -58,3 +58,39 @@ test.each([
     }
   },
 );
+
+test.each([
+  {
+    name: "a process exit",
+    error: { kind: "process_exit", message: "Exit 7" },
+    expected: "provider_failed",
+  },
+  {
+    name: "an auth error",
+    error: { kind: "auth", message: "Signed out" },
+    expected: "provider_failed",
+  },
+  {
+    name: "a provider error code",
+    error: { kind: "provider", code: "overloaded", message: "Overloaded" },
+    expected: "provider_failed",
+  },
+  {
+    name: "a vague provider error",
+    error: { kind: "provider", message: "Stopped" },
+    expected: "usage_limited",
+  },
+  { name: "no error", error: undefined, expected: "usage_limited" },
+] as const)(
+  "with a fresh reading of a used-up account, $name reads as $expected",
+  ({ error, expected }) => {
+    const agent: AgentStatus | undefined = error
+      ? { state: "failed", error: { ...error } }
+      : undefined;
+    const result = failureResult({ status: { state: "failed" } }, agent, {
+      accountId: "account-a",
+      usageLimited: true,
+    });
+    expect(result?.code).toBe(expected);
+  },
+);

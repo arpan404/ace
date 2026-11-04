@@ -6,7 +6,12 @@ import { standing } from "../liveness/standing.ts";
 import { REMOTE_STOP, type StopPlan } from "../liveness/stop.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
-import { unconfirmableView, unconfirmedView, type Unconfirmable } from "./child-views.ts";
+import {
+  outcomeOf,
+  unconfirmableView,
+  unconfirmedView,
+  type Unconfirmable,
+} from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
 import { refusedNotFound } from "./transport.ts";
 
@@ -276,7 +281,9 @@ export class ChildLiveness {
         outcome: ended
           ? {
               threadId: row.id,
-              outcome: "cancelled",
+              // How it ended there: a stop confirmed late may have finished or failed first.
+              outcome: outcomeOf(ended.state),
+              ...(ended.failure ? { failure: ended.failure } : {}),
               result: ended.result ?? "",
               truncated: false,
               before: null,

@@ -17,6 +17,9 @@ const rateCodes = new Set([
   "rateLimitExceeded",
 ]);
 
+/** Error kinds that say nothing about why the turn stopped. */
+const vagueKinds = new Set(["provider", "unknown"]);
+
 /** Only canonical provider evidence counts; assistant prose never classifies a limit. */
 export function failureResult(
   thread: Pick<Thread, "status" | "queue">,
@@ -27,10 +30,15 @@ export function failureResult(
   const codes = [error?.code, error?.details?.code, error?.kind].filter(
     (code): code is string => typeof code === "string",
   );
+  // The provider named what went wrong (a process exit, an auth error, a code): that is the
+  // reason, even when the account's latest reading also shows it used up.
+  const named =
+    [error?.code, error?.details?.code].some((code) => typeof code === "string") ||
+    (error?.kind !== undefined && !vagueKinds.has(error.kind));
   // A thread reads limited only once its turn ended on a quota error (see core's endTurn).
   const usage =
     thread.status.state === "limited" ||
-    (thread.status.state === "failed" && account.usageLimited === true) ||
+    (thread.status.state === "failed" && account.usageLimited === true && !named) ||
     codes.some((code) => usageCodes.has(code));
   const rate = !usage && codes.some((code) => rateCodes.has(code));
   if (!usage && !rate && thread.status.state !== "failed") return undefined;

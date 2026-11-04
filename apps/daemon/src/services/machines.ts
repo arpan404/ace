@@ -311,8 +311,16 @@ export function startMachines(context: ServiceContext): void {
           },
         });
         if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
+        // Moving it ahead is best effort: failing it never undoes the delivered result.
         if (delivery === "queue")
-          engine()?.prioritizeSubagentResult(parentThreadId, result.commandId);
+          try {
+            engine()?.prioritizeSubagentResult(parentThreadId, result.commandId);
+          } catch (error) {
+            record("warn")("Remote child result not moved ahead of the queue", {
+              id,
+              error: String(error),
+            });
+          }
       });
     },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,
