@@ -83,11 +83,11 @@ struct ThreadMenuPanel: View {
     let thread: ThreadModel
     var title = ""
     let archived: Bool
-    let hasActivity: Bool
-    let activityRow: () -> ThreadRow?
     let open: (ThreadDestination) -> Void
-    let problem: (String) -> Void
     let leave: () -> Void
+    /// The thread's pages on a phone, which hold its screens; nil beside the iPad's side panel,
+    /// where the screens open as its tabs from the grid.
+    var pages: ThreadPages? = nil
     @Environment(\.threadOrganizer) private var organizer
     @Environment(\.dismiss) private var dismiss
     private var row: ThreadRow? { model.inbox[thread.id] }
@@ -110,9 +110,12 @@ struct ThreadMenuPanel: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            MenuScreenGrid(open: open, dismiss: dismiss)
-                .padding(.bottom, AceDesign.Space.related)
-            Divider()
+            // On a phone the screens are the thread's pages, in the row under its title.
+            if pages == nil {
+                MenuScreenGrid(open: open, dismiss: dismiss)
+                    .padding(.bottom, AceDesign.Space.related)
+                Divider()
+            }
             Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
                 .accessibilityIdentifier("thread.options.conversation")
                 .menuIndicator(.hidden)
@@ -184,7 +187,14 @@ struct ThreadMenuPanel: View {
 
     /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
     @ViewBuilder private var tools: some View {
-        MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
+        if let pages {
+            // A browser the agent hasn't opened yet: the one way to its page.
+            if !pages.kinds.contains(.browser) {
+                MenuRow(title: "Open browser", icon: .compass, identifier: "thread.browser") { open(.browser); dismiss() }
+            }
+        } else {
+            MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
+        }
         MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }
         Divider()
         MenuRow(title: "Reload from machine", icon: .arrowClockwise, identifier: "thread.reload") {
@@ -216,7 +226,8 @@ struct ThreadMenuPanel: View {
         .accessibilityIdentifier("thread.openIn")
     }
 
-    /// Continue on, Lock Screen, and the organize fallbacks when no row is held.
+    /// Continue on, and the organize fallbacks when no row is held. (The Lock Screen shows every
+    /// agent in one Live Activity, so a thread has no item of its own for it.)
     @ViewBuilder private var system: some View {
         if model.canOperate, model.transfers.linked, !archived {
             let ready = model.transfers.thread(thread.id)?.canContinue == true
@@ -239,14 +250,6 @@ struct ThreadMenuPanel: View {
             .accessibilityIdentifier("thread.continueOn")
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: AceDesign.Size.tap)
-        }
-        if hasActivity, let hostId = model.hostId {
-            MenuRow(title: "Show on Lock Screen", icon: .squaresFour) {
-                guard let activityRow = activityRow() else { return }
-                do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
-                catch { problem(error.localizedDescription) }
-                dismiss()
-            }
         }
         if organizer == nil || row == nil {
             if model.canOperate, !model.inboxLayout.snooze.isEmpty {

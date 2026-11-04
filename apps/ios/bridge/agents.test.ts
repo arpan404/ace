@@ -258,5 +258,95 @@ describe("Agents sheet", () => {
     const asker = sheet(sink).rows.find((row) => row.name === "Asker");
     expect(asker?.needsYou).toBe(true);
     expect(sheet(sink).rows).toHaveLength(10);
+    // The main agent waits on that question: its icon says a question, not an approval.
+    expect(sheet(sink).rows[0]?.icon).toMatchObject({ kind: "question", tone: "needs-you" });
+    expect(asker?.icon.kind).toBe("question");
+  });
+
+  test("the tree's sentence waits on its agents and says who needs the person, never finished early", async () => {
+    const { daemon, store } = await opened("sentence", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "asker", "Review insets", "spawn-asker"),
+      facts.turn("asker", "spawn"),
+      facts.subagent("codex", "writer", "Write the test", "spawn-writer"),
+      facts.turn("writer", "spawn"),
+      {
+        type: "interaction.opened",
+        agent: "asker",
+        interaction: "run",
+        blocking: true,
+        request: {
+          kind: "approval",
+          title: "Run bun test?",
+          options: [
+            { id: "allow", label: "Allow", kind: "allow_once" },
+            { id: "deny", label: "Deny", kind: "deny" },
+          ],
+        },
+      },
+      facts.endTurn("root"),
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "sentence", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 3, "three agents");
+    expect(sheet(sink).summary).toEqual({
+      text: "Waiting on 2 agents. One needs you.",
+      token: "needsYou",
+    });
+    const asker = sheet(sink).rows.find((row) => row.name === "Review insets");
+    expect(asker?.requests).toEqual([...store.interactionIds()]);
+    expect(asker?.requests).toHaveLength(1);
+    expect(asker?.icon).toMatchObject({ kind: "approve", tone: "needs-you" });
+    // The root ended its own turn, but waits on two subagents: its ring counts them.
+    expect(sheet(sink).rows[0]?.icon).toMatchObject({ kind: "approve", tone: "needs-you" });
+    daemon.apply("sentence", [
+      {
+        type: "interaction.closed",
+        interaction: "run",
+        state: "resolved",
+        resolution: { kind: "approval", optionId: "allow" },
+      },
+      facts.endTurn("asker"),
+    ]);
+    await until(() => sheet(sink).summary.text === "Waiting on 1 agent", "one left");
+    expect(sheet(sink).rows[0]?.icon).toEqual({ kind: "agents", tone: "waiting", count: 1 });
+    expect(sheet(sink).rows.find((row) => row.name === "Write the test")?.icon.kind).toBe(
+      "working",
+    );
+    daemon.apply("sentence", [facts.endTurn("writer")]);
+    await until(() => sheet(sink).summary.token === "done", "all finished");
+    expect(sheet(sink).summary.text).toBe("All agents finished");
+    expect(sheet(sink).rows.every((row) => row.icon.kind === "done")).toBe(true);
+  });
+
+  test("a failed or usage-limited subagent says why on its own line", async () => {
+    const { store } = await opened("reasons", [
+      facts.rootAgent("codex"),
+      facts.turn("root"),
+      facts.subagent("codex", "broken", "Check parity", "spawn-broken"),
+      facts.turn("broken", "spawn"),
+      facts.endTurn("broken", "failed", { kind: "provider", message: "stream closed" }),
+      facts.subagent("codex", "held", "Boot the simulator", "spawn-held"),
+      facts.turn("held", "spawn"),
+      {
+        type: "retry",
+        agent: "held",
+        on: "rate_limit",
+        until: Date.UTC(2026, 10, 4, 21, 23),
+        message: "Resets soon",
+      },
+    ]);
+    const sink = new RecordingSink();
+    followAgents(store, "reasons", 1, sink, plainPreview);
+    await until(() => sheet(sink).rows.length === 3, "three agents");
+    const broken = sheet(sink).rows.find((row) => row.name === "Check parity");
+    expect(broken).toMatchObject({ reason: "stream closed", provider: "codex" });
+    expect(broken?.icon.kind).toBe("failed");
+    const held = sheet(sink).rows.find((row) => row.name === "Boot the simulator");
+    expect(held?.icon).toMatchObject({ kind: "limited", tone: "muted" });
+    expect(held?.reason).toMatch(/^out of usage until \d{1,2}:23/);
+    // One subagent is still held at its limit, so the tree is not finished.
+    expect(sheet(sink).summary.token).not.toBe("done");
   });
 });

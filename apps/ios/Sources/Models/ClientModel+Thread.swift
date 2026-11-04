@@ -9,7 +9,14 @@ extension ClientModel {
     func sendMessage(_ text: String, alternate: Bool, reply: QuestionReply? = nil, references: [Any] = []) async -> Bool {
         guard canOperate, let thread else { return false }
         // Words, files or both; the bridge checks again with the shared rule.
-        guard !thread.screen.attachments.isEmpty || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        let words = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard !thread.screen.attachments.isEmpty || !thread.screen.annotations.isEmpty || sheets.chip != nil || words else { return false }
+        // Line comments on the chip go first, as the review's own message quoting file:line; the
+        // words then steer into that turn or queue behind it.
+        if sheets.chip != nil, thread.screen.controls?.continues != true {
+            guard await sendComments() else { return false }
+            if !words, thread.screen.attachments.isEmpty, thread.screen.annotations.isEmpty { return true }
+        }
         let id = admissions.nextId()
         // A message that starts a new thread keeps its words and files until the daemon has
         // started it: a refusal leaves the draft as it was, with the refusal's words.

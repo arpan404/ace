@@ -608,3 +608,13 @@ extension AceDesign.Motion {
     /// A press answers at once.
     static let press = Animation.easeOut(duration: 0.1)
 }
+
+/// Drawing on the live page: the finger's accent ink, how long it stays once the finger lifts
+/// (the page's numbered marker takes over), and how long it takes to fade.
+extension AceDesign.Size {
+    static let inkStroke: CGFloat = 3
+}
+extension AceDesign.Motion {
+    static let inkHold: Double = 0.6
+    static let inkFade: Double = 0.25
+}

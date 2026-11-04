@@ -5,6 +5,9 @@ import SwiftUI
 /// model sheet. Every check (size, what the agent can read, which levels exist) is the bridge's;
 /// this view draws what the bridge says.
 struct ComposerAccessories: View {
+    /// Where the field's words start in the glass block: + (a full tap with its inset), then the
+    /// row's and the field's insets.
+    static let fieldEdge = AceDesign.Space.tight * 3 + AceDesign.Size.tap
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
     let problem: String?
@@ -15,10 +18,14 @@ struct ComposerAccessories: View {
         return note
     }
     var body: some View {
-        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || model.sheets.chip != nil || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if let chip = model.sheets.chip {
+                    CommentChip(chip: chip) { model.clearComments() }
+                        .transition(.opacity)
                 }
                 if !screen.annotations.isEmpty {
                     AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })
@@ -37,7 +44,9 @@ struct ComposerAccessories: View {
                 }
                 ServiceProblem(message: problem)
             }
-            .padding(.horizontal, AceDesign.Space.related).padding(.top, AceDesign.Space.related)
+            // One edge with the field's words: past +, its inset and the field's own.
+            .padding(.leading, Self.fieldEdge).padding(.trailing, AceDesign.Space.related)
+            .padding(.top, AceDesign.Space.related)
         }
     }
 }

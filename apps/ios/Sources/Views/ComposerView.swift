@@ -24,6 +24,9 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     @State private var dropping = false
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    /// Chips on the next message (line comments, drawings): with any, the message can go without
+    /// words, and the composer keeps its one-row shape with the chips above the field.
+    var chips = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
     /// The `@` and `/` lists, and the + list's builtins; nil offers none.
@@ -57,10 +60,11 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
-    private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var words: Bool { !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var empty: Bool { files == 0 && chips == 0 && !words }
     private var card: Bool { ComposerFit.card(focused: focused, wraps: wraps) }
-    /// Big: the web's layout, with the controls row under the message.
-    private var big: Bool { card || !empty }
+    /// Big: the web's layout, with the controls row under the message. Chips alone don't make it.
+    private var big: Bool { card || files > 0 || words }
     private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
     @Environment(\.inGlassBlock) private var inBlock
     var body: some View {
@@ -237,7 +241,7 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         let suggester = suggester
         let draft = draft
         Task {
-            await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in
+            await draft.submit(delivery: alternate ? "alternate" : "follow", files: files + chips) { text, delivery in
                 let saved = await send(text, delivery == "alternate", draft.picks.payload)
                 if saved { suggester?.sent() }
                 return saved
