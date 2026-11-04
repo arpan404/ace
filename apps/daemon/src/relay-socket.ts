@@ -16,6 +16,8 @@ export interface RelayedMain {
   stillAdmitted?: (() => boolean) | undefined;
   /** For an account device: the ace account its grant names. */
   account?: string | undefined;
+  /** For an account device: when its grant runs out, unless the channel refreshes it. */
+  grantExpiresAt?: number | undefined;
   /** The hello asked for deflated bulk JSON (`compression: ["deflate-raw"]`). */
   deflate: boolean;
 }

@@ -131,10 +131,11 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
             }
         }
     }
-    private func finish(_ code: Int) {
+    private func finish(_ code: Int, reason: String = "") {
         guard !ended else { return }
         ended = true
-        event("close", .text(String(code)))
+        // "<code> <reason>": the reason tells the owner's revocation ("Device revoked") from any other 4003.
+        event("close", .text(reason.isEmpty ? String(code) : "\(code) \(reason)"))
         task?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         task = nil
@@ -147,7 +148,7 @@ final class PinnedSocket: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         receive()
     }
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        finish(closeCode.rawValue)
+        finish(closeCode.rawValue, reason: reason.flatMap { String(data: $0, encoding: .utf8) } ?? "")
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         if error != nil { finish(1006) }

@@ -33,7 +33,13 @@ export {
   useSidebarThread,
 } from "./sidebar.ts";
 export type { SidebarKey } from "./sidebar.ts";
-export { useConnectionState, useIntent, useIntentSender, usePendingSends } from "./intents.ts";
+export {
+  useConnectionGeneration,
+  useConnectionState,
+  useIntent,
+  useIntentSender,
+  usePendingSends,
+} from "./intents.ts";
 export {
   transferStore,
   useProjectTransfer,

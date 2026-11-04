@@ -1,4 +1,5 @@
 import {
+  isPathKind,
   attachmentReadScope,
   fitsUtf8,
   matchesPendingThread,
@@ -43,6 +44,7 @@ import {
   type ThreadExport,
   type ThreadSource,
 } from "@ace/client";
+import type { MachinePathKind } from "@ace/protocol";
 import type {
   TurnsPageResponse,
   ItemsWindowResponse,
@@ -172,6 +174,8 @@ export class RemoteClient implements ClientApi {
   private options: RemoteOptions;
   private notifications: Notifications;
   private current: ConnectionState = "connecting";
+  private path: MachinePathKind | undefined;
+  private generation: number | undefined;
   private failure: ClientError | undefined;
   private intents: IntentCache;
   private sends: SendCache;
@@ -237,6 +241,14 @@ export class RemoteClient implements ClientApi {
   }
   connectionState(): Selection<ConnectionState> {
     return this.notifications.select(["connection"], () => this.current);
+  }
+  connectionGeneration(): Selection<number | undefined> {
+    return this.notifications.select(["connection"], () =>
+      this.current === "ready" ? this.generation : undefined,
+    );
+  }
+  activePath(): Selection<MachinePathKind | undefined> {
+    return this.notifications.select(["connection"], () => this.path);
   }
   intent(id: string): Selection<Intent | undefined> {
     const read = () => this.intents.get(id)?.value;
@@ -958,6 +970,11 @@ export class RemoteClient implements ClientApi {
       case "connection":
         if (!isState(message.state)) return;
         this.current = message.state;
+        this.path = isPathKind(message.path) ? message.path : undefined;
+        // An older worker names no socket: count each time it says ready instead.
+        this.generation =
+          message.generation ??
+          (message.state === "ready" ? (this.generation ?? 0) + 1 : this.generation);
         this.failure = message.error && toError(message.error);
         this.notifications.emit(["connection"]);
         return;

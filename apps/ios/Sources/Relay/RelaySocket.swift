@@ -124,6 +124,12 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
               let code = value["code"] as? Int, (1000...4999).contains(code) else { return nil }
         return code
     }
+    /** The reason a `channel.close` gives, so the owner's revocation ("Device revoked") is told from any other 4003. */
+    static func channelCloseReason(_ text: String) -> String {
+        guard let value = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
+              let reason = value["reason"] as? String else { return "" }
+        return reason
+    }
 
     private func write(_ frame: Data) {
         task?.send(.data(frame)) { [weak self] error in
@@ -166,7 +172,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 case .text(let text):
                     // The relay has no close frame: the daemon's last message carries the code a
                     // direct socket's close would (4003 revoked, 4008 idle, resync), and it ends here.
-                    if let code = Self.channelClose(text) { finish(code); return false }
+                    if let code = Self.channelClose(text) { finish(code, reason: Self.channelCloseReason(text)); return false }
                     event("message", .text(text))
                 case .binary(let data): return deliver(data)
                 }
@@ -193,11 +199,11 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         }
         return true
     }
-    private func finish(_ code: Int) {
+    private func finish(_ code: Int, reason: String = "") {
         guard !ended else { return }
         ended = true
         phase = .connecting
-        event("close", .text(String(code)))
+        event("close", .text(reason.isEmpty ? String(code) : "\(code) \(reason)"))
         task?.cancel(with: .goingAway, reason: nil)
         session?.invalidateAndCancel()
         task = nil; session = nil

@@ -110,8 +110,16 @@ export interface HostOperations {
     input: { method: string; path: string; body?: string | undefined; token?: string | undefined };
     body: never;
   };
-  /** Debug fixture only: the loopback daemon's credential. */
+  /**
+   * The hello's credential: an account machine's current device grant (`{"grant": …}`), or, in
+   * the debug fixture only, the loopback daemon's.
+   */
   credential: { input: null; body: never };
+  /**
+   * An account machine's next device grant, fetched now, never one kept from an earlier
+   * connection: sent on an open socket before its grant runs out (ADR 0114). `{"grant": …}`.
+   */
+  "credential.fresh": { input: null; body: never };
   /** Base64 of up to `limit` bytes of a staged photo or file. */
   "attachment.chunk": { input: { localId: string; offset: number; limit: number }; body: never };
   /**

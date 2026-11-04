@@ -1,4 +1,4 @@
-import type { MachineIcon } from "@ace/protocol";
+import type { MachineIcon, MachinePathKind } from "@ace/protocol";
 import type { ClientApi, ConnectionState } from "@ace/client";
 import type { MachineEntry } from "@ace/client/machines";
 import type { MachinePool } from "@ace/client-worker/machines";
@@ -33,6 +33,8 @@ export interface Machine {
    * through a relay, or through ace's relay as an account machine. Undefined for this window's own.
    */
   via?: MachineVia | undefined;
+  /** The path the connection uses now, when the machine has several (ADR 0114). */
+  path?: MachinePathKind | undefined;
 }
 
 export type MachineVia =
@@ -110,6 +112,7 @@ function usePoolMachines(pool: MachinePool | undefined): readonly Machine[] {
             primary: false,
             failed: !!machine.error,
             via: viaOf(machine.entry.target),
+            path: reach ? machine.path : undefined,
           },
         ];
       }),

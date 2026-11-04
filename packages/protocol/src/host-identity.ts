@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { HostId } from "./ids.ts";
+import { MachinePaths } from "./machine-paths.ts";
 const id = z.string().min(1).max(128);
 
 /** The curated machine marks clients draw as icons. */
@@ -50,4 +51,6 @@ export const HostIdentityResult = z.object({
   type: z.literal("host.identity.result"),
   requestId: id,
   identity: HostIdentity,
+  /** How else this machine can be reached right now (ADR 0114). Absent from older daemons. */
+  paths: MachinePaths.optional(),
 });

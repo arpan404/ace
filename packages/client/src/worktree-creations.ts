@@ -1,6 +1,7 @@
 import { CommandId, type WorktreeCreationProgress } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
 import { Notifications, type Selection } from "./observable.ts";
+import { onSocketMove } from "./socket-moves.ts";
 
 /*
  * The worktree a new thread is being created in, as this device sees it
@@ -68,13 +69,18 @@ export function supersedes(
 const retained = 32;
 
 export class WorktreeCreations {
-  private client: Pick<ClientApi, "request" | "onMessage" | "connectionState">;
+  private client: Pick<
+    ClientApi,
+    "request" | "onMessage" | "connectionState" | "connectionGeneration"
+  >;
   private states = new Map<string, WorktreeCreationState>();
   private watched = new Map<string, number>();
   private notifications = new Notifications(256);
   private stops: (() => void)[] = [];
 
-  constructor(client: Pick<ClientApi, "request" | "onMessage" | "connectionState">) {
+  constructor(
+    client: Pick<ClientApi, "request" | "onMessage" | "connectionState" | "connectionGeneration">,
+  ) {
     this.client = client;
     try {
       this.stops.push(
@@ -95,6 +101,10 @@ export class WorktreeCreations {
         // Back after a drop: what happened meanwhile, for every create still on screen.
         if (now && !ready) for (const id of this.watched.keys()) this.refresh(id);
         ready = now;
+      }),
+      // Progress goes to the socket that asked; after a move to another path, ask again there.
+      onSocketMove(client, () => {
+        for (const id of this.watched.keys()) this.refresh(id);
       }),
     );
   }
