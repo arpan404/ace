@@ -38,6 +38,7 @@ export function SimulatorsSettings() {
       </SettingSection>
       <ToolchainSection
         label="Tools"
+        anchor="tools"
         ids={["xcode", "serve-sim", "android"]}
         fixes={
           own ? { "serve-sim": <DownloadDeviceTools done={() => void tools.refetch()} /> } : {}

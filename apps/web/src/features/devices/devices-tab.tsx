@@ -1,4 +1,3 @@
-import { useToolchains } from "@/features/diagnostics/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
@@ -19,7 +18,7 @@ import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
 import { RunningTiles } from "./running-tiles.tsx";
-import { ToolReadiness, ToolSetupDialog } from "./tool-readiness.tsx";
+import { ToolReadiness } from "./tool-readiness.tsx";
 import { useDevices } from "./use-devices.ts";
 
 /** The workspace tab that shows one device (`device` kind, one tab per simulator or emulator). */
@@ -58,13 +57,11 @@ function Section(props: { label: string; count?: number; children: ReactNode }) 
  */
 export function DevicesTab(props: { threadId: string }) {
   const devices = useDevices(props.threadId);
-  const toolchains = useToolchains();
   const actions = useWorkspaceActions(props.threadId);
   const workspace = useScopeWorkspace(props.threadId);
   const uses = useRecentUses();
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
-  const [setUp, setSetUp] = useState(false);
   const search = useRef<HTMLDivElement>(null);
   const now = useNow();
   const { view } = devices;
@@ -131,11 +128,7 @@ export function DevicesTab(props: { threadId: string }) {
           options={platforms}
           onValueChange={setPlatform}
         />
-        <CatalogMenu
-          pending={view.pending}
-          onRefresh={devices.refresh}
-          onSetUp={() => setSetUp(true)}
-        />
+        <CatalogMenu pending={view.pending} onRefresh={devices.refresh} />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-3 pb-4">
         {view.problem && (
@@ -152,9 +145,13 @@ export function DevicesTab(props: { threadId: string }) {
               description="Create one in Xcode or Android Studio, then refresh."
               action={
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => setSetUp(true)}>
-                    Set up device tools…
-                  </Button>
+                  <Link
+                    to="/settings/simulators"
+                    hash="tools"
+                    className={buttonVariants({ size: "sm" })}
+                  >
+                    Set up tools…
+                  </Link>
                   <Button size="sm" onClick={devices.refresh}>
                     Refresh
                   </Button>
@@ -243,20 +240,9 @@ export function DevicesTab(props: { threadId: string }) {
           </Button>
         )}
         <div className="mt-auto px-2">
-          <ToolReadiness onSetUp={() => setSetUp(true)} />
+          <ToolReadiness />
         </div>
       </div>
-      <ToolSetupDialog
-        open={setUp}
-        onOpenChange={setSetUp}
-        toolsMissing={view.toolsMissing}
-        downloadingTools={view.downloadingTools}
-        onDownload={devices.downloadTools}
-        onRefresh={() => {
-          void toolchains.refetch();
-          devices.refresh();
-        }}
-      />
     </div>
   );
 }

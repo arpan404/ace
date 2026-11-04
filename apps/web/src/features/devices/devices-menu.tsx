@@ -1,8 +1,6 @@
 import {
   AppWindowIcon,
   DotsThreeIcon,
-  ChartLineIcon,
-  FrameCornersIcon,
   GlobeIcon,
   MapPinIcon,
   MoonIcon,
@@ -18,7 +16,6 @@ import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   Menu,
-  MenuCheckboxItem,
   MenuContent,
   MenuItem,
   MenuRadioGroup,
@@ -29,27 +26,18 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { DeviceActionDialog, type DeviceAction } from "./device-action-dialog.tsx";
-import {
-  setScreenOnly,
-  setStreamStatsShown,
-  useScreenOnly,
-  useStreamStatsShown,
-} from "./device-prefs.ts";
 import type { useDevices } from "./use-devices.ts";
 
 const icon = (Glyph: typeof PackageIcon) => <Glyph aria-hidden size={16} />;
 
 /**
- * The device's ⋯: install and open apps, appearance, location and language, the screen without
- * its frame, the live view, booting and shutting down, and Settings › Simulators, where devices
+ * The device's ⋯: install and open apps, appearance, location and language, the live view, booting and shutting down, and Settings › Simulators, where devices
  * are turned on and off for the whole machine.
  */
 export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const { devices } = props;
   const { view } = devices;
   const controls = view.selected ? view.controls : undefined;
-  const screenOnly = useScreenOnly();
-  const streamStats = useStreamStatsShown();
   const [action, setAction] = useState<DeviceAction>();
   const [appearance, setAppearance] = useState<"light" | "dark">();
   const navigate = useNavigate();
@@ -94,20 +82,6 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
               {item("Location…", MapPinIcon)}
               {item("Language and region…", TranslateIcon)}
               <MenuSeparator />
-              <MenuCheckboxItem checked={screenOnly} onCheckedChange={setScreenOnly}>
-                <span className="inline-flex items-center gap-2">
-                  {icon(FrameCornersIcon)}
-                  Screen only
-                </span>
-              </MenuCheckboxItem>
-              {controls.live && (
-                <MenuCheckboxItem checked={streamStats} onCheckedChange={setStreamStatsShown}>
-                  <span className="inline-flex items-center gap-2">
-                    {icon(ChartLineIcon)}
-                    Stream stats
-                  </span>
-                </MenuCheckboxItem>
-              )}
               {(controls.cleanupRequired || (controls.running && controls.live)) && (
                 <MenuItem icon={icon(StopIcon)} disabled={view.pending} onClick={devices.stop}>
                   {controls.cleanupRequired ? "Retry cleanup" : "Stop live view"}

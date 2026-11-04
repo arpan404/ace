@@ -1,7 +1,8 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test, vi } from "vitest";
 import { deviceBrowser, openDevice, openDevices, unusable } from "@/test/device-browser.ts";
+import { setStreamStatsShown } from "./device-prefs.ts";
 
 function noop() {}
 // jsdom has no WebCodecs: a stand-in decoder shows every H.264 picture, as a browser would.
@@ -614,15 +615,16 @@ test("boot takes this panel's own lease from another connection that holds the d
   }
 });
 
-test("Stream stats from the device's ⋯ menu show what arrived and what was drawn over the live screen", async () => {
+test("with Show stream stats on in Settings, a live screen shows what arrived and what was drawn", async () => {
+  setStreamStatsShown(true);
+  onTestFinished(() => setStreamStatsShown(false));
   const { panel } = await openDevices();
   await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
   await shows(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" }));
-  expect(within(iphone).queryByRole("list", { name: "Stream stats" })).toBeNull();
-
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitemcheckbox", { name: "Stream stats" }));
+  expect(screen.queryByRole("menuitemcheckbox", { name: "Stream stats" })).toBeNull();
+  await userEvent.keyboard("{Escape}");
   const stats = await within(iphone).findByRole("list", { name: "Stream stats" });
   await waitFor(() => expect(stats.textContent).toMatch(/Received \d+\/s · drawn/));
 });

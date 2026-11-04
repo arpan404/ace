@@ -1,10 +1,10 @@
-import { ArrowClockwiseIcon, DotsThreeIcon, GearSixIcon, WrenchIcon } from "@phosphor-icons/react";
+import { ArrowClockwiseIcon, DotsThreeIcon, GearSixIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 
-/** The list's ⋯: read the devices again, Settings › Simulators and tool setup. */
-export function CatalogMenu(props: { pending: boolean; onRefresh(): void; onSetUp(): void }) {
+/** The list's ⋯: read the devices again, and Settings › Simulators (its tools too). */
+export function CatalogMenu(props: { pending: boolean; onRefresh(): void }) {
   const navigate = useNavigate();
   return (
     <Menu>
@@ -22,9 +22,6 @@ export function CatalogMenu(props: { pending: boolean; onRefresh(): void; onSetU
           onClick={() => void navigate({ to: "/settings/simulators" })}
         >
           Settings
-        </MenuItem>
-        <MenuItem icon={<WrenchIcon aria-hidden size={16} />} onClick={props.onSetUp}>
-          Tool setup…
         </MenuItem>
       </MenuContent>
     </Menu>

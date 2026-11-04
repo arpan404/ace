@@ -19,6 +19,8 @@ type ToolId = Toolchain["id"];
  */
 export function ToolchainSection(props: {
   label: string;
+  /** The section's id, so a link can land on it (`#tools`). */
+  anchor?: string;
   ids: readonly ToolId[];
   fixes?: Partial<Record<ToolId, ReactNode>>;
 }) {
@@ -26,6 +28,7 @@ export function ToolchainSection(props: {
   const shown = props.ids.flatMap((id) => tools.data?.find((tool) => tool.id === id) ?? []);
   return (
     <SettingSection
+      {...(props.anchor ? { anchor: props.anchor } : {})}
       label={props.label}
       actions={
         tools.data && (
