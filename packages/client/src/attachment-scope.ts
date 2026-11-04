@@ -2,11 +2,14 @@ import { ClientError } from "./errors.ts";
 import type { ConnectionState } from "./types.ts";
 import type { Selection } from "./observable.ts";
 
-/** Bind before lazy loading so a recovered connection cannot revive an obsolete read. */
+/**
+ * Bind before lazy loading so a recovered connection cannot revive an obsolete read. A read
+ * streams over one daemon socket, so a move to another path (ADR 0114) ends it too.
+ */
 export function attachmentReadScope(
   client: {
     readonly state: ConnectionState;
-    connectionState(): Selection<ConnectionState>;
+    connectionGeneration(): Selection<number | undefined>;
   },
   signal?: AbortSignal,
 ) {
@@ -25,8 +28,10 @@ export function attachmentReadScope(
     controller.abort();
     close();
   };
-  stop = client.connectionState().subscribe(() => {
-    if (client.state !== "ready") abort();
+  const socket = client.connectionGeneration();
+  const started = socket.getSnapshot();
+  stop = socket.subscribe(() => {
+    if (socket.getSnapshot() !== started) abort();
   });
   if (closed) stop();
   else {

@@ -9,7 +9,7 @@ type Operation = TerminalRequest["operation"];
 
 /** A ready client whose daemon socket can be swapped while it stays ready. */
 function swappingClient() {
-  const notifications = new Notifications();
+  const notifications = new Notifications(64);
   const handlers: ((message: ServerMessage) => void)[] = [];
   const subscribes: Extract<Operation, { op: "subscribe" }>[] = [];
   let socket = 1;
