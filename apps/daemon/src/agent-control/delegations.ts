@@ -1,5 +1,4 @@
-import { childStoppedOnLimit } from "./limit-settlement.ts";
-import { registered, threadAccount } from "./failure-account.ts";
+import { registered } from "./failure-account.ts";
 import { delegationRequest } from "./cursor-request.ts";
 import { AgentControlError, controlAdmissionError, startsLater } from "./failure.ts";
 import { callerThread } from "./authorization.ts";
@@ -25,7 +24,6 @@ import {
   type QueueFacts,
   type WorkspaceId,
   type McpAttribution,
-  type Event,
   type DelegationOutcome,
   type CommandPayload,
   type CommandResult,
@@ -40,8 +38,9 @@ import { DelegationAdmission } from "./admission.ts";
 import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 import { messageArrival } from "./message-arrival.ts";
-import { deliveryNotice, noticeText, type DeliveryNotice } from "./message-notices.ts";
+import { noticeText, type DeliveryNotice } from "./message-notices.ts";
 import { LimitNotices } from "./limit-notices.ts";
+import { ChildSync } from "./child-sync.ts";
 import { MessageSenders } from "./message-senders.ts";
 import { readAgentCatalog, readModelRoster } from "./catalog.ts";
 import { recoverLocalUsage } from "./local-usage-recovery.ts";
@@ -94,6 +93,8 @@ export class DelegationService {
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private limits: LimitNotices;
+  /** Keeps each child's edge in step with its thread, settling the ones that ended. */
+  private sync: ChildSync;
   private closed = false;
   private retryAt = 0;
   private suspending = new Set<ThreadId>();
@@ -161,9 +162,29 @@ export class DelegationService {
       closed: () => this.closed,
       report: (error) => this.report(error),
     });
-    const unsubscribeEvents = deps.store.subscribe((events) => this.observe(events));
+    this.sync = new ChildSync({
+      deps,
+      journal: this.journal,
+      policy: this.policy,
+      launches: this.launches,
+      waiters: this.waiters,
+      limits: this.limits,
+      closed: () => this.closed,
+      now: () => this.now(),
+      command: (id, payload) => this.command(id, payload),
+      cancelDescendants: (thread, request) => this.cancelDescendants(thread, request),
+      queueFacts: (child) => this.queueFacts(child),
+      noticeSender: (child, notice) => this.noticeSender(child, notice),
+      clearDeliveredNotice: (child) => this.clearDeliveredNotice(child),
+      reconcileConversation: (thread) => this.reconcileConversation(thread),
+      pump: (parent) => this.pump(parent),
+      pumpAll: () => this.pumpAll(),
+      arm: () => this.arm(),
+      report: (error) => this.report(error),
+    });
+    const unsubscribeEvents = deps.store.subscribe((events) => this.sync.observe(events));
     // A limit policy that loads as "manual" changes nothing in the store, yet settles the child.
-    const unsubscribePolicy = deps.engine.onLimitPolicy((id) => this.policyLoaded(id));
+    const unsubscribePolicy = deps.engine.onLimitPolicy((id) => this.sync.policyLoaded(id));
     this.unsubscribe = () => {
       unsubscribeEvents();
       unsubscribePolicy();
@@ -188,7 +209,7 @@ export class DelegationService {
       this.reconcileConversation(participant.thread_id);
     }
     for (const edge of [...this.journal.active(), ...this.journal.revived()]) {
-      this.reconcile(edge);
+      this.sync.reconcile(edge);
       // A notice a crash or a refused send left unsent goes now.
       this.limits.recheck([edge.childId]);
     }
@@ -1190,130 +1211,6 @@ export class DelegationService {
       for (const parent of queueParents) this.refreshQueue(parent);
     });
   }
-  private observe(events: readonly Event[]) {
-    if (this.closed) return;
-    let changed = false;
-    let statuses = false;
-    for (const event of events) {
-      statuses ||= event.payload.type === "thread.updated" && !queueFactsTouch(event);
-      const notice = deliveryNotice(event);
-      if (notice) this.noticeSender(event.threadId, notice);
-      if (event.payload.type === "run.started") this.clearDeliveredNotice(event.threadId);
-      // A turn that ends on a limit its provider was already retrying changes no status.
-      if (event.payload.type === "run.ended") {
-        const ended = this.journal.get(event.threadId);
-        if (ended) {
-          this.reconcile(ended);
-          this.limits.check(ended);
-          changed = true;
-        }
-      }
-      if (
-        event.payload.type !== "thread.updated" &&
-        event.payload.type !== "usage.updated" &&
-        event.payload.type !== "run.started" &&
-        event.payload.type !== "background_task.updated"
-      )
-        continue;
-      if (
-        event.payload.type === "thread.updated" &&
-        this.waiters.has(event.threadId) &&
-        !this.journal.get(event.threadId)
-      ) {
-        const thread = this.deps.store.getThread(event.threadId);
-        // No edge, so never a cancelling child: the outcome is the thread's own.
-        if (thread && ["done", "failed"].includes(thread.status.state))
-          this.waiters.deliver(thread.id, threadOutcome(this.deps.store, thread));
-      }
-      const edge = this.journal.get(event.threadId);
-      const participant = this.journal.participant(event.threadId);
-      if (!edge && !participant) continue;
-      const root = edge?.rootId ?? participant?.root_id;
-      if (!root) continue;
-      changed = true;
-      if (event.payload.type === "run.started") {
-        this.deps.store.atomic(() => {
-          this.journal.account(root, event);
-          if (participant) this.journal.activity(event.threadId, 1);
-        });
-        if (edge) this.reconcile(edge);
-      } else if (event.payload.type === "usage.updated") {
-        this.journal.account(root, event);
-      } else {
-        if (participant) this.reconcileConversation(event.threadId);
-        if (edge) this.reconcile(edge);
-        if (edge && event.payload.type === "thread.updated") this.limits.check(edge);
-      }
-    }
-    // Slots also free when admission reopens.
-    if (statuses) this.pumpAll();
-    if (changed) this.arm();
-  }
-  private policyLoaded(id: ThreadId) {
-    const edge = this.closed ? undefined : this.journal.get(id);
-    if (edge)
-      try {
-        this.reconcile(edge);
-        this.limits.check(edge);
-        this.arm();
-      } catch (error) {
-        this.report(error);
-      }
-  }
-  private reconcile(edge: DelegationRecord) {
-    const thread = this.deps.store.getThread(edge.childId);
-    if (!thread) return;
-    this.deps.store.atomic(() => {
-      const stoppedOnLimit = childStoppedOnLimit(thread, this.deps.engine, this.journal);
-      if (
-        edge.phase === "settled" &&
-        !stoppedOnLimit &&
-        !["done", "failed", "new"].includes(thread.status.state)
-      ) {
-        // Revived work always continues, whatever the counts. Only a cancelled child stays stopped.
-        this.journal.revive(edge);
-        if (this.journal.stopped(edge.childId) || this.journal.ancestorStopped(edge.childId)) {
-          const request = controlCommandId(
-            edge.childId,
-            String(edge.generation),
-            "native.interrupt",
-          );
-          this.cancelDescendants(edge.childId, request);
-          const result = this.command(request, {
-            type: "thread.interrupt",
-            threadId: edge.childId,
-            cascade: true,
-          });
-          if (!result.ok) throw controlAdmissionError(result.error ?? "Interrupt failed");
-          edge.phase = "cancelling";
-        }
-      }
-      const shown = {
-        ...thread,
-        status: this.launches.has(edge.childId)
-          ? queuedChildStatus(this.queueFacts(edge.childId))
-          : childStatus(edge, thread),
-      };
-      this.deps.engine.updateChild(
-        edge.parentId,
-        stoppedOnLimit ? { ...shown, status: { state: "failed" } } : shown,
-      );
-      if (
-        edge.phase === "settled" ||
-        (!stoppedOnLimit && !["done", "failed"].includes(thread.status.state))
-      ) {
-        this.deps.engine.delegationStarted(edge, shown);
-        return;
-      }
-      const account = threadAccount(thread, this.deps.engine, this.deps.accounts, this.now());
-      const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling", account);
-      this.journal.settle(edge, outcome, this.deps.clock.now() + this.policy.coalesceMs);
-      this.deps.engine.delegationStarted(edge, { ...thread, status: childStatus(edge, thread) });
-      this.waiters.deliver(thread.id, outcome);
-      // The settled child's slot goes to the next one waiting.
-      this.pump(edge.parentId);
-    });
-  }
   async wait(
     caller: McpAttribution,
     threadId: ThreadId,
@@ -1477,19 +1374,4 @@ function launchKind(record: DelegationRecord): "automation" | "handoff" | "spawn
   const role = record.request.role;
   if (role.startsWith("automation:")) return "automation";
   return role.startsWith("handoff:") ? "handoff" : "spawn";
-}
-
-/**
- * A touch that rewrites only queue facts: it frees no slot and starts nothing, so a batch of
- * only such touches schedules no pump. Anything else in the batch still pumps as before.
- */
-function queueFactsTouch(event: Event): boolean {
-  const payload = event.payload;
-  return (
-    payload.type === "thread.updated" &&
-    payload.queuedLaunch !== undefined &&
-    payload.queuedLaunch !== null &&
-    payload.status === undefined &&
-    payload.delegatedBy === undefined
-  );
 }
