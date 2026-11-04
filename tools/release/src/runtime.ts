@@ -29,6 +29,8 @@ import {
   renderLauncher,
   prepareDaemonHome,
   planUpdateLaunch,
+  updateFailure,
+  updateOutcomeFile,
 } from "@ace/service";
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
@@ -126,9 +128,7 @@ function updatePorts(): UpdatePorts {
   };
 }
 export async function updateCli(args: string[]) {
-  const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
-  if (args.length > 2 || (args[1] !== undefined && (args[1] !== "--drain" || command !== "apply")))
-    throw new Error("Usage: ace update check|apply [--drain]|recover");
+  const { command, drain, interrupt, outcome } = updateArguments(args);
   // Inside the desktop app the app owns the update, daemon included (ADR 0091).
   const desktop = await bundledDesktopApp(daemonDirectory(import.meta.url));
   if (desktop) {
@@ -152,28 +152,67 @@ export async function updateCli(args: string[]) {
     installed.channel === "stable"
       ? "https://api.github.com/repos/arpan404/ace/releases/latest"
       : "https://api.github.com/repos/arpan404/ace/releases/tags/preview";
-  const release = await checkRelease(
-    releaseFetch,
-    feed,
-    installed.target,
-    installed.channel,
-    RELEASE_PUBLIC_KEY,
-  );
-  if (command === "check") {
-    process.stdout.write(JSON.stringify(release.manifest) + "\n");
-    return;
+  const install = async () => {
+    const release = await checkRelease(
+      releaseFetch,
+      feed,
+      installed.target,
+      installed.channel,
+      RELEASE_PUBLIC_KEY,
+    );
+    if (command === "check") {
+      process.stdout.write(JSON.stringify(release.manifest) + "\n");
+      return;
+    }
+    await applyUpdate({
+      root,
+      dataDir: root,
+      bytes: release.bytes,
+      signature: release.signature,
+      publicKey: RELEASE_PUBLIC_KEY,
+      archiveUrl: release.url,
+      fetcher: releaseFetch,
+      drain,
+      interrupt,
+      ports,
+    });
+  };
+  if (!outcome) return install();
+  // The daemon that runs next reads how it ended (ADR 0113); a failure leaves the old version.
+  try {
+    await install();
+    await durableJson(join(root, updateOutcomeFile), { ok: true, error: null });
+  } catch (error) {
+    await durableJson(join(root, updateOutcomeFile), updateFailure(error, installed.version)).catch(
+      () => {},
+    );
+    throw error;
   }
-  await applyUpdate({
-    root,
-    dataDir: root,
-    bytes: release.bytes,
-    signature: release.signature,
-    publicKey: RELEASE_PUBLIC_KEY,
-    archiveUrl: release.url,
-    fetcher: releaseFetch,
-    drain: args[1] === "--drain",
-    ports,
-  });
+}
+
+/**
+ * `ace update check | recover | apply [--drain | --interrupt] [--outcome]`. `--interrupt`
+ * stops running agents instead of waiting (they continue after the restart); `--outcome`
+ * records how it ended for the daemon, as a remote update does.
+ */
+export function updateArguments(args: readonly string[]) {
+  const usage = "Usage: ace update check|apply [--drain|--interrupt] [--outcome]|recover";
+  const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
+  const flags = args.slice(1);
+  const known = new Set(["--drain", "--interrupt", "--outcome"]);
+  if (
+    (command !== "apply" && flags.length > 0) ||
+    flags.some((flag) => !known.has(flag)) ||
+    new Set(flags).size !== flags.length ||
+    (flags.includes("--drain") && flags.includes("--interrupt"))
+  )
+    throw new Error(usage);
+  return {
+    command,
+    drain: flags.includes("--drain"),
+    interrupt: flags.includes("--interrupt"),
+    outcome: flags.includes("--outcome"),
+  };
 }
 export async function installArtifact(
   artifact: string,

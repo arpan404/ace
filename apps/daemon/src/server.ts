@@ -9,6 +9,7 @@ import type { SocketMessage } from "./services/socket.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
 import { MaintenanceGate } from "@ace/service";
 import { AppUpdateBoard } from "./app-update-board.ts";
+import { createMachineUpdates } from "./machine-update/create.ts";
 import { UpdateHold } from "./update-hold.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
@@ -111,6 +112,17 @@ export async function startServer(options: ServerOptions): Promise<{
   // A daemon started in the middle of an update holds until recovery releases it.
   if (options.maintenance || maintenance.held("update")) updateHold.persist();
   const appUpdate = options.appUpdate ?? new AppUpdateBoard(runtime);
+  const machineUpdates = options.machineUpdate
+    ? await createMachineUpdates({
+        config: options.machineUpdate,
+        version: options.version ?? "development",
+        board: appUpdate,
+        store: options.store,
+        busy: () => maintenance.status().blockers,
+        runtime,
+        log: (error) => options.log?.(error),
+      })
+    : undefined;
   const access = {
     auth,
     pairing,
@@ -292,6 +304,7 @@ export async function startServer(options: ServerOptions): Promise<{
       tasks: serviceTasks,
       maintenance,
       appUpdate,
+      ...(machineUpdates ? { machineUpdates } : {}),
       device: () => device,
       authorize,
       authorityLease: (scope) => {
@@ -589,6 +602,7 @@ export async function startServer(options: ServerOptions): Promise<{
     await transports?.close();
     await preview?.close();
     appUpdate.close();
+    machineUpdates?.close();
     updateHold.close();
     stopRevocation();
     await closeListener(local);
@@ -637,6 +651,7 @@ export async function startServer(options: ServerOptions): Promise<{
       closing ??= new Promise<void>((resolve, reject) => {
         stopTimer();
         stopRevocation();
+        machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");
         for (const server of servers)

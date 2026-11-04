@@ -17,6 +17,32 @@
     "downloaded": {
       "type": "boolean"
     },
+    "error": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inPlace": {
+      "type": "boolean"
+    },
+    "percent": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "releaseUrl": {
       "anyOf": [
         {
@@ -32,6 +58,11 @@
     },
     "restartRequired": {
       "type": "boolean"
+    },
+    "state": {
+      "maxLength": 40,
+      "minLength": 1,
+      "type": "string"
     },
     "version": {
       "maxLength": 80,

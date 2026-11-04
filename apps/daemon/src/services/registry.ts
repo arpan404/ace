@@ -53,6 +53,7 @@ import { createDiagnosticsSession } from "./diagnostics.ts";
 import { DoctorRuns } from "./doctor-runs.ts";
 import { createAdmissionSession } from "./admission.ts";
 import { createAppUpdateSession } from "./app-update.ts";
+import { createMachineUpdateSession } from "./machine-update.ts";
 import { createActivityReadsSession } from "./activity-reads.ts";
 import { createVerifySession } from "./verify.ts";
 import { createIconsSession } from "./icons.ts";
@@ -112,6 +113,7 @@ export const socketServiceFactories = [
   createEngineSession,
   createAdmissionSession,
   createAppUpdateSession,
+  createMachineUpdateSession,
 ];
 export function createSocketRegistry() {
   const simulators = new Simulators(process.platform);

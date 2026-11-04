@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachineUpdateBlock.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "enum": [
+        "release-page",
+        "app-closed",
+        "source",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  ]
+}

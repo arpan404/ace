@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import type { AppUpdateInstruction } from "@ace/protocol";
 import { desktopUpdateArgument } from "@ace/service/desktop-update-argument";
 import {
   app,
@@ -235,9 +236,12 @@ function main(target: DaemonTarget, crashDumps: string): void {
   });
 
   let systemShutdown = false;
-  // Paired clients read the app's update status from its daemon (read-only there).
+  // Paired clients read the app's update status from its daemon, and an administrator there can
+  // ask for the update; the daemon's reply carries the request (ADR 0113).
+  let remoteUpdate: ((instruction: AppUpdateInstruction) => void) | undefined;
   const updateReport = new UpdateReporter({
     send: async (report) => reportAppUpdate(await runtime.local(), report),
+    instructed: (instruction) => remoteUpdate?.(instruction),
     withdraw: async () => withdrawAppUpdate(await runtime.local()),
     timers,
     log: (message) => log("warn", message),
@@ -285,6 +289,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
     log: logger("updates"),
   });
   updateReport.status(updates.current());
+  remoteUpdate = (instruction) => void updates.remote(instruction);
 
   // Chromium's sandbox on an AppImage or tar.gz under Ubuntu's AppArmor restriction.
   const install = linuxInstall(process.env, process.execPath);

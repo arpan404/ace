@@ -53,11 +53,19 @@ export interface UpdateRequest {
   fetcher: Fetcher;
   ports: UpdatePorts;
   drain: boolean;
+  /**
+   * Stop running agents instead of waiting for them (a person's confirmed "update now", ADR
+   * 0113). Stopping the service interrupts each turn the way a quit does, and the new version
+   * continues them after it starts (ADR 0098).
+   */
+  interrupt?: boolean;
 }
-async function acquire(ports: UpdatePorts, drain: boolean) {
+async function acquire(ports: UpdatePorts, drain: boolean, interrupt = false) {
   const until = ports.now() + 300_000;
   let status = MaintenanceStatus.parse(await ports.maintenance("POST"));
-  while (status.blockers > 0) {
+  // Interrupting, the service stop ends running turns and the new version continues them.
+  const waitFor = (current: typeof status) => !interrupt && current.blockers > 0;
+  while (waitFor(status)) {
     if (!drain || ports.now() >= until) throw new Error("Active threads block update");
     await ports.wait();
     // Each poll renews the update's lease, so an interrupted CLI lets go on its own.
@@ -126,7 +134,7 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       );
       await unpackArchive(archive, staging);
       await durableJson(join(staging, "release.json"), manifest);
-      await acquire(ports, request.drain);
+      await acquire(ports, request.drain, request.interrupt);
       // Persist intent before stopping. A partial snapshot must never replace live data.
       let journal = Journal.parse({
         old,

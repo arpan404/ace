@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppUpdateReply.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instruction": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AppUpdateInstruction.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AppUpdateReport.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reportedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "report",
+    "reportedAt"
+  ],
+  "type": "object"
+}

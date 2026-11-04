@@ -21,6 +21,12 @@
       "$ref": "https://ace.local/protocol/v1/AppUpdateChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/MachineUpdateResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/MachineUpdateChanged.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UserBrowserSettingsResult.json"
     },
     {

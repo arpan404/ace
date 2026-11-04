@@ -21,6 +21,7 @@ import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-lin
 import { summarizeNames } from "./data/list-names.ts";
 import { machineState } from "./data/fleet-words.ts";
 import type { Fleet } from "./data/use-fleet.ts";
+import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";
 import { MachineDirectory } from "./machine-directory.tsx";
 
 type Row =
@@ -172,6 +173,7 @@ function MachineRow(props: {
   const gaps = fleet.gaps.filter((gap) => gap.from === machine.id || gap.to === machine.id);
   const online = fleet.machines.filter((entry) => entry.client).length;
   const known = fleet.links.get(machine.id)?.isSuccess;
+  const update = fleet.update.line(machine.id);
   return (
     <HairlineRow
       id={machine.primary ? "host.displayName" : undefined}
@@ -196,19 +198,27 @@ function MachineRow(props: {
         <>
           {machine.primary ? props.ownLine : statusLine(machine, fleet, props.onAccount)}
           {missing.length > 0 && <span className="block">{gapLine(machine.id, fleet)}</span>}
+          {update && <UpdateWords line={update} />}
         </>
       }
       meta={missing.length === 0 && known && online > 1 && !machine.primary ? "Linked" : undefined}
       actions={
-        missing.length > 0 && (
-          <RowAction
-            className="text-foreground"
-            aria-label={`Link ${machine.name}`}
-            disabled={fleet.link.isPending}
-            onClick={() => props.onLink(gaps)}
-          >
-            Link
-          </RowAction>
+        (missing.length > 0 || update?.action) && (
+          <>
+            {update && (
+              <UpdateRowAction fleet={fleet} id={machine.id} name={machine.name} line={update} />
+            )}
+            {missing.length > 0 && (
+              <RowAction
+                className="text-foreground"
+                aria-label={`Link ${machine.name}`}
+                disabled={fleet.link.isPending}
+                onClick={() => props.onLink(gaps)}
+              >
+                Link
+              </RowAction>
+            )}
+          </>
         )
       }
     />

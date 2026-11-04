@@ -20,6 +20,7 @@ import { threadWorkspace } from "@/features/panels/index.ts";
 import { preloadProjectDialogs } from "@/features/projects/index.ts";
 import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
+import type { DeviceScope } from "@ace/protocol";
 
 // Load deferred test UI before test deadlines begin. Under merge load, transforming
 // these modules inside the first open() can time out and race cleanup with mounting.
@@ -88,7 +89,12 @@ export function harness(
      * Other machines in the window's machine pool (ADR 0059), each a fake daemon of its own.
      * This daemon is then "This Mac".
      */
-    machines?: readonly { hostId: string; name: string }[];
+    machines?: readonly {
+      hostId: string;
+      name: string;
+      /** What this window's device may do there; everything when absent. */
+      scopes?: readonly DeviceScope[];
+    }[];
     /**
      * "pending": this device hasn't been through provider setup, so an empty Home opens it (the
      * first run). By default setup is done, as it is on every device after its first launch.
@@ -112,6 +118,7 @@ export function harness(
         clock,
         hostId: machine.hostId,
         displayName: machine.name,
+        ...(machine.scopes ? { deviceScopes: { "test-device": machine.scopes } } : {}),
         ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
       }),
   );
