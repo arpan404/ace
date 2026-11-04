@@ -45,6 +45,7 @@ export function prRepository(value: string, fallback: ForgeRepository): ForgeRep
 
 export function prUrl(pr: ForgePrRef): string {
   const repo = pr.repository;
+  if (repo.forge !== "github" && repo.forge !== "gitlab") throw new ForgeError("unsupported");
   return `https://${repo.host}/${repo.owner}/${repo.name}/${repo.forge === "github" ? "pull" : "-/merge_requests"}/${pr.number}`;
 }
 

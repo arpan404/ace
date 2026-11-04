@@ -22,6 +22,7 @@ export * from "./review-anchor.ts";
 export * from "./github-reviews.ts";
 export * from "./review-comment-body.ts";
 export * from "./readiness.ts";
+export * from "./gitlab-readiness.ts";
 
 export {
   ForgeMutationOutcome,

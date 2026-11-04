@@ -97,10 +97,12 @@ function linkedPr(
 export function prBlocker(checkout: Checkout): string | undefined {
   if (checkout.repository?.forge === "gitlab")
     return "GitLab merge requests aren't supported yet: open one on GitLab.";
+  if (checkout.repository && checkout.repository.forge !== "github")
+    return "Pull requests for this Git provider aren't supported yet. Open one on its website.";
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
-  if (!checkout.repository) return "ace found no GitHub or GitLab remote for this checkout.";
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
   return undefined;
 }
 

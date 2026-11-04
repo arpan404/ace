@@ -139,3 +139,13 @@ test("the sync note says what the remote lacks and what it has that the checkout
   expect(note({ ahead: 1, behind: 3 })).toBe("1 commit not pushed · 3 to pull");
   expect(note({})).toBeUndefined();
 });
+
+test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
+  "%s checkouts cannot create a GitHub PR",
+  (forge) => {
+    expect(step({ repository: { ...repository, forge, host: "git.example.com" } })).toMatchObject({
+      kind: "create-pr",
+      blocked: /aren't supported yet/,
+    });
+  },
+);

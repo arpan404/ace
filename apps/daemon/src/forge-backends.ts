@@ -67,6 +67,7 @@ export class ForgeBackends {
     );
   }
   async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    if (repository.forge !== "github") throw new ForgeError("unsupported");
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.signal);
     const listKey = JSON.stringify({
       repository: repositoryKey(repository),
@@ -112,7 +113,10 @@ export class ForgeBackends {
    * repository. Every request goes through the identity-checked runner.
    */
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
-    const target = host || (await this.repository(cwd)).host;
+    const repository = host ? undefined : await this.repository(cwd);
+    if (repository && repository.forge !== "github") throw new ForgeError("unsupported");
+    const target = host || repository?.host;
+    if (!target) throw new ForgeError("unsupported");
     const identity = await this.sourceControl?.identity(cwd, target, this.signal);
     const key = JSON.stringify({
       host: target,

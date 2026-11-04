@@ -1,6 +1,7 @@
 import {
   createCommandRunner,
   githubReadiness,
+  gitlabReadiness,
   githubIdentity,
   identityRunner,
   repositoryFromRemote,
@@ -91,7 +92,8 @@ export class SourceControl {
     };
     check();
     const configured = preferences.hosts.find((entry) => entry.host === host);
-    if (!configured) throw new ForgeError("unsupported");
+    if (!configured || (configured.forge ?? "github") !== "github")
+      throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
     const { account, at } = await this.verifiedAccount(runner, host, revision, signal);
     await assertCurrent();
@@ -157,7 +159,25 @@ export class SourceControl {
     const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
-    const status = await githubReadiness(runner, preferences, signal, this.now);
+    const forge =
+      preferences.hosts.find((entry) => entry.host === preferences.host)?.forge ?? "github";
+    const status: SourceControlReadiness =
+      forge === "github"
+        ? await githubReadiness(runner, preferences, signal, this.now)
+        : forge === "gitlab"
+          ? await gitlabReadiness(runner, preferences, signal)
+          : {
+              preferences,
+              cli: "unavailable",
+              version: null,
+              accounts: [],
+              account: null,
+              api: "unavailable",
+              instructions:
+                "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
+              transport: "unchecked",
+              transportInstructions: "Check a project's remote to verify Git access.",
+            };
     // A rescan re-verifies identity from scratch.
     this.identities.clear();
     check();
@@ -177,7 +197,7 @@ export class SourceControl {
       }
       repositoryFromRemote(
         remote,
-        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"])),
+        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, entry.forge ?? "github"])),
         await this.hostAliases([remote], signal),
       );
       // The same transport a push uses (credential helpers, SSH command, no prompts), so a
