@@ -30,6 +30,12 @@ export function queuedChildStatus(facts: QueueFacts | undefined): ThreadStatus {
  * status `new`; it is shown finished, so it never holds its parent open.
  */
 export function childStatus(edge: DelegationRecord, thread: Thread): ThreadStatus {
+  if (
+    edge.phase === "settled" &&
+    thread.status.state === "limited" &&
+    edge.outcome?.failure?.code === "usage_limited"
+  )
+    return { state: "failed" };
   if (edge.phase !== "settled" || thread.status.state !== "new") return thread.status;
   return { state: edge.outcome?.outcome === "failed" ? "failed" : "done" };
 }

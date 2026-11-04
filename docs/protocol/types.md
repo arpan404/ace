@@ -3134,11 +3134,11 @@ Example:
   "origin": "ace",
   "results": [
     {
-      "before": 0,
+      "before": 6,
       "outcome": "failed",
       "result": "example",
       "threadId": "example",
-      "truncated": false
+      "truncated": true
     }
   ],
   "runId": "example",
@@ -8941,11 +8941,16 @@ Example:
 {
   "generation": 0,
   "outcome": {
-    "before": 6,
+    "before": null,
+    "failure": {
+      "accountLabel": "example",
+      "code": "example",
+      "message": "example"
+    },
     "outcome": "completed",
     "result": "example",
     "threadId": "example",
-    "truncated": false
+    "truncated": true
   },
   "state": "unresponsive",
   "status": {
@@ -10930,12 +10935,35 @@ Example:
 }
 ```
 
+## DelegationFailure
+
+[JSON Schema](schema/DelegationFailure.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":64} |
+| message | yes | string | {"minLength":1,"maxLength":512} |
+| accountId | no | string | {"maxLength":256} |
+| accountLabel | no | string | {"maxLength":256} |
+| resetsAt | no | number | {"minimum":0} |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "message": "example",
+  "resetsAt": 0
+}
+```
+
 ## DelegationOutcome
 
 [JSON Schema](schema/DelegationOutcome.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | outcome | yes | ["completed","failed","cancelled"] |  |
 | result | yes | string | {"maxLength":4096} |
@@ -10947,10 +10975,10 @@ Example:
 ```json
 {
   "before": null,
-  "outcome": "cancelled",
+  "outcome": "completed",
   "result": "example",
   "threadId": "example",
-  "truncated": true
+  "truncated": false
 }
 ```
 
@@ -16247,13 +16275,14 @@ Example:
   "origin": "ace",
   "outcome": {
     "before": null,
-    "outcome": "cancelled",
+    "outcome": "failed",
     "result": "example",
     "threadId": "example",
     "truncated": false
   },
   "phase": "cancelling",
   "provider": "cursor",
+  "raw": [],
   "role": "example",
   "status": {
     "state": "done"
@@ -16289,7 +16318,7 @@ Example:
   "agentId": "example",
   "complete": true,
   "createdAt": 8,
-  "delivery": "ace-input",
+  "delivery": "tool",
   "executionSource": {
     "nativeSessionId": "example",
     "selection": {
@@ -16303,8 +16332,14 @@ Example:
   "origin": "ace",
   "results": [
     {
-      "before": 2,
-      "outcome": "completed",
+      "before": null,
+      "failure": {
+        "accountLabel": "example",
+        "code": "example",
+        "message": "example",
+        "resetsAt": 9
+      },
+      "outcome": "cancelled",
       "result": "example",
       "threadId": "example",
       "truncated": false
@@ -18461,6 +18496,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | state | yes | [WatchedState.json](schema/WatchedState.json) |  |
 | title | yes | string | {"maxLength":120} |
@@ -18483,15 +18519,24 @@ Example:
 
 ```json
 {
-  "contact": "unconfirmed",
-  "elapsedSeconds": 2,
-  "needs": [],
-  "requests": [],
-  "state": "working",
-  "status": {
-    "state": "unresponsive"
+  "elapsedSeconds": 9,
+  "failure": {
+    "accountId": "example",
+    "accountLabel": "example",
+    "code": "example",
+    "message": "example"
   },
-  "step": "example",
+  "machine": "example",
+  "queuePosition": 5,
+  "requests": [],
+  "result": "example",
+  "state": "failed",
+  "status": {
+    "on": "rate_limit",
+    "queuePosition": 7,
+    "slotsInUse": 5,
+    "state": "waiting"
+  },
   "threadId": "example",
   "title": "example"
 }
@@ -19703,6 +19748,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
+| result | no | string | {"maxLength":200} |
 | id | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | parent | no | [ThreadId.json](schema/ThreadId.json) |  |
 | role | yes | string | {"maxLength":40} |
@@ -19724,13 +19771,15 @@ Example:
 
 ```json
 {
-  "elapsedSeconds": 7,
+  "ask": "example",
+  "elapsedSeconds": 9,
   "id": "example",
-  "machine": "example",
-  "queued": 1,
+  "last": "example",
+  "notice": "example",
+  "parent": "example",
+  "result": "example",
   "role": "example",
-  "state": "working",
-  "step": "example"
+  "state": "failed"
 }
 ```
 
@@ -19738,7 +19787,7 @@ Example:
 
 [JSON Schema](schema/MonitoredState.json), input validation.
 
-Type: ["working","queued","needs_you","done","failed","cancelled","unknown"]. See JSON Schema for constraints.
+Type: ["working","queued","needs_you","done","failed","cancelled","unknown","cancelling"]. See JSON Schema for constraints.
 
 Example:
 
@@ -19754,7 +19803,7 @@ Example:
 | --- | --- | --- | --- |
 | children | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MonitoredChild.json"}} |
 | omitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"]} |
+| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelling":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled","cancelling"]} |
 
 Example:
 
@@ -19763,6 +19812,7 @@ Example:
   "children": [],
   "counts": {
     "cancelled": 9,
+    "cancelling": 8,
     "done": 3,
     "failed": 7,
     "needs_you": 1,
@@ -36418,6 +36468,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | state | yes | [WatchedState.json](schema/WatchedState.json) |  |
 | title | yes | string | {"maxLength":120} |
@@ -36437,10 +36488,12 @@ Example:
 
 ```json
 {
-  "elapsedSeconds": 5,
-  "needs": [],
-  "slotLimit": 2,
-  "state": "cancelled",
+  "contact": "lost",
+  "elapsedSeconds": 9,
+  "last": "example",
+  "slotLimit": 5,
+  "state": "done",
+  "step": "example",
   "threadId": "example",
   "title": "example"
 }

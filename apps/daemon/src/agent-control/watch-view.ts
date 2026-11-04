@@ -127,6 +127,9 @@ export function requestPrompt(request: InteractionRequest): string {
 }
 
 /** One line, at most `max` UTF-16 units, never splitting a surrogate pair. */
+/** How much of a settled child's result a snapshot row carries; a read by threadId has it all. */
+export const rowResultLength = 200;
+
 export function clip(text: string, max: number): string {
   const line = text.replace(/\s+/g, " ").trim();
   if (line.length <= max) return line;

@@ -614,7 +614,8 @@ export class Engine {
         : { instanceId: this.targetInstance(provider, selection) }),
     });
   }
-  private targetInstance(
+  /** Resolve the account a launch will use, before creating any thread or provider work. */
+  targetInstance(
     provider: ProviderKind,
     selection?: Partial<import("@ace/protocol").AgentSelection>,
   ) {
@@ -1201,7 +1202,36 @@ export class Engine {
   endedOnLimit(id: ThreadId): boolean {
     const state = this.repo.state(id);
     const root = state?.rootKey === undefined ? undefined : state.agents[state.rootKey];
-    return root?.limited !== undefined && !root.activeRun && !root.retry;
+    return (
+      root?.limited !== undefined &&
+      !root.activeRun &&
+      !root.retry &&
+      state !== undefined &&
+      Object.keys(state.indexes.runningTasks).length === 0 &&
+      Object.keys(state.indexes.pendingInteractions).length === 0 &&
+      Object.values(state.agents).every((record) => !record.activeRun && !record.retry)
+    );
+  }
+  /** Work in the thread's local tree goes on, or ace will carry it on by itself. */
+  treeActive(id: ThreadId): boolean {
+    return this.liveness.active(id) || this.resuming(id) || this.limitContinues(id);
+  }
+  /**
+   * ace carries the limited thread on by itself: a resume or account move is scheduled at reset,
+   * or its limit policy is still loading and may schedule one.
+   */
+  limitContinues(id: ThreadId): boolean {
+    if (this.repo.state(id) === undefined) return false;
+    const queue = this.repo.queue.get(id);
+    return (
+      (queue.resumeAt !== null &&
+        (queue.timerAction === "resume" || queue.timerAction === "migrate")) ||
+      this.recovery.policyLoading(id)
+    );
+  }
+  /** `listener` hears each thread whose limit policy finished loading. */
+  onLimitPolicy(listener: (id: ThreadId) => void): () => void {
+    return this.recovery.onPolicyLoaded(listener);
   }
   heldInterrupted(id: ThreadId): boolean {
     return heldInterrupted(this.repo, id, Boolean(this.actors.get(id)?.session));

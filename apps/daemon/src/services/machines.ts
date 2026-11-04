@@ -58,6 +58,9 @@ export function startMachines(context: ServiceContext): void {
     log.log(level, message, logFields(Object.entries(fields)));
 
   const threads = new TargetThreads({
+    registry: () => services.accountRegistry,
+    accountEnabled: (provider, id) =>
+      services.providerConfigurations?.for(provider, id).enabled !== false,
     store,
     engine,
     models: () => services.models,
@@ -295,11 +298,12 @@ export function startMachines(context: ServiceContext): void {
         // left in place, its cached answer would stop this result for good.
         store.releaseRefusedCommand(CommandId.parse(id), DeviceId.parse("ace-agent"));
         if (settled) recordSettled(parentThreadId, id, settled, text);
+        const delivery = engine()?.supportsSteering(parentThreadId) ? "steer" : "queue";
         const result = delegations.command(id, {
           type: "thread.send",
           threadId: parentThreadId,
           input: [{ type: "text", text }],
-          delivery: "queue",
+          delivery,
           trigger: "subagent_result",
           origin: {
             kind: "subagent_result",
@@ -307,6 +311,16 @@ export function startMachines(context: ServiceContext): void {
           },
         });
         if (!result.ok) throw new Error(result.error ?? "Result delivery refused");
+        // Moving it ahead is best effort: failing it never undoes the delivered result.
+        if (delivery === "queue")
+          try {
+            engine()?.prioritizeSubagentResult(parentThreadId, result.commandId);
+          } catch (error) {
+            record("warn")("Remote child result not moved ahead of the queue", {
+              id,
+              error: String(error),
+            });
+          }
       });
     },
     waiting: (id) => services.agentControl?.delegations.monitor.watching(id) ?? false,

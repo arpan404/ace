@@ -55,6 +55,10 @@ export class Recovery {
   private cancel: (() => void) | undefined;
   private closed = false;
   private pendingPolicy = new Map<ThreadId, Promise<void>>();
+  /** Loads past the concurrent bound, by hold token: each starts as a running one finishes. */
+  private waitingPolicy = new Map<ThreadId, number>();
+  /** Told when a thread's limit policy finished loading, whatever it decided. */
+  private policyListeners = new Set<(id: ThreadId) => void>();
   /** Automatic restart continuations in a row, for the loop guard. */
   readonly streaks: RestartStreaks;
   /** What each restart continuation's capture saw, for startup's decision. */
@@ -437,7 +441,14 @@ export class Recovery {
       this.refreshPolicy(state.threadId, this.repo.queue.get(state.threadId).holdToken);
   }
   private refreshPolicy(id: ThreadId, token: number): void {
-    if (this.pendingPolicy.has(id) || this.pendingPolicy.size >= 64 || this.closed) return;
+    if (this.pendingPolicy.has(id) || this.closed) return;
+    // Past the bound it waits its turn, still loading: until it loads, nothing settles the
+    // thread on a policy it hasn't read.
+    if (this.pendingPolicy.size >= 64) {
+      this.waitingPolicy.set(id, token);
+      return;
+    }
+    this.waitingPolicy.delete(id);
     const task = this.prepare(id)
       .then(() => {
         const queue = this.repo.queue.get(id);
@@ -483,11 +494,33 @@ export class Recovery {
       })
       // The notice itself is a write; a store that refuses it is reported, never unhandled.
       .catch((error: unknown) => (this.ports.onError ?? console.error)(error))
-      .finally(() => this.pendingPolicy.delete(id));
+      .finally(() => {
+        this.pendingPolicy.delete(id);
+        const next = this.waitingPolicy.entries().next();
+        if (!next.done) {
+          this.waitingPolicy.delete(next.value[0]);
+          this.refreshPolicy(next.value[0], next.value[1]);
+        }
+        for (const listener of this.policyListeners) {
+          try {
+            listener(id);
+          } catch (error) {
+            (this.ports.onError ?? console.error)(error);
+          }
+        }
+      });
     this.pendingPolicy.set(id, task);
   }
+  /** The thread's limit policy is still loading, so what ace does at reset isn't known yet. */
+  policyLoading(id: ThreadId): boolean {
+    return this.pendingPolicy.has(id) || this.waitingPolicy.has(id);
+  }
+  onPolicyLoaded(listener: (id: ThreadId) => void): () => void {
+    this.policyListeners.add(listener);
+    return () => this.policyListeners.delete(listener);
+  }
   async flush(): Promise<void> {
-    await Promise.all(this.pendingPolicy.values());
+    while (this.pendingPolicy.size) await Promise.all(this.pendingPolicy.values());
   }
   automatic(id: ThreadId, action?: "migrate_now"): CommandResult | undefined {
     // Maintenance holds turns ace would start by itself: keep a due deadline for when it reopens.
@@ -707,6 +740,7 @@ export class Recovery {
   }
   close(): void {
     this.closed = true;
+    this.waitingPolicy.clear();
     this.cancel?.();
   }
 }
