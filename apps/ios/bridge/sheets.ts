@@ -7,6 +7,7 @@ import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
 import { followLogs, LogsQuery, type LogsFollow } from "./logs.ts";
 import { cancelDraft, DraftFor, writeDraft } from "./git-drafts.ts";
+import { ThreadReview } from "./thread-review.ts";
 import { threadSubject, WorkSession, type WorkSubject } from "./work.ts";
 import { clearStaleLock, workAction } from "./work-actions.ts";
 
@@ -41,6 +42,9 @@ const OpenAction = z.discriminatedUnion("kind", [
     requestId: z.string().min(1).max(64),
   }),
   z.object({ kind: z.literal("lock.clear"), requestId: z.string().min(1).max(64) }),
+  /** The composer's comment chip: send every unsent comment to the agent, or take them off. */
+  z.object({ kind: z.literal("review.comments.send"), requestId: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal("review.comments.clear") }),
 ]);
 const SheetAction = z.union([OpenAction, ChangesAction]);
 type SheetAction = z.infer<typeof SheetAction>;
@@ -69,13 +73,32 @@ export class Sheets {
   /** The transcript's problem line acts here while Work is closed; kept so one runs at a time. */
   #line: { threadId: string; subject: WorkSubject } | undefined;
   #deps: SheetDeps;
+  /** The open thread's ready-to-review line and comment chip (`thread-review.ts`). */
+  #review: ThreadReview | undefined;
   constructor(sink: PatchSink, preview: Preview, deps: SheetDeps = {}) {
     this.#sink = sink;
     this.#preview = preview;
     this.#deps = deps;
   }
+  /** A thread opened: its review line and comment chip follow it until it is left. */
+  follow(thread: OpenThread): void {
+    this.#review?.stop();
+    const kept = this.#deps.kept;
+    let sent = 0;
+    this.#review = kept
+      ? new ThreadReview({
+          ...thread,
+          kept,
+          sink: this.#sink,
+          preview: this.#preview,
+          id: this.#deps.id ?? (() => `review-${thread.threadId}-${thread.epoch}-${++sent}`),
+        })
+      : undefined;
+  }
   /** Thread navigation: nothing follows the previous thread. */
   close(): void {
+    this.#review?.stop();
+    this.#review = undefined;
     this.#agents?.stop();
     this.#agents = undefined;
     this.#logs?.stop();
@@ -225,6 +248,12 @@ export class Sheets {
           this.#preview,
         );
         return true;
+      case "review.comments.send":
+        this.#review?.send(action.requestId);
+        return this.#review !== undefined;
+      case "review.comments.clear":
+        this.#review?.clear();
+        return this.#review !== undefined;
       default:
         return this.#changes
           ? changesAction(this.#changes, action, this.#sink, this.#preview)

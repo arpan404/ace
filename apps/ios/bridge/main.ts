@@ -153,6 +153,7 @@ const visit = new ThreadVisit(
       transfers?.follow(undefined);
     },
     opened(threadId, epoch, store) {
+      if (client) sheets.follow({ owner: client, store, threadId, epoch });
       browser?.probe(threadId, epoch);
       transfers?.follow({ threadId, epoch, store });
     },
