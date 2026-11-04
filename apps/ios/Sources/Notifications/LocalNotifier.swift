@@ -16,6 +16,10 @@ enum NotificationKeys {
     static let hostId = "hostId"
     /// "0" when the alert should go to the list without a banner over the open app.
     static let banner = "banner"
+    /// The question a choice or Reply answers, and the option ids of its buttons, in order.
+    static let questionId = "questionId"
+    static let choices = "choices"
+    static let choiceSeparator: Character = "\u{1F}"
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
@@ -37,6 +41,13 @@ final class SystemNotificationCenter: NotificationCenterPort {
         info[NotificationKeys.deny] = alert.denyOption
         info[NotificationKeys.hostId] = alert.hostId
         info[NotificationKeys.banner] = alert.banner ? "1" : "0"
+        info[NotificationKeys.questionId] = alert.questionId
+        if !alert.choices.isEmpty {
+            info[NotificationKeys.choices] = alert.choices.map(\.id).joined(separator: String(NotificationKeys.choiceSeparator))
+            // The buttons' titles are the options' labels: their category goes in first.
+            let shape = NotificationCategories.Shape(labels: alert.choices.map(\.label), reply: alert.takesWords)
+            UNUserNotificationCenter.current().setNotificationCategories(NotificationCategories.remember(shape, defaults: .standard))
+        }
         content.userInfo = info
         // The stable daemon id, within its machine, is the request identifier, so a repeat
         // replaces rather than stacks, and another machine's equal id doesn't replace it.

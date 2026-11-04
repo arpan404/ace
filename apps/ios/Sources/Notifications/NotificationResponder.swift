@@ -1,18 +1,6 @@
 import Foundation
 import UserNotifications
 
-enum NotificationActionID {
-    static let approve = "ACE_APPROVE"
-    static let deny = "ACE_DENY"
-    /// Allow and Deny need an unlocked device and answer without opening the app.
-    static var categories: Set<UNNotificationCategory> {
-        let allow = UNNotificationAction(identifier: approve, title: "Allow", options: [.authenticationRequired])
-        let refuse = UNNotificationAction(identifier: deny, title: "Deny", options: [.authenticationRequired, .destructive])
-        return [UNNotificationCategory(identifier: AlertContent.approvalCategory, actions: [allow, refuse], intentIdentifiers: []),
-                UNNotificationCategory(identifier: AlertContent.threadCategory, actions: [], intentIdentifiers: [])]
-    }
-}
-
 /// The connections a background launch uses: the spike fixtures under `--spike`, otherwise every
 /// paired machine, each with its own grant, Keychain token and outbox.
 enum BackgroundConnection {
@@ -36,43 +24,42 @@ enum BackgroundConnection {
 
 extension NotificationCoordinator {
     /// Tap opens the thread on its machine. Allow/Deny answer the exact option the daemon offered,
-    /// on the machine that raised it, and only after reading the interaction's current state
-    /// (ADR 0012); a notification grants no authority.
-    func respond(action: String, notificationId: String, info: [String: String]) async {
+    /// a choice the exact option the question offered, and Reply sends the words, each on the
+    /// machine that raised it and only after reading the request's current state (ADR 0012); a
+    /// notification grants no authority. Every answer ends in an honest word: withdrawn once the
+    /// machine confirms it, otherwise a quiet follow-up saying what happened.
+    func respond(action: String, notificationId: String, info: [String: String], text: String? = nil) async {
         guard let threadId = info[NotificationKeys.threadId] else { return }
         let hostId = info[NotificationKeys.hostId]
-        let option = action == NotificationActionID.approve ? info[NotificationKeys.approve]
-            : action == NotificationActionID.deny ? info[NotificationKeys.deny] : nil
-        guard let option, let interactionId = info[NotificationKeys.interactionId] else {
+        guard let answer = NotificationAnswer(action: action, info: info, text: text) else {
             if let model = client(hostId) { model.deepLink = threadId } else { pendingLink = (threadId, hostId) }
             return
         }
-        let outcome = await resolve(threadId: threadId, interactionId: interactionId, optionId: option, hostId: hostId)
-        let title = "Request not answered"
-        switch outcome {
-        case .confirmed?, .stale?: notifier.withdraw(notificationId) // Answered, here or elsewhere.
-        case .refused?:
-            await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: title,
-                                  body: "Your machine didn't accept the answer. Open ace to see the request.", hostId: hostId)
-        case .saved?:
-            await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: "Answer saved",
-                                  body: "It sends when your machine is reachable. Open ace to check.", hostId: hostId)
-        default:
-            await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: title,
-                                  body: "Couldn't reach your machine. Open ace to answer.", hostId: hostId)
-        }
+        let outcome = await perform(answer, threadId: threadId, hostId: hostId)
+        await report(outcome, for: answer, notificationId: notificationId, threadId: threadId, hostId: hostId)
         await releaseTransient()
     }
-    func resolve(threadId: String, interactionId: String, optionId: String, hostId: String? = nil) async -> NotificationPatch.ActionOutcome? {
+    /// Sends one answer through the machine's bridge and waits for what became of it.
+    func perform(_ answer: NotificationAnswer, threadId: String, hostId: String?) async -> NotificationPatch.ActionOutcome? {
         guard let model = await session(hostId, budget: .seconds(10)) else { return .unreachable }
         // A view-only pairing answers nothing; the person answers on the computer.
         guard model.canOperate else { return .refused }
         let requestId = makeId()
         let outcome = Waiter<NotificationPatch.ActionOutcome>()
         expect(requestId, outcome)
-        guard model.notificationAction(["type": "notifications.resolve", "requestId": requestId, "threadId": threadId,
-                                         "interactionId": interactionId, "optionId": optionId]) else { return .unreachable }
+        guard model.notificationAction(answer.action(requestId: requestId, threadId: threadId)) else { return .unreachable }
         return await outcome.wait(.seconds(15), sleep: sleep) ?? outcome.latest
+    }
+    /// Kept for the Live Activity's Allow/Deny and older callers.
+    func resolve(threadId: String, interactionId: String, optionId: String, hostId: String? = nil) async -> NotificationPatch.ActionOutcome? {
+        await perform(.option(interactionId: interactionId, optionId: optionId), threadId: threadId, hostId: hostId)
+    }
+    /// Confirmed: the alert goes. Anything else: a quiet notice in its place, saying what happened.
+    func report(_ outcome: NotificationPatch.ActionOutcome?, for answer: NotificationAnswer, notificationId: String,
+                threadId: String, hostId: String?) async {
+        if outcome == .confirmed || outcome == .stale { notifier.withdraw(notificationId) }
+        guard let words = ActionNotice.words(outcome, for: answer) else { return }
+        await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: words.title, body: words.body, hostId: hostId)
     }
     /// BGAppRefreshTask: connect every paired machine briefly, fetch what a suspended app missed
     /// from each at once, then let go. True when every reachable machine caught up in the budget.
