@@ -139,6 +139,17 @@ export class Path {
   }
 }
 
+/**
+ * Let `ms` pass in steps shorter than a pong's 2 s deadline, letting promise chains run after each, so a pong answers
+ * its ping before the ping's deadline as it would on a real clock.
+ */
+export async function pass(clock: Clock, ms: number): Promise<void> {
+  for (let left = ms; left > 0; left -= 1_900) {
+    clock.advance(Math.min(1_900, left));
+    await settle();
+  }
+}
+
 /** Let promise chains (credentials, welcomes, outbox writes) run. */
 export const settle = async () => {
   for (let index = 0; index < 20; index++) await new Promise((resolve) => setTimeout(resolve, 0));
@@ -154,6 +165,8 @@ export async function connected(
     expectedHostId?: string;
     /** An account device's fresh grant, for refreshing each socket's. */
     grant?: ClientOptions["grant"];
+    /** False when the first connect isn't expected to be ready at once on `first`. */
+    ready?: boolean;
   } = {},
 ) {
   const clock = new Clock();
@@ -191,8 +204,10 @@ export async function connected(
   client.usePaths(multipath);
   await client.start();
   await settle();
-  expect(client.state).toBe("ready");
-  expect(multipath.active?.kind).toBe(first);
+  if (options.ready !== false) {
+    expect(client.state).toBe("ready");
+    expect(multipath.active?.kind).toBe(first);
+  }
   const route = (kind: MachinePathKind) => {
     const found = routes.find((entry) => entry.path.kind === kind);
     if (!found) throw new Error(`No ${kind} route`);

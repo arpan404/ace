@@ -1144,6 +1144,10 @@
       "bytes": 208,
       "sha256": "aa807fe397eb9e85a7bd8b91e19e98583151b075e17dd36552321292e447188e"
     },
+    "schema/DeviceRevokedClose.json": {
+      "bytes": 362,
+      "sha256": "67a80e11788df3b0e22f7cb54dc44d7001e8bdce37baa57d850620041c8cf416"
+    },
     "schema/DeviceScope.json": {
       "bytes": 266,
       "sha256": "181d6707569c52d62d8cc4c007cf1a4f740496d21d54dffc89a33fa907ff7643"
@@ -4869,10 +4873,10 @@
       "sha256": "f5156f0dc41d1da87aa64a048cf38588473f54ecb44c0be3c5a8fcdb84c64e9a"
     },
     "types.md": {
-      "bytes": 986910,
-      "sha256": "b76036c864b1b57a39f991173853696e5dd73840f3e2f08c90cfe1d7682c0a6f"
+      "bytes": 987208,
+      "sha256": "ac2d5995cabc16ed242468f5389f393db9348ca0323127699e6edf571fa9c708"
     }
   },
-  "input": "99e49cdd2aee017654cb0bfdbfa059d67a151f8d8156d299f74862dc51f18abc",
+  "input": "56304331926a98e3f9a38e59f051373b3a96592fde3e75253bff45c7ad549dac",
   "version": 1
 }

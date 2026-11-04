@@ -12175,6 +12175,24 @@ Example:
 "open"
 ```
 
+## DeviceRevokedClose
+
+[JSON Schema](schema/DeviceRevokedClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | `4003` |  |
+| reason | yes | `"Device revoked"` |  |
+
+Example:
+
+```json
+{
+  "code": 4003,
+  "reason": "Device revoked"
+}
+```
+
 ## DeviceScope
 
 [JSON Schema](schema/DeviceScope.json), input validation.
