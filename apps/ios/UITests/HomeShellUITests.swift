@@ -92,6 +92,22 @@ import XCTest
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
     }
 
+    func testTheInboxLinkClosesTheOpenThreadAndShowsThreadsInbox() {
+        let app = launch()
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
+        app.buttons["threads.tab.snoozed"].tap()
+        app.tabBars.firstMatch.buttons["Chats"].tap()
+        let chat = app.buttons["chat.row"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        chat.tap()
+        XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
+        app.open(URL(string: "ace://inbox")!)
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["threads.tab.inbox"].isSelected)
+        XCTAssertFalse(app.buttons["thread.menu"].exists)
+        XCTAssertTrue(app.tabBars.firstMatch.buttons["Threads"].isSelected)
+    }
+
     func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
         guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
         XCUIDevice.shared.orientation = .landscapeLeft

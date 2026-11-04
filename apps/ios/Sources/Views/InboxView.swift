@@ -387,6 +387,8 @@ struct InboxView: View {
     /// Opens what an `ace://` link names, read by the shared rules. A thread waits a moment for
     /// its machine's list after a cold launch; one no paired machine holds says so.
     private func openLink(_ url: URL) async {
+        // The phone's own link, which the shared reader doesn't know: it needs no machine.
+        if OpenedLink.withoutMachine(url)?.kind == "inbox" { showInbox(); return }
         guard let link = inbox.sessions.isEmpty ? OpenedLink.withoutMachine(url) : await inbox.readLink(url) else {
             if url.scheme?.lowercased() == AceLink.scheme, !inbox.sessions.isEmpty { organize.problem = "That ace link couldn't be read." }
             return
@@ -410,6 +412,15 @@ struct InboxView: View {
             organize.problem = "Folders open in ace on your computer."
         default: break
         }
+    }
+    /// `ace://inbox`: any open thread closes and Threads › Inbox shows, with nothing over it.
+    private func showInbox() {
+        place = nil
+        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close(); chatsDrawer.close() }
+        threadsPath = []
+        chatsPath = []
+        threadsTab = "inbox"
+        tab = .threads
     }
     private var organizer: ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in perform(id, key) },
