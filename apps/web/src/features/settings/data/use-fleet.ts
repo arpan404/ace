@@ -17,16 +17,18 @@ import {
   type LinkGap,
 } from "./fleet-links.ts";
 import type { PairedDevice } from "./fleet.ts";
+import { useFleetUpdate } from "./use-fleet-update.ts";
 
 /**
- * Everything the Fleet pages read, from every machine at once: their links, devices and open
- * pairing links, what's missing between them, and the actions that change it.
+ * Everything the Fleet pages read, from every machine at once: their links, devices, open
+ * pairing links and updates, what's missing between them, and the actions that change it.
  */
 export function useFleet() {
   const machines = useMachines();
   const links = useFleetLinks(machines);
   const devices = useFleetDevices(machines);
   const pairings = useFleetPairings(machines);
+  const update = useFleetUpdate(machines, devices);
   const queries = useQueryClient();
 
   const facts: FleetMachineFacts[] = machines.map((machine) => ({
@@ -107,6 +109,7 @@ export function useFleet() {
     links,
     devices,
     pairings,
+    update,
     gaps,
     joined,
     link,

@@ -18,10 +18,10 @@ export interface UpdateMachine {
   /** `admin`: this window may update it. `read`: it only reads it. `unknown`: not known yet. */
   access: "admin" | "read" | "unknown";
   /**
-   * Its last reported status, kept while it's offline (so it may be old). Undefined when it
-   * never reported one: its ace predates remote updates, or it hasn't answered yet.
+   * Its last reported status, kept while it's offline (so it may be old). Null when its ace
+   * predates remote updates; undefined while it hasn't answered yet.
    */
-  update: MachineUpdate | undefined;
+  update: MachineUpdate | null | undefined;
 }
 
 /** Why a machine can't be updated from this window. */
@@ -58,7 +58,8 @@ function blockOf(blocked: string): UpdateBlocker {
 export function updateBlocker(machine: UpdateMachine): UpdateBlocker | null {
   if (!machine.online) return "offline";
   if (machine.access === "read") return "read-only";
-  if (!machine.update) return "unsupported";
+  if (machine.update === null) return "unsupported";
+  if (!machine.update) return "checking";
   if (machine.update.blocked) return blockOf(machine.update.blocked);
   if (machine.access === "unknown") return "checking";
   return null;
@@ -162,7 +163,7 @@ const blockerNotes: Record<UpdateBlocker, string | null> = {
   "app-closed": "Open the ace app on it to update.",
   source: "It runs from a source checkout. Update it with git there.",
   unknown: "It hasn't been able to check for updates yet.",
-  unsupported: "Its ace is too old to update from here. Update it on the machine once.",
+  unsupported: "Update it on the machine once; after that it updates from here.",
   checking: null,
 };
 
@@ -172,12 +173,17 @@ export function machineSoftware(machine: UpdateMachine): SoftwareView {
   const blocker = updateBlocker(machine);
   if (!update)
     return {
-      line: machine.online ? "ace on this machine doesn't report its version." : "ace.",
+      line:
+        update === null
+          ? "Its ace is too old to report its version."
+          : machine.online
+            ? "Reading its version…"
+            : "Its version shows when it's back online.",
       progress: null,
       progressTone: "off",
       actions: [],
       link: null,
-      note: blockerNotes[blocker ?? "unsupported"],
+      note: update === null ? blockerNotes.unsupported : null,
     };
   const offer = update.available ? ` ${update.available} is available.` : "";
   const line = `ace ${update.version}.${offer || (update.checkedAt === null ? "" : " Up to date.")}`;

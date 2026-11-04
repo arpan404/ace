@@ -2,3 +2,4 @@
 export * from "./machine-update-words.ts";
 export * from "./fleet-update-plan.ts";
 export * from "./fleet-update-run.ts";
+export * from "./fleet-update-headline.ts";

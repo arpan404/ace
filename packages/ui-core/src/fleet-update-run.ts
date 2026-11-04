@@ -141,7 +141,9 @@ export function fleetRunState(
   if (!machine?.online) return { kind: "away", sent: entry.sent !== null };
   if (newer) return { kind: "expired", newer };
   if (entry.sent !== null) return { kind: "asked" };
-  if (!update) return { kind: "failed", words: "its ace is too old to update from here" };
+  if (update === null) return { kind: "failed", words: "its ace is too old to update from here" };
+  // Not read since it came online: asked once it has been.
+  if (!update) return { kind: "away", sent: false };
   if (update.available !== entry.version) {
     // Its platform has no such release, or it updated some other way.
     return isUpdating(update) ? { kind: "asked" } : { kind: "expired", newer: null };
@@ -262,7 +264,13 @@ export function fleetRunLine(
             tone: "off",
             action: null,
           }
-        : { words: `Updates to ${entry.version} when it's back online`, tone: "off", action: null };
+        : {
+            words: machine?.online
+              ? "Checking"
+              : `Updates to ${entry.version} when it's back online`,
+            tone: "off",
+            action: null,
+          };
     }
   }
 }

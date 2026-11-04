@@ -21,12 +21,11 @@ export async function fleet(client: ClientApi, operation: Operation) {
   return reply.result;
 }
 
-/** A failure a machine reports, in words a person acts on. */
 /**
  * A refusal's code: a daemon's own (`unavailable`, `forbidden`…), which the client carries as
  * the message of its `daemon` error, else the client's (`offline`, `timeout`…).
  */
-function refusalCode(error: unknown): string {
+export function refusalCode(error: unknown): string {
   if (typeof error !== "object" || error === null || !("code" in error)) return "";
   const code = String(error.code);
   return code === "daemon" && error instanceof Error ? error.message : code;
@@ -182,6 +181,9 @@ export function useFleetDevices(machines: readonly Machine[]) {
       queryKey: fleetKeys.devices(machine.id),
       queryFn: () => (machine.client ? machineDevices(machine.client) : Promise.resolve([])),
       enabled: machine.client !== undefined,
+      // A device that isn't an administrator there stays refused: asking again changes nothing.
+      retry: (failures: number, error: unknown) =>
+        refusalCode(error) !== "forbidden" && failures < 3,
     })),
   });
   return new Map(machines.map((machine, index) => [machine.id, results[index]]));

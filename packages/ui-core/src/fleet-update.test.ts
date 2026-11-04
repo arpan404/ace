@@ -1,5 +1,6 @@
 import { MachineUpdate } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { fleetMachineLine, fleetUpdateHeadline } from "./fleet-update-headline.ts";
 import { cannotUpdateSentence, fleetUpdateOffer, fleetUpdatePlan } from "./fleet-update-plan.ts";
 import {
   fleetRunFailed,
@@ -243,4 +244,37 @@ test("a run is kept across a reload and dropped after seven days", () => {
   expect(data.size).toBe(0);
   data.set("ace.fleet.updateRun", "{not json");
   expect(loadFleetRun(storage, 0)).toBeNull();
+});
+
+test("Fleet offers Update all, then counts the run down, then offers again once it's done", () => {
+  expect(fleetUpdateHeadline(fleet, null, 0)).toEqual({
+    title: "3 machines can update to 0.0.19",
+    note: "Old laptop is offline, Deb box updates from its release page and this window can only read Kitchen Mac.",
+    actions: ["all", "all-now"],
+  });
+  const run = sentAll(start());
+  expect(fleetUpdateHeadline(fleet, run, 1)).toEqual({
+    title: "0 of 4 updated · 1 when back online",
+    note: "Deb box updates from its release page and this window can only read Kitchen Mac.",
+    actions: [],
+  });
+  const done = updatedFleet(["Build server", "Windows PC", "This Mac", "Old laptop"])
+    .map((entry) => ({ ...entry, online: true }))
+    .filter((entry) => !["Deb box", "Kitchen Mac", "Busy box"].includes(entry.id));
+  expect(fleetUpdateHeadline(done, run, 2)?.title).toBe("All 4 machines updated to 0.0.19");
+});
+
+test("a machine row shows its place in the run, and its own state outside one", () => {
+  const run = sentAll(start());
+  const pc = fleet.find((entry) => entry.id === "Windows PC");
+  const deb = fleet.find((entry) => entry.id === "Deb box");
+  if (!pc || !deb) throw new Error("missing");
+  expect(fleetMachineLine(pc, run, 1)?.words).toBe("Asked to update");
+  expect(fleetMachineLine(pc, null, 1)).toMatchObject({
+    words: "Update available · 0.0.19",
+    action: "update",
+  });
+  expect(fleetMachineLine(deb, run, 1)?.words).toBe(
+    "Update available · 0.0.19 · from its release page",
+  );
 });
