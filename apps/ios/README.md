@@ -31,6 +31,22 @@ xcrun simctl install YOUR_SIMULATOR_UDID .build/DerivedData/Build/Products/Debug
 xcrun simctl launch YOUR_SIMULATOR_UDID app.ace.ios --spike
 ```
 
+Use an **iOS 26.1** simulator runtime, not 26.2. The iOS 26.2 simulator's JavaScriptCore
+(runtime 23C52, JavaScriptCore UUID `0ED6EFCF-6A91-3C3A-845A-7B6AA4832FB6`) corrupts string
+cell pointers while running the client bundle. The app dies with `EXC_BAD_ACCESS` in
+`JSRopeString::resolveRope` (under `split`, `trimStart`, `join` or `new RegExp`), in
+`jsSubstringOfResolved`, or with a `brk` trap in JIT code. The faulting addresses are cell
+pointers with their upper bits gone (`0x0a1b82e8`). Measured on 2026-11-04 with the same
+Debug build and the 9861 fixture: 26.2 crashed 16 of 20 launches, 26.1 crashed 0 of 20. A
+command-line tool that does nothing but evaluate `Resources/client.js` in fresh `JSContext`s
+on one thread, with a stub `aceHost`, crashes the same way on 26.2 (5 of 10 runs) and never
+on 26.1. Plain JavaScript can't corrupt the heap, so this is the engine, not the bridge. The
+crashing VM was always the only thread inside JavaScriptCore. `JSC_useDFGJIT=false` stops the
+tool's crashes, but the app still crashes with every JIT tier off (3 of 12), so no option makes
+26.2 safe. Real iPhones run without a JIT; whether iOS 26.2 devices hit the same failure is
+untested. In debug builds the bridge stops at any JavaScriptCore call made off a runtime's VM
+thread (`Sources/Bridge/VMThread.swift`), so a threading bug can't pass for this one.
+
 Use one simulator destination and one build at a time. The fixture binds to
 loopback port 9841, invokes no provider CLIs and spends no provider quota. It seeds
 2,000 items, streams 20 deltas per second, opens a shell approval and keeps a child
