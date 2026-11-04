@@ -56,7 +56,8 @@ export function aceAccountStore(backend: AceAccountBackend) {
     update({ session: null });
     if (secure) await secure.write(origin, null);
   };
-  let restoring: Promise<void> | undefined;
+  /** The check under way or done, and the signal it runs under. */
+  let restoring: { signal: AbortSignal; done: Promise<void> } | undefined;
   let signingIn: AbortController | undefined;
   const signedIn = async (session: AceAccountGrant): Promise<void> => {
     writeJson(storage, key, session);
@@ -76,9 +77,14 @@ export function aceAccountStore(backend: AceAccountBackend) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
-    /** Checks the saved session with the backend once; later calls share that check. */
+    /**
+     * Checks the saved session with the backend once; later calls share that check. A check
+     * whose caller went away (its signal aborted, as a remount does) gives way to the next
+     * caller's, so `restoring` always ends.
+     */
     restore(signal: AbortSignal): Promise<void> {
-      restoring ??= (async () => {
+      if (restoring && !restoring.signal.aborted) return restoring.done;
+      const done = (async () => {
         const token = stored?.token ?? (await secure?.read(origin).catch(() => null));
         if (!token) return;
         const value = await client.session(
@@ -93,16 +99,14 @@ export function aceAccountStore(backend: AceAccountBackend) {
           if (cause instanceof AceAccountError && cause.status === 401)
             await forget().catch(() => {});
           // An abort (the window closing) isn't the backend's failure; a later restore retries.
-          if (signal.aborted) {
-            restoring = undefined;
-            return;
-          }
+          if (signal.aborted) return;
           update({ error: "Couldn't verify your account. Try again." });
         })
         .finally(() => {
           if (!signal.aborted) update({ restoring: false });
         });
-      return restoring;
+      restoring = { signal, done };
+      return done;
     },
     /** A sign-in finished: keep the session for this window and, in the app, saved. */
     signedIn,
