@@ -27,6 +27,7 @@ import {
   SettingSection,
 } from "@/components/setting-row.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
+import { ToolchainSection } from "./toolchain-section.tsx";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
@@ -257,6 +258,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             "Clone and push use Git's credential helper or SSH keys on this machine, not the GitHub API sign-in."}
         </SettingNote>
       </SettingSection>
+      <ToolchainSection label="Tools on this machine" ids={["git"]} />
     </>
   );
 }

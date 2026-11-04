@@ -444,25 +444,35 @@ export class FakeAppDevices {
     this.send(channel, { type: "devices.result", requestId: message.requestId, ok: true, data });
   }
 
+  /**
+   * Devices on or off for the whole machine, as Settings › Devices (`devices.enabled`) or a
+   * person's `enable` request sets them: every open channel hears, and turning off ends sessions.
+   */
+  setEnabled(enabled: boolean): { enabled: boolean } {
+    if (this.enabled === enabled) return { enabled };
+    this.enabled = enabled;
+    for (const open of this.channels)
+      this.send(open, { type: "devices.enabled", enabled: this.enabled });
+    if (!this.enabled)
+      for (const session of this.sessions.values()) {
+        delete session.threadId;
+        session.recording = false;
+        delete session.streamId;
+        delete session.leaseExpiresAt;
+        session.lifecycle = "idle";
+        session.controller = "none";
+        delete session.humanOwner;
+        delete session.holder;
+      }
+    this.onEnabled?.(this.enabled);
+    return { enabled: this.enabled };
+  }
+  /** Saves a change made from a devices channel, as the daemon keeps `devices.enabled`. */
+  onEnabled: ((enabled: boolean) => void) | undefined;
+
   private operate(channel: Channel, operation: DeviceOperation): unknown {
     if (operation.op === "inventory.watch") return { watching: operation.watching };
-    if (operation.op === "enable") {
-      this.enabled = operation.enabled;
-      for (const open of this.channels)
-        this.send(open, { type: "devices.enabled", enabled: this.enabled });
-      if (!this.enabled)
-        for (const session of this.sessions.values()) {
-          delete session.threadId;
-          session.recording = false;
-          delete session.streamId;
-          delete session.leaseExpiresAt;
-          session.lifecycle = "idle";
-          session.controller = "none";
-          delete session.humanOwner;
-          delete session.holder;
-        }
-      return { enabled: this.enabled };
-    }
+    if (operation.op === "enable") return this.setEnabled(operation.enabled);
     if (operation.op === "list")
       return { devices: [...this.sessions.values()].map((s) => s.device), issues: this.issues() };
     if (operation.op === "tools.install") {

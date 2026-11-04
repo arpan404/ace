@@ -275,6 +275,20 @@ export function BrowserSettingsScreen() {
   );
 }
 
+const SimulatorsSettings = lazy(() =>
+  import("./simulators-page.tsx").then((module) => ({ default: module.SimulatorsSettings })),
+);
+
+export function SimulatorsSettingsScreen() {
+  return (
+    <SettingsBody page="Simulators">
+      <Suspense fallback={null}>
+        <SimulatorsSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
 export function StorageSettingsScreen() {
   return (
     <SettingsBody page="Storage">
