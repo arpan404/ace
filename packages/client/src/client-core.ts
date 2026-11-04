@@ -301,11 +301,9 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
       // holds are dropped by seq. The old path's subscriptions are left to close with it.
       this.#subscriptions.disconnect();
       for (const sidebar of this.#collections) sidebar.disconnect();
-      this.#readMarkers.disconnect();
       this.#statusChecks.disconnect();
       this.#subscriptions.reconnect();
       for (const sidebar of this.#collections) sidebar.reconnect();
-      this.#readMarkers.reconnect();
       return () => {
         this.requests.abandon(requests);
         this.#intents.reask(commands);
