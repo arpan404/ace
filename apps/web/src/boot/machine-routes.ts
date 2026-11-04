@@ -68,17 +68,18 @@ export function pairedRoutes(
   saved: readonly unknown[] | undefined,
 ): MachineRoute[] {
   const { relayHostId: _relay, ...direct } = target;
-  return [
+  const routes: MachineRoute[] = [
     { path: { key: "paired", kind: targetKind(target) }, ...daemonRoute(target) },
-    ...usablePaths(target, saved).map((path) => ({
-      path: { key: `${path.kind} ${path.url}`, kind: path.kind },
-      ...daemonRoute(
-        path.relayHostId
-          ? { ...target, url: path.url, relayHostId: path.relayHostId }
-          : { ...direct, url: path.url },
-      ),
-    })),
   ];
+  for (const path of usablePaths(target, saved)) {
+    const route = daemonRoute(
+      path.relayHostId
+        ? { ...target, url: path.url, relayHostId: path.relayHostId }
+        : { ...direct, url: path.url },
+    );
+    routes.push({ path: { key: `${path.kind} ${path.url}`, kind: path.kind }, ...route });
+  }
+  return routes;
 }
 
 /** Every address a pool worker for this machine may dial, for the desktop app to allow. */
