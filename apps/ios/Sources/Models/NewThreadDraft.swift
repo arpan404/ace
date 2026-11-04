@@ -116,13 +116,14 @@ struct NewThreadDraftStore: Sendable {
         try? DraftFile<NewThreadDraft>(url: url).save(draft)
     }
     /// Where the person's own draft waits while a handoff takes the sheet.
-    private var asideURL: URL { url.deletingLastPathComponent().appendingPathComponent("new-thread-aside.json") }
+    private var asideURL: URL { url.deletingPathExtension().appendingPathExtension("aside.json") }
     var aside: NewThreadDraft? { DraftFile<NewThreadDraft>(url: asideURL).load() }
     /// A handoff takes the sheet: the draft there goes aside first when it holds words or files
-    /// the person wrote (one already aside stays), and comes back once the handoff is saved.
+    /// (one already aside stays), and comes back once the handoff is saved. A handoff the person
+    /// closed without sending counts as their own draft.
     func seed(_ handoff: NewThreadDraft) {
         let current = load()
-        let own = current.handoff == nil && (!current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current.files.isEmpty)
+        let own = !current.autoSend && (!current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current.files.isEmpty)
         if own, aside == nil { try? DraftFile<NewThreadDraft>(url: asideURL).save(current) }
         save(handoff)
     }
@@ -149,6 +150,11 @@ struct NewThreadDraftStore: Sendable {
         staging.sweep(keeping: Set((loaded.files + (store.aside?.files ?? [])).map(\.localId)))
         draft = loaded
     }
+
+    /// The draft as saved, after something outside the sheet wrote it (a handoff).
+    func reload() { draft = store.load() }
+    /// Where the draft is kept.
+    var file: NewThreadDraftStore { store }
 
     func edit(_ change: (inout NewThreadDraft) -> Void) {
         var next = draft

@@ -107,7 +107,7 @@ struct NewThreadComposer: View {
             .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
             .foregroundStyle(AceTheme.Colours.foreground)
             .tint(AceTheme.Colours.foreground)
-            .background(AceTheme.Colours.fill, in: Circle())
+            .background { NewThreadRound(fill: AceTheme.Colours.fill) }
             // The new thread takes only the files it was sent with: none joins while it starts.
             .disabled(draft.projectId == nil || client?.canOperate != true || sending)
             Spacer(minLength: AceDesign.Space.related)
@@ -135,12 +135,12 @@ struct NewThreadComposer: View {
                 if dictation.listening {
                     AceShape.stopGlyph.frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
                 } else {
-                    AceIcon(.microphone, size: AceDesign.Size.barIcon, relativeTo: .body)
+                    AceIcon(.microphone, size: AceDesign.Size.sendGlyph, weight: .bold, relativeTo: .body)
                 }
             }
             .foregroundStyle(dictation.listening ? AceTheme.Colours.background : AceTheme.Colours.foreground)
             .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-            .background(dictation.listening ? AceTheme.Colours.foreground : AceTheme.Colours.fill, in: Circle())
+            .background { NewThreadRound(fill: dictation.listening ? AceTheme.Colours.foreground : AceTheme.Colours.fill) }
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -181,4 +181,10 @@ struct NewThreadInstructionsView: View {
         .onAppear(perform: reloadProfiles)
         .navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
     }
+}
+
+/// The round behind + and the mic: Send's size, inside the same full tap.
+struct NewThreadRound: View {
+    let fill: Color
+    var body: some View { Circle().fill(fill).frame(width: AceDesign.Size.send, height: AceDesign.Size.send) }
 }

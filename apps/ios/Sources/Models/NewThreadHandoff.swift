@@ -44,7 +44,7 @@ extension HandoffCatalogue {
                 rows.map { Project(machineId: machine.id, projectId: $0.id, name: $0.name) }
             } ?? previous.projects.filter { $0.machineId == machine.id && $0.projectId != NewThreadDraft.chat }
             next.projects += listed
-            next.projects.append(Project(machineId: machine.id, projectId: NewThreadDraft.chat, name: "No project"))
+            next.projects.append(Project(machineId: machine.id, projectId: HandoffCatalogue.chat, name: "No project"))
         }
         next.lastMachine = memory.machine
         next.lastProject = memory.machine.flatMap { memory.choices[$0]?.projectId }

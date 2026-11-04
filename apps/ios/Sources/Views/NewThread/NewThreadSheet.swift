@@ -98,6 +98,8 @@ struct NewThreadSheet: View {
         .tint(AceTheme.Colours.foreground)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sending) { _, now in now }
         .task(id: machineId) {
+            // A start handed over from a share or a shortcut takes the sheet first.
+            if NewThreadHandoffIntake.take(inbox: inbox, into: drafts.file) { drafts.reload() }
             guard let client, let machineId else { return }
             // The draft holds the machine it opens on, so a later connection doesn't move it. A
             // draft already written on a project before machines were named keeps that project.
@@ -132,7 +134,11 @@ struct NewThreadSheet: View {
             memory.record(draft)
         }
         .onChange(of: autoSendReady, initial: true) { _, ready in if ready { send() } }
-        .onDisappear { client?.composeAction(["kind": "close"]) }
+        .onDisappear {
+            client?.composeAction(["kind": "close"])
+            // Closed before it could start: what was handed over stays as a draft to send by hand.
+            if draft.autoSend { drafts.edit { $0.autoSend = false } }
+        }
         .sheet(isPresented: $browsing) { projectFiles }
         .sheet(isPresented: $choosingProject) {
             if let client {
@@ -195,7 +201,9 @@ struct NewThreadSheet: View {
     /// What holds Send back, why the last start didn't save, and the issue or pull request the
     /// thread works on: quiet lines under the pills.
     @ViewBuilder private var notes: some View {
-        let note = failure ?? attachProblem ?? (draft.text.isEmpty && !draft.autoSend ? nil : blocker)
+        // A blocker a pill already says ("Choose a project") isn't said twice.
+        let said = blocker == "Choose a project" || blocker == "Choose a coding agent" || blocker == "Write the first message"
+        let note = failure ?? attachProblem ?? (draft.text.isEmpty && !draft.autoSend || said ? nil : blocker)
         if note != nil || draft.issue != nil || draft.pullRequest != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if let note {
@@ -342,8 +350,6 @@ struct NewThreadSheet: View {
             self.sending = false
             if admitted {
                 suggester.sent()
-                // The handoff it came from is a saved start now: it leaves the queue.
-                if let handoff = sending.handoff { HandoffStore.shared()?.remove(handoff) }
                 drafts.admitted()
                 saved(machineId, commandId)
                 dismiss()

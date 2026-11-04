@@ -31,6 +31,8 @@ struct HandoffFile: Codable, Equatable, Sendable {
 /// app, read by the share extension and the intents. Names machines and projects by id; no
 /// secret, no address.
 struct HandoffCatalogue: Codable, Equatable, Sendable {
+    /// "No project": a chat, as New thread names it (`NewThreadDraft.chat`).
+    static let chat = "chat"
     struct Machine: Codable, Equatable, Sendable, Identifiable {
         let id: String
         let name: String
