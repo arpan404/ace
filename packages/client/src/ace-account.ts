@@ -94,6 +94,35 @@ export function aceAccountClient(options: { origin: string; fetch: typeof fetch 
         await call("grants", "POST", token, signal, AceGrantRequest.parse(request)),
       );
     },
+    /**
+     * The account's profile picture as relayed by the backend, or undefined when it has none.
+     * Pictures over 1 MiB or of another type are refused.
+     */
+    async picture(token: string, signal: AbortSignal): Promise<Blob | undefined> {
+      // Built apart from the call, as in `call`: Workers typings lack `credentials`.
+      const init = {
+        method: "GET",
+        signal,
+        credentials: "omit",
+        redirect: "error",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
+      } as const;
+      const response = await options.fetch(`${origin}/v1/account/picture`, init);
+      if (response.status === 404) {
+        await response.body?.cancel();
+        return undefined;
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new AceAccountError(response.status);
+      }
+      const type = response.headers.get("Content-Type") ?? "";
+      const picture = await response.blob();
+      if (!/^image\/(png|jpeg|webp|gif)$/.test(type) || picture.size > 1024 * 1024)
+        throw new AceAccountError(502);
+      return picture;
+    },
     /** Machines signed in to this account, most recently seen first. */
     async machines(token: string, signal: AbortSignal): Promise<AceMachine[]> {
       return AceMachineList.parse(await call("machines", "GET", token, signal)).machines;

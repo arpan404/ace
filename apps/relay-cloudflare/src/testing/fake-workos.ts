@@ -13,7 +13,14 @@ export type WorkosUser = {
   email: string;
   first_name: string;
   last_name: string | null;
+  profile_picture_url?: string | null;
 };
+
+/** A one-pixel PNG: what the fake serves as a profile picture. */
+export const FAKE_PICTURE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 /**
  * WorkOS's User Management API, as far as ace uses it: authorization codes checked against
@@ -32,6 +39,13 @@ export async function fakeWorkos() {
     request.on("data", (chunk: Buffer) => (raw += chunk.toString()));
     request.on("end", () => {
       void (async () => {
+        // Where WorkOS keeps profile pictures: an image, and a page that isn't one.
+        if (request.url === "/pictures/person.png") {
+          response.writeHead(200, { "Content-Type": "image/png" });
+          return response.end(FAKE_PICTURE);
+        }
+        if (request.url === "/pictures/not-an-image")
+          return reply(response, 200, { message: "not an image" });
         if (request.url !== "/user_management/authenticate" || request.method !== "POST")
           return reply(response, 404, { message: "Not found" });
         const body = JSON.parse(raw) as Record<string, string>;

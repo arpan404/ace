@@ -3,7 +3,11 @@ import { useState } from "react";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
+import {
+  useAccountPicture,
+  useAceAccount,
+  useAceAccountStore,
+} from "@/features/ace-account/index.ts";
 import { useProfileName } from "@/lib/profile.ts";
 
 /**
@@ -64,6 +68,7 @@ export type ProfileAccount = ReturnType<typeof useProfileAccount>;
  */
 export function ProfileHero(props: { account: ProfileAccount }) {
   const { session, signIn, store, restoring, error, shown } = props.account;
+  const picture = useAccountPicture();
   const login = signIn?.login;
   return (
     <section
@@ -71,7 +76,7 @@ export function ProfileHero(props: { account: ProfileAccount }) {
       aria-label="ace account"
       className="flex scroll-mt-32 flex-col items-center text-center"
     >
-      <ProfileAvatar name={shown} className="size-24 text-3xl" iconSize={36} />
+      <ProfileAvatar name={shown} picture={picture} className="size-24 text-3xl" iconSize={36} />
       <h2 className="mt-5 text-2xl leading-8 font-semibold tracking-[-0.015em]">
         {shown || "Your profile"}
       </h2>

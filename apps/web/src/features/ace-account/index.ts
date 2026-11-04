@@ -11,6 +11,7 @@ export {
 export type { AceAccountBackend, AceAccountStore } from "./session-store.ts";
 export { accountMachineLists, platformName, type AccountMachine } from "./account-machines.ts";
 export { useAccountMachines } from "./use-account-machines.ts";
+export { useAccountPicture } from "./use-account-picture.ts";
 export { AccountMachineRow } from "./account-machine-row.tsx";
 export { MachineCodePrompt, type CodeGate } from "./machine-code-prompt.tsx";
 export {

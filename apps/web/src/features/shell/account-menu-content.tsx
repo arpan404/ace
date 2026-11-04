@@ -10,7 +10,11 @@ import {
 } from "@/components/ui/menu.tsx";
 import { menuLabel } from "@/components/ui/menu-styles.ts";
 import { ProfileAvatar } from "@/components/profile-avatar.tsx";
-import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
+import {
+  useAccountPicture,
+  useAceAccount,
+  useAceAccountStore,
+} from "@/features/ace-account/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProfileName } from "@/lib/profile.ts";
@@ -34,13 +38,16 @@ export function AccountMenuContent() {
   const [name] = useProfileName();
   const { session } = useAceAccount();
   const accounts = useAceAccountStore();
+  const picture = useAccountPicture();
   const navigate = useNavigate();
   const version = desktopVersion();
   const shown = session?.account.name || name.trim();
   return (
     <MenuContent side="right" align="end" className="min-w-64">
       <MenuItem
-        icon={<ProfileAvatar name={shown} className="size-9 text-sm" iconSize={16} />}
+        icon={
+          <ProfileAvatar name={shown} picture={picture} className="size-9 text-sm" iconSize={16} />
+        }
         className="h-auto gap-3 py-2"
         onClick={() => void navigate({ to: "/settings/profile" })}
       >

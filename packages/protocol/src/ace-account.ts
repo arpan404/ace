@@ -31,6 +31,11 @@ export const AceAccount = z.object({
     .max(320)
     .regex(/^[^\s@]+@[^\s@]+$/),
   name: z.string().max(256),
+  /**
+   * The account has a profile picture, served to its own sessions by `GET
+   * /v1/account/picture`. The picture's own address never leaves the backend.
+   */
+  picture: z.boolean().optional(),
 });
 export type AceAccount = z.infer<typeof AceAccount>;
 
