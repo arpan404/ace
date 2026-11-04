@@ -39,6 +39,7 @@ import { HostId } from "@ace/protocol";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachinePool } from "./fake-machines.ts";
+import { seedFleetUpdates } from "./fake-updates.ts";
 import { seedMachineChildren } from "./fake-machine-children.ts";
 import { installFakeVideoDecoder } from "./fake-video.ts";
 import { seedBuildServerUsage, seedLimitReadings } from "./fake-usage.ts";
@@ -284,8 +285,10 @@ export function bootFake(): {
   // A laptop paired here that's switched off, so Fleet shows a machine offline.
   const away =
     empty || solo ? [] : [{ hostId: HostId.parse("old-laptop"), displayName: "Old laptop" }];
+  // `?fakeWorld=updates`: a release is out, for Settings › Fleet's updates.
+  const updating = world === "updates" ? seedFleetUpdates(daemon, server) : [];
   const machines = fakeMachinePool(
-    solo ? [] : [server],
+    solo ? [] : [server, ...updating],
     (other) =>
       createBrowserClient({
         deviceId: "web-fake-device",

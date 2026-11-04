@@ -4,6 +4,7 @@ import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
+import type { FakeMachineUpdate } from "./machine-update-wire.ts";
 import { MachineIcon } from "@ace/protocol";
 import { regeneratedTitle } from "./title-regenerate.ts";
 import { markUncertainInput, restoreInput, repeatInput, waitingSteer } from "./queue-fixtures.ts";
@@ -338,6 +339,10 @@ export class FakeDaemon implements Host {
   /** Past-session requests clients made: lists read provider history, releases end it. */
   get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
     return this.servicesWire.history;
+  }
+  /** This machine's own update, behind `machineUpdate.request`. */
+  get machineUpdate(): FakeMachineUpdate {
+    return this.servicesWire.machineUpdate;
   }
   /** The host folders and project catalog behind `projects.request` and project commands. */
   get projects(): FakeProjects {
