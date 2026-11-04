@@ -256,7 +256,7 @@ extension BrowserScreen {
     fileprivate var annotationSentence: String {
         if annotate?.mode == "starting" { return "Getting the page ready to draw on…" }
         let count = model.thread?.screen.annotations.count ?? 0
-        return count == 0 ? "Circle or underline what to change" : "Draw another, or write your message"
+        return count == 0 ? "Circle what to change" : "Draw another"
     }
 }
 

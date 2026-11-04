@@ -56,6 +56,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     private var stroke = AnnotateStroke()
     /// The finger's ink while drawing, in the accent; it fades once the page's marker is there.
     private let inkLayer = CAShapeLayer()
+    /// A rim in the app's background colour under the ink, so it reads on any page, light or dark.
+    private let inkHalo = CAShapeLayer()
+    private let inkGroup = CALayer()
     /// The picture last drawn and the tab it showed, for the still an iPad's split keeps of a
     /// tab once another shows.
     private(set) var lastPicture: (image: CVPixelBuffer, tabId: String)?
@@ -70,12 +73,14 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         isMultipleTouchEnabled = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
-        inkLayer.fillColor = nil
-        inkLayer.lineWidth = AceDesign.Size.inkStroke
-        inkLayer.lineCap = .round
-        inkLayer.lineJoin = .round
-        inkLayer.strokeColor = UIColor(AceTheme.Colours.accent).cgColor
-        layer.addSublayer(inkLayer)
+        for (shape, width) in [(inkHalo, AceDesign.Size.inkStroke * 2), (inkLayer, AceDesign.Size.inkStroke)] {
+            shape.fillColor = nil
+            shape.lineWidth = width
+            shape.lineCap = .round
+            shape.lineJoin = .round
+            inkGroup.addSublayer(shape)
+        }
+        layer.addSublayer(inkGroup)
         addSubview(textField)
         claim.isEnabled = interactive
         for recognizer in [pinch, pan] as [UIGestureRecognizer] {
@@ -100,7 +105,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         videoLayer.frame = pageSize == .zero ? bounds : geometry.box
+        inkGroup.frame = bounds
         inkLayer.frame = bounds
+        inkHalo.frame = bounds
         CATransaction.commit()
         let movable = geometry.movable
         pinch.isEnabled = movable || pageSize.width > bounds.width
@@ -253,7 +260,8 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         inkLayer.strokeColor = UIColor(AceTheme.Colours.accent).resolvedColor(with: traitCollection).cgColor
-        inkLayer.removeAnimation(forKey: "fade")
+        inkHalo.strokeColor = UIColor(AceTheme.Colours.background).resolvedColor(with: traitCollection).cgColor
+        inkGroup.removeAnimation(forKey: "fade")
         let points = annotating ? stroke.ink : []
         let path = UIBezierPath()
         if let first = points.first {
@@ -261,7 +269,8 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
             for point in points.dropFirst() { path.addLine(to: point) }
         }
         inkLayer.path = path.cgPath
-        inkLayer.opacity = fading ? 0 : 1
+        inkHalo.path = path.cgPath
+        inkGroup.opacity = fading ? 0 : 1
         CATransaction.commit()
         guard fading, !points.isEmpty else { return }
         let fade = CABasicAnimation(keyPath: "opacity")
@@ -270,7 +279,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         fade.beginTime = CACurrentMediaTime() + AceDesign.Motion.inkHold
         fade.duration = AceDesign.Motion.inkFade
         fade.fillMode = .backwards
-        inkLayer.add(fade, forKey: "fade")
+        inkGroup.add(fade, forKey: "fade")
     }
     private func send(_ inputs: [RemoteInput]) {
         guard !inputs.isEmpty else { return }

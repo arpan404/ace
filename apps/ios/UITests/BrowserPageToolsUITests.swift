@@ -61,7 +61,7 @@ final class BrowserPageToolsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["browser.annotate.done"].waitForExistence(timeout: 10))
         try await control("pin")
         try await control("region")
-        XCTAssertTrue(app.staticTexts["Draw another, or write your message"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Draw another"].waitForExistence(timeout: 10))
         screenshot("browser-tools-3-annotating")
         app.buttons["browser.annotate.message"].tap()
         let chip = app.buttons["composer.annotations"]
