@@ -336,17 +336,25 @@ test("delegation without a model uses the synced provider default over a parent'
 });
 
 test.each([
-  { account: "signed out", refused: /requires authentication/ },
-  { account: "at its usage limit", refused: /is at its limit until/ },
+  { account: "CLI signed out", refused: /requires authentication/ },
+  { account: "CLI at its usage limit", refused: /is at its limit until/ },
+  { account: "managed account at its usage limit", managed: true, refused: /at its limit until/ },
+  {
+    account: "managed account at its usage limit, named",
+    managed: true,
+    named: true,
+    refused: /at its limit until/,
+  },
 ])(
-  "an OpenCode CLI $account can delegate an unauthenticated model but not an authenticated one",
-  async ({ account, refused }) => {
+  "an OpenCode $account can delegate an unauthenticated model but not an authenticated one",
+  async ({ account, refused, managed = false, named = false }) => {
+    const accountId = managed ? "opencode-managed" : "opencode-cli-default";
     const initial = setup();
     const catalog = new ModelCatalog({
       storage: openModelStorage(join(initial.home, "open-models.sqlite")),
       instances: [
         ModelInstance.parse({
-          id: "opencode-cli-default",
+          id: accountId,
           provider: "opencode",
           executable: "unused",
           cwd: initial.home,
@@ -377,19 +385,26 @@ test.each([
     await initial.close();
     // The CLI's own login as ace registers it, with a fresh reading of a used-up window.
     const accountDb = new DatabaseSync(join(initial.home, "accounts.sqlite"));
-    const accounts = account === "signed out" ? undefined : new AccountRegistry(accountDb);
+    const accounts = account === "CLI signed out" ? undefined : new AccountRegistry(accountDb);
     if (accounts) {
       await accounts.register(
-        ProviderInstance.parse({
-          id: "opencode-cli-default",
-          implicit: true,
-          provider: "opencode",
-          label: "CLI",
-          homeDir: initial.home,
-          env: {},
-        }),
+        managed
+          ? createInstance({
+              id: accountId,
+              label: "Managed",
+              provider: "opencode",
+              homeDir: initial.home,
+            })
+          : ProviderInstance.parse({
+              id: accountId,
+              implicit: true,
+              provider: "opencode",
+              label: "CLI",
+              homeDir: initial.home,
+              env: {},
+            }),
       );
-      accounts.ingest("opencode-cli-default", {
+      accounts.ingest(accountId, {
         provider: "opencode",
         observedAt: initial.clock.now(),
         timeZone: "UTC",
@@ -427,6 +442,7 @@ test.each([
         task: "Inspect",
         role: "inspect-public-catalog",
         model: "public",
+        ...(named ? { accountId } : {}),
       });
       const child = h.service.delegate(parent, request);
       await h.engine.flush();

@@ -92,10 +92,15 @@ function eligible(
   candidate: Candidate,
   model: CatalogModel,
 ): Candidate {
-  // This is an admission view, never a mutation of the user's recorded auth state.
-  return withoutAuth(deps, model)
-    ? { instance: candidate.instance, quota: { ...candidate.quota, auth: "logged_in" } }
-    : candidate;
+  if (!withoutAuth(deps, model)) return candidate;
+  // A model that needs no sign-in spends no account usage: neither the sign-in nor the usage
+  // limits apply, so an exhausted account still runs it. Its home must still be usable. This is
+  // an admission view, never a mutation of the account's recorded state.
+  const { limitError: _spent, ...blockers } = candidate.quota.blockers;
+  return {
+    instance: candidate.instance,
+    quota: { ...candidate.quota, auth: "logged_in", windows: {}, blockers },
+  };
 }
 function checkAuth(
   deps: DelegationDependencies,
