@@ -11,6 +11,7 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
+import { deviceKind } from "./data/device-kind.ts";
 import { cancelPairing, deviceLifetimes, revokeDevice } from "./data/fleet.ts";
 import type { FleetDevice } from "./data/fleet-links.ts";
 import { listNames } from "./data/list-names.ts";
@@ -18,13 +19,10 @@ import type { Fleet } from "./data/use-fleet.ts";
 import { deviceScopeLabels } from "./device-scopes.ts";
 
 /** A device's glyph from the name it gives: phones, tablets, else a browser. */
+const glyphs = { tablet: DeviceTabletIcon, phone: DeviceMobileIcon, browser: BrowserIcon };
+
 export function DeviceGlyph(props: { name: string }) {
-  const name = props.name.toLowerCase();
-  const Glyph = /ipad|tablet|tab s/.test(name)
-    ? DeviceTabletIcon
-    : /iphone|pixel|android|phone|galaxy/.test(name)
-      ? DeviceMobileIcon
-      : BrowserIcon;
+  const Glyph = glyphs[deviceKind(props.name)];
   return <Glyph aria-hidden size={15} />;
 }
 
