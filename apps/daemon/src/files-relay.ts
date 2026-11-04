@@ -7,7 +7,7 @@ import type { KeyPair } from "@ace/secure-channel";
 import { activeDevice, allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { MachineAccount } from "./account-access/machine-account.ts";
-import { relayHello } from "./relay-hello.ts";
+import { accountDeviceActor, relayHello } from "./relay-hello.ts";
 import type { RelayedMain } from "./relay-socket.ts";
 import { AccessError } from "./remote-auth.ts";
 import type { ClientMessage, PairResult } from "@ace/protocol";
@@ -177,18 +177,7 @@ function mainActor(
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
 ): RelayedMain["actor"] | undefined {
-  if (stillAdmitted) {
-    const now = options.auth.now();
-    return {
-      id,
-      name: "ace account device",
-      scopes: ["admin"],
-      createdAt: now,
-      lastSeenAt: now,
-      revokedAt: null,
-      revocable: false,
-    };
-  }
+  if (stillAdmitted) return accountDeviceActor(id, options.auth.now());
   const device = options.devices.get(id);
   if (!activeDevice(device, options.auth.now())) return undefined;
   if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;

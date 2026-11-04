@@ -313,3 +313,84 @@ it("a session the backend no longer knows signs the machine out when it asks for
   expect(daemon.account.status().signedIn).toBe(false);
   expect(refusal((await daemon.open()).first)).toBe("unauthorized");
 });
+
+/** A daemon serving its own sockets, signed in to the fake backend's account. */
+async function signedInServer() {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  let account: ReturnType<typeof machineAccount> | undefined;
+  const f = await fixture({}, (store, home) => {
+    account = machineAccount({
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now: Date.now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanup.push(async () => {
+    await account?.close();
+    await f.close();
+  });
+  if (!account) throw new Error("No machine account");
+  await account.handover(backend.origin, backend.token);
+  const grant = () => {
+    const iat = Date.now();
+    return signGrant(
+      { kind: "device", account: "user_a", subject: "phone", iat, exp: iat + GRANT_LIFETIME_MS },
+      backend.signingKey,
+    );
+  };
+  /** Say hello on a direct socket as the account's phone; resolves with the first answer. */
+  const hello = async (extra: { machineCode?: string } = {}) => {
+    const client = await f.open();
+    const closed = new Promise<number>((resolve) => client.socket.once("close", resolve));
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("phone"),
+      grant: grant(),
+      ...extra,
+    });
+    return { client, closed, first: await client.next() };
+  };
+  return { account, hello };
+}
+
+it("a device signed in to the account opens a direct socket as admin", async () => {
+  const daemon = await signedInServer();
+  const { client, first } = await daemon.hello();
+  expect(first).toMatchObject({ type: "welcome", hostId: "host" });
+  client.send({
+    type: "provider.accounts.add",
+    requestId: "add",
+    provider: "codex",
+    method: "api_key",
+  });
+  const answer = await client.next();
+  expect(answer).toMatchObject({ type: "provider.accounts.result", requestId: "add" });
+  expect(JSON.stringify(answer)).not.toContain("forbidden");
+});
+
+it("a direct socket asks an account device for the machine code as the relay does", async () => {
+  const daemon = await signedInServer();
+  await daemon.account.setMachineCode("2468");
+  const asked = await daemon.hello();
+  expect(asked.first).toMatchObject({ type: "error", code: "machine_code_required" });
+  expect(await asked.closed).toBe(4011);
+  expect((await daemon.hello({ machineCode: "2468" })).first).toMatchObject({ type: "welcome" });
+});
+
+it("an account change closes the account device's direct sockets at once", async () => {
+  const daemon = await signedInServer();
+  const opened = await daemon.hello();
+  expect(opened.first).toMatchObject({ type: "welcome" });
+  await daemon.account.setMachineCode("2468");
+  expect(await opened.closed).toBe(4003);
+  const again = await daemon.hello({ machineCode: "2468" });
+  expect(again.first).toMatchObject({ type: "welcome" });
+  await daemon.account.signOut();
+  expect(await again.closed).toBe(4003);
+});
