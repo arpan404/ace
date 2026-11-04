@@ -48,9 +48,12 @@ export class SettingsStore {
 
 /** The saved settings with the patch's defined keys laid over them, notifications key by key. */
 function merge(saved: DesktopSettings, patch: StoredSettingsPatch): DesktopSettings {
-  const { notifications, ...top } = patch;
+  const { notifications, keybindingsIfUnset, ...top } = patch;
   return {
     ...saved,
+    ...(keybindingsIfUnset && saved.keybindings === null
+      ? { keybindings: keybindingsIfUnset }
+      : {}),
     ...defined(top),
     notifications: {
       ...saved.notifications,

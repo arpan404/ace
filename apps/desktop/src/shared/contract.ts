@@ -248,9 +248,10 @@ export const DesktopSettings = z.object({
   globalShortcut: z.string().max(64).nullable().default(null),
   /**
    * Keyboard shortcuts rebound on this app, per device. Null until the app first stores them,
-   * which is when it adopts what the machine's old shared setting held.
+   * which is when it adopts what the machine's old shared setting held. A damaged value reads
+   * as no rebindings, not as never stored, so the old setting is never adopted twice.
    */
-  keybindings: Keybindings.nullable().default(null),
+  keybindings: Keybindings.nullable().default(null).catch({}),
   /** Keep the machine awake while agents work. */
   preventSleep: z.boolean().default(false),
   /**
@@ -284,6 +285,11 @@ export const DesktopSettingsPatch = z.object({
   attention: z.boolean().optional(),
   globalShortcut: z.string().max(64).nullable().optional(),
   keybindings: Keybindings.nullable().optional(),
+  /**
+   * Keyboard shortcuts to store only if the app has none yet: adopting the machine's old shared
+   * setting. Applied in turn with other saves, so it never replaces one made before it.
+   */
+  keybindingsIfUnset: Keybindings.optional(),
   preventSleep: z.boolean().optional(),
   browserDownloads: z.string().min(1).max(4096).nullable().optional(),
 });

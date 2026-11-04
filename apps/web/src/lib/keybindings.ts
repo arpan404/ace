@@ -305,7 +305,8 @@ export function useHotkeyBindings(keys: string, id?: KeymapId): readonly string[
 export function useKeybindingsSync(): void {
   const stored = useDeviceKeybindings(cleanOverrides);
   useEffect(() => {
-    if (stored) setKeybindingOverrides(cleanOverrides(stored));
+    // Never stored here (or cleared) means defaults until adopted, never the last device's.
+    if (stored !== undefined) setKeybindingOverrides(cleanOverrides(stored));
     return syncDesktopKeymap(resolveKeymap(cleanOverrides(stored)));
   }, [stored]);
   // Nothing outlives the shell that read it (tests mount several devices in turn).

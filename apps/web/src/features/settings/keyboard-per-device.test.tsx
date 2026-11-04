@@ -94,3 +94,27 @@ test("in a browser, Keyboard has no global shortcuts", async () => {
   expect(screen.queryByRole("region", { name: "Global" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Quick-thread global shortcut" })).toBeNull();
 });
+
+test("damaged saved shortcuts restore this device's defaults instead of adopting the machine's old ones again", async () => {
+  const storage = memoryKeyValue();
+  storage.setItem("ace.keybindings", "{not json");
+  const app = harness({ storage });
+  app.daemon.services.settings.seed({ "clients.keybindings": { palette: "alt+mod+p" } });
+  await app.open("/settings/keyboard");
+
+  expect((await shortcut("Command palette")).textContent).toBe("Ctrl+K");
+  expect(storage.getItem("ace.keybindings")).toBe("{}");
+});
+
+test("shortcuts cleared from this browser while it's open stop applying, even when the machine can't answer", async () => {
+  const storage = memoryKeyValue();
+  const app = harness({ storage });
+  await app.open("/settings/keyboard");
+  await rebindPalette();
+
+  app.daemon.failRequests("settings.get");
+  storage.removeItem("ace.keybindings");
+  globalThis.dispatchEvent(new StorageEvent("storage", { key: "ace.keybindings" }));
+
+  await waitFor(async () => expect((await shortcut("Command palette")).textContent).toBe("Ctrl+K"));
+});

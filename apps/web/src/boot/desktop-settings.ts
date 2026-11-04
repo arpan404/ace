@@ -28,8 +28,15 @@ export const DesktopPreferences = z.looseObject({
   preventSleep: z.boolean().default(false),
   attention: z.boolean().default(true),
   globalShortcut: z.string().max(64).nullable().default(null),
-  /** This app's shortcut rebindings; null until it first stores them. Ids are checked on use. */
-  keybindings: z.record(z.string().max(64), z.string().min(1).max(64)).nullable().default(null),
+  /**
+   * This app's shortcut rebindings; null until it first stores them. Ids are checked on use. A
+   * damaged value reads as none rebound, so the old shared setting isn't adopted again.
+   */
+  keybindings: z
+    .record(z.string().max(64), z.string().min(1).max(64))
+    .nullable()
+    .default(null)
+    .catch({}),
   /** Where this app's own browser saves downloads; null: the system's Downloads folder. */
   browserDownloads: z.string().max(4096).nullable().default(null),
   notifications: Notifications,
@@ -42,6 +49,8 @@ export interface DesktopPreferencesPatch {
   attention?: boolean;
   globalShortcut?: string | null;
   keybindings?: Readonly<Record<string, string>>;
+  /** Stored only if this app has no rebindings yet, in turn with other saves. */
+  keybindingsIfUnset?: Readonly<Record<string, string>>;
   browserDownloads?: string | null;
   notifications?: DesktopPreferences["notifications"];
 }

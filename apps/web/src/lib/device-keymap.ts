@@ -1,6 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { z } from "zod";
 import { desktopPreferences, type DesktopPreferencesStore } from "@/boot/desktop-settings.ts";
@@ -20,17 +20,45 @@ export interface DeviceKeymap {
   /** Undefined until it can be read (the desktop hasn't answered); null: never stored here. */
   get(): Rebindings | null | undefined;
   set(next: Rebindings): Promise<void>;
+  /**
+   * Stores these only if nothing is stored yet, checked when it commits, so a save made
+   * meanwhile (in this window, another tab, or still on its way to the desktop's disk) wins.
+   */
+  adopt(next: Rebindings): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
 
 const keymapStorageKey = "ace.keybindings";
 /** Keymap id → keys in keymap notation, as the machine's old setting held them. */
 const StoredKeybindings = z.record(z.string().max(64), z.string().min(1).max(64));
-const Stored = StoredKeybindings.nullable();
+
+/** What this browser stored: null when never; none rebound when what's there is damaged. */
+function readStored(storage: KeyValueStorage | undefined): Rebindings | null {
+  let raw: string | null | undefined;
+  try {
+    raw = storage?.getItem(keymapStorageKey);
+  } catch {
+    return null;
+  }
+  if (raw == null) return null;
+  const parsed = StoredKeybindings.safeParse(parseJson(raw));
+  if (parsed.success) return parsed.data;
+  // Damaged: back to defaults, kept, so the old shared setting isn't adopted a second time.
+  writeJson(storage, keymapStorageKey, {});
+  return {};
+}
+
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
 
 /** A browser's rebindings in local storage, shared by its tabs. */
 export function browserKeymap(storage: KeyValueStorage | undefined): DeviceKeymap {
-  const read = () => readJson(storage, keymapStorageKey, Stored, null);
+  const read = () => readStored(storage);
   let value = read();
   const listeners = new Set<() => void>();
   const notify = () => {
@@ -47,6 +75,13 @@ export function browserKeymap(storage: KeyValueStorage | undefined): DeviceKeyma
     async set(next) {
       writeJson(storage, keymapStorageKey, next);
       value = next;
+      notify();
+    },
+    async adopt(next) {
+      // Another tab may have saved before its storage event reached this one: look again.
+      const now = storage ? read() : value;
+      if (now === null) writeJson(storage, keymapStorageKey, next);
+      value = now ?? next;
       notify();
     },
     subscribe(listener) {
@@ -68,6 +103,7 @@ export function desktopKeymap(store: DesktopPreferencesStore): DeviceKeymap {
       return value === undefined ? undefined : value.keybindings;
     },
     set: (next) => store.update({ keybindings: next }),
+    adopt: (next) => store.update({ keybindingsIfUnset: next }),
     subscribe: (listener) => store.subscribe(listener),
   };
 }
@@ -122,8 +158,8 @@ export function useDeviceKeybindings(
     let current = true;
     legacyKeybindings(client).then(
       (legacy) => {
-        // A rebinding saved meanwhile wins over the old setting.
-        if (current && keymap.get() === null) void keymap.set(clean(legacy)).catch(() => {});
+        // A rebinding saved meanwhile wins over the old setting; `adopt` checks again on commit.
+        if (current && keymap.get() === null) void keymap.adopt(clean(legacy)).catch(() => {});
       },
       () => {
         /* Offline: tried again on the next start. Defaults apply until then. */

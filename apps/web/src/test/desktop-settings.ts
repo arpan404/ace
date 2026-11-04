@@ -16,8 +16,9 @@ interface Stored {
 
 /**
  * The desktop app's settings bridge (`window.ace.settings`) as the page sees it: `update`
- * replaces whole top-level fields, stores them and announces the result, as the main process
- * does. `refuse(true)` makes saves fail, as a full disk would. Undo with `vi.unstubAllGlobals()`.
+ * replaces whole top-level fields (`keybindingsIfUnset` only when none are stored), stores
+ * them and announces the result, as the main process does. `refuse(true)` makes saves fail, as
+ * a full disk would. Undo with `vi.unstubAllGlobals()`.
  */
 export function fakeDesktopSettings() {
   let stored: Stored = {
@@ -34,9 +35,13 @@ export function fakeDesktopSettings() {
   vi.stubGlobal("ace", {
     settings: {
       get: async () => stored,
-      update: async (patch: Partial<Stored>) => {
+      update: async ({
+        keybindingsIfUnset,
+        ...patch
+      }: Partial<Stored> & { keybindingsIfUnset?: Record<string, string> }) => {
         if (refusing) throw new Error("Couldn't save");
-        stored = { ...stored, ...patch };
+        const adopted = keybindingsIfUnset && stored.keybindings === null;
+        stored = { ...stored, ...(adopted ? { keybindings: keybindingsIfUnset } : {}), ...patch };
         for (const listener of listeners) listener(stored);
         return stored;
       },
