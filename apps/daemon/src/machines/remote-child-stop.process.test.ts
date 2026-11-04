@@ -29,6 +29,8 @@ interface Rijan {
   cancels: string[];
   /** What a cancel does there; by default nothing changes (it never confirms). */
   onCancel: (id: string) => void;
+  /** False once the person unpairs Rijan from this machine. */
+  paired: boolean;
 }
 
 function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: number) {
@@ -62,7 +64,7 @@ function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: 
     waiting: () => false,
     isDescendant: () => false,
     descendants: () => [],
-    device: () => "device-rijan",
+    device: () => (rijan.paired ? "device-rijan" : undefined),
     log: () => {},
   });
 }
@@ -81,7 +83,13 @@ const notSent = (id: ThreadId): MachineThreadView => ({
 async function parentWithChildren(count = ids.length, leaseMs?: number) {
   const f = setup();
   const parent = await f.parent();
-  const rijan: Rijan = { views: new Map(), silent: false, cancels: [], onCancel: () => {} };
+  const rijan: Rijan = {
+    views: new Map(),
+    silent: false,
+    cancels: [],
+    onCancel: () => {},
+    paired: true,
+  };
   const ledger = children(f, rijan, leaseMs);
   for (const id of ids.slice(0, count)) {
     ledger.add({
@@ -208,6 +216,74 @@ it("an unconfirmed cancel keeps going out until the child's machine confirms it 
   const confirmed = rijan.cancels.length;
   await at(f.clock.now() + 5 * 61_000);
   expect(rijan.cancels.length).toBe(confirmed);
+});
+
+/** Stops the one child and lets every cancel go unconfirmed, so it reads cancelling. */
+async function stoppedUnconfirmed() {
+  const parts = await parentWithChildren(1);
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  parts.ledger.stop(id);
+  await parts.at(parts.f.clock.now() + stopBound(REMOTE_STOP) + 1);
+  await parts.at(parts.f.clock.now() + 1);
+  const caller = {
+    sessionId: "s",
+    threadId: parts.parent.threadId,
+    agentId: parts.parent.agentId,
+  };
+  expect(parts.ledger.children(caller)).toEqual([
+    expect.objectContaining({ id, state: "cancelling", contact: "unconfirmed" }),
+  ]);
+  return { ...parts, id, caller };
+}
+
+it("unpairing the machine of a child whose stop is unconfirmed stops the cancel retries and settles it cancelled, saying it can't be confirmed", async () => {
+  const { f, parent, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  rijan.paired = false;
+  await at(f.clock.now() + 61_000);
+
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({
+      id,
+      state: "cancelled",
+      result: expect.stringContaining(
+        "no longer paired with this machine, so the stop can't be confirmed",
+      ),
+    }),
+  ]);
+  expect(ledger.children(caller)[0]?.contact).toBeUndefined();
+  expect(ledger.watched(id)?.view).toMatchObject({ state: "cancelled" });
+  expect(ledger.watched(id)?.view.contact).toBeUndefined();
+  expect(
+    parentView(f, parent).rows.map((row) => row.kind === "agent" && row.agent.machine?.contact),
+  ).toEqual([undefined]);
+  expect(live).not.toContain(parentView(f, parent).status.state);
+
+  // No cancel goes out any more, even if the machine is paired again later.
+  const sent = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
+  rijan.paired = true;
+  await at(f.clock.now() + 5 * 61_000);
+  expect(rijan.cancels.length).toBe(sent);
+  expect(ledger.children(caller)[0]?.state).toBe("cancelled");
+});
+
+it("a machine that no longer has the stopped child ends its cancel retries, and the child settles cancelled", async () => {
+  const { f, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  rijan.onCancel = () => {
+    throw new MachineFailure("refused", "not_found");
+  };
+  await at(f.clock.now() + 61_000);
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({
+      id,
+      state: "cancelled",
+      result: expect.stringContaining("no longer has this child"),
+    }),
+  ]);
+  const sent = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
+  expect(rijan.cancels.length).toBe(sent);
 });
 
 it("a child whose machine confirms the cancel ends with its real outcome and no warning", async () => {

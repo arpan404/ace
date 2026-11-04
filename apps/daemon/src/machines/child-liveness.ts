@@ -6,8 +6,9 @@ import { standing } from "../liveness/standing.ts";
 import { REMOTE_STOP, type StopPlan } from "../liveness/stop.ts";
 import { savedView, type ChildLedger, type ChildRow } from "./child-ledger.ts";
 import type { ChildResults } from "./child-results.ts";
-import { unconfirmedView } from "./child-views.ts";
+import { unconfirmableView, unconfirmedView, type Unconfirmable } from "./child-views.ts";
 import type { RequestMirror } from "./mirror.ts";
+import { refusedNotFound } from "./transport.ts";
 
 /** How many lapsed children one poll marks lost; the rest go on the next. */
 const LAPSED_PER_POLL = 64;
@@ -24,6 +25,11 @@ export interface ChildLivenessDeps {
   schedule(ms: number, run: () => void): () => void;
   /** Sends one cancel to the child's machine. A failure is only logged: the stop goes on. */
   cancel(row: ChildRow): Promise<void>;
+  /**
+   * True once the child's pairing is gone (unpaired, or linked again as another device): its
+   * stop can never be confirmed. False when the pairings can't be read.
+   */
+  unpaired(row: ChildRow): boolean;
   label(machine: string): string;
   host?(machine: string): HostId | undefined;
   results: ChildResults;
@@ -103,8 +109,13 @@ export class ChildLiveness {
       next = Math.min(next ?? now + step.waitMs, now + step.waitMs);
     }
     // Settled here unconfirmed: the cancel keeps going out, across reconnects and restarts (the
-    // ledger keeps when it last went), until its machine reports the child ended.
+    // ledger keeps when it last went), until its machine reports the child ended. An offline
+    // machine is retried; one no longer paired never can confirm, so ace stops asking.
     for (const row of this.deps.ledger.unconfirmedStops(CONFIRM_PER_TICK)) {
+      if (this.deps.unpaired(row)) {
+        this.unconfirmable(row, "unpaired");
+        continue;
+      }
       const due = (row.stop_last_at ?? 0) + this.confirmRetryMs;
       if (due <= now) this.sendCancel(row, now);
       const after = due <= now ? now + this.confirmRetryMs : due;
@@ -114,11 +125,33 @@ export class ChildLiveness {
   }
   private sendCancel(row: ChildRow, now: number): void {
     this.deps.ledger.stopAttempted(row.id, now);
-    void this.deps
-      .cancel(row)
-      .catch((error: unknown) =>
-        this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) }),
-      );
+    void this.deps.cancel(row).catch((error: unknown) => {
+      // Its machine has no such child: the stop can never be confirmed there.
+      if (row.stopped_unconfirmed === 1 && refusedNotFound(error))
+        return this.unconfirmable(row, "gone");
+      this.deps.log("Machine child cancel not confirmed", { id: row.id, error: String(error) });
+    });
+  }
+  /**
+   * A child stopped here whose stop can never be confirmed: its cancel stops going out, and it
+   * reads cancelled, saying why, instead of cancelling.
+   */
+  private unconfirmable(row: ChildRow, why: Unconfirmable): void {
+    if (this.closed) return;
+    const name = this.deps.label(row.machine);
+    const view = unconfirmableView(row, name, why, this.deps.now());
+    const changed = this.deps.store.atomic(() => {
+      if (!this.deps.ledger.markStopUnconfirmable(row.id, JSON.stringify(view))) return false;
+      this.parentRow(row, name, undefined, undefined, view);
+      return true;
+    });
+    if (!changed) return;
+    this.deps.emit([row.id]);
+    this.deps.log("Machine child stop can't be confirmed", {
+      id: row.id,
+      machine: row.machine,
+      why,
+    });
   }
   /**
    * The lease check: every unsettled child whose machine hasn't reported it within the lease is

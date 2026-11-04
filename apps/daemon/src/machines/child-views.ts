@@ -88,6 +88,35 @@ export function unconfirmedView(row: ChildRow, name: string, now: number): Machi
   };
 }
 
+/** Why a stop can never be confirmed: this machine's pairing, or the child's record there, is gone. */
+export type Unconfirmable = "unpaired" | "gone";
+
+/**
+ * The settled view of a child stopped here whose stop can never be confirmed, so ace stopped
+ * sending the cancel: cancelled, saying why and that its work there may still be running.
+ */
+export function unconfirmableView(
+  row: ChildRow,
+  name: string,
+  why: Unconfirmable,
+  now: number,
+): MachineThreadView {
+  const saved = savedView(row);
+  return {
+    threadId: row.id,
+    state: "cancelled",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: saved?.elapsedSeconds ?? elapsedSeconds(row.created_at, now),
+    status: { state: "done" },
+    requests: [],
+    result:
+      why === "unpaired"
+        ? `Stopped here. ${name} is no longer paired with this machine, so the stop can't be confirmed; its work there may still be running.`
+        : `Stopped here. ${name} no longer has this child, so the stop can't be confirmed.`,
+    truncated: false,
+  };
+}
+
 /**
  * A child its machine stopped reporting, as a wait reads it: no longer live (read as failed, so
  * it releases a wait), saying it lost contact and may resume.

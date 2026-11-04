@@ -121,6 +121,7 @@ export class MachineChildren implements RemoteChildren {
       ledger: this.ledger,
       results: this.results,
       cancel: (row) => deps.cancel(row.machine, row.parent_thread, row.id),
+      unpaired: (row) => this.lostFrom(row.machine)?.(row) ?? false,
       emit: (ids) => this.emit(ids),
     });
     this.messages = new ChildMessages({

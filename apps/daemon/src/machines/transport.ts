@@ -22,6 +22,15 @@ export class MachineFailure extends Error {
   }
 }
 
+/** True when `error`, or what it wraps, is the machine saying it has no such record. */
+export function refusedNotFound(error: unknown): boolean {
+  for (let at: unknown = error, depth = 0; at instanceof Error && depth < 4; depth++) {
+    if (at instanceof MachineFailure) return at.kind === "refused" && at.refusal === "not_found";
+    at = at.cause;
+  }
+  return false;
+}
+
 export interface MachineTransportOptions {
   timeoutMs: number;
   signal?: AbortSignal;

@@ -37,7 +37,10 @@ export const ChildRow = z.object({
   stop_started_at: z.number().nullable(),
   stop_attempts: z.number(),
   stop_last_at: z.number().nullable(),
-  /** Stopped here after every cancel went unconfirmed; a late report never revives it. */
+  /**
+   * Stopped here after every cancel went unconfirmed; a late report never revives it. 1: the
+   * cancel is still sent; 2: its machine confirmed late; 3: it can never confirm (unpaired).
+   */
   stopped_unconfirmed: z.number(),
 });
 export type ChildRow = z.infer<typeof ChildRow>;
@@ -449,6 +452,22 @@ export class ChildLedger {
           "UPDATE machine_children SET view=?, stopped_unconfirmed=2 WHERE id=? AND settled=1 AND stopped_unconfirmed=1",
         )
         .run(view, id),
+    );
+  }
+  /**
+   * A child stopped here whose stop can never be confirmed (its pairing or its record there is
+   * gone): its end is kept and its cancel stops being sent (`stopped_unconfirmed` 3).
+   */
+  markStopUnconfirmable(id: ThreadId, view: string): boolean {
+    return this.store.atomic(
+      (db) =>
+        Number(
+          db
+            .prepare(
+              "UPDATE machine_children SET view=?, stopped_unconfirmed=3 WHERE id=? AND settled=1 AND stopped_unconfirmed=1",
+            )
+            .run(view, id).changes,
+        ) > 0,
     );
   }
   /** Children stopped here whose machine hasn't confirmed it yet: their cancel is still sent. */
