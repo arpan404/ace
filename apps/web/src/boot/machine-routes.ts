@@ -66,10 +66,17 @@ function usablePaths(target: DaemonTarget, saved: readonly unknown[] | undefined
 export function pairedRoutes(
   target: DaemonTarget,
   saved: readonly unknown[] | undefined,
+  clock?: () => number,
 ): MachineRoute[] {
   const { relayHostId: _relay, ...direct } = target;
+  // Direct paths can be probed; relays race on reconnect instead.
+  const probe = (url: string) => (clock ? { probe: httpsProbe(url, clock) } : {});
   const routes: MachineRoute[] = [
-    { path: { key: "paired", kind: targetKind(target) }, ...daemonRoute(target) },
+    {
+      path: { key: "paired", kind: targetKind(target) },
+      ...daemonRoute(target),
+      ...(target.relayHostId ? {} : probe(target.url)),
+    },
   ];
   for (const path of usablePaths(target, saved)) {
     const route = daemonRoute(
@@ -77,9 +84,35 @@ export function pairedRoutes(
         ? { ...target, url: path.url, relayHostId: path.relayHostId }
         : { ...direct, url: path.url },
     );
-    routes.push({ path: { key: `${path.kind} ${path.url}`, kind: path.kind }, ...route });
+    routes.push({
+      path: { key: `${path.kind} ${path.url}`, kind: path.kind },
+      ...route,
+      ...(path.relayHostId ? {} : probe(path.url)),
+    });
   }
   return routes;
+}
+
+/**
+ * A browser's cheap check of a direct path: two bodiless requests to the daemon's HTTPS
+ * listener, which open no ace session. The second reuses the first's connection, so it takes
+ * about one round trip, comparable to a ping on the active path. Its certificate is checked
+ * by the browser like the path's socket.
+ */
+export function httpsProbe(url: string, clock: () => number): () => Promise<number> {
+  const address = new URL(socketUrl(url));
+  address.protocol = address.protocol === "ws:" ? "http:" : "https:";
+  address.pathname = "/";
+  const once = async () => {
+    const started = clock();
+    await fetch(address, { method: "HEAD", mode: "no-cors", cache: "no-store" });
+    return clock() - started;
+  };
+  return async () => {
+    await authorizeDaemonUrl(url);
+    await once();
+    return once();
+  };
 }
 
 /** Every address a pool worker for this machine may dial, for the desktop app to allow. */

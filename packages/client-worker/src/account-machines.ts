@@ -45,7 +45,7 @@ export interface AccountMachineOptions {
   directRoute?(
     path: Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }>,
     credential: () => Promise<Credential>,
-  ): PathRoute | undefined;
+  ): (PathRoute & { probe?(): Promise<number> }) | undefined;
   /**
    * The machine's client, in this thread: `new Client({ deviceId, transport, credential, … })`
    * with the route given. Its outbox and storage are the app's to choose, keyed by `hostId`.

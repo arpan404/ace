@@ -31,7 +31,7 @@ const host = new ClientHost({
       create: () => {
         // A machine with other paths moves between them (ADR 0114); one with none dials its
         // paired address as before.
-        const routes = pairedRoutes(target, target.paths);
+        const routes = pairedRoutes(target, target.paths, () => performance.now());
         const paths =
           routes.length > 1
             ? new Multipath({
