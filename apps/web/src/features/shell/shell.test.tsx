@@ -138,7 +138,7 @@ test("⌘K finds a thread by title and opens it", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull());
 });
 
-test("the top bar shows the open thread's title after its project's folder, where the column starts", async () => {
+test("the top bar keeps the current project beside the thread title when the sidebar is hidden", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "thread-top-bar",
@@ -152,8 +152,14 @@ test("the top bar shows the open thread's title after its project's folder, wher
   const bar = screen.getByRole("banner");
   expect(within(bar).getByRole("heading", { level: 1 })).toBeTruthy();
   expect(within(bar).getByRole("img", { name: /^Project / })).toBeTruthy();
+  expect(await within(bar).findByText("relay")).toBeTruthy();
   // While the sidebar shows, navigation leads the sidebar's top row, so nothing comes before
   // the title in the column's part of the bar.
   expect(within(bar).queryByRole("button", { name: "Back" })).toBeNull();
   expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+  expect(within(bar).getByText("relay")).toBeTruthy();
+  expect(
+    within(bar).getByRole("heading", { name: "Replay cursor resets on every resume" }),
+  ).toBeTruthy();
 });

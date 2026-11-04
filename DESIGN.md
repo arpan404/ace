@@ -194,7 +194,7 @@ Two levels. **`glass-thin`** (`.ace-floating`): menus, popovers, selects, contex
 - **Depth:** the composer and its strip carry only their lift shadows (`--depth-dock`, `--depth-strip`); buttons are flat with no depth.
 - **Danger confirmations:** solid red button, focus starting on Cancel.
 - **Unified frame (2026-10-31):** one top bar across the window and the rail on the frame colour; the sidebar panel, main column and side panel share one canvas on the page surface, starting with a rounded corner at the panel (§3, Shell; ADR 0107; owner, 2026-11-01).
-- **Header order:** `[back] [forward] [sidebar toggle]` after the traffic lights, then `[folder glyph] [title] … [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
+- **Header order:** `[back] [forward] [sidebar toggle]` after the traffic lights, then `[folder glyph] [project name] / [thread title] … [⋯] [Work icon] [panel toggle]`; Work info is a compact floating card.
 - **Model control:** one composer control (model chip + speed icon + effort label) with a T3-style list popover.
 - **Real icons only:** provider marks, Phosphor, favicons. No emoji.
 
