@@ -55,6 +55,19 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     inputs from the environment.
   - Bun's inspector speaks WebKit's protocol (`Heap.gc` rather than
     `HeapProfiler.collectGarbage`).
-- **Measured** on the release bundle with the daemon benchmark's standard workload, on the same
-  machine: daemon CPU per turn is the same within a few percent; memory footprint is about 25%
-  lower idle and 12–24% lower under load. See the migration PR for the numbers.
+  - stdin destroyed in the same tick it was resumed keeps a Bun process alive, so helper
+    processes exit with `process.exit` rather than by releasing stdin.
+  - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
+  - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
+    errno; code waits on the `error` or `close` event, never on `exitCode`.
+- **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
+  each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
+  vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).
+  The footprint settles lower: 195–216 vs 163–182 MB after a minute idle, 286–287 vs 247–254 MB
+  after same-thread turns. Idle CPU is a little higher (0.8–0.9% vs 1.0%), and so is the
+  footprint just after start (209–228 vs 222–254 MB). `ace version` starts in 232 ms against
+  Node's 323 ms.
+- **Not compiled yet.** `bun build --compile` (with or without `--bytecode`) builds, but the
+  binary cannot run: native addons (koffi, node-pty) are not found inside its embedded file
+  system, and helpers launched through `process.execPath` and the worker files would need
+  Bun-specific handling. That is part of the Bun-native follow-up.
