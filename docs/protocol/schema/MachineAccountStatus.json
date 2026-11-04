@@ -51,6 +51,13 @@
     },
     "signedIn": {
       "type": "boolean"
+    },
+    "source": {
+      "enum": [
+        "login",
+        "handover"
+      ],
+      "type": "string"
     }
   },
   "required": [

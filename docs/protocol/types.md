@@ -17470,6 +17470,7 @@ Example:
 | origin | no | string | {"maxLength":2048} |
 | account | no | [AceAccount.json](schema/AceAccount.json) |  |
 | expiresAt | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| source | no | ["login","handover"] |  |
 | login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
 | machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
 
@@ -17479,7 +17480,7 @@ Example:
 {
   "machineCode": {
     "lockedUntil": 4,
-    "set": false
+    "set": true
   },
   "origin": "example",
   "signedIn": true
