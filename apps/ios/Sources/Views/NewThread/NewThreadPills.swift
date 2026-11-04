@@ -100,6 +100,7 @@ struct NewThreadPills: View {
         } label: {
             NewThreadPill { Text(model.machines.first { $0.id == model.machineId }?.name ?? "Machine") }
         }
+        .fixedSize()
         .buttonStyle(.plain)
         .accessibilityLabel("Machine").accessibilityValue(model.machines.first { $0.id == model.machineId }?.name ?? "")
         .accessibilityIdentifier("newThread.machine")
@@ -131,6 +132,7 @@ struct NewThreadPills: View {
         } label: {
             NewThreadPill { Text(label) }
         }
+        .fixedSize()
         .buttonStyle(.plain)
         .disabled(place.reading && place.bases.isEmpty && place.noWorktree == nil)
         .accessibilityLabel("Where it runs").accessibilityValue(label)
