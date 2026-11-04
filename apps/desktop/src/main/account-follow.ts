@@ -1,11 +1,14 @@
 import type { MachineAccountStatus } from "@ace/protocol";
 import type { DaemonConnection, DaemonStatus } from "../shared/contract.ts";
 import { handAccountToDaemon, readDaemonAccount } from "./account-handover.ts";
+import type { AppAccountDeps } from "./account-write.ts";
 
-/** A handover to make: the app's session for `origin`, unless `unlessOtherThan` says otherwise. */
+/** A handover to make: the app's session for `origin`, unless `sameAccountAs` says otherwise. */
 export type HandoverPlan = {
   origin: string;
   token: string;
+  /** The daemon's `sessionId` the plan was read with: the handover applies only while it holds it. */
+  expected: string | null;
   /**
    * The daemon's lapsed session belonged to this account. Hand over only when the app's session
    * is the same account; a different one would switch the machine's account unasked.
@@ -16,14 +19,17 @@ export type HandoverPlan = {
 /**
  * Whether the app should hand its ace session to this computer's daemon, given the daemon's
  * account status and the app's saved sessions by origin. Never when the daemon is signed in
- * (to this account or another: the app never signs a daemon out or switches it), or when the
- * app has no session, or several and none for the daemon's own origin.
+ * (to this account or another: the app never signs a daemon out or switches it), when its
+ * lapsed session was its own sign-in (`ace login`) rather than the app's, while a sign-in from
+ * the machine is under way, or when the daemon can't make the handover conditional (no
+ * `sessionId`). Nor when the app has no session, or several and none for the daemon's origin.
  */
 export function planHandover(
   daemon: MachineAccountStatus,
   saved: Readonly<Record<string, string>>,
 ): HandoverPlan | undefined {
-  if (daemon.signedIn) return undefined;
+  if (daemon.signedIn || daemon.sessionId === undefined || daemon.login) return undefined;
+  if (daemon.account !== undefined && daemon.source !== "handover") return undefined;
   const origins = Object.keys(saved);
   const origin =
     daemon.origin !== undefined && saved[daemon.origin] !== undefined
@@ -33,16 +39,16 @@ export function planHandover(
         : undefined;
   const token = origin === undefined ? undefined : saved[origin];
   if (origin === undefined || token === undefined) return undefined;
-  return { origin, token, ...(daemon.account ? { sameAccountAs: daemon.account.id } : {}) };
+  return {
+    origin,
+    token,
+    expected: daemon.sessionId,
+    ...(daemon.account ? { sameAccountAs: daemon.account.id } : {}),
+  };
 }
 
-export interface FollowDeps {
-  /** The app's saved ace sessions, by origin. */
-  saved(): Promise<Readonly<Record<string, string>>>;
-  /** The account id an app session belongs to, from the account backend. */
-  accountOf(origin: string, token: string): Promise<string>;
-  send?: typeof fetch;
-}
+/** The app's saved sessions, read fresh, and how to tell an app session's account. */
+export type FollowDeps = AppAccountDeps;
 
 /**
  * Brings this computer's daemon to the app's account when it came up signed out: at app start,
@@ -63,8 +69,9 @@ export async function resumeDaemonAccount(
     (await deps.accountOf(plan.origin, plan.token)) !== plan.sameAccountAs
   )
     return false;
-  await handAccountToDaemon(connection, plan.origin, plan.token, send);
-  return true;
+  // The app signed out or in again meanwhile: the work queued for that change decides.
+  if ((await deps.saved())[plan.origin] !== plan.token) return false;
+  return handAccountToDaemon(connection, plan.origin, plan.token, send, plan.expected);
 }
 
 /**

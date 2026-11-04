@@ -45,10 +45,14 @@ is never stored.
 **A machine signs in.** The daemon gets an ace session through the same login flow as the
 apps (the desktop app hands its session to the local daemon when the person signs in, and
 again whenever the daemon starts or restarts signed out, unless the daemon's lapsed session
-was another account's. A daemon already on the same account through the app gets the new
-session; one signed in on its own (`ace login`) or to another account is never moved, and only
-Settings' explicit Switch moves it. The app's sign-out signs the daemon out only when its
-session came from the app. Headless
+was another account's or its own sign-in. A daemon already on the same account through the app
+gets the new session; one signed in on its own (`ace login`, even once that session lapsed),
+signing in on its own right now, or on another account is never moved, and only Settings'
+explicit Switch moves it. The app's sign-out signs the daemon out only when its session came
+from the app. These changes run one at a time in the app, each reading the app's saved session
+afresh, and each is conditional on the daemon's `sessionId` it was decided on (`If-Match`, or
+`If-None-Match: *` for none; 412 when it changed); a daemon that reports no `sessionId` is never
+changed by the app. Headless
 machines run `ace login`, which prints the login URL). It asks the backend for a `machine` grant and connects to
 the hosted relay's `/host` with it. The relay's Durable Object checks the grant, completes the
 Noise handshake that proves the host key, and records host id → account in D1. Binding
