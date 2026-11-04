@@ -79,7 +79,7 @@ export function Opening(props: { download: BrowserDownload | undefined }) {
         description={
           <span className="flex flex-col items-center gap-3">
             <DownloadBar download={props.download} />
-            <span>The first browser on this machine takes a few minutes.</span>
+            <span>The first browser on this computer takes a few minutes.</span>
           </span>
         }
       />

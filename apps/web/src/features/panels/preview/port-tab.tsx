@@ -131,7 +131,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
           description={
             canForward
               ? "The dev server stopped, or it was never forwarded for this thread. It shows here again as soon as ace sees it."
-              : "ace on this machine runs no preview gateway, so it can't show ports. Open the address in your own browser instead."
+              : "ace on this computer runs no preview gateway, so it can't show ports. Open the address in your own browser instead."
           }
           action={
             canForward ? (
