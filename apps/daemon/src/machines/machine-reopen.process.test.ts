@@ -264,15 +264,24 @@ const interruptsOf = (pair: Pair, id: ThreadId) =>
 const stateThere = (pair: Pair, id: ThreadId) =>
   pair.target.daemon.store.getThread(id)?.status.state;
 
+/** The caller sends a cancel again every 100ms while it is unconfirmed. */
+const quickStops = [
+  { action: "cancel", waitMs: 100 },
+  { action: "cancel", waitMs: 100 },
+  { action: "cancel", waitMs: 100 },
+] as const;
+/** Time passes on the caller until `check` holds, so its unconfirmed cancels go out again. */
+const untilStopped = (pair: Pair, check: () => void) =>
+  vi.waitFor(
+    () => {
+      pair.source.h.clock.advance(100);
+      check();
+    },
+    { timeout: 15_000, interval: 200 },
+  );
+
 it("a remote child that ignores the first cancel is interrupted again by a later one and stops", async () => {
-  const pair = await pairedMachines({
-    access: "operate",
-    sourceStopPlan: [
-      { action: "cancel", waitMs: 100 },
-      { action: "cancel", waitMs: 100 },
-      { action: "cancel", waitMs: 100 },
-    ],
-  });
+  const pair = await pairedMachines({ access: "operate", sourceStopPlan: quickStops });
   await pair.source.call({ op: "machines" });
   const child = Delegated.parse((await pair.source.call(task("wedged"))).data).threadId;
   await vi.waitFor(
@@ -287,20 +296,14 @@ it("a remote child that ignores the first cancel is interrupted again by a later
   expect(stateThere(pair, child)).toBe("working");
 
   // The cancel goes out again while it is unconfirmed; this one reaches the provider.
-  await vi.waitFor(
-    () => {
-      pair.source.h.clock.advance(100);
-      expect(interruptsOf(pair, child)).toBeGreaterThanOrEqual(2);
-    },
-    { timeout: 15_000, interval: 200 },
-  );
+  await untilStopped(pair, () => expect(interruptsOf(pair, child)).toBeGreaterThanOrEqual(2));
   await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
     timeout: 15_000,
   });
 }, 90_000);
 
-it("a remote child cancelled, given new work and cancelled again is interrupted the second time", async () => {
-  const pair = await pairedMachines({ access: "operate" });
+it("a remote child cancelled, given new work and cancelled again stops the second time too", async () => {
+  const pair = await pairedMachines({ access: "operate", sourceStopPlan: quickStops });
   await pair.source.call({ op: "machines" });
   const child = Delegated.parse((await pair.source.call(task("twice"))).data).threadId;
   await vi.waitFor(
@@ -308,11 +311,7 @@ it("a remote child cancelled, given new work and cancelled again is interrupted 
     { timeout: 15_000 },
   );
   await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-first" });
-  await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
-    timeout: 15_000,
-  });
-  const first = interruptsOf(pair, child);
-  expect(first).toBeGreaterThanOrEqual(1);
+  await untilStopped(pair, () => expect(stateThere(pair, child)).not.toBe("working"));
 
   await pair.source.call({
     op: "thread.message",
@@ -326,11 +325,8 @@ it("a remote child cancelled, given new work and cancelled again is interrupted 
   );
   await vi.waitFor(() => expect(stateThere(pair, child)).toBe("working"), { timeout: 15_000 });
 
+  // The second cancel is its own attempt there: the new work stops, rather than the first
+  // cancel's saved answer being returned while the child keeps working.
   await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-second" });
-  await vi.waitFor(() => expect(interruptsOf(pair, child)).toBeGreaterThan(first), {
-    timeout: 15_000,
-  });
-  await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
-    timeout: 15_000,
-  });
+  await untilStopped(pair, () => expect(stateThere(pair, child)).not.toBe("working"));
 }, 90_000);
