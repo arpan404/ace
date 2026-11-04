@@ -1,7 +1,6 @@
 import { visibleSessions } from "@ace/ui-core/computer-use";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { BlockedAppsRow } from "./blocked-apps.tsx";
-import { EmulatorWindowRow } from "./emulator-window.tsx";
 import { LockedUseRow } from "./locked-use-row.tsx";
 import { EnableRow, LiveSessions, Permissions } from "./sections.tsx";
 import { useComputerUse } from "./use-computer-use.ts";
@@ -10,8 +9,9 @@ import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 /**
  * Settings › Computer use: on or off, working while this Mac is locked, the apps agents can't
- * use, every live session, the screen helper's permissions, how Android emulators open, Use my
- * Chrome and the machine's device tools. The daemon decides; this page shows and asks.
+ * use, every live session, the screen helper's permissions, Use my Chrome and the machine's
+ * tools. Simulators and emulators are in Settings › Devices. The daemon decides; this page
+ * shows and asks.
  */
 export function ComputerUseSettings(props: {
   /** Set when Settings edits another machine: its name. Its screen helper isn't reachable here. */
@@ -23,8 +23,8 @@ export function ComputerUseSettings(props: {
 
 /**
  * Another machine's computer use. Its screen helper talks only to a window on that machine, so
- * switching it on and granting system access happen there; its block list, emulator window, Use
- * my Chrome and tools are its daemon's settings and stay editable from here.
+ * switching it on and granting system access happen there; its block list, Use my Chrome and
+ * tools are its daemon's settings and stay editable from here.
  */
 function RemoteComputerUse(props: { name: string }) {
   return (
@@ -35,10 +35,6 @@ function RemoteComputerUse(props: { name: string }) {
           description={`Turned on in ace on ${props.name}, where the system asks for access.`}
         />
         <BlockedAppsRow />
-      </SettingSection>
-      <SettingSection label="Devices">
-        <DevicesSwitchRow />
-        <EmulatorWindowRow />
       </SettingSection>
       <UseMyChromeSettings />
       <ToolchainSection />
@@ -65,22 +61,8 @@ function LocalComputerUse() {
       <SettingSection label="Permissions">
         <Permissions use={use} />
       </SettingSection>
-      <SettingSection label="Devices">
-        <DevicesSwitchRow />
-        <EmulatorWindowRow />
-      </SettingSection>
       <UseMyChromeSettings />
       <ToolchainSection />
     </>
-  );
-}
-
-/** Where simulators and emulators are turned on and off, and how that differs from apps. */
-function DevicesSwitchRow() {
-  return (
-    <SettingRow
-      title="Simulators and emulators"
-      description="Turned on or off for this whole machine from a thread's Devices tab (⋯ › Disable devices…). Let agents use apps is a separate switch, for Mac apps only."
-    />
   );
 }

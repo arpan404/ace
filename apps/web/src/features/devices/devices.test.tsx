@@ -215,23 +215,22 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
   expect(await within(iphone).findByText("iPhone 16 Pro is shut down.")).toBeTruthy();
 });
 
-test("disabling devices is machine-wide, so it asks first", async () => {
-  const { panel } = await openDevices();
+test("devices turned off for the machine send the thread to Settings, with no switch in the panel", async () => {
+  const { app, panel } = await openDevices();
   await within(panel).findByRole("searchbox", { name: "Search devices" });
   const iphone = await openDevice(panel, "iPhone 16 Pro");
-
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Disable devices on this machine?" });
-  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("menuitem", { name: /Disable devices/ })).toBeNull();
+  await userEvent.keyboard("{Escape}");
+
+  act(() => void app.daemon.appDevices.setEnabled(false));
+  expect(
+    await within(panel).findByRole("heading", { name: "Simulators and emulators are off" }),
+  ).toBeTruthy();
   expect(within(panel).queryByRole("button", { name: "Enable devices" })).toBeNull();
-
-  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
-  await userEvent.click(
-    within(await screen.findByRole("dialog")).getByRole("button", { name: "Disable devices" }),
+  expect(within(panel).getByRole("link", { name: "Open Settings" }).getAttribute("href")).toBe(
+    "/settings/devices",
   );
-  expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
 
 test("the device's logs appear while the drawer shows them, and the filter narrows them", async () => {

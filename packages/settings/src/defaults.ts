@@ -54,6 +54,7 @@ export const defaults: SettingsValues = {
   "computer.blockedApps": [],
   "computer.lockedUse": false,
   "devices.emulatorWindow": false,
+  "devices.enabled": true,
   "access.defaultMode": "auto-review",
   "access.nativeModes": {},
   "threads.useWorktree": true,

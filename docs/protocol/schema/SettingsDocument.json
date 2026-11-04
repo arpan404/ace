@@ -94,6 +94,9 @@
         "devices.emulatorWindow": {
           "type": "boolean"
         },
+        "devices.enabled": {
+          "type": "boolean"
+        },
         "generation.autoDraftCommits": {
           "type": "boolean"
         },

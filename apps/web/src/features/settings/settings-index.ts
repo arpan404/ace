@@ -198,8 +198,14 @@ const entries = [
     keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
   },
   {
+    id: "devices.enabled",
+    page: "/settings/devices",
+    title: "Use simulators and emulators",
+    keywords: ["devices", "ios", "simulator", "android", "emulator", "disable", "turn off"],
+  },
+  {
     id: "devices.emulatorWindow",
-    page: "/settings/computer-use",
+    page: "/settings/devices",
     title: "Show emulator window",
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },

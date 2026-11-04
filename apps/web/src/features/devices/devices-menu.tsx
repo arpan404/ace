@@ -9,10 +9,11 @@ import {
   PackageIcon,
   PlayIcon,
   PowerIcon,
-  ProhibitIcon,
+  GearSixIcon,
   StopIcon,
   TranslateIcon,
 } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
@@ -34,15 +35,14 @@ import {
   useScreenOnly,
   useStreamStatsShown,
 } from "./device-prefs.ts";
-import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import type { useDevices } from "./use-devices.ts";
 
 const icon = (Glyph: typeof PackageIcon) => <Glyph aria-hidden size={16} />;
 
 /**
  * The device's ⋯: install and open apps, appearance, location and language, the screen without
- * its frame, the live view, booting and shutting down, and turning devices off (which asks
- * first, as it is machine-wide).
+ * its frame, the live view, booting and shutting down, and Settings › Devices, where devices
+ * are turned on and off for the whole machine.
  */
 export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const { devices } = props;
@@ -52,7 +52,7 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
   const streamStats = useStreamStatsShown();
   const [action, setAction] = useState<DeviceAction>();
   const [appearance, setAppearance] = useState<"light" | "dark">();
-  const [confirm, setConfirm] = useState(false);
+  const navigate = useNavigate();
   const unavailable = view.pending || !controls?.running;
   const item = (name: DeviceAction, glyph: typeof PackageIcon) => (
     <MenuItem icon={icon(glyph)} disabled={unavailable} onClick={() => setAction(name)}>
@@ -139,22 +139,16 @@ export function DevicesMenu(props: { devices: ReturnType<typeof useDevices> }) {
             </>
           )}
           <MenuItem
-            icon={icon(ProhibitIcon)}
-            disabled={view.pending}
-            onClick={() => setConfirm(true)}
+            icon={icon(GearSixIcon)}
+            onClick={() => void navigate({ to: "/settings/devices" })}
           >
-            Disable devices…
+            Settings
           </MenuItem>
         </MenuContent>
       </Menu>
       {action && (
         <DeviceActionDialog action={action} devices={devices} close={() => setAction(undefined)} />
       )}
-      <DisableDevicesDialog
-        open={confirm}
-        onOpenChange={setConfirm}
-        onDisable={() => devices.enable(false)}
-      />
     </>
   );
 }

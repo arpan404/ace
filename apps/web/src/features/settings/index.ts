@@ -4,6 +4,7 @@ export {
   AgentsSettingsScreen,
   StorageSettingsScreen,
   BrowserSettingsScreen,
+  DevicesSettingsScreen,
   PairDeviceScreen,
   PromptsSettingsScreen,
   AppearanceSettingsScreen,

@@ -1,6 +1,7 @@
 import { useToolchains } from "@/features/diagnostics/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { DeviceRow } from "@ace/ui-core";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -17,7 +18,6 @@ import { deviceCatalog, type PlatformFilter } from "@ace/ui-core/devices";
 import { DeviceGroups, RecentRows } from "./device-list-rows.tsx";
 import { noteDeviceUse, requestBoot, useRecentUses } from "./device-prefs.ts";
 import { Problem } from "./device-problem.tsx";
-import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import { RunningTiles } from "./running-tiles.tsx";
 import { ToolReadiness, ToolSetupDialog } from "./tool-readiness.tsx";
 import { useDevices } from "./use-devices.ts";
@@ -65,7 +65,7 @@ export function DevicesTab(props: { threadId: string }) {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<PlatformFilter>("all");
   const [setUp, setSetUp] = useState(false);
-  const [disabling, setDisabling] = useState(false);
+  const navigate = useNavigate();
   const search = useRef<HTMLDivElement>(null);
   const now = useNow();
   const { view } = devices;
@@ -97,23 +97,16 @@ export function DevicesTab(props: { threadId: string }) {
     ) : (
       <ListSkeleton label="Connecting to devices" shape="row" rows={4} className="px-4 pt-3" />
     );
+  // On and off is a machine setting, kept in Settings › Devices with the rest of them.
   if (!view.enabled)
     return (
       <EmptyState
-        title="Simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators, and let this thread's agents use them."
+        title="Simulators and emulators are off"
+        description="They're turned off for this machine. Turn them on in Settings › Devices to watch and drive them here and let this thread's agents use them."
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
-              Enable devices
-            </Button>
-            {view.problem && (
-              <Problem
-                problem={view.problem}
-                className="max-w-[44ch] text-sm text-muted-foreground"
-              />
-            )}
-          </div>
+          <Button variant="primary" onClick={() => void navigate({ to: "/settings/devices" })}>
+            Open Settings
+          </Button>
         }
       />
     );
@@ -143,7 +136,6 @@ export function DevicesTab(props: { threadId: string }) {
           pending={view.pending}
           onRefresh={devices.refresh}
           onSetUp={() => setSetUp(true)}
-          onDisable={() => setDisabling(true)}
         />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 pt-3 pb-4">
@@ -265,11 +257,6 @@ export function DevicesTab(props: { threadId: string }) {
           void toolchains.refetch();
           devices.refresh();
         }}
-      />
-      <DisableDevicesDialog
-        open={disabling}
-        onOpenChange={setDisabling}
-        onDisable={() => devices.enable(false)}
       />
     </div>
   );

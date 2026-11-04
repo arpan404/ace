@@ -276,6 +276,20 @@ export function BrowserSettingsScreen() {
   );
 }
 
+const DevicesSettings = lazy(() =>
+  import("./devices-page.tsx").then((module) => ({ default: module.DevicesSettings })),
+);
+
+export function DevicesSettingsScreen() {
+  return (
+    <SettingsBody page="Devices">
+      <Suspense fallback={null}>
+        <DevicesSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
 export function StorageSettingsScreen() {
   return (
     <SettingsBody page="Storage">

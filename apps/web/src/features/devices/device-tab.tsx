@@ -2,7 +2,8 @@ import { deviceUnavailableHint } from "@ace/ui-core";
 import { useSampleTime, useWallClock } from "@/lib/time.ts";
 import { CaretLeftIcon } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Button } from "@/components/ui/button.tsx";
+import { Link } from "@tanstack/react-router";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -278,15 +279,12 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Devices are turned off on this machine"
-        description={`Turn them on to see ${name} and let agents in this thread use it. This switch covers simulators and emulators only; Mac apps have their own in Settings.`}
+        title="Simulators and emulators are off"
+        description={`They're turned off for this machine. Turn them on in Settings › Devices to see ${name} and let agents in this thread use it.`}
         action={
-          <div className="flex flex-col items-center gap-3">
-            <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
-              Enable devices
-            </Button>
-            {view.problem && <Problem problem={view.problem} />}
-          </div>
+          <Link to="/settings/devices" className={buttonVariants({ variant: "primary" })}>
+            Open Settings
+          </Link>
         }
       />
     );
