@@ -111,11 +111,18 @@ export function ConnectionScreen() {
             alert={alertFor(connection)}
             {...buttonsFor(connection)}
           />
-          {!trying && (
-            <Button variant="ghost" className="mt-4" onClick={() => setPairing(true)}>
-              Have a pairing code?
-            </Button>
-          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!trying && (
+              <Button variant="ghost" onClick={() => setPairing(true)}>
+                Have a pairing code?
+              </Button>
+            )}
+            {connection.leave && (
+              <Button variant="ghost" onClick={connection.leave}>
+                Not now
+              </Button>
+            )}
+          </div>
         </>
       )}
     </ConnectCard>

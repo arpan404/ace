@@ -2,7 +2,7 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { StrictMode, useState, type ReactNode } from "react";
+import { lazy, StrictMode, Suspense, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
@@ -114,11 +114,32 @@ function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
 const daemonApp = (client: ClientApi, connection: GateConnection) => (
   <DaemonApp client={client} connection={connection} />
 );
+/** The app with no machine, loaded only when a window has none. */
+const NoMachineApp = lazy(() =>
+  import("./features/no-machine/index.ts").then((module) => ({ default: module.NoMachineApp })),
+);
+/** A window with no machine yet: the app, empty, with the machine pool for account machines. */
+function NoMachineWindow() {
+  const { pool, ensure } = useBrowserMachinePool(local, session);
+  return (
+    <Suspense fallback={null}>
+      <NoMachineApp
+        storage={local}
+        windowStorage={session}
+        machines={pool}
+        ensureMachines={ensure}
+      />
+    </Suspense>
+  );
+}
+const noMachineWindow = () => <NoMachineWindow />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 const pairingLink = pairingLinkFromUrl(new URL(location.href));
 
-function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } = {}) {
+function gate(
+  options: { handed?: DaemonTarget | undefined; desktop?: boolean; manual?: boolean } = {},
+) {
   return (
     <ConnectionGate
       stores={stores}
@@ -136,15 +157,42 @@ function gate(options: { handed?: DaemonTarget | undefined; desktop?: boolean } 
       fragment={location.hash}
       pairingLink={pairingLink}
       onFragmentRead={forgetFragment}
+      noMachine={noMachineWindow}
+      manual={options.manual}
     >
       {daemonApp}
     </ConnectionGate>
   );
 }
 
+/** Fake mode with no machine (`?machine=none`, signed out with `&account=out`), to see it. */
+async function fakeNoMachine(signedOut: boolean): Promise<ReactNode> {
+  const [{ fakeNoMachineAccount, fakeNoMachineConnection }, { fakeAccountConnector }, account] =
+    await Promise.all([
+      import("./boot/fake-no-machine.ts"),
+      import("./boot/fake-account.ts"),
+      import("./features/ace-account/index.ts"),
+    ]);
+  const { AceAccountBackendContext, AccountMachineConnectorContext } = account;
+  return (
+    <DaemonConnectionContext.Provider value={fakeNoMachineConnection}>
+      <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
+        <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
+          <Suspense fallback={null}>
+            <NoMachineApp storage={local} windowStorage={session} />
+          </Suspense>
+        </AccountMachineConnectorContext>
+      </AceAccountBackendContext>
+    </DaemonConnectionContext.Provider>
+  );
+}
+
 async function content(): Promise<ReactNode> {
   // The fake daemon is only bundled in `vite --mode fake`.
   if (import.meta.env.MODE === "fake") {
+    // `?machine=none`: the app as a window with no machine sees it.
+    const search = new URLSearchParams(location.search);
+    if (search.get("machine") === "none") return fakeNoMachine(search.get("account") === "out");
     const fake = (await import("./boot/fake.ts")).bootFake();
     const { client } = fake;
     if (!profileName(local)) setProfileName(local, fake.profileName);
@@ -236,7 +284,7 @@ async function start(root: Root) {
         hasDesktopBridge()
           ? () => {
               manual = true;
-              render(gate({ desktop: true }));
+              render(gate({ desktop: true, manual: true }));
             }
           : undefined
       }

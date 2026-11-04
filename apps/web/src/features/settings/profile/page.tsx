@@ -1,20 +1,19 @@
 import { ProviderKind } from "@ace/protocol";
 import { formatTokens, modelLabel, providerNames } from "@ace/ui-core";
 import { Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { Input } from "@/components/ui/input.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { useMachines, usePrimaryMachine } from "@/lib/machines.ts";
-import { useProfileName } from "@/lib/profile.ts";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { MachineAccount } from "../machine-account.tsx";
 import { settingRow } from "../settings-index.ts";
 import { ProfileHero, useProfileAccount } from "./account.tsx";
 import { ActivityGrid } from "./activity-grid.tsx";
+import { Legal, NameSetting } from "./you.tsx";
 import { useProfileActivity, type AccountShare, type ProfileActivity } from "./use-stats.ts";
 
 const shortDay = new Intl.DateTimeFormat("en-US", {
@@ -233,54 +232,5 @@ function AccountMachines() {
         )}
       </SettingSection>
     </>
-  );
-}
-
-/** The name ace shows beside the person's messages, kept on this device. */
-function NameSetting() {
-  const [name, setName] = useProfileName();
-  const [draft, setDraft] = useState(name);
-  const save = (value: string) => {
-    const next = value.trim();
-    setDraft(next);
-    setName(next);
-  };
-  return (
-    <SettingSection label="You" card scope="device">
-      <SettingRow {...settingRow("profile.name")} htmlFor="profile-name">
-        <Input
-          id="profile-name"
-          className="@[30rem]:w-52"
-          value={draft}
-          placeholder="Name"
-          autoComplete="name"
-          maxLength={80}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onBlur={(event) => save(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") save(event.currentTarget.value);
-          }}
-        />
-      </SettingRow>
-    </SettingSection>
-  );
-}
-
-function Legal() {
-  const link = "underline decoration-border underline-offset-3 hover:text-foreground";
-  return (
-    <nav aria-label="Legal" className="-mt-4 flex gap-4 text-sm text-subtle-foreground">
-      <a
-        href="https://acehq.dev/terms-of-service"
-        target="_blank"
-        rel="noreferrer"
-        className={link}
-      >
-        Terms of service
-      </a>
-      <a href="https://acehq.dev/privacy-policy" target="_blank" rel="noreferrer" className={link}>
-        Privacy policy
-      </a>
-    </nav>
   );
 }

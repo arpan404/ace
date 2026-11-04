@@ -13,3 +13,4 @@ export { useRailPlace } from "./use-rail-place.ts";
 export { ShortcutHost } from "./shortcut-host.tsx";
 export { UpdateRestartDialog } from "./update-restart-dialog.tsx";
 export { updateAction, updateActionWords, updateSummary } from "./update-status.ts";
+export { NoMachineSidebar } from "./no-machine-sidebar.tsx";

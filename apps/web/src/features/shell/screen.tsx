@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useOptionalClient } from "@ace/client-react";
 import { PausedNotice } from "@/components/paused-notice.tsx";
 import { SandboxNotice } from "./sandbox-notice.tsx";
 import { useToastAnchor } from "@/lib/toast-clearance.ts";
@@ -28,6 +29,8 @@ export function Screen(
   },
 ) {
   const pane = useToastAnchor();
+  // With no machine there is no connection to report on.
+  const machine = useOptionalClient() !== undefined;
   const main = (
     <main ref={pane} id="main" tabIndex={-1} className="relative min-h-0 flex-1 outline-none">
       {props.children}
@@ -46,7 +49,7 @@ export function Screen(
       actions={props.actions}
       status={props.status}
       progress={props.progress}
-      notice={headerOwnsConnection ? <ConnectionNotice /> : null}
+      notice={headerOwnsConnection && machine ? <ConnectionNotice /> : null}
       trailing={trailing}
     />
   );

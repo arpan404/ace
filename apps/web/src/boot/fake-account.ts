@@ -13,7 +13,7 @@ import type { KeyValueStorage } from "@ace/ui-core";
 import { z } from "zod";
 
 const person = { id: "user_fake", email: "arpan@example.com", name: "Arpan Bhandari" };
-const fakeOrigin = "https://account.example.com";
+export const fakeOrigin = "https://account.example.com";
 
 const json = (status: number, body: unknown) => Response.json(body, { status });
 const read = async (init: RequestInit) => {

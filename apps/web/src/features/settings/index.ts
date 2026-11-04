@@ -31,3 +31,9 @@ export { useSetting } from "./data/use-settings.ts";
 export { fleetKeys, machineLinks } from "./data/fleet.ts";
 export { settingKeys } from "./data/setting-keys.ts";
 export type { LimitPolicy } from "./data/setting-keys.ts";
+/** Settings in a window with no machine: Profile and Fleet only. */
+export {
+  NoMachineFleetScreen,
+  NoMachineProfileScreen,
+  NoMachineSettingsNav,
+} from "./no-machine-settings.tsx";

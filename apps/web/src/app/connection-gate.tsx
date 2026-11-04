@@ -21,6 +21,7 @@ import {
 } from "@/boot/connection-settings.ts";
 import { handoffFromFragment, type Handoff } from "@/boot/fragment-handoff.ts";
 import { forgetKnownHost, knownHost, rememberHost } from "@/boot/known-host.ts";
+import { gateView } from "./window-machine.ts";
 
 /** How long a first attempt may take before the screen says it can't reach the daemon. */
 export const firstAttemptMs = 6_000;
@@ -108,6 +109,13 @@ export function ConnectionGate(props: {
   /** Inside the desktop app, whose daemon nobody starts by hand. */
   desktop?: boolean;
   pairingLink?: string | undefined;
+  /**
+   * The app with no machine, shown while nothing is chosen (`hasNoMachine`). Without it such a
+   * window shows the connection screen.
+   */
+  noMachine?: (() => ReactNode) | undefined;
+  /** Open on the address form even with nothing chosen (the desktop's Connect manually). */
+  manual?: boolean | undefined;
   /** When the first-attempt deadline runs; injected by tests. */
   schedule?: Schedule;
   onFragmentRead?(): void;
@@ -131,7 +139,7 @@ export function ConnectionGate(props: {
       url: stored.url,
       remembered: stored.remembered,
       pending: handoff.kind === "confirm" ? handoff : undefined,
-      editing: false,
+      editing: props.manual === true,
       attempt: 0,
       shown: !stored.target || handoff.kind === "confirm",
     };
@@ -386,6 +394,26 @@ export function ConnectionGate(props: {
       shown: true,
     }));
   }, [stores]);
+  // Back to the app with no machine, keeping what is stored: a reload tries it again. Not for
+  // the desktop's own daemon, which follows the app.
+  const canRunEmpty = props.noMachine !== undefined;
+  const leave = useMemo(
+    () =>
+      canRunEmpty && !props.handed
+        ? () => {
+            managed.current = false;
+            setState((previous) => ({
+              ...previous,
+              target: undefined,
+              editing: false,
+              problem: undefined,
+              detail: undefined,
+              shown: true,
+            }));
+          }
+        : undefined,
+    [canRunEmpty, props.handed],
+  );
   const forget = props.forgetIdentity;
   const failedTarget = state.problem === "identity" ? state.target : undefined;
   const forgetIdentity = useMemo(
@@ -432,6 +460,7 @@ export function ConnectionGate(props: {
       edit,
       disconnect,
       forgetIdentity,
+      leave,
       endpoint: active && {
         kind: "daemon",
         target: active,
@@ -452,6 +481,7 @@ export function ConnectionGate(props: {
       edit,
       disconnect,
       forgetIdentity,
+      leave,
       handoff,
     ],
   );
@@ -468,32 +498,35 @@ export function ConnectionGate(props: {
   );
 
   if (failure) throw failure.error;
-  // Connecting behind the startup screen: nothing of the gate's own until the daemon answers or
-  // doesn't. The desktop's own daemon reconnecting at boot stays there too ("Reconnecting…"),
-  // with Connect manually once it stalls, rather than dropping to the address form. A daemon of
-  // another version is said on the connection screen instead: waiting won't fix it.
-  const behindSplash =
-    !state.shown &&
-    (status.kind === "connecting" ||
-      (status.kind === "unreachable" &&
-        !status.mismatch &&
-        props.desktop === true &&
-        props.handed !== undefined));
+  const view = gateView({
+    opened: Boolean(client && appConnection),
+    status,
+    hasTarget: state.target !== undefined,
+    editing: state.editing,
+    handoff: state.pending !== undefined,
+    pairingLink: props.pairingLink !== undefined,
+    shown: state.shown,
+    desktop: props.desktop === true,
+    handed: props.handed !== undefined,
+    canRunEmpty,
+  });
   const manually = props.desktop ? edit : undefined;
   return (
     <DaemonConnectionContext.Provider value={connection}>
-      {client && appConnection ? (
+      {view === "app" && client && appConnection ? (
         // Opened for a host it then turns out isn't there: reopened for the one that is.
         <Fragment key={`${client.key}:${appConnection.hostId}`}>
           {props.children(client.client, appConnection)}
         </Fragment>
-      ) : status.kind === "starting" ? (
+      ) : view === "starting" ? (
         <StartupPending state="starting" onConnectManually={manually} />
-      ) : behindSplash ? (
+      ) : view === "splash" ? (
         <StartupPending
           state={status.kind === "unreachable" ? "reconnecting" : "connecting"}
           onConnectManually={manually}
         />
+      ) : view === "no-machine" && props.noMachine ? (
+        props.noMachine()
       ) : (
         <ConnectionScreen />
       )}

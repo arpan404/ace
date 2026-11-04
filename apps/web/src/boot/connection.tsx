@@ -71,6 +71,12 @@ export interface DaemonConnection {
    * forgotten (the fake daemon).
    */
   forgetIdentity?: (() => void) | undefined;
+  /**
+   * Stop trying and go back to the app with no machine, keeping what is stored (a reload tries
+   * it again). Only where the window can run with no machine and doesn't follow the desktop's
+   * own daemon.
+   */
+  leave?: (() => void) | undefined;
   /** Absent only before a daemon is chosen. */
   endpoint?: DaemonEndpoint | undefined;
   /** A `#token=` link waiting for the person to agree before anything is saved. */

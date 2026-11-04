@@ -53,5 +53,12 @@ export function useAccountMachines(listed: readonly { id: string }[]) {
   });
   const data = query.data;
   const lists = useMemo(() => (data ? accountMachineLists(listed, data) : empty), [listed, data]);
-  return { ...lists, signedIn: Boolean(token), error: query.error, forget };
+  return {
+    ...lists,
+    signedIn: Boolean(token),
+    /** The account's list is on its way. */
+    loading: query.isLoading,
+    error: query.error,
+    forget,
+  };
 }
