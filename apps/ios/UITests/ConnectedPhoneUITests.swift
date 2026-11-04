@@ -60,7 +60,7 @@ import XCTest
     }
     func testSearchFindsConversationContentOnThePairedMachine() {
         let app = launch()
-        app.buttons["inbox.search"].tap()
+        app.openSearch()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap(); field.typeText("ios")
@@ -275,7 +275,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launch()
-        if !app.buttons["inbox.settings"].waitForExistence(timeout: 45) {
+        if !app.inboxReady.waitForExistence(timeout: 45) {
             capture("launch-needs-attention", app)
             XCTFail("Unlock ace on the connected iPhone and check its paired-machine connection")
         }

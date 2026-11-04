@@ -16,7 +16,7 @@ import XCTest
         app.launch()
         let source = "ios-spike-host-\(ports[0])", target = "ios-spike-host-\(ports[1])", name = "studio-\(ports[1])"
         let row = "thread.\(source).ios-done"
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         for _ in 0..<10 where !app.buttons[row].isHittable { app.swipeUp() }
         app.revealRow(row).tap()
 

@@ -250,6 +250,26 @@ test("search everything ranks commands, projects and threads by the palette's ru
     commands: true,
   })) as Answer;
   expect(settings.commands[0]?.id).toBe("settings:appearance");
+  // The places outside the lists answer to the words people use for them, and say where they
+  // go, as the web palette's groups do.
+  type Named = { commands: { id: string; label: string; detail: string | null }[] };
+  const fleet = (await request({ type: "palette.query", query: "fleet", commands: true })) as Named;
+  expect(fleet.commands[0]).toMatchObject({ id: "settings:machines", detail: "Settings" });
+  const chat = (await request({
+    type: "palette.query",
+    query: "new chat",
+    commands: true,
+  })) as Named;
+  expect(chat.commands[0]).toMatchObject({ id: "new-chat", label: "New chat", detail: "Create" });
+  const usage = (await request({ type: "palette.query", query: "usage", commands: true })) as Named;
+  expect(usage.commands[0]).toMatchObject({ id: "tool:usage", detail: "Go to" });
+  const startless = (await request({
+    type: "palette.query",
+    query: "new",
+    commands: true,
+    context: { canStart: false, threadOpen: false },
+  })) as Named;
+  expect(startless.commands.map((command) => command.id)).not.toContain("new-chat");
   const projects = (await request({ type: "palette.query", query: "notes" })) as Answer;
   expect(projects.projects.map((project) => project.id)).toEqual(["notes"]);
   expect(projects.commands).toEqual([]);

@@ -48,9 +48,11 @@ struct SettingsSheet: View {
     @State private var forgeKind = ForgeKind.pulls
     @State private var forgeQuery = ""
 
+    /// `forgeStart` is the list Pull requests opens on: Pull requests, Issues or Notifications.
     init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil,
-         root: SettingsRoute? = nil, start: [SettingsRoute] = []) {
+         root: SettingsRoute? = nil, start: [SettingsRoute] = [], forgeStart: ForgeKind = .pulls) {
         self.inbox = inbox
+        _forgeKind = State(initialValue: forgeStart)
         self.root = root
         self.places = places
         self.machines = machines
@@ -122,6 +124,8 @@ struct SettingsSheet: View {
                     if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
                 } header: { InsetHeader("Connections") }
                 .insetRowBackground()
+                // Each machine's tools (Search's places open the busiest of them directly).
+                SettingsTools(inbox: inbox, machine: $toolsMachine)
                 Section {
                     link(.appearance, "Appearance", "paintpalette", value: PhoneAppearance.label(appearance), id: "settings.appearance")
                     link(.keyboard, "Keyboard", "keyboard", id: "settings.keyboard")

@@ -81,8 +81,9 @@ struct PendingLinks: Equatable {
 }
 
 extension OpenedLink {
-    /// The two links that need no machine, read without one: `ace://settings[/<page>]` and
-    /// `ace://new`. Every other link waits for a machine's runtime and the shared reader.
+    /// The links that need no machine, read without one: `ace://settings[/<page>]`, `ace://new`
+    /// and `ace://inbox` (the Open inbox intent and quick action). Every other link waits for a
+    /// machine's runtime and the shared reader.
     static func withoutMachine(_ url: URL) -> OpenedLink? {
         guard url.scheme?.lowercased() == AceLink.scheme else { return nil }
         let parts = url.pathComponents.filter { $0 != "/" }
@@ -93,6 +94,7 @@ extension OpenedLink {
             guard page.map({ $0.range(of: "^[a-z-]{1,40}$", options: .regularExpression) != nil }) ?? true else { return nil }
             return OpenedLink(kind: "settings", page: page)
         case "new": return parts.isEmpty ? OpenedLink(kind: "new-thread") : nil
+        case "inbox": return parts.isEmpty ? OpenedLink(kind: "inbox") : nil
         default: return nil
         }
     }

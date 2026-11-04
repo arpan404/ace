@@ -126,9 +126,8 @@ import XCTest
     func testSearchEverythingFindsCommandsThreadsAndMessages() throws {
         let app = launch()
         reveal(app, "thread.ios-done")
-        app.buttons["inbox.search"].tap()
-        // Before a query: the commands, ready to run.
-        XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
+        // Before a query: the places and the latest threads, ready to open.
+        app.openSearch()
         screenshot("search-start")
         app.searchFields.firstMatch.tap()
         app.searchFields.firstMatch.typeText("relay")
@@ -143,7 +142,7 @@ import XCTest
         app.terminate()
         let again = launch()
         reveal(again, "thread.ios-done")
-        again.buttons["inbox.search"].tap()
+        again.openSearch()
         XCTAssertTrue(again.buttons["search.recent.relay"].waitForExistence(timeout: 10))
         screenshot("search-recent")
     }
@@ -151,8 +150,7 @@ import XCTest
     func testAnArchivedSearchHitOpensAsTheMainPageItsComposerSendsTo() throws {
         let app = launch()
         reveal(app, "thread.ios-done")
-        app.buttons["inbox.search"].tap()
-        XCTAssertTrue(app.buttons["search.command.new-thread"].waitForExistence(timeout: 10))
+        app.openSearch()
         app.searchFields.firstMatch.tap()
         app.searchFields.firstMatch.typeText("Archived task 7")
         let hit = app.buttons["search.thread.ios-archived-06"]
@@ -189,7 +187,7 @@ import XCTest
     /// Scrolls the list, in its middle, until the row sits in view. (The shared helper drags down
     /// the Settings button's column, which on the Duo is a rail beside the list.)
     @discardableResult private func reveal(_ app: XCUIApplication, _ identifier: String) -> XCUIElement {
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         let row = app.buttons[identifier]
         for attempt in 0..<30 {
             let frame = row.exists ? row.frame : .zero

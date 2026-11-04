@@ -437,7 +437,7 @@ extension XCUIApplication {
     @discardableResult func openThread(_ id: String, timeout: TimeInterval = 30) -> Bool {
         // Return to the full-screen list on a compact phone.
         let sidebar = navigationBars.buttons.element(boundBy: 0)
-        if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
+        if !inboxReady.isHittable, sidebar.exists { sidebar.tap() }
         let row = revealRow("thread.\(id)")
         let before = probe["opens"]
         row.tap()
@@ -446,7 +446,7 @@ extension XCUIApplication {
     /// Return to the list and open the fixture's form thread.
     func goBack() {
         let sidebar = navigationBars.buttons.element(boundBy: 0)
-        if !buttons["inbox.settings"].isHittable, sidebar.exists { sidebar.tap() }
+        if !inboxReady.isHittable, sidebar.exists { sidebar.tap() }
         revealRow("thread.ios-form").tap()
         let deadline = Date(timeIntervalSinceNow: 10)
         while probe["open.thread"] != "ios-form" && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1)) }

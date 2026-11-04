@@ -91,7 +91,7 @@ import XCTest
         app.buttons["projects.close"].tap()
         XCTAssertTrue(app.buttons["newThread.close"].waitForExistence(timeout: 5))
         app.buttons["newThread.close"].tap()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -248,7 +248,7 @@ import XCTest
         }
         app.launch()
         // At accessibility text sizes the first rows can already fill the screen.
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
@@ -298,7 +298,7 @@ import XCTest
     private func back(_ app: XCUIApplication) {
         let button = app.buttons["BackButton"].firstMatch
         if button.waitForExistence(timeout: 5) { button.tap() }
-        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
+        _ = app.inboxReady.waitForExistence(timeout: 10)
     }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")
