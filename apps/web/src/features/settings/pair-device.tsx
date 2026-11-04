@@ -1,6 +1,5 @@
-import { Navigate, useLocation } from "@tanstack/react-router";
+import { Navigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { useHashFlash } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,7 +10,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
 import { useAceAccount, useAceAccountStore } from "@/features/ace-account/index.ts";
-import { cn } from "@/lib/cn.ts";
 import { PairingFlow } from "./pairing-flow.tsx";
 import { SheetWays } from "./sheet-ways.tsx";
 
@@ -23,32 +21,36 @@ const hostedApp = "app.acehq.dev";
 /**
  * Pair a device: sign in on it with the same ace account (where this build has accounts), or
  * show a one-time pairing code (the same flow as `/pair`). `machine` picks the machine the code
- * pairs with to start with; `/pair` lands here with #pair and opens straight on the code.
+ * pairs with to start with.
  */
 export function PairDevice(props: { machine?: string; variant?: "secondary" | "ghost" }) {
-  const hash = useLocation({ select: (location) => location.hash });
-  const store = useAceAccountStore();
-  const email = useAceAccount().session?.account.email;
-  const first: Step = store ? "choose" : "code";
-  const [step, setStep] = useState<Step | undefined>(hash === "pair" ? "code" : undefined);
-  const flow = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  // Settings search lands on `#remote.pair`: the button flashes like a row would.
-  const flashing = useHashFlash("remote.pair", trigger);
-  const close = () => setStep(undefined);
+  const [open, setOpen] = useState(false);
   return (
-    <Dialog open={step !== undefined} onOpenChange={(open) => (open ? setStep(first) : close())}>
-      <Button
-        ref={trigger}
-        id="remote.pair"
-        data-flash={flashing || undefined}
-        size="sm"
-        variant={props.variant ?? "secondary"}
-        className={cn(flashing && "bg-accent")}
-        onClick={() => setStep(first)}
-      >
+    <>
+      <Button size="sm" variant={props.variant ?? "secondary"} onClick={() => setOpen(true)}>
         Pair a device
       </Button>
+      {open && <PairDeviceDialog machine={props.machine} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/**
+ * The pairing dialog, open while it's shown: the ways to add a device first, or straight on
+ * the pairing code with `code` (where `/pair` lands).
+ */
+export function PairDeviceDialog(props: {
+  machine?: string | undefined;
+  code?: boolean;
+  onClose(): void;
+}) {
+  const store = useAceAccountStore();
+  const email = useAceAccount().session?.account.email;
+  const [step, setStep] = useState<Step>(props.code || !store ? "code" : "choose");
+  const flow = useRef<HTMLDivElement>(null);
+  const close = props.onClose;
+  return (
+    <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent initialFocus={step === "code" ? flow : undefined}>
         <DialogHeader>
           <DialogTitle>
