@@ -1,6 +1,6 @@
-import { SourceControlMockup } from "./source-control-mockup.tsx";
+import { SourceControlHosts, gitProviders } from "./source-control-hosts.tsx";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { actionErrorText } from "@ace/ui-core";
@@ -8,6 +8,7 @@ import {
   SourceControlPreferences,
   SettingsValues,
   type SourceControlReadiness,
+  type ForgeRepository,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { daemonErrorCode } from "@/lib/daemon-command.ts";
@@ -31,19 +32,10 @@ import { useSettingsMachine } from "./machine-scope.tsx";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
- * against it): its gh CLI's readiness, the host and account requests use, and a Git transport
+ * against it): its Git host readiness, the host and account requests use, and a Git transport
  * check per project.
  */
 export function SourceControlSettings() {
-  if (
-    import.meta.env.DEV &&
-    new URLSearchParams(window.location.search).get("mockup") === "git-hosts"
-  )
-    return <SourceControlMockup />;
-  return <LiveSourceControlSettings />;
-}
-
-function LiveSourceControlSettings() {
   const client = useClient();
   const { machine } = useSettingsMachine();
   const machineId = !machine || machine.primary ? "primary" : machine.id;
@@ -59,8 +51,10 @@ function saveFailure(code: string | undefined): string {
 
 function MachineSourceControl({ client, machineId }: { client: ClientApi; machineId: string }) {
   const queries = useQueryClient();
+  const preferencesRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [forge, setForge] = useState<ForgeRepository["forge"]>("github");
   const [host, setHost] = useState("github.com");
   const [account, setAccount] = useState("");
   const [remote, setRemote] = useState("origin");
@@ -91,6 +85,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
   if (status && status !== shown) {
     setShown(status);
     setHost(status.preferences.host);
+    setForge(
+      status.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.forge ??
+        "github",
+    );
     setAccount(
       status.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.account ??
         "",
@@ -101,10 +99,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     if (!status) return;
     setError(undefined);
     const hosts = status.preferences.hosts.filter((entry) => entry.host !== host);
-    hosts.push({ host, ...(account ? { account } : {}) });
+    hosts.push({ host, forge, ...(account ? { account } : {}) });
     const parsed = SourceControlPreferences.safeParse({ hosts, host, remote });
     if (!parsed.success) {
-      setError("Enter a valid hostname, GitHub login and remote name.");
+      setError("Enter a valid hostname, account and remote name.");
       return;
     }
     setSaving(true);
@@ -139,7 +137,14 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     !!status &&
     (host !== status.preferences.host ||
       account !== savedAccount ||
-      remote !== status.preferences.remote);
+      remote !== status.preferences.remote ||
+      forge !== (status.preferences.hosts.find((entry) => entry.host === host)?.forge ?? "github"));
+  const selected = gitProviders.find((entry) => entry.forge === forge);
+  const savedForge =
+    status?.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.forge ??
+    "github";
+  const savedName = gitProviders.find((entry) => entry.forge === savedForge)?.name ?? "GitHub";
+  const cliName = savedForge === "gitlab" ? "glab" : "gh";
   const loading = readiness.isFetching && !readiness.isError;
   const disabled = saving || loading;
   const readError = readiness.isError
@@ -147,12 +152,25 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     : undefined;
   return (
     <>
-      <SettingSection label="GitHub">
+      <SourceControlHosts
+        preferences={status?.preferences}
+        disabled={disabled || !status}
+        onManage={(provider, target) => {
+          setForge(provider);
+          setHost(target);
+          setAccount(
+            status?.preferences.hosts.find((entry) => entry.host === target)?.account ?? "",
+          );
+          setError(undefined);
+          preferencesRef.current?.scrollIntoView?.({ block: "start" });
+        }}
+      />
+      <SettingSection label={savedName}>
         <SettingRow
-          title="GitHub CLI"
+          title={`${savedName} ${savedForge === "github" || savedForge === "gitlab" ? "CLI" : "connection"}`}
           description={
             status && !loading ? (
-              `${status.cli === "available" ? `gh ${status.version}` : "Not installed"} · ${status.preferences.host}`
+              `${savedForge !== "github" && savedForge !== "gitlab" ? "API support pending" : status.cli === "available" ? `${cliName} ${status.version}` : "Not installed"} · ${status.preferences.host}`
             ) : loading ? (
               <Skeleton className="mt-1 w-40" />
             ) : undefined
@@ -168,8 +186,12 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </Button>
         </SettingRow>
         {status && !loading && (
-          <SettingRow title="GitHub API" inline>
-            <span className="text-sm text-muted-foreground">{apiState(status)}</span>
+          <SettingRow title={`${savedName} API`} inline>
+            <span className="text-sm text-muted-foreground">
+              {savedForge === "github" || savedForge === "gitlab"
+                ? apiState(status)
+                : "Not available yet"}
+            </span>
           </SettingRow>
         )}
         {status?.accounts.length && !loading ? (
@@ -181,6 +203,11 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             </span>
           </SettingRow>
         ) : null}
+        {savedForge === "gitlab" && (
+          <SettingNote>
+            GitLab connection checks are available. Merge requests and issues aren't supported yet.
+          </SettingNote>
+        )}
         {/* What to do next; when everything is ready the rows above already say so. */}
         {status && !loading && status.api !== "ready" && (
           <SettingNote role="status">{status.instructions}</SettingNote>
@@ -191,50 +218,69 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingNote>
         )}
       </SettingSection>
-      <SettingSection label="Preferences" scope="daemon">
-        <SettingRow
-          title="GitHub host"
-          description="github.com, or a GitHub Enterprise hostname."
-          htmlFor="sc-host"
-        >
-          <Input
-            id="sc-host"
-            value={host}
-            onChange={(event) => setHost(event.target.value.toLowerCase())}
-            disabled={disabled}
-          />
-        </SettingRow>
-        <SettingRow
-          title="Expected account"
-          description="Requests stop if gh is signed in as someone else."
-          htmlFor="sc-account"
-        >
-          <Input
-            id="sc-account"
-            value={account}
-            placeholder="Any account"
-            onChange={(event) => setAccount(event.target.value)}
-            disabled={disabled}
-          />
-        </SettingRow>
-        <SettingRow
-          title="Repository remote"
-          description="The Git remote that names a project's repository."
-          htmlFor="sc-remote"
-        >
-          <Input
-            id="sc-remote"
-            value={remote}
-            onChange={(event) => setRemote(event.target.value)}
-            disabled={disabled}
-          />
-        </SettingRow>
-        <SettingFooter>
-          <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
-            Save preferences
-          </Button>
-        </SettingFooter>
-      </SettingSection>
+      <div ref={preferencesRef}>
+        <SettingSection label="Preferences" scope="daemon">
+          <SettingRow title="Provider" description="The provider for this host.">
+            <Select
+              label="Git provider"
+              value={forge}
+              options={gitProviders.map((entry) => ({ value: entry.forge, label: entry.name }))}
+              disabled={disabled}
+              onValueChange={(value) => {
+                setForge(value);
+                setHost(gitProviders.find((entry) => entry.forge === value)?.host ?? "");
+                setAccount("");
+              }}
+            />
+          </SettingRow>
+          <SettingRow
+            title={`${selected?.name ?? "Git"} host`}
+            description={
+              forge === "github"
+                ? "github.com, or a GitHub Enterprise hostname."
+                : `The hostname of your ${selected?.name ?? "Git"} installation.`
+            }
+            htmlFor="sc-host"
+          >
+            <Input
+              id="sc-host"
+              value={host}
+              onChange={(event) => setHost(event.target.value.toLowerCase())}
+              disabled={disabled}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Expected account"
+            description="Requests stop if the CLI is signed in as someone else."
+            htmlFor="sc-account"
+          >
+            <Input
+              id="sc-account"
+              value={account}
+              placeholder="Any account"
+              onChange={(event) => setAccount(event.target.value)}
+              disabled={disabled}
+            />
+          </SettingRow>
+          <SettingRow
+            title="Repository remote"
+            description="The Git remote that names a project's repository."
+            htmlFor="sc-remote"
+          >
+            <Input
+              id="sc-remote"
+              value={remote}
+              onChange={(event) => setRemote(event.target.value)}
+              disabled={disabled}
+            />
+          </SettingRow>
+          <SettingFooter>
+            <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
+              Save preferences
+            </Button>
+          </SettingFooter>
+        </SettingSection>
+      </div>
       <SettingSection label="Git transport">
         <SettingRow
           title="Check a project's remote"
@@ -264,7 +310,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         )}
         <SettingNote>
           {status?.transportInstructions ??
-            "Clone and push use Git's credential helper or SSH keys on this machine, not the GitHub API sign-in."}
+            "Clone and push use Git's credential helper or SSH keys on this machine, not the API sign-in."}
         </SettingNote>
       </SettingSection>
     </>

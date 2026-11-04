@@ -134,7 +134,7 @@ export function useGitFlow(thread: ThreadRef): {
   const draftBlocked = prBlocked ?? (live ? `PR #${pr.number} is already open` : undefined);
   const linkBlocked = !checkout
     ? unread
-    : checkout.repository?.forge === "gitlab"
+    : checkout.repository && checkout.repository.forge !== "github"
       ? prBlocker(checkout)
       : checkout.repository
         ? undefined
