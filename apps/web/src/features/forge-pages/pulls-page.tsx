@@ -251,6 +251,18 @@ export function PullRequestsPage(props: {
           <>
             {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
             <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
+            {byWork && single && ranked.rankingError && (
+              <div
+                role="status"
+                aria-label="Pull request ranking"
+                className="flex flex-wrap items-center gap-2 py-2 text-ui text-muted-foreground"
+              >
+                <span>Couldn't rank pull requests. Showing recently updated results.</span>
+                <Button size="xs" variant="ghost" onClick={ranked.retry}>
+                  Try again
+                </Button>
+              </div>
+            )}
             {single && (
               <MergeStrip
                 merge={merge}

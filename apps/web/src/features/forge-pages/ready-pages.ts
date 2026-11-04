@@ -28,7 +28,10 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
   const client = useClient();
   const cache = useQueryClient();
   const ready = useConnectionState() === "ready";
-  const head = usePrPages(project ? [project] : [], prQuery(search, 1), 1);
+  const fallbackKey = JSON.stringify([project, prQuery(search, 1)]);
+  const [fallbackPaging, setFallbackPaging] = useState({ key: fallbackKey, pages: 1 });
+  const fallbackPages = fallbackPaging.key === fallbackKey ? fallbackPaging.pages : 1;
+  const head = usePrPages(project ? [project] : [], prQuery(search, 1), fallbackPages);
   const first = head.first;
   // Everything fits in the first page: the ranking is exact without another search.
   const exhaustive = first !== undefined && first.nextPage === undefined;
@@ -88,7 +91,7 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
     projectOf: () => project ?? "",
     failed: [],
     stale: head.stale,
-    loading: head.loading,
+    loading: head.loading || (!exhaustive && unique.length === 0 && !settled),
     error: head.error ?? failed?.error ?? undefined,
     more: next !== undefined && settled,
     retry: () => {
@@ -97,11 +100,21 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
     },
   };
   return {
-    ...pages,
-    loadMore: () =>
-      setMore((current) => ({
-        key: listKey,
-        screens: (current.key === listKey ? current.screens : 1) + 1,
-      })),
+    // A ranking query is optional: its failure must not hide a successful ordinary list.
+    ...(failed ? { ...head, retry: pages.retry } : pages),
+    rankingError: failed?.error,
+    loadMore: () => {
+      if (failed) {
+        setFallbackPaging((current) => ({
+          key: fallbackKey,
+          pages: (current.key === fallbackKey ? current.pages : 1) + 1,
+        }));
+      } else {
+        setMore((current) => ({
+          key: listKey,
+          screens: (current.key === listKey ? current.screens : 1) + 1,
+        }));
+      }
+    },
   };
 }
