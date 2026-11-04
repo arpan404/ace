@@ -108,7 +108,7 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
 On one Mac, loopback, against a real daemon (`multipath.process.test.ts`):
 
 - The swap, including every view's resubscribe being sent, holds the client 0.19–0.29 ms.
-- Failover to the warm standby: 1.6–2.4 ms from the active socket dropping to the next event
+- Failover to the warm standby: 1.6–4.1 ms from the active socket dropping to the next event
   arriving on the standby. The connection never leaves `ready`.
 
 ## Consequences
