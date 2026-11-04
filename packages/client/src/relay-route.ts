@@ -68,6 +68,8 @@ export function relayRoute(options: RelayRouteOptions): {
       let relay: PortableRelay | undefined;
       let controller: AbortController | undefined;
       let epoch = 0;
+      /** The credential this transport's own attempt opened with, for its hello. */
+      let own: Credential | undefined;
       const stop = () => {
         epoch++;
         controller?.abort();
@@ -79,6 +81,13 @@ export function relayRoute(options: RelayRouteOptions): {
         supportsBinary: true,
         compression: relayCompression(),
         flowControl: ["credit"],
+        // Several attempts on one route at once (a race and a side path) each send their own.
+        async credential() {
+          const credential = own;
+          own = undefined;
+          if (!credential) throw new ClientError("auth", "No relay credential for this attempt");
+          return credential;
+        },
         open(events) {
           stop();
           const stamp = ++epoch;
@@ -113,6 +122,7 @@ export function relayRoute(options: RelayRouteOptions): {
             }
             relay = opened;
             pending = credential;
+            own = credential;
             events.open();
             let welcomed = false;
             const current = () => stamp === epoch;

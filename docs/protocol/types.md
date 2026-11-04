@@ -10113,6 +10113,24 @@ Example:
 }
 ```
 
+### account.grant.refresh
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| grant | yes | string | {"minLength":1,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "grant": "example",
+  "requestId": "example",
+  "type": "account.grant.refresh"
+}
+```
+
 ## CoreServerMessage
 
 [JSON Schema](schema/CoreServerMessage.json), input validation.
@@ -10295,6 +10313,7 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | protocolVersion | yes | `1` |  |
 | headSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -10579,6 +10598,27 @@ Example:
 ```json
 {
   "type": "pong"
+}
+```
+
+### account.grant.refresh.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"grantTtlMs":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["ok","grantTtlMs"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "grantTtlMs": 3,
+    "ok": true
+  },
+  "type": "account.grant.refresh.result"
 }
 ```
 
@@ -12161,6 +12201,24 @@ Example:
 
 ```json
 "open"
+```
+
+## DeviceRevokedClose
+
+[JSON Schema](schema/DeviceRevokedClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | `4003` |  |
+| reason | yes | `"Device revoked"` |  |
+
+Example:
+
+```json
+{
+  "code": 4003,
+  "reason": "Device revoked"
+}
 ```
 
 ## DeviceScope
@@ -14918,6 +14976,7 @@ Example:
 | type | yes | `"host.identity.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | identity | yes | [HostIdentity.json](schema/HostIdentity.json) |  |
+| paths | no | [MachinePaths.json](schema/MachinePaths.json) |  |
 
 Example:
 
@@ -18189,6 +18248,70 @@ Example:
 
 ```json
 "bwtF1tPs9ETmo4TQAyRM2WrRIS4Cw9GHTAQ68WSxLnM7WuuwO5VjYAjeV0YN9i4"
+```
+
+## MachinePath
+
+[JSON Schema](schema/MachinePath.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["loopback","lan","tailscale"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| fingerprint | yes | string | {"pattern":"^[0-9a-f]{64}$"} |
+
+Example:
+
+```json
+{
+  "fingerprint": "3663bd5751cb84552e95347e61768b49c204df033ac8889f8d0d2cc290176736",
+  "kind": "tailscale",
+  "url": "https://192.168.1.4:7443"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["relay","account"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| relayHostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+
+Example:
+
+```json
+{
+  "kind": "relay",
+  "relayHostId": "WMOLCRJQAXHXTKMPKANCOQS5PVLORPZ2XHQIPK3OVRZAJMVYKIQP",
+  "url": "wss://relay.example.com"
+}
+```
+
+## MachinePathKind
+
+[JSON Schema](schema/MachinePathKind.json), input validation.
+
+Type: ["loopback","lan","tailscale","relay","account"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"account"
+```
+
+## MachinePaths
+
+[JSON Schema](schema/MachinePaths.json), input validation.
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[]
 ```
 
 ## MachinePendingRequest

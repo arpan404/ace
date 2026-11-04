@@ -111,6 +111,20 @@ export function verifyGrant(
   return claims;
 }
 
+/**
+ * How long a grant was issued for (`exp - iat`, both from the backend's clock), read without
+ * checking its signature: a client uses it only to time its next refresh. Undefined if malformed.
+ */
+export function grantLifetimeMs(token: string): number | undefined {
+  try {
+    const body = token.split(".")[0] ?? "";
+    const claims = GrantClaims.parse(JSON.parse(new TextDecoder().decode(decodeBase64url(body))));
+    return claims.exp - claims.iat;
+  } catch {
+    return undefined;
+  }
+}
+
 /** The grant a WebSocket upgrade offered in `Sec-WebSocket-Protocol`, if any. */
 export function grantFromSubprotocols(header: string | null): string | undefined {
   for (const protocol of header?.split(",") ?? []) {

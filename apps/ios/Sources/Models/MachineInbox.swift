@@ -123,7 +123,6 @@ final class MachineSession: Identifiable {
     @discardableResult func detach(_ hostId: String) -> ClientModel? {
         guard let index = sessions.firstIndex(where: { $0.hostId == hostId }) else { return nil }
         names[hostId] = nil
-        forget(hostId)
         return sessions.remove(at: index).client
     }
     func rename(_ hostId: String, to name: String) { names[hostId] = name }
@@ -144,7 +143,8 @@ final class MachineSession: Identifiable {
         defaults.set(seen, forKey: Self.seenKey)
         defaults.set(glyphs, forKey: Self.glyphsKey)
     }
-    private func forget(_ hostId: String) {
+    /// Drop when the machine was last seen and its mark: only when the person removes it.
+    func forget(_ hostId: String) {
         seen[hostId] = nil
         glyphs[hostId] = nil
         defaults.set(seen, forKey: Self.seenKey)

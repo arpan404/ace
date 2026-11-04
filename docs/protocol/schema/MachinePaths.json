@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinePaths.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "anyOf": [
+      {
+        "$ref": "https://ace.local/protocol/v1/MachinePath.json"
+      },
+      {
+        "additionalProperties": {},
+        "properties": {
+          "kind": {
+            "maxLength": 64,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      }
+    ]
+  },
+  "maxItems": 16,
+  "type": "array"
+}

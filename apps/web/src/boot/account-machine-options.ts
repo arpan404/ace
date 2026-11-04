@@ -11,6 +11,7 @@ import {
 } from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
+import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
 
 /** What an account machine's client is made from: its relay route, for one attempt. */
 type AccountMachineRoute = Parameters<AccountMachineOptions["client"]>[0];
@@ -94,14 +95,23 @@ export function accountMachineClient(
   route: AccountMachineRoute,
 ): ClientApi {
   const holder = () => windowAccountSession(session, origin)?.account.id;
+  const owned = () => {
+    if (holder() !== owner)
+      throw new ClientError("auth", "This machine was opened on your other ace account.");
+  };
   return createBrowserClient({
     deviceId: route.deviceId,
     transport: route.transport,
     credential: async () => {
-      if (holder() !== owner)
-        throw new ClientError("auth", "This machine was opened on your other ace account.");
+      owned();
       return route.credential();
     },
+    // A grant refresh is never sent under another account either.
+    grant: async () => {
+      owned();
+      return route.grant();
+    },
+    expectedHostId: route.expectedHostId,
     storage: outbox(session, owner, route.hostId),
   });
 }
@@ -144,6 +154,21 @@ export function accountMachineOptions(options: {
       return grant.token;
     },
     socket: browserDeviceSocket,
+    // The network changed: a better path may be back, or the active one gone.
+    watchNetwork: (changed) => {
+      addEventListener("online", changed);
+      return () => removeEventListener("online", changed);
+    },
+    clock: () => performance.now(),
+    // A direct path only where the browser checks the machine's certificate (ADR 0114).
+    directRoute: (path, credential) =>
+      browserChecksDirect(path)
+        ? {
+            transport: () => checkedSocketTransport(path.url),
+            credential,
+            probe: httpsProbe(path.url, () => performance.now()),
+          }
+        : undefined,
     // The pool opens machines for the account the window holds as it opens them.
     client: (route) =>
       accountMachineClient(

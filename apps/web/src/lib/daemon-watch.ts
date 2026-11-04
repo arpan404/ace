@@ -1,9 +1,9 @@
-import type { ClientApi, OneWayMessage } from "@ace/client";
+import { onSocketMove, type ClientApi, type OneWayMessage } from "@ace/client";
 import type { ServerMessage } from "@ace/protocol";
 
 /*
  * A daemon-wide set a client watches once (`browser.browsing`, `computer.using`): asked on
- * every reconnect, replaced by each answer, kept for the client's life while rows come and go.
+ * every reconnect and every move to another socket, replaced by each answer, kept for the client's life while rows come and go.
  */
 export interface DaemonWatch<T> {
   value: T;
@@ -47,6 +47,8 @@ export function daemonWatch<T>(
   connection.subscribe(() => {
     if (connection.getSnapshot() === "ready") ask();
   });
+  // The daemon's watch ended with the old socket (ADR 0114).
+  onSocketMove(client, () => ask());
   ask();
   return current;
 }

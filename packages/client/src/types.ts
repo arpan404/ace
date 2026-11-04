@@ -20,6 +20,12 @@ export interface Transport {
    * returns credit as it reads). Absent: the hello asks for none.
    */
   readonly flowControl?: readonly string[];
+  /**
+   * The credential this transport opened with (a relay attempt fetches its own grant or ticket
+   * to dial): its hello carries this one rather than the route's, so concurrent attempts on
+   * one route never take each other's.
+   */
+  credential?(): Promise<Credential>;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;
@@ -92,6 +98,12 @@ export interface ClientOptions {
     options: RequestOptions,
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
+  /**
+   * A fresh ace account device grant, for an account device (ADR 0111). An account socket stays
+   * open only while its grant lasts, so the connection sends a new one on each open socket
+   * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
+   */
+  grant?(): Promise<string>;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

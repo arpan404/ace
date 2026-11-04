@@ -26,9 +26,23 @@ export class ClientError extends Error {
      */
     | "machine_code"
     | "daemon";
-  constructor(code: ClientError["code"], message: string = code) {
+  /** With a `machine_code` refusal of `machine_code_locked`: when code entry opens again. */
+  declare readonly lockedUntil?: number;
+  /**
+   * With `auth`: the machine's owner revoked this paired device (`DeviceRevokedClose`). Only
+   * then does the client delete what it read from the machine; any other refusal keeps it.
+   */
+  declare readonly revoked?: true;
+  constructor(code: ClientError["code"], message: string = code, lockedUntil?: number) {
     super(message);
     this.name = "ClientError";
     this.code = code;
+    if (lockedUntil !== undefined) this.lockedUntil = lockedUntil;
+  }
+  /** The owner revoked this device: the one refusal after which what it read is deleted. */
+  static revoked(message: string): ClientError {
+    const error = new ClientError("auth", message);
+    Object.defineProperty(error, "revoked", { value: true, enumerable: true });
+    return error;
   }
 }

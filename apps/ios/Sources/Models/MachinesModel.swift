@@ -161,6 +161,9 @@ import Observation
             return
         }
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
+        // Removed on purpose: what this phone remembers of the machine goes too. A machine that
+        // only left the list (signed out, another account) keeps it for when it comes back.
+        inbox.forget(hostId)
         unsupported.remove(hostId)
         grants[entry.deviceId] = nil
         defaults.set(grants, forKey: Keys.grants)
