@@ -270,6 +270,8 @@ struct InboxSearchList: View {
             .padding(.horizontal, AceDesign.Space.related)
             .padding(.vertical, AceDesign.Space.tight)
         }
+        // The chips' glass draws past the row; clipped, it leaves a box behind them.
+        .scrollClipDisabled()
     }
 
     private func openFound(_ key: InboxKey) {
