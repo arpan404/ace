@@ -3945,11 +3945,12 @@ Example:
   "report": {
     "available": null,
     "downloaded": false,
+    "percent": null,
     "releaseUrl": "https://example.invalid/",
     "restartRequired": false,
     "version": "example"
   },
-  "reportedAt": null
+  "reportedAt": 6
 }
 ```
 
@@ -3971,12 +3972,63 @@ Example:
     "report": {
       "available": null,
       "downloaded": true,
+      "percent": 7,
       "releaseUrl": "https://example.invalid/",
       "restartRequired": false,
+      "state": "example",
       "version": "example"
     },
-    "reportedAt": 1
+    "reportedAt": null
   }
+}
+```
+
+## AppUpdateInstruction
+
+[JSON Schema](schema/AppUpdateInstruction.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":128} |
+| action | yes | union | {"anyOf":[{"type":"string","enum":["download","install"]},{"type":"string","minLength":1,"maxLength":64}]} |
+| mode | yes | union | {"anyOf":[{"type":"string","enum":["idle","now"]},{"type":"string","minLength":1,"maxLength":64}]} |
+| version | yes | string | {"minLength":1,"maxLength":80} |
+
+Example:
+
+```json
+{
+  "action": "install",
+  "id": "example",
+  "mode": "example",
+  "version": "example"
+}
+```
+
+## AppUpdateReply
+
+[JSON Schema](schema/AppUpdateReply.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| report | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateReport.json"},{"type":"null"}]} |
+| reportedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| instruction | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AppUpdateInstruction.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "report": {
+    "available": null,
+    "downloaded": true,
+    "error": null,
+    "inPlace": true,
+    "releaseUrl": null,
+    "restartRequired": false,
+    "version": "example"
+  },
+  "reportedAt": 2
 }
 ```
 
@@ -3991,6 +4043,10 @@ Example:
 | downloaded | yes | boolean |  |
 | restartRequired | yes | boolean |  |
 | releaseUrl | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":400,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+| state | no | string | {"minLength":1,"maxLength":40} |
+| percent | no | union | {"anyOf":[{"type":"number","minimum":0,"maximum":100},{"type":"null"}]} |
+| error | no | union | {"anyOf":[{"type":"string","maxLength":2000},{"type":"null"}]} |
+| inPlace | no | boolean |  |
 
 Example:
 
@@ -3998,6 +4054,8 @@ Example:
 {
   "available": "example",
   "downloaded": false,
+  "error": "example",
+  "inPlace": false,
   "releaseUrl": null,
   "restartRequired": false,
   "version": "example"
@@ -4038,7 +4096,6 @@ Example:
 
 ```json
 {
-  "error": "forbidden",
   "ok": true,
   "requestId": "example",
   "type": "appUpdate.result",
@@ -4046,6 +4103,7 @@ Example:
     "report": {
       "available": "example",
       "downloaded": false,
+      "percent": 4,
       "releaseUrl": null,
       "restartRequired": true,
       "version": "example"
@@ -18021,6 +18079,30 @@ Example:
 "desktop"
 ```
 
+## MachineInstall
+
+[JSON Schema](schema/MachineInstall.json), input validation.
+
+### Variant 1
+
+Type: ["desktop","standalone","source"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"source"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
 ## MachineMessage
 
 [JSON Schema](schema/MachineMessage.json), input validation.
@@ -18429,6 +18511,283 @@ Example:
   "op": "cancel",
   "transferId": "M.jE8R3s"
 }
+```
+
+## MachineUpdate
+
+[JSON Schema](schema/MachineUpdate.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string | {"minLength":1,"maxLength":80} |
+| platform | yes | string | {"minLength":1,"maxLength":32} |
+| arch | yes | string | {"minLength":1,"maxLength":32} |
+| install | yes | [MachineInstall.json](schema/MachineInstall.json) |  |
+| state | yes | [MachineUpdateState.json](schema/MachineUpdateState.json) |  |
+| available | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":80},{"type":"null"}]} |
+| releaseUrl | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":400,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+| blocked | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MachineUpdateBlock.json"},{"type":"null"}]} |
+| ask | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MachineUpdateAsk.json"},{"type":"null"}]} |
+| busy | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| percent | yes | union | {"anyOf":[{"type":"number","minimum":0,"maximum":100},{"type":"null"}]} |
+| error | yes | union | {"anyOf":[{"type":"string","maxLength":2000},{"type":"null"}]} |
+| last | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/MachineUpdateOutcome.json"},{"type":"null"}]} |
+| checkedAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "arch": "example",
+  "ask": {
+    "id": "example",
+    "mode": "now",
+    "requestedAt": 8,
+    "version": "example"
+  },
+  "available": null,
+  "blocked": "source",
+  "busy": 6,
+  "checkedAt": null,
+  "error": null,
+  "install": "example",
+  "last": {
+    "at": 3,
+    "error": "example",
+    "from": "example",
+    "ok": true,
+    "to": "example"
+  },
+  "percent": null,
+  "platform": "example",
+  "releaseUrl": null,
+  "state": "waiting",
+  "version": "example"
+}
+```
+
+## MachineUpdateAsk
+
+[JSON Schema](schema/MachineUpdateAsk.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"minLength":1,"maxLength":128} |
+| mode | yes | [MachineUpdateMode.json](schema/MachineUpdateMode.json) |  |
+| version | yes | string | {"minLength":1,"maxLength":80} |
+| requestedAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "id": "example",
+  "mode": "example",
+  "requestedAt": 1,
+  "version": "example"
+}
+```
+
+## MachineUpdateBlock
+
+[JSON Schema](schema/MachineUpdateBlock.json), input validation.
+
+### Variant 1
+
+Type: ["release-page","app-closed","source","unknown"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"release-page"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## MachineUpdateChanged
+
+[JSON Schema](schema/MachineUpdateChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machineUpdate.changed"` |  |
+| update | yes | [MachineUpdate.json](schema/MachineUpdate.json) |  |
+
+Example:
+
+```json
+{
+  "type": "machineUpdate.changed",
+  "update": {
+    "arch": "example",
+    "ask": null,
+    "available": null,
+    "blocked": "example",
+    "busy": 3,
+    "checkedAt": null,
+    "error": null,
+    "install": "source",
+    "last": null,
+    "percent": 4,
+    "platform": "example",
+    "releaseUrl": "https://example.invalid/",
+    "state": "ready",
+    "version": "example"
+  }
+}
+```
+
+## MachineUpdateMode
+
+[JSON Schema](schema/MachineUpdateMode.json), input validation.
+
+### Variant 1
+
+Type: ["idle","now"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"idle"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
+```
+
+## MachineUpdateOutcome
+
+[JSON Schema](schema/MachineUpdateOutcome.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| from | yes | string | {"minLength":1,"maxLength":80} |
+| to | yes | string | {"minLength":1,"maxLength":80} |
+| ok | yes | boolean |  |
+| error | yes | union | {"anyOf":[{"type":"string","maxLength":2000},{"type":"null"}]} |
+| at | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "at": 1,
+  "error": null,
+  "from": "example",
+  "ok": true,
+  "to": "example"
+}
+```
+
+## MachineUpdateRequest
+
+[JSON Schema](schema/MachineUpdateRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machineUpdate.request"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| operation | yes | ["status","check","start","cancel"] |  |
+| mode | no | ["idle","now"] |  |
+| version | no | string | {"minLength":1,"maxLength":80} |
+| agents | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "operation": "check",
+  "requestId": "example",
+  "type": "machineUpdate.request",
+  "version": "example"
+}
+```
+
+## MachineUpdateResult
+
+[JSON Schema](schema/MachineUpdateResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"machineUpdate.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| ok | yes | boolean |  |
+| update | no | [MachineUpdate.json](schema/MachineUpdate.json) |  |
+| error | no | union | {"anyOf":[{"type":"string","enum":["forbidden","blocked","stale","confirm","unavailable","invalid"]},{"type":"string","minLength":1,"maxLength":64}]} |
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "example",
+  "type": "machineUpdate.result",
+  "update": {
+    "arch": "example",
+    "ask": {
+      "id": "example",
+      "mode": "example",
+      "requestedAt": 0,
+      "version": "example"
+    },
+    "available": "example",
+    "blocked": "example",
+    "busy": 6,
+    "checkedAt": 2,
+    "error": null,
+    "install": "example",
+    "last": {
+      "at": 8,
+      "error": null,
+      "from": "example",
+      "ok": false,
+      "to": "example"
+    },
+    "percent": 1,
+    "platform": "example",
+    "releaseUrl": null,
+    "state": "updated",
+    "version": "example"
+  }
+}
+```
+
+## MachineUpdateState
+
+[JSON Schema](schema/MachineUpdateState.json), input validation.
+
+### Variant 1
+
+Type: ["none","available","waiting","downloading","ready","installing","updated","failed"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"ready"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"example"
 ```
 
 ## MaintenanceHold

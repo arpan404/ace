@@ -13,6 +13,7 @@ import { FleetDevices } from "./fleet-devices.tsx";
 import { FleetMachines } from "./fleet-machines.tsx";
 import { MoreOptions } from "./fleet-more.tsx";
 import { ReachRows } from "./fleet-reach.tsx";
+import { FleetSoftware } from "./fleet-software.tsx";
 import { FleetTabs } from "./fleet-tabs.tsx";
 import { WorkingAcrossMachines } from "./fleet-working.tsx";
 import { PairDevice } from "./pair-device.tsx";
@@ -72,6 +73,7 @@ export function FleetPage() {
         )
       }
     >
+      <FleetSoftware fleet={fleet} />
       <FleetMachines
         fleet={fleet}
         account={account}

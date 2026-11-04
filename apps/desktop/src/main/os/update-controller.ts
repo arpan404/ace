@@ -44,6 +44,13 @@ export interface UpdatePorts {
 
 export type CheckOrigin = "person" | "background";
 
+/** What the daemon asks of the app (`AppUpdateInstruction`, ADR 0113). */
+export interface RemoteInstruction {
+  action: string;
+  mode: string;
+  version: string;
+}
+
 export const stalledMessage = "Agents are still working. Restart again once they finish.";
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -201,6 +208,35 @@ export class UpdateController {
     if (found.state === "downloaded") return this.installWhenIdle();
     this.installWhenReady = false;
     return found;
+  }
+
+  /**
+   * An update asked for from another client through this app's daemon (ADR 0113). Only the
+   * release the person saw there is installed: a different one on offer here is left alone.
+   * `download` fetches it. `install` when `idle` drains running agents first, as `ace update
+   * apply` does (the daemon asks only once none work); `now` stops them at once, as a confirmed
+   * Restart does, since the person confirmed on that client. Stopped turns continue after the
+   * restart.
+   */
+  async remote(instruction: RemoteInstruction): Promise<UpdateStatus> {
+    if (this.checking) await this.checking;
+    let found = this.status;
+    if (found.version !== instruction.version && found.state !== "downloading")
+      found = await this.check("background");
+    if (found.version !== instruction.version) {
+      this.ports.log(
+        "warn",
+        `An update to ${instruction.version} was asked for, but ${found.version ?? "nothing"} is on offer.`,
+      );
+      return found;
+    }
+    if (instruction.action === "download")
+      return found.state === "available" ? this.download() : found;
+    if (instruction.action !== "install") return found;
+    if (instruction.mode !== "now") return this.apply();
+    if (found.state === "available" && (await this.download()).state !== "downloaded")
+      return this.status;
+    return this.install();
   }
 
   private async find(before: UpdateStatus, origin: CheckOrigin): Promise<UpdateStatus> {

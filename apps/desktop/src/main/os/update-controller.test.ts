@@ -414,3 +414,46 @@ it("opening the app again right after a check asks the feed only once", async ()
   await settle();
   expect(app.feedRequests()).toBe(2);
 });
+
+it("an update asked for from another client downloads first, then installs once drained", async () => {
+  const app = setup({ found: "1.1.0" });
+  const fetching = app.controller.remote({ action: "download", mode: "idle", version: "1.1.0" });
+  await settle();
+  expect(app.downloads()).toBe(1);
+  await app.finishDownload();
+  await fetching;
+  // Downloaded only: the daemon asks to install once its agents are idle.
+  expect(app.effects).toEqual([]);
+  expect(app.now().state).toBe("downloaded");
+  const installing = app.controller.remote({ action: "install", mode: "idle", version: "1.1.0" });
+  await settle();
+  expect(app.effects).toEqual(["drain"]);
+  await app.finishDrain(true);
+  await installing;
+  expect(app.effects).toEqual(["drain", "stop daemon", "install"]);
+});
+
+it("an update now from another client stops agents at once without draining", async () => {
+  const app = setup({ found: "1.1.0", busy: 3 });
+  await downloaded(app);
+  await app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
+  expect(app.effects).toEqual(["stop daemon", "install"]);
+});
+
+it("a remote install of a release this app doesn't offer installs nothing", async () => {
+  const app = setup({ found: "1.2.0" });
+  await downloaded(app);
+  await app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
+  expect(app.effects).toEqual([]);
+  expect(app.now()).toMatchObject({ state: "downloaded", version: "1.2.0" });
+});
+
+it("a remote request before the app has checked asks the feed first", async () => {
+  const app = setup({ found: "1.1.0" });
+  const installing = app.controller.remote({ action: "install", mode: "now", version: "1.1.0" });
+  await settle();
+  expect(app.feedRequests()).toBe(1);
+  await app.finishDownload();
+  await installing;
+  expect(app.effects).toEqual(["stop daemon", "install"]);
+});

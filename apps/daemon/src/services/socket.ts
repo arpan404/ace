@@ -57,6 +57,8 @@ export interface SocketContext {
   maintenance: MaintenanceGate;
   /** The desktop app's last update report (`app-update-board.ts`). */
   appUpdate: import("../app-update-board.ts").AppUpdateBoard;
+  /** This machine's remote updates (ADR 0113), when the daemon has them. */
+  machineUpdates?: import("../machine-update/machine-updates.ts").MachineUpdates;
   device(): DeviceId | undefined;
   authorize(scope: DeviceScope): boolean;
   /** Capture authenticated authority for admitted durable effects across reconnects. */

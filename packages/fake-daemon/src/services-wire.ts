@@ -2,6 +2,7 @@ import { FakeStorageWire } from "./storage-wire.ts";
 import { FakeChecks } from "./checks-wire.ts";
 import { FakeAdmission } from "./admission-wire.ts";
 import { FakeAppUpdate } from "./app-update-wire.ts";
+import { FakeMachineUpdate } from "./machine-update-wire.ts";
 import { FakePromptFiles, type PromptSeed } from "./prompt-files.ts";
 import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeSkillLibrary, type SkillSeed } from "./skill-library.ts";
@@ -83,6 +84,8 @@ export class FakeServicesWire {
   /** "Pause new work", shared by every connection. */
   readonly admission = new FakeAdmission();
   private readonly appUpdate = new FakeAppUpdate();
+  /** This machine's own update (`machineUpdate.request`). */
+  readonly machineUpdate: FakeMachineUpdate;
   readonly prompts = new FakePromptFiles();
   readonly skills = new FakeSkillLibrary();
   private readonly catalog = new FakeCatalogWire(this.prompts, (provider) =>
@@ -109,6 +112,7 @@ export class FakeServicesWire {
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
     this.storage = new FakeStorageWire(context, settings);
+    this.machineUpdate = new FakeMachineUpdate(() => context.now());
     this.host = context;
     this.checks = new FakeChecks(() => context.now(), providerStatuses);
     this.history = new FakeHistory(context);
@@ -173,6 +177,7 @@ export class FakeServicesWire {
     const files = this.files.session(emit);
     const admission = this.admission.session(emit);
     const appUpdate = this.appUpdate.session(emit);
+    const machineUpdate = this.machineUpdate.session(emit);
     const catalog = this.catalog.session(this.host, this.context, emit);
     const skills = skillSession(this.skills, emit);
     const browser = fakeBrowserSession(
@@ -229,6 +234,7 @@ export class FakeServicesWire {
         files.close();
         admission.close();
         appUpdate.close();
+        machineUpdate.close();
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
@@ -254,6 +260,10 @@ export class FakeServicesWire {
         }
         if (message.type === "appUpdate.request") {
           appUpdate.handle(message.requestId);
+          return;
+        }
+        if (message.type === "machineUpdate.request") {
+          machineUpdate.handle(message);
           return;
         }
         if (this.history.handle(message, emit)) return;

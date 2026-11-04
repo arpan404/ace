@@ -120,11 +120,15 @@ export async function maintenanceBlockers(daemon: LocalDaemon): Promise<number> 
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance")).blockers;
 }
 
-/** Tells the daemon this app's update status (host token only), for its paired clients to read. */
+/**
+ * Tells the daemon this app's update status (host token only), for its paired clients to read.
+ * The reply may ask the app to download or install (ADR 0113); an older daemon's reply has no
+ * instruction, and one that doesn't parse is treated the same.
+ */
 export async function reportAppUpdate(
   daemon: LocalDaemon,
   report: import("@ace/protocol").AppUpdateReport,
-): Promise<void> {
+): Promise<import("@ace/protocol").AppUpdateReply | undefined> {
   const response = await fetch(new URL("/v1/app-update", daemon.origin), {
     method: "PUT",
     headers: { authorization: `Bearer ${daemon.token}`, "content-type": "application/json" },
@@ -132,6 +136,8 @@ export async function reportAppUpdate(
     signal: AbortSignal.timeout(3_000),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const { AppUpdateReply } = await protocol();
+  return AppUpdateReply.safeParse(await response.json().catch(() => undefined)).data;
 }
 
 /** Takes this app's update report back (host token only), as the app quits. */

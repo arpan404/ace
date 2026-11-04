@@ -7,6 +7,7 @@ import {
   UpdateController,
   type CheckOrigin,
   type CheckSchedule,
+  type RemoteInstruction,
   type UpdateEngine,
 } from "./update-controller.ts";
 
@@ -40,6 +41,8 @@ export interface AppUpdates {
   apply(): Promise<UpdateStatus>;
   download(): Promise<UpdateStatus>;
   install(): Promise<UpdateStatus>;
+  /** An update asked for from another client, through this app's daemon (ADR 0113). */
+  remote(instruction: RemoteInstruction): Promise<UpdateStatus>;
   /** How many agents Restart would stop; undefined when the daemon could not say. */
   busy(): Promise<number | undefined>;
   /** Background checks, for a build that has a feed. */
@@ -95,6 +98,9 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     apply: () => controller.apply(),
     download: () => controller.download(),
     install: () => controller.install(),
+    remote: (instruction) =>
+      // A build without the feed has nothing to install.
+      enabled ? controller.remote(instruction) : Promise.resolve(controller.current()),
     busy: () => controller.busy(),
     start() {
       if (enabled && !schedule)

@@ -49,6 +49,9 @@ import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 
 import { startServer, type ServerOptions } from "./server.ts";
+import { spawn } from "node:child_process";
+import { fileRecord } from "./machine-update/record.ts";
+import { machineUpdateConfig } from "./machine-update/updater-process.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
 import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
@@ -436,6 +439,15 @@ export async function startDaemon(options: DaemonOptions = {}) {
       maintenance: process.env.ACE_MAINTENANCE === "1",
       maintenanceGate: maintenance,
       version: process.env.ACE_VERSION ?? "development",
+      machineUpdate: machineUpdateConfig({
+        dataDir: config.dataDir,
+        entry: process.argv[1],
+        node: process.execPath,
+        platform: process.platform,
+        env: process.env,
+        spawn,
+        record: fileRecord(config.dataDir),
+      }),
       port: config.port,
       ...(config.webOrigins ? { webOrigins: config.webOrigins } : {}),
       token,

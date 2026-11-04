@@ -4,6 +4,11 @@ import { ChannelClose, PairRedeem, PairResult } from "./relay-channel.ts";
 import { StorageRequest, StorageResult } from "./storage.ts";
 import { AdmissionChanged, AdmissionRequest, AdmissionResult } from "./admission.ts";
 import { AppUpdateChanged, AppUpdateRequest, AppUpdateResult } from "./app-update.ts";
+import {
+  MachineUpdateChanged,
+  MachineUpdateRequest,
+  MachineUpdateResult,
+} from "./machine-update.ts";
 import { UserBrowserSettings, UserBrowserSettingsResult } from "./user-browser.ts";
 import { HostedRepositoriesRequest, HostedRepositoriesResult } from "./hosted-repositories.ts";
 import { SourceControlRequest, SourceControlResult } from "./source-control.ts";
@@ -202,6 +207,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   StorageRequest,
   AdmissionRequest,
   AppUpdateRequest,
+  MachineUpdateRequest,
   UserBrowserSettings,
   WorktreeCreationRequest,
   TurnsPageRequest,
@@ -299,6 +305,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   AdmissionChanged,
   AppUpdateResult,
   AppUpdateChanged,
+  MachineUpdateResult,
+  MachineUpdateChanged,
   UserBrowserSettingsResult,
   WorktreeCreationEvent,
   WorktreeCreationResult,

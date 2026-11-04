@@ -53,3 +53,4 @@ export { planTask, TaskConfig, type TaskPlan } from "./plan.ts";
 export { TaskService, type TaskPorts } from "./service.ts";
 export { retrySharing } from "./files.ts";
 export { CMD_LAUNCHER } from "./launcher.ts";
+export { UpdateOutcome, updateOutcomeFile, updateFailure } from "./update-outcome.ts";
