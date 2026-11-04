@@ -44,7 +44,7 @@ test("support export excludes conversations by default and downloads the chosen 
 });
 test("Settings → Computer use explains how to install the computer's missing tools", async () => {
   await harness().open("/settings/computer-use");
-  const tools = await screen.findByRole("region", { name: "Tools on this machine" });
+  const tools = await screen.findByRole("region", { name: "Tools on this computer" });
   // The fake computer has Xcode and Git; only the Android SDK is missing.
   expect(await within(tools).findByText(/Install Android Studio.*SDK/)).toBeTruthy();
   expect(within(tools).queryByText(/Install Xcode from the App Store/)).toBeNull();

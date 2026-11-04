@@ -80,7 +80,7 @@ function DevicesSwitchRow() {
   return (
     <SettingRow
       title="Simulators and emulators"
-      description="Turned on or off for this whole machine from a thread's Devices tab (⋯ › Disable devices…). Let agents use apps is a separate switch, for Mac apps only."
+      description="Turned on or off for this whole computer from a thread's Devices tab (⋯ › Disable devices…). Let agents use apps is a separate switch, for Mac apps only."
     />
   );
 }

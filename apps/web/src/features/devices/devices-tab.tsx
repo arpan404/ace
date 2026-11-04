@@ -84,7 +84,7 @@ export function DevicesTab(props: { threadId: string }) {
     return (
       <EmptyState
         title="Simulators and emulators"
-        description="Opened through your ace account, which doesn't carry devices yet. Pair this device with the machine to use its simulators and emulators."
+        description="Opened through your ace account, which doesn't carry devices yet. Pair this device with the computer to use its simulators and emulators."
       />
     );
   if (!view.connected)
@@ -101,7 +101,7 @@ export function DevicesTab(props: { threadId: string }) {
     return (
       <EmptyState
         title="Simulators and emulators"
-        description="Watch and drive this machine's iOS Simulators and Android emulators, and let this thread's agents use them."
+        description="Watch and drive this computer's iOS Simulators and Android emulators, and let this thread's agents use them."
         action={
           <div className="flex flex-col items-center gap-3">
             <Button variant="primary" disabled={view.pending} onClick={() => devices.enable(true)}>
@@ -157,7 +157,7 @@ export function DevicesTab(props: { threadId: string }) {
             <EmptyState
               variant="inline"
               className="px-2 pt-0"
-              title="No simulators or emulators on this machine"
+              title="No simulators or emulators on this computer"
               description="Create one in Xcode or Android Studio, then refresh."
               action={
                 <div className="flex gap-2">

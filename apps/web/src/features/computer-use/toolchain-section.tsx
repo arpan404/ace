@@ -8,7 +8,7 @@ import { toolchainNames, useToolchains } from "@/features/diagnostics/index.ts";
 export function ToolchainSection() {
   const tools = useToolchains();
   return (
-    <SettingSection label="Tools on this machine">
+    <SettingSection label="Tools on this computer">
       {tools.isError ? (
         <SettingNote role="alert">
           Couldn't check the tools.{" "}

@@ -100,7 +100,7 @@ function Conversation(props: { entry: AutomationEntry; daemonKey: string; refetc
     : !automation.enabled
       ? "Resume this automation to run it."
       : running === false
-        ? "Automations are off on this machine."
+        ? "Automations are off on this computer."
         : undefined;
   const change = (next: Automation): Promise<boolean> => {
     setDraft({ automation: next, revision: entry.revision });

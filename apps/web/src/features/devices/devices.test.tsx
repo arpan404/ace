@@ -222,7 +222,7 @@ test("disabling devices is machine-wide, so it asks first", async () => {
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
-  const confirm = await screen.findByRole("dialog", { name: "Disable devices on this machine?" });
+  const confirm = await screen.findByRole("dialog", { name: "Disable devices on this computer?" });
   await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
   expect(within(panel).queryByRole("button", { name: "Enable devices" })).toBeNull();
 
@@ -291,7 +291,7 @@ test("a devices channel that can't come back says so, and Reconnect opens a fres
 
   expect(await within(panel).findByText("Devices disconnected")).toBeTruthy();
   expect(
-    within(panel).getByText(/Lost the connection to this machine's simulators and emulators/),
+    within(panel).getByText(/Lost the connection to this computer's simulators and emulators/),
   ).toBeTruthy();
   app.daemon.appDevices.refusing = false;
   await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
@@ -460,7 +460,7 @@ test("a device tab says loading during a slow inventory read and then returns to
   // The dropped channel comes back by itself and reads the inventory again.
   act(() => app.daemon.appDevices.dropAll());
   expect(await within(panel).findByLabelText("Loading iPhone 16 Pro")).toBeTruthy();
-  expect(within(panel).queryByText(/isn't on this machine any more/)).toBeNull();
+  expect(within(panel).queryByText(/isn't on this computer any more/)).toBeNull();
   act(() => resume?.());
   expect(await within(panel).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
   spy.mockRestore();

@@ -12,7 +12,7 @@ import type { ComputerUse } from "./use-computer-use.ts";
 
 /** Why a machine opened through the ace account has no computer use here. */
 const throughAccountWords =
-  "Opened through your ace account, which doesn't carry computer use yet. Pair this device with the machine to let agents use apps there.";
+  "Opened through your ace account, which doesn't carry computer use yet. Pair this device with the computer to let agents use apps there.";
 
 /** Computer use on or off: off stops every session and keeps agents from starting one. */
 export function EnableRow(props: { use: ComputerUse }) {
@@ -22,7 +22,7 @@ export function EnableRow(props: { use: ComputerUse }) {
   const description = snapshot.throughAccount
     ? throughAccountWords
     : snapshot.unavailable
-      ? "ace on this machine has no screen helper, so agents can't use apps here."
+      ? "ace on this computer has no screen helper, so agents can't use apps here."
       : !snapshot.connected
         ? "Connecting to the screen helper…"
         : "Their provider's permission mode approves each action.";
@@ -121,7 +121,7 @@ export function Permissions(props: { use: ComputerUse }) {
       <EmptyState
         variant="inline"
         icon={MonitorIcon}
-        title="No screen helper on ace on this machine."
+        title="No screen helper on ace on this computer."
         description="Computer use needs ace's screen helper, which comes with the ace desktop app and ace's macOS and Linux releases."
       />
     );

@@ -20,7 +20,7 @@ export type DeviceAction =
   | "Language and region…";
 
 const descriptions: Record<DeviceAction, string> = {
-  "Install app…": "Enter the path on this machine to an .app or .apk build.",
+  "Install app…": "Enter the path on this computer to an .app or .apk build.",
   "Open URL…": "Open it on this device.",
   "Open app…": "Open an installed app by its bundle or package identifier.",
   "Location…": "Set where the device thinks it is.",

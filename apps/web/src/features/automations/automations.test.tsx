@@ -625,7 +625,7 @@ test("a trigger that stopped says why in words, and Retry clears it", async () =
   await heading("Review pull requests on open");
   const alert = await main().findByRole("alert", { name: "Trigger" });
   expect(alert.textContent).toContain("Not watching");
-  expect(alert.textContent).toContain("Sign in to GitHub on this machine");
+  expect(alert.textContent).toContain("Sign in to GitHub on this computer");
   expect(alert.textContent).not.toContain("401");
   expect(
     within(sidebar.getByRole("link", { name: /Review pull requests/ })).getByText("Not watching"),

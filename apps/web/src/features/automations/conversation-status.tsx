@@ -1,3 +1,4 @@
+import { computerCopy } from "@/lib/computer-copy.ts";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -45,7 +46,7 @@ export function ConversationStatus(props: {
             when={`since ${formatWhen(entry.triggerError.at, now)}`}
           />
           <p className={answer}>
-            {triggerErrorCopy(automation.trigger, entry.triggerError)} {editWhen}
+            {computerCopy(triggerErrorCopy(automation.trigger, entry.triggerError))} {editWhen}
             {own && (
               <>
                 {dot}
@@ -62,7 +63,7 @@ export function ConversationStatus(props: {
               when={`since ${formatWhen(entry.lastPollError.at, now)}`}
             />
             <p className={answer}>
-              {githubHint(entry.lastPollError.message)} {editWhen}
+              {computerCopy(githubHint(entry.lastPollError.message))} {editWhen}
             </p>
           </section>
         )

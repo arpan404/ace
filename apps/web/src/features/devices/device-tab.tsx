@@ -278,7 +278,7 @@ export function DeviceTab(props: {
   if (!view.enabled)
     return (
       <EmptyState
-        title="Devices are turned off on this machine"
+        title="Devices are turned off on this computer"
         description={`Turn them on to see ${name} and let agents in this thread use it. This switch covers simulators and emulators only; Mac apps have their own in Settings.`}
         action={
           <div className="flex flex-col items-center gap-3">
@@ -293,7 +293,7 @@ export function DeviceTab(props: {
   if (!view.selected)
     return (
       <EmptyState
-        title={view.problem ? `Couldn't load ${name}` : `${name} isn't on this machine any more`}
+        title={view.problem ? `Couldn't load ${name}` : `${name} isn't on this computer any more`}
         description={
           view.problem
             ? `${view.problem.message} ${view.problem.hint}`.trim()

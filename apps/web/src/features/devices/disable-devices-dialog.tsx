@@ -20,7 +20,7 @@ export function DisableDevicesDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent initialFocus={cancel}>
         <DialogHeader>
-          <DialogTitle>Disable devices on this machine?</DialogTitle>
+          <DialogTitle>Disable devices on this computer?</DialogTitle>
           <DialogDescription>
             This turns devices off for every thread, not just this one. Agents lose the devices they
             are using, and live views stop. Devices turn on again when the daemon restarts.
