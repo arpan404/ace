@@ -3,6 +3,7 @@ import { agentSettingTitles } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
+import { primaryMachineId } from "@/lib/machines.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
@@ -17,12 +18,15 @@ export interface SettingEntry {
   readonly title: string;
   /** Other words people use for it ("dark mode" for Theme). */
   readonly keywords?: readonly string[];
-  /** Where it opens when that's a view inside its page (Fleet's Map), not the page itself. */
-  readonly route?: "/settings/remote/map";
+  /** Where it opens when that's a view inside its page (Fleet's Map, this computer), not the page itself. */
+  readonly route?: "/settings/remote/map" | "/settings/remote/primary";
 }
 
-/** Where a setting opens: its view inside the page when it has one, else the page. */
-export const entryRoute = (entry: SettingEntry) => entry.route ?? entry.page;
+/** Where a setting opens, as link props: its view inside the page when it has one, else the page. */
+export const entryRoute = (entry: SettingEntry) =>
+  entry.route === "/settings/remote/primary"
+    ? ({ to: "/settings/remote/$machine", params: { machine: primaryMachineId } } as const)
+    : { to: entry.route ?? entry.page };
 
 const entries = [
   {
@@ -480,6 +484,13 @@ const entries = [
     page: "/settings/remote",
     title: "Machine name and icon",
     keywords: ["host", "rename", "computer", "icon", "machine icon"],
+  },
+  {
+    id: "machine.pause",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Pause new work",
+    keywords: ["resume", "hold", "stop new work", "maintenance", "admission", "paused", "tray"],
   },
   {
     id: "fleet.map",

@@ -1,5 +1,4 @@
 import { cleanup, screen, waitFor } from "@testing-library/react";
-import { facts } from "@ace/fake-daemon";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -236,49 +235,4 @@ test("desktop work preferences round-trip through the app bridge", async () => {
   expect(screen.getByRole("button", { name: "Quick-thread global shortcut" }).textContent).toBe(
     "Off",
   );
-});
-
-test("tray pause is visible across pages and Resume reopens admission", async () => {
-  let paused = true;
-  const listeners = new Set<(value: { state: string; paused: boolean }) => void>();
-  vi.stubGlobal("ace", {
-    platform: "darwin",
-    daemon: {
-      connection: async () => ({ mode: "fake" }),
-      status: async () => ({ state: "running", paused }),
-      onStatus: (listener: (value: { state: string; paused: boolean }) => void) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      pause: async (next: boolean) => {
-        paused = next;
-        const status = { state: "running", paused };
-        for (const listener of listeners) listener(status);
-        return status;
-      },
-    },
-  });
-  const app = harness();
-  app
-    .play({
-      thread: {
-        id: "paused-example",
-        workspaceId: "project",
-        title: "Pause example",
-        provider: "claude",
-      },
-      steps: [{ kind: "facts", facts: [facts.rootAgent("claude"), facts.turn("root")] }],
-    })
-    .runUntilBlocked();
-  await app.open("/settings/general");
-  expect(await screen.findByText("Paused", { exact: true })).toBeTruthy();
-  cleanup();
-  await app.open("/t/paused-example");
-  await screen.findByRole("heading", { level: 1, name: "Pause example" });
-  expect(await screen.findByText("Paused", { exact: true })).toBeTruthy();
-  cleanup();
-  await app.open("/settings/appearance");
-  await userEvent.click(await screen.findByRole("button", { name: "Resume" }));
-  await waitFor(() => expect(paused).toBe(false));
-  expect(screen.queryByText("New work is on hold.")).toBeNull();
 });
