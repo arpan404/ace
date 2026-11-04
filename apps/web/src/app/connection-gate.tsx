@@ -395,11 +395,13 @@ export function ConnectionGate(props: {
     }));
   }, [stores]);
   // Back to the app with no machine, keeping what is stored: a reload tries it again. Not for
-  // the desktop's own daemon, which follows the app.
+  // the desktop's own daemon, which follows the app, nor a window a pairing link opened, which
+  // stays on pairing.
   const canRunEmpty = props.noMachine !== undefined;
+  const linked = props.pairingLink !== undefined;
   const leave = useMemo(
     () =>
-      canRunEmpty && !props.handed
+      canRunEmpty && !props.handed && !linked
         ? () => {
             managed.current = false;
             setState((previous) => ({
@@ -412,7 +414,7 @@ export function ConnectionGate(props: {
             }));
           }
         : undefined,
-    [canRunEmpty, props.handed],
+    [canRunEmpty, props.handed, linked],
   );
   const forget = props.forgetIdentity;
   const failedTarget = state.problem === "identity" ? state.target : undefined;

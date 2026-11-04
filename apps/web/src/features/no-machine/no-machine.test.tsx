@@ -23,6 +23,8 @@ function openWindow(options: {
   desktop?: boolean;
   signedIn?: boolean;
   at?: string;
+  /** The token the window's client sends; the daemon's own by default. */
+  token?: string;
 }) {
   const session = memoryKeyValue();
   // One history for the window, as a browser has: the app with no machine may mount again.
@@ -39,7 +41,7 @@ function openWindow(options: {
           stores={options.stores}
           defaultUrl={url}
           desktop={options.desktop ?? false}
-          createClient={() => fakeClient(options.daemon, options.daemon.token)}
+          createClient={() => fakeClient(options.daemon, options.token ?? options.daemon.token)}
           noMachine={() => (
             <NoMachineApp
               storage={options.stores.local}
@@ -151,4 +153,14 @@ test("the pairing address with no machine opens Fleet on the pairing form", asyn
   openWindow({ daemon, stores: stores(), at: "/pair" });
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByRole("form", { name: "Pair this device" })).toBeTruthy();
+});
+
+test("a stored machine that refuses this window says so on the connect screen, not an empty app", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  const window = stores();
+  saveTarget(window, { url, token: daemon.token }, true);
+  openWindow({ daemon, stores: window, token: "c".repeat(64) });
+  expect((await screen.findByRole("alert")).textContent).toContain("didn't accept");
+  expect(screen.getByRole("heading", { name: "Connect to ace" })).toBeTruthy();
+  expect(screen.queryByText("Threads run on a machine. Add one to start.")).toBeNull();
 });
