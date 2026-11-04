@@ -114,7 +114,8 @@ export function Permissions(props: { use: ComputerUse }) {
   const { use } = props;
   const { snapshot } = use;
   const note = useId();
-  if (snapshot.throughAccount) return <SettingNote>{throughAccountWords}</SettingNote>;
+  if (snapshot.throughAccount)
+    return <SettingNote>Not available through your ace account.</SettingNote>;
   if (snapshot.unavailable)
     return (
       <EmptyState
