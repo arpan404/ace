@@ -1,4 +1,4 @@
-import type { AccessOptions } from "@ace/client";
+import type { AccessOptions, MachineCodeGate } from "@ace/client";
 import type { ScreenTransport } from "@ace/client/screen-stream";
 import type { DeviceTransport } from "@ace/client/devices";
 import { createContext, useContext } from "react";
@@ -11,6 +11,11 @@ import type { DaemonTarget } from "./connection-settings.ts";
  */
 export type DaemonEndpoint =
   | { kind: "daemon"; target: DaemonTarget; deviceId: string }
+  /**
+   * A machine on the person's ace account, reached only through ace's hosted relay over the
+   * client's own connection: it has no address of its own to dial (`main-machine.ts`).
+   */
+  | { kind: "account"; hostId: string; deviceId: string }
   | { kind: "fake"; access: AccessOptions; devices(): DeviceTransport; screen(): ScreenTransport };
 
 /**
@@ -43,7 +48,23 @@ export const versionMismatchWords =
  * met at that address answered (its token may be fine); `storage` is this device's own saved
  * data.
  */
-export type ConnectionProblem = "auth" | "identity" | "protocol" | "storage" | "failed";
+export type ConnectionProblem =
+  | "auth"
+  | "identity"
+  | "protocol"
+  | "storage"
+  | "failed"
+  /** An account machine: this window has no ace session. */
+  | "signed_out"
+  /** An account machine: the ace session ended (the backend refused it). */
+  | "session_ended"
+  /** An account machine: it left the account, or turned this device away. */
+  | "not_on_account"
+  /** An account machine: its daemon wants its machine code, or refused the one sent. */
+  | "machine_code";
+
+/** Where the app with no machine opens when the person leaves the connection screen. */
+export type NoMachinePlace = "/settings/profile" | "/settings/remote";
 
 /** Which daemon this window talks to, and how to change it. Provided by the ConnectionGate. */
 export interface DaemonConnection {
@@ -73,10 +94,21 @@ export interface DaemonConnection {
   forgetIdentity?: (() => void) | undefined;
   /**
    * Stop trying and go back to the app with no machine, keeping what is stored (a reload tries
-   * it again). Only where the window can run with no machine and doesn't follow the desktop's
-   * own daemon.
+   * it again), on `place` if given. Only where the window can run with no machine and doesn't
+   * follow the desktop's own daemon.
    */
-  leave?: (() => void) | undefined;
+  leave?: ((place?: NoMachinePlace) => void) | undefined;
+  /**
+   * The main machine is one on the person's ace account (being opened, refused or open): its
+   * name and, once its route has loaded, the machine code gate its daemon asks through.
+   * Undefined for any other machine.
+   */
+  account?: { hostId: string; name: string; code?: MachineCodeGate | undefined } | undefined;
+  /**
+   * Make a machine on the person's ace account this window's machine, through ace's relay, and
+   * keep the choice for a reload. Absent in a build without ace accounts.
+   */
+  openAccount?: ((machine: { origin: string; hostId: string; name: string }) => void) | undefined;
   /** Absent only before a daemon is chosen. */
   endpoint?: DaemonEndpoint | undefined;
   /** A `#token=` link waiting for the person to agree before anything is saved. */

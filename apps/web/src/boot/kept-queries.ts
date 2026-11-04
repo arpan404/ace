@@ -15,10 +15,12 @@ const build = import.meta.env.VITE_ACE_BUILD ?? "dev";
 export function useKeptQueries(
   queries: QueryClient,
   client: ClientApi,
-  connection: { target: DaemonTarget; hostId: string },
+  connection: { target: DaemonTarget | undefined; hostId: string },
 ): void {
   const { target, hostId } = connection;
   useEffect(() => {
+    // A machine opened through the ace account has no stored target: nothing is kept for it.
+    if (!target) return;
     let stop: (() => void) | undefined;
     let ended = false;
     void Promise.all([import("@/lib/query-persistence.ts"), import("./read-snapshots.ts")]).then(

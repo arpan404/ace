@@ -1,15 +1,6 @@
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { onThisComputer } from "@/boot/main-machine.ts";
 import { revealer } from "@/boot/open-external.ts";
-
-const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return "";
-  }
-}
 
 /**
  * Show in Finder, when the daemon's files are on this computer (the desktop app with a local
@@ -17,6 +8,5 @@ function hostOf(url: string): string {
  */
 export function useLocalReveal(): ((path: string) => Promise<void>) | undefined {
   const connection = useDaemonConnection();
-  const local = connection.mode === "daemon" && localHosts.has(hostOf(connection.url));
-  return local ? revealer() : undefined;
+  return onThisComputer(connection) ? revealer() : undefined;
 }

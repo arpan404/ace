@@ -14,6 +14,7 @@ import { CopyCommand } from "@/components/copy-command.tsx";
 import { ConnectCard } from "./connect-card.tsx";
 import { DaemonForm } from "./daemon-form.tsx";
 import { HandoffScreen } from "./handoff-screen.tsx";
+import { AccountMachineScreen } from "./account-machine-screen.tsx";
 
 const problems: Record<ConnectionProblem, ReactNode> = {
   auth: "This machine didn't accept the access token. Copy a fresh token from ace there and try again.",
@@ -23,6 +24,11 @@ const problems: Record<ConnectionProblem, ReactNode> = {
     "This app couldn't read what ace sent. Try again; if it keeps happening, update ace here and on that machine.",
   storage: "This window couldn't read the work it saved for this machine. Try again.",
   failed: "ace closed the connection. Check the address, then try again.",
+  // An account machine's own screen says these with its name (`account-machine-screen.tsx`).
+  signed_out: "Sign in to your ace account to open this machine.",
+  session_ended: "Your ace session ended. Sign in again.",
+  not_on_account: "This machine isn't on your ace account any more.",
+  machine_code: "This machine wants its machine code.",
 };
 
 /**
@@ -49,6 +55,8 @@ export function ConnectionScreen() {
         onDecline={handoff.decline}
       />
     );
+  if (connection.account)
+    return <AccountMachineScreen connection={connection} account={connection.account} />;
   const status = connection.status;
   const trying = status.kind === "connecting" || status.kind === "unreachable";
   return (
@@ -118,7 +126,7 @@ export function ConnectionScreen() {
               </Button>
             )}
             {connection.leave && (
-              <Button variant="ghost" onClick={connection.leave}>
+              <Button variant="ghost" onClick={() => connection.leave?.()}>
                 Not now
               </Button>
             )}

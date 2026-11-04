@@ -12,7 +12,7 @@ import {
   type FleetOperation,
   type FleetOutcome,
 } from "@ace/protocol";
-import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import type { ChannelEndpoint } from "@/boot/main-machine.ts";
 import type { AccessGaps } from "./access-gaps.ts";
 import type { Pairing } from "./backend.ts";
 
@@ -85,7 +85,7 @@ function explain(error: unknown): Error {
 const unreadable = () => new Error("This machine gave an answer ace can't read.");
 
 /** How this window reaches its daemon's HTTP routes: origin, fetch and credential. */
-export function accessOptions(endpoint: DaemonEndpoint): AccessOptions {
+export function accessOptions(endpoint: ChannelEndpoint): AccessOptions {
   if (endpoint.kind === "fake") return endpoint.access;
   const { url, token } = endpoint.target;
   return {

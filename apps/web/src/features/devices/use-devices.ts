@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "react";
 import { copyImageToClipboard } from "@/lib/clipboard-image.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useDeviceSession, type DeviceSession } from "./device-session.ts";
+import { channelEndpoint, throughAccount } from "@/boot/main-machine.ts";
 
 const enabledResult = (data: unknown): boolean =>
   typeof data === "object" && data !== null && "enabled" in data && data.enabled === true;
@@ -48,6 +49,8 @@ export interface DevicesView {
   loading: boolean;
   /** Set when the channel closed on an error; the panel offers to reconnect. */
   failure: DeviceProblem | undefined;
+  /** The machine was opened through the ace account: there is no devices channel to it. */
+  throughAccount: boolean;
   enabled: boolean;
   rows: DeviceRow[];
   /** Missing SDKs or tools discovery reported. */
@@ -77,7 +80,7 @@ export interface DevicesView {
  */
 export function useDevices(threadId: string, deviceId?: string) {
   const { endpoint } = useDaemonConnection();
-  const { session, snapshot, reconnect } = useDeviceSession(endpoint);
+  const { session, snapshot, reconnect } = useDeviceSession(channelEndpoint(endpoint));
   const [enabledLocally, setEnabled] = useState<boolean | undefined>();
   const [pending, setPending] = useState(0);
   const [downloadingTools, setDownloadingTools] = useState(false);
@@ -195,6 +198,7 @@ export function useDevices(threadId: string, deviceId?: string) {
   };
 
   const view: DevicesView = {
+    throughAccount: throughAccount(endpoint),
     connected,
     loading: !snapshot.inventoryLoaded,
     failure: connected

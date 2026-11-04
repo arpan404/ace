@@ -6,7 +6,7 @@ import { ClientMessage, SocketTicket } from "@ace/protocol";
 import { fakeClient } from "@/test/harness.tsx";
 import { useDeviceSession } from "@/features/devices/device-session.ts";
 import { useScreenSession } from "@/features/computer-use/screen-session.ts";
-import { DaemonConnectionContext, fallback, type DaemonEndpoint } from "./connection.tsx";
+import { DaemonConnectionContext, fallback } from "./connection.tsx";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -61,8 +61,8 @@ test("a paired browser opens devices and computer use with independent one-use t
     }
   }
   vi.stubGlobal("WebSocket", Socket);
-  const endpoint: DaemonEndpoint = {
-    kind: "daemon",
+  const endpoint = {
+    kind: "daemon" as const,
     deviceId: "paired",
     target: { url: "wss://office.test/", token: "a".repeat(64), pairedDeviceId: "paired" },
   };

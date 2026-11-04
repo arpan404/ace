@@ -11,7 +11,7 @@ import {
   type DeviceTransport,
 } from "@ace/client/devices";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { DaemonEndpoint } from "@/boot/connection.tsx";
+import type { ChannelEndpoint } from "@/boot/main-machine.ts";
 import { isLoopbackUrl } from "@/boot/fragment-handoff.ts";
 import { webStorage } from "@/boot/web-storage.ts";
 import { channelReconnect } from "@/lib/channel-reconnect.ts";
@@ -39,7 +39,7 @@ const httpOrigin = (url: string) => {
  * end-to-end encrypted relay (`routed` says which one carries it).
  */
 function transportFor(
-  endpoint: DaemonEndpoint,
+  endpoint: ChannelEndpoint,
   routed: (route: DeviceConnection) => void,
 ): DeviceTransport {
   if (endpoint.kind === "fake") return endpoint.devices();
@@ -117,7 +117,7 @@ export interface DeviceSession {
   close(): void;
 }
 
-function openSession(endpoint: DaemonEndpoint): DeviceSession {
+function openSession(endpoint: ChannelEndpoint): DeviceSession {
   const client = new DeviceClient({ id: () => crypto.randomUUID(), schedule });
   const listeners = new Set<() => void>();
   let connection: DeviceConnection =
@@ -202,9 +202,9 @@ interface Shared {
   users: number;
   listeners: Set<() => void>;
 }
-const shared = new WeakMap<DaemonEndpoint, Shared>();
+const shared = new WeakMap<ChannelEndpoint, Shared>();
 
-function acquire(endpoint: DaemonEndpoint): Shared {
+function acquire(endpoint: ChannelEndpoint): Shared {
   let entry = shared.get(endpoint);
   if (!entry) {
     entry = { session: openSession(endpoint), users: 0, listeners: new Set() };
@@ -214,14 +214,14 @@ function acquire(endpoint: DaemonEndpoint): Shared {
   return entry;
 }
 
-function release(endpoint: DaemonEndpoint, entry: Shared) {
+function release(endpoint: ChannelEndpoint, entry: Shared) {
   entry.users--;
   if (entry.users > 0) return;
   entry.session.close();
   if (shared.get(endpoint) === entry) shared.delete(endpoint);
 }
 
-function reopen(endpoint: DaemonEndpoint) {
+function reopen(endpoint: ChannelEndpoint) {
   const entry = shared.get(endpoint);
   if (!entry) return;
   entry.session.close();
@@ -233,7 +233,7 @@ function reopen(endpoint: DaemonEndpoint) {
  * The devices channel while a devices view is open; `reconnect` opens a fresh one for every
  * view. Nothing is replayed: control and approval are asked for again after a reconnect.
  */
-export function useDeviceSession(endpoint: DaemonEndpoint | undefined) {
+export function useDeviceSession(endpoint: ChannelEndpoint | undefined) {
   const [session, setSession] = useState<DeviceSession | undefined>();
   useEffect(() => {
     if (!endpoint) return;

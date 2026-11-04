@@ -23,8 +23,8 @@ const none: readonly { id: string }[] = [];
 
 /**
  * Fleet in a window with no machine: pair this window with a computer running ace, connect to
- * one by address, or open one on the person's ace account. Pairing or connecting makes it this
- * window's machine the way the connection screen does, stored the same way.
+ * one by address, or open one on the person's ace account. Each makes it this window's machine
+ * the way the connection screen does, kept for a reload.
  */
 export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
   const connection = useDaemonConnection();
@@ -101,13 +101,25 @@ export function NoMachineFleetPage(props: { pairing?: boolean | undefined }) {
 }
 
 /**
- * The machines on the person's ace account, each opened through ace's relay. Signed out, where
- * to sign in; a build without ace accounts says nothing.
+ * The machines on the person's ace account, each opened through ace's relay as this window's
+ * machine. Signed out, where to sign in; a build without ace accounts says nothing.
  */
 function AccountMachines() {
   const store = useAceAccountStore();
   const { session, restoring } = useAceAccount();
   const account = useAccountMachines(none);
+  const connection = useDaemonConnection();
+  const navigate = useNavigate();
+  const origin = store?.origin;
+  const openAccount = connection.openAccount;
+  // Opening one makes it this window's machine; the window then opens on its home.
+  const open =
+    openAccount && origin
+      ? (machine: { hostId: string; name: string }) => {
+          void navigate({ to: "/", replace: true });
+          openAccount({ origin, hostId: machine.hostId, name: machine.name });
+        }
+      : undefined;
   if (!store || restoring || account.loading) return null;
   if (!session)
     return (
@@ -125,6 +137,7 @@ function AccountMachines() {
           key={machine.hostId}
           machine={machine}
           onForget={(hostId) => account.forget.mutateAsync(hostId)}
+          onOpen={open}
         />
       ))}
       {account.error ? (

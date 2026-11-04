@@ -47,6 +47,8 @@ const keys = {
   token: "ace.daemon.token",
   device: "ace.daemon.pairedDevice",
   relay: "ace.daemon.relayHost",
+  /** A machine on the ace account chosen as this window's: origin, host id and name, no secret. */
+  account: "ace.daemon.accountMachine",
 } as const;
 
 /**
@@ -77,6 +79,7 @@ export function loadTarget(stores: ConnectionStores, fallbackUrl = defaultDaemon
 }
 
 export function saveTarget(stores: ConnectionStores, target: DaemonTarget, remember: boolean) {
+  safeRemove(stores.local, keys.account);
   safeSet(stores.local, keys.url, target.url);
   if (target.relayHostId) safeSet(stores.local, keys.relay, target.relayHostId);
   else safeRemove(stores.local, keys.relay);
@@ -98,10 +101,48 @@ export function forgetToken(stores: ConnectionStores) {
     .then((snapshots) => snapshots.forgetAllReadSnapshots())
     .catch((error: unknown) => console.error("ace: couldn't delete cached threads", error));
   forgetMachineTokens(stores.local, stores.session);
+  safeRemove(stores.local, keys.account);
   safeRemove(stores.local, keys.device);
   safeRemove(stores.session, keys.device);
   safeRemove(stores.local, keys.token);
   safeRemove(stores.session, keys.token);
+}
+
+/**
+ * The machine on the person's ace account this window opens as its own, as stored: a JSON
+ * value the caller parses (`AccountMainMachine` in `main-machine.ts`). Undefined when the
+ * window's machine is an address, or none.
+ */
+export function loadAccountChoice(stores: ConnectionStores): unknown {
+  const value = safeGet(stores.local, keys.account);
+  if (value === undefined) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Choose a machine on the ace account as this window's: kept in local storage so a reload, or
+ * the desktop app starting again, opens it through the relay with a fresh grant. The stored
+ * address's token goes, so only one machine is ever this window's; the address stays as the
+ * form's default.
+ */
+export function saveAccountChoice(
+  stores: ConnectionStores,
+  machine: { origin: string; hostId: string; name: string },
+) {
+  safeSet(
+    stores.local,
+    keys.account,
+    JSON.stringify({ origin: machine.origin, hostId: machine.hostId, name: machine.name }),
+  );
+  for (const storage of [stores.local, stores.session]) {
+    safeRemove(storage, keys.token);
+    safeRemove(storage, keys.device);
+  }
+  safeRemove(stores.local, keys.relay);
 }
 
 /**

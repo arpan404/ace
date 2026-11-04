@@ -10,16 +10,22 @@ import { cn } from "@/lib/cn.ts";
 import { SessionCard } from "./session-card.tsx";
 import type { ComputerUse } from "./use-computer-use.ts";
 
+/** Why a machine opened through the ace account has no computer use here. */
+const throughAccountWords =
+  "Opened through your ace account, which doesn't carry computer use yet. Pair this device with the machine to let agents use apps there.";
+
 /** Computer use on or off: off stops every session and keeps agents from starting one. */
 export function EnableRow(props: { use: ComputerUse }) {
   const { use } = props;
   const id = useId();
   const { snapshot } = use;
-  const description = snapshot.unavailable
-    ? "ace on this machine has no screen helper, so agents can't use apps here."
-    : !snapshot.connected
-      ? "Connecting to the screen helper…"
-      : "Their provider's permission mode approves each action.";
+  const description = snapshot.throughAccount
+    ? throughAccountWords
+    : snapshot.unavailable
+      ? "ace on this machine has no screen helper, so agents can't use apps here."
+      : !snapshot.connected
+        ? "Connecting to the screen helper…"
+        : "Their provider's permission mode approves each action.";
   return (
     <SettingRow
       title="Let agents use apps"
@@ -53,6 +59,8 @@ export function LiveSessions(props: {
   const sessions = visibleSessions(use.snapshot.states).toSorted(
     (a, b) => Number(b.holder?.threadId === threadId) - Number(a.holder?.threadId === threadId),
   );
+  if (use.snapshot.throughAccount)
+    return <p className="py-2 text-sm text-muted-foreground">{throughAccountWords}</p>;
   if (!use.snapshot.connected && sessions.length === 0)
     return <EmptyState variant="inline" title="Connecting to the screen helper…" />;
   if (sessions.length === 0)
@@ -106,6 +114,7 @@ export function Permissions(props: { use: ComputerUse }) {
   const { use } = props;
   const { snapshot } = use;
   const note = useId();
+  if (snapshot.throughAccount) return <SettingNote>{throughAccountWords}</SettingNote>;
   if (snapshot.unavailable)
     return (
       <EmptyState

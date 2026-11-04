@@ -24,6 +24,11 @@ const idle = () => () => {};
 export function AccountMachineRow(props: {
   machine: AccountMachine;
   onForget(hostId: string): Promise<void>;
+  /**
+   * Opens it some other way than beside this window's machine: a window with no machine makes
+   * it its own (the connection gate then says how opening it goes).
+   */
+  onOpen?: ((machine: AccountMachine) => void) | undefined;
 }) {
   const { machine } = props;
   const now = useNow();
@@ -46,6 +51,7 @@ export function AccountMachineRow(props: {
     () => connection?.get(),
   );
   const open = () => {
+    if (props.onOpen) return props.onOpen(machine);
     if (connection) return connection.retry();
     if (!connector || opening) return;
     setOpening(true);
@@ -81,11 +87,13 @@ export function AccountMachineRow(props: {
             {line}
           </span>
         </div>
-        {connector && !opening && (state === undefined || state.kind === "failed") && (
-          <Button size="sm" variant="ghost" className="-mr-1" onClick={open}>
-            Open
-          </Button>
-        )}
+        {(props.onOpen || connector) &&
+          !opening &&
+          (state === undefined || state.kind === "failed") && (
+            <Button size="sm" variant="ghost" className="-mr-1" onClick={open}>
+              Open
+            </Button>
+          )}
         <RowMenu label={`Actions for ${machine.name}`}>
           <MenuItem
             danger

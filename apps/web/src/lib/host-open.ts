@@ -1,4 +1,5 @@
 import { useClient } from "@ace/client-react";
+import { onThisComputer } from "@/boot/main-machine.ts";
 import { ThreadId, WorkspaceId, type SkillEntry } from "@ace/protocol";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
@@ -59,12 +60,7 @@ export function useRemoteHost(): boolean {
   const connection = useDaemonConnection();
   if (scoped && !scoped.primary) return true;
   if (connection.mode !== "daemon") return false;
-  try {
-    const host = new URL(connection.url).hostname;
-    return host !== "" && host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]";
-  } catch {
-    return false;
-  }
+  return !onThisComputer(connection);
 }
 
 /** Refusal codes `host.open` answers with, in words. */

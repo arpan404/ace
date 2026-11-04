@@ -2,13 +2,14 @@ import { nextFrame } from "./lib/next-frame.ts";
 import type { ClientApi } from "@ace/client";
 import type { MachinePool } from "@ace/client-worker/machines";
 import { frameBatch } from "@ace/client-react";
-import { lazy, StrictMode, Suspense, useState, type ReactNode } from "react";
+import { lazy, StrictMode, Suspense, useMemo, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { App, AppFrame, createQueryClient } from "./app.tsx";
 import { ConnectionGate, type GateConnection } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl, forgetToken, type DaemonTarget } from "./boot/connection-settings.ts";
 import { pairingLinkFromUrl } from "./boot/fragment-handoff.ts";
-import { DaemonConnectionContext } from "./boot/connection.tsx";
+import { DaemonConnectionContext, type NoMachinePlace } from "./boot/connection.tsx";
+import type { AccountRouteSource } from "./boot/main-machine.ts";
 import { createDaemonClient, forgetDaemonIdentity } from "./boot/daemon.ts";
 import { useBrowserMachinePool } from "./boot/machine-pool-boot.ts";
 import { useKeptQueries } from "./boot/kept-queries.ts";
@@ -97,8 +98,10 @@ function DaemonApp(props: { client: ClientApi; connection: GateConnection }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
   const [queryClient] = useState(createQueryClient);
   useKeptQueries(queryClient, props.client, props.connection);
+  const { target, hostId } = props.connection;
+  const kept = useMemo(() => target && { target, hostId }, [target, hostId]);
   return (
-    <KeptTurnStepsConnection.Provider value={props.connection}>
+    <KeptTurnStepsConnection.Provider value={kept}>
       <App
         client={props.client}
         queryClient={queryClient}
@@ -119,8 +122,13 @@ const NoMachineApp = lazy(() =>
   import("./features/no-machine/index.ts").then((module) => ({ default: module.NoMachineApp })),
 );
 /** A window with no machine yet: the app, empty, with the machine pool for account machines. */
-function NoMachineWindow() {
+function NoMachineWindow(props: { place?: NoMachinePlace | undefined }) {
   const { pool, ensure } = useBrowserMachinePool(local, session);
+  // Left the connection screen for Profile or Fleet: the app opens there, before its router
+  // reads the address.
+  useState(() => {
+    if (props.place) history.replaceState(null, "", props.place);
+  });
   return (
     <Suspense fallback={null}>
       <NoMachineApp
@@ -132,7 +140,12 @@ function NoMachineWindow() {
     </Suspense>
   );
 }
-const noMachineWindow = () => <NoMachineWindow />;
+const noMachineWindow = (place?: NoMachinePlace) => <NoMachineWindow place={place} />;
+/** Machines on the ace account open as this window's machine through ace's relay, on demand. */
+const accountRoutes: AccountRouteSource = (machine) =>
+  import("./boot/account-main-route.ts").then(({ browserAccountRoutes }) =>
+    browserAccountRoutes({ storage: local, session })(machine),
+  );
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 const pairingLink = pairingLinkFromUrl(new URL(location.href));
@@ -158,6 +171,7 @@ function gate(
       pairingLink={pairingLink}
       onFragmentRead={forgetFragment}
       noMachine={noMachineWindow}
+      accountRoutes={accountRoutes}
       manual={options.manual}
     >
       {daemonApp}
