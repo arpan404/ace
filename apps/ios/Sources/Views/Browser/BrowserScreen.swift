@@ -124,15 +124,6 @@ struct BrowserScreen: View {
             }
             .accessibilityIdentifier("browser.ask")
         }
-        if model.canOperate, let annotate {
-            Button(annotating ? "Stop annotating" : "Annotate", ace: .pencilSimpleLine) {
-                model.browserAnnotate(!annotating, dark: colorScheme == .dark)
-            }
-            .disabled(!annotating && annotate.unavailable != nil)
-            .accessibilityValue(annotating ? "On" : "Off")
-            .accessibilityHint(annotate.unavailable ?? "")
-            .accessibilityIdentifier("browser.annotate")
-        }
     }
 
     private var openPicker: BrowserPageInfo.Picker? {
@@ -186,6 +177,14 @@ struct BrowserScreen: View {
                     }
                 }
                 BrowserPageState(model: model, openAddress: { editingAddress = true })
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if model.canOperate, let annotate, state?.closed == false {
+                    DrawButton(on: annotating, unavailable: annotate.unavailable) {
+                        model.browserAnnotate(!annotating, dark: colorScheme == .dark)
+                    }
+                    .padding(AceDesign.Space.margin)
+                }
             }
         }
         .clipped()
@@ -255,9 +254,42 @@ struct BrowserScreen: View {
 extension BrowserScreen {
     /// The annotate strip's one sentence: how many comments are pinned, or that it starts.
     fileprivate var annotationSentence: String {
-        if annotate?.mode == "starting" { return "Starting to annotate…" }
+        if annotate?.mode == "starting" { return "Getting the page ready to draw on…" }
         let count = model.thread?.screen.annotations.count ?? 0
-        return count == 0 ? "Annotating this page" : count == 1 ? "1 annotation on the message" : "\(count) annotations on the message"
+        return count == 0 ? "Circle what to change" : "Draw another"
+    }
+}
+
+/// The round glass pen over the live page: drawing on or off. On, it fills with the accent, the
+/// colour the drawings are made in.
+struct DrawButton: View {
+    let on: Bool
+    let unavailable: String?
+    let toggle: () -> Void
+    var body: some View {
+        Button(action: toggle) {
+            AceIcon(.pencilSimpleLine, size: AceDesign.Size.barIcon, relativeTo: .title3)
+                .foregroundStyle(on ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                .background { if on { Circle().fill(AceTheme.Colours.accent) } }
+                .modifier(GlassUnlessOn(on: on))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!on && unavailable != nil)
+        .sensoryFeedback(.selection, trigger: on)
+        .accessibilityLabel(on ? "Stop drawing" : "Draw on the page")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityHint(unavailable ?? "Circle or underline what to change; the drawing goes with your message")
+        .accessibilityIdentifier("browser.annotate")
+    }
+}
+
+/// Glass while the pen is off; the accent's own fill while it is on (never glass under a fill).
+private struct GlassUnlessOn: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on { content } else { content.aceGlass(in: Circle(), interactive: true) }
     }
 }
 

@@ -46,7 +46,24 @@ Comments go on the Uncommitted scope only. A turn's diff is built from the agent
 | `review.status`  | `requestId`, `status: "approved" \| "changes-requested"`                                                                                            | Set the newest review's status. Opens a working-tree review when there is none.                                                                                                                                                                                                                                                                                                 |
 | `review.refresh` | none                                                                                                                                                | Read the daemon's reviews for this thread, so comments from other devices appear. This also runs when the sheet opens.                                                                                                                                                                                                                                                          |
 
+### Outside the sheet (`thread-review.ts`)
+
+These follow the open thread whether or not Changes is shown, from the moment the thread opens until it is left.
+
+| kind                    | fields      | effect                                                                                                                                                                                             |
+| ----------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `review.comments.send`  | `requestId` | Send every unsent comment of the thread (`draft` or `failed`) to the agent, as Send all does, and answer on `changes:notice` with `action: "review.comments.send"`. The composer sends this first. |
+| `review.comments.clear` | none        | Take every unsent comment off the thread. No notice.                                                                                                                                               |
+
 ## Patches
+
+### `changes:ready` → `type: "changes.ready"`
+
+`ready` is `null` unless the daemon reports the thread's whole tree `done` and the checkout holds changes (`details.diff.files > 0`); never for a chat. Otherwise `{ files, additions, deletions, line, checks, branch, pr, project }`: `line` is "9 files · +214 −61" with " · checks passed" (or failed, running) when the linked pull request's checks were reported; `pr` is the first linked pull request `{ number, state, url, repo }` or `null`; `project` is the thread's project id.
+
+### `changes:chip` → `type: "changes.chip"`
+
+`chip` is `null` with no unsent comments; else `{ count, label, path }`: "1 comment on wires.ts", "3 comments on 2 files", and the newest comment's path.
 
 ### `changes:summary` → `type: "changes.summary"`
 

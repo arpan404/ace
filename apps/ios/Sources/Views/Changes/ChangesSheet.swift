@@ -47,8 +47,10 @@ struct ChangesSheet: View {
         var id: String { "\(path)#\(side)#\(start)-\(end)#\(editing?.key ?? "")" }
     }
 
+    @Environment(\.threadPage) private var inPage
+
     var body: some View {
-        NavigationStack {
+        OwnNavigation(inPage: inPage) {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
@@ -71,7 +73,7 @@ struct ChangesSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .sheetEscape { dismiss() }
             .toolbar {
-                if panelHost == nil {
+                if panelHost == nil, !inPage {
                     ToolbarItem(placement: .cancellationAction) {
                         Button { dismiss() } label: { Image(systemName: "xmark") }
                             .accessibilityLabel("Close").accessibilityIdentifier("changes.close")
@@ -266,6 +268,22 @@ struct ChangesSheet: View {
     }
 }
 
+extension EnvironmentValues {
+    /// The view is one of the thread's pages (Changes, Browser…) under the thread's own navigation
+    /// bar, rather than a sheet: it keeps no navigation stack or close button of its own.
+    @Entry var threadPage = false
+}
+
+/// A navigation stack of the view's own as a sheet; none as a page of the thread, whose stack
+/// it already sits in.
+struct OwnNavigation<Content: View>: View {
+    let inPage: Bool
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        if inPage { content() } else { NavigationStack { content() } }
+    }
+}
+
 extension View {
     /// An empty, error or loading state in the middle of the sheet rather than pinned to its top.
     /// The 0.7 is layout, not a design value: the state sits a little above the sheet's middle.
@@ -275,7 +293,8 @@ extension View {
 }
 
 /// A file's sticky header: disclosure, status mark, the path in mono with its name in full ink,
-/// −N +N, and a box to tick once it's been read (the tick clears when the file's diff changes).
+/// and +N −N, or "Viewed" once read (the mark clears when the file's diff changes). Swipe it
+/// either way to mark it viewed or not; long-press offers the same.
 struct ChangedFileHeader: View {
     let file: ChangesSummary.File
     let open: Bool
@@ -283,40 +302,66 @@ struct ChangedFileHeader: View {
     let toggle: () -> Void
     let review: () -> Void
     @Environment(\.aceReduceMotion) private var reduceMotion
+    @State private var drag: CGFloat = 0
+    /// How far a swipe travels before it marks the file.
+    private static let reach = AceDesign.Size.tap * 2
 
     var body: some View {
-        HStack(spacing: AceDesign.Space.related) {
-            Button(action: toggle) {
-                HStack(spacing: AceDesign.Space.related) {
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
-                        .rotationEffect(.degrees(open ? 90 : 0))
-                        .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    FileStatusMark(status: file.status)
-                    path
-                    Spacer(minLength: AceTheme.Spacing.xs)
+        Button(action: toggle) {
+            HStack(spacing: AceDesign.Space.related) {
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
+                    .rotationEffect(.degrees(open ? 90 : 0))
+                    .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                FileStatusMark(status: file.status)
+                path
+                Spacer(minLength: AceTheme.Spacing.xs)
+                if reviewed {
+                    Text("Viewed").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
+                } else {
                     counts
                 }
-                .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .combine)
-            .accessibilityValue(open ? "Open" : "Closed")
-            .accessibilityIdentifier("changes.file.\(file.path)")
-            Button(action: review) {
-                Image(systemName: reviewed ? "checkmark.square.fill" : "square").font(.title3)
-                    .foregroundStyle(reviewed ? AceTheme.Colours.foreground : AceTheme.Colours.decoration)
-                    .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .sensoryFeedback(.selection, trigger: reviewed)
-            .accessibilityLabel("Viewed").accessibilityAddTraits(reviewed ? .isSelected : [])
-            .accessibilityIdentifier("changes.reviewed.\(file.path)")
+            .frame(minHeight: AceDesign.Size.rowDetail).contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, AceTheme.Spacing.lg)
+        .offset(x: drag)
+        .background(alignment: drag < 0 ? .trailing : .leading) {
+            // What the swipe does, revealed under the row as it moves.
+            Text(reviewed ? "Not viewed" : "Viewed")
+                .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                .foregroundStyle(abs(drag) >= Self.reach * 0.8 ? AceDesign.Ink.primary : AceDesign.Ink.subtle)
+                .padding(.horizontal, AceDesign.Space.margin)
+                .opacity(drag == 0 ? 0 : 1)
+        }
         .background(AceTheme.Colours.background)
         .overlay(alignment: .bottom) { Rectangle().fill(AceTheme.Colours.separator).frame(height: AceTheme.Dimensions.border) }
         .opacity(reviewed && !open ? AceDesign.Ink.settledOpacity : 1)
+        .simultaneousGesture(swipe)
+        .contextMenu {
+            Button(reviewed ? "Mark as not viewed" : "Mark as viewed", systemImage: reviewed ? "eye.slash" : "eye", action: review)
+        }
+        .sensoryFeedback(.selection, trigger: reviewed)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue([open ? "Open" : "Closed", reviewed ? "Viewed" : nil].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityAction(named: reviewed ? "Mark as not viewed" : "Mark as viewed", review)
+        .accessibilityIdentifier("changes.file.\(file.path)")
+    }
+
+    /// A sideways drag on the row marks it; a mostly vertical one is the list scrolling.
+    private var swipe: some Gesture {
+        DragGesture(minimumDistance: AceDesign.Space.group)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) * 2 else { return }
+                drag = max(-Self.reach, min(Self.reach, value.translation.width))
+            }
+            .onEnded { _ in
+                let marks = abs(drag) >= Self.reach * 0.8
+                withAnimation(AceDesign.Motion.leaving(reduceMotion)) { drag = 0 }
+                if marks { review() }
+            }
     }
     private var path: some View {
         let folder = (file.path as NSString).deletingLastPathComponent
@@ -335,10 +380,7 @@ struct ChangedFileHeader: View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if file.binary { Text("binary").foregroundStyle(AceTheme.Colours.mutedForeground) }
             else if file.counted == false { Text("—").foregroundStyle(AceTheme.Colours.mutedForeground) }
-            else {
-                Text("−\(file.deletions)").foregroundStyle(AceTheme.StatusText.failed)
-                Text("+\(file.additions)").foregroundStyle(AceTheme.StatusText.done)
-            }
+            else { DiffCounts(additions: file.additions, deletions: file.deletions) }
         }
         .aceMonospace(FileDiffStyle.path, relativeTo: .footnote).fixedSize()
     }

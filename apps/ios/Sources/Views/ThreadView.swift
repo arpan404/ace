@@ -29,6 +29,8 @@ struct ThreadView: View {
     @State private var requestedPage: ThreadPageKind?
     /// A native subagent opened from the Agents page, pushed over the thread.
     @State private var agentRoute: SubagentRoute?
+    /// The file Changes opens at, when something named one (the review sheet's file rows).
+    @State private var changesFile: String?
     @State private var media: TranscriptRow?
     @State private var fullMessage: TranscriptRow?
     @State private var showTools = false
@@ -132,7 +134,7 @@ struct ThreadView: View {
                 if kind == .chat {
                     feed
                 } else {
-                    ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle,
+                    ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, changesFile: changesFile,
                                    barHeight: barHeight, openThread: openThread, openAgent: { agentRoute = $0 },
                                    openChat: { select(.chat) }, mention: model.canOperate ? { mention = $0 } : nil)
                 }
@@ -182,6 +184,11 @@ struct ThreadView: View {
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
                              openThread: { child in agentRoute = nil; openThread(child) })
+            }
+            .environment(\.focusComposer) { composerFocus += 1 }
+            .environment(\.openChanges) { path in
+                changesFile = path
+                open(.changes)
             }
             .threadTransitions(model: model, thread: thread, title: metadata?.title ?? "", renaming: $renaming, sheet: $transitionSheet,
                                openThread: openThread)
@@ -384,7 +391,7 @@ struct ThreadView: View {
                                      }
                                  },
                                  recall: { older in await model.sentText(thread.id, older: older) },
-                                 files: screen.attachments.count + screen.annotations.count,
+                                 files: screen.attachments.count + screen.annotations.count + (model.sheets.chip?.count ?? 0),
                                  draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction, focusRequest: composerFocus) {

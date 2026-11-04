@@ -258,6 +258,7 @@ struct ReviewBar: View {
 
     private var review: ChangesReview? { model.sheets.review }
     @Environment(\.changesCommentable) private var commentable
+    @Environment(\.threadPage) private var inPage
     /// A line to show when there is no pick and no review yet: why comments can't go here, or
     /// why the phone can't keep them.
     private var note: (String, Bool)? {
@@ -293,7 +294,8 @@ struct ReviewBar: View {
                             .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("review.list")
-                    if review.pending > 0 {
+                    // As a page the composer sits below with the comments on its chip; Send is there.
+                    if review.pending > 0, !inPage {
                         Button("Send \(review.pending)") {
                             model.reviewAction("review.send")
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -321,6 +323,7 @@ struct ReviewBar: View {
         if let status = review.session?.status, status != "open" { parts.append(status == "approved" ? "Approved" : "Changes requested") }
         let count = review.drafts.count
         parts.append(count == 0 ? "Review" : "\(count) \(count == 1 ? "comment" : "comments")")
+        if inPage, review.pending > 0 { parts.append("\(review.pending) on your next message") }
         return parts.joined(separator: " · ")
     }
 }

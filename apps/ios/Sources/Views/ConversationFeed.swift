@@ -166,6 +166,8 @@ struct ConversationFeed: View {
                     }
                     // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
                 }
+                // A finished turn with changes: one quiet line to review them (`ReviewReadyLine`).
+                ReviewReadyLine(model: model)
                 // Room for the composer, its strip and the keyboard, and under the last row so it
                 // clears the strip tucked above the composer. The feed itself never changes size as
                 // they move: resizing a long lazy transcript re-estimates its height and throws the

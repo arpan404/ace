@@ -1,12 +1,5 @@
 import SwiftUI
 
-extension EnvironmentValues {
-    /// Set on a screen shown as one of a thread's pages, under the thread's own bar: it keeps no
-    /// navigation stack or close of its own and leaves the title's place to the thread. (The
-    /// Changes branch declares the same entry beside ChangesSheet; keep one when they meet.)
-    @Entry var threadPage = false
-}
-
 extension ThreadPageKind {
     /// Buttons the page puts in the thread's bar. A page with its own takes the bar's trailing
     /// side; the thread's ⋯ shows on the pages without (Chat, Changes, Agents).
@@ -28,6 +21,8 @@ struct ThreadPageBody: View {
     @Bindable var thread: ThreadModel
     let title: String
     let subtitle: String
+    /// The file Changes opens at, when one was named.
+    var changesFile: String? = nil
     /// The composer block's height: the page's content ends above it.
     let barHeight: CGFloat
     let openThread: (String) -> Void
@@ -38,7 +33,8 @@ struct ThreadPageBody: View {
 
     var body: some View {
         page
-            // Screens that are sheets elsewhere drop their close here; their Esc goes to Chat.
+            // Screens that are sheets elsewhere drop their own stack and close here (`threadPage`,
+            // declared beside ChangesSheet); their Esc goes to Chat.
             .environment(\.panelHost, PanelHost(hide: openChat))
             .environment(\.threadPage, true)
             .safeAreaPadding(.bottom, barHeight)
@@ -48,7 +44,7 @@ struct ThreadPageBody: View {
     @ViewBuilder private var page: some View {
         switch kind {
         case .chat: EmptyView()
-        case .changes: ChangesSheet(model: model, title: title)
+        case .changes: ChangesSheet(model: model, title: title, initial: changesFile).id(changesFile)
         case .files: FilesScreen(model: model, scope: .thread(thread.id), subtitle: subtitle, mention: mention)
         case .terminal: TerminalView(model: model, threadId: thread.id)
         case .browser:

@@ -15,10 +15,14 @@ struct ComposerAccessories: View {
         return note
     }
     var body: some View {
-        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || model.sheets.chip != nil || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
+                }
+                if let chip = model.sheets.chip {
+                    CommentChip(chip: chip) { model.clearComments() }
+                        .transition(.opacity)
                 }
                 if !screen.annotations.isEmpty {
                     AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })

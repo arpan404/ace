@@ -19,6 +19,9 @@ import Observation
     var review: ChangesReview?
     var replies: ChangesReplies?
     var notices: [String: ChangesNotice] = [:]
+    /// The finished turn's review line and the composer's comment chip, while the thread is open.
+    var ready: ReviewReadyRow?
+    var chip: CommentChipRow?
     var outcomes: [String: GitOutcome] = [:]
     /// The latest AI draft for the commit or PR editor.
     var draft: GitDraft?
@@ -29,7 +32,7 @@ import Observation
 
     func reset() {
         agents = nil; changes = nil; tree = []; files = [:]; pages = [:]; wholeLines = [:]
-        review = nil; replies = nil; notices = [:]; outcomes = [:]; draft = nil
+        review = nil; replies = nil; notices = [:]; ready = nil; chip = nil; outcomes = [:]; draft = nil
         work = nil; branches = nil; workResults = [:]
         logs = nil; copies = [:]
     }
@@ -63,6 +66,8 @@ import Observation
         case .review(let review): self.review = review
         case .replies(let replies): self.replies = replies
         case .notice(let notice): notices[notice.requestId] = notice
+        case .ready(let ready): self.ready = ready
+        case .chip(let chip): self.chip = chip
         }
     }
 
