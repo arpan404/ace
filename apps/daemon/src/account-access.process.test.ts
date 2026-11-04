@@ -266,6 +266,60 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   expect(restarted.status().signedIn).toBe(false);
 });
 
+it("a sign-in or sign-out decided on an older read never replaces the machine's own sign-in", async () => {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  const root = await mkdtemp(join(tmpdir(), "ace-account-condition-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanup.push(() => store.close());
+  const account = machineAccount({
+    dataDir: root,
+    codes: store.machineCodes,
+    fetch: globalThis.fetch,
+    now: Date.now,
+    randomBytes,
+    delay: (run: () => void) => {
+      const timer = setTimeout(run, 10);
+      return () => clearTimeout(timer);
+    },
+    defaultOrigin: backend.origin,
+  });
+  cleanup.push(() => account.close());
+  const read = account.status();
+  expect(read.sessionId).toBeNull();
+
+  // `ace login` finishes after the app read the machine as signed out.
+  await account.startLogin();
+  backend.completeLogins();
+  await expect.poll(() => account.status().signedIn).toBe(true);
+  const own = account.status();
+  await expect(
+    account.handover(backend.origin, backend.token, { session: read.sessionId ?? null }),
+  ).rejects.toMatchObject({ status: 412 });
+  await expect(account.signOut({ session: "stale" })).rejects.toMatchObject({ status: 412 });
+  expect(account.status()).toMatchObject({ signedIn: true, source: "login" });
+  expect(account.status().sessionId).toBe(own.sessionId);
+
+  // A sign-in under way on this machine is the person's own too.
+  await account.signOut();
+  const signedOut = account.status();
+  await account.startLogin();
+  await expect(
+    account.handover(backend.origin, backend.token, { session: signedOut.sessionId ?? null }),
+  ).rejects.toMatchObject({ status: 412 });
+  expect(account.status().login).toBeDefined();
+
+  // Once nothing changed since the read, both apply.
+  await account.signOut();
+  const handed = await account.handover(backend.origin, backend.token, { session: null });
+  expect(handed).toMatchObject({ signedIn: true, source: "handover" });
+  expect(handed.sessionId).not.toBe(own.sessionId);
+  expect(await account.signOut({ session: handed.sessionId ?? null })).toMatchObject({
+    signedIn: false,
+  });
+});
+
 it("the host signs the machine in and sets its code over the local API; others are refused", async () => {
   const backend = await startFakeAccountBackend(Date.now);
   cleanup.push(() => backend.close());
@@ -304,7 +358,24 @@ it("the host signs the machine in and sets its code over the local API; others a
   expect(status).not.toContain(backend.token);
   await expect(local("/v1/machine-code", "DELETE", undefined, "0".repeat(64))).rejects.toThrow();
   expect(await local("/v1/machine-code", "DELETE")).toMatchObject({ machineCode: { set: false } });
-  expect(await local("/v1/ace-account", "DELETE")).toMatchObject({ signedIn: false });
+  // Conditional on the session the caller read: 412 once it is another.
+  const conditional = (method: string, header: Record<string, string>, body?: unknown) =>
+    fetch(new URL("/v1/ace-account", f.server.httpUrl), {
+      method,
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...header },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  const held = (await local("/v1/ace-account", "GET")) as { sessionId: string };
+  const refused = await conditional(
+    "PUT",
+    { "if-none-match": "*" },
+    { origin: backend.origin, token: backend.token },
+  );
+  expect(refused.status).toBe(412);
+  expect((await conditional("DELETE", { "if-match": '"other"' })).status).toBe(412);
+  const out = await conditional("DELETE", { "if-match": `"${held.sessionId}"` });
+  expect(out.status).toBe(200);
+  expect(await out.json()).toMatchObject({ signedIn: false, sessionId: null });
 });
 
 it("a session the backend no longer knows signs the machine out when it asks for a grant", async () => {

@@ -677,6 +677,7 @@ Example:
       },
       "expiresAt": 5,
       "machineCode": {
+        "lockedUntil": 2,
         "set": false
       },
       "signedIn": false
