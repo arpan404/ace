@@ -2,6 +2,7 @@ import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import type { RequestListener, Server } from "node:http";
 import { SettingsValues } from "@ace/protocol";
 import { SettingsError, transportNetworks } from "@ace/settings";
+import { defaults } from "@ace/settings/defaults";
 import type { ServerOptions } from "./server-options.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import { relayPairing, relayRoute } from "./relay-route.ts";
@@ -47,13 +48,8 @@ export function remoteRuntime(
   let stopWatch: (() => void) | undefined;
   let retry: (() => void) | undefined;
   let retryMs = 1000;
-  let preferences: Preferences = Stored.parse({
-    "remote.enabled": false,
-    "remote.lan": true,
-    "remote.tailscale": false,
-    "remote.relay": false,
-    "remote.relayUrl": "",
-  });
+  // Until the saved settings are read, the defaults (remote access on, the LAN only).
+  let preferences: Preferences = Stored.parse(defaults);
   let closed = false;
   let tail = Promise.resolve();
   let stop: (() => void) | undefined;
