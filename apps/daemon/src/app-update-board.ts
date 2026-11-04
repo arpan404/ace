@@ -1,4 +1,9 @@
-import type { AppUpdate, AppUpdateReport } from "@ace/protocol";
+import type {
+  AppUpdate,
+  AppUpdateInstruction,
+  AppUpdateReply,
+  AppUpdateReport,
+} from "@ace/protocol";
 
 /**
  * How long a report stays without the app sending it again. The desktop app renews it every 20
@@ -19,6 +24,7 @@ export interface AppUpdateClock {
  */
 export class AppUpdateBoard {
   #report: AppUpdateReport | null = null;
+  #instruction: AppUpdateInstruction | null = null;
   #reportedAt: number | null = null;
   #seenAt = 0;
   #cancel: (() => void) | undefined;
@@ -32,14 +38,24 @@ export class AppUpdateBoard {
   current(): AppUpdate {
     return { report: this.#report, reportedAt: this.#reportedAt };
   }
-  /** Keeps `report`; listeners hear it only when it differs from the last one. */
-  set(report: AppUpdateReport): AppUpdate {
+  /**
+   * Keeps `report`; listeners hear it only when it differs from the last one. The reply carries
+   * what the daemon asks of the app (ADR 0113), so the app hears it with each report it sends.
+   */
+  set(report: AppUpdateReport): AppUpdateReply {
     const changed = JSON.stringify(report) !== JSON.stringify(this.#report);
     this.#report = report;
     this.#reportedAt = this.#clock.now();
     this.#arm();
     if (changed) this.#tell();
-    return this.current();
+    return { ...this.current(), instruction: this.#instruction };
+  }
+  /** What the app is asked to do next, until replaced or withdrawn with null. */
+  instruct(instruction: AppUpdateInstruction | null): void {
+    this.#instruction = instruction;
+  }
+  instruction(): AppUpdateInstruction | null {
+    return this.#instruction;
   }
   #arm(): void {
     this.#seenAt = this.#clock.now();

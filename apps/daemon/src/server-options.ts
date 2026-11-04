@@ -100,6 +100,15 @@ export interface ServerOptions {
   maintenanceGate?: MaintenanceGate;
   /** The desktop app's update report; the server makes its own when omitted. */
   appUpdate?: import("./app-update-board.ts").AppUpdateBoard;
+  /** This machine's remote updates (ADR 0113); clients read `unavailable` when omitted. */
+  machineUpdate?: {
+    install: import("@ace/protocol").MachineInstall;
+    record: import("./machine-update/record.ts").RecordStore;
+    /** The standalone updater, for a standalone install. */
+    updater?: import("./machine-update/standalone-installer.ts").UpdaterPorts;
+    platform?: string;
+    arch?: string;
+  };
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   /** Current and maximum event-loop delay for `/v1/status`. */
