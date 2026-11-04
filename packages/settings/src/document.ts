@@ -1,5 +1,6 @@
 import { retiredWorkflowKeys } from "./retired-workflow-migration.ts";
 import { cursorConfiguration } from "./cursor-configuration.ts";
+import { migratesOnWrite, remoteNetworksMigration } from "./remote-networks-migration.ts";
 import { guardSecrets, MAX_CLIENT_BYTES, MAX_DOCUMENT_BYTES, SettingsError } from "./validation.ts";
 import { parseDocument, type ScalarRange } from "./jsonc.ts";
 export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validation.ts";
@@ -93,6 +94,13 @@ export function decode(text: string): DecodedDocument {
     for (const key of retiredWorkflow) text = edit(text, ["settings", key], undefined);
     return { ...decode(text), migrated: true };
   }
+  const networks = remoteNetworksMigration(result.data.settings);
+  if (networks) {
+    for (const [key, value] of Object.entries(networks.networks))
+      text = edit(text, ["settings", key], value);
+    if (networks.dropTransport) text = edit(text, ["settings", "remote.transport"], undefined);
+    return { ...decode(text), migrated: true };
+  }
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
   }
@@ -123,7 +131,7 @@ export const emptyText = '{\n  "version": 2,\n  "settings": {}\n}\n';
 export function assign(source: DecodedDocument, key: SettingsKey, value: unknown): DecodedDocument {
   const parsed = validateValue(key, value);
   const range = source.ranges.get(key);
-  if (!range || (parsed !== null && typeof parsed === "object"))
+  if (!range || (parsed !== null && typeof parsed === "object") || migratesOnWrite(key))
     return decode(edit(source.text, ["settings", key], parsed));
   const content = JSON.stringify(parsed);
   const bytes =

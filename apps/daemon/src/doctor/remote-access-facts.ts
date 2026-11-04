@@ -30,7 +30,9 @@ export const remoteAccessPorts: RemoteAccessPorts = {
     try {
       return {
         "remote.enabled": (await settings.get("remote.enabled")).value,
-        "remote.transport": (await settings.get("remote.transport")).value,
+        "remote.lan": (await settings.get("remote.lan")).value,
+        "remote.tailscale": (await settings.get("remote.tailscale")).value,
+        "remote.relay": (await settings.get("remote.relay")).value,
         "remote.relayUrl": (await settings.get("remote.relayUrl")).value,
       };
     } finally {

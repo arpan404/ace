@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteNetworks.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "$ref": "https://ace.local/protocol/v1/RemoteNetworkStatus.json"
+    },
+    "lan": {
+      "$ref": "https://ace.local/protocol/v1/RemoteNetworkStatus.json"
+    },
+    "relay": {
+      "$ref": "https://ace.local/protocol/v1/RemoteNetworkStatus.json"
+    },
+    "tailscale": {
+      "$ref": "https://ace.local/protocol/v1/RemoteNetworkStatus.json"
+    }
+  },
+  "required": [
+    "lan",
+    "tailscale",
+    "relay",
+    "account"
+  ],
+  "type": "object"
+}

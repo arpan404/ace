@@ -129,8 +129,22 @@ export const SettingsValues = z.object({
    * files that set it still parse.
    */
   "threads.keepSettledFor": z.enum(["0d", "1d", "3d", "7d"]),
+  /** The switch for every remote network below: off, nothing but this computer connects. */
   "remote.enabled": z.boolean(),
+  /**
+   * Superseded by `remote.lan`, `remote.tailscale` and `remote.relay` (ADR 0112). Not stored:
+   * a write from an older app, or a saved value, becomes those three settings.
+   */
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
+  /** Remote access listens on this computer's local network. */
+  "remote.lan": z.boolean(),
+  /** Remote access listens on this computer's Tailscale address. */
+  "remote.tailscale": z.boolean(),
+  /**
+   * Remote access also runs through a relay: `remote.relayUrl` when set, otherwise ace's relay.
+   * A machine signed in to an ace account is on ace's relay whenever remote access is on.
+   */
+  "remote.relay": z.boolean(),
   /** Whether agents on other paired machines may use this one, and how far (ADR 0078). */
   "remote.agentAccess": z.enum(["off", "read", "operate"]),
   /**

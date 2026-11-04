@@ -255,7 +255,8 @@ test("an unavailable Tailscale network cannot change the saved transport or expo
     const before = f.server.remoteUrl;
     expect(await f.set("remote.transport", "tailscale")).toMatchObject({ ok: false });
     expect(f.server.remoteUrl).toBe(before);
-    expect((await f.settings.get("remote.transport")).value).toBe("lan");
+    expect((await f.settings.get("remote.lan")).value).toBe(true);
+    expect((await f.settings.get("remote.tailscale")).value).toBe(false);
   } finally {
     await f.close();
   }
@@ -455,7 +456,8 @@ test("a rejected saved relay leaves startup, local conversations and direct pair
     const pairing = PairingResponse.parse(await f.local("/v1/pairings", {}));
     const url = new URL(pairing.url);
     callbacks.shift()?.();
-    expect(await f.set("remote.enabled", true)).toMatchObject({ ok: false });
+    // The relay still refuses, but a write that doesn't change it isn't refused for it.
+    expect(await f.set("remote.enabled", true)).toMatchObject({ ok: true });
     expect(
       new URL(f.server.remoteUrl ?? "https://missing.invalid").origin.replace("wss:", "https:"),
     ).toBe(url.origin);

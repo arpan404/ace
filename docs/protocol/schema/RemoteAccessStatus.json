@@ -27,6 +27,9 @@
         }
       ]
     },
+    "networks": {
+      "$ref": "https://ace.local/protocol/v1/RemoteNetworks.json"
+    },
     "relay": {
       "properties": {
         "fingerprint": {

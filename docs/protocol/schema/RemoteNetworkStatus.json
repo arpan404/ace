@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/RemoteNetworkStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "address": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "error": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "off",
+        "on",
+        "waiting",
+        "failed"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}
