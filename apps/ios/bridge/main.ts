@@ -27,6 +27,7 @@ import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { NeedsAction, followNeeds, type NeedsFollow } from "./inbox-needs.ts";
 import { Sheets } from "./sheets.ts";
 import { ChangesKept } from "./changes-kept.ts";
 import { keptValue } from "./kept-value.ts";
@@ -122,6 +123,8 @@ let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 let inbox: InboxFollow | undefined;
+/** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
+let needs: NeedsFollow | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
@@ -284,6 +287,8 @@ async function start(json: string): Promise<void> {
     config.inboxSort,
     dismissed,
   );
+  needs?.stop();
+  needs = followNeeds(client, pump);
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
@@ -477,6 +482,12 @@ function action(json: string): void {
     const filesAction = NativeFilesAction.safeParse(raw);
     if (filesAction.success) {
       if (filesActions) routeFilesAction(filesActions, filesAction.data);
+      else error();
+      return;
+    }
+    const need = NeedsAction.safeParse(raw);
+    if (need.success) {
+      if (needs) needs.handle(need.data);
       else error();
       return;
     }

@@ -85,7 +85,12 @@ const clip = (strip: StripLine): StripLine => ({
  * The request as its strip above the composer says it (`@ace/ui-core/mobile` strip lines): who
  * asks, by the asking agent's name and provider mark, and the one line under it.
  */
-function stripOf(interaction: Interaction, reader: ThreadReader, command: string): StripLine {
+/** What a request row reads around it: its tool call, its agent and the thread's provider. */
+export type RequestReader = Pick<ThreadReader, "item" | "agent"> & {
+  readonly thread: { readonly provider: string } | undefined;
+};
+
+function stripOf(interaction: Interaction, reader: RequestReader, command: string): StripLine {
   const agent = reader.agent(interaction.agentId);
   const provider = agent?.native?.provider ?? reader.thread?.provider ?? "";
   const who = agent ? agentName(agent) : "The agent";
@@ -119,8 +124,8 @@ function stripOf(interaction: Interaction, reader: ThreadReader, command: string
   }
 }
 
-export function interactionRow(interaction: Interaction, reader: ThreadReader) {
-  const base = approvalRow(interaction, reader);
+export function interactionRow(interaction: Interaction, reader: RequestReader, fallback = "") {
+  const base = approvalRow(interaction, reader, fallback);
   const request = interaction.request;
   return {
     ...base,

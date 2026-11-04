@@ -136,11 +136,21 @@ export function itemRow(item: Item, index?: number, sourceTruncated = false) {
     truncated: sourceTruncated || text.length > 8192,
   };
 }
-export function approvalRow(interaction: Interaction, reader: ThreadReader) {
+/**
+ * `fallback` is the command to show when the reader doesn't hold the tool call: a request read
+ * from the list, outside its thread, names its command on the approval's target.
+ */
+export function approvalRow(
+  interaction: Interaction,
+  reader: Pick<ThreadReader, "item">,
+  fallback = "",
+) {
   const request = interaction.request;
   const item = interaction.toolCallId ? reader.item(interaction.toolCallId) : undefined;
   const command =
-    item?.type === "tool_call" && item.call.detail.kind === "shell" ? item.call.detail.command : "";
+    item?.type === "tool_call" && item.call.detail.kind === "shell"
+      ? item.call.detail.command
+      : fallback;
   return {
     id: interaction.id,
     kind: request.kind,
