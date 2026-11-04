@@ -71,6 +71,46 @@ export function fleetUpdatePlan(machines: readonly UpdateMachine[]): FleetUpdate
   };
 }
 
+/**
+ * The plan narrowed to the machines a person picked: Update all's order and rules, for only
+ * those. Offline picks stay among `cannot`, so a run that waits for idle still asks them when
+ * they're back; anything not picked is left out entirely.
+ */
+export function pickedUpdatePlan(
+  plan: FleetUpdatePlan,
+  picked: ReadonlySet<string>,
+): FleetUpdatePlan {
+  const targets = plan.targets.filter((target) => picked.has(target.id));
+  const versions = new Set(targets.map((target) => target.version));
+  return {
+    targets,
+    cannot: plan.cannot.filter((machine) => picked.has(machine.id)),
+    version: versions.size === 1 ? (targets[0]?.version ?? null) : null,
+  };
+}
+
+/**
+ * The machines a person can pick to update: every target, then offline machines with a known
+ * release (they update once back, when waiting for idle). What's ticked to start with: all.
+ */
+export function updateChoices(plan: FleetUpdatePlan): {
+  id: string;
+  name: string;
+  version: string;
+  busy: number;
+  primary: boolean;
+  offline: boolean;
+}[] {
+  return [
+    ...plan.targets.map((target) => ({ ...target, offline: false })),
+    ...plan.cannot.flatMap((machine) =>
+      machine.why === "offline" && machine.version
+        ? [{ ...machine, version: machine.version, busy: 0, primary: false, offline: true }]
+        : [],
+    ),
+  ];
+}
+
 const plural = (count: number, one: string) => `${count} ${one}${count === 1 ? "" : "s"}`;
 
 /** "7 machines can update to 0.0.19", or without a version when platforms got different ones. */
