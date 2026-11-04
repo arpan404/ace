@@ -1,3 +1,4 @@
+import { DelegationFailure } from "./delegation-failure.ts";
 import { z } from "zod";
 import { InteractionId, ThreadId } from "./ids.ts";
 import { RemoteContact } from "./agent.ts";
@@ -36,6 +37,7 @@ export const WatchedRequest = z.object({
 });
 export type WatchedRequest = z.infer<typeof WatchedRequest>;
 export const WatchedThread = z.object({
+  failure: DelegationFailure.optional(),
   threadId: ThreadId,
   state: WatchedState,
   title: z.string().max(120),
@@ -93,6 +95,8 @@ export type MonitoredState = z.infer<typeof MonitoredState>;
 export const maxMonitoredChildren = 64;
 /** One child in a compact tree snapshot. */
 export const MonitoredChild = z.object({
+  failure: DelegationFailure.optional(),
+  result: z.string().max(4096).optional(),
   id: ThreadId,
   /** Present when the child belongs to another child rather than the caller. */
   parent: ThreadId.optional(),

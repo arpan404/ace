@@ -162,7 +162,8 @@ export function watchedChild(
     outcome: {
       threadId: row.id,
       outcome: outcomeOf(view.state),
-      result: view.result ?? "",
+      ...(view.failure ? { failure: view.failure } : {}),
+      result: view.result ?? view.failure?.message ?? "",
       truncated: view.truncated ?? false,
       before: null,
     },
@@ -178,6 +179,8 @@ export function monitoredChild(
 ): MonitoredChild {
   const notice = savedView(row)?.notice;
   return {
+    ...(view.failure ? { failure: view.failure } : {}),
+    ...(view.result !== undefined ? { result: view.result } : {}),
     id: row.id,
     ...(row.parent_thread === caller ? {} : { parent: row.parent_thread }),
     role: clip(row.role, 40),

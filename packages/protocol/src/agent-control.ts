@@ -1,3 +1,4 @@
+import { DelegationFailure } from "./delegation-failure.ts";
 import { ForgePrWorktree } from "./forge-worktree.ts";
 import { AccessRequest } from "./permissions.ts";
 import { z } from "zod";
@@ -153,7 +154,8 @@ export const DelegationPolicy = z.strictObject({
   coalesceMs: z.number().int().min(0).max(1000).default(50),
 });
 export type DelegationPolicy = z.infer<typeof DelegationPolicy>;
-export const DelegationOutcome = z.strictObject({
+export const DelegationOutcome = z.object({
+  failure: DelegationFailure.optional(),
   threadId: ThreadId,
   outcome: z.enum(["completed", "failed", "cancelled"]),
   result: z.string().max(4096),

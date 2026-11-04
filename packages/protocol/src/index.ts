@@ -198,3 +198,5 @@ export * from "./storage.ts";
 export * from "./html.ts";
 export * from "./image-share.ts";
 export * from "./forge-inbox.ts";
+
+export { DelegationFailure } from "./delegation-failure.ts";
