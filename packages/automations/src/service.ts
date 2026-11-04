@@ -6,7 +6,12 @@ import {
   type AutomationResponse,
   type AutomationRun,
 } from "@ace/protocol";
-import { type Dependencies, type ExecutionInput } from "./contracts.ts";
+import {
+  type Dependencies,
+  type ExecutionInput,
+  pausedRefusal,
+  pausedResult,
+} from "./contracts.ts";
 import { renderPrompt, scheduledDeadline, recoverOccurrence, withRunNote } from "./decisions.ts";
 import { normalizeAutomation } from "./definition.ts";
 import { Occurrence } from "./recurrence.ts";
@@ -44,6 +49,7 @@ export class AutomationService {
   private runtime: AutomationRuntime;
   private executions: ExecutionOwner;
   private cancelTimer: (() => void) | undefined;
+  private stopReopen: (() => void) | undefined;
   private pending = new Set<Promise<void>>();
   private polling = new Set<string>();
   private lifecycle = new Lifecycle();
@@ -91,6 +97,8 @@ export class AutomationService {
     this.generation++;
     const generation = this.generation;
     this.controller = new AbortController();
+    // Runs that waited while new work was paused start once it is resumed.
+    this.stopReopen = this.deps.admission?.onReopen(() => this.drainWaiting());
     try {
       for (const job of this.store.jobs()) {
         try {
@@ -188,6 +196,8 @@ export class AutomationService {
     const cancelTimer = this.cancelTimer;
     this.cancelTimer = undefined;
     this.cancellations.stop();
+    this.stopReopen?.();
+    this.stopReopen = undefined;
     this.pending.clear();
     this.polling.clear();
     try {
@@ -239,7 +249,7 @@ export class AutomationService {
   }
   /** Start the automation's oldest waiting run, if it has one, nothing of it runs and ace has room. */
   private drain(id: string): void {
-    if (!this.live) return;
+    if (!this.live || !this.admits()) return;
     const generation = this.generation;
     try {
       const automation = this.store.definition(id);
@@ -430,6 +440,8 @@ export class AutomationService {
     const generation = this.generation;
     const automation = this.store.definition(id);
     if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
+    // The person asked for this run, so they hear why it can't start; a fire is skipped instead.
+    if (kind === "manual" && !this.admits()) throw new Error(pausedRefusal);
     const event = AutomationEvent.parse(input);
     const admission = this.store.transaction(() => this.admit(automation, event, kind, note));
     if (admission.created) this.publish(admission.run);
@@ -464,10 +476,16 @@ export class AutomationService {
     } catch (error) {
       failure = message(error);
     }
+    // A fire while new work is paused is skipped, kept in the history, and never queued: the
+    // automation waits for its next time.
+    const skip = this.admits() ? undefined : pausedResult;
     return {
-      ...this.store.claim(automation, event, kind, id, this.deps.now(), input, failure),
+      ...this.store.claim(automation, event, kind, id, this.deps.now(), input, failure, skip),
       input,
     };
+  }
+  private admits(): boolean {
+    return this.deps.admission?.open() ?? true;
   }
   private track(operation: Promise<void>): void {
     this.pending.add(operation);

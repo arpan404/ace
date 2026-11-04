@@ -6,7 +6,7 @@ import { AutomationResponse, type AutomationRequest } from "@ace/protocol";
 import type { ThreadAutomationRequest } from "../agent-control/thread-automations.ts";
 import { followAutomationSetting } from "../automation-lifecycle.ts";
 import { automationWorkspace } from "../automation-workspace.ts";
-import { automationExecutor } from "../automation-executor.ts";
+import { automationAdmission, automationExecutor } from "../automation-executor.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAutomations(context: ServiceContext): Promise<void> {
@@ -22,6 +22,7 @@ export async function startAutomations(context: ServiceContext): Promise<void> {
       timer: nodeTimer,
       executor: automationExecutor(context),
       workspace: automationWorkspace(context),
+      ...automationAdmission(context),
       onError: (error) => log.log("error", "Automation failure", logError(error)),
     },
     createGhClient({ binary: "gh" }),

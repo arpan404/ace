@@ -65,7 +65,21 @@ export interface Dependencies {
   onError: (error: unknown) => void;
   onRun?: (run: AutomationRun) => void;
   workspace?: WorkspaceChanges;
+  /**
+   * Admission for new work (the person's pause, an update's drain). While it is closed a due
+   * run is skipped, Run now is refused and waiting runs stay waiting until it reopens.
+   */
+  admission?: Admission;
 }
+export interface Admission {
+  open(): boolean;
+  /** Calls `listener` each time admission reopens; returns the unsubscribe. */
+  onReopen(listener: () => void): () => void;
+}
+/** Why a run that came due while new work was paused was skipped. */
+export const pausedResult = "Skipped: new work was paused.";
+/** Why Run now is refused while new work is paused. */
+export const pausedRefusal = "New work is paused. Resume new work in ace to continue.";
 export const nodeTimer: TimerDriver = {
   arm(delay, callback) {
     const timer = setTimeout(callback, delay);

@@ -347,6 +347,10 @@ export class FakeDaemon implements Host {
   get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
     return this.servicesWire.history;
   }
+  /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
+  get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
+    return this.servicesWire.admission;
+  }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {
     return this.servicesWire.machineUpdate;
