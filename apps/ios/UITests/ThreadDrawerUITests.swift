@@ -9,14 +9,15 @@ import XCTest
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["thread.sidebar"].exists)
-        XCTAssertFalse(app.buttons["sidebar.spade"].isHittable)
+        // A thread page has no tab bar.
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
         back(in: app)
-        XCTAssertTrue(app.buttons["inbox.search"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["sidebar.spade"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.tabBars.firstMatch.buttons["Threads"].waitForExistence(timeout: 10))
         open("thread.ios-question", in: app)
         XCTAssertTrue(title("Clean up the release notes", in: app).waitForExistence(timeout: 20))
         back(in: app)
-        XCTAssertTrue(app.buttons["inbox.search"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         screenshot("task-list-after-back")
     }
 
@@ -50,7 +51,7 @@ import XCTest
     private func open(_ id: String, in app: XCUIApplication) {
         let row = app.buttons[id]
         // The fixture's list is longer than a screen: scroll until the row is drawn.
-        _ = app.buttons["inbox.search"].waitForExistence(timeout: 30)
+        _ = app.inboxReady.waitForExistence(timeout: 30)
         for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()

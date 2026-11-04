@@ -254,10 +254,10 @@ import XCTest
         XCTAssertTrue(app.buttons["work.toggle"].firstMatch.waitForExistence(timeout: 25))
         screenshot("thread-restored")
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         sleep(3)
         XCTAssertFalse(app.buttons["thread.menu"].exists)
     }

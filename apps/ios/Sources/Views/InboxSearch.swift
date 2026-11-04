@@ -51,152 +51,172 @@ struct SearchScope: Equatable {
     var isDefault: Bool { self == SearchScope() }
 }
 
-/// What the search-everything sheet opens, as the inbox carries it out.
+/// What Search's rows open, as the inbox carries them out.
 struct SearchActions {
     let open: (InboxKey) -> Void
     /// A command id from the shared catalog (`bridge/palette.ts`).
     let command: (String) -> Void
-    /// Scope the list to one machine's project.
+    /// Scope the Threads list to one machine's project.
     let project: (String, String) -> Void
+    /// New thread in one machine's project.
+    let newThreadIn: (String, String) -> Void
     /// A thread its machine's search found beyond the list (archived or older).
     let archived: (InboxKey) -> Void
+    /// One of the places outside the thread lists.
+    let place: (SearchPlace) -> Void
+    /// A pull request's page.
+    let pull: (ForgeRoute) -> Void
 }
 
-/// Search everything (the web's command palette and search, ⌘K): before a query, recent
-/// searches and every command; with one, the matching commands, projects and threads of every
-/// paired machine, then their messages, filtered by kind, project and date. Results stay until
-/// the next ones arrive and crossfade in; nothing blanks between keystrokes.
+/// Search with a query (the web's command palette and search, ⌘K): the matching actions, threads,
+/// pull requests and projects of every paired machine, then their messages, filtered by kind,
+/// project and date. Each action says where it goes at its right, as the web's ranked list does.
+/// Results stay until the next ones arrive and crossfade in; nothing blanks between keystrokes.
 struct InboxSearchList: View {
     @Bindable var inbox: MachineInbox
     @Binding var query: String
     let includes: (InboxKey) -> Bool
-    let threadOpen: Bool
+    /// The thread open on Threads or Chats, whose commands are offered under its title.
+    let openTitle: String?
     let actions: SearchActions
     @State private var messages = InboxMessageSearch()
     @State private var everything = SearchEverything()
+    @State private var pulls = SearchPulls()
     @State private var scope = SearchScope()
-    @State private var recent = RecentSearches.read(.standard)
-    @Environment(\.onSidebarGlass) private var onGlass
     @Environment(\.aceReduceMotion) private var reduceMotion
-    private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var projectChoices: [ProjectChoice] { inbox.projectChoices() }
     private var scopedMachine: String? { scope.project.isEmpty ? nil : String(scope.project.split(separator: "/", maxSplits: 1).first ?? "") }
     private var scopedWorkspace: String? { scope.project.isEmpty ? nil : scope.project.split(separator: "/", maxSplits: 1).last.map(String.init) }
+    private var connections: String { inbox.sessions.map { "\($0.hostId):\($0.client.connection)" }.joined(separator: ",") }
 
     var body: some View {
-        List {
-            if text.isEmpty { start } else { results }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .scrollDismissesKeyboard(.immediately)
-        .background(surface)
-        .environment(\.defaultMinListRowHeight, 0)
-        // New results crossfade in; under Reduce Motion they simply fade.
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: shape)
-        .task(id: "\(text)|\(threadOpen)|\(scope.project)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
-            let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
-            await everything.run(inbox, query: text, threadOpen: threadOpen, project: project)
-        }
-        .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(scope.days)|\(inbox.sessions.map { "\($0.hostId):\($0.client.connection)" })") {
-            guard !text.isEmpty, scope.kind != "thread" else { return }
-            var filters: [String: Any] = [:]
-            if let scopedWorkspace { filters["workspaceId"] = scopedWorkspace }
-            if scope.days > 0 { filters["after"] = (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 }
-            await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scopedMachine)
-        }
+        List { results }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.immediately)
+            .environment(\.defaultMinListRowHeight, 0)
+            // New results crossfade in; under Reduce Motion they simply fade.
+            .animation(AceDesign.Motion.arriving(reduceMotion), value: shape)
+            .task(id: "\(text)|\(openTitle != nil)|\(scope.project)|\(connections)") {
+                let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
+                await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project)
+            }
+            .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(connections)") {
+                guard scope.kind == "all", scope.project.isEmpty else { return }
+                await pulls.run(inbox, query: text)
+            }
+            .task(id: "\(text)|\(scope.kind)|\(scope.project)|\(scope.days)|\(connections)") {
+                guard !text.isEmpty, scope.kind != "thread" else { return }
+                var filters: [String: Any] = [:]
+                if let scopedWorkspace { filters["workspaceId"] = scopedWorkspace }
+                if scope.days > 0 { filters["after"] = (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 }
+                await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scopedMachine)
+            }
     }
 
     /// What the rows are, for the crossfade: ids only, never their text.
     private var shape: [String] {
-        text.isEmpty ? ["start"] + recent + everything.commands.map(\.id)
-            : everything.commands.map(\.id) + everything.projects.map(\.id) + everything.threads.map(\.id)
-                + messages.merged(inbox).map(\.hit.id) + [scope.kind, scope.project, "\(scope.days)"]
+        everything.commands.map(\.id) + everything.projects.map(\.id) + everything.threads.map(\.id) + pulls.found.map(\.id)
+            + messages.merged(inbox).map(\.hit.id) + [scope.kind, scope.project, "\(scope.days)"]
     }
 
-    // MARK: Before a query
-
-    @ViewBuilder private var start: some View {
-        if !recent.isEmpty {
-            Section {
-                ForEach(recent, id: \.self) { entry in
-                    Button { query = entry } label: { plainRow(entry, icon: .clockCounterClockwise) }
-                        .buttonStyle(.row)
-                        .accessibilityIdentifier("search.recent.\(entry)")
-                        .swipeActions { Button("Remove", role: .destructive) { forget(entry) } }
-                        .inboxRowChrome()
-                }
-            } header: {
-                HStack {
-                    header("Recent")
-                    Spacer()
-                    Button("Clear") { withAnimation { recent = []; UserDefaults.standard.set([String](), forKey: RecentSearches.key) } }
-                        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
-                        .accessibilityIdentifier("search.recent.clear")
-                }
-            }
-        }
-        commandSection(everything.commands, title: "Commands")
-    }
-
-    // MARK: With a query
+    private var everyKind: Bool { scope.kind == "all" && scope.project.isEmpty }
 
     @ViewBuilder private var results: some View {
         filterChips.inboxRowChrome().selectionDisabled()
-        if scope.kind == "all", scope.isDefault || scope.project.isEmpty {
-            commandSection(Array(everything.commands.prefix(5)), title: "Commands")
-        }
-        if scope.kind == "all", scope.project.isEmpty, !everything.projects.isEmpty {
-            Section {
-                ForEach(everything.projects) { found in
-                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
-                        plainRow(found.project.name, icon: .folderSimple,
-                                 detail: inbox.showsMachineNames ? inbox.name(found.machineId) : "Project")
-                    }
-                    .buttonStyle(.row)
-                    .accessibilityIdentifier("search.project.\(found.project.id)")
-                    .inboxRowChrome()
-                }
-            } header: { header("Projects") }
-        }
+        if everyKind { actionSection }
         if scope.kind == "all" || scope.kind == "thread" {
             let threads = foundThreads
             if !threads.isEmpty {
                 Section {
                     ForEach(threads) { found in threadRow(found) }
-                } header: { header("Threads") }
+                } header: { SearchHeader("Threads") }
             }
         }
-        if scope.kind != "thread" {
-            let hits = messages.merged(inbox)
-            if !hits.isEmpty {
-                Section {
-                    ForEach(hits, id: \.hit.id) { found in
-                        // The thread opens at the hit, in its own history window.
-                        Button {
-                            remember()
-                            if let itemId = found.hit.itemId { inbox.client(found.machineId)?.focusOnOpen = ThreadFocus(thread: found.hit.threadId, item: itemId) }
-                            openFound(InboxKey(machineId: found.machineId, id: found.hit.threadId))
-                        } label: { MessageHitLabel(hit: found.hit, machine: inbox.showsMachineNames ? inbox.name(found.machineId) : nil) }
+        if everyKind, !pulls.found.isEmpty {
+            Section {
+                ForEach(pulls.found) { found in
+                    Button { remember(); actions.pull(found.route) } label: { ForgePullRowView(row: found.row) }
                         .buttonStyle(.row)
-                        .accessibilityIdentifier("search.hit.\(found.hit.id)")
+                        .accessibilityIdentifier("search.pull.\(found.row.number)")
                         .inboxRowChrome()
-                    }
-                } header: { header(SearchScope.kinds.first { $0.id == scope.kind && scope.kind != "all" }?.label ?? "Messages") }
-            }
+                }
+            } header: { SearchHeader("Pull requests") }
         }
+        if everyKind, !everything.projects.isEmpty {
+            Section {
+                ForEach(everything.projects) { found in
+                    Button { remember(); actions.project(found.machineId, found.project.id) } label: {
+                        SearchPlainRow(title: found.project.name, icon: .folderSimple,
+                                       detail: inbox.showsMachineNames ? inbox.name(found.machineId) : nil)
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.project.\(found.project.id)")
+                    .inboxRowChrome()
+                }
+            } header: { SearchHeader("Projects") }
+        }
+        if scope.kind != "thread" { messageSection }
         if messages.loading && messages.merged(inbox).isEmpty && foundThreads.isEmpty {
             ProgressView().frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 .accessibilityLabel("Searching")
-                .listRowSeparator(.hidden).listRowBackground(surface)
+                .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
-                    && messages.merged(inbox).isEmpty {
+                    && pulls.found.isEmpty && messages.merged(inbox).isEmpty {
             EmptyState.search(text)
-                .listRowSeparator(.hidden).listRowBackground(surface)
+                .listRowSeparator(.hidden).listRowBackground(Color.clear)
+        }
+    }
+
+    /// The best commands, then New thread in the best matching project, each with where it goes.
+    @ViewBuilder private var actionSection: some View {
+        let commands = Array(everything.commands.prefix(5))
+        let project = everything.projects.first
+        if !commands.isEmpty || project != nil {
+            Section {
+                ForEach(commands) { command in
+                    Button { remember(); actions.command(command.id) } label: {
+                        SearchPlainRow(title: command.label, detail: hint(command))
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.command.\(command.id)")
+                    .inboxRowChrome()
+                }
+                if let project, inbox.canStartThreads {
+                    Button { remember(); actions.newThreadIn(project.machineId, project.project.id) } label: {
+                        SearchPlainRow(title: "New thread in \(project.project.name)", detail: "New thread")
+                    }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.newThreadIn.\(project.project.id)")
+                    .inboxRowChrome()
+                }
+            } header: { SearchHeader("Actions") }
+        }
+    }
+
+    /// The open thread's commands name it; the rest say where they go.
+    private func hint(_ command: PaletteAnswer.Command) -> String? {
+        command.id.hasPrefix("thread:") ? openTitle ?? command.detail : command.detail
+    }
+
+    @ViewBuilder private var messageSection: some View {
+        let hits = messages.merged(inbox)
+        if !hits.isEmpty {
+            Section {
+                ForEach(hits, id: \.hit.id) { found in
+                    // The thread opens at the hit, in its own history window.
+                    Button {
+                        remember()
+                        if let itemId = found.hit.itemId { inbox.client(found.machineId)?.focusOnOpen = ThreadFocus(thread: found.hit.threadId, item: itemId) }
+                        openFound(InboxKey(machineId: found.machineId, id: found.hit.threadId))
+                    } label: { MessageHitLabel(hit: found.hit, machine: inbox.showsMachineNames ? inbox.name(found.machineId) : nil) }
+                    .buttonStyle(.row)
+                    .accessibilityIdentifier("search.hit.\(found.hit.id)")
+                    .inboxRowChrome()
+                }
+            } header: { SearchHeader(SearchScope.kinds.first { $0.id == scope.kind && scope.kind != "all" }?.label ?? "Messages") }
         }
     }
 
@@ -216,10 +236,10 @@ struct InboxSearchList: View {
         let key = InboxKey(machineId: found.machineId, id: found.thread.id)
         Button { remember(); openFound(key) } label: {
             if let row = inbox.row(key), found.thread.listed {
-                InboxThreadRow(row: row, snoozed: false, machine: inbox.mark(found.machineId),
+                InboxThreadRow(row: row, snoozed: row.snoozedUntil != nil, machine: inbox.mark(found.machineId),
                                project: inbox.projectLook(key, workspace: row.workspaceId))
             } else {
-                plainRow(found.thread.title, icon: .archive, detail: "Archived")
+                SearchPlainRow(title: found.thread.title, icon: .archive, detail: "Archived")
             }
         }
         .buttonStyle(.row)
@@ -227,22 +247,7 @@ struct InboxSearchList: View {
         .inboxRowChrome()
     }
 
-    @ViewBuilder private func commandSection(_ commands: [PaletteAnswer.Command], title: String) -> some View {
-        if !commands.isEmpty {
-            Section {
-                ForEach(commands) { command in
-                    Button { remember(); actions.command(command.id) } label: {
-                        plainRow(command.label, icon: nil, detail: command.detail)
-                    }
-                    .buttonStyle(.row)
-                    .accessibilityIdentifier("search.command.\(command.id)")
-                    .inboxRowChrome()
-                }
-            } header: { header(title) }
-        }
-    }
-
-    /// Kind, project and date, as glass chips under the field; each shows its current choice.
+    /// Kind, project and date, as chips under the field; each shows its current choice.
     private var filterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AceDesign.Space.related) {
@@ -271,29 +276,7 @@ struct InboxSearchList: View {
         if inbox.row(key) != nil { actions.open(key) } else { actions.archived(key) }
     }
     private func remember() {
-        recent = RecentSearches.adding(text, to: recent)
-        UserDefaults.standard.set(recent, forKey: RecentSearches.key)
-    }
-    private func forget(_ entry: String) {
-        recent.removeAll { $0 == entry }
-        UserDefaults.standard.set(recent, forKey: RecentSearches.key)
-    }
-
-    private func plainRow(_ title: String, icon: AceIcon.Name?, detail: String? = nil) -> some View {
-        HStack(spacing: AceDesign.Space.row) {
-            if let icon { AceIcon(icon, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.faintForeground) }
-            Text(title).aceFont(InboxRowType.title, relativeTo: .callout).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-            Spacer(minLength: AceDesign.Space.related)
-            if let detail { Text(detail).meta(AceTheme.Colours.subtleForeground) }
-        }
-        .padding(.horizontal, AceTheme.Spacing.rowInner)
-        .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    private func header(_ title: String) -> some View {
-        Text(title).aceFont(AceTheme.Typography.label, relativeTo: .subheadline).textCase(nil)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+        UserDefaults.standard.set(RecentSearches.adding(text, to: RecentSearches.read(.standard)), forKey: RecentSearches.key)
     }
 }
 

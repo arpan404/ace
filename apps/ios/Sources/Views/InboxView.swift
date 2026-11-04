@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// The tabs of the home screen: ace (the threads and chats) and Spade. `compose` is the detached
-/// compose button, never a page. `pulls` is never a page: asking for it (the header's button, a
-/// search command) opens Pull requests over the home screen.
-enum InboxTab: Hashable { case threads, spade, pulls, compose }
-
-/// The single inbox (issue #560) across every paired machine, in a system tab bar: ace (Inbox,
-/// Chats, plain chats with no project (ADR 0099), Snoozed and Settled), Spade and the detached
-/// compose button. Grouping and wording come from each machine's runtime. A row and its thread
-/// belong to their machine.
+/// The single inbox (issue #560) across every paired machine, in a system tab bar: Threads (Inbox,
+/// Snoozed and Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside
+/// the lists and search everything) and compose: the tab bar's prominent button on iOS 27, a round
+/// header button on Threads and Chats before it (`HomeTabs.composeTab`). Spade's tab waits behind
+/// `HomeTabs.showsSpade`. Grouping and wording come from each machine's runtime. A row and its
+/// thread belong to their machine.
 struct InboxView: View {
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -20,40 +17,40 @@ struct InboxView: View {
     var lock: AppLock?
     @State private var tab = InboxTab.threads
     @State private var threadsPath: [InboxRoute] = []
-    @State private var pullsPath: [InboxRoute] = []
-    /// Each tab's list as a drawer over its open page in a compact window (`ThreadDrawer`).
+    @State private var chatsPath: [InboxRoute] = []
+    /// Each list as a drawer over its open page in a narrow regular window (`ThreadDrawer`).
     @State private var threadsDrawer = ThreadDrawer()
-    @State private var pullsDrawer = ThreadDrawer()
+    @State private var chatsDrawer = ThreadDrawer()
     /// The machine whose thread is open, and the tab it is open in: one open thread at a time.
     @State private var openMachine: String?
     @State private var openTab: InboxTab?
     @State private var machineFilter = ""
     @State private var projectFilter = ""
-    /// The Threads tab open: Inbox, Snoozed or Settled.
+    /// The Threads tab's list: Inbox, Snoozed or Settled.
     @State private var threadsTab = "inbox"
     @State private var composing = false
-    @State private var showingSettings = false
-    /// Pull requests, opened from the header over the home screen.
-    @State private var showingPulls = false
+    /// A place outside the lists, open over the home screen (`PlaceSheet`).
+    @State private var place: PlaceSheet?
+    @State private var placeSerial = 0
     @State private var pairing = false
-    /// Where Settings opens: its root, or Machines from the connection title.
-    @State private var settingsStart: [SettingsRoute] = []
     @State private var snoozing: InboxKey?
     /// Delete, move, bulk actions and the Undo toast, across machines.
     @State private var organize = InboxOrganize()
-    /// The project New thread from default branch starts in, over the list's own filter.
+    /// The project New thread starts in, over the list's own filter.
     @State private var composeProject: String?
-    /// The Pulls tab's list: Pull requests, Issues or Notifications.
-    @State private var forgeKind = ForgeKind.pulls
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
     @State private var links = PendingLinks()
-    /// The open thread's commands, for search everything (`ThreadKeysBox`).
+    /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
     /// A row brought back by Undo or Unsettle, scrolled into view once it is in the list again:
     /// unsettling makes it the newest activity, so it returns far from where the person acted.
     @State private var reveal: InboxKey?
     @State private var settles = 0
+    /// Search's field, kept while the person moves between tabs.
+    @State private var searchQuery = ""
+    /// Bumped by Search's Select threads: the Threads list starts picking.
+    @State private var selectAsks = 0
     /// Holds off row taps just after a row action, so the row sliding into its place stays shut.
     @State private var rowTaps = RowTapGuard()
     /// The thread on screen when the app last ran: a relaunch opens it again, as the web reopens
@@ -88,6 +85,7 @@ struct InboxView: View {
             // A thread deleted for good closes where it was open.
             .onChange(of: organize.deleted) { _, deleted in
                 if let key = InboxRoute.threads(threadsPath).first, deleted.contains(key) { threadsPath = [] }
+                if let key = InboxRoute.threads(chatsPath).first, deleted.contains(key) { chatsPath = [] }
             }
             .aceNotifications(inbox: inbox) { key in openThread(key) }
             .task(id: scenePhase) {
@@ -104,15 +102,14 @@ struct InboxView: View {
                 }
             }
             .alert("Request needs attention", isPresented: Binding(get: { failing != nil }, set: { if !$0 { failing?.client.error = nil } })) {
-                Button("OK") { failing?.client.error = nil }
+                Button("Dismiss") { failing?.client.error = nil }
             } message: {
                 if let failing { Text(inbox.showsMachineNames ? "\(inbox.name(failing.hostId)): \(failing.client.error ?? "")" : failing.client.error ?? "") }
             }
     }
 
-    /// The tab role the system draws as its own round button at the bar's trailing end, apart from
-    /// Threads and Pulls: iOS 27's prominent tab; before it, the search tab.
-    private static var detachedRole: TabRole {
+    /// The detached tab on iOS 27 (compose); before it, Search's own role takes the detached slot.
+    private static var composeRole: TabRole {
         // `.prominent` exists only in the iOS 27 SDK (SwiftUI 8); CI builds with Xcode 26.
         #if canImport(SwiftUI, _version: 8.0)
         if #available(iOS 27, *) { return .prominent }
@@ -122,42 +119,44 @@ struct InboxView: View {
 
     private var tabs: some View {
         TabView(selection: $tab) {
-            Tab("ace", systemImage: "bubble.left", value: InboxTab.threads) { stack(.threads, path: $threadsPath) }
-            // Spade, ace's cloud agent, before it launches: its own place in the bar.
-            Tab(value: InboxTab.spade) {
-                SpadeSoonScreen()
-                    .modifier(HomeBottomBar(tab: $tab, compose: inbox.canStartThreads ? { compose() } : nil,
-                                            composeLabel: composesChat ? "New chat" : "New thread"))
-            } label: {
-                Label { Text("Spade") } icon: { Image(uiImage: SpadeMark.tabImage) }
+            Tab(HomeTabs.title(.threads), systemImage: HomeTabs.symbol(.threads), value: InboxTab.threads) {
+                stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
             }
-            if inbox.canStartThreads {
-                Tab(composesChat ? "New chat" : "New thread", systemImage: "square.and.pencil", value: InboxTab.compose,
-                    role: Self.detachedRole) { Color.clear }
+            .accessibilityIdentifier("tab.threads")
+            Tab(HomeTabs.title(.chats), systemImage: HomeTabs.symbol(.chats), value: InboxTab.chats) {
+                stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+            }
+            .accessibilityIdentifier("tab.chats")
+            // Spade, ace's cloud agent, keeps its slot between Chats and Search until it launches.
+            if HomeTabs.showsSpade {
+                Tab(HomeTabs.title(.spade), systemImage: HomeTabs.symbol(.spade), value: InboxTab.spade) {
+                    SpadeSoonScreen().modifier(HomeTabBar(shown: sizeClass != .regular))
+                }
+            }
+            if HomeTabs.composeTab {
+                Tab(HomeTabs.title(.search), systemImage: HomeTabs.symbol(.search), value: InboxTab.search) { search }
+                    .accessibilityIdentifier("tab.search")
+                if inbox.canStartThreads {
+                    Tab(tab == .chats ? "New chat" : "New thread", systemImage: HomeTabs.symbol(.compose), value: InboxTab.compose,
+                        role: Self.composeRole) { Color.clear }
+                }
+            } else {
+                Tab(value: InboxTab.search, role: .search) { search }
+                    .accessibilityIdentifier("tab.search")
             }
         }
         .tint(AceTheme.Colours.foreground)
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
         .onChange(of: tab) { old, new in
             // Coming back to a tab shows its page, never the drawer left out when it was left.
-            if new != .compose { threadsDrawer.close(); pullsDrawer.close() }
-            // Pull requests (a search command) open over the home screen, from where the person is.
-            if new == .pulls {
-                tab = old == .pulls ? .threads : old
-                showingPulls = true
-                return
-            }
-            // The compose button starts a chat on Chats, else a thread, and leaves the tab where
-            // it was.
+            if new != .compose { threadsDrawer.close(); chatsDrawer.close() }
+            // The compose tab starts a chat from Chats, else a thread, and leaves the tab where it was.
             guard new == .compose else { return }
             tab = old == .compose ? .threads : old
-            compose()
+            compose(chat: tab == .chats)
         }
-        .onChange(of: threadsPath) { old, new in
-            pathChanged(.threads, old: old, new: new)
-            // Any navigation, the restore's own included, settles where the app is.
-            placeRestored = true
-            lastPlace = InboxRoute.threads(new).last?.place ?? ""
-        }
+        .onChange(of: threadsPath) { old, new in placeChanged(.threads, old: old, new: new) }
+        .onChange(of: chatsPath) { old, new in placeChanged(.chats, old: old, new: new) }
         .task(id: restorable) {
             // Once the restored thread's row is back (from this phone's copy or its machine).
             guard !placeRestored, let key = InboxKey(place: lastPlace) else { placeRestored = true; return }
@@ -166,9 +165,8 @@ struct InboxView: View {
             // Cleared first and written back once it shows, so a thread that cannot open sends
             // the next launch to the inbox instead of into the same failure.
             lastPlace = ""
-            if threadsPath.isEmpty { openThread(key) }
+            if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
         }
-        .onChange(of: pullsPath) { old, new in pathChanged(.pulls, old: old, new: new) }
         .environment(\.otherMachines, otherMachines)
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -179,38 +177,39 @@ struct InboxView: View {
         .animation(AceDesign.Motion.arriving(reduceMotion), value: organize.undo?.serial)
     }
 
+    /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
+    /// at its foot so the person can go back to the lists.
+    private var search: some View {
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery)
+            .inboxFootBar {
+                if sizeClass == .regular { SidebarPlaces(tab: $tab, open: open, needsYou: needsYou) }
+            }
+            .modifier(HomeTabBar(shown: sizeClass != .regular))
+    }
+
     private var sheets: some View {
         tabs
-        .sheet(isPresented: $showingSettings) {
-            SettingsSheet(inbox: inbox, places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }),
-                          machines: machines, lock: lock, start: settingsStart)
-                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
-        }
-        .sheet(isPresented: $showingPulls) {
-            SettingsSheet(inbox: inbox, places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }),
-                          machines: machines, lock: lock, root: .pulls)
-                .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }))
-        }
-        .sheet(isPresented: $pairing) {
-            if let machines {
-                NavigationStack {
-                    PairingView(machines: machines) { pairing = false }
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button { pairing = false } label: { Image(systemName: "xmark") }
-                                    .accessibilityLabel("Close").accessibilityIdentifier("pairing.close")
+            .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
+                        places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() }))
+            .sheet(isPresented: $pairing) {
+                if let machines {
+                    NavigationStack {
+                        PairingView(machines: machines) { pairing = false }
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button { pairing = false } label: { Image(systemName: "xmark") }
+                                        .accessibilityLabel("Close").accessibilityIdentifier("pairing.close")
+                                }
                             }
-                        }
+                    }
+                    .tint(AceTheme.Colours.foreground)
                 }
-                .tint(AceTheme.Colours.foreground)
             }
-        }
     }
-    /// The tab showing in the list says what compose starts there (the runtimes' tab words).
-    private var composesChat: Bool { inbox.merged.tabs.first { $0.id == threadsTab }?.chats == true }
-    /// The compose button: a new chat while Chats shows, else a new thread.
-    private func compose() {
-        if composesChat { composeProject = NewThreadDraft.chat }
+
+    /// The compose button: a new chat on Chats, else a new thread.
+    private func compose(chat: Bool) {
+        if chat { composeProject = NewThreadDraft.chat }
         startThread()
     }
     /// New thread needs a computer; with none paired it offers pairing instead.
@@ -222,8 +221,30 @@ struct InboxView: View {
         guard let machines, machines.loaded, machines.machines.isEmpty else { return nil }
         return { pairing = true }
     }
+    /// The machine whose tools a place opens: the first that can act, else the first paired.
+    private var toolsMachine: String? {
+        inbox.sessions.first { $0.client.canOperate }?.hostId ?? inbox.sessions.first?.hostId
+    }
+    private func present(_ sheet: PlaceSheet?) {
+        guard let sheet else { return }
+        place = sheet
+    }
+    private func nextSerial() -> Int { placeSerial += 1; return placeSerial }
+    private func open(_ searchPlace: SearchPlace) {
+        present(PlaceSheet.of(searchPlace, machine: toolsMachine, id: nextSerial()))
+    }
+    /// Whether something on Threads or Chats needs the person, for the iPad sidebar's dots: the
+    /// daemon's own count, as the web rail's.
+    private func needsYou(_ place: InboxTab) -> Bool {
+        let tabs = inbox.merged.tabs
+        switch place {
+        case .threads: return (tabs.first { $0.id == "inbox" }?.needsYou ?? 0) > 0
+        case .chats: return tabs.contains { $0.chats && $0.needsYou > 0 }
+        default: return false
+        }
+    }
 
-    /// Open from a transfer's line goes to that machine's thread on the Threads tab.
+    /// Open from a transfer's line goes to that machine's thread.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, open: { key in
             guard inbox.client(key.machineId)?.inbox[key.id] != nil else { return false }
@@ -241,21 +262,20 @@ struct InboxView: View {
     /// The first machine with an error to show; each machine's error is its own.
     private var failing: MachineSession? { inbox.sessions.first { $0.client.error != nil } }
 
-    private func stack(_ tab: InboxTab, path: Binding<[InboxRoute]>) -> some View {
-        InboxStack(inbox: inbox, path: path, pulls: tab == .pulls, tab: self.$tab, drawer: tab == .pulls ? $pullsDrawer : $threadsDrawer,
+    private func path(_ place: InboxTab) -> Binding<[InboxRoute]> { place == .chats ? $chatsPath : $threadsPath }
+
+    private func stack(_ list: InboxTab, path: Binding<[InboxRoute]>, drawer: Binding<ThreadDrawer>) -> some View {
+        InboxStack(inbox: inbox, path: path, list: list, tab: $tab, drawer: drawer,
                    forge: ForgeInboxHooks(openThread: { openThread($0) },
                                           startThread: { startThread() }),
-                   machine: $machineFilter, project: $projectFilter, forgeKind: $forgeKind,
-                   threadsTab: $threadsTab, reveal: $reveal, actions: actions,
-                   header: InboxHeaderActions(settings: { settingsStart = []; showingSettings = true },
-                                              machines: { settingsStart = [.settings, .machines]; showingSettings = true },
+                   machine: $machineFilter, project: $projectFilter,
+                   threadsTab: $threadsTab, reveal: $reveal, selectAsks: selectAsks, actions: actions,
+                   header: InboxHeaderActions(settings: { open(.settings) },
+                                              machines: { open(.machines) },
                                               pair: pair,
-                                              page: { route in settingsStart = [.settings] + route; showingSettings = true },
-                                              // A search result off the list (archived) opens like a
-                                              // row: the open page and its client move together.
-                                              archived: { key in openThread(key, listed: false) },
-                                              pulls: { showingPulls = true },
-                                              newChat: { composeProject = NewThreadDraft.chat; startThread() }),
+                                              search: { tab = .search },
+                                              place: { open($0) },
+                                              compose: { compose(chat: list == .chats) }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -276,6 +296,59 @@ struct InboxView: View {
         }
     }
 
+    // MARK: Search
+
+    /// The open thread's title, which names its commands in Search.
+    private var openTitle: String? {
+        guard let openTab, let key = InboxRoute.threads(path(openTab).wrappedValue).last else { return nil }
+        return inbox.row(key)?.title
+    }
+    private var searchActions: SearchActions {
+        SearchActions(open: { openThread($0) }, command: runCommand,
+                      project: { machineId, workspace in
+                          if inbox.showsMachineNames { machineFilter = machineId }
+                          projectFilter = workspace
+                          threadsTab = "inbox"
+                          tab = .threads
+                      },
+                      newThreadIn: { _, workspace in composeProject = workspace; startThread() },
+                      archived: { openThread($0, listed: false) },
+                      place: open,
+                      pull: { route in present(PlaceSheet(id: nextSerial(), root: .forge(route))) })
+    }
+    /// A command id from the shared catalog (`bridge/palette.ts`).
+    private func runCommand(_ id: String) {
+        switch id {
+        case "new-thread": compose(chat: false)
+        case "new-chat": compose(chat: true)
+        case "select":
+            threadsPath = []
+            tab = .threads
+            selectAsks += 1
+        case "pulls": open(.pulls)
+        case "issues": open(.issues)
+        default:
+            if id.hasPrefix("thread:"), let destination = ThreadDestination(command: String(id.dropFirst(7))) {
+                openOnThread(destination)
+            } else {
+                present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
+            }
+        }
+    }
+    /// One of the open thread's places (Changes, Agent tree…): back on its tab, once its page has
+    /// left its commands again.
+    private func openOnThread(_ destination: ThreadDestination) {
+        guard let openTab else { return }
+        tab = openTab
+        Task<Void, Never> {
+            for _ in 0..<40 {
+                if let keys = threadKeysBox.keys { keys.open(destination); return }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+    }
+
+    // MARK: Rows
     private var actions: InboxRowActions {
         // Each row action first holds off row taps for a moment (`RowTapGuard`).
         let acted = { rowTaps.acted(at: ProcessInfo.processInfo.systemUptime) }
@@ -329,8 +402,7 @@ struct InboxView: View {
             if let item = link.itemId { client.focusOnOpen = ThreadFocus(thread: id, item: item) }
             openThread(InboxKey(machineId: machine, id: id))
         case "settings":
-            settingsStart = [.settings] + SettingsRoute.linked(link.page)
-            showingSettings = true
+            present(PlaceSheet(id: nextSerial(), root: .settings, start: SettingsRoute.linked(link.page)))
         case "new-thread":
             composeProject = link.project
             startThread()
@@ -339,7 +411,6 @@ struct InboxView: View {
         default: break
         }
     }
-    /// A thread's shared menu ids run here, for its row's menu and the open thread's ⋯ alike.
     private var organizer: ThreadOrganizer {
         ThreadOrganizer(perform: { key, id in perform(id, key) },
                         snooze: { key, preset in Task { _ = await inbox.client(key.machineId)?.snooze(key.id, preset: preset) } },
@@ -366,14 +437,17 @@ struct InboxView: View {
         default: break
         }
     }
-    /// The list showing beside a page (regular) or over it as the open drawer, with Threads and
-    /// Pull requests at its foot in place of the tab bar.
+    /// A list fills the window: Threads or Chats with no page open on it.
+    private var onList: Bool {
+        (tab == .threads && threadsPath.isEmpty) || (tab == .chats && chatsPath.isEmpty)
+    }
+    /// The list showing beside a page (regular) or over it as the open drawer.
     private var toastBesideList: Bool {
-        sizeClass == .regular || (tab == .pulls ? pullsDrawer : threadsDrawer).isOpen
+        sizeClass == .regular || (tab == .chats ? chatsDrawer : threadsDrawer).isOpen
     }
 
     @ViewBuilder private var toast: some View {
-        if let undo = organize.undo, openTab == nil || toastBesideList {
+        if let undo = organize.undo, onList || toastBesideList {
             HStack(spacing: AceDesign.Space.row) {
                 Text(undo.text).lineLimit(1)
                     .frame(minHeight: AceDesign.Size.tap)
@@ -405,29 +479,34 @@ struct InboxView: View {
         }
     }
 
-    /// Opening routes to the row's machine and shows the thread on the Threads tab, whichever tab
-    /// asked (the Pulls tab keeps its page); a thread open on another machine is closed first.
-    /// `listed` false opens a thread its machine's list doesn't hold (an archived search hit).
+    /// Opening routes to the row's machine and shows the thread on its own tab: a chat on Chats,
+    /// any other thread on Threads, whichever tab asked; a thread open on another machine or in
+    /// the other tab is closed first. `listed` false opens a thread its machine's list doesn't
+    /// hold (an archived search hit).
     private func openThread(_ key: InboxKey, listed: Bool = true) {
         guard let client = inbox.client(key.machineId), !listed || client.inbox[key.id] != nil else { return }
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
-        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close() }
-        // A chat opens over the Chats tab, so Back from it lands among the chats.
-        if client.inbox[key.id]?.chat == true, let chats = inbox.merged.tabs.first(where: \.chats) { threadsTab = chats.id }
-        tab = .threads
-        if threadsPath == [.thread(key)], openMachine == key.machineId { return }
+        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close(); chatsDrawer.close() }
+        let target: InboxTab = client.inbox[key.id]?.chat == true ? .chats : .threads
+        tab = target
+        if path(target).wrappedValue == [.thread(key)], openMachine == key.machineId { return }
         if let openMachine, openMachine != key.machineId { inbox.client(openMachine)?.back() }
+        // One open thread at a time: the other tab's page closes without closing this one.
+        if let openTab, openTab != target { path(openTab).wrappedValue = [] }
         openMachine = key.machineId
-        openTab = .threads
+        openTab = target
         client.open(key.id)
-        // Threads open on the Threads tab; the Pulls tab keeps its pull request or issue page.
-        threadsPath = [.thread(key)]
+        path(target).wrappedValue = [.thread(key)]
     }
-    private func pathChanged(_ tab: InboxTab, old: [InboxRoute], new: [InboxRoute]) {
+    /// A tab's pages changed: the open thread follows, and the place to reopen is kept.
+    private func placeChanged(_ place: InboxTab, old: [InboxRoute], new: [InboxRoute]) {
         // Only the tab holding the open thread drives it; clearing the other tab is silent. Its
         // pull request and issue pages are not threads: backing out of one closes nothing.
-        guard openTab == tab else { return }
+        guard openTab == place else { return }
+        // Any navigation, the restore's own included, settles where the app is.
+        placeRestored = true
+        lastPlace = InboxRoute.threads(new).last?.place ?? ""
         let old = InboxRoute.threads(old), new = InboxRoute.threads(new)
         if !old.isEmpty && new.isEmpty { current?.back(); openMachine = nil; openTab = nil }
         // Back from a child thread reopens its parent on that machine, under a new generation.

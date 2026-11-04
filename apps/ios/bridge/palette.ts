@@ -42,12 +42,15 @@ const settings = (id: string, label: string, keywords: string[] = []): Command =
   detail: "Settings",
   fields: ["settings", ...keywords],
 });
-const tool = (id: string, label: string, keywords: string[] = []): Command => ({
+const tool = (id: string, label: string, keywords: string[] = [], detail = "Settings"): Command => ({
   id: `tool:${id}`,
   label,
-  detail: "Settings",
+  detail,
   fields: ["settings", ...keywords],
 });
+/** A page of its own on the web's rail (Automations, Skills, Usage): "Go to" rather than Settings. */
+const place = (id: string, label: string, keywords: string[] = []): Command =>
+  tool(id, label, keywords, "Go to");
 const inThread = (id: string, label: string, keywords: string[] = []): Command => ({
   id: `thread:${id}`,
   label,
@@ -56,17 +59,33 @@ const inThread = (id: string, label: string, keywords: string[] = []): Command =
   when: (context) => context.threadOpen,
 });
 
-/** The app's own commands, in the order an empty query lists them. */
+/**
+ * The app's own commands, in the order an empty query lists them. Each `detail` is the web
+ * palette's group (Create, Go to, This thread, Settings), shown at the right of a ranked list.
+ */
 export const paletteCommands: readonly Command[] = [
   {
     id: "new-thread",
     label: "New thread",
+    detail: "Create",
     fields: ["start", "compose", "create"],
     when: (context) => context.canStart,
   },
-  { id: "select", label: "Select threads", fields: ["bulk", "several", "edit", "multiple"] },
-  { id: "pulls", label: "Pull requests", fields: ["github", "pr", "review"] },
-  { id: "issues", label: "Issues", fields: ["github", "bugs"] },
+  {
+    id: "new-chat",
+    label: "New chat",
+    detail: "Create",
+    fields: ["start", "compose", "create", "ask"],
+    when: (context) => context.canStart,
+  },
+  {
+    id: "select",
+    label: "Select threads",
+    detail: "Threads",
+    fields: ["bulk", "several", "edit", "multiple"],
+  },
+  { id: "pulls", label: "Pull requests", detail: "Go to", fields: ["github", "pr", "review"] },
+  { id: "issues", label: "Issues", detail: "Go to", fields: ["github", "bugs"] },
   inThread("changes", "Show changes", ["diff"]),
   inThread("agents", "Open agent tree", ["subagents", "summary"]),
   inThread("search", "Search this thread", ["find"]),
@@ -74,17 +93,17 @@ export const paletteCommands: readonly Command[] = [
   inThread("terminal", "Open terminal", ["shell"]),
   inThread("browser", "Open the browser", ["preview", "web"]),
   inThread("devices", "Devices", ["simulator", "emulator"]),
-  { id: "settings", label: "Settings", fields: ["preferences", "options"] },
-  settings("machines", "Machines and devices", ["computers", "paired"]),
+  { id: "settings", label: "Settings", detail: "Go to", fields: ["preferences", "options"] },
+  settings("machines", "Machines and devices", ["computers", "paired", "fleet", "map"]),
   settings("pair", "Pair a computer", ["add", "qr"]),
   settings("notifications", "Notifications", ["alerts"]),
   settings("appearance", "Appearance", ["dark", "light", "mode", "theme"]),
   settings("archive", "Archived threads", ["archive", "restore"]),
   settings("profiles", "Task profiles", ["profiles"]),
   tool("projects", "Projects", ["folders"]),
-  tool("automations", "Automations", ["schedule"]),
-  tool("usage", "Usage", ["limits", "quota"]),
-  tool("skills", "Skills and plugins", ["mcp"]),
+  place("automations", "Automations", ["schedule"]),
+  place("usage", "Usage", ["limits", "quota"]),
+  place("skills", "Skills and plugins", ["mcp"]),
   tool("providers", "Providers", ["accounts", "models"]),
   tool("sourceControl", "Source control", ["git", "github"]),
   tool("prompts", "Prompts", ["instructions"]),
