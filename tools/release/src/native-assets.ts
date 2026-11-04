@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ReleaseTarget } from "@ace/protocol";
 import { hashFile } from "@ace/service";
 import { dirname } from "node:path";
-import { isWindowsTarget } from "./node-runtime.ts";
+import { isWindowsTarget } from "./daemon-runtime.ts";
 import { stageWindowsPty } from "./pty-assets.ts";
 
 export const LinuxNativeInput = z.object({

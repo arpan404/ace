@@ -12,8 +12,7 @@ import {
   RustToolchainError,
   stageLinuxScreenHelper,
 } from "@ace/release";
-import { stageNodeRuntime } from "@ace/release/node-runtime";
-import { stageWindowsNodeRuntime } from "@ace/release/node-runtime";
+import { stageBunRuntime } from "@ace/release/daemon-runtime";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
@@ -142,23 +141,21 @@ if (
   releaseTarget === "linux-arm64" ||
   releaseTarget === "linux-x64"
 ) {
-  log("node runtime");
+  log("bun runtime");
   const runtime = join(dist, "runtime");
-  const cacheDir = join(desktop, "node_modules/.cache/ace-node");
-  await mkdir(runtime, { recursive: true });
-  await mkdir(cacheDir, { recursive: true });
-  await stageNodeRuntime({
+  await stageBunRuntime({
     target: releaseTarget,
-    version: appVersion,
-    cacheDir,
-    destination: runtime,
+    cacheDir: join(desktop, "node_modules/.cache/ace-runtime"),
+    executable: join(runtime, "bin", "node"),
+    licensePath: join(runtime, "LICENSE"),
   });
 } else if (releaseTarget === "win32-x64" || releaseTarget === "win32-arm64") {
-  log("node runtime");
-  await stageWindowsNodeRuntime({
+  log("bun runtime");
+  await stageBunRuntime({
     target: releaseTarget,
-    cacheDir: join(desktop, "node_modules/.cache/ace-node"),
-    destination: join(dist, "runtime"),
+    cacheDir: join(desktop, "node_modules/.cache/ace-runtime"),
+    executable: join(dist, "runtime", "node.exe"),
+    licensePath: join(dist, "runtime", "LICENSE"),
   });
 }
 

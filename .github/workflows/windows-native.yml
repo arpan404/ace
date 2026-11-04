@@ -67,7 +67,7 @@ on:
       - packages/provider-kit/src/sqlite*
       - packages/terminal/**
       - tools/release/src/pty-assets.ts
-      - tools/release/src/node-runtime*.ts
+      - tools/release/src/daemon-runtime*.ts
       - tools/release/src/archive*.ts
       - tools/release/**
       - packages/provider-kit/package.json
@@ -141,7 +141,7 @@ jobs:
         shell: pwsh
     env:
       NODE_VERSION: 26.12.1
-      BUN_VERSION: 1.4.0
+      BUN_VERSION: 1.4.4
 
     steps:
       # LF checkouts for this job only; every other checkout keeps its own setting.
@@ -168,7 +168,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64.zip
 
       - name: Assert native Node arch (fail closed on mismatch)
         run: |
@@ -458,7 +458,7 @@ jobs:
         shell: pwsh
     env:
       NODE_VERSION: 26.12.1
-      BUN_VERSION: 1.4.0
+      BUN_VERSION: 1.4.4
       FIRST_VERSION: 0.0.1-ci.1
       SECOND_VERSION: 0.0.1-ci.2
     steps:
@@ -481,7 +481,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64.zip
 
       - name: Restore Bun download cache
         uses: actions/cache/restore@v6
@@ -638,7 +638,7 @@ jobs:
         shell: pwsh
     env:
       NODE_VERSION: 26.12.1
-      BUN_VERSION: 1.4.0
+      BUN_VERSION: 1.4.4
     steps:
       - name: Keep LF line endings on checkout
         run: git config --global core.autocrlf false
@@ -659,7 +659,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
-          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-windows-x64.zip
+          bun-download-url: https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64.zip
 
       - name: Assert native Node arch
         run: |

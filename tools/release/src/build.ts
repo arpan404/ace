@@ -10,7 +10,7 @@ import { createPublicKey } from "node:crypto";
 import { z } from "zod";
 import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
 import { hashFile, releaseArchiveLimits } from "@ace/service";
-import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
+import { bunVersion, nodeVersion, releaseRuntimePath, stageBunRuntime } from "./daemon-runtime.ts";
 import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
@@ -33,7 +33,12 @@ async function main() {
   await rm(join(output, `${target}.json`), { force: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
-  await stageNodeRuntime({ target, version, cacheDir: output, destination: root });
+  await stageBunRuntime({
+    target,
+    cacheDir: output,
+    executable: releaseRuntimePath(root, target),
+    licensePath: join(root, "LICENSE"),
+  });
   const native = process.argv[5]
     ? NativeInputs.parse(JSON.parse(await readFile(process.argv[5], "utf8")))[target]
     : undefined;
@@ -84,7 +89,7 @@ async function main() {
   }
   await writeFile(
     join(root, "files.json"),
-    JSON.stringify({ nodeVersion, version, target, checksums }) + "\n",
+    JSON.stringify({ bunVersion, nodeVersion, version, target, checksums }) + "\n",
   );
   const archive = `ace-${version}-${target}.tar.gz`;
   await createReleaseArchive(root, join(output, archive));

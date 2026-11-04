@@ -37,7 +37,7 @@
     "web:build": "bun run --filter @ace/web build",
     "web:e2e": "bun run --filter @ace/web-e2e e2e",
     "web:screens": "bun run --filter @ace/web-e2e screens",
-    "ace": "node apps/daemon/src/cli.ts",
+    "ace": "bun apps/daemon/src/cli.ts",
     "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native && bun run --filter @ace/markit-web sync-assets",
     "docs:protocol": "bun tools/protocol-docs/src/cli.ts",
     "docs:protocol:compat": "bun tools/protocol-docs/src/cli.ts --compat",
@@ -77,7 +77,7 @@
   "engines": {
     "node": ">=26"
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.4",
   "trustedDependencies": [
     "node-pty",
     "electron"
