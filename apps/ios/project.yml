@@ -43,8 +43,14 @@ targets:
     sources:
       - path: Sources
       - path: Shared
+      # The handoff queue the share extension and the intents write and the app sends from.
+      - path: Handoff
       - path: Resources
         buildPhase: resources
+    entitlements:
+      path: .build/Ace.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
     info:
       path: .build/Info.plist
       properties:
@@ -75,6 +81,16 @@ targets:
           - CFBundleURLName: app.ace.link
             CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
+        NSMicrophoneUsageDescription: Dictate a new thread's first message.
+        NSSpeechRecognitionUsageDescription: Turn what you say into a new thread's first message, on this phone.
+        # Long-press the app icon: New thread and New chat (`QuickActions`).
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: app.ace.new-thread
+            UIApplicationShortcutItemTitle: New thread
+            UIApplicationShortcutItemIconSymbolName: square.and.pencil
+          - UIApplicationShortcutItemType: app.ace.new-chat
+            UIApplicationShortcutItemTitle: New chat
+            UIApplicationShortcutItemIconSymbolName: bubble.left
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]

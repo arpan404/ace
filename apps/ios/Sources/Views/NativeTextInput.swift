@@ -28,6 +28,8 @@ struct NativeTextInput: UIViewRepresentable {
     var place: CaretPlacement? = nil
     /// Images and files pasted in; nil pastes only words.
     var pasteFiles: (([NSItemProvider]) -> Void)? = nil
+    /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
+    var fills = false
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -67,6 +69,7 @@ struct NativeTextInput: UIViewRepresentable {
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
+        if fills, let height = proposal.height, height.isFinite { return CGSize(width: width, height: max(height, AceDesign.Size.tap)) }
         let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceDesign.TextRole.rowTitle.lineHeight, compatibleWith: uiView.traitCollection)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)

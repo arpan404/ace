@@ -194,6 +194,8 @@ export const fromSymbols: Record<string, string> = {
 
 /** Icons the redesign draws that no SF Symbol stood for. */
 const extra = [
+  // New thread's dictation button.
+  "microphone",
   "hand-palm",
   "shield",
   "shield-warning",

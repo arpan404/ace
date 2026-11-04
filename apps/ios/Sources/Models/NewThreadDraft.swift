@@ -39,6 +39,12 @@ struct NewThreadDraft: Codable, Equatable, Sendable {
     /// The pull request the thread works on (started from its page): the thread opens in a
     /// worktree of the PR's head shown there. It goes with the project it was picked in.
     var pullRequest: NewThreadPull?
+    /// The handoff (a share, Siri or Shortcuts) this draft came from: it leaves the queue once
+    /// the start is saved, whatever the person changed meanwhile.
+    var handoff: String?
+    /// Start as soon as nothing holds Send back: a handoff asked to send. Typing turns it off, so
+    /// the person who starts editing finishes with their own Send.
+    var autoSend = false
 }
 
 /// A pull request a new thread starts on, pinned to the head the person saw.
@@ -109,6 +115,23 @@ struct NewThreadDraftStore: Sendable {
     func save(_ draft: NewThreadDraft) {
         try? DraftFile<NewThreadDraft>(url: url).save(draft)
     }
+    /// Where the person's own draft waits while a handoff takes the sheet.
+    private var asideURL: URL { url.deletingLastPathComponent().appendingPathComponent("new-thread-aside.json") }
+    var aside: NewThreadDraft? { DraftFile<NewThreadDraft>(url: asideURL).load() }
+    /// A handoff takes the sheet: the draft there goes aside first when it holds words or files
+    /// the person wrote (one already aside stays), and comes back once the handoff is saved.
+    func seed(_ handoff: NewThreadDraft) {
+        let current = load()
+        let own = current.handoff == nil && (!current.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current.files.isEmpty)
+        if own, aside == nil { try? DraftFile<NewThreadDraft>(url: asideURL).save(current) }
+        save(handoff)
+    }
+    /// The draft set aside, taken back.
+    func takeAside() -> NewThreadDraft? {
+        guard let kept = aside else { return nil }
+        try? FileManager.default.removeItem(at: asideURL)
+        return kept
+    }
 }
 
 /// The sheet's draft: every change is saved at once, so killing the app loses nothing. A picked
@@ -123,7 +146,7 @@ struct NewThreadDraftStore: Sendable {
         // A copy the system or a crash took can't be sent; a copy no draft names is left over.
         let staging = store.files
         loaded.files.removeAll { !staging.holds($0.localId) }
-        staging.sweep(keeping: Set(loaded.files.map(\.localId)))
+        staging.sweep(keeping: Set((loaded.files + (store.aside?.files ?? [])).map(\.localId)))
         draft = loaded
     }
 
@@ -133,6 +156,7 @@ struct NewThreadDraftStore: Sendable {
         next.commandId = draft.commandId
         // Files, picks and the issue go with the project they were picked for.
         next.files.removeAll { $0.workspaceId != next.projectId }
+        if next.text != draft.text { next.autoSend = false }
         if next.projectId != draft.projectId { next.issue = nil; next.pullRequest = nil; next.picks = nil }
         else if next.text != draft.text, var picks = next.picks {
             picks.edited(from: draft.text, to: next.text)
@@ -173,6 +197,10 @@ struct NewThreadDraftStore: Sendable {
         next.files = []
         next.issue = nil
         next.pullRequest = nil
+        next.handoff = nil
+        next.autoSend = false
+        // A handoff's start is saved: the person's own draft comes back as they left it.
+        if draft.handoff != nil, let kept = store.takeAside() { next = kept }
         commit(next)
     }
     /// Saves the draft first, then lets go of the copies it no longer names.
