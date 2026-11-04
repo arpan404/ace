@@ -178,10 +178,20 @@ const iPad = {
 
 test.each([
   {
-    case: "reaches it over Tailscale",
+    case: "reaches it over Tailscale, inside the tailnet",
     over: {},
     tone: "on",
     wire: { from: "mac", kind: "direct", label: "Tailscale" },
+    zones: ["tailnet"],
+  },
+  {
+    case: "reaches it over either network, inside both",
+    over: {
+      networks: networks({ lan: "https://192.168.1.20", tailscale: "https://100.64.0.1" }),
+    },
+    tone: "on",
+    wire: { from: "mac", kind: "direct", label: "Tailscale or local network" },
+    zones: ["lan", "tailnet"],
   },
   {
     case: "has nothing it can use when only ace's account relay serves",
@@ -215,6 +225,7 @@ test.each([
   expect(drawn.tone).toBe(row.tone);
   expect(drawn.wire).toMatchObject(row.wire);
   expect(drawn.problem?.fixes).toEqual(row.fixes);
+  expect(drawn.zones).toEqual(row.zones ?? []);
 });
 
 test("a device whose access ended is broken with Remove as its fix", () => {

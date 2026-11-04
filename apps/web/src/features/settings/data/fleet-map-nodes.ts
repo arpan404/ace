@@ -332,6 +332,11 @@ export function deviceNode(device: MapDeviceInput, input: FleetMapInput, names: 
       ...base,
       tone: "on",
       status,
+      // It's on whichever of this computer's networks reach it.
+      zones: [
+        ...(ways.direct.includes("local network") ? (["lan"] as const) : []),
+        ...(ways.direct.includes("Tailscale") ? (["tailnet"] as const) : []),
+      ],
       wire: { from: "own", kind: "direct", relayed: false, label: ways.direct.join(" or ") },
       lines: [{ label: "Reached", value: capitalize(ways.direct.join(" or ")) }, ...lines],
       problem: undefined,

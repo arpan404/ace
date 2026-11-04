@@ -133,7 +133,7 @@ function Node(props: {
       aria-label={`${node.name}, ${node.status}`}
       aria-pressed={props.selected}
       data-node={node.id}
-      className="group cursor-pointer outline-none"
+      className="group cursor-pointer"
       transform={`translate(${at.x} ${at.y})`}
       opacity={props.faded ? fadedOpacity : undefined}
       onClick={pick}
