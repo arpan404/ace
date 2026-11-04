@@ -46,8 +46,9 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
    This is one step earlier than "first to finish hello": the hello's credential differs per
    path (a ticket on a direct socket, a token or grant on a relay), so it cannot be sent on
    every path at once.
-2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden; the round
-   trip is smoothed (EWMA, an eighth of each sample).
+2. **Measure.** The active path is pinged every 5 s while visible, 15 s while hidden (a
+   machine worker counts as visible while any tab it serves is); the round trip is smoothed
+   (EWMA, an eighth of each sample).
 3. **Upgrade.** On a network change, on wake, and every 30 s while on a worse path, better
    ranked paths are probed with a check that opens no session, supplied by the platform's
    dialer. A browser probes a direct path with two bodiless requests to the daemon's HTTPS
@@ -78,7 +79,10 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
    as a warm standby, pinged every 30 s. It tells the daemon it is in the background, so it
    never counts as an alert's delivery; what it hears before it is promoted is dropped, not
    repeated. A standby that fails rests, and another relay, or the same one once its rest ends,
-   takes its place. A socket error, or a ping on the active path that
+   takes its place; a standby closed because its grant ran out (4014), or one whose credential
+   couldn't be fetched or was refused, doesn't rest its relay: the grant failed, not the path. A
+   standby still opening when the connection moves to another path closes once it opens, and
+   the new path's own standby is sought then. A socket error, or a ping on the active path that
    hears nothing for 2 s, swaps to the standby at once and asks every unanswered command
    again. Without a standby the connection reconnects, racing the remaining paths.
 5. **Anti-flap.** After a switch the client stays 10 s unless the path fails. A failed path
@@ -95,7 +99,11 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
   grant. A hello carries exactly one credential; a signed-in device sends its grant. In a
   window's machine pool, a machine also paired from the same device steps aside while its
   account entry is open (once that entry has proved, over a relay, that it reaches the same
-  daemon), and comes back when the account entry closes.
+  daemon). The pool keeps which daemons its account entries reach, so the paired entry stays
+  aside however it would connect (the directory loading after the proof, a pairing added
+  later, a reconnect). It comes back when the account entry closes, or while that entry can't
+  open (signed out, another account, its machine code to enter), and steps aside again on the
+  account entry's next proof.
 - **Account grants on direct sockets.** A direct socket admits a device grant through the same
   `admitDevice` check as the relay (account, device id, machine code), shared in
   `relay-hello.ts` (`accountHello`). A machine code refusal is sent as the relay sends it, then
@@ -104,7 +112,9 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
 - **Every path proves the same machine.** Direct paths pin the TLS fingerprint; relays pin the
   machine's Noise host key; every path's welcome must name the same daemon. A mismatch drops
   that path for good, reports it (`Multipath` `mismatch`), and the client never falls back to
-  an unpinned or unchecked connection. Once a connection has been welcomed, a reconnect race
+  an unpinned or unchecked connection. That holds for a client pinned from the start
+  (`expectedHostId`: a paired machine, or a recreated account client) too: the mismatched path
+  is dropped and the others race; only a client with a single path stops. Once a connection has been welcomed, a reconnect race
   that reaches another daemon drops that path too. An account machine keeps the daemon id it
   first learned over a relay (whose handshake pins the host key) and expects it on every path.
 - **Browsers can't pin** a self-signed certificate. A browser (web, desktop renderer) uses a
@@ -137,8 +147,14 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
   `admitDevice` (signature, expiry, its own account, the socket's device id, the current
   machine code), keeps the socket on the account it was admitted for, and moves the expiry on
   (never back), answering `account.grant.refresh.result`. The client (`grant-keeper.ts`)
-  refreshes a minute before expiry and times the next refresh from the new grant's own
-  lifetime, so client and backend clocks needn't agree; a failed fetch tries again after 10 s.
+  refreshes a minute before expiry and reads each answer on the socket it was sent on (active,
+  standby or draining). The next refresh is timed from the shorter of the new grant's own
+  lifetime and the `grantTtlMs` the answer gives, on the daemon's clock, so neither clock has
+  to agree with the backend's: a daemon running ahead of the backend just sees refreshes come
+  sooner. A failed fetch, a refused refresh or one unanswered for 10 s tries again after 10 s.
+  A refusal for the machine code, or `unauthorized` twice in a row (once can be the daemon
+  briefly unable to check a grant), ends that socket: the active one reconnects without
+  failing over, and its hello learns why.
   If no valid refresh arrives by the expiry plus 30 s, the daemon closes the socket with 4014
   "Account grant expired". 4014 is not final: the client reconnects as after any drop, with a
   fresh grant, since every connection attempt already fetches one. A client that never
@@ -149,7 +165,18 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
 - **Revocation closes every path at once.** Revoking a paired device closes all its sockets,
   direct and relayed (unchanged). An account change (signed out, another account, a new
   machine code) now rechecks `stillAdmitted` on direct sockets as well as relay channels and
-  closes every account path, the standby included.
+  closes every account path, the standby included, with 4012 "Account access changed"
+  (amended 2026-11-04; it was 4003, which the client takes as a revoked device). 4012 is not
+  final: the client reconnects and its next hello gets the refusal that fits, the machine code
+  question (4011, and the person is asked for it) or `unauthorized`.
+- **Nothing is deleted on an account change** (owner decision of 2026-11-04). Signing out,
+  switching account, an expired or refused grant, the relay finding the machine on another
+  account and a new machine code keep everything on the device: kept thread snapshots and read
+  history, queued work, drafts and the machine directory, shown again once the person signs in.
+  Only the owner revoking a paired device deletes what that device read, and only on that exact
+  close (`DeviceRevokedClose`: 4003 "Device revoked", on a direct socket or as a relay
+  `channel.close`); the iOS native sockets pass the close reason through for it. The daemon's
+  sign-out removes only its session file.
 
 ## Measured
 
