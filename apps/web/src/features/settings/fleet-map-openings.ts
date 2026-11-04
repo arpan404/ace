@@ -3,6 +3,7 @@ import {
   useAccountMachineConnector,
   type AccountMachine,
   type AccountMachineConnection,
+  type AccountMachineState,
 } from "@/features/ace-account/index.ts";
 import type { AccountOpening } from "./data/fleet-map-types.ts";
 
@@ -18,13 +19,17 @@ export function useAccountOpenings() {
   );
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
-  const [, setVersion] = useState(0);
+  // Each connection's state as last heard, kept in state so every change renders.
+  const [states, setStates] = useState<ReadonlyMap<string, AccountMachineState>>(() => new Map());
   const live = useRef(connections);
   useEffect(() => {
     live.current = connections;
-    const stops = [...connections.values()].map((connection) =>
-      connection.subscribe(() => setVersion((version) => version + 1)),
-    );
+    const heard = (id: string, connection: AccountMachineConnection) =>
+      setStates((all) => new Map([...all, [id, connection.get()]]));
+    const stops = [...connections].map(([id, connection]) => {
+      heard(id, connection);
+      return connection.subscribe(() => heard(id, connection));
+    });
     return () => stops.forEach((stop) => stop());
   }, [connections]);
   useEffect(
@@ -63,8 +68,7 @@ export function useAccountOpenings() {
   const openings = new Map<string, AccountOpening>();
   for (const id of pending) openings.set(id, { kind: "connecting" });
   for (const [id, message] of failures) openings.set(id, { kind: "failed", message });
-  for (const [id, connection] of connections) {
-    const state = connection.get();
+  for (const [id, state] of states) {
     openings.set(
       id,
       state.kind === "asking"
@@ -79,6 +83,8 @@ export function useAccountOpenings() {
     available: connector !== undefined,
     openings,
     connection: (hostId: string) => connections.get(hostId),
+    /** Its connection's state as last heard. */
+    state: (hostId: string) => states.get(hostId),
     open,
   };
 }

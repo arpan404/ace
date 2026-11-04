@@ -138,7 +138,7 @@ function AccountFixes(props: { node: MapNode; data: FleetMapData; openings: Acco
   const toast = useToast();
   if (!machine) return null;
   const fixes = node.problem?.fixes ?? (node.offer ? [node.offer] : []);
-  const state = connection?.get();
+  const state = openings.state(node.id);
   const prompt = connection && state?.kind === "asking" && asking && (
     <div className="mt-2.5">
       <MachineCodePrompt
