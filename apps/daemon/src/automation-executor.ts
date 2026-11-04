@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { CommandId, ThreadId, WorkspaceId, DeviceId } from "@ace/protocol";
-import type { AutomationExecutor, ExecutionInput } from "@ace/automations";
+import type { Admission, AutomationExecutor, ExecutionInput } from "@ace/automations";
 import { z } from "zod";
 import type { ServiceContext } from "./services/types.ts";
 import { automationRunExecutor, hostControl } from "./automation-run-executor.ts";
@@ -10,6 +10,19 @@ const AutomationThreadRow = z
   .optional();
 
 const deviceId = DeviceId.parse("automation");
+
+/**
+ * The daemon's admission gate (ADR 0041) for automations: while any hold turns new work away,
+ * the person's pause included, a due run is skipped and Run now refused. Their runs reach the
+ * engine's internal handler, which never checks the gate, so the automations check it here.
+ */
+export function automationAdmission(context: ServiceContext): { admission?: Admission } {
+  const gate = context.maintenance;
+  if (!gate) return {};
+  return {
+    admission: { open: () => gate.admit(), onReopen: (listener) => gate.onReopen(listener) },
+  };
+}
 
 /**
  * Runs a person's automation in its own one thread: the first run creates the thread, and every

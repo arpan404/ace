@@ -11,16 +11,21 @@ afterEach(async () => {
 const origin = "https://account.example";
 const session = "s".repeat(43);
 const person = (id: string) => ({ id, email: `${id}@example.com`, name: id });
-const signedOut = { signedIn: false, machineCode: { set: false } };
-const signedInAs = (id: string) => ({
+const signedOut = { signedIn: false, machineCode: { set: false }, sessionId: null };
+const signedInAs = (id: string, source: "handover" | "login" = "handover") => ({
   signedIn: true,
   origin,
   account: person(id),
   expiresAt: 2_000_000_000_000,
   machineCode: { set: false },
+  source,
+  sessionId: "held",
 });
 /** A session that expired or the backend dropped: the daemon still names its account. */
-const lapsed = (id: string) => ({ ...signedInAs(id), signedIn: false });
+const lapsed = (id: string, source: "handover" | "login" = "handover") => ({
+  ...signedInAs(id, source),
+  signedIn: false,
+});
 
 it("a daemon that is signed in, to this account or another, is left as it is", () => {
   expect(planHandover(signedInAs("user_a"), { [origin]: session })).toBeUndefined();
@@ -28,7 +33,11 @@ it("a daemon that is signed in, to this account or another, is left as it is", (
 });
 
 it("a signed-out daemon gets the app's session when the app has exactly one", () => {
-  expect(planHandover(signedOut, { [origin]: session })).toEqual({ origin, token: session });
+  expect(planHandover(signedOut, { [origin]: session })).toEqual({
+    origin,
+    token: session,
+    expected: null,
+  });
   expect(planHandover(signedOut, {})).toBeUndefined();
   expect(
     planHandover(signedOut, { [origin]: session, "https://other.example": session }),
@@ -40,9 +49,21 @@ it("a daemon whose session lapsed gets one only for its own origin and account",
   expect(planHandover(lapsed("user_a"), { [other]: session, [origin]: session })).toEqual({
     origin,
     token: session,
+    expected: "held",
     sameAccountAs: "user_a",
   });
   expect(planHandover(lapsed("user_a"), { [other]: session })).toBeUndefined();
+});
+
+it("a daemon's own lapsed sign-in, one under way, or one it can't check is left alone", () => {
+  expect(planHandover(lapsed("user_a", "login"), { [origin]: session })).toBeUndefined();
+  const loggingIn = {
+    ...signedOut,
+    login: { url: `${origin}/login`, expiresAt: 2_000_000_000_000 },
+  };
+  expect(planHandover(loggingIn, { [origin]: session })).toBeUndefined();
+  const { sessionId: _, ...older } = signedOut;
+  expect(planHandover(older, { [origin]: session })).toBeUndefined();
 });
 
 /** A daemon's account routes as a real local HTTP server, recording what reached it. */

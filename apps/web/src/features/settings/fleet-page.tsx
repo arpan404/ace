@@ -2,6 +2,7 @@ import { DesktopTowerIcon, DeviceMobileIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline-row.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
+import { DaemonSettings } from "./daemon-settings.tsx";
 import { linkersOf } from "./data/fleet-links.ts";
 import { reachedThrough } from "./data/fleet-words.ts";
 import { settingKeys } from "./data/setting-keys.ts";
@@ -29,8 +30,9 @@ function dependentsOf(fleet: Fleet): string[] {
 
 /**
  * Settings › Fleet › Overview: every machine and device as a quiet row that opens it, how this
- * computer is reached, how the machines work together, and the rarer choices folded under More
- * options. A fleet of one says what to do next instead of showing empty lists.
+ * computer is reached, how the machines work together, which computer this window talks to, and
+ * the rarer choices folded under More options. A fleet of one says what to do next instead of
+ * showing empty lists.
  */
 export function FleetPage() {
   const fleet = useFleet();
@@ -62,6 +64,7 @@ export function FleetPage() {
         />
       )}
       {!solo && <WorkingAcrossMachines fleet={fleet} />}
+      <DaemonSettings />
       <MoreOptions dependents={dependents} />
     </FleetFrame>
   );

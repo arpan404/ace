@@ -103,6 +103,12 @@ export const SettingsValues = z.object({
    */
   "devices.emulatorWindow": z.boolean(),
   /**
+   * This machine's iOS Simulators and Android emulators for ace: watching, driving and the
+   * sim_* tools. On when unset. Settings › Devices turns it off for every thread; it stays off
+   * across restarts until turned on again.
+   */
+  "devices.enabled": z.boolean(),
+  /**
    * This daemon's access for new threads: the mode the person last chose or set in Settings.
    * A thread's own choice and its project's default come first.
    */

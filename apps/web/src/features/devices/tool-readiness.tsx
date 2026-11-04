@@ -1,15 +1,7 @@
 import type { Toolchain } from "@ace/protocol";
 import { Fragment } from "react";
-import { ToolchainHints, useToolchains } from "@/features/diagnostics/index.ts";
-import { Button } from "@/components/ui/button.tsx";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog.tsx";
+import { useToolchains } from "@/features/diagnostics/index.ts";
+import { Link } from "@tanstack/react-router";
 
 /** One tool as the readiness line names it: "Xcode 26.0", "serve-sim 0.1.49-beta.139.1", "Android SDK". */
 function toolWords(tool: Toolchain): string | undefined {
@@ -32,9 +24,9 @@ function toolWords(tool: Toolchain): string | undefined {
 
 /**
  * One quiet line at the end of the list: the device tools on this machine and their versions,
- * with "Set up…" when one is missing, which opens the setup guidance.
+ * with "Set up…" when one is missing, which opens the tools in Settings › Simulators.
  */
-export function ToolReadiness(props: { onSetUp(): void }) {
+export function ToolReadiness() {
   const tools = useToolchains();
   const shown = (tools.data ?? []).flatMap((tool) => {
     const words = toolWords(tool);
@@ -54,52 +46,14 @@ export function ToolReadiness(props: { onSetUp(): void }) {
         </Fragment>
       ))}
       {missing && (
-        <button
-          type="button"
-          onClick={props.onSetUp}
+        <Link
+          to="/settings/simulators"
+          hash="tools"
           className="rounded-xs text-link focus-ring hover:underline"
         >
           Set up…
-        </button>
+        </Link>
       )}
     </p>
-  );
-}
-
-/** The device tools and how to install the missing ones (the existing guidance). */
-export function ToolSetupDialog(props: {
-  open: boolean;
-  onOpenChange(open: boolean): void;
-  toolsMissing: boolean;
-  downloadingTools: boolean;
-  onDownload(): void;
-  onRefresh(): void;
-}) {
-  return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Device tools</DialogTitle>
-          <DialogDescription>
-            Simulators need Xcode; emulators need the Android SDK. Install what's missing, then
-            refresh the list.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-2">
-          <ToolchainHints devices />
-          {(props.toolsMissing || props.downloadingTools) && (
-            <Button disabled={props.downloadingTools} onClick={props.onDownload}>
-              {props.downloadingTools ? "Downloading device tools…" : "Download device tools"}
-            </Button>
-          )}
-        </div>
-        <DialogFooter>
-          <Button onClick={props.onRefresh}>Check again</Button>
-          <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>
-            Close
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

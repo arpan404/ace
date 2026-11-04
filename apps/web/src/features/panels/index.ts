@@ -54,3 +54,6 @@ export { bindTerminalEndDelivery } from "./terminal/end-delivery.ts";
 export { useAlwaysShowDevices } from "./browser/device-settings.ts";
 export { useAutomaticPip } from "./browser/pip-setting.ts";
 export { useRevealAgentPages } from "./browser/reveal-setting.ts";
+export { useConnectionStatsShown } from "./browser/connection-stats.ts";
+export { useExtensionsShown } from "./browser/extensions-menu.tsx";
+export { browserEngineChoices, browserEngineLabel } from "./browser/engine-words.ts";

@@ -131,12 +131,13 @@ export function loadAccountChoice(stores: ConnectionStores): unknown {
  */
 export function saveAccountChoice(
   stores: ConnectionStores,
-  machine: { origin: string; hostId: string; name: string },
+  machine: { origin: string; hostId: string; name: string; accountId?: string | undefined },
 ) {
+  const { origin, hostId, name, accountId } = machine;
   safeSet(
     stores.local,
     keys.account,
-    JSON.stringify({ origin: machine.origin, hostId: machine.hostId, name: machine.name }),
+    JSON.stringify({ origin, hostId, name, ...(accountId === undefined ? {} : { accountId }) }),
   );
   for (const storage of [stores.local, stores.session]) {
     safeRemove(storage, keys.token);

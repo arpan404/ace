@@ -222,6 +222,22 @@ export function accessHttp({
 }
 
 /**
+ * The session a sign-in or sign-out is conditional on: `If-Match: "<sessionId>"` (that session)
+ * or `If-None-Match: *` (no session), from the account status the caller read. Neither header:
+ * unconditional, as `ace login`, `ace logout` and Settings' explicit Switch are.
+ */
+function sessionCondition(request: IncomingMessage): { session: string | null } | undefined {
+  const match = request.headers["if-match"];
+  if (typeof match === "string") {
+    const id = /^"([A-Za-z0-9_-]{1,64})"$/.exec(match.trim())?.[1];
+    if (!id) throw new AccessError(400, "If-Match names one ace session id");
+    return { session: id };
+  }
+  if (request.headers["if-none-match"]?.trim() === "*") return { session: null };
+  return undefined;
+}
+
+/**
  * The machine's ace account and machine code (ADR 0111). Signing in and out is for this
  * machine only (the host token: the desktop app or `ace`); any admin may set or clear the code.
  */
@@ -251,9 +267,10 @@ async function accountRoute(
   if (path === "/v1/ace-account" && request.method === "PUT") {
     const handover = AceAccountHandover.safeParse(await body(request));
     if (!handover.success) throw new AccessError(400, "Invalid ace session");
-    return account.handover(handover.data.origin, handover.data.token);
+    return account.handover(handover.data.origin, handover.data.token, sessionCondition(request));
   }
-  if (path === "/v1/ace-account" && request.method === "DELETE") return account.signOut();
+  if (path === "/v1/ace-account" && request.method === "DELETE")
+    return account.signOut(sessionCondition(request));
   throw new AccessError(405, "Unsupported method");
 }
 

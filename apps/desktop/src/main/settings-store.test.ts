@@ -88,6 +88,7 @@ const customised: DesktopSettings = {
   preventSleep: true,
   attention: false,
   globalShortcut: "CommandOrControl+J",
+  keybindings: { palette: "mod+y", terminal: "alt+mod+t" },
   browserDownloads: "/Users/me/Downloads",
   terminalCommand: false,
   notifications: {
@@ -105,6 +106,8 @@ const changes: [string, DesktopSettingsPatch][] = [
   ["Bounce dock icon for attention", { attention: true }],
   ["Quick-thread global shortcut", { globalShortcut: "CommandOrControl+Shift+K" }],
   ["Quick-thread global shortcut cleared", { globalShortcut: null }],
+  ["Keyboard shortcuts rebound", { keybindings: { palette: "shift+mod+p" } }],
+  ["Keyboard shortcuts reset", { keybindings: {} }],
   ["notifications on", { notifications: { enabled: true } }],
   ["Browser downloads folder reset", { browserDownloads: null }],
 ];
@@ -176,4 +179,38 @@ test("changing one notification category keeps the others and leaves prevent-sle
       quietHours: { start: 22 * 60, end: 7 * 60 },
     },
   });
+});
+
+test("adopting the machine's old shortcuts stores them on an app that has none", async () => {
+  const path = join(await root(), "settings.json");
+  const store = new SettingsStore(path);
+
+  await settingsPage(store).update({ keybindingsIfUnset: { palette: "alt+mod+p" } });
+
+  expect(new SettingsStore(path).get().keybindings).toEqual({ palette: "alt+mod+p" });
+});
+
+test("adopting the machine's old shortcuts never replaces a rebinding saved just before", async () => {
+  const path = join(await root(), "settings.json");
+  const store = new SettingsStore(path);
+  const page = settingsPage(store);
+
+  // The person's save is still on its way to disk when the old setting arrives.
+  const saving = page.update({ keybindings: { palette: "shift+mod+y" } });
+  const adopting = page.update({ keybindingsIfUnset: { palette: "alt+mod+p" } });
+  await Promise.all([saving, adopting]);
+
+  expect(store.get().keybindings).toEqual({ palette: "shift+mod+y" });
+  expect(new SettingsStore(path).get().keybindings).toEqual({ palette: "shift+mod+y" });
+});
+
+test("damaged saved shortcuts read as none rebound, keep the other settings and aren't adopted over", async () => {
+  const path = join(await root(), "settings.json");
+  await writeFile(path, JSON.stringify({ ...customised, keybindings: ["mod+k"] }));
+  const store = new SettingsStore(path);
+  expect(store.get()).toMatchObject({ openAtLogin: true, keybindings: {} });
+
+  await settingsPage(store).update({ keybindingsIfUnset: { palette: "alt+mod+p" } });
+
+  expect(new SettingsStore(path).get().keybindings).toEqual({});
 });

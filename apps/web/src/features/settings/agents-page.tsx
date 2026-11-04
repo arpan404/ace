@@ -23,13 +23,14 @@ import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
 import { settingRow } from "./settings-index.ts";
 import { GenerationSettings } from "./utility-model.tsx";
+import { WorktreeSettings } from "./worktree-settings.tsx";
 
 const autoSettleOptions: readonly { value: AutoSettle; label: string }[] = autoSettleChoices;
 const sortByOptions: readonly { value: SortBy; label: string }[] = sortByChoices;
 const sortByNote = (sortBy: SortBy) => homeSortOptions.find((option) => option.id === sortBy)?.note;
 
 /**
- * How agents run on the machine picked in Settings: what new threads start with, what happens
+ * How agents run on the machine picked in Settings: what new threads start with, their worktrees, what happens
  * while they work and at a usage limit, the roles used for delegated work, how the thread list
  * keeps itself tidy, the model behind titles and commit messages, automations and the folders
  * new projects come from. Every device that uses the machine follows these.
@@ -42,8 +43,8 @@ export function AgentsSettings() {
       <SettingSection label="New threads" card scope="daemon" note={note}>
         <DefaultProvider />
         <AccessDefaultRow />
-        <SettingSwitch setting={settingKeys.worktree} entry="threads.useWorktree" />
       </SettingSection>
+      <WorktreeSettings />
       <SettingSection label="Switching providers" scope="daemon">
         <SettingSwitch setting={settingKeys.forkOnSwitch} entry="threads.forkOnSwitch" />
       </SettingSection>

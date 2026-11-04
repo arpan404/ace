@@ -13,7 +13,9 @@ import { Button } from "@/components/ui/button.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { fieldClassName } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
+import { settingRow } from "./settings-index.ts";
 
+/** Storage › Worktrees: deleting settled worktrees. Backing them up is on Settings › Agents. */
 export function WorktreeStorageSettings(props: {
   busy: boolean;
   onPreviewAll(): void;
@@ -21,7 +23,6 @@ export function WorktreeStorageSettings(props: {
 }) {
   const ready = useConnectionState() === "ready";
   const [days, setDays] = useDaemonSetting("storage.worktreeRetentionDays");
-  const [backup, setBackup] = useDaemonSetting("storage.backupWorktrees");
   const [draft, setDraft] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -54,7 +55,7 @@ export function WorktreeStorageSettings(props: {
       scope="daemon"
       note="Automatic deletion only removes clean worktrees merged into origin/main."
     >
-      <SettingRow title="Automatic deletion" inline>
+      <SettingRow {...settingRow("storage.worktreeDeletion")} inline>
         <Switch
           aria-label="Automatic worktree deletion"
           checked={typeof days === "number"}
@@ -62,7 +63,7 @@ export function WorktreeStorageSettings(props: {
           onCheckedChange={(enabled) => void save(() => setDays(enabled ? 30 : null))}
         />
       </SettingRow>
-      <SettingRow title="Delete after settling" inline>
+      <SettingRow {...settingRow("storage.worktreeDays")} inline>
         <span className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             aria-label="Days after settling"
@@ -84,18 +85,6 @@ export function WorktreeStorageSettings(props: {
           />
           days
         </span>
-      </SettingRow>
-      <SettingRow
-        title="Back up to origin"
-        description="Commits everything not in .gitignore, .env included, and pushes to origin."
-        inline
-      >
-        <Switch
-          aria-label="Back up worktrees to origin"
-          checked={backup ?? false}
-          disabled={disabled || backup === undefined}
-          onCheckedChange={(enabled) => void save(() => setBackup(enabled))}
-        />
       </SettingRow>
       {error && (
         <SettingNote role="alert" className="text-destructive">

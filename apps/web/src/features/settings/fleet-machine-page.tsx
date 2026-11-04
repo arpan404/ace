@@ -16,6 +16,7 @@ import { MachineAccount } from "./machine-account.tsx";
 import { MachineAgents } from "./machine-agents.tsx";
 import { MachineDevices, RemoveMachine } from "./machine-devices.tsx";
 import { MachineEditor } from "./machine-editor.tsx";
+import { MachinePause } from "./machine-pause.tsx";
 import { MachineSoftware } from "./machine-software.tsx";
 import { useMachineAction } from "./machine-unlock.tsx";
 import { SettingsBody } from "./settings-body.tsx";
@@ -43,8 +44,8 @@ function dependentsOf(machine: Machine, fleet: Fleet): string[] {
 }
 
 /**
- * One machine in the fleet: its state and the one action it needs, how it's reached, its
- * security, its software, its agents both ways, the devices that open it and, alone at the bottom, removing
+ * One machine in the fleet: its state and the one action it needs, how it's reached, whether it
+ * takes new work, its security, its software, its agents both ways, the devices that open it and, alone at the bottom, removing
  * it from the fleet.
  */
 export function FleetMachinePage(props: { id: string }) {
@@ -112,6 +113,7 @@ function MachinePage(props: { machine: Machine; fleet: Fleet }) {
           How it's reached, its agents and its devices show when it's back online.
         </p>
       )}
+      <MachinePause machine={machine} />
       <MachineAccount machine={machine} label="Security" />
       <MachineSoftware machine={machine} fleet={fleet} />
       <MachineAgents machine={machine} fleet={fleet} />

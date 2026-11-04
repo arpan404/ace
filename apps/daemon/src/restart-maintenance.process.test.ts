@@ -113,3 +113,55 @@ it("a daemon started in maintenance holds a restart continuation until admission
   expect(sent).toHaveLength(1);
   expect(JSON.stringify(sent[0]?.input)).toContain("ace restarted while you were working");
 });
+
+it("the person's pause survives a daemon restart and holds a cut-short turn until they resume", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-restart-pause-"));
+  prepareDaemonHome(home);
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  vi.stubEnv("ACE_ACCOUNTS_DB", join(home, "accounts.sqlite"));
+  vi.stubEnv("ACE_MAINTENANCE", "0");
+  const clock = new ManualClock();
+
+  const before = provider();
+  const first = await daemonAt(home, before.registry, clock);
+  const workspace = first.daemon.store.createWorkspace(home, "Pause");
+  const command = Command.parse({
+    id: "create-paused",
+    deviceId: "device",
+    payload: {
+      type: "thread.create",
+      workspaceId: workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "Long task" }],
+    },
+  });
+  first.daemon.store.recordCommand(command.id, command.deviceId, () =>
+    first.engine.handler.handle(command, first.daemon.store),
+  );
+  await first.engine.flush();
+  first.daemon.maintenance.enter("user");
+  await first.daemon.close();
+  await before.registry.close();
+
+  const after = provider();
+  const second = await daemonAt(home, after.registry, clock);
+  await second.engine.flush();
+  clock.advance(clock.now() + 60_000);
+  await second.engine.flush();
+  expect(second.daemon.maintenance.status().holds).toEqual(["user"]);
+  expect(after.sends()).toEqual([]);
+
+  second.daemon.maintenance.leave("user");
+  clock.advance(clock.now());
+  await second.engine.flush();
+  expect(after.sends()).toHaveLength(1);
+  await second.daemon.close();
+  await after.registry.close();
+
+  // Resuming is remembered too: the next start takes new work.
+  const later = provider();
+  cleanups.push(() => later.registry.close());
+  const third = await daemonAt(home, later.registry, clock);
+  cleanups.push(() => third.daemon.close());
+  expect(third.daemon.maintenance.status().holds).toEqual([]);
+});

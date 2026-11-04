@@ -330,7 +330,14 @@ export class FakeDaemon implements Host {
     this.services.settings.onChange((keys) => {
       if (keys.includes("threads.sortBy"))
         for (const connection of this.connections) connection.replace();
+      // Settings › Devices turns devices on or off for the whole machine, as the daemon does.
+      if (keys.includes("devices.enabled"))
+        this.appDevices.setEnabled(this.services.settings.get("devices.enabled") !== false);
     });
+    this.appDevices.onEnabled = (enabled) => {
+      if ((this.services.settings.get("devices.enabled") !== false) !== enabled)
+        this.services.settings.write("devices.enabled", enabled);
+    };
   }
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {
@@ -339,6 +346,10 @@ export class FakeDaemon implements Host {
   /** Past-session requests clients made: lists read provider history, releases end it. */
   get pastSessions(): Pick<FakeHistory, "lists" | "releases"> {
     return this.servicesWire.history;
+  }
+  /** "Pause new work" behind `admission.request`; `set("user", …)` is the desktop tray's pause. */
+  get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
+    return this.servicesWire.admission;
   }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {

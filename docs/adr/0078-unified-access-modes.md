@@ -49,7 +49,7 @@ session's permission rules through OpenCode's session API (`session.create` / `s
 clears ace's session rules. A Custom native Build or Plan leaves the session's rules alone.
 
 **Defaults.** A thread's own choice, else its project's default (Edit project), else this daemon's
-`access.defaultMode`, which is the person's last pick in any access chip or their Settings value,
+`access.defaultMode`, which is set in Settings (amended 2026-11-04, see below),
 else Auto review on a first run. Each daemon stores its own. `permissions.providerModes`,
 `permissions.defaultMode` and `approvals.policy` are removed.
 
@@ -128,3 +128,13 @@ only tools. Ask and Full access therefore end with `{ action: "browser", resourc
 without asking, Ask still asks, and ace's own `ace_browser_*` tools are unaffected. Read-only
 (Plan) writes no rules and keeps OpenCode's own default, which is the same. A tool group is left
 out only when it is provably non-functional in an ace session, never to restrict an agent.
+
+## Amendment: a thread's access changes only that thread (owner, 2026-11-04)
+
+Picking a mode in a thread's access chip used to also write `access.defaultMode`, so the default
+for new threads followed the person's last pick anywhere. That surprised people: tightening one
+thread loosened or tightened every thread they started afterwards. Now a thread's chip sends only
+`thread.permission.set` for that thread, on every client. `access.defaultMode` is set in one
+place, Settings › Agents › Access, and applies to new threads. A project's own default (Edit
+project) still comes before it for that project's threads, and the new-thread page's pick still
+applies to that draft only.
