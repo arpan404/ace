@@ -4,6 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
 import { constants as osConstants, tmpdir, userInfo } from "node:os";
 import { spawn } from "node-pty";
+import { bunRuntime, spawnBunPty } from "./bun-pty.ts";
 import { win32 } from "node:path";
 import { createServer, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
@@ -51,6 +52,22 @@ export interface PosixPorts {
   spawn: (shell: string, args: string[], options: Parameters<typeof spawn>[2]) => NativePty;
   processes: ProcessControl;
   createLease?: () => GroupLease;
+}
+
+/** node-pty on Node. On Bun, Bun's own terminal: node-pty's addon reports nothing there. */
+export function spawnNativePty(
+  file: string,
+  args: string[] | string,
+  options: Parameters<typeof spawn>[2],
+): ConptyNative {
+  const bun = bunRuntime();
+  if (!bun) return spawn(file, args, options);
+  return spawnBunPty(bun, file, args, {
+    cwd: options?.cwd,
+    cols: options?.cols,
+    rows: options?.rows,
+    env: options?.env,
+  });
 }
 
 export const shutdownScheduler: ShutdownScheduler = {
@@ -174,7 +191,7 @@ export function createPosixBackendFactory(
     const loginArgs = options.args ?? ["-l", "-i"];
     let pty: NativePty;
     try {
-      pty = (ports?.spawn ?? spawn)(
+      pty = (ports?.spawn ?? spawnNativePty)(
         "/bin/sh",
         ["-c", launcher, "ace-terminal", lease.path, lease.readyPath, keeper, shell, ...loginArgs],
         {
@@ -435,7 +452,7 @@ export interface ConptyPorts {
  * shell, AutoRun or profile that starts a child at once therefore starts it contained.
  */
 export function createConptyBackendFactory(ports: ConptyPorts = {}): BackendFactory {
-  const spawnNative = ports.spawn ?? spawn;
+  const spawnNative = ports.spawn ?? spawnNativePty;
   const createJob = ports.createJob ?? (() => createRetainedJob());
   const openGate = ports.openGate ?? (() => pipeStartupGate());
   return (options, shell, context) => {

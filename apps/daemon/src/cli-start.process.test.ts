@@ -64,7 +64,9 @@ it("ace start exits with its own code when another process holds its port", asyn
   const home = await tempHome("ace-start-port-");
 
   const { code, stderr } = await aceStart(home, port);
-  expect(stderr).toContain("EADDRINUSE");
+  // The runtime's own wording differs (Node names EADDRINUSE, Bun asks whether the port is in
+  // use); both name the port.
+  expect(stderr).toContain(String(port));
   expect(code).toBe(exitCodes["address-in-use"]);
 }, 60_000);
 
