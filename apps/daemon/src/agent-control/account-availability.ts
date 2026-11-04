@@ -1,4 +1,10 @@
-import { accountProvider, blockedUntil, refusalWords, type Candidate } from "@ace/accounts";
+import {
+  accountProvider,
+  blockedUntil,
+  refusalWords,
+  type AccountRefusal,
+  type Candidate,
+} from "@ace/accounts";
 
 /**
  * A known exhausted account names alternatives; unknown usage never blocks a launch. Only the
@@ -10,14 +16,16 @@ export function accountLaunchRefusal(
   id: string,
   now: number,
   enabled: (id: string) => boolean = () => true,
+  /** How the refused account is named, as the caller words refusals for the person. */
+  words: (selected: Candidate, refusal: AccountRefusal) => string = (selected, refusal) =>
+    refusalWords(`Account ${selected.instance.label || id} (${id})`, refusal, now, "UTC"),
 ): string | undefined {
   const selected = candidates.find((entry) => entry.instance.id === id);
   if (!selected) return undefined;
   const until = blockedUntil(selected.quota, now);
   if (until === undefined) return undefined;
   const provider = accountProvider(selected.instance);
-  const name = selected.instance.label || id;
-  const reason = refusalWords(`Account ${name} (${id})`, { reason: "at_limit", until }, now, "UTC");
+  const reason = words(selected, { reason: "at_limit", until });
   const alternatives = candidates.filter(
     ({ instance, quota }) =>
       instance.id !== id &&
@@ -30,7 +38,7 @@ export function accountLaunchRefusal(
   const list = alternatives
     .map(({ instance }) => `${instance.label || instance.id} (${instance.id})`)
     .join(", ");
-  return `${reason}${list ? ` Other accounts with usage or unread limits: ${list}.` : " No other eligible account is known on this machine."}`.slice(
+  return `${reason}.${list ? ` Other accounts with usage or unread limits: ${list}.` : " No other eligible account is known on this machine."}`.slice(
     0,
     512,
   );

@@ -113,6 +113,7 @@ function checkAuth(
         instance,
         now,
         (id) => deps.providerEnabled?.(input.provider, id) !== false,
+        (selected, limit) => refused(deps, input.provider, selected, limit, now),
       );
   if (refusal) throw unavailable(refusal);
   const auth =
@@ -158,6 +159,7 @@ function admitted(
         candidate.instance.id,
         now,
         (id) => deps.providerEnabled?.(request.provider, id) !== false,
+        (selected, limit) => refused(deps, request.provider, selected, limit, now),
       ) ?? refused(deps, request.provider, candidate, result.refusal, now),
     );
   return result.instance;

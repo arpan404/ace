@@ -45,6 +45,8 @@ export function setup(
   steer = false,
   /** The scripted providers' steering, as Cursor's restarts the running turn. */
   steeringMode?: "interrupt-restart",
+  /** Engine recovery settings, e.g. a thread's limit policy, read at once or loaded later. */
+  recovery?: Pick<import("../engine/index.ts").EngineOptions, "preferences" | "recovery">,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) scope().homes.push(home);
@@ -212,6 +214,7 @@ export function setup(
   }
   const errors: unknown[] = [];
   const engine = new Engine(store, {
+    ...recovery,
     ...(engineLimits ? { limits: engineLimits } : {}),
     registry,
     clock,

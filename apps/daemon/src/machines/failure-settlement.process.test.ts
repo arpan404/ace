@@ -90,6 +90,29 @@ test("remote usage failure is readable and delivered without cancellation, inclu
       }),
     ],
   });
+
+  // The limit resets there. The child's stop is the same stop: no second result, same reason.
+  const told = () =>
+    (pair.source.h.inputs.get(pair.source.caller.threadId) ?? []).filter((text) =>
+      text.includes("Usage limit reached"),
+    ).length;
+  const before = told();
+  pair.target.h.clock.advance(6_000);
+  await pair.target.daemon.engine?.flush();
+  expect(pair.target.daemon.store.getThread(child)?.status.state).not.toBe("limited");
+  // Settled children are read again at the slower re-check pace: give it several turns.
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  expect(told()).toBe(before);
+  const after = await pair.source.call({ op: "agents.status" });
+  expect(after.data).toMatchObject({
+    children: [
+      expect.objectContaining({
+        id: child,
+        state: "failed",
+        failure: expect.objectContaining({ code: "usage_limited", resetsAt: 5000 }),
+      }),
+    ],
+  });
 });
 
 test("a known limited remote account is refused before launch and names other available accounts", async () => {

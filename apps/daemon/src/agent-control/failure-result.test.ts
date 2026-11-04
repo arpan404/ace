@@ -21,6 +21,15 @@ test.each([
     agent: { state: "failed", error: { kind: "process_exit", message: "Exit 7" } },
     expected: "provider_failed",
   },
+  {
+    name: "temporary rate limit",
+    status: { state: "failed" },
+    agent: {
+      state: "failed",
+      error: { kind: "provider", code: "rate_limit", message: "Too many requests" },
+    },
+    expected: "rate_limited",
+  },
   { name: "missing provider evidence", status: { state: "failed" }, expected: "provider_failed" },
   {
     name: "live retry",
@@ -40,6 +49,8 @@ test.each([
       expect(result.message.length).toBeGreaterThan(0);
       expect(result.accountId).toBe("account-a");
       expect(result.accountLabel).toBe("Primary");
+      // Only a used-up allowance reads as a usage limit; a throttle never does.
+      expect(result.message.includes("Usage limit")).toBe(expected === "usage_limited");
       if (status.state === "limited") {
         expect(result.resetsAt).toBe(5000);
         expect(result.message).toContain("1970-01-01T00:00:05.000Z");

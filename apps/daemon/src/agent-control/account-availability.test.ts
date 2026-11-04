@@ -54,3 +54,18 @@ test("an unregistered account or an expired reading allows launch", () => {
     accountLaunchRefusal([account("selected", 100)], "selected", now + 3600001),
   ).toBeUndefined();
 });
+
+test("only a used-up limit refuses here: a signed-out account is left to the sign-in check, and is never offered instead", () => {
+  const signedOut = (id: string, used?: number): Candidate => {
+    const entry = account(id, used);
+    return { ...entry, quota: { ...entry.quota, auth: "logged_out" } };
+  };
+  expect(accountLaunchRefusal([signedOut("selected", 20)], "selected", now)).toBeUndefined();
+  const result = accountLaunchRefusal(
+    [account("selected", 100), signedOut("signed-out", 10), account("ready", 10)],
+    "selected",
+    now,
+  );
+  expect(result).toContain("Label-ready (ready)");
+  expect(result).not.toContain("Label-signed-out");
+});

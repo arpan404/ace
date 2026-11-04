@@ -10,6 +10,7 @@ import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { start, end } from "../engine/test-support.ts";
 import { AccountRegistry, createInstance } from "@ace/accounts";
+import { ProviderInstance } from "@ace/protocol/accounts";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { join } from "node:path";
@@ -334,76 +335,110 @@ test("delegation without a model uses the synced provider default over a parent'
   }
 });
 
-test("a signed-out OpenCode CLI can delegate an unauthenticated model but not an authenticated one", async () => {
-  const initial = setup();
-  const catalog = new ModelCatalog({
-    storage: openModelStorage(join(initial.home, "open-models.sqlite")),
-    instances: [
-      ModelInstance.parse({
-        id: "opencode-cli-default",
-        provider: "opencode",
-        executable: "unused",
-        cwd: initial.home,
-        loginRevision: "synthetic",
-      }),
-    ],
-    now: initial.clock.now,
-    deadline: initial.clock.setTimer,
-    discover: async (instance) =>
-      ["public", "private"].map((id) =>
-        CatalogModel.parse({
-          id,
-          nativeModelId: id,
+test.each([
+  { account: "signed out", refused: /requires authentication/ },
+  { account: "at its usage limit", refused: /is at its limit until/ },
+])(
+  "an OpenCode CLI $account can delegate an unauthenticated model but not an authenticated one",
+  async ({ account, refused }) => {
+    const initial = setup();
+    const catalog = new ModelCatalog({
+      storage: openModelStorage(join(initial.home, "open-models.sqlite")),
+      instances: [
+        ModelInstance.parse({
+          id: "opencode-cli-default",
           provider: "opencode",
-          instance: instance.id,
-          displayName: id,
-          efforts: [],
-          serviceTiers: [],
-          inputModalities: [],
-          isDefault: id === "public",
-          free: id === "public",
-          hidden: false,
-          deprecated: false,
-          raw: { json: "{}", truncated: false },
+          executable: "unused",
+          cwd: initial.home,
+          loginRevision: "synthetic",
         }),
-      ),
-  });
-  await initial.close();
-  const h = setup({}, initial.dbPath, false, undefined, false, undefined, undefined, catalog);
-  const adapter = createScriptedAdapter({
-    provider: "opencode",
-    capabilities: h.registry.get("claude").capabilities,
-    createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
-    steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
-  });
-  h.registry.register(
-    {
-      ...adapter,
-      openSession: (context) => {
-        h.contexts.set(context.threadId, context);
-        return adapter.openSession(context);
-      },
-    },
-    { installed: true, auth: "logged_out", loginHint: "synthetic" },
-  );
-  try {
-    const parent = await h.parent();
-    const request = DelegationRequest.parse({
-      requestId: "public",
-      provider: "opencode",
-      task: "Inspect",
-      role: "inspect-public-catalog",
-      model: "public",
+      ],
+      now: initial.clock.now,
+      deadline: initial.clock.setTimer,
+      discover: async (instance) =>
+        ["public", "private"].map((id) =>
+          CatalogModel.parse({
+            id,
+            nativeModelId: id,
+            provider: "opencode",
+            instance: instance.id,
+            displayName: id,
+            efforts: [],
+            serviceTiers: [],
+            inputModalities: [],
+            isDefault: id === "public",
+            free: id === "public",
+            hidden: false,
+            deprecated: false,
+            raw: { json: "{}", truncated: false },
+          }),
+        ),
     });
-    const child = h.service.delegate(parent, request);
-    await h.engine.flush();
-    expect(h.contexts.get(child.childId)?.model).toBe("public");
-    expect(() =>
-      h.service.delegate(parent, { ...request, requestId: "private", model: "private" }),
-    ).toThrow(/requires authentication/);
-    expect(h.store.listThreads()).toHaveLength(2);
-  } finally {
-    await h.close();
-    await catalog.close();
-  }
-});
+    await initial.close();
+    // The CLI's own login as ace registers it, with a fresh reading of a used-up window.
+    const accountDb = new DatabaseSync(join(initial.home, "accounts.sqlite"));
+    const accounts = account === "signed out" ? undefined : new AccountRegistry(accountDb);
+    if (accounts) {
+      await accounts.register(
+        ProviderInstance.parse({
+          id: "opencode-cli-default",
+          implicit: true,
+          provider: "opencode",
+          label: "CLI",
+          homeDir: initial.home,
+          env: {},
+        }),
+      );
+      accounts.ingest("opencode-cli-default", {
+        provider: "opencode",
+        observedAt: initial.clock.now(),
+        timeZone: "UTC",
+        payload: new ProviderPayload(
+          JSON.stringify({
+            usageWindows: {
+              session: { usedPercent: 100, resetsAt: initial.clock.now() + 3_600_000 },
+            },
+          }),
+        ),
+      });
+    }
+    const h = setup({}, initial.dbPath, false, undefined, false, accounts, undefined, catalog);
+    const adapter = createScriptedAdapter({
+      provider: "opencode",
+      capabilities: h.registry.get("claude").capabilities,
+      createTranslator: () => ({ translate: h.frames.translate, tick: () => [] }),
+      steps: [{ on: "send", frames: [h.frames.frame(start, end)] }],
+    });
+    h.registry.register(
+      {
+        ...adapter,
+        openSession: (context) => {
+          h.contexts.set(context.threadId, context);
+          return adapter.openSession(context);
+        },
+      },
+      { installed: true, auth: "logged_out", loginHint: "synthetic" },
+    );
+    try {
+      const parent = await h.parent();
+      const request = DelegationRequest.parse({
+        requestId: "public",
+        provider: "opencode",
+        task: "Inspect",
+        role: "inspect-public-catalog",
+        model: "public",
+      });
+      const child = h.service.delegate(parent, request);
+      await h.engine.flush();
+      expect(h.contexts.get(child.childId)?.model).toBe("public");
+      expect(() =>
+        h.service.delegate(parent, { ...request, requestId: "private", model: "private" }),
+      ).toThrow(refused);
+      expect(h.store.listThreads()).toHaveLength(2);
+    } finally {
+      await h.close();
+      await catalog.close();
+      accountDb.close();
+    }
+  },
+);
