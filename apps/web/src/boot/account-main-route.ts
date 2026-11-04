@@ -1,4 +1,4 @@
-import { ClientError, machineCodeGate, relayRoute } from "@ace/client";
+import { machineCodeGate, relayRoute } from "@ace/client";
 import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
@@ -6,45 +6,13 @@ import { accountOrigin, accountSessionKey } from "./account-config.ts";
 import { accountMachineOptions } from "./account-machine-options.ts";
 import { accountSecret } from "./account-secret.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
-import type {
-  AccountMainMachine,
-  AccountMainRoute,
-  AccountRouteSource,
-  GrantProblem,
-} from "./main-machine.ts";
+import type { AccountMainMachine, AccountMainRoute, AccountRouteSource } from "./main-machine.ts";
+import { trackedGrant } from "./tracked-grant.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
   return () => clearTimeout(timer);
 };
-
-/**
- * A grant source that remembers why it was refused: no ace session in this window (signed
- * out), or the backend saying the session ended (401). Any other failure (the network) is
- * retried by the connection and says nothing here.
- */
-export function trackedGrant(grant: () => Promise<string>): {
-  grant(): Promise<string>;
-  problem(): GrantProblem | undefined;
-} {
-  let problem: GrantProblem | undefined;
-  return {
-    async grant() {
-      try {
-        const token = await grant();
-        problem = undefined;
-        return token;
-      } catch (error) {
-        if (error instanceof ClientError && error.code === "auth") problem = "signed_out";
-        else if (error instanceof AceAccountError && error.status === 401)
-          problem = "session_ended";
-        else problem = undefined;
-        throw error;
-      }
-    },
-    problem: () => problem,
-  };
-}
 
 /**
  * One account machine's route as this window's machine: its machine code gate, kept across

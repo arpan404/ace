@@ -62,7 +62,7 @@ export function withFakeMachineAccount(
   };
 }
 
-const hostIds = {
+export const fakeHostIds = {
   studio: "STUDIOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   laptop: "LAPTOPAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 };
@@ -73,9 +73,9 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
   const session = { token, expiresAt: now() + 30 * 86_400_000, account: person };
   storage.setItem(`ace.account.session:${fakeOrigin}`, JSON.stringify(session));
   let machines = [
-    { hostId: hostIds.studio, name: "Studio", platform: "darwin", lastSeenAt: now() - 120_000 },
+    { hostId: fakeHostIds.studio, name: "Studio", platform: "darwin", lastSeenAt: now() - 120_000 },
     {
-      hostId: hostIds.laptop,
+      hostId: fakeHostIds.laptop,
       name: "Travel laptop",
       platform: "linux",
       lastSeenAt: now() - 3 * 86_400_000,
@@ -102,12 +102,36 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
 }
 
 /**
- * Opens fake account machines after a short wait: the Studio asks for its machine code (2468)
- * and locks code entry for 15 minutes after five wrong ones; any other opens at once.
+ * The fake Studio's machine code (2468): five wrong ones lock code entry for 15 minutes. Any
+ * other fake machine has none. `check` says why a code is refused, or undefined to let it in.
  */
-export function fakeAccountConnector(now: () => number) {
+export function fakeMachineCodes(now: () => number) {
   let wrong = 0;
   let lockedUntil: number | undefined;
+  return {
+    get lockedUntil() {
+      return lockedUntil;
+    },
+    check(hostId: string, code: string | undefined): MachineCodeRefusal | undefined {
+      if (hostId !== fakeHostIds.studio) return undefined;
+      if (lockedUntil !== undefined && lockedUntil > now()) return "machine_code_locked";
+      if (code === undefined) return "machine_code_required";
+      if (code === "2468") return undefined;
+      wrong += 1;
+      if (wrong < 5) return "machine_code_wrong";
+      wrong = 0;
+      lockedUntil = now() + 15 * 60_000;
+      return "machine_code_locked";
+    },
+  };
+}
+
+/**
+ * Opens fake account machines beside the window's machine after a short wait: the Studio asks
+ * for its machine code (`fakeMachineCodes`); any other opens at once.
+ */
+export function fakeAccountConnector(now: () => number) {
+  const codes = fakeMachineCodes(now);
   return {
     async connect(machine: { hostId: string }) {
       const gate = machineCodeGate(async () => "fake-grant");
@@ -118,27 +142,15 @@ export function fakeAccountConnector(now: () => number) {
         state = next;
         for (const listener of listeners) listener();
       };
-      const refuse = (reason: MachineCodeRefusal) => {
-        gate.refused(reason, lockedUntil);
-        set({ kind: "asking", reason, lockedUntil });
-      };
       const open = () => {
         set({ kind: "connecting" });
         clearTimeout(timer);
         timer = setTimeout(() => {
           void gate.credential().then(({ machineCode }) => {
-            if (machine.hostId !== hostIds.studio) return set({ kind: "open" });
-            if (lockedUntil !== undefined && lockedUntil > now())
-              return refuse("machine_code_locked");
-            if (machineCode === undefined) return refuse("machine_code_required");
-            if (machineCode !== "2468") {
-              wrong += 1;
-              if (wrong >= 5) {
-                wrong = 0;
-                lockedUntil = now() + 15 * 60_000;
-                return refuse("machine_code_locked");
-              }
-              return refuse("machine_code_wrong");
+            const refused = codes.check(machine.hostId, machineCode);
+            if (refused) {
+              gate.refused(refused, codes.lockedUntil);
+              return set({ kind: "asking", reason: refused, lockedUntil: codes.lockedUntil });
             }
             gate.welcomed();
             set({ kind: "open" });

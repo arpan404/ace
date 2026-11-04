@@ -121,23 +121,27 @@ const daemonApp = (client: ClientApi, connection: GateConnection) => (
 const NoMachineApp = lazy(() =>
   import("./features/no-machine/index.ts").then((module) => ({ default: module.NoMachineApp })),
 );
-/** A window with no machine yet: the app, empty, with the machine pool for account machines. */
-function NoMachineWindow(props: { place?: NoMachinePlace | undefined }) {
-  const { pool, ensure } = useBrowserMachinePool(local, session);
-  // Left the connection screen for Profile or Fleet: the app opens there, before its router
-  // reads the address.
+/** Left the connection screen for Profile or Fleet: the app opens there, before its router reads the address. */
+function AtPlace(props: { place?: NoMachinePlace | undefined; children: ReactNode }) {
   useState(() => {
     if (props.place) history.replaceState(null, "", props.place);
   });
+  return props.children;
+}
+/** A window with no machine yet: the app, empty, with the machine pool for account machines. */
+function NoMachineWindow(props: { place?: NoMachinePlace | undefined }) {
+  const { pool, ensure } = useBrowserMachinePool(local, session);
   return (
-    <Suspense fallback={null}>
-      <NoMachineApp
-        storage={local}
-        windowStorage={session}
-        machines={pool}
-        ensureMachines={ensure}
-      />
-    </Suspense>
+    <AtPlace place={props.place}>
+      <Suspense fallback={null}>
+        <NoMachineApp
+          storage={local}
+          windowStorage={session}
+          machines={pool}
+          ensureMachines={ensure}
+        />
+      </Suspense>
+    </AtPlace>
   );
 }
 const noMachineWindow = (place?: NoMachinePlace) => <NoMachineWindow place={place} />;
@@ -179,25 +183,49 @@ function gate(
   );
 }
 
-/** Fake mode with no machine (`?machine=none`, signed out with `&account=out`), to see it. */
+/** Fake mode with no machine: an address opens the fake daemon's own app, as before. */
+function fakeElsewhere(): Promise<never> {
+  location.assign("/");
+  return new Promise<never>(() => {});
+}
+
+/**
+ * Fake mode with no machine (`?machine=none`, signed out with `&account=out`), to see it: the
+ * real connection gate, where Fleet's Open makes a fake account machine this window's (the
+ * Studio asks for its code, 2468) and a reload opens it again. Kept in this tab only.
+ */
 async function fakeNoMachine(signedOut: boolean): Promise<ReactNode> {
-  const [{ fakeNoMachineAccount, fakeNoMachineConnection }, { fakeAccountConnector }, account] =
+  const [{ fakeNoMachineAccount }, { fakeAccountConnector }, { fakeAccountRoutes }, account, fake] =
     await Promise.all([
       import("./boot/fake-no-machine.ts"),
       import("./boot/fake-account.ts"),
+      import("./boot/fake-account-main.ts"),
       import("./features/ace-account/index.ts"),
+      import("./boot/fake.ts"),
     ]);
   const { AceAccountBackendContext, AccountMachineConnectorContext } = account;
+  const { daemon } = fake.bootFake();
+  const routes = fakeAccountRoutes({ daemon, session, now: Date.now });
   return (
-    <DaemonConnectionContext.Provider value={fakeNoMachineConnection}>
-      <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
-        <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
-          <Suspense fallback={null}>
-            <NoMachineApp storage={local} windowStorage={session} />
-          </Suspense>
-        </AccountMachineConnectorContext>
-      </AceAccountBackendContext>
-    </DaemonConnectionContext.Provider>
+    <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
+      <AccountMachineConnectorContext value={fakeAccountConnector(Date.now)}>
+        <ConnectionGate
+          stores={{ local: session, session }}
+          defaultUrl={defaultDaemonUrl}
+          createClient={fakeElsewhere}
+          accountRoutes={routes}
+          noMachine={(place) => (
+            <AtPlace place={place}>
+              <Suspense fallback={null}>
+                <NoMachineApp storage={local} windowStorage={session} />
+              </Suspense>
+            </AtPlace>
+          )}
+        >
+          {(client) => app(client)}
+        </ConnectionGate>
+      </AccountMachineConnectorContext>
+    </AceAccountBackendContext>
   );
 }
 
