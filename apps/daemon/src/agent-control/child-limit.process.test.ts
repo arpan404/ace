@@ -118,7 +118,7 @@ test("a queued child that can no longer start does not hold back the child queue
   });
 });
 
-test("while new work is paused a queued child stays queued after a slot frees, and starts on resume", async () => {
+test("while new work is paused a queued child stays queued after a slot frees, keeps its finished parent open, and starts on resume", async () => {
   await withDaemon(async (f) => {
     await setLimit(f, 1);
     const first = await spawn(f, "first-before-pause");
@@ -150,10 +150,15 @@ test("while new work is paused a queued child stays queued after a slot frees, a
     f.h.clock.advance(f.h.clock.now() + 1_000);
     await f.daemon.engine?.flush();
     expect(await counts(f)).toMatchObject({ working: 0, queued: 1 });
-    // The held child never reads as finished, and neither does the parent waiting on it.
+    // The held child never reads as finished, and neither does the parent: its own turn ended
+    // when it delegated (the scripted parent ends every turn), so only the queued child keeps
+    // its tree open.
     expect(f.daemon.store.getThread(held)?.queuedLaunch?.text).toBe("Do held-by-pause");
     expect(f.daemon.store.getThread(held)?.status.state).not.toBe("done");
-    expect(f.daemon.store.getThread(f.caller.threadId)?.status.state).not.toBe("done");
+    expect(f.daemon.store.getThread(f.caller.threadId)?.status).toMatchObject({
+      state: "waiting",
+      on: "background_task",
+    });
     expect(f.h.inputs.get(held)).toBeUndefined();
 
     f.daemon.maintenance.leave("user");
@@ -162,5 +167,26 @@ test("while new work is paused a queued child stays queued after a slot frees, a
     await vi.waitFor(() =>
       expect((f.h.inputs.get(held) ?? []).join("\n")).toContain("Do held-by-pause"),
     );
+    f.h.contexts.get(held)?.onFrame(
+      f.h.frames.frame(
+        {
+          type: "item.upsert",
+          agent: "root",
+          item: "held-result",
+          draft: {
+            type: "message",
+            role: "assistant",
+            parts: [{ type: "text", text: "done" }],
+            complete: true,
+          },
+        },
+        end,
+      ),
+    );
+    // With the held child finished nothing is left, so the parent finishes too.
+    await vi.waitFor(async () => {
+      await f.daemon.engine?.flush();
+      expect(f.daemon.store.getThread(f.caller.threadId)?.status.state).toBe("done");
+    });
   });
 });
