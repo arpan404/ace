@@ -1,5 +1,8 @@
 import { MachinePath, type RemoteAccessStatus } from "@ace/protocol";
 
+const serving = (network: { state: string; address?: string | undefined }) =>
+  network.state === "on" ? network.address : undefined;
+
 /**
  * The paths this machine serves right now, for clients already connected and authenticated
  * (ADR 0114): its TLS listener on the same computer, the LAN and Tailscale, each pinned to the
@@ -18,8 +21,6 @@ export function machinePaths(
   };
   const networks = status.networks;
   if (!networks) return paths;
-  const serving = (network: { state: string; address?: string | undefined }) =>
-    network.state === "on" ? network.address : undefined;
   const lan = serving(networks.lan);
   const tailscale = serving(networks.tailscale);
   if (directFingerprint) {
