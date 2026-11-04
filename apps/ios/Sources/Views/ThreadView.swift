@@ -313,7 +313,7 @@ struct ThreadView: View {
     /// aside. Nothing sits below the composer.
     /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
     private var hasStrip: Bool {
-        !thread.approvals.isEmpty
+        !stripRequests.isEmpty
             || (screen.queue?.strip).map { HoldStripState.of(strip: $0, canOperate: model.canOperate, archived: archived).visible } == true
             || screen.queue?.notSent != nil || screen.leftRunning != nil
             || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
@@ -336,8 +336,8 @@ struct ThreadView: View {
                 // the block's top section, what needs the person first.
                 VStack(spacing: AceTheme.Spacing.none) {
                 Group {
-                    if !thread.approvals.isEmpty {
-                        RequestStrip(requests: thread.approvals, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
+                    if !stripRequests.isEmpty {
+                        RequestStrip(requests: stripRequests, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
                     }
                     // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
                     else if let hold = screen.queue?.strip,
@@ -516,6 +516,9 @@ struct ThreadView: View {
         }
         return actions
     }
+    /// The requests the strip above the composer shows. On the Agents page each is answered from
+    /// its agent's node in the tree, so the strip steps aside: one place per request.
+    private var stripRequests: [ApprovalRow] { shownPage == .agents ? [] : thread.approvals }
     /// Shows a page; asking for one keeps its pill while it shows.
     private func select(_ next: ThreadPageKind) {
         requestedPage = next == .chat ? nil : next
