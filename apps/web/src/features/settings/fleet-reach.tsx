@@ -3,7 +3,8 @@ import { useState } from "react";
 import type { RemoteNetworks } from "@ace/protocol";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useMachineAccountStatus, useThisMachineAccount } from "@/features/ace-account/index.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { accountLine, directLine, type DirectNetwork } from "./data/fleet-words.ts";
@@ -177,21 +178,36 @@ function ThisComputerAccount(props: {
       }
       actions={
         action === "appFirst" ? (
-          <Button size="sm" variant="ghost" render={<Link to="/settings/profile" />}>
-            Sign in
-          </Button>
-        ) : action === "signIn" || action === "switch" ? (
-          <RowAction
-            className="text-foreground"
-            disabled={change.isPending}
-            onClick={() => change.mutate("signIn")}
+          <Link
+            to="/settings/profile"
+            className={cn(
+              buttonVariants({ size: "sm", variant: "ghost" }),
+              "relative z-1 text-foreground",
+            )}
           >
-            {action === "switch" ? "Use this app's account" : "Sign in"}
-          </RowAction>
-        ) : action === "signOut" ? (
-          <RowAction reveal disabled={change.isPending} onClick={() => change.mutate("signOut")}>
-            Sign out
-          </RowAction>
+            Sign in
+          </Link>
+        ) : action === "signIn" || action === "switch" || action === "signOut" ? (
+          <>
+            {action !== "signIn" && (
+              <RowAction
+                reveal={action === "signOut"}
+                disabled={change.isPending}
+                onClick={() => change.mutate("signOut")}
+              >
+                Sign out
+              </RowAction>
+            )}
+            {action !== "signOut" && (
+              <RowAction
+                className="text-foreground"
+                disabled={change.isPending}
+                onClick={() => change.mutate("signIn")}
+              >
+                {action === "switch" ? "Use this app's account" : "Sign in"}
+              </RowAction>
+            )}
+          </>
         ) : undefined
       }
     />

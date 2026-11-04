@@ -26,7 +26,10 @@ export function NoMachineProfileScreen() {
 /** Fleet with no machine; `pairing` opens on the pairing form (the `/pair` address). */
 export function NoMachineFleetScreen(props: { pairing?: boolean | undefined }) {
   return (
-    <SettingsBody page="Fleet" lede="Connect this window to a computer running ace.">
+    <SettingsBody
+      page="Fleet"
+      lede="This window isn't connected to a machine. Open one on your ace account, or add one below."
+    >
       <NoMachineFleetPage pairing={props.pairing} />
     </SettingsBody>
   );

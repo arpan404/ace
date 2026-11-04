@@ -18,11 +18,10 @@ export function HairlineList(props: { children: ReactNode; className?: string })
   );
 }
 
-/** The small square a row leads with, holding a 15px glyph. */
+/** The small square a row leads with, holding a 15px glyph (hide the glyph if it says nothing). */
 export function RowTile(props: { children: ReactNode; size?: "row" | "page" }) {
   return (
     <span
-      aria-hidden
       className={cn(
         "grid shrink-0 place-items-center bg-surface-2 text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]",
         props.size === "page" ? "size-11 rounded-xl text-foreground" : "size-7 rounded-lg",

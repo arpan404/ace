@@ -61,7 +61,12 @@ function ThisMachineAccount(props: {
     <>
       <SettingRow id="machine.account" title="ace account" description={row.sentence} inline>
         {row.action === "appFirst" && (
-          <Button size="sm" variant="ghost" render={<Link to="/settings/profile" />}>
+          <Button
+            size="sm"
+            variant="ghost"
+
+            render={<Link to="/settings/profile" />}
+          >
             Open Profile
           </Button>
         )}

@@ -11,10 +11,7 @@ configure({ asyncUtilTimeout: 10_000 });
 async function machineMark(name: string) {
   const machines = await screen.findByRole("region", { name: "Machines" });
   const link = await within(machines).findByRole("link", { name });
-  return link
-    .closest("[data-fleet-machine]")
-    ?.querySelector("[role=img]")
-    ?.getAttribute("aria-label");
+  return link.closest("[data-row]")?.querySelector("[role=img]")?.getAttribute("aria-label");
 }
 
 /** Opens a machine's page from Fleet (this window's machine is listed first). */
@@ -26,13 +23,22 @@ async function openMachine(machine: "this" | string) {
   if (!link) throw new Error("No machine listed");
   await userEvent.click(link);
   // The machine page loads on first visit.
-  return screen.findByRole("region", { name: "Machine" }, { timeout: 10_000 });
+  await screen.findByRole("button", { name: "Rename" }, { timeout: 10_000 });
+  return machineHeader();
+}
+
+/** The machine page's title row, where Rename sits beside its mark and its name. */
+async function machineHeader() {
+  const rename = await screen.findByRole("button", { name: "Rename" });
+  const row = rename.parentElement?.parentElement;
+  if (!row) throw new Error("No title row");
+  return row;
 }
 
 /** Opens the name and icon editor on the machine's page. */
 async function editMachine(machine: "this" | string) {
-  const region = await openMachine(machine);
-  const edit = await within(region).findByRole("button", { name: "Edit" });
+  await openMachine(machine);
+  const edit = await screen.findByRole("button", { name: "Rename" });
   await waitFor(() => expect(edit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(edit);
 }
@@ -58,7 +64,7 @@ test("editing this machine updates Settings and the thread's details card", asyn
     exact: true,
   });
   await renameMachine("this", "Workshop Mac", "Desktop");
-  const machines = screen.getByRole("region", { name: "Machine" });
+  const machines = await machineHeader();
   expect(await within(machines).findByText("Workshop Mac")).toBeTruthy();
   expect(within(machines).getByRole("img", { name: "desktop machine icon" })).toBeTruthy();
   expect(app.daemon.services.settings.get("host.icon")).toMatchObject({
@@ -222,9 +228,7 @@ test("clearing a custom machine name restores the computer name", async () => {
   await userEvent.clear(within(dialog).getByRole("textbox", { name: "Machine name" }));
   await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(
-    await within(screen.getByRole("region", { name: "Machine" })).findByText("Fake machine"),
-  ).toBeTruthy();
+  expect(await within(await machineHeader()).findByText("Fake machine")).toBeTruthy();
 }, 30_000);
 
 test("with no icon chosen, this machine shows a laptop and a paired machine a server", async () => {
@@ -247,6 +251,6 @@ test("Enter in the machine name saves it", async () => {
   await userEvent.clear(input);
   await userEvent.type(input, "Studio Mac{Enter}");
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  const machines = screen.getByRole("region", { name: "Machine" });
+  const machines = await machineHeader();
   expect(await within(machines).findByText("Studio Mac")).toBeTruthy();
 }, 30_000);

@@ -15,18 +15,18 @@ async function fleet(links: { macToBuild: boolean; buildToMac: boolean }) {
   const machines = await screen.findByRole("region", { name: "Machines" });
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
   const row = (name: string) => {
-    const found = within(machines).getByRole("link", { name }).closest("[data-fleet-machine]");
+    const found = within(machines).getByRole("link", { name }).closest("[data-row]");
     if (!(found instanceof HTMLElement)) throw new Error(`No row for ${name}`);
     return found;
   };
   return { machines, row };
 }
 
-test("two machines linked both ways read as linked with all, with no Link button", async () => {
+test("two machines linked both ways read as linked, with no Link button", async () => {
   const { machines } = await fleet({ macToBuild: true, buildToMac: true });
-  await waitFor(() => expect(within(machines).getAllByText("Linked with all")).toHaveLength(2));
+  await waitFor(() => expect(within(machines).getAllByText("Linked")).toHaveLength(1));
   expect(within(machines).queryByText(/Not linked|can't use/i)).toBeNull();
-  expect(within(machines).queryByRole("button", { name: "Link machines" })).toBeNull();
+  expect(within(machines).queryByRole("button", { name: /^Link / })).toBeNull();
 }, 30_000);
 
 test("a link held one way says which machine can't use the other, not that they're unlinked", async () => {
@@ -37,7 +37,7 @@ test("a link held one way says which machine can't use the other, not that they'
   expect(within(row("Build server")).getByText("Can't use This Mac")).toBeTruthy();
   expect(within(machines).queryByText(/Not linked/)).toBeNull();
   // The missing direction can still be linked from either row.
-  expect(within(row("This Mac")).getByRole("button", { name: "Link machines" })).toBeTruthy();
+  expect(within(row("This Mac")).getByRole("button", { name: "Link This Mac" })).toBeTruthy();
 }, 30_000);
 
 test("two machines with no link either way read as not linked with each other", async () => {

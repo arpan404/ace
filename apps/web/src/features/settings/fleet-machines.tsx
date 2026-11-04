@@ -17,7 +17,8 @@ import {
 } from "@/features/ace-account/index.ts";
 import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { fleetProblem } from "./data/fleet.ts";
-import { reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
+import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
+import { summarizeNames } from "./data/list-names.ts";
 import { machineState } from "./data/fleet-words.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { MachineDirectory } from "./machine-directory.tsx";
@@ -142,6 +143,23 @@ function statusLine(machine: Machine, fleet: Fleet, onAccount: boolean) {
   );
 }
 
+/**
+ * What a machine is missing, per direction: "Not linked with A" when neither holds a link, and
+ * which side can't use the other when only one does.
+ */
+function gapLine(machine: string, fleet: Fleet): string {
+  const names = (ids: readonly string[]) =>
+    summarizeNames(ids.map((id) => fleet.byId(id)?.name ?? "a machine"));
+  const gaps = machineGaps(machine, fleet.gaps);
+  return [
+    gaps.unlinked.length ? `Not linked with ${names(gaps.unlinked)}` : undefined,
+    gaps.cantUse.length ? `Can't use ${names(gaps.cantUse)}` : undefined,
+    gaps.notUsedBy.length ? `${names(gaps.notUsedBy)} can't use it` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function MachineRow(props: {
   machine: Machine;
   fleet: Fleet;
@@ -154,7 +172,6 @@ function MachineRow(props: {
   const gaps = fleet.gaps.filter((gap) => gap.from === machine.id || gap.to === machine.id);
   const online = fleet.machines.filter((entry) => entry.client).length;
   const known = fleet.links.get(machine.id)?.isSuccess;
-  const names = missing.map((id) => fleet.byId(id)?.name ?? "a machine");
   return (
     <HairlineRow
       id={machine.primary ? "host.displayName" : undefined}
@@ -170,7 +187,7 @@ function MachineRow(props: {
       }
       tile={
         <RowTile>
-          <MachineMark icon={machine.icon} primary={machine.primary} size={15} decorative />
+          <MachineMark icon={machine.icon} primary={machine.primary} size={15} />
         </RowTile>
       }
       title={machine.name}
@@ -178,9 +195,7 @@ function MachineRow(props: {
       sub={
         <>
           {machine.primary ? props.ownLine : statusLine(machine, fleet, props.onAccount)}
-          {missing.length > 0 && (
-            <span className="block">Not fully linked with {names.join(", ")} yet</span>
-          )}
+          {missing.length > 0 && <span className="block">{gapLine(machine.id, fleet)}</span>}
         </>
       }
       meta={missing.length === 0 && known && online > 1 && !machine.primary ? "Linked" : undefined}
