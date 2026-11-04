@@ -21,9 +21,16 @@ export interface ReviewReady {
   deletions: number;
   /** "9 files · +214 −61 · checks passed": the line as one string, for VoiceOver too. */
   line: string;
+  /** "checks passed", "checks failed" or "checks running", when the forge reported them. */
+  checks: string | null;
   branch: string;
   /** The thread's pull request, when one is linked. */
-  pr: { number: number; state: string; url: string } | null;
+  pr: {
+    number: number;
+    state: string;
+    url: string;
+    repo: { forge: string; host: string; owner: string; name: string };
+  } | null;
 }
 
 const plural = (count: number, one: string, many: string) =>
@@ -47,15 +54,21 @@ export function reviewReady(
   if (!diff || diff.files === 0) return undefined;
   const linked = details.linkedPrs?.[0];
   const checks = linked?.checks ? checksWord[linked.checks] : undefined;
-  const parts = [plural(diff.files, "file", "files"), `+${diff.additions} −${diff.deletions}`];
+  const parts = [
+    plural(diff.files, "file", "files"),
+    `+${diff.additions.toLocaleString("en-US")} −${diff.deletions.toLocaleString("en-US")}`,
+  ];
   if (checks) parts.push(checks);
   return {
     files: diff.files,
     additions: diff.additions,
     deletions: diff.deletions,
     line: parts.join(" · "),
+    checks: checks ?? null,
     branch: details.branch ?? "",
-    pr: linked ? { number: linked.number, state: linked.state, url: linked.url } : null,
+    pr: linked
+      ? { number: linked.number, state: linked.state, url: linked.url, repo: linked.repo }
+      : null,
   };
 }
 
@@ -162,7 +175,14 @@ export class ThreadReview {
     if (key === this.#ready) return;
     this.#ready = key;
     sink.put("changes:ready", () =>
-      this.#closed ? undefined : { type: "changes.ready", threadId, epoch, ready: ready ?? null },
+      this.#closed
+        ? undefined
+        : {
+            type: "changes.ready",
+            threadId,
+            epoch,
+            ready: ready ? { ...ready, project: store.thread?.workspaceId ?? "" } : null,
+          },
     );
   }
 
