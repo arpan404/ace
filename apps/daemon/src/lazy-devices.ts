@@ -38,6 +38,19 @@ export class LazyDevices {
     if (this.#closed) return Promise.reject(new Error("Devices are closed"));
     this.#loading ??= this.#build(this.#enabled).then(
       async (service) => {
+        // Settings may have turned devices on or off while the service was being built. Watchers
+        // already heard that change, so the service is brought to it before anyone sees it.
+        try {
+          while (!this.#closed && service.isEnabled() !== this.#enabled)
+            await service.request(
+              { op: "enable", enabled: this.#enabled },
+              { kind: "human", owner: "settings" },
+            );
+        } catch (error) {
+          this.#loading = undefined;
+          await service.close();
+          throw error;
+        }
         if (this.#closed) {
           await service.close();
           throw new Error("Devices are closed");

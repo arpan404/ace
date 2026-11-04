@@ -191,7 +191,7 @@ test("on Hyprland the shortcut row gives the hyprland.conf line the shortcut sti
     "Hyprland gives apps' shortcuts no keys. Add this line to hyprland.conf: bind = SUPER SHIFT, N, global, dev.ace.app:abc-Super+Shift+N";
   desktop(hint);
   const app = harness();
-  await app.open("/settings/general");
+  await app.open("/settings/keyboard");
   expect(screen.queryByText(hint)).toBeNull();
   await userEvent.click(
     await screen.findByRole("button", { name: "Quick-thread global shortcut" }),
@@ -209,7 +209,11 @@ test("desktop work preferences round-trip through the app bridge", async () => {
   await userEvent.click(await screen.findByRole("switch", { name: "Keep running in background" }));
   await userEvent.click(screen.getByRole("switch", { name: "Prevent sleep while agents work" }));
   await userEvent.click(screen.getByRole("switch", { name: "Flash window for attention" }));
-  await userEvent.click(screen.getByRole("button", { name: "Quick-thread global shortcut" }));
+  cleanup();
+  await app.open("/settings/keyboard");
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Quick-thread global shortcut" }),
+  );
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");
   await waitFor(() =>
     expect(machine.stored()).toMatchObject({
@@ -228,8 +232,10 @@ test("desktop work preferences round-trip through the app bridge", async () => {
       "aria-checked",
     ),
   ).toBe("true");
+  cleanup();
+  await app.open("/settings/keyboard");
   expect(
-    screen.getByRole("button", { name: "Quick-thread global shortcut" }).textContent,
+    (await screen.findByRole("button", { name: "Quick-thread global shortcut" })).textContent,
   ).toContain("N");
   await userEvent.click(screen.getByRole("button", { name: "Turn off global shortcut" }));
   await waitFor(() => expect(machine.stored().globalShortcut).toBeNull());

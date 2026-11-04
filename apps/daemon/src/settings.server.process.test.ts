@@ -437,6 +437,21 @@ test("a local reset clears every preference in one commit while keeping the proj
     expect((await f.settings.get(key)).provenance).toBe("defaults");
 });
 
+test("a reset from a newer client leaves the shared shortcuts older clients still use", async () => {
+  const f = await setup();
+  const layer = { kind: "global" } as const;
+  await f.settings.set("clients.keybindings", { palette: "alt+mod+p" }, layer);
+  await f.settings.set("threads.useWorktree", false, layer);
+  f.client.send({ type: "settings.reset", requestId: "reset" });
+  expect(await f.client.next()).toMatchObject({
+    type: "settings.result",
+    requestId: "reset",
+    ok: true,
+  });
+  expect((await f.settings.get("threads.useWorktree")).provenance).toBe("defaults");
+  expect((await f.settings.get("clients.keybindings")).value).toEqual({ palette: "alt+mod+p" });
+});
+
 test("the downloads folder for ace's Chrome must exist and be writable here; the machine's default is read-only", async () => {
   const { mkdtemp, realpath, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

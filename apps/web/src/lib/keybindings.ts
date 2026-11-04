@@ -1,7 +1,7 @@
 import { syncDesktopKeymap } from "@/boot/desktop-keymap.ts";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { hasDesktopBridge } from "@/boot/desktop.ts";
-import { useDaemonSetting } from "./daemon-setting.ts";
+import { useDeviceKeybindings } from "./device-keymap.ts";
 import {
   applePlatform,
   isKeymapId,
@@ -15,7 +15,7 @@ import {
 
 /*
  * Shortcut resolution: the keymap's defaults for this platform with the user's rebindings on
- * top. Rebindings live in the daemon's `clients.keybindings` setting (so every client agrees);
+ * top. Rebindings belong to the device (each app and browser keeps its own, `device-keymap.ts`);
  * `useKeybindingsSync()` feeds them into a small store here, so Kbd, Tip, MenuItem and
  * `useHotkey` read them without a client of their own.
  */
@@ -131,7 +131,7 @@ export function scopeOf(id: KeymapId): KeyScope {
 }
 
 /** Only well-formed rebindings of ids this build knows. */
-function cleanOverrides(raw: unknown): Keybindings {
+export function cleanOverrides(raw: unknown): Keybindings {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return {};
   const clean: Record<string, string> = {};
   for (const [id, keys] of Object.entries(raw)) {
@@ -255,7 +255,7 @@ function subscribe(listener: () => void): () => void {
 const getOverrides = () => overrides;
 const getResolved = () => (resolvedCache ??= resolveKeymap(overrides));
 
-/** Replace the user's rebindings (from the daemon setting, or a test). */
+/** Replace the user's rebindings (from this device's store, or a test). */
 export function setKeybindingOverrides(next: Keybindings): void {
   const clean = cleanOverrides(next);
   if (JSON.stringify(clean) === JSON.stringify(overrides)) return;
@@ -299,16 +299,17 @@ export function useHotkeyBindings(keys: string, id?: KeymapId): readonly string[
 }
 
 /**
- * Keeps the store in step with the daemon's `clients.keybindings`. Mount once, inside the
- * client provider (the shell's GlobalHotkeys does).
+ * Keeps the store in step with this device's rebindings, and the desktop app's menus with both.
+ * Mount once, inside the client provider (the shell's GlobalHotkeys does).
  */
 export function useKeybindingsSync(): void {
-  const [stored] = useDaemonSetting("clients.keybindings");
+  const stored = useDeviceKeybindings(cleanOverrides);
   useEffect(() => {
+    // Never stored here (or cleared) means defaults until adopted, never the last device's.
     if (stored !== undefined) setKeybindingOverrides(cleanOverrides(stored));
     return syncDesktopKeymap(resolveKeymap(cleanOverrides(stored)));
   }, [stored]);
-  // Another daemon (or none) may have other rebindings: drop these when the shell goes.
+  // Nothing outlives the shell that read it (tests mount several devices in turn).
   useEffect(() => () => setKeybindingOverrides({}), []);
 }
 

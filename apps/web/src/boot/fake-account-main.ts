@@ -1,16 +1,17 @@
 import { ClientError, machineCodeGate, type Transport } from "@ace/client";
 import { fakeTransport, type FakeDaemon } from "@ace/fake-daemon";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountSessionKey } from "./account-config.ts";
+import { windowAccountSession } from "./account-config.ts";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fakeMachineCodes, fakeOrigin } from "./fake-account.ts";
 import type { AccountRouteSource } from "./main-machine.ts";
-import { trackedGrant } from "./tracked-grant.ts";
+import { accountPinnedGrant, trackedGrant } from "./tracked-grant.ts";
 
 /**
  * Fake mode's and tests' way to open a machine on the fake ace account as the window's own:
  * the fake daemon behind a stand-in for ace's relay that refuses as the relay does. A grant
- * needs the window's ace session (signed out: 4001), a host id in `removed` has left the
+ * needs the window's ace session on the machine's account (signed out or another account:
+ * 4001), a host id in `removed` has left the
  * account (4403), and the Studio wants its machine code (4011) as `fakeMachineCodes` says.
  */
 export function fakeAccountRoutes(options: {
@@ -21,13 +22,16 @@ export function fakeAccountRoutes(options: {
   removed?: ReadonlySet<string> | undefined;
 }): AccountRouteSource {
   const codes = fakeMachineCodes(options.now);
+  const holder = async () => windowAccountSession(options.session, fakeOrigin)?.account.id;
   return async (machine) => {
     if (machine.origin !== fakeOrigin) return undefined;
-    const grants = trackedGrant(async () => {
-      if (options.session.getItem(accountSessionKey(fakeOrigin)) === null)
-        throw new ClientError("auth", "Sign in to your ace account again.");
-      return "fake-grant";
-    });
+    const grants = trackedGrant(
+      accountPinnedGrant(machine.accountId, holder, async () => {
+        if ((await holder()) === undefined)
+          throw new ClientError("auth", "Sign in to your ace account again.");
+        return "fake-grant";
+      }),
+    );
     const code = machineCodeGate(() => grants.grant());
     const relay = (): Transport => {
       const daemon = fakeTransport(options.daemon);

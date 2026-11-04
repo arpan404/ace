@@ -55,3 +55,15 @@ test("a new mode shows at once as waiting for the next turn and goes out as a du
   expect(commands("thread.permission.set")[0]).toMatchObject({ access: "read-only" });
   await until(() => access()?.selected === "read-only" && access()?.pending, "still waiting");
 });
+
+test("a thread's new mode leaves the default for new threads as it was", async () => {
+  const fake = onAsk();
+  const thread = open(connect(fake), "access");
+  await until(() => access()?.state === "ready", "access");
+  thread.handle({ type: "access", mode: "full-access", requestId: "a2" });
+  await until(() => latest("admission", "a2")?.ok, "the change admitted");
+  // A round trip after the pick, so anything the pick sent has reached the daemon.
+  thread.handle({ type: "access", mode: "ask", requestId: "a3" });
+  await until(() => latest("admission", "a3")?.ok, "a later change admitted");
+  expect(fake.services.settings.get("access.defaultMode")).toBe("auto-review");
+});

@@ -230,6 +230,28 @@ export class MachinePool {
       close: () => (this.live.has(hostId) ? this.remove(hostId) : Promise.resolve()),
     };
   }
+  /**
+   * The window's ace session ended or moved to another account: close every account machine
+   * and forget its machine code gate, so nothing opened under the old session keeps its
+   * connection or sends another account's code. Paired machines stay. Opening an account
+   * machine again starts afresh, under whatever session the window then holds.
+   */
+  closeAccountMachines(): void {
+    if (this.closed) return;
+    const gone: string[] = [];
+    for (const [hostId, live] of this.live) {
+      if (live.state.entry.target.kind !== "account") continue;
+      live.enabled = false;
+      this.dispose(live);
+      this.live.delete(hostId);
+      this.failures.delete(hostId);
+      gone.push(hostId);
+    }
+    this.gates.clear();
+    if (gone.length === 0) return;
+    this.order = this.order.filter((id) => !gone.includes(id));
+    this.notifications.emit(["ids", ...gone.map((id) => `machine:${id}`)]);
+  }
   /** Retry after authorization replacement or a worker failure, retaining cached thread facts. */
   reconnect(hostId: string): void {
     this.assertOpen();

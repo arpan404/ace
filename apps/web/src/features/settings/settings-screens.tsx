@@ -9,12 +9,10 @@ import { AppearanceSettings } from "./appearance-page.tsx";
 import { KeyboardShortcuts } from "./keyboard-page.tsx";
 import { NotificationSettings } from "./notifications-page.tsx";
 import { ViewListPage } from "@/features/shell/index.ts";
-const FleetPage = lazy(() =>
-  import("./fleet-page.tsx").then((module) => ({ default: module.FleetPage })),
-);
-const FleetMapPage = lazy(() =>
-  import("./fleet-map-page.tsx").then((module) => ({ default: module.FleetMapPage })),
-);
+// Fleet's two views load together, so switching between them never waits on a chunk.
+const fleetViews = () => import("./fleet-views.ts");
+const FleetPage = lazy(() => fleetViews().then((module) => ({ default: module.FleetPage })));
+const FleetMapPage = lazy(() => fleetViews().then((module) => ({ default: module.FleetMapPage })));
 const FleetMachinePage = lazy(() =>
   import("./fleet-machine-page.tsx").then((module) => ({ default: module.FleetMachinePage })),
 );
@@ -22,6 +20,7 @@ import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { settingRow } from "./settings-index.ts";
 import { Skeleton, ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { RediscoverButton } from "./rediscover-button.tsx";
+import { FleetTabs } from "./fleet-tabs.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
 
@@ -132,7 +131,7 @@ export function RemoteSettingsScreen() {
   return (
     <Suspense
       fallback={
-        <SettingsBody page="Fleet">
+        <SettingsBody page="Fleet" wide tabs={<FleetTabs />}>
           <ListSkeleton label="fleet" shape="row" rows={4} />
         </SettingsBody>
       }
@@ -147,7 +146,7 @@ export function FleetMapScreen() {
   return (
     <Suspense
       fallback={
-        <SettingsBody page="Fleet">
+        <SettingsBody page="Fleet" wide tabs={<FleetTabs />}>
           <ListSkeleton label="fleet map" shape="row" rows={4} />
         </SettingsBody>
       }
@@ -182,7 +181,10 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody page="Keyboard">
+    <SettingsBody
+      page="Keyboard"
+      lede="These shortcuts are for this device only. Other apps and browsers keep their own."
+    >
       <KeyboardShortcuts />
     </SettingsBody>
   );
