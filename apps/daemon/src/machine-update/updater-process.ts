@@ -88,6 +88,7 @@ export function updaterProcess(options: {
       const child = spawn(launch.command, launch.args, {
         stdio: "ignore",
         detached: launch.detached,
+        windowsHide: true,
         env: options.env,
       });
       child.unref();

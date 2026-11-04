@@ -69,6 +69,11 @@ To include standalone CLI archives (`ace update` on installs from `install.sh`),
 - Quitting ace also installs a downloaded update.
 - From a terminal: `ace update check` and `ace update apply`. Inside the desktop app's `ace`,
   `apply` asks the app to update itself, bundled daemon included.
+- From another client: **Settings › Fleet** shows each machine's update and updates one
+  machine or all of them, when idle or now ([ADR 0113](adr/0113-remote-updates.md)). Each
+  machine installs its own platform's release: the desktop app through the same restart, a
+  standalone daemon through `ace update apply`. Linux deb and tar.gz installs, and unsigned Mac
+  builds, are pointed to the release page instead.
 - An unsigned build cannot replace itself on macOS. Clicking the button opens the release
   page instead.
 - The changes come from the GitHub release notes, so write them for people:

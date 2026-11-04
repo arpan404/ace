@@ -39,7 +39,8 @@ export type AppUpdate = z.infer<typeof AppUpdate>;
 /**
  * Reads the desktop app's update status (read scope) and keeps this socket told of later
  * changes with `appUpdate.changed`. Only sockets that asked are told, so clients that predate
- * this message never receive it. Read-only: installing stays on the computer.
+ * this message never receive it. Read-only: an administrator starts an update elsewhere with
+ * `machineUpdate.request` (ADR 0113).
  */
 export const AppUpdateRequest = z.object({
   type: z.literal("appUpdate.request"),

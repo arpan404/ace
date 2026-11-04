@@ -17,6 +17,12 @@ const status = (patch: Partial<UpdateStatus> = {}): UpdateStatus => ({
   ...patch,
 });
 
+const reply = (instruction: AppUpdateInstruction | null): AppUpdateReply => ({
+  report: null,
+  reportedAt: 1,
+  instruction,
+});
+
 /** A daemon that keeps what it was told and can refuse while it is down. */
 function daemon(replies: (AppUpdateReply | undefined)[] = []) {
   const told: (AppUpdateReport | "withdrawn")[] = [];
@@ -191,11 +197,6 @@ describe("app update reporting", () => {
       mode: "idle",
       version: "1.4.2",
     };
-    const reply = (instruction: AppUpdateInstruction | null): AppUpdateReply => ({
-      report: null,
-      reportedAt: 1,
-      instruction,
-    });
     const { instructed, reporter, renew } = daemon([reply(null), reply(install), reply(install)]);
     reporter.connected(true);
     reporter.status(status());

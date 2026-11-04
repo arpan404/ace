@@ -1,7 +1,8 @@
 # 0091: Desktop auto-update through electron-updater and GitHub releases
 
 Status: accepted. Date: 2026-10-18. Completes the update follow-up of ADR 0054; the standalone
-daemon's updater (ADR 0041) is unchanged.
+daemon's updater (ADR 0041) is unchanged. Amended by [ADR 0113](0113-remote-updates.md): an
+administrator on another client can ask the app to download and install, through its daemon.
 
 ## Context
 
@@ -84,7 +85,13 @@ defers to the app:
   command was the person's request. The same drain applies.
 - `recover` has nothing to do.
 
-A standalone install has no marker and keeps ADR 0041's transactional updater. The shell runs
+A standalone install has no marker and keeps ADR 0041's transactional updater.
+
+**From another client (ADR 0113).** The app's report to its daemon also carries the updater's
+state, progress, error and whether it installs in place. The daemon's reply can ask the app to
+download the release, or to install it: `idle` through the same drain as `ace update apply`,
+`now` through the confirmed Restart path. The app runs each instruction once and only for the
+release it offers itself. The shell runs
 the app's executable directly, rather than through an `ace://` link, so a web page cannot
 schedule a restart.
 

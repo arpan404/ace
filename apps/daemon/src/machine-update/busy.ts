@@ -24,7 +24,7 @@ export function watchBusy(
       listener();
     });
   });
-  let cancel = () => {};
+  let cancel: (() => void) | undefined;
   const poll = () => {
     cancel = clock.delay(() => {
       listener();
@@ -34,6 +34,6 @@ export function watchBusy(
   poll();
   return () => {
     stopStore();
-    cancel();
+    cancel?.();
   };
 }

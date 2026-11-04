@@ -9,15 +9,14 @@ import { z } from "zod";
 
 const version = z.string().min(1).max(80);
 const timestamp = z.number().int().nonnegative();
-/** A known value, or a newer daemon's own, kept as written. */
-const open = <const T extends readonly [string, ...string[]]>(values: T) =>
-  z.union([z.enum(values), z.string().min(1).max(64)]);
+/** A newer daemon's own value, kept as written beside the known ones. */
+const other = z.string().min(1).max(64);
 
 /**
  * How ace is installed there. `desktop`: the desktop app with its bundled daemon. `standalone`:
  * install.sh / install.ps1 under the service manager. `source`: a checkout, updated with git.
  */
-export const MachineInstall = open(["desktop", "standalone", "source"]);
+export const MachineInstall = z.union([z.enum(["desktop", "standalone", "source"]), other]);
 export type MachineInstall = z.infer<typeof MachineInstall>;
 
 /**
@@ -27,15 +26,18 @@ export type MachineInstall = z.infer<typeof MachineInstall>;
  * `updated`: the last update finished. `failed`: it didn't; the old version still runs and
  * `error` says why.
  */
-export const MachineUpdateState = open([
-  "none",
-  "available",
-  "waiting",
-  "downloading",
-  "ready",
-  "installing",
-  "updated",
-  "failed",
+export const MachineUpdateState = z.union([
+  z.enum([
+    "none",
+    "available",
+    "waiting",
+    "downloading",
+    "ready",
+    "installing",
+    "updated",
+    "failed",
+  ]),
+  other,
 ]);
 export type MachineUpdateState = z.infer<typeof MachineUpdateState>;
 
@@ -45,10 +47,13 @@ export type MachineUpdateState = z.infer<typeof MachineUpdateState>;
  * has the new package. `app-closed`: a desktop install whose app isn't running. `source`: a
  * checkout. `unknown`: the machine hasn't been able to check yet.
  */
-export const MachineUpdateBlock = open(["release-page", "app-closed", "source", "unknown"]);
+export const MachineUpdateBlock = z.union([
+  z.enum(["release-page", "app-closed", "source", "unknown"]),
+  other,
+]);
 export type MachineUpdateBlock = z.infer<typeof MachineUpdateBlock>;
 
-export const MachineUpdateMode = open(["idle", "now"]);
+export const MachineUpdateMode = z.union([z.enum(["idle", "now"]), other]);
 export type MachineUpdateMode = z.infer<typeof MachineUpdateMode>;
 
 /** An administrator's request the machine holds until it has been carried out or replaced. */
@@ -127,7 +132,9 @@ export const MachineUpdateResult = z.object({
   requestId: z.string().min(1).max(128),
   ok: z.boolean(),
   update: MachineUpdate.optional(),
-  error: open(["forbidden", "blocked", "stale", "confirm", "unavailable", "invalid"]).optional(),
+  error: z
+    .union([z.enum(["forbidden", "blocked", "stale", "confirm", "unavailable", "invalid"]), other])
+    .optional(),
 });
 export type MachineUpdateResult = z.infer<typeof MachineUpdateResult>;
 

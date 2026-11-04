@@ -63,7 +63,9 @@ export interface UpdateRequest {
 async function acquire(ports: UpdatePorts, drain: boolean, interrupt = false) {
   const until = ports.now() + 300_000;
   let status = MaintenanceStatus.parse(await ports.maintenance("POST"));
-  while (status.blockers > 0 && !interrupt) {
+  // Interrupting, the service stop ends running turns and the new version continues them.
+  const waitFor = (current: typeof status) => !interrupt && current.blockers > 0;
+  while (waitFor(status)) {
     if (!drain || ports.now() >= until) throw new Error("Active threads block update");
     await ports.wait();
     // Each poll renews the update's lease, so an interrupted CLI lets go on its own.
