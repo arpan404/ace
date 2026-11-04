@@ -19,10 +19,12 @@ struct InboxWidgetView: View {
             default: ListInbox(summary: summary.limited(3), stale: stale(summary))
             }
         } else {
+            // An empty state is one quiet sentence, centred (design-language §4).
             Text("Open ace to see your agents here.")
                 .font(LockType.body)
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
     }
     /// Past the Live Activity's own stale age, the snapshot reads as "as of".
@@ -57,7 +59,7 @@ struct SmallInbox: View {
             if !summary.current || stale {
                 Text("as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))")
                     .font(LockType.caption)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

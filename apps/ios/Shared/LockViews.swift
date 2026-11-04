@@ -55,7 +55,7 @@ struct RunningTime: View {
         Text(timerInterval: since...Date.distantFuture, countsDown: false)
             .font(LockType.meta)
             .monospacedDigit()
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
             .multilineTextAlignment(.trailing)
             .frame(maxWidth: 56, alignment: .trailing)
     }
@@ -79,7 +79,7 @@ struct LockHeadline: View {
                 else { Text("as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))") }
             }
             .font(LockType.meta)
-            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
             .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
@@ -153,7 +153,7 @@ struct RequestView: View {
         let thread = Text(request.title).font(LockType.meta).foregroundStyle(AceTheme.Colours.mutedForeground)
         guard !request.detail.isEmpty else { return thread }
         let line = Text(request.detail).font(request.code ? LockType.code : LockType.meta).foregroundStyle(AceTheme.Colours.mutedForeground)
-        return Text("\(thread)\(Text(" · ").font(LockType.meta).foregroundStyle(AceTheme.Colours.subtleForeground))\(line)")
+        return Text("\(thread)\(Text(" · ").font(LockType.meta).foregroundStyle(AceTheme.Colours.mutedForeground))\(line)")
     }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {

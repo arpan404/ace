@@ -5,7 +5,8 @@ import WidgetKit
 /// Debug builds only, launched with `--lock-gallery`: every lock-screen surface drawn with the
 /// extension's own views at their system sizes, for design review. The simulator can't open the
 /// Lock Screen, expand the Dynamic Island or add widgets on its own; this shows what they draw.
-/// The rounded backdrops stand in for the system's own containers.
+/// The rounded backdrops stand in for the system's containers; the Lock Screen one is the same
+/// raised surface the activity sets as its tint.
 struct LockGallery: View {
     static var requested: Bool { ProcessInfo.processInfo.arguments.contains("--lock-gallery") }
     /// Which part to show, so each fits one screenshot: `--lock-gallery-page 1…3`.
@@ -48,11 +49,11 @@ struct LockGallery: View {
 
     @ViewBuilder private var activity: some View {
         caption("Lock Screen")
-        LockActivityView(summary: current.limited(3), stale: false).background(.ultraThinMaterial, in: lockShape)
+        LockActivityView(summary: current.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
         caption("Lock Screen, not current")
-        LockActivityView(summary: stale.limited(3), stale: true).background(.ultraThinMaterial, in: lockShape)
+        LockActivityView(summary: stale.limited(3), stale: true).background(AceTheme.Colours.card, in: lockShape)
         caption("Lock Screen, all quiet")
-        LockActivityView(summary: quiet, stale: false).background(.ultraThinMaterial, in: lockShape)
+        LockActivityView(summary: quiet, stale: false).background(AceTheme.Colours.card, in: lockShape)
         caption("Dynamic Island, expanded with a request")
         if let request = current.request { island { RequestView(request: request) } }
         caption("Dynamic Island, expanded with threads")

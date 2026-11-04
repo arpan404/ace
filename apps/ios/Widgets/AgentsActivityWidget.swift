@@ -10,8 +10,11 @@ import WidgetKit
 struct AgentsActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: AgentsActivityAttributes.self) { context in
+            // The raised surface, not the system's translucent default: over an arbitrary
+            // wallpaper that one can land mid-grey, where no ink tier holds 3:1.
             LockActivityView(summary: context.state, stale: context.isStale)
-                .activityBackgroundTint(nil)
+                .activityBackgroundTint(AceTheme.Colours.card)
+                .activitySystemActionForegroundColor(AceTheme.Colours.foreground)
         } dynamicIsland: { context in
             let summary = context.state
             let stale = context.isStale
