@@ -37,7 +37,6 @@ struct ThreadView: View {
     @State private var showScripts = false
     @State private var showComputer = false
     @State private var devicesRoute: DevicesRoute?
-    @State private var activityProblem: String?
     @State private var showWork = false
     /// The problem line's and Not sent's ways out: one at a time, with their questions.
     @State private var workRunner = WorkRunner()
@@ -74,15 +73,6 @@ struct ThreadView: View {
     /// Each fork the machine started: a success tap as it opens.
     @State private var forksStarted = 0
     private var metadata: ThreadRow? { thread.metadata ?? model.inbox[thread.id] }
-    /// Starting prefers the inbox's current row (confirmed or not, so an unconfirmed start
-    /// still reads Syncing); without one it falls back conservatively as unconfirmed.
-    private var activityRow: ThreadRow? {
-        if let inboxRow = model.inbox[thread.id] { return inboxRow }
-        guard var fallback = metadata else { return nil }
-        fallback.confirmed = nil
-        fallback.generation = nil
-        return fallback
-    }
     private var screen: ThreadScreenModel { thread.screen }
     /// An archived thread opens read-only (from the archive browser) until it's unarchived.
     private var archived: Bool { (model.inbox[thread.id] ?? metadata)?.archivedAt != nil }
@@ -155,9 +145,9 @@ struct ThreadView: View {
                               rename: model.canOperate && !archived ? { renaming = true } : nil,
                               retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
                               titleActions: titleActions,
-                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived, hasActivity: activityRow != nil, activityRow: { activityRow },
+                              menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived,
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
-                                               problem: { activityProblem = $0 }, leave: leave),
+                                               leave: leave),
                               openWork: { showWork = true },
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
                               pageButtons: shownPage.barButtons)
@@ -209,9 +199,6 @@ struct ThreadView: View {
             }
             .workQuestions(runner: workRunner, model: model, confirmingLock: $confirmingLock)
             .environment(\.clearStaleLock, model.canOperate ? { confirmingLock = true } : nil)
-            .alert("Live Activity", isPresented: Binding(get: { activityProblem != nil }, set: { if !$0 { activityProblem = nil } })) {
-                Button("OK") { activityProblem = nil }
-            } message: { Text(activityProblem ?? "") }
             .environment(\.openStep) { opens in
                 if opens == "computer" { showComputer = true } else if opens.hasPrefix("device:") { devicesRoute = .device(String(opens.dropFirst(7))) }
             }

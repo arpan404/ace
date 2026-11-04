@@ -160,17 +160,12 @@ struct ThreadMenu: View, Equatable {
     /// The thread's title, as Continue on… names it.
     var title = ""
     let archived: Bool
-    /// Whether the thread has a row to start a Lock Screen activity from.
-    let hasActivity: Bool
-    /// That row, read when the item is picked.
-    let activityRow: () -> ThreadRow?
     let open: (ThreadDestination) -> Void
     /// Where `open` sends a tool now (the iPad side panel, or over the thread): it is part of
     /// what the menu is, so a change rebuilds the menu with a fresh `open`.
     var opensInPanel = false
     /// The thread's pages on a phone; nil beside the side panel.
     var pages: ThreadPages? = nil
-    let problem: (String) -> Void
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
     @State private var showing = false
@@ -189,8 +184,7 @@ struct ThreadMenu: View, Equatable {
         .accessibilityIdentifier("thread.menu")
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
-                            hasActivity: hasActivity, activityRow: activityRow, open: open,
-                            problem: problem, leave: leave, pages: pages)
+                            open: open, leave: leave, pages: pages)
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -200,7 +194,7 @@ struct ThreadMenu: View, Equatable {
     /// What the menu shows from its inputs; the model's own state it reads redraws it as it changes.
     nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
         lhs.model === rhs.model && lhs.thread === rhs.thread && lhs.title == rhs.title
-            && lhs.archived == rhs.archived && lhs.hasActivity == rhs.hasActivity && lhs.opensInPanel == rhs.opensInPanel
+            && lhs.archived == rhs.archived && lhs.opensInPanel == rhs.opensInPanel
             && lhs.pages == rhs.pages
     }
 }

@@ -83,10 +83,7 @@ struct ThreadMenuPanel: View {
     let thread: ThreadModel
     var title = ""
     let archived: Bool
-    let hasActivity: Bool
-    let activityRow: () -> ThreadRow?
     let open: (ThreadDestination) -> Void
-    let problem: (String) -> Void
     let leave: () -> Void
     /// The thread's pages on a phone, which hold its screens; nil beside the iPad's side panel,
     /// where the screens open as its tabs from the grid.
@@ -229,7 +226,8 @@ struct ThreadMenuPanel: View {
         .accessibilityIdentifier("thread.openIn")
     }
 
-    /// Continue on, Lock Screen, and the organize fallbacks when no row is held.
+    /// Continue on, and the organize fallbacks when no row is held. (The Lock Screen shows every
+    /// agent in one Live Activity, so a thread has no item of its own for it.)
     @ViewBuilder private var system: some View {
         if model.canOperate, model.transfers.linked, !archived {
             let ready = model.transfers.thread(thread.id)?.canContinue == true
@@ -252,14 +250,6 @@ struct ThreadMenuPanel: View {
             .accessibilityIdentifier("thread.continueOn")
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: AceDesign.Size.tap)
-        }
-        if hasActivity, let hostId = model.hostId {
-            MenuRow(title: "Show on Lock Screen", icon: .squaresFour) {
-                guard let activityRow = activityRow() else { return }
-                do { try model.liveActivity.start(row: activityRow, hostId: hostId, online: model.connection == "ready") }
-                catch { problem(error.localizedDescription) }
-                dismiss()
-            }
         }
         if organizer == nil || row == nil {
             if model.canOperate, !model.inboxLayout.snooze.isEmpty {
