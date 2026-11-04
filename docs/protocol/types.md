@@ -24580,17 +24580,16 @@ Example:
   "listenOverride": null,
   "networks": {
     "account": {
-      "state": "on"
+      "state": "example"
     },
     "lan": {
-      "state": "on"
+      "state": "failed"
     },
     "relay": {
-      "address": "example",
-      "state": "waiting"
+      "state": "off"
     },
     "tailscale": {
-      "state": "waiting"
+      "state": "example"
     }
   },
   "relay": {
@@ -24631,18 +24630,18 @@ Example:
 ```json
 {
   "account": {
-    "state": "on"
+    "state": "example"
   },
   "lan": {
-    "state": "waiting"
+    "state": "example"
   },
   "relay": {
-    "address": "example",
-    "state": "off"
+    "error": "example",
+    "state": "waiting"
   },
   "tailscale": {
     "error": "example",
-    "state": "failed"
+    "state": "example"
   }
 }
 ```
@@ -24653,7 +24652,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| state | yes | ["off","on","waiting","failed"] |  |
+| state | yes | union | {"anyOf":[{"type":"string","enum":["off","on","waiting","failed"]},{"type":"string","maxLength":64}]} |
 | error | no | string | {"maxLength":256} |
 | address | no | string | {"maxLength":2048} |
 
@@ -24661,7 +24660,7 @@ Example:
 
 ```json
 {
-  "state": "on"
+  "state": "failed"
 }
 ```
 

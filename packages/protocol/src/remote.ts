@@ -85,10 +85,11 @@ export const SocketTicket = z.object({
 
 /**
  * One remote network's state: `off` (not wanted), `on` (serving), `waiting` (wanted, waiting on
- * the person, such as a sign-in) or `failed` (wanted, not serving; `error` says why).
+ * the person, such as a sign-in) or `failed` (wanted, not serving; `error` says why). A newer
+ * daemon may add states: readers treat one they don't know as neither serving nor failed.
  */
 export const RemoteNetworkStatus = z.object({
-  state: z.enum(["off", "on", "waiting", "failed"]),
+  state: z.union([z.enum(["off", "on", "waiting", "failed"]), z.string().max(64)]),
   error: z.string().max(256).optional(),
   /** Where it's reached: `https://host:port` for LAN and Tailscale, the relay's URL for a relay. */
   address: z.string().max(2048).optional(),

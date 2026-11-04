@@ -3285,8 +3285,8 @@
       "sha256": "f7922217408e80e032751bd441645edee616edea2276f3c35ef6d06538646983"
     },
     "schema/RemoteNetworkStatus.json": {
-      "bytes": 482,
-      "sha256": "de06cbd62785d282f41de3c32e988352ee7c26f612323337fc0870e5db1c5ae1"
+      "bytes": 630,
+      "sha256": "23a574d57f844b8b518fda9d943305872e5e8cc641be6912ad40342f67b51687"
     },
     "schema/RemoteNetworks.json": {
       "bytes": 620,
@@ -4809,10 +4809,10 @@
       "sha256": "f5156f0dc41d1da87aa64a048cf38588473f54ecb44c0be3c5a8fcdb84c64e9a"
     },
     "types.md": {
-      "bytes": 975118,
-      "sha256": "d3345cadc3523753c0b8c1ab174be3e708fbf19d8709e33dc13768c05fd5718d"
+      "bytes": 975182,
+      "sha256": "60eafed66a988486551211e4634141e852d2ea61fee47c5772ddb8ff1f2bb73f"
     }
   },
-  "input": "1d5fa333b210d6002edff41518ae26c01b654ff9958e2a6980a2bd754762be7d",
+  "input": "3c16d6407f3e3c96618184b849a122d77cfa8a6eb4eaf98f317ad2dd619910dd",
   "version": 1
 }

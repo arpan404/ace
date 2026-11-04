@@ -11,13 +11,21 @@
       "type": "string"
     },
     "state": {
-      "enum": [
-        "off",
-        "on",
-        "waiting",
-        "failed"
-      ],
-      "type": "string"
+      "anyOf": [
+        {
+          "enum": [
+            "off",
+            "on",
+            "waiting",
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "maxLength": 64,
+          "type": "string"
+        }
+      ]
     }
   },
   "required": [
