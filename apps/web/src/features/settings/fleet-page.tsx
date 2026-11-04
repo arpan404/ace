@@ -4,6 +4,7 @@ import { HairlineRow, RowAction, RowGroup, RowTile } from "@/components/hairline
 import { Button } from "@/components/ui/button.tsx";
 import { useAccountMachines } from "@/features/ace-account/index.ts";
 import { AddMachine } from "./add-machine.tsx";
+import { DaemonSettings } from "./daemon-settings.tsx";
 import { linkersOf } from "./data/fleet-links.ts";
 import { fleetLede, reachedThrough } from "./data/fleet-words.ts";
 import { settingKeys } from "./data/setting-keys.ts";
@@ -34,7 +35,7 @@ function dependentsOf(fleet: Fleet): string[] {
 /**
  * Settings › Fleet: one sentence on whether this computer can be reached, every machine and
  * device as a quiet row that opens it, how this computer is reached, how the machines work
- * together, and the rarer choices folded under More options. A fleet of one says what to do
+ * together, which computer this window talks to, and the rarer choices folded under More options. A fleet of one says what to do
  * next instead of showing empty lists.
  */
 export function FleetPage() {
@@ -91,6 +92,7 @@ export function FleetPage() {
         />
       )}
       {!solo && <WorkingAcrossMachines fleet={fleet} />}
+      <DaemonSettings />
       <MoreOptions dependents={dependents} />
       {adding && <AddMachine onClose={() => setAdding(false)} onAdded={setAdded} />}
     </SettingsBody>

@@ -11,7 +11,6 @@ import { useModelChoices, useModelCatalogState } from "@/features/models/index.t
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useUtilityModel } from "@/lib/utility-model.ts";
-import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";

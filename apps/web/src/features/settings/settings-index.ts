@@ -295,9 +295,9 @@ const entries = [
   },
   {
     id: "daemon.connection",
-    page: "/settings/general",
-    title: "Connection",
-    keywords: ["server", "url", "disconnect"],
+    page: "/settings/remote",
+    title: "Computer connection",
+    keywords: ["connection", "server", "url", "disconnect", "reconnect", "window", "daemon"],
   },
   {
     id: "threads.settleOnClose",
