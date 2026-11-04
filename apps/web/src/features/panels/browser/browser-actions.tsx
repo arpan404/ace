@@ -47,7 +47,6 @@ import { roundButton } from "./page-toolbar.tsx";
 import { recordingThreads, type BrowserFeatures } from "./use-browser-features.ts";
 import { desktopBrowserViews } from "@/boot/desktop-browser.ts";
 import { extensionsHidden } from "./extensions-menu.tsx";
-import { useAlwaysShowDevices } from "./device-settings.ts";
 import type { PageActions } from "./use-page-actions.ts";
 import type { PageTools } from "./use-page-tools.ts";
 import { ZoomRow } from "./zoom-controls.tsx";
@@ -101,7 +100,6 @@ export function BrowserActions(props: {
   const { shownUrl, external, browser, tab, tools, actions } = props;
   const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
   const hidden = useLocal(extensionsHidden, (value) => value);
-  const [always, setAlways] = useAlwaysShowDevices();
   const live = tab !== undefined;
   const usable = live && props.online;
   const privately = tab?.private === true;
@@ -189,9 +187,6 @@ export function BrowserActions(props: {
               onCheckedChange={(checked) => tools.showToolbar(checked)}
             >
               Show device toolbar
-            </MenuCheckboxItem>
-            <MenuCheckboxItem checked={always} onCheckedChange={(checked) => setAlways(checked)}>
-              Always show in new tabs
             </MenuCheckboxItem>
           </MenuContent>
         </MenuSub>

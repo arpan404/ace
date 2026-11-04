@@ -6,14 +6,11 @@ import { Select } from "@/components/ui/select.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { useSetting, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
+import { browserEngineChoices } from "@/features/panels/index.ts";
+import { BrowserInThisWindow } from "./browser-window.tsx";
 import { settingRow } from "./settings-index.ts";
 import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
-const engines = [
-  { value: "auto", label: "App, then ace's Chrome" },
-  { value: "embedded", label: "Desktop app only" },
-  { value: "headless", label: "ace's Chrome only" },
-] as const;
 const profiles = [
   { value: "persistent", label: "Keep sign-ins" },
   { value: "ephemeral", label: "Private" },
@@ -62,8 +59,8 @@ function FolderField(props: {
 
 /**
  * Settings › Browser, for the machine picked in Settings: ace's Chrome runs on that machine and
- * keeps its settings there; Use my Chrome connects the person's own Chrome on it. How this device shows pages
- * and where the desktop app saves downloads live on General (`BrowserDeviceSettings`).
+ * keeps its settings there; Use my Chrome connects the person's own Chrome on it. In this window
+ * holds how this browser or app shows pages, whatever machine is picked.
  */
 export function BrowserSettings() {
   const note = useNotConnectedNote();
@@ -93,7 +90,7 @@ export function BrowserSettings() {
             <Select
               label="Browser engine"
               value={engine.value}
-              options={engines}
+              options={browserEngineChoices}
               disabled={engine.offline}
               onValueChange={engine.set}
               className="w-56"
@@ -155,6 +152,7 @@ export function BrowserSettings() {
         </SettingRow>
       </SettingSection>
       <UseMyChromeSettings />
+      <BrowserInThisWindow />
     </>
   );
 }
