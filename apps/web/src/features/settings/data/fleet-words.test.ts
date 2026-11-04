@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import {
   accountLine,
   directLine,
-  fleetLede,
+  fleetWarning,
   grantSummary,
   machineState,
   pathWordsFor,
@@ -21,36 +21,32 @@ const networks = (on: Partial<Record<keyof RemoteNetworks, string>>): RemoteNetw
 
 test.each([
   {
-    input: { machines: 4, devices: 2, enabled: true, networks: networks({ account: "wss://r" }) },
-    says: "4 machines and 2 devices. Your devices can reach this computer from anywhere.",
+    input: { enabled: true, networks: networks({ lan: "https://l" }) },
+    says: "Only devices on the same network can reach this computer. Sign in or turn on Tailscale to reach it from anywhere.",
   },
   {
-    input: {
-      machines: 1,
-      devices: 0,
+    input: { enabled: true, networks: networks({}) },
+    says: "Nothing can reach this computer yet. Turn on a network under Overview.",
+  },
+  {
+    input: { enabled: false, networks: networks({ account: "wss://r" }) },
+    says: "Remote access is off, so only this computer can open it.",
+  },
+])("Fleet warns under its title: $says", ({ input, says }) => {
+  expect(fleetWarning(input)).toBe(says);
+});
+
+test("Fleet says nothing under its title once devices can reach this computer from anywhere, or while it loads", () => {
+  expect(fleetWarning({ enabled: true, networks: networks({ account: "wss://r" }) })).toBe(
+    undefined,
+  );
+  expect(
+    fleetWarning({
       enabled: true,
-      networks: networks({ tailscale: "https://t" }),
-    },
-    says: "Just this computer so far. Your devices can reach this computer from anywhere.",
-  },
-  {
-    input: { machines: 1, devices: 1, enabled: true, networks: networks({ lan: "https://l" }) },
-    says: "This computer and 1 device. Devices on the same network can reach it. Sign in or turn on Tailscale to reach it from anywhere.",
-  },
-  {
-    input: { machines: 2, devices: 0, enabled: true, networks: networks({}) },
-    says: "2 machines. Nothing can reach this computer yet. Turn on a network below.",
-  },
-  {
-    input: { machines: 2, devices: 3, enabled: false, networks: networks({ lan: "https://l" }) },
-    says: "2 machines and 3 devices. Remote access is off, so only this computer can open it.",
-  },
-  {
-    input: { machines: 3, devices: 1, enabled: true, networks: undefined },
-    says: "3 machines and 1 device.",
-  },
-])("the Fleet sentence says: $says", ({ input, says }) => {
-  expect(fleetLede(input)).toBe(says);
+      networks: networks({ tailscale: "https://t", lan: "https://l" }),
+    }),
+  ).toBe(undefined);
+  expect(fleetWarning({ enabled: true, networks: undefined })).toBe(undefined);
 });
 
 test("this computer's row names every network that reaches it, and your own relay apart from ace's", () => {
