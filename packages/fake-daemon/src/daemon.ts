@@ -1,5 +1,6 @@
 import type { PlaceInput } from "@ace/ui-core/thread-place";
 import { FakeComputerAccess } from "./computer-access.ts";
+import { fakeRemoteStatus } from "./remote-status.ts";
 import { projectIntent } from "./project-intents.ts";
 import { fakeGoalUpdate } from "./goal-commands.ts";
 import type { FakeHistory } from "./history-wire.ts";
@@ -206,18 +207,9 @@ export class FakeDaemon implements Host {
         return output ? new TextDecoder().decode(output.bytes) : "";
       },
     });
-    this.access = new FakeAccess(options.clock, () => {
-      const enabled = this.services.settings.get("remote.enabled") === true;
-      const transport = SettingsValues.shape["remote.transport"].parse(
-        this.services.settings.get("remote.transport"),
-      );
-      return {
-        enabled,
-        transport: enabled ? transport : "local",
-        listenOverride: null,
-        relayOverride: false,
-      };
-    });
+    this.access = new FakeAccess(options.clock, () =>
+      fakeRemoteStatus((key) => this.services.settings.get(key)),
+    );
     this.appDevices = new FakeAppDevices(options.clock);
     let screenSequence = 0;
     this.screen = new FakeScreen({

@@ -111,7 +111,18 @@ function Field(props: { label: string; htmlFor?: string; hint?: string; children
 function useReach(machine: Machine | undefined) {
   const remote = useRemoteStatus();
   if (!machine?.primary) return { reachable: true, note: undefined };
-  const transport = remote.data?.transport;
+  const networks = remote.data?.networks;
+  // Links name a direct address first, else the person's own relay. ace's relay admits only
+  // devices on the machine's account, which never pair. Older daemons report one transport.
+  const transport = networks
+    ? networks.tailscale.state === "on"
+      ? "tailscale"
+      : networks.lan.state === "on"
+        ? "lan"
+        : networks.relay.state === "on" && networks.relay.address !== networks.account.address
+          ? "relay"
+          : "local"
+    : remote.data?.transport;
   // Through a relay, the link pairs through it; a machine that can't issue one says so itself.
   const reachable =
     !remote.isFetching &&

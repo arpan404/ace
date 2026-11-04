@@ -18,7 +18,7 @@ import {
   startRelayWorker,
   type WorkosUser,
 } from "@ace/relay-cloudflare/testing";
-import { fixture, token } from "./socket-test-support.ts";
+import { fixture, token as adminToken } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
@@ -291,7 +291,11 @@ it("a signed-in machine on the LAN and Tailscale is also on ace's relay; signing
   await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeUndefined();
   // The LAN still serves, and pairing links name it.
   const pairing = PairingResponse.parse(
-    await accessRequest(f.server.httpUrl, "/v1/pairings", { token, method: "POST", body: {} }),
+    await accessRequest(f.server.httpUrl, "/v1/pairings", {
+      token: adminToken,
+      method: "POST",
+      body: {},
+    }),
   );
   const link = new URL(pairing.url);
   expect(link.protocol).toBe("https:");

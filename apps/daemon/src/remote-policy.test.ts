@@ -3,9 +3,9 @@ import { remotePlan, type RemotePreferences } from "./remote-policy.ts";
 import { directAdvertisement } from "./remote-direct-policy.ts";
 import type { RemoteListener } from "./network.ts";
 
-const hosted = "wss://relay.acehq.dev";
+const acesRelay = "wss://relay.acehq.dev";
 const own = "wss://relay.example.com/";
-const config = { listen: "local" as const, listenOverride: false, hostedRelayUrl: hosted };
+const config = { listen: "local" as const, listenOverride: false, hostedRelayUrl: acesRelay };
 const on: RemotePreferences = {
   "remote.enabled": true,
   "remote.lan": true,
@@ -22,7 +22,7 @@ test.each([
     preferences: { ...on, "remote.lan": false, "remote.tailscale": true },
     account: "acct",
     direct: { lan: false, tailscale: true },
-    relays: [{ url: hosted, hosted: true, chosen: false, accountId: "acct" }],
+    relays: [{ url: acesRelay, hosted: true, chosen: false, accountId: "acct" }],
   },
   {
     name: "a signed-in machine serves LAN, Tailscale and its own relay beside ace's",
@@ -31,7 +31,7 @@ test.each([
     direct: { lan: true, tailscale: true },
     relays: [
       { url: own, hosted: false, chosen: true, accountId: undefined },
-      { url: hosted, hosted: true, chosen: false, accountId: "acct" },
+      { url: acesRelay, hosted: true, chosen: false, accountId: "acct" },
     ],
   },
   {
@@ -46,14 +46,14 @@ test.each([
     preferences: { ...on, "remote.relay": true },
     account: undefined,
     direct: { lan: true, tailscale: false },
-    relays: [{ url: hosted, hosted: true, chosen: true, accountId: undefined }],
+    relays: [{ url: acesRelay, hosted: true, chosen: true, accountId: undefined }],
   },
   {
     name: "ace's relay named as the person's own is registered once",
-    preferences: { ...on, "remote.relay": true, "remote.relayUrl": `${hosted}/` },
+    preferences: { ...on, "remote.relay": true, "remote.relayUrl": `${acesRelay}/` },
     account: "acct",
     direct: { lan: true, tailscale: false },
-    relays: [{ url: `${hosted}/`, hosted: true, chosen: true, accountId: "acct" }],
+    relays: [{ url: `${acesRelay}/`, hosted: true, chosen: true, accountId: "acct" }],
   },
   {
     name: "remote access off runs nothing, signed in or not",
@@ -77,12 +77,12 @@ test.each([
 
 test("launch overrides pin the listener and add their relay beside ace's", () => {
   const plan = remotePlan(
-    { listen: "tailscale", listenOverride: true, relayUrl: own, hostedRelayUrl: hosted },
+    { listen: "tailscale", listenOverride: true, relayUrl: own, hostedRelayUrl: acesRelay },
     { ...on, "remote.enabled": true, "remote.lan": true },
     "acct",
   );
   expect(plan.direct).toEqual({ lan: false, tailscale: true });
-  expect(relays(plan).map((relay) => relay.url)).toEqual([own, hosted]);
+  expect(relays(plan).map((relay) => relay.url)).toEqual([own, acesRelay]);
 });
 
 test("another account is another registration on ace's relay", () => {

@@ -55,7 +55,13 @@ test("pairing explains the actual Tailscale listener instead of asking to enable
 
 test("a machine on a relay makes a pairing link without asking for LAN or Tailscale", async () => {
   const app = harness();
-  app.daemon.services.settings.seed({ "remote.enabled": true, "remote.transport": "relay" });
+  app.daemon.services.settings.seed({
+    "remote.enabled": true,
+    "remote.lan": false,
+    "remote.tailscale": false,
+    "remote.relay": true,
+    "remote.relayUrl": "wss://relay.example.com/",
+  });
   await app.open("/settings/remote");
   await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });

@@ -106,24 +106,61 @@ test("turning remote access off while other machines are connected asks first", 
   });
 }, 30_000);
 
-test("with one machine, remote access and its network are saved without asking", async () => {
+/** A network's button once settings load: the placeholder before then is disabled. */
+async function networkButton(networks: HTMLElement, name: string) {
+  await waitFor(() =>
+    expect(within(networks).getByRole<HTMLButtonElement>("button", { name }).disabled).toBe(false),
+  );
+  return within(networks).getByRole("button", { name });
+}
+
+test("with one machine, each network turns on and off without asking, beside the others", async () => {
   const app = harness();
   await app.open("/settings/remote");
-  // The control replaces its placeholder once settings load: look it up again after.
-  await waitFor(() =>
-    expect(
-      screen.getByRole("combobox", { name: "Connection network" }).hasAttribute("disabled"),
-    ).toBe(false),
-  );
-  await userEvent.click(screen.getByRole("combobox", { name: "Connection network" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Local network" }));
-  await waitFor(() => expect(app.daemon.services.settings.get("remote.transport")).toBe("lan"));
-  expect(
-    screen.getByText("Same network only. Browsers must trust its HTTPS certificate."),
-  ).toBeTruthy();
-  await userEvent.click(screen.getByRole("switch", { name: "Remote access" }));
-  await waitFor(() => expect(app.daemon.services.settings.get("remote.enabled")).toBe(false));
+  const networks = await screen.findByRole("region", { name: "Networks" });
+  // The scenario's machine serves Tailscale; turning the LAN on keeps Tailscale.
+  await userEvent.click(await networkButton(networks, "Turn on Local network"));
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.lan")).toBe(true));
+  expect(app.daemon.services.settings.get("remote.tailscale")).toBe(true);
+  expect(await within(networks).findByText("On at https://192.168.1.20:4243.")).toBeTruthy();
+  expect(within(networks).getByText("On at https://100.64.0.1:4243.")).toBeTruthy();
+  await userEvent.click(within(networks).getByRole("button", { name: "Turn off Tailscale" }));
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.tailscale")).toBe(false));
   expect(screen.queryByRole("dialog")).toBeNull();
+  // A signed-in machine needs none of these to be reachable from its account's devices.
+  expect(
+    within(networks).getByText(/signed in to your ace account is also reachable/),
+  ).toBeTruthy();
+}, 30_000);
+
+test("turning the relay on with no address of its own saves and uses ace's relay", async () => {
+  const app = harness();
+  await app.open("/settings/remote");
+  const networks = await screen.findByRole("region", { name: "Networks" });
+  await userEvent.click(await networkButton(networks, "Turn on Relay"));
+  await waitFor(() => expect(app.daemon.services.settings.get("remote.relay")).toBe(true));
+  expect(app.daemon.services.settings.get("remote.relayUrl")).toBe("");
+  expect(await within(networks).findByRole("textbox", { name: "Your own relay" })).toBeTruthy();
+  // This machine isn't signed in, so ace's relay waits for it.
+  expect(
+    (await within(networks).findAllByText(/Sign in to your ace account/)).length,
+  ).toBeGreaterThan(0);
+}, 30_000);
+
+test("turning a network off while other machines are connected asks first", async () => {
+  const { app, remote } = withBuildServer();
+  await app.open("/settings/remote");
+  await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
+  const networks = await screen.findByRole("region", { name: "Networks" });
+  await userEvent.click(
+    await within(networks).findByRole("button", { name: "Turn off Tailscale" }),
+  );
+  const dialog = await screen.findByRole("dialog", { name: "Turn off Tailscale everywhere?" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Turn off" }));
+  await waitFor(() => {
+    expect(app.daemon.services.settings.get("remote.tailscale")).toBe(false);
+    expect(remote.services.settings.get("remote.tailscale")).toBe(false);
+  });
 }, 30_000);
 
 test("a paired device is listed once, and revoking it asks first", async () => {

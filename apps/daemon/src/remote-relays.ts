@@ -147,11 +147,11 @@ export function remoteRelays(deps: {
       }
     },
     view(): RelayView[] {
-      return [...entries.values()].map((entry) => ({
-        plan: entry.plan,
-        state: entry.state,
-        ...(entry.error ? { error: entry.error } : {}),
-      }));
+      return [...entries.values()].map((entry) =>
+        entry.error
+          ? { plan: entry.plan, state: entry.state, error: entry.error }
+          : { plan: entry.plan, state: entry.state },
+      );
     },
     /** A relay that failed and a timer may try again. */
     retryable: () => [...entries.values()].some((entry) => entry.state !== "on" && entry.retryable),

@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./defaults": "./src/defaults.ts",
     "./roles": "./src/roles.ts",
-    "./batch": "./src/batch.ts"
+    "./batch": "./src/batch.ts",
+    "./remote-networks": "./src/remote-networks-migration.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
