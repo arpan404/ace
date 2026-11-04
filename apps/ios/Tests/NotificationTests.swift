@@ -151,6 +151,70 @@ import Testing
         #expect(center.delivered.isEmpty)
     }
 
+    @Test func aNeedsYouAlertSaysWhoAsksAndAShortQuestionGetsItsOptionsAsButtons() {
+        var ask = alert("n:1", status: "needs_you")
+        ask = AlertNotification(id: ask.id, threadId: ask.threadId, title: "Review the blog", status: "needs_you", interactionId: "ask",
+                                backgroundCount: 0, actions: [], preview: nil, message: nil,
+                                request: .init(kind: "question", sentence: "Claude Code has a question", detail: "Include the archive?", code: false,
+                                               questionId: "scope", choices: [.init(id: "yes", label: "Include it"), .init(id: "no", label: "Skip it")], reply: true))
+        let content = AlertContent(ask)
+        #expect(content.title == "Claude Code has a question")
+        #expect(content.body == "Review the blog · Include the archive?")
+        #expect(content.category == NotificationCategories.choiceId(["Include it", "Skip it"], reply: true))
+        #expect(content.choices.map(\.id) == ["yes", "no"])
+        #expect(content.takesWords)
+        // A finished thread takes a reply; an unknown status stays a plain tap.
+        #expect(AlertContent(alert("n:2", status: "done")).category == AlertContent.replyCategory)
+        #expect(AlertContent(alert("n:3", status: "something_new")).category == AlertContent.threadCategory)
+    }
+
+    @Test func anOptionTappedOnTheNotificationAnswersThatOptionAndTheAlertGoesOnceConfirmed() async throws {
+        let (coordinator, center, session) = try await connected()
+        var info = approvalInfo
+        info[NotificationKeys.questionId] = "scope"
+        info[NotificationKeys.choices] = "yes\u{1F}no"
+        let response = Task { await coordinator.respond(action: NotificationActionID.choice(1), notificationId: "n:8", info: info) }
+        let answer = try await session.waitFor("notifications.answer")
+        #expect(answer["value"] as? String == "no")
+        #expect(answer["questionId"] as? String == "scope")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"confirmed"}"#)
+        await response.value
+        #expect(center.withdrawn == ["n:8"])
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aReplyTheMachineRefusesComesBackQuietlyWithTheWordsSoTheyArentLost() async throws {
+        let (coordinator, center, session) = try await connected()
+        let response = Task {
+            await coordinator.respond(action: NotificationActionID.reply, notificationId: "n:9", info: [NotificationKeys.threadId: "thread"],
+                                      text: "  Also run the linter ")
+        }
+        let reply = try await session.waitFor("notifications.reply")
+        #expect(reply["text"] as? String == "Also run the linter")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"refused"}"#)
+        await response.value
+        #expect(center.posted.map(\.title) == ["Message not sent"])
+        #expect(center.posted.first?.body.contains("“Also run the linter”") == true)
+        #expect(center.posted.first?.level == .passive)
+    }
+
+    @Test func anApprovalAnsweredElsewhereSaysSoInsteadOfGoingSilent() async throws {
+        let (coordinator, center, session) = try await connected()
+        let response = Task { await coordinator.respond(action: NotificationActionID.approve, notificationId: "n:7", info: approvalInfo) }
+        _ = try await session.waitFor("notifications.resolve")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"stale"}"#)
+        await response.value
+        #expect(center.withdrawn == ["n:7"])
+        #expect(center.posted.map(\.title) == ["Already answered"])
+    }
+
+    @Test func anEmptyReplyOpensTheThreadInsteadOfSendingNothing() async throws {
+        let (coordinator, _, session) = try await connected()
+        await coordinator.respond(action: NotificationActionID.reply, notificationId: "n:9", info: [NotificationKeys.threadId: "thread"], text: "  ")
+        #expect(session.actions("notifications.reply").isEmpty)
+        #expect(coordinator.model?.deepLink == "thread")
+    }
+
     // MARK: Support
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",
