@@ -61,14 +61,24 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
       from its last applied seq; events it already holds are dropped by seq;
    3. the old path keeps delivering the replies it owed for up to 2 s. Then it closes;
       requests it never answered fail as offline (as on any lost connection) and commands it
-      never answered are sent again by id on the new path. The daemon answers a known command
-      id from its receipt instead of running it again.
+      never answered are sent again by id on the new path, in the order first sent. The daemon
+      answers a known command id from its receipt instead of running it again. Until each
+      command the old path owes is answered or sent again, newer commands wait, so none
+      overtakes an older one (queries and views don't wait).
+   4. the client's socket generation (`connectionGeneration`) changes, as on a reconnect:
+      whatever the daemon keeps per socket (terminal and browser streams, settings and other
+      service subscriptions) attaches again on the new path, from its own cursor where it has
+      one, and ignores what the old socket still sends under its old ids. The app's presence
+      is said again on the new socket.
 
    The old connection is never closed before the swap; any failure before it closes only the
    new path.
 
 4. **Failover.** While on the LAN or Tailscale, the best relay is kept authenticated and idle
-   as a warm standby, pinged every 30 s. A socket error, or a ping on the active path that
+   as a warm standby, pinged every 30 s. It tells the daemon it is in the background, so it
+   never counts as an alert's delivery; what it hears before it is promoted is dropped, not
+   repeated. A standby that fails rests, and another relay, or the same one once its rest ends,
+   takes its place. A socket error, or a ping on the active path that
    hears nothing for 2 s, swaps to the standby at once and asks every unanswered command
    again. Without a standby the connection reconnects, racing the remaining paths.
 5. **Anti-flap.** After a switch the client stays 10 s unless the path fails. A failed path
@@ -82,15 +92,21 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
   ace account the machine is on is admitted as admin on every path (the same computer, the LAN,
   Tailscale, its own relay, ace's relay), even if the same device was also paired earlier with
   fewer scopes. Pairing scopes apply only to devices that reach the machine without an account
-  grant. A hello carries exactly one credential; a signed-in device sends its grant.
+  grant. A hello carries exactly one credential; a signed-in device sends its grant. In a
+  window's machine pool, a machine also paired from the same device steps aside while its
+  account entry is open (once that entry has proved, over a relay, that it reaches the same
+  daemon), and comes back when the account entry closes.
 - **Account grants on direct sockets.** A direct socket admits a device grant through the same
   `admitDevice` check as the relay (account, device id, machine code), shared in
   `relay-hello.ts` (`accountHello`). A machine code refusal is sent as the relay sends it, then
-  the socket closes with 4011. An account device is never taken for the host credential.
+  the socket closes with 4011; the client stops as `machine_code` (with `lockedUntil`) and asks
+  for the code, as over the relay. An account device is never taken for the host credential.
 - **Every path proves the same machine.** Direct paths pin the TLS fingerprint; relays pin the
   machine's Noise host key; every path's welcome must name the same daemon. A mismatch drops
-  that path, reports it (`Multipath` `mismatch`), and the client never falls back to an
-  unpinned or unchecked connection.
+  that path for good, reports it (`Multipath` `mismatch`), and the client never falls back to
+  an unpinned or unchecked connection. Once a connection has been welcomed, a reconnect race
+  that reaches another daemon drops that path too. An account machine keeps the daemon id it
+  first learned over a relay (whose handshake pins the host key) and expects it on every path.
 - **Browsers can't pin** a self-signed certificate. A browser (web, desktop renderer) uses a
   direct path only when it can check it: the address it was paired with, or a Tailscale
   `ts.net` name with the publicly trusted certificate Tailscale issues for exactly that name
@@ -109,7 +125,10 @@ On one Mac, loopback, against a real daemon (`multipath.process.test.ts`):
 
 - The swap, including every view's resubscribe being sent, holds the client 0.19–0.29 ms.
 - Failover to the warm standby: 1.6–4.1 ms from the active socket dropping to the next event
-  arriving on the standby. The connection never leaves `ready`.
+  arriving on the standby (2.8 ms after the review fixes), once the standby has settled. The
+  connection never leaves `ready`. A standby only just opened can take a few hundred ms: the
+  daemon handles a socket's messages in order, and its first presence waits for the
+  notifications worker to start.
 
 ## Consequences
 
