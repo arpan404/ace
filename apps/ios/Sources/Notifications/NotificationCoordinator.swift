@@ -30,6 +30,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private enum Keys {
         static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
         static let muted = "ace.notifications.mutedMachines"
+        static let liveActivity = "ace.lockScreen.liveActivity"
     }
 
     private(set) var enabled: Bool
@@ -62,12 +63,21 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var transient: [ClientModel] = []
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
+    /// The one Live Activity and the widgets' snapshot, across every attached machine.
+    @ObservationIgnored let lockScreen: LockScreenHub
+    /// Approvals the daemon alerted about, by host and thread, for the Live Activity's
+    /// Allow/Deny; and which alert raised each, so a retraction drops it.
+    @ObservationIgnored var approvals: [String: LockRequest] = [:]
+    @ObservationIgnored var approvalAlerts: [String: String] = [:]
+    /// Settings › Notifications › Live Activity.
+    private(set) var liveActivity: Bool
 
     init(center: any NotificationCenterPort = SystemNotificationCenter(), authorizer: any NotificationAuthorizer = SystemAuthorizer(),
          defaults: UserDefaults = .standard, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          makeId: @escaping () -> String = { UUID().uuidString.lowercased() },
-         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect) {
+         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect,
+         lockScreenEdges: LockScreenHub.Edges? = nil) {
         notifier = LocalNotifier(center: center)
         self.center = center
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
@@ -75,6 +85,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
         enabled = defaults.bool(forKey: Keys.enabled)
         muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
         phone = PhoneNotificationPrefs.load(defaults)
+        liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
+        self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
+        self.lockScreen.allowed = liveActivity
+        self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
 
     /// Call before `model.connect`: patches from that runtime reach this coordinator, bound to that
@@ -89,6 +104,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
         machines.append((target.hostId, model, ledger))
         let hostId = target.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
+        model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
+        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        lockScreen.changed()
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
         // Read once the runtime is starting, never before it: the permission's sync goes to that
         // runtime, and asking the system must not hold back a launch's first connection.
@@ -99,6 +117,9 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
         machines.remove(at: index)
+        model.liveActivity.onChange = nil
+        model.liveActivity.onShow = nil
+        lockScreen.changed()
     }
     func client(_ hostId: String?) -> ClientModel? {
         guard let hostId else { return model }
@@ -110,9 +131,12 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let entry = machines.first { $0.hostId == hostId }
         switch patch {
         case .alert(let alert):
+            note(alert, from: hostId)
             guard delivering(hostId), let ledger = entry?.notifier else { return }
             Task { await ledger.receive(alert) }
         case .feed(let cursor, let entries, let retracted):
+            for alert in entries { note(alert, from: hostId) }
+            forget(retracted, from: hostId)
             guard let ledger = entry?.notifier else { return }
             let posting = delivering(hostId)
             Task {
@@ -141,6 +165,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     func scene(active: Bool) {
         guard foreground != active else { return }
         foreground = active
+        lockScreen.foreground = active
+        lockScreen.changed()
         sync()
         if !active, delivering { BackgroundRefresh.schedule() }
     }
@@ -194,6 +220,14 @@ struct SystemAuthorizer: NotificationAuthorizer {
         phone = next
         next.save(defaults)
         sync()
+    }
+    /// The Live Activity on the Lock Screen and in the Dynamic Island; on unless turned off here.
+    func setLiveActivity(_ on: Bool) {
+        guard on != liveActivity else { return }
+        liveActivity = on
+        defaults.set(on, forKey: Keys.liveActivity)
+        lockScreen.allowed = on
+        lockScreen.rebuild()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {

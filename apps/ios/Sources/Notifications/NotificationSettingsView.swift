@@ -24,6 +24,14 @@ struct NotificationSettingsView: View {
                 Text("Alerts arrive while ace is open or refreshing in the background. A locked phone may show them late.")
             }
             .insetRowBackground()
+            Section {
+                Toggle("Live Activity", isOn: Binding(get: { notifications.liveActivity },
+                                                      set: { notifications.setLiveActivity($0) }))
+                .accessibilityIdentifier("notifications.liveActivity")
+            } footer: {
+                Text("What needs you and what's working, on the Lock Screen and in the Dynamic Island.")
+            }
+            .insetRowBackground()
             PhoneNotificationSections(notifications: notifications)
             Section {
                 ForEach(inbox.sessions) { session in
