@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { createInstance, openRegistry } from "@ace/accounts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { expect, test, vi } from "vitest";
-import { ThreadId } from "@ace/protocol";
+import { MonitorSnapshot, ThreadId } from "@ace/protocol";
 import { z } from "zod";
 import { start } from "../engine/test-support.ts";
 import { pairedMachines } from "./machine-test-support.ts";
@@ -147,3 +147,37 @@ test("a known limited remote account is refused before launch and names other av
   });
   expect(pair.target.daemon.store.listThreads()).toHaveLength(before);
 });
+
+test("a remote child failed on its limit reads working again when work starts there without a new run", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.source.call({ op: "machines" });
+  const child = delegated.parse((await pair.source.call(task)).data).threadId;
+  await vi.waitFor(() => expect(pair.target.h.inputs.get(child)?.join("\n")).toContain(task.task), {
+    timeout: 10_000,
+  });
+  await pair.emit(child, {
+    type: "turn.ended",
+    agent: "root",
+    outcome: "failed",
+    error: { kind: "quota", message: "Quota exhausted" },
+  });
+  const stateHere = async () =>
+    MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data).children.find(
+      (row) => row.id === child,
+    )?.state;
+  await vi.waitFor(async () => expect(await stateHere()).toBe("failed"), { timeout: 10_000 });
+
+  // A background task the provider started late reports in; no new run begins.
+  await pair.emit(child, {
+    type: "background.started",
+    agent: "root",
+    task: "late-watch",
+    kind: "shell",
+    title: "Watch CI",
+    stoppable: true,
+  });
+  await vi.waitFor(async () => expect(await stateHere()).toBe("working"), { timeout: 10_000 });
+  expect(pair.source.daemon.store.getThread(pair.source.caller.threadId)?.status.state).not.toBe(
+    "done",
+  );
+}, 60_000);

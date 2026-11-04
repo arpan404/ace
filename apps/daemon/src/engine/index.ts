@@ -1212,6 +1212,10 @@ export class Engine {
       Object.values(state.agents).every((record) => !record.activeRun && !record.retry)
     );
   }
+  /** Work in the thread's local tree goes on, or ace will carry it on by itself. */
+  treeActive(id: ThreadId): boolean {
+    return this.liveness.active(id) || this.resuming(id) || this.limitContinues(id);
+  }
   /**
    * ace carries the limited thread on by itself: a resume or account move is scheduled at reset,
    * or its limit policy is still loading and may schedule one.

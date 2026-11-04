@@ -44,6 +44,8 @@ export async function pairedMachines(
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
+    /** The source's stop of a remote child: how often its cancel goes out again. */
+    sourceStopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
     /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
     targetDevices?: import("@ace/devices").DevicesService;
     /** Each machine's computer use: its switch and the engine its agents drive. */
@@ -71,6 +73,7 @@ export async function pairedMachines(
       machines: {
         pollMs: 50,
         ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+        ...(options.sourceStopPlan ? { stopPlan: options.sourceStopPlan } : {}),
       },
     },
     {},

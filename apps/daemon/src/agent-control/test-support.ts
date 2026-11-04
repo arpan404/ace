@@ -77,6 +77,10 @@ export function setup(
   const stoppedTasks: string[] = [];
   /** How many of the next task stops the provider fails, as a dropped RPC would. */
   let stopTaskFailures = 0;
+  /** How many of the next interrupts the provider ignores, as a wedged CLI would. */
+  let ignoredInterrupts = 0;
+  /** Interrupts that reached the provider. */
+  const interrupts: ThreadId[] = [];
   /** How the provider fails its next sends: refused unread, or lost with no answer. */
   const sendFailures: { how: "rejected" | "lost"; on: "steer" | "queue" }[] = [];
   /** Every input the providers were asked to take, failed attempts included. */
@@ -185,6 +189,11 @@ export function setup(
               if (provider === "claude") ctx.onFrame(frames.frame(start));
             },
             async interrupt(target) {
+              interrupts.push(ctx.threadId);
+              if (ignoredInterrupts > 0) {
+                ignoredInterrupts--;
+                return;
+              }
               await session.interrupt(target);
               // Claude ends the turn of the agent it was asked to stop.
               if (provider === "claude")
@@ -310,6 +319,10 @@ export function setup(
     attempts,
     failNextTaskStops(count: number) {
       stopTaskFailures = count;
+    },
+    interrupts,
+    ignoreNextInterrupts(count: number) {
+      ignoredInterrupts = count;
     },
     nativeHistories,
     inputs,

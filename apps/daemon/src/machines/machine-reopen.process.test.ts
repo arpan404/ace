@@ -258,3 +258,79 @@ it("a message the target refused for that request never runs, not even a copy th
   expect(pair.target.h.inputs.get(child) ?? []).not.toContain("Do a second pass");
   expect(await stateHere(pair, child)).toBe("done");
 }, 120_000);
+
+const interruptsOf = (pair: Pair, id: ThreadId) =>
+  pair.target.h.interrupts.filter((thread) => thread === id).length;
+const stateThere = (pair: Pair, id: ThreadId) =>
+  pair.target.daemon.store.getThread(id)?.status.state;
+
+it("a remote child that ignores the first cancel is interrupted again by a later one and stops", async () => {
+  const pair = await pairedMachines({
+    access: "operate",
+    sourceStopPlan: [
+      { action: "cancel", waitMs: 100 },
+      { action: "cancel", waitMs: 100 },
+      { action: "cancel", waitMs: 100 },
+    ],
+  });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("wedged"))).data).threadId;
+  await vi.waitFor(
+    () =>
+      expect((pair.target.h.inputs.get(child) ?? []).join("\n")).toContain("Do the wedged part"),
+    { timeout: 15_000 },
+  );
+  pair.target.h.ignoreNextInterrupts(1);
+  await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-wedged" });
+  await vi.waitFor(() => expect(interruptsOf(pair, child)).toBe(1), { timeout: 15_000 });
+  await pair.target.daemon.engine?.flush();
+  expect(stateThere(pair, child)).toBe("working");
+
+  // The cancel goes out again while it is unconfirmed; this one reaches the provider.
+  await vi.waitFor(
+    () => {
+      pair.source.h.clock.advance(100);
+      expect(interruptsOf(pair, child)).toBeGreaterThanOrEqual(2);
+    },
+    { timeout: 15_000, interval: 200 },
+  );
+  await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
+    timeout: 15_000,
+  });
+}, 90_000);
+
+it("a remote child cancelled, given new work and cancelled again is interrupted the second time", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.source.call({ op: "machines" });
+  const child = Delegated.parse((await pair.source.call(task("twice"))).data).threadId;
+  await vi.waitFor(
+    () => expect((pair.target.h.inputs.get(child) ?? []).join("\n")).toContain("Do the twice part"),
+    { timeout: 15_000 },
+  );
+  await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-first" });
+  await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
+    timeout: 15_000,
+  });
+  const first = interruptsOf(pair, child);
+  expect(first).toBeGreaterThanOrEqual(1);
+
+  await pair.source.call({
+    op: "thread.message",
+    threadId: child,
+    requestId: "new-work",
+    text: "Do this instead",
+  });
+  await vi.waitFor(
+    () => expect((pair.target.h.inputs.get(child) ?? []).join("\n")).toContain("Do this instead"),
+    { timeout: 15_000 },
+  );
+  await vi.waitFor(() => expect(stateThere(pair, child)).toBe("working"), { timeout: 15_000 });
+
+  await pair.source.call({ op: "agent.cancel", threadId: child, requestId: "stop-second" });
+  await vi.waitFor(() => expect(interruptsOf(pair, child)).toBeGreaterThan(first), {
+    timeout: 15_000,
+  });
+  await vi.waitFor(() => expect(stateThere(pair, child)).not.toBe("working"), {
+    timeout: 15_000,
+  });
+}, 90_000);

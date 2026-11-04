@@ -1,6 +1,6 @@
 import { childStoppedOnLimit } from "../agent-control/limit-settlement.ts";
 import { threadAccount } from "../agent-control/failure-account.ts";
-import { TargetOutcomes } from "./target-outcomes.ts";
+import { TargetOutcomes, type SettledView } from "./target-outcomes.ts";
 import { accountLaunchRefusal } from "../agent-control/account-availability.ts";
 import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 import { createHash } from "node:crypto";
@@ -95,6 +95,7 @@ export class TargetThreads {
   /** Messages refused before they reached their thread, which no copy of can ever run. */
   readonly rejections: MessageRejections;
   private outcomes: TargetOutcomes;
+  private cancelAttempts = 0;
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
     this.outcomes = new TargetOutcomes(deps.store);
@@ -150,10 +151,18 @@ export class TargetThreads {
    * agents_status and parent hear of it through `view`, as they would for a local child.
    */
   private observe(event: Event) {
-    if (event.payload.type === "run.started") this.outcomes.forget(event.threadId);
+    const { payload } = event;
+    // It runs again, or it is deleted (a deleted thread reads as deleted): its outcome goes.
+    // Only threads another machine owns keep one, so other threads' events cost no write.
+    const outcomeEnds =
+      payload.type === "run.started" ||
+      (payload.type === "thread.client.updated" && payload.changes.deletedAt !== undefined);
     const notice = deliveryNotice(event);
+    if (!outcomeEnds && !notice) return;
+    if (!this.owner(event.threadId)) return;
+    if (outcomeEnds) this.outcomes.forget(event.threadId);
     const engine = this.deps.engine();
-    if (!notice || !engine || !this.owner(event.threadId)) return;
+    if (!notice || !engine) return;
     if (!engine.messageFacts(event.threadId, CommandId.parse(notice.commandId)).fromParent) return;
     const title = this.deps.store.getThread(event.threadId)?.title ?? "the child";
     this.deps.store.atomic((db) =>
@@ -429,8 +438,11 @@ export class TargetThreads {
     if (!engine) throw new TargetRefusal("unavailable");
     // A child still waiting for a slot settles cancelled without ever running.
     if (this.launches.cancel(threadId)) return { ok: true };
+    // Each cancel is its own attempt: a child that ignored an earlier interrupt, or ran again
+    // since one, is interrupted again. Interrupting a stopped thread changes nothing.
+    const attempt = `${this.deps.store.headSeq()}-${this.deps.now()}-${++this.cancelAttempts}`;
     const command = Command.parse({
-      id: `machine-cancel:${threadId}`,
+      id: `machine-cancel:${threadId}:${attempt}`,
       deviceId: device.id,
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
@@ -591,13 +603,7 @@ export class TargetThreads {
       requests: this.requests(thread),
       ...(notice ? { notice } : {}),
     };
-    // Kept until it runs again, unless ace is carrying it on or it is waiting on a person.
-    const kept =
-      engine?.limitContinues(threadId) ||
-      engine?.resuming(threadId) ||
-      ["needs_you", "working"].includes(thread.status.state)
-        ? undefined
-        : this.outcomes.get(threadId);
+    const kept = this.keptOutcome(thread);
     if (kept) return { ...shared, ...kept };
     const stoppedOnLimit = childStoppedOnLimit(thread, engine, this.deps.journal());
     const state = stoppedOnLimit ? "failed" : watchedState(thread, undefined, false, rootIdle);
@@ -639,6 +645,25 @@ export class TargetThreads {
           }
         : {}),
     };
+  }
+  /**
+   * The outcome the thread settled with, while it is still that stop. Anything live in its
+   * tree (a background task or retry that started without a new run, a request, a descendant,
+   * a resume ace has scheduled) means it went on, so the saved outcome is dropped and the live
+   * state is read instead.
+   */
+  private keptOutcome(thread: Thread): SettledView | undefined {
+    const engine = this.deps.engine();
+    if (
+      engine?.treeActive(thread.id) ||
+      (this.deps.journal()?.liveDescendants(thread.id).length ?? 0) > 0
+    ) {
+      // A read, not a write, on each look at a live thread.
+      if (this.outcomes.get(thread.id)) this.outcomes.forget(thread.id);
+      return undefined;
+    }
+    if (["needs_you", "working"].includes(thread.status.state)) return undefined;
+    return this.outcomes.get(thread.id);
   }
   /**
    * A thread whose task has not run: queued for a slot, which keeps the parent elsewhere open,
