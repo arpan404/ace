@@ -49,7 +49,21 @@ struct AgentSheet: Codable, Sendable, Equatable {
         let background: Bool
         let createdAt: Double
         let endedAt: Double?
+        /// The provider it runs on, for its mark; nil from older bridges.
+        var provider: String? = nil
+        var role: String? = nil
+        /// The paired machine it runs on, when that is another one.
+        var machine: String? = nil
+        /// Why it stopped or can't go on ("ran out of usage").
+        var reason: String? = nil
+        var icon: Icon? = nil
+        /// Its own requests the person can answer from the tree, oldest first.
+        var requests: [String]? = nil
     }
+    /// A tree node's status icon in the inbox row's set (`RowStatusIcon`); a nil kind draws none.
+    struct Icon: Codable, Sendable, Equatable { let kind: String?; let tone: String; let count: Int? }
+    /// The one sentence over the whole tree, and the token that colours its icon.
+    struct Summary: Codable, Sendable, Equatable { let text: String; let token: String }
     struct BackgroundTask: Codable, Sendable, Equatable, Identifiable {
         let id: String
         let agentId: String
@@ -72,6 +86,7 @@ struct AgentSheet: Codable, Sendable, Equatable {
     let totals: Totals
     let context: Context?
     let treeRunning: Bool
+    var summary: Summary? = nil
 }
 
 /// The Changes sheet's file list and next step, read by the bridge from the daemon's guarded git.

@@ -3,6 +3,14 @@ import type { Agent, BackgroundTask, Interaction } from "@ace/protocol";
 import type { ThreadReader } from "@ace/client";
 import { agentName, agentTreeWork, agentWorkState, taskState } from "./agents.ts";
 import { toneToken, type StatusDisplay, type StatusToken } from "./mobile-status.ts";
+import {
+  agentNodeIcon,
+  agentNodeReason,
+  agentTreeSummary,
+  ownRequests,
+  type AgentNodeIcon,
+  type AgentTreeSummary,
+} from "./mobile-agent-tree.ts";
 
 /*
  * The native apps' Agents sheet (issue #560, item 5): the whole agent tree in depth-first order
@@ -58,6 +66,17 @@ export interface AgentSheetRow {
   background: boolean;
   createdAt: number;
   endedAt: number | null;
+  /** The provider it runs on (`claude`, `codex`…), for its mark. */
+  provider: string;
+  /** What its parent asked it to be ("reviewer"), when the provider says. */
+  role: string;
+  /** The paired machine it runs on, when that is another one. */
+  machine: string | null;
+  /** Why it stopped or can't go on ("ran out of usage"), when its status doesn't say. */
+  reason: string | null;
+  icon: AgentNodeIcon;
+  /** Its own requests the person can answer from the tree, oldest first. */
+  requests: string[];
 }
 
 export interface TaskSheetRow {
@@ -88,6 +107,8 @@ export interface AgentSheet {
   context: { used: number; window: number } | null;
   /** Something in the tree is still unsettled, so Stop all has work to stop. */
   treeRunning: boolean;
+  /** One sentence over the whole tree; never finished while any branch works or waits. */
+  summary: AgentTreeSummary;
 }
 
 const taskTokens: Record<BackgroundTask["status"], StatusToken> = {
@@ -231,7 +252,15 @@ export function agentSheet(
   let costUsd: number | null = null;
   const rows: AgentSheetRow[] = [];
   let hiddenRunning = 0;
+  let asking = 0;
+  // Each agent's subagents still at work: what its waiting ring counts.
+  const runningChildren = new Map<string, number>();
+  for (const { agent } of order)
+    if (agent.parentId && work.running.has(agent.id))
+      runningChildren.set(agent.parentId, (runningChildren.get(agent.parentId) ?? 0) + 1);
   for (const { agent, depth } of order) {
+    const own = ownRequests(agent, interactions);
+    if (own.length > 0) asking++;
     const usage = reader.usage(agent.id);
     const used = usage ? usage.inputTokens + usage.outputTokens : null;
     if (used !== null) tokens = (tokens ?? 0) + used;
@@ -261,6 +290,12 @@ export function agentSheet(
       background: agent.background,
       createdAt: agent.createdAt,
       endedAt: agent.endedAt ?? null,
+      provider: agent.native.provider,
+      role: agent.role ?? "",
+      machine: agent.machine?.name ?? null,
+      reason: agentNodeReason(agent),
+      icon: agentNodeIcon(agent, work, own, runningChildren.get(agent.id) ?? 0, fresh),
+      requests: own.map((interaction) => interaction.id),
     });
   }
 
@@ -297,5 +332,6 @@ export function agentSheet(
         ? { used: meter.usedTokens, window: meter.windowTokens }
         : null,
     treeRunning: work.running.size > 0,
+    summary: agentTreeSummary({ agents, tasks: listed, work, asking, fresh }),
   };
 }
