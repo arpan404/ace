@@ -31,11 +31,9 @@ import SwiftUI
     /// Deny, then Allow once, as offered.
     var deny: Word? { verb("deny") }
     var allow: Word? { verb("allow_once") }
-    /// A standing grant, only where the request offers one ("Always allow"); what it covers is
-    /// `scope`.
+    /// A standing grant, only where the request offers one, named with what it covers
+    /// ("Always allow in this project").
     var always: Word? { verb("always_allow") }
-    /// What a standing grant covers, in the provider's words, where it says more than the verb.
-    var scope: String { request.verbs.first { $0.decision.verb == "always_allow" }?.decision.scope ?? "" }
 
     /// The row's words, at most two.
     var row: [Word] {
@@ -50,7 +48,9 @@ import SwiftUI
 
     private func verb(_ name: String) -> Word? {
         if let verb = request.verbs.first(where: { $0.decision.verb == name }) {
-            return Word(id: name, label: verb.decision.label, primary: name == "allow_once") { send(verb.option) }
+            // A standing grant says what it covers ("Always allow here"); the others are the verb.
+            let words = name == "always_allow" ? (verb.decision.name ?? verb.decision.label) : verb.decision.label
+            return Word(id: name, label: words, primary: name == "allow_once") { send(verb.option) }
         }
         // A daemon that sends no verbs: its own Deny and Allow once options, as offered.
         guard (request.decisions ?? []).isEmpty else { return nil }

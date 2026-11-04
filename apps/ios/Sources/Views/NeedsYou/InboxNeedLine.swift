@@ -84,7 +84,7 @@ private struct NeedSubject: View {
                 .foregroundStyle(AceTheme.Colours.mutedForeground)
                 .lineLimit(1).truncationMode(.middle)
                 .padding(.horizontal, AceDesign.Space.related)
-                .frame(height: AceDesign.Size.needCode)
+                .frame(height: AceDesign.Size.rowNeedLine)
                 .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(-1)
@@ -111,8 +111,26 @@ struct NeedWordStyle: ButtonStyle {
             .fontWeight(primary ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
             .foregroundStyle(primary ? AceTheme.Colours.accent : AceTheme.Colours.mutedForeground)
             .padding(.horizontal, AceDesign.Space.stripWord)
-            .frame(minHeight: AceDesign.Size.stripAction)
-            .tapBand(drawn: AceDesign.Size.stripAction)
+            .frame(minHeight: AceDesign.Size.rowNeedLine)
+            .tapBand(drawn: AceDesign.Size.rowNeedLine)
+            .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
+            .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
+            .contentShape(Rectangle())
+    }
+}
+
+/// A secondary action that stands on its own line (the run's standing grant): plain words in the
+/// reading ink, so it reads as something to press rather than a caption. 44pt to the finger.
+struct NeedActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .lineLimit(1)
+            .padding(.horizontal, AceDesign.Space.stripWord)
+            .frame(minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
             .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
             .contentShape(Rectangle())

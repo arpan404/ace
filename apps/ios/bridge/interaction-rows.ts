@@ -18,6 +18,7 @@ import {
 } from "@ace/ui-core/mobile";
 import { approvalRow, preview } from "./presentation.ts";
 import { requestRow } from "./thread-requests.ts";
+import { grantName } from "./approval-names.ts";
 
 /*
  * An interaction card's row: the spike's approval fields, plus the web's three approval verbs
@@ -45,6 +46,8 @@ function approval(interaction: Interaction, command: string) {
       option: at(decision.option),
       label: decision.label,
       scope: preview(decision.scope ?? "", 128),
+      /** The action named once with what it covers ("Always allow here"), for a pressable word. */
+      name: preview(grantName(decision.label, decision.scope ?? ""), 160),
       emphasis: decision.emphasis,
     })),
     others: copy.others.map((other) => ({

@@ -22,8 +22,10 @@ struct InboxThreadRow: View {
         row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
                             glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
     }
-    /// The third line shows for a branch or a pull request, as the owner's row rule has it.
-    private var hasContext: Bool { !(row.branchLabel ?? row.branch).isEmpty || row.pr != nil }
+    /// The third line shows for a branch or a pull request, as the owner's row rule has it. A row
+    /// that needs the person shows its request there instead, so every row stays three lines;
+    /// the branch and pull request are a tap away in the thread.
+    private var hasContext: Bool { need == nil && (!(row.branchLabel ?? row.branch).isEmpty || row.pr != nil) }
 
     var body: some View {
         let look = look
@@ -42,7 +44,7 @@ struct InboxThreadRow: View {
             }
             .frame(minHeight: AceDesign.Size.rowLine2)
             .padding(.top, AceDesign.Size.rowLineGap)
-            if let need { need.padding(.top, AceDesign.Size.rowLineGap) }
+            if let need { need.padding(.top, AceDesign.Size.rowLastLineGap) }
             if hasContext {
                 InboxRowContext(row: row, look: look, machine: machine).padding(.top, AceDesign.Size.rowLastLineGap)
             }

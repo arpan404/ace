@@ -222,22 +222,12 @@ struct NeedsRunPage: View {
                     .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
             } else {
                 if let always = actions.always {
-                    HStack(spacing: AceDesign.Space.related) {
-                        Button(always.label, action: always.run)
-                            .buttonStyle(NeedWordStyle())
-                            .accessibilityHint(actions.scope)
-                            .accessibilityIdentifier("run.always")
-                        // What it covers ("here", "for npm install"), quieter than the verb.
-                        if !actions.scope.isEmpty {
-                            Text(actions.scope)
-                                .aceFont(InboxRowType.line, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                                .lineLimit(1)
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    // The word's own inset sits outside the page's one left edge.
-                    .padding(.leading, -AceDesign.Space.stripWord)
+                    // A pressable word in the reading ink, on the capsules' left edge: what it
+                    // grants, named in full.
+                    Button(always.label, action: always.run)
+                        .buttonStyle(NeedActionStyle())
+                        .padding(.leading, -AceDesign.Space.stripWord)
+                        .accessibilityIdentifier("run.always")
                 }
                 HStack(spacing: AceDesign.Space.related) {
                     if let deny = actions.deny {

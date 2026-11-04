@@ -363,9 +363,9 @@ extension AceDesign.Size {
     static let sendGlyph: CGFloat = 15
     /// A strip's line of words.
     static let stripAction: CGFloat = 24
-    /// The line a needs-you inbox row grows under its title, and the command capsule on it.
-    static let rowNeedLine: CGFloat = 28
-    static let needCode: CGFloat = 22
+    /// The request line a needs-you inbox row shows in its third line's place, and the command
+    /// capsule on it.
+    static let rowNeedLine: CGFloat = 20
     /// The needs-you run's progress track under its title.
     static let runTrack: CGFloat = 3
 }
