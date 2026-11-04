@@ -2,12 +2,12 @@ import { machineCodeGate, relayRoute } from "@ace/client";
 import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountOrigin, accountSessionKey } from "./account-config.ts";
+import { accountOrigin, accountSessionKey, windowAccountSession } from "./account-config.ts";
 import { accountMachineOptions } from "./account-machine-options.ts";
 import { accountSecret } from "./account-secret.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import type { AccountMainMachine, AccountMainRoute, AccountRouteSource } from "./main-machine.ts";
-import { trackedGrant } from "./tracked-grant.ts";
+import { accountPinnedGrant, trackedGrant } from "./tracked-grant.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -80,10 +80,19 @@ export function browserAccountRoutes(options: {
       const session = await backend.session(token, AbortSignal.timeout(15_000));
       options.session.setItem(key, JSON.stringify({ ...session, token }));
     };
+    // Only while the window holds the account the machine was chosen on: under another one the
+    // relay would turn it away, and the screen should say which account it is on instead.
+    const pinned = accountPinnedGrant(
+      machine.accountId,
+      async () => {
+        await restore();
+        return windowAccountSession(options.session, origin)?.account.id;
+      },
+      () => account.grant(),
+    );
     const grant = async () => {
       try {
-        await restore();
-        return await account.grant();
+        return await pinned();
       } catch (error) {
         // The session ended: this window is signed out everywhere, not only for this machine.
         if (error instanceof AceAccountError && error.status === 401) {

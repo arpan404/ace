@@ -29,6 +29,8 @@ function sentence(status: ConnectionStatus, name: string): string {
           return `Your ace session ended. Sign in again to open ${name}.`;
         case "not_on_account":
           return `${name} isn't on your ace account any more, or it turned this device away.`;
+        case "other_account":
+          return `${name} is on your other ace account. Sign in to that account to open it, or choose another machine.`;
         case "machine_code":
           return "";
         case "protocol":
@@ -56,12 +58,14 @@ export function AccountMachineScreen(props: {
   const { status } = connection;
   const problem = status.kind === "editing" ? status.problem : undefined;
   const signIn = problem === "signed_out" || problem === "session_ended";
+  const otherAccount = problem === "other_account";
   // Trying again helps a machine out of reach or a dropped connection, not one that needs the
   // person: a sign-in, its code, or its place on the account.
   const retry =
     status.kind === "unreachable" ||
     (status.kind === "editing" &&
       !signIn &&
+      !otherAccount &&
       problem !== "machine_code" &&
       problem !== "not_on_account");
   const said = sentence(status, account.name);
@@ -84,6 +88,9 @@ export function AccountMachineScreen(props: {
       )}
       <div className="mt-2 flex flex-wrap gap-2">
         {signIn && leave && <Button onClick={() => leave("/settings/profile")}>Sign in</Button>}
+        {otherAccount && leave && (
+          <Button onClick={() => leave("/settings/profile")}>Switch account</Button>
+        )}
         {retry && <Button onClick={connection.retry}>Try again</Button>}
         <Leave connection={connection}>Choose another machine</Leave>
       </div>
