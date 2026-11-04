@@ -10,14 +10,15 @@ struct NeedsRun: View {
     let inbox: MachineInbox
     /// What waits now, in the list's order.
     let live: () -> [NeedsRunQueue.Entry]
+    /// The pages, kept by the list that opened the run so a redraw of this screen (a change of
+    /// appearance, a rotation) never starts it over. Seeded when the run opens; after that
+    /// requests only join.
+    @Binding var queue: NeedsRunQueue
     let openThread: (InboxKey) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.aceReduceMotion) private var reduceMotion
-    @State private var queue = NeedsRunQueue()
     @State private var decisions = 0
     @State private var forward = true
-    /// The pages are read once, when the run opens; after that requests only join.
-    @State private var started = false
 
     var body: some View {
         let live = live()
@@ -27,8 +28,11 @@ struct NeedsRun: View {
                 Group {
                     if let entry = queue.current, let model = inbox.client(entry.thread.machineId), let request = request(entry) {
                         NeedsRunPage(entry: entry, request: request, model: model, row: inbox.row(entry.thread),
-                                     machine: inbox.showsMachineNames ? inbox.name(entry.thread.machineId) : nil,
-                                     openThread: { openThread(entry.thread) }, decided: decided)
+                                     machine: machine(entry), openThread: { openThread(entry.thread) }, decided: decided)
+                            .id(entry)
+                            .transition(pageTransition)
+                    } else if let entry = queue.current, let row = inbox.row(entry.thread), entry.request == nil {
+                        NeedsThreadPage(row: row, machine: machine(entry)) { openThread(entry.thread) }
                             .id(entry)
                             .transition(pageTransition)
                     } else {
@@ -56,12 +60,7 @@ struct NeedsRun: View {
             }
         }
         .sensoryFeedback(AceDesign.Haptic.approve, trigger: decisions)
-        .onAppear {
-            guard !started else { return }
-            started = true
-            queue = NeedsRunQueue(live)
-            queue.skipClosed(open: isOpen)
-        }
+        .onAppear { queue.skipClosed(open: isOpen) }
         .onChange(of: live) { _, now in
             queue.merge(now)
             withAnimation(AceDesign.Motion.arriving(reduceMotion)) { queue.skipClosed(open: isOpen) }
@@ -69,12 +68,19 @@ struct NeedsRun: View {
     }
 
     private func request(_ entry: NeedsRunQueue.Entry) -> ApprovalRow? {
-        inbox.client(entry.thread.machineId)?.needsYou(entry.thread.id).first { $0.id == entry.request }
+        guard let id = entry.request else { return nil }
+        return inbox.client(entry.thread.machineId)?.needsYou(entry.thread.id).first { $0.id == id }
     }
-    /// Still waiting, with no answer on its way.
+    private func machine(_ entry: NeedsRunQueue.Entry) -> String? {
+        inbox.showsMachineNames ? inbox.name(entry.thread.machineId) : nil
+    }
+    /// Still waiting for the person (`NeedsRunQueue.isOpen`).
     private func isOpen(_ entry: NeedsRunQueue.Entry) -> Bool {
-        guard request(entry) != nil else { return false }
-        return inbox.client(entry.thread.machineId)?.approvalSubmissions[entry.request] == nil
+        let model = inbox.client(entry.thread.machineId)
+        let requests = Set((model?.needsYou(entry.thread.id) ?? []).map(\.id))
+        return NeedsRunQueue.isOpen(entry, .init(needsYou: inbox.row(entry.thread)?.look?.level == "needs-you",
+                                                 requests: requests,
+                                                 answering: requests.filter { model?.approvalSubmissions[$0] != nil }))
     }
     private func decided() {
         decisions += 1

@@ -14,6 +14,8 @@ struct NeedsRunPage: View {
     let openThread: () -> Void
     let decided: () -> Void
     @State private var draft = QuestionDraftState()
+    /// The whole plan, from a plan page's Review.
+    @State private var reviewing = false
 
     private var threadId: String { entry.thread.id }
     private var actions: NeedActions {
@@ -32,7 +34,7 @@ struct NeedsRunPage: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityIdentifier("run.sentence")
                     }
-                    if request.kind == "approval" { approval } else {
+                    if request.kind == "approval" { approval } else if request.kind == "plan_review" { plan } else {
                         NeedsRequestCard(request: request, model: model, threadId: threadId, open: openThread, draft: $draft)
                     }
                     words
@@ -44,9 +46,21 @@ struct NeedsRunPage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize)
-            if request.kind == "approval" { decisions }
+            if request.kind == "approval" { decisions } else if request.kind == "plan_review" { planDecisions }
         }
         .task(id: threadId) { model.readNeedsWords(threadId) }
+        // An answer sent from the request's own card (a question, a form) is a decision too:
+        // its haptic, and on to the next page. Approvals and plans count theirs where they're sent.
+        .onChange(of: model.approvalSubmissions[request.id] != nil) { _, sent in
+            if sent && !["approval", "plan_review"].contains(request.kind) { decided() }
+        }
+        .sheet(isPresented: $reviewing) {
+            PlanReviewSheet(plan: request.plan, submission: model.approvalSubmissions[request.id], canAct: model.canOperate) { answer in
+                reviewing = false
+                model.answerNeed(request, in: threadId, answer: answer)
+                decided()
+            }
+        }
     }
 
     /// Provider · project · branch · age, and the machine where there are several.
@@ -93,6 +107,62 @@ struct NeedsRunPage: View {
                     .lineLimit(4)
             }
         }
+    }
+
+    /// A plan's summary and steps, quietly; the whole plan opens from Review.
+    @ViewBuilder private var plan: some View {
+        if let plan = request.plan {
+            VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+                if !plan.summary.isEmpty {
+                    Text(plan.summary)
+                        .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .lineLimit(4)
+                }
+                ForEach(Array(plan.todos.prefix(Self.planSteps).enumerated()), id: \.offset) { index, todo in
+                    HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                        Text("\(index + 1)").monospacedDigit()
+                            .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        Text(todo.text).foregroundStyle(AceTheme.Colours.foreground).lineLimit(2)
+                    }
+                    .aceFont(AceDesign.TextRole.segment, relativeTo: .subheadline)
+                }
+                if plan.todos.count > Self.planSteps {
+                    Text("\(plan.todos.count - Self.planSteps) more steps")
+                        .aceFont(InboxRowType.line, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("run.plan")
+        }
+    }
+    /// Steps a plan page lists before "3 more steps".
+    private static let planSteps = 6
+
+    /// Review (the whole plan, where changes can be asked for) and Approve, in thumb reach.
+    private var planDecisions: some View {
+        HStack(spacing: AceDesign.Space.related) {
+            if let progress = actions.progress {
+                Text(progress)
+                    .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
+            } else {
+                Button("Review") { reviewing = true }.buttonStyle(PillButtonStyle(kind: .secondary))
+                    .accessibilityIdentifier("run.plan.review")
+                if model.canOperate {
+                    Button("Approve") {
+                        model.answerNeed(request, in: threadId, answer: ["kind": "plan", "decision": "approve"])
+                        decided()
+                    }
+                    .buttonStyle(PillButtonStyle(kind: .primary))
+                    .accessibilityIdentifier("run.plan.approve")
+                }
+            }
+        }
+        .padding(.horizontal, AceDesign.Space.margin)
+        .padding(.vertical, AceDesign.Space.related)
     }
 
     /// What the agent last said, as one muted paragraph.

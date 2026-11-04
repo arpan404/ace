@@ -58,4 +58,20 @@ import Testing
         #expect(run.current == b)
         #expect(run.pages == [b])
     }
+
+    @Test func aRequestAnsweredHereStopsWaitingButStillCountsUntilItsMachineClosesIt() {
+        let push = entry("mac", "queue", "push")
+        let facts = NeedsRunQueue.Facts(needsYou: true, requests: ["push"], answering: ["push"])
+        #expect(!NeedsRunQueue.isOpen(push, facts))
+        #expect(NeedsRunQueue.isOpen(push, .init(needsYou: true, requests: ["push"], answering: [])))
+        #expect(!NeedsRunQueue.isOpen(push, .init(needsYou: false, requests: [], answering: [])))
+    }
+
+    @Test func aThreadThatNeedsThePersonWithNothingToAnswerHereKeepsItsPageUntilTheDaemonSaysOtherwise() {
+        let unsent = NeedsRunQueue.Entry(thread: InboxKey(machineId: "mac", id: "held"), request: nil)
+        #expect(NeedsRunQueue.isOpen(unsent, .init(needsYou: true, requests: [], answering: [])))
+        #expect(!NeedsRunQueue.isOpen(unsent, .init(needsYou: false, requests: [], answering: [])))
+        // Its requests read later get pages of their own; the thread page steps aside.
+        #expect(!NeedsRunQueue.isOpen(unsent, .init(needsYou: true, requests: ["ask"], answering: [])))
+    }
 }

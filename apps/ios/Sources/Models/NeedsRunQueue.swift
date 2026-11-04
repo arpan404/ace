@@ -3,9 +3,11 @@
 /// during the run join at the end. Moving on passes requests that closed meanwhile. The end
 /// never says nothing waits while a request is still open or an answer is still on its way.
 struct NeedsRunQueue: Equatable {
+    /// One page: a request, or a thread that needs the person with no request the phone can
+    /// answer (a message that wasn't sent), which the page opens.
     struct Entry: Hashable, Sendable {
         let thread: InboxKey
-        let request: String
+        let request: String?
     }
     /// How the run ends: nothing waits, answers are still travelling, or some were skipped
     /// (or refused) and still wait.
@@ -49,6 +51,23 @@ struct NeedsRunQueue: Equatable {
     mutating func again(_ live: [Entry]) {
         pages = live
         index = 0
+    }
+
+    /// What the phone knows about a page's thread now.
+    struct Facts {
+        /// The daemon lists the thread as needing the person.
+        let needsYou: Bool
+        /// The thread's pending requests the phone has read.
+        let requests: Set<String>
+        /// Requests answered here whose close hasn't arrived.
+        let answering: Set<String>
+    }
+    /// Whether a page still waits for the person: its request is pending with no answer on its
+    /// way, or, for a thread page, the thread still needs the person and has no request to show
+    /// (once its requests can be read they have pages of their own).
+    static func isOpen(_ entry: Entry, _ facts: Facts) -> Bool {
+        guard let request = entry.request else { return facts.needsYou && facts.requests.isEmpty }
+        return facts.requests.contains(request) && !facts.answering.contains(request)
     }
 
     /// `waiting`: requests still open with no answer on its way; `sending`: answered here, not

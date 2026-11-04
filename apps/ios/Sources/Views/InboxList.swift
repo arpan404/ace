@@ -72,6 +72,8 @@ struct InboxList: View {
     @Environment(\.onSidebarGlass) private var onGlass
     /// The needs-you run is open.
     @State private var running = false
+    /// The run's pages, here so they outlive any redraw of the run's screen.
+    @State private var run = NeedsRunQueue()
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
 
     private var sections: [MergedInbox.Section] {
@@ -90,7 +92,10 @@ struct InboxList: View {
                         .selectionDisabled()
                 }
                 if tab == "inbox", selection == nil, let words = NeedWords.count(needs(shown).count) {
-                    NeedsYouLine(words: words) { running = true }
+                    NeedsYouLine(words: words) {
+                        run = NeedsRunQueue(needs(shown))
+                        running = true
+                    }
                         .inboxRowChrome()
                         .selectionDisabled()
                 }
@@ -140,17 +145,20 @@ struct InboxList: View {
                 withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { proxy.scrollTo(key, anchor: .center) }
             }
             .fullScreenCover(isPresented: $running) {
-                NeedsRun(inbox: inbox, live: { needs(sections.filter { $0.tab == "inbox" }) }) { key in
+                NeedsRun(inbox: inbox, live: { needs(sections.filter { $0.tab == "inbox" }) }, queue: $run) { key in
                     running = false
                     actions.open(key)
                 }
             }
         }
     }
-    /// Every request waiting on the person in the open tab's rows, in the list's order.
+    /// Everything waiting on the person in the open tab's rows, in the list's order: each
+    /// request, and each thread that needs the person with no request to answer here.
     private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] {
-        shown.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key in
-            (inbox.client(key.machineId)?.needsYou(key.id) ?? []).map { NeedsRunQueue.Entry(thread: key, request: $0.id) }
+        shown.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key -> [NeedsRunQueue.Entry] in
+            let asks = inbox.client(key.machineId)?.needsYou(key.id) ?? []
+            if !asks.isEmpty { return asks.map { NeedsRunQueue.Entry(thread: key, request: $0.id) } }
+            return inbox.row(key)?.look?.level == "needs-you" ? [NeedsRunQueue.Entry(thread: key, request: nil)] : []
         }
     }
     /// The row to reveal, once the open tab lists it.
