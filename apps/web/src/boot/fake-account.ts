@@ -74,15 +74,25 @@ export function fakeAccountBackend(storage: KeyValueStorage, now: () => number) 
   const token = "f".repeat(43);
   const session = { token, expiresAt: now() + 30 * 86_400_000, account: person };
   storage.setItem(`ace.account.session:${fakeOrigin}`, JSON.stringify(session));
-  let machines = [
-    { hostId: fakeHostIds.studio, name: "Studio", platform: "darwin", lastSeenAt: now() - 120_000 },
-    {
-      hostId: fakeHostIds.laptop,
-      name: "Travel laptop",
-      platform: "linux",
-      lastSeenAt: now() - 3 * 86_400_000,
-    },
-  ];
+  // `?fakeWorld=just-this-mac` keeps the account's list empty.
+  const solo =
+    new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld") === "just-this-mac";
+  let machines = solo
+    ? []
+    : [
+        {
+          hostId: fakeHostIds.studio,
+          name: "Studio",
+          platform: "darwin",
+          lastSeenAt: now() - 120_000,
+        },
+        {
+          hostId: fakeHostIds.laptop,
+          name: "Travel laptop",
+          platform: "linux",
+          lastSeenAt: now() - 3 * 86_400_000,
+        },
+      ];
   const client = aceAccountClient({
     origin: fakeOrigin,
     fetch: async (input, init) => {

@@ -99,6 +99,9 @@ export function bootFake(): {
     (globalThis as { aceFakeWorld?: string }).aceFakeWorld ??
     new URLSearchParams(globalThis.location?.search ?? "").get("fakeWorld");
   const empty = world === "empty";
+  // `?fakeWorld=just-this-mac`: Fleet with this computer alone, nothing else paired or on the
+  // account.
+  const solo = world === "just-this-mac";
   if (world === "real-thread-state") seedRealThreadState(daemon);
   // `?fakeWorld=settled-held`: the dev world plus settled threads held at a usage limit or with
   // a command left running: they stay in Settled.
@@ -279,9 +282,10 @@ export function bootFake(): {
   if (!empty)
     daemon.access.pair({ scopes: ["read", "operate"], label: "Kitchen iPad", ttlMs: 3_600_000 });
   // A laptop paired here that's switched off, so Fleet shows a machine offline.
-  const away = empty ? [] : [{ hostId: HostId.parse("old-laptop"), displayName: "Old laptop" }];
+  const away =
+    empty || solo ? [] : [{ hostId: HostId.parse("old-laptop"), displayName: "Old laptop" }];
   const machines = fakeMachinePool(
-    [server],
+    solo ? [] : [server],
     (other) =>
       createBrowserClient({
         deviceId: "web-fake-device",

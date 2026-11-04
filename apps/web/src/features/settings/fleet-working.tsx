@@ -47,6 +47,7 @@ export function AgentAccessRow() {
   return (
     <HairlineRow
       id="remote.agentAccess"
+      wide
       title="Other machines' agents"
       sub={agentAccessNotes[agents.value]}
       actions={

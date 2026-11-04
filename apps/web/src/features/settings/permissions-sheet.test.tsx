@@ -61,7 +61,7 @@ test("from the overview, a choice lands on every link on every connected machine
   expect(pressed(sheet, "Commands")).toEqual(["Off"]);
   // Commands says plainly what it gives away.
   expect(
-    within(sheet).getByText("Only for machines you trust: every command is logged."),
+    within(sheet).getByText(/^Only for machines you trust: a command can reach all your files/),
   ).toBeTruthy();
   await userEvent.click(
     within(within(sheet).getByRole("group", { name: "Commands" })).getByRole("button", {

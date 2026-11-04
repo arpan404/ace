@@ -112,6 +112,8 @@ export function HairlineRow(props: {
   onOpen?: (() => void) | undefined;
   /** Under the row, inside it (a prompt it asks). */
   children?: ReactNode;
+  /** Its control is wide (a choice): on a narrow column it drops under the words. */
+  wide?: boolean;
   "data-row"?: string | undefined;
 }) {
   const own = useRef<HTMLDivElement>(null);
@@ -133,43 +135,58 @@ export function HairlineRow(props: {
       data-row={props["data-row"]}
       data-flash={flashing || undefined}
       className={cn(
-        "group/row relative -mx-2 border-b border-border-soft px-2 transition-colors duration-(--motion-fast) last:border-b-0",
-        "hover:rounded-lg hover:border-b-transparent hover:bg-hover focus-within:rounded-lg focus-within:border-b-transparent focus-within:bg-hover",
-        flashing && "rounded-lg bg-accent",
+        // The wash overhangs the column; the hairline under the row keeps to it.
+        "group/row relative -mx-2 rounded-lg px-2 transition-colors duration-(--motion-fast) hover:bg-hover focus-within:bg-hover",
+        flashing && "bg-accent",
       )}
     >
-      <div className="flex min-h-13 items-center gap-3 py-2.5">
-        {props.tile}
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex min-w-0 items-center gap-1.5">
-            {title}
-            {props.tag && (
-              <span className="shrink-0 text-xs font-normal text-subtle-foreground">
-                {props.tag}
-              </span>
+      <div className="border-b border-border-soft group-last/row:border-b-0 group-hover/row:border-transparent group-focus-within/row:border-transparent">
+        <div
+          className={cn(
+            "flex min-h-13 items-center gap-3 py-2.5",
+            props.wide && "@max-[560px]:flex-wrap",
+          )}
+        >
+          {props.tile}
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="flex min-w-0 items-center gap-1.5">
+              {title}
+              {props.tag && (
+                <span className="shrink-0 text-xs font-normal text-subtle-foreground">
+                  {props.tag}
+                </span>
+              )}
+            </div>
+            {props.sub && (
+              <div className="text-xs leading-relaxed text-muted-foreground">{props.sub}</div>
             )}
           </div>
-          {props.sub && (
-            <div className="text-xs leading-relaxed text-muted-foreground">{props.sub}</div>
+          {props.meta && (
+            <span className="shrink-0 text-xs whitespace-nowrap text-subtle-foreground tabular-nums">
+              {props.meta}
+            </span>
+          )}
+          {props.actions && (
+            <div
+              className={cn(
+                "flex shrink-0 items-center gap-1",
+                props.wide && "@max-[560px]:basis-full",
+              )}
+            >
+              {props.actions}
+            </div>
+          )}
+          {opens && (
+            <span aria-hidden className="w-2.5 shrink-0 text-center text-subtle-foreground">
+              ›
+            </span>
           )}
         </div>
-        {props.meta && (
-          <span className="shrink-0 text-xs whitespace-nowrap text-subtle-foreground tabular-nums">
-            {props.meta}
-          </span>
-        )}
-        {props.actions && <div className="flex shrink-0 items-center gap-1">{props.actions}</div>}
-        {opens && (
-          <span aria-hidden className="w-2.5 shrink-0 text-center text-subtle-foreground">
-            ›
-          </span>
-        )}
+        {props.children}
       </div>
-      {props.children}
     </div>
   );
 }
-
 /** A group: its title with a quiet count, an optional line, then its rows on hairlines. */
 export function RowGroup(props: {
   label: string;

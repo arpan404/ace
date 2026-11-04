@@ -39,8 +39,9 @@ export const capabilityRows: readonly {
   {
     capability: "commands",
     title: "Commands",
-    note: "Run any command as you, without asking. A command can reach all your files, ace's data and your network.",
-    warning: "Only for machines you trust: every command is logged.",
+    note: "Run any command as you, without asking.",
+    warning:
+      "Only for machines you trust: a command can reach all your files, ace's data and your network. Every command is logged.",
   },
 ];
 
