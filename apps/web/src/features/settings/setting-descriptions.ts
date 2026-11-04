@@ -30,6 +30,8 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
   "browser.profile": "Choose whether new browsers keep sign-ins and cookies or start fresh.",
   "browser.loss": "Choose what happens to browser sessions when the desktop app disconnects.",
   "browser.revealAgentPages": "Bring pages opened by agents into view automatically.",
+  "storage.backupWorktrees":
+    "Commits everything not in .gitignore, .env included, and pushes to origin.",
   "browser.deviceToolbar": "Show device and viewport controls when you open a browser tab.",
   "browser.pip": "Show a floating browser preview while an agent browses or the page plays sound.",
   "browser.extensionsButton": "The puzzle-piece button beside the address, listing extensions.",

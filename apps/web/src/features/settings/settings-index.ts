@@ -32,6 +32,42 @@ const entries = [
     keywords: ["disk", "space", "clean", "worktrees", "attachments", "recordings", "logs", "cache"],
   },
   {
+    id: "storage.retentionDays",
+    page: "/settings/storage",
+    title: "Keep data for",
+    keywords: ["retention", "days", "idle", "threads", "data window", "delete"],
+  },
+  {
+    id: "logs.maxBytes",
+    page: "/settings/storage",
+    title: "Log limit",
+    keywords: ["logs", "size", "megabytes", "disk"],
+  },
+  {
+    id: "storage.retention",
+    page: "/settings/storage",
+    title: "Retention by kind",
+    keywords: ["archived", "attachments", "recordings", "days", "keep", "delete"],
+  },
+  {
+    id: "storage.dailyCleanup",
+    page: "/settings/storage",
+    title: "Daily cleanup",
+    keywords: ["schedule", "clean", "delete", "retention", "automatic"],
+  },
+  {
+    id: "storage.worktreeDeletion",
+    page: "/settings/storage",
+    title: "Automatic deletion",
+    keywords: ["worktree", "worktrees", "delete", "settled", "clean", "merged"],
+  },
+  {
+    id: "storage.worktreeDays",
+    page: "/settings/storage",
+    title: "Delete after settling",
+    keywords: ["worktree", "worktrees", "days", "settled"],
+  },
+  {
     id: "past-sessions",
     page: "/settings/providers",
     title: "Past sessions",
@@ -50,6 +86,24 @@ const entries = [
     page: "/settings/source-control",
     title: "Source control",
     keywords: ["github", "gh", "git", "enterprise", "account", "rescan"],
+  },
+  {
+    id: "sourceControl.host",
+    page: "/settings/source-control",
+    title: "GitHub host",
+    keywords: ["github", "enterprise", "hostname", "ghe", "server"],
+  },
+  {
+    id: "sourceControl.account",
+    page: "/settings/source-control",
+    title: "Expected account",
+    keywords: ["github", "login", "gh", "user", "account"],
+  },
+  {
+    id: "sourceControl.remote",
+    page: "/settings/source-control",
+    title: "Repository remote",
+    keywords: ["git", "remote", "origin", "upstream", "repository"],
   },
   {
     id: "prompts",
@@ -123,7 +177,19 @@ const entries = [
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: agentSettingTitles["threads.useWorktree"],
-    keywords: ["git", "branch", "checkout"],
+    keywords: ["git", "branch", "checkout", "worktrees"],
+  },
+  {
+    id: "worktree.preparationTimeout",
+    page: "/settings/agents",
+    title: "Worktree preparation timeout",
+    keywords: ["worktree", "worktrees", "timeout", "preparation", "git", "setup"],
+  },
+  {
+    id: "storage.backupWorktrees",
+    page: "/settings/agents",
+    title: "Back up worktrees to origin",
+    keywords: ["worktree", "worktrees", "backup", "push", "origin", "git"],
   },
   {
     id: "threads.sortBy",
@@ -187,7 +253,7 @@ const entries = [
   },
   {
     id: "generation.autoDraftCommits",
-    page: "/settings/agents",
+    page: "/settings/source-control",
     title: agentSettingTitles["generation.autoDraftCommits"],
     keywords: ["commit", "draft", "generate"],
   },
@@ -541,12 +607,6 @@ const entries = [
     ],
   },
   // Advanced
-  {
-    id: "advanced.worktreeTimeout",
-    page: "/settings/advanced",
-    title: "Worktree preparation timeout",
-    keywords: ["worktree", "timeout", "preparation", "git"],
-  },
   {
     id: "advanced.diagnostics",
     page: "/settings/advanced",

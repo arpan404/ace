@@ -15,15 +15,16 @@ import { settingKeys } from "./data/setting-keys.ts";
 import { useSettingWrite } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
-import { SettingSwitch } from "./setting-switch.tsx";
 
-/** Titles and commit/PR drafts: the model they're written with, and drafting on open. */
+/**
+ * Titles and commit/PR drafts: the model they're written with. Drafting commit messages on open
+ * is on Settings › Source control.
+ */
 export function GenerationSettings() {
   const note = useNotConnectedNote();
   return (
     <SettingSection label="Generation" card scope="daemon" note={note}>
       <UtilityModelRow />
-      <SettingSwitch setting={settingKeys.autoDraftCommits} entry="generation.autoDraftCommits" />
     </SettingSection>
   );
 }

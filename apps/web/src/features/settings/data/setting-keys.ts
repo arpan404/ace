@@ -48,6 +48,7 @@ export const settingKeys = {
     SettingsValues.shape["worktree.preparationTimeoutMs"],
     600_000,
   ),
+  backupWorktrees: setting("storage.backupWorktrees", z.boolean(), false),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   sortBy: setting("threads.sortBy", SortBy, "activity"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),

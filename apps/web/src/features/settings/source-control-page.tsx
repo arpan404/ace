@@ -28,6 +28,9 @@ import {
 } from "@/components/setting-row.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
 import { ToolchainSection } from "./toolchain-section.tsx";
+import { settingKeys } from "./data/setting-keys.ts";
+import { SettingSwitch } from "./setting-switch.tsx";
+import { settingRow } from "./settings-index.ts";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
@@ -183,8 +186,9 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         )}
       </SettingSection>
       <SettingSection label="Preferences" scope="daemon">
+        <SettingSwitch setting={settingKeys.autoDraftCommits} entry="generation.autoDraftCommits" />
         <SettingRow
-          title="GitHub host"
+          {...settingRow("sourceControl.host")}
           description="github.com, or a GitHub Enterprise hostname."
           htmlFor="sc-host"
         >
@@ -196,7 +200,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           />
         </SettingRow>
         <SettingRow
-          title="Expected account"
+          {...settingRow("sourceControl.account")}
           description="Requests stop if gh is signed in as someone else."
           htmlFor="sc-account"
         >
@@ -209,7 +213,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           />
         </SettingRow>
         <SettingRow
-          title="Repository remote"
+          {...settingRow("sourceControl.remote")}
           description="The Git remote that names a project's repository."
           htmlFor="sc-remote"
         >
