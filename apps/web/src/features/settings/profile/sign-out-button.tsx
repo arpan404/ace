@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { hasDesktopBridge } from "@/boot/desktop.ts";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { accountSignOutQuestion } from "@/features/ace-account/index.ts";
@@ -17,10 +16,7 @@ export function SignOutButton(props: { account: ProfileAccount }) {
         disabled={account.busy || account.restoring}
         onClick={() =>
           setConfirming({
-            ...accountSignOutQuestion({
-              email: account.session?.account.email,
-              desktop: hasDesktopBridge(),
-            }),
+            ...accountSignOutQuestion(),
             run: () => void account.signOut(),
           })
         }

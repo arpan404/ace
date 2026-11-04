@@ -172,8 +172,8 @@ test("this computer signs in to the account from How this computer is reached, a
   // The fake daemon signs in as its own person, so the row also says it isn't this app's.
   expect(await within(reached).findByText(/^Signed in as arpan@example\.com/)).toBeDefined();
   await userEvent.click(within(reached).getByRole("button", { name: "Sign out" }));
-  const ask = await screen.findByRole("dialog", { name: /^Sign this computer out of/ });
-  expect(within(ask).getByText(/Its threads and data stay on it\./)).toBeDefined();
+  const ask = await screen.findByRole("dialog", { name: "Sign this computer out?" });
+  expect(within(ask).getByText(/until it signs back in\./)).toBeDefined();
   await userEvent.click(within(ask).getByRole("button", { name: "Sign out" }));
   expect(await within(reached).findByText(/^Not signed in/)).toBeDefined();
 }, 30_000);

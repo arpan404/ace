@@ -1,7 +1,6 @@
 /*
- * What signing out asks before it happens. Signing out never deletes anything: threads, drafts
- * and queued messages stay where they are and come back on the next sign-in, so each question
- * says what stops and what stays.
+ * What signing out asks before it happens: a short question and one line. Signing out never
+ * deletes anything, so the line says what stays or what stops.
  */
 
 export interface SignOutQuestion {
@@ -10,31 +9,20 @@ export interface SignOutQuestion {
   confirm: string;
 }
 
-/** Signing this app out of the person's ace account. `desktop`: this computer can leave with it. */
-export function accountSignOutQuestion(input: {
-  email: string | undefined;
-  desktop: boolean;
-}): SignOutQuestion {
+/** Signing this app out of the person's ace account. */
+export function accountSignOutQuestion(): SignOutQuestion {
   return {
-    title: input.email ? `Sign out of ${input.email}?` : "Sign out of your ace account?",
-    body: [
-      "This app stops opening the machines on your account until you sign in again.",
-      "Your threads, drafts and anything waiting to send stay here.",
-      input.desktop ? "If this computer joined your account through this app, it leaves too." : "",
-    ]
-      .filter(Boolean)
-      .join(" "),
+    title: "Sign out?",
+    body: "Your threads and drafts stay on this device.",
     confirm: "Sign out",
   };
 }
 
 /** Signing a machine out of the ace account it is on. */
-export function machineSignOutQuestion(input: { email: string | undefined }): SignOutQuestion {
+export function machineSignOutQuestion(): SignOutQuestion {
   return {
-    title: input.email
-      ? `Sign this computer out of ${input.email}?`
-      : "Sign this computer out of its ace account?",
-    body: "Your other devices can't open it through your ace account until it signs in again. Its threads and data stay on it.",
+    title: "Sign this computer out?",
+    body: "Your other devices can't open it until it signs back in.",
     confirm: "Sign out",
   };
 }

@@ -6,7 +6,7 @@ import { harness } from "@/test/harness.tsx";
 
 /** Sign out asks first; this answers it. */
 async function confirmSignOut() {
-  const ask = await screen.findByRole("dialog", { name: /^Sign out of/ });
+  const ask = await screen.findByRole("dialog", { name: "Sign out?" });
   await userEvent.click(within(ask).getByRole("button", { name: "Sign out" }));
 }
 
@@ -156,10 +156,8 @@ test("Sign out asks first, says the person's work stays, and Cancel keeps them s
   const signOut = await screen.findByRole("button", { name: "Sign out" });
   await waitFor(() => expect(signOut.hasAttribute("disabled")).toBe(false));
   await userEvent.click(signOut);
-  const ask = await screen.findByRole("dialog", { name: "Sign out of kept@example.com?" });
-  expect(
-    within(ask).getByText(/Your threads, drafts and anything waiting to send stay here\./),
-  ).toBeDefined();
+  const ask = await screen.findByRole("dialog", { name: "Sign out?" });
+  expect(within(ask).getByText(/Your threads and drafts stay on this device\./)).toBeDefined();
   await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(deletes).toEqual([]);
