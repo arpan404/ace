@@ -1,3 +1,4 @@
+import { SourceControlMockup } from "./source-control-mockup.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ClientApi } from "@ace/client";
@@ -34,6 +35,15 @@ import { useSettingsMachine } from "./machine-scope.tsx";
  * check per project.
  */
 export function SourceControlSettings() {
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("mockup") === "git-hosts"
+  )
+    return <SourceControlMockup />;
+  return <LiveSourceControlSettings />;
+}
+
+function LiveSourceControlSettings() {
   const client = useClient();
   const { machine } = useSettingsMachine();
   const machineId = !machine || machine.primary ? "primary" : machine.id;

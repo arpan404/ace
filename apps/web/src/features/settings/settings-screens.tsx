@@ -249,7 +249,12 @@ export function SourceControlSettingsScreen() {
   return (
     <SettingsBody
       page="Source control"
-      lede="GitHub through this machine's gh CLI. Credentials stay with gh and Git."
+      lede={
+        import.meta.env.DEV &&
+        new URLSearchParams(window.location.search).get("mockup") === "git-hosts"
+          ? "Credentials stay with your local tools and Git."
+          : "GitHub through this machine's gh CLI. Credentials stay with gh and Git."
+      }
     >
       <Suspense fallback={null}>
         <SourceControlSettings />
