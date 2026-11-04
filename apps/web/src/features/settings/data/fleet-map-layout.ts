@@ -47,7 +47,7 @@ export interface PlacedWire {
   relayed: boolean;
   label: string;
   points: readonly Point[];
-  /** On the line, where a broken wire's ✕ sits. */
+  /** On the line, where a broken wire's cross sits. */
   mark: Point;
   labelAt: Point & { anchor: "start" | "middle" };
 }

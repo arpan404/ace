@@ -15,12 +15,19 @@ export {
   ProviderDetailScreen,
   ProviderSettingsScreen,
   RemoteSettingsScreen,
+  FleetMapScreen,
   FleetMachineScreen,
   SourceControlSettingsScreen,
   SettingsIndexScreen,
 } from "./settings-screens.tsx";
 /** Every setting by page, for the palette's Settings group and the Settings filter (ST-05). */
-export { pageTitle, searchSettings, settingsIndex, type SettingEntry } from "./settings-index.ts";
+export {
+  entryRoute,
+  pageTitle,
+  searchSettings,
+  settingsIndex,
+  type SettingEntry,
+} from "./settings-index.ts";
 export { SettingsNav } from "./settings-nav.tsx";
 /** Which machine the Machine pages edit, and the routed page rendered against it. */
 export { SettingsMachineProvider } from "./machine-scope.tsx";

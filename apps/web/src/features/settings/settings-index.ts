@@ -17,7 +17,12 @@ export interface SettingEntry {
   readonly title: string;
   /** Other words people use for it ("dark mode" for Theme). */
   readonly keywords?: readonly string[];
+  /** Where it opens when that's a view inside its page (Fleet's Map), not the page itself. */
+  readonly route?: "/settings/remote/map";
 }
+
+/** Where a setting opens: its view inside the page when it has one, else the page. */
+export const entryRoute = (entry: SettingEntry) => entry.route ?? entry.page;
 
 const entries = [
   {
@@ -475,6 +480,24 @@ const entries = [
     page: "/settings/remote",
     title: "Machine name and icon",
     keywords: ["host", "rename", "computer", "icon", "machine icon"],
+  },
+  {
+    id: "fleet.map",
+    page: "/settings/remote",
+    route: "/settings/remote/map",
+    title: "Fleet map",
+    keywords: [
+      "network",
+      "diagram",
+      "topology",
+      "graph",
+      "connections",
+      "problems",
+      "broken",
+      "relay",
+      "tailnet",
+      "wi-fi",
+    ],
   },
   {
     id: "remote.pair",

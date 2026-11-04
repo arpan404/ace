@@ -46,23 +46,13 @@ function expiryLine(expiresAt: number | null, now: number): string | undefined {
 }
 
 /**
- * The phones, tablets and browsers paired with the fleet's machines, the same device on several
- * machines as one row, each removable. Then the pairing links nobody has used yet, each
- * cancellable. Nothing at all while there are neither.
+ * Removing a device from every machine it's paired with: asks first (warning when it's the
+ * device this window connects as), then revokes it on each. `ask` opens the question; render
+ * `dialog` beside the button.
  */
-export function FleetDevices(props: { fleet: Fleet }) {
-  const { fleet } = props;
-  const now = useNow();
+export function useRemoveDevice(fleet: Fleet) {
   const toast = useToast();
   const [confirming, setConfirming] = useState<Confirming>();
-  const failed = fleet.machines.flatMap((machine) =>
-    fleet.devices.get(machine.id)?.isError ? [machine.name] : [],
-  );
-  const open = fleet.machines.flatMap((machine) =>
-    (fleet.pairings.get(machine.id)?.data ?? [])
-      .filter((pairing) => pairing.expiresAt > now)
-      .map((pairing) => ({ machine, pairing })),
-  );
   const revoke = useMutation({
     mutationFn: async (targets: FleetDevice["on"]) => {
       for (const target of targets) {
@@ -74,6 +64,39 @@ export function FleetDevices(props: { fleet: Fleet }) {
     },
     onError: (error) => toast.error({ title: "Couldn't remove it", description: error.message }),
   });
+  return {
+    pending: revoke.isPending,
+    ask: (device: FleetDevice) =>
+      setConfirming({
+        title: `Remove ${device.name}?`,
+        body: device.self
+          ? "This is the device you're using. This window disconnects at once and has to be paired again."
+          : "It disconnects at once and has to be paired again to see or steer threads.",
+        confirm: "Remove",
+        run: () => revoke.mutate(device.on),
+      }),
+    dialog: <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />,
+  };
+}
+
+/**
+ * The phones, tablets and browsers paired with the fleet's machines, the same device on several
+ * machines as one row, each removable. Then the pairing links nobody has used yet, each
+ * cancellable. Nothing at all while there are neither.
+ */
+export function FleetDevices(props: { fleet: Fleet }) {
+  const { fleet } = props;
+  const now = useNow();
+  const toast = useToast();
+  const remove = useRemoveDevice(fleet);
+  const failed = fleet.machines.flatMap((machine) =>
+    fleet.devices.get(machine.id)?.isError ? [machine.name] : [],
+  );
+  const open = fleet.machines.flatMap((machine) =>
+    (fleet.pairings.get(machine.id)?.data ?? [])
+      .filter((pairing) => pairing.expiresAt > now)
+      .map((pairing) => ({ machine, pairing })),
+  );
   const cancel = useMutation({
     mutationFn: async (entry: (typeof open)[number]) => {
       if (!entry.machine.client) throw new Error(`${entry.machine.name} is offline.`);
@@ -112,17 +135,8 @@ export function FleetDevices(props: { fleet: Fleet }) {
             <RowAction
               reveal
               aria-label={`Remove ${device.name}`}
-              disabled={revoke.isPending}
-              onClick={() =>
-                setConfirming({
-                  title: `Remove ${device.name}?`,
-                  body: device.self
-                    ? "This is the device you're using. This window disconnects at once and has to be paired again."
-                    : "It disconnects at once and has to be paired again to see or steer threads.",
-                  confirm: "Remove",
-                  run: () => revoke.mutate(device.on),
-                })
-              }
+              disabled={remove.pending}
+              onClick={() => remove.ask(device)}
             >
               Remove
             </RowAction>
@@ -161,7 +175,7 @@ export function FleetDevices(props: { fleet: Fleet }) {
           />
         );
       })}
-      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+      {remove.dialog}
     </RowGroup>
   );
 }

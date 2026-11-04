@@ -50,6 +50,7 @@ import { Route as SettingsProvidersIndexRouteImport } from "./routes/settings.pr
 import { Route as SettingsProvidersProviderRouteImport } from "./routes/settings.providers.$provider"
 import { Route as SettingsRemoteIndexRouteImport } from "./routes/settings.remote.index"
 import { Route as SettingsRemoteMachineRouteImport } from "./routes/settings.remote.$machine"
+import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
 import { Route as HomeIssuesProjectNumberRouteImport } from "./routes/_home.issues_.$project.$number"
 import { Route as HomeIssuesProjectNewRouteImport } from "./routes/_home.issues_.$project.new"
 import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls_.$project.$number"
@@ -264,6 +265,11 @@ const SettingsRemoteMachineRoute = SettingsRemoteMachineRouteImport.update({
   path: "/remote/$machine",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsRemoteMapRoute = SettingsRemoteMapRouteImport.update({
+  id: "/remote/map",
+  path: "/remote/map",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const HomeIssuesProjectNumberRoute = HomeIssuesProjectNumberRouteImport.update({
   id: "/issues_/$project/$number",
   path: "/issues/$project/$number",
@@ -334,6 +340,7 @@ export interface FileRoutesByFullPath {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -379,6 +386,7 @@ export interface FileRoutesByTo {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers": typeof SettingsProvidersIndexRoute
   "/settings/remote": typeof SettingsRemoteIndexRoute
@@ -429,6 +437,7 @@ export interface FileRoutesById {
   "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
   "/settings/providers/$provider": typeof SettingsProvidersProviderRoute
   "/settings/remote/$machine": typeof SettingsRemoteMachineRoute
+  "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
   "/settings/providers/": typeof SettingsProvidersIndexRoute
   "/settings/remote/": typeof SettingsRemoteIndexRoute
@@ -479,6 +488,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/map"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -524,6 +534,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/map"
     | "/automations/$automationId"
     | "/settings/providers"
     | "/settings/remote"
@@ -573,6 +584,7 @@ export interface FileRouteTypes {
     | "/automations/$automationId/edit"
     | "/settings/providers/$provider"
     | "/settings/remote/$machine"
+    | "/settings/remote/map"
     | "/automations/$automationId/"
     | "/settings/providers/"
     | "/settings/remote/"
@@ -883,6 +895,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRemoteMachineRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/remote/map": {
+      id: "/settings/remote/map"
+      path: "/remote/map"
+      fullPath: "/settings/remote/map"
+      preLoaderRoute: typeof SettingsRemoteMapRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/_home/issues_/$project/$number": {
       id: "/_home/issues_/$project/$number"
       path: "/issues/$project/$number"
@@ -1001,6 +1020,7 @@ interface SettingsRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsProvidersProviderRoute: typeof SettingsProvidersProviderRoute
   SettingsRemoteMachineRoute: typeof SettingsRemoteMachineRoute
+  SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
 }
@@ -1022,6 +1042,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsProvidersProviderRoute: SettingsProvidersProviderRoute,
   SettingsRemoteMachineRoute: SettingsRemoteMachineRoute,
+  SettingsRemoteMapRoute: SettingsRemoteMapRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
 }

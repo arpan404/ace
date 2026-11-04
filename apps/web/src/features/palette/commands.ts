@@ -26,7 +26,7 @@ import { useMemo } from "react";
 import { windowsHelpActions } from "@/boot/help-actions.ts";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useNewThreadEntry } from "@/features/projects/index.ts";
-import { pageTitle, settingsIndex } from "@/features/settings/index.ts";
+import { entryRoute, pageTitle, settingsIndex } from "@/features/settings/index.ts";
 import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectDirectory } from "@/lib/projects.ts";
@@ -333,7 +333,7 @@ export function usePaletteGroups(
         label: entry.title,
         detail: pageTitle(entry.page),
         icon: "view",
-        run: run(() => void navigate({ to: entry.page, hash: entry.id })),
+        run: run(() => void navigate({ to: entryRoute(entry), hash: entry.id })),
       })),
     });
     // Windows: the menu bar's Help items, which its frameless window doesn't show.

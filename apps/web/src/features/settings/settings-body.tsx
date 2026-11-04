@@ -9,6 +9,7 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { cn } from "@/lib/cn.ts";
 import { machineStatus } from "@/lib/machine-status.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { allMachines, useSettingsMachine } from "./machine-scope.tsx";
@@ -35,6 +36,10 @@ export function SettingsBody(props: {
   /** A mark beside the title (a provider's page). */
   icon?: ReactNode;
   trailing?: ReactNode;
+  /** The page's views under the title (Fleet's Overview and Map), as page tabs. */
+  tabs?: ReactNode;
+  /** A view that draws rather than lists takes a wider column. */
+  wide?: boolean;
   children?: ReactNode;
 }) {
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -45,10 +50,20 @@ export function SettingsBody(props: {
     // its controls, with the view's name for assistive tech.
     <Screen title="Settings" namedByPanel actions={props.actions}>
       <div className="h-full overflow-auto">
-        <div className="@container mx-auto w-full max-w-(--settings-column) px-5 pt-8 pb-20 sm:px-7">
+        <div
+          className={cn(
+            "@container mx-auto w-full px-5 pt-8 pb-20 sm:px-7",
+            props.wide ? "max-w-(--settings-wide-column)" : "max-w-(--settings-column)",
+          )}
+        >
           {props.back && <div className="mb-1 text-ui">{props.back}</div>}
           {/* The title row is a band of its own: the first group starts a clear step below it. */}
-          <div className="mb-7 flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2">
+          <div
+            className={cn(
+              "flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2",
+              props.tabs ? "mb-3" : "mb-7",
+            )}
+          >
             {props.icon}
             <div className="min-w-0">
               <h2 className="text-xl leading-[26px] font-semibold tracking-[-0.015em]">
@@ -66,6 +81,7 @@ export function SettingsBody(props: {
               </div>
             )}
           </div>
+          {props.tabs && <div className="mb-6">{props.tabs}</div>}
           <div
             // A new page or machine starts its content over, with one short rise.
             key={`${pathname}:${machine?.primary ? "primary" : (machine?.id ?? "")}`}
