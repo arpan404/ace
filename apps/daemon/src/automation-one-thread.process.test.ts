@@ -139,3 +139,24 @@ test("pausing during a run's own turn stops that turn", async () => {
     await f.daemon.close();
   }
 });
+
+test("Run now while the person paused new work is refused and starts no thread", async () => {
+  const { f, app, run, runs, threads } = await setUp();
+  try {
+    f.daemon.maintenance.enter("user");
+    expect(await run("paused")).toMatchObject({
+      ok: false,
+      error: "New work is paused. Resume new work in ace to continue.",
+    });
+    await settle(f);
+    expect(threads()).toHaveLength(0);
+    expect(await runs()).toEqual([]);
+
+    f.daemon.maintenance.leave("user");
+    await run("resumed");
+    await expect.poll(() => threads().length, wait).toBe(1);
+  } finally {
+    await app.client.close();
+    await f.daemon.close();
+  }
+});

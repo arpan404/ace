@@ -6,7 +6,7 @@ import type { Machine } from "@/lib/machines.ts";
 
 /** What pausing does, as the daemon's maintenance gate enforces it (ADR 0041). */
 const explain =
-  "Running agents finish; new threads and messages are turned away, and queued agents wait until you resume.";
+  "Running agents finish; new threads and messages are turned away, queued agents wait until you resume, and scheduled automations skip runs that come due.";
 
 /**
  * A machine page's "Pause new work": whether the machine takes new work and the one action that
@@ -33,9 +33,7 @@ export function MachinePause(props: { machine: Machine }) {
       <HairlineRow
         id="machine.pause"
         data-row="machine-pause"
-        title={
-          words.line ? <StateWords tone="warn">{words.line}</StateWords> : "Taking new work"
-        }
+        title={words.line ? <StateWords tone="warn">{words.line}</StateWords> : "Taking new work"}
         sub={
           <>
             <span className="block">{explain}</span>
