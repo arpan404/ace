@@ -22,8 +22,10 @@ const signedIn = (id: string, source?: "login" | "handover", at = origin) => ({
   ...(source ? { source } : {}),
 });
 /** A daemon that predates conditional account changes: no `sessionId`. */
-const unconditional = (status: object) =>
-  Object.fromEntries(Object.entries(status).filter(([key]) => key !== "sessionId"));
+const unconditional = <T extends { sessionId: string | null }>(status: T) => {
+  const { sessionId: _, ...rest } = status;
+  return rest;
+};
 const loggingIn = {
   ...signedOut,
   login: { url: "https://account.example/login?id=1", expiresAt: 2_000_000_000_000 },

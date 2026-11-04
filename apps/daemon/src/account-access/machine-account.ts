@@ -30,7 +30,7 @@ const loginPollMs = 2_000;
  * read: its `sessionId`, or null for none.
  */
 export type SessionCondition = { session: string | null };
-const changed = () =>
+const accountChanged = () =>
   new AccessError(412, "This machine's ace account changed. Read it again before changing it.");
 const noop = () => {};
 
@@ -154,7 +154,7 @@ export function machineAccount(options: {
         );
       }
       await adopt({ origin, token, ...checked, source: "handover" }, () => {
-        if (condition && (condition.session !== sessionId || login)) throw changed();
+        if (condition && (condition.session !== sessionId || login)) throw accountChanged();
         stopLogin();
       });
       return this.status();
@@ -217,7 +217,7 @@ export function machineAccount(options: {
     async signOut(condition?: SessionCondition): Promise<MachineAccountStatus> {
       const ended: { session?: StoredSession | undefined } = {};
       await adopt(undefined, () => {
-        if (condition && condition.session !== sessionId) throw changed();
+        if (condition && condition.session !== sessionId) throw accountChanged();
         if (!condition) stopLogin();
         ended.session = session;
       });

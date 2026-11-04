@@ -1,4 +1,4 @@
-import { ClientError, type Storage } from "@ace/client";
+import { ClientError, type ClientApi, type Storage } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { browserDeviceSocket } from "@ace/client/devices";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
@@ -12,6 +12,51 @@ import {
 import { createBrowserClient } from "./client.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 
+/** What an account machine's client is made from: its relay route, for one attempt. */
+type AccountMachineRoute = Parameters<AccountMachineOptions["client"]>[0];
+
+/** What a send queued before outboxes were kept per account says, once carried over. */
+export const legacyOutboxError =
+  "Saved before ace kept queued work per account, so it wasn't sent. Send it again or discard it.";
+
+/** A saved outbox's entries, or none when it can't be read. */
+function entriesOf(text: string | null): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(text ?? "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Carries an older build's outbox for this machine (one per machine, no account) into an
+ * account's. Nothing in it says which account queued it, so none of it is sent on its own: work
+ * still waiting becomes a failed send, kept for the person to send again or discard under the
+ * account they are now on. Work already done is dropped. Returns the merged value, or the
+ * current one when the old outbox can't be read.
+ */
+function carryLegacy(legacy: string, current: string | null): string | null {
+  const kept = entriesOf(current);
+  const ids = new Set(kept.map(commandId));
+  const carried = entriesOf(legacy).flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null || !("state" in entry)) return [];
+    const id = commandId(entry);
+    if (id === undefined || ids.has(id)) return [];
+    if (entry.state === "failed") return [entry];
+    if (entry.state !== "saving" && entry.state !== "pending") return [];
+    return [{ ...entry, state: "failed", error: legacyOutboxError }];
+  });
+  return carried.length === 0 ? current : JSON.stringify([...kept, ...carried]);
+}
+
+function commandId(entry: unknown): string | undefined {
+  if (typeof entry !== "object" || entry === null || !("command" in entry)) return undefined;
+  const command: unknown = entry.command;
+  if (typeof command !== "object" || command === null || !("id" in command)) return undefined;
+  return typeof command.id === "string" ? command.id : undefined;
+}
+
 /**
  * An account machine's outbox, kept for this window so a reload doesn't drop queued work. It is
  * kept per account as well as per machine: work queued under one account is only ever sent
@@ -21,10 +66,44 @@ import { authorizeDaemonUrl } from "./daemon-network.ts";
 function outbox(storage: KeyValueStorage, accountId: string | undefined, hostId: string): Storage {
   if (accountId === undefined) return { load: async () => null, save: async () => {} };
   const key = `ace.account.outbox:${encodeURIComponent(accountId)}:${hostId}`;
+  const legacyKey = `ace.account.outbox:${hostId}`;
   return {
-    load: async () => storage.getItem(key),
+    load: async () => {
+      const legacy = storage.getItem(legacyKey);
+      if (legacy !== null) {
+        const merged = carryLegacy(legacy, storage.getItem(key));
+        if (merged !== null) storage.setItem(key, merged);
+        storage.removeItem?.(legacyKey);
+      }
+      return storage.getItem(key);
+    },
     save: async (value) => storage.setItem(key, value),
   };
+}
+
+/**
+ * A client for an account machine, for `owner`'s work only: its outbox is `owner`'s, and should
+ * the window hold another account when it dials again, it never does, so that work is never
+ * sent under another account. `owner` undefined: a client made while signed out, with nothing
+ * to keep.
+ */
+export function accountMachineClient(
+  session: KeyValueStorage,
+  origin: string,
+  owner: string | undefined,
+  route: AccountMachineRoute,
+): ClientApi {
+  const holder = () => windowAccountSession(session, origin)?.account.id;
+  return createBrowserClient({
+    deviceId: route.deviceId,
+    transport: route.transport,
+    credential: async () => {
+      if (holder() !== owner)
+        throw new ClientError("auth", "This machine was opened on your other ace account.");
+      return route.credential();
+    },
+    storage: outbox(session, owner, route.hostId),
+  });
 }
 
 /**
@@ -65,21 +144,13 @@ export function accountMachineOptions(options: {
       return grant.token;
     },
     socket: browserDeviceSocket,
-    client(route) {
-      // The account this client is for. Should the window's account change before the pool or
-      // the gate closes it, it never dials again, so its outbox is never sent under another.
-      const accountId = () => windowAccountSession(options.session, origin)?.account.id;
-      const owner = accountId();
-      return createBrowserClient({
-        deviceId: route.deviceId,
-        transport: route.transport,
-        credential: async () => {
-          if (accountId() !== owner)
-            throw new ClientError("auth", "This machine was opened on your other ace account.");
-          return route.credential();
-        },
-        storage: outbox(options.session, owner, route.hostId),
-      });
-    },
+    // The pool opens machines for the account the window holds as it opens them.
+    client: (route) =>
+      accountMachineClient(
+        options.session,
+        origin,
+        windowAccountSession(options.session, origin)?.account.id,
+        route,
+      ),
   };
 }
