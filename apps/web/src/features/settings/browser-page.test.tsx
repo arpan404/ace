@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, onTestFinished, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 afterEach(() => {
@@ -101,7 +101,7 @@ test("in a browser there is no app folder to choose, and the person's Chrome dec
   const app = harness();
   await app.open("/settings/browser");
   await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
-  expect(screen.getByText("Your Chrome saves them where it always does.")).toBeTruthy();
+  expect(await screen.findByText(/Downloads save where your Chrome saves them/)).toBeTruthy();
   await userEvent.click(
     within(screen.getByRole("navigation", { name: "Settings pages" })).getByRole("link", {
       name: "General",
@@ -111,23 +111,31 @@ test("in a browser there is no app folder to choose, and the person's Chrome dec
   expect(screen.queryByText("Desktop app downloads")).toBeNull();
 });
 
-test("Use my Chrome settings opens Computer use at its Use my Chrome section, not the top", async () => {
-  // jsdom doesn't lay out or scroll; record which rows ask to be scrolled to.
-  const scrolled: string[] = [];
-  const original = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
-  Element.prototype.scrollIntoView = function (this: Element) {
-    scrolled.push(this.id);
-  };
-  onTestFinished(() => {
-    if (original) Object.defineProperty(Element.prototype, "scrollIntoView", original);
-    else delete (Element.prototype as Partial<Element>).scrollIntoView;
-  });
+test("Use my Chrome is installed and controlled from Settings › Browser, not Computer use", async () => {
   const app = harness();
   await app.open("/settings/browser");
-  await userEvent.click(await screen.findByRole("button", { name: "Use my Chrome settings" }));
+  await screen.findByText("Browser connection");
+  const chrome = section(/^Use my Chrome$/);
+  expect(document.getElementById("browser.userChrome.connection")?.textContent).toContain(
+    "Browser connection",
+  );
+  await userEvent.click(chrome.getByRole("button", { name: "Install" }));
+  expect(await chrome.findByRole("switch", { name: /Let agents read cookies/ })).toBeTruthy();
+  expect(chrome.getByRole("button", { name: "Revoke" })).toBeTruthy();
 
+  await userEvent.click(
+    within(screen.getByRole("navigation", { name: "Settings pages" })).getByRole("link", {
+      name: "Computer use",
+    }),
+  );
   await screen.findByRole("heading", { name: "Computer use", level: 2 });
-  await waitFor(() => expect(scrolled).toContain("browser.userChrome.connection"));
-  const row = document.getElementById("browser.userChrome.connection");
-  expect(row?.textContent).toContain("Browser connection");
+  expect(screen.queryByText("Use my Chrome")).toBeNull();
+  expect(screen.queryByText("Browser connection")).toBeNull();
+});
+
+test("searching for Use my Chrome lands on Settings › Browser", async () => {
+  const { searchSettings } = await import("./settings-index.ts");
+  const found = searchSettings("use my chrome").map((entry) => entry.page);
+  expect(found.length).toBeGreaterThan(0);
+  expect(new Set(found)).toEqual(new Set(["/settings/browser"]));
 });

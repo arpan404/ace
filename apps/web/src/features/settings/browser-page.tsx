@@ -1,7 +1,5 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
-import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -9,6 +7,7 @@ import { settingKeys } from "./data/setting-keys.ts";
 import { useSetting, useSettingControl } from "./data/use-settings.ts";
 import { DaemonSlot, useNotConnectedNote } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
+import { UseMyChromeSettings } from "./use-my-chrome.tsx";
 
 const engines = [
   { value: "auto", label: "App, then ace's Chrome" },
@@ -63,11 +62,10 @@ function FolderField(props: {
 
 /**
  * Settings › Browser, for the machine picked in Settings: ace's Chrome runs on that machine and
- * keeps its settings there; the person's Chrome decides for itself. How this device shows pages
+ * keeps its settings there; Use my Chrome connects the person's own Chrome on it. How this device shows pages
  * and where the desktop app saves downloads live on General (`BrowserDeviceSettings`).
  */
 export function BrowserSettings() {
-  const navigate = useNavigate();
   const note = useNotConnectedNote();
   const engine = useSettingControl(settingKeys.browserEngine, settingRow("browser.engine").title);
   const profile = useSettingControl(
@@ -156,23 +154,7 @@ export function BrowserSettings() {
           </DaemonSlot>
         </SettingRow>
       </SettingSection>
-      <SettingSection label="Use my Chrome" card>
-        <SettingRow
-          id="browser.userChrome"
-          title="Downloads"
-          description="Your Chrome saves them where it always does."
-        >
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              void navigate({ to: "/settings/computer-use", hash: "browser.userChrome.connection" })
-            }
-          >
-            Use my Chrome settings
-          </Button>
-        </SettingRow>
-      </SettingSection>
+      <UseMyChromeSettings />
     </>
   );
 }

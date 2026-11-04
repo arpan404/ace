@@ -98,7 +98,9 @@ export function ExtensionsMenu(props: {
         {props.backend !== "user" && (
           <MenuItem
             icon={<Icon icon={ArrowSquareOutIcon} />}
-            onClick={() => void navigate({ to: "/settings/computer-use" })}
+            onClick={() =>
+              void navigate({ to: "/settings/browser", hash: "browser.userChrome.connection" })
+            }
           >
             Use your Chrome's extensions
           </MenuItem>

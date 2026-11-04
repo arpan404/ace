@@ -211,13 +211,13 @@ const entries = [
   },
   {
     id: "browser.userChrome.connection",
-    page: "/settings/computer-use",
+    page: "/settings/browser",
     title: "Browser connection",
     keywords: ["use my chrome", "extension", "install", "browser", "chrome"],
   },
   {
     id: "browser.userChrome.storageReads",
-    page: "/settings/computer-use",
+    page: "/settings/browser",
     title: "Let agents read cookies and site storage",
     keywords: ["use my chrome", "evaluate", "localStorage", "privacy", "browser"],
   },
