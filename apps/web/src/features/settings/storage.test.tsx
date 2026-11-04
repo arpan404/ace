@@ -144,10 +144,7 @@ test("worktree settings and storage usage belong to the selected daemon", async 
   await waitFor(() =>
     expect(remote.services.settings.get("storage.worktreeRetentionDays")).toBe(7),
   );
-  await userEvent.click(screen.getByRole("switch", { name: "Back up worktrees to origin" }));
-  await waitFor(() => expect(remote.services.settings.get("storage.backupWorktrees")).toBe(true));
   expect(app.daemon.services.settings.get("storage.worktreeRetentionDays")).toBeNull();
-  expect(app.daemon.services.settings.get("storage.backupWorktrees")).toBe(false);
 });
 
 test("delete all settled worktrees previews recent checkouts without deleting other stored data", async () => {

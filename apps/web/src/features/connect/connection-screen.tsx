@@ -70,8 +70,8 @@ export function ConnectionScreen() {
           "Give this device a name so you can recognize and revoke its access later."
         ) : pairing ? (
           <>
-            On the computer running ace, open Settings › Pair a device and scan its QR code or open
-            its link here. You can also paste the link below.
+            On the computer running ace, open Settings › Fleet, choose Pair a device and scan its QR
+            code or open its link here. You can also paste the link below.
           </>
         ) : connection.desktop ? (
           <>

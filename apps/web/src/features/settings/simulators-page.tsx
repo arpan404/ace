@@ -18,6 +18,7 @@ import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { DisableDevicesDialog } from "./disable-devices-dialog.tsx";
 import { EmulatorWindowRow } from "./emulator-window.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
+import { settingRow } from "./settings-index.ts";
 import { ToolchainSection } from "./toolchain-section.tsx";
 
 /**
@@ -98,7 +99,7 @@ function InThisWindow() {
   return (
     <SettingSection label="In this window">
       <SettingRow
-        title="Show device frame"
+        {...settingRow("devices.frame")}
         description="Draws the phone or tablet around its screen. Off shows the screen alone."
         htmlFor={frameId}
         inline
@@ -110,7 +111,7 @@ function InThisWindow() {
         />
       </SettingRow>
       <SettingRow
-        title="Show stream stats"
+        {...settingRow("devices.streamStats")}
         description="Frames received and drawn, over a live screen."
         htmlFor={statsId}
         inline
@@ -118,7 +119,7 @@ function InThisWindow() {
         <Switch id={statsId} checked={stats} onCheckedChange={setStreamStatsShown} />
       </SettingRow>
       <SettingRow
-        title="Recent devices"
+        {...settingRow("devices.recent")}
         description={
           recent.length
             ? "Clears the list under Recent in a thread's Devices tab."

@@ -55,9 +55,12 @@ test(
   },
 );
 
-test("turning off auto-draft is saved on the daemon", async () => {
+test("auto-draft lives in Source control › Preferences, not Agents, and turning it off is saved on the daemon", async () => {
   const app = harness();
   await app.open("/settings/agents");
+  await screen.findByRole("heading", { name: "Agents", level: 2 });
+  expect(screen.queryByRole("switch", { name: "Auto-draft commit messages" })).toBeNull();
+  await app.open("/settings/source-control");
   const toggle = await screen.findByRole("switch", { name: "Auto-draft commit messages" });
   expect(toggle.getAttribute("aria-checked")).toBe("true");
   await userEvent.click(toggle);

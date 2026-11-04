@@ -16,13 +16,12 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useConnectionState } from "@ace/client-react";
 import { useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonHealth } from "./daemon-health.tsx";
-import { WorktreePreparationSettings } from "./worktree-preparation.tsx";
 import { DisabledReason, offlineReason } from "./setting-control.tsx";
 import { settingRow } from "./settings-index.ts";
 
 /**
- * The machine Settings edits: its health checks and support bundle, its worktree deadline, and a
- * reset of its settings. The window's own connection lives on General.
+ * The machine Settings edits: its health checks and support bundle, and a reset of its
+ * settings. Its worktree deadline is on Settings › Agents. The window's own connection lives on General.
  */
 export function AdvancedSettings() {
   const { entries } = useProviderEntries();
@@ -43,7 +42,6 @@ export function AdvancedSettings() {
         <SupportExport />
         <DaemonDiagnostics />
       </SettingSection>
-      <WorktreePreparationSettings />
       <SettingSection label="Reset" scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}

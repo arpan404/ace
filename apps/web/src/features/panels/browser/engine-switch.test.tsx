@@ -50,10 +50,10 @@ async function engineMenu(panel: HTMLElement) {
   const triggers = within(panel).getAllByRole("button", { name: "Browser options" });
   await userEvent.click(triggers[0] as HTMLElement);
   const menu = await screen.findByRole("menu");
-  await userEvent.click(within(menu).getByRole("menuitem", { name: "Engine" }));
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Engine for this thread" }));
 }
 
-async function pickEngine(name: "In-app browser" | "ace's Chrome") {
+async function pickEngine(name: "Desktop app only" | "ace's Chrome only") {
   await userEvent.click(await screen.findByRole("menuitemradio", { name }));
 }
 
@@ -74,7 +74,7 @@ test("a tab's Engine menu moves the thread's browser to ace's Chrome and reloads
   browser.setPrivate(thread, shown.tabId, true);
 
   await engineMenu(panel);
-  await pickEngine("ace's Chrome");
+  await pickEngine("ace's Chrome only");
 
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("headless"));
   // Every tab loads its address again on the new engine, the shown one still shown, and a
@@ -90,12 +90,12 @@ test("switching back to the in-app browser restores the tabs there; picking the 
   const { panel, browser } = await openTwoTabs();
 
   await engineMenu(panel);
-  await pickEngine("ace's Chrome");
+  await pickEngine("ace's Chrome only");
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("headless"));
   await within(panel).findByRole("button", { name: "Browser options" });
 
   await engineMenu(panel);
-  await pickEngine("In-app browser");
+  await pickEngine("Desktop app only");
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("embedded"));
   expect(urls(browser)).toEqual([first, second]);
   expect(activeUrl(browser)).toBe(second);
@@ -103,7 +103,7 @@ test("switching back to the in-app browser restores the tabs there; picking the 
 
   const ids = browser.tabsList(thread).map((tab) => tab.tabId);
   await engineMenu(panel);
-  await pickEngine("In-app browser");
+  await pickEngine("Desktop app only");
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("embedded"));
   expect(browser.tabsList(thread).map((tab) => tab.tabId)).toEqual(ids);
 });
@@ -123,7 +123,7 @@ test("a blank New tab switches engines without failing the move", async () => {
   await within(panel).findByRole("button", { name: "Browser options" });
 
   await engineMenu(panel);
-  await pickEngine("ace's Chrome");
+  await pickEngine("ace's Chrome only");
 
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("headless"));
   expect(urls(browser)).toEqual(["about:blank"]);
@@ -145,7 +145,7 @@ test("a tab whose address can't reload skips that tab but still moves the rest",
   await within(panel).findByRole("button", { name: "Browser options" });
 
   await engineMenu(panel);
-  await pickEngine("ace's Chrome");
+  await pickEngine("ace's Chrome only");
 
   await waitFor(() => expect(browser.view(thread)?.backend).toBe("headless"));
   expect(urls(browser)).toContain(second);
@@ -156,10 +156,24 @@ test("a tab whose address can't reload skips that tab but still moves the rest",
   expect(toast.textContent).toContain("didn't reload");
 });
 
+test("the thread's engine menu uses Settings › Browser's words and names the default it overrides", async () => {
+  const { app, panel } = await openTwoTabs();
+  app.daemon.services.settings.seed({ "browser.backend": "auto" });
+  await engineMenu(panel);
+  expect(await screen.findByRole("menuitemradio", { name: "Desktop app only" })).toBeTruthy();
+  expect(screen.getByRole("menuitemradio", { name: "ace's Chrome only" })).toBeTruthy();
+  const note = await screen.findByText(/^Other threads use/);
+  await waitFor(() =>
+    expect(note.textContent).toBe(
+      "Other threads use App, then ace's Chrome, the default in Settings › Browser.",
+    ),
+  );
+});
+
 test("outside the desktop app the tab menu offers no engine", async () => {
   const { panel } = await openTwoTabs({ desktop: false });
   const triggers = within(panel).getAllByRole("button", { name: "Browser options" });
   await userEvent.click(triggers[0] as HTMLElement);
   const menu = await screen.findByRole("menu");
-  expect(within(menu).queryByRole("menuitem", { name: "Engine" })).toBeNull();
+  expect(within(menu).queryByRole("menuitem", { name: "Engine for this thread" })).toBeNull();
 });
