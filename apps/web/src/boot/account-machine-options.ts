@@ -74,6 +74,7 @@ export function accountMachineOptions(options: {
         deviceId: route.deviceId,
         transport: route.transport,
         credential: route.credential,
+        grant: route.grant,
         expectedHostId: route.expectedHostId,
         storage: outbox(options.session, route.hostId),
       }),

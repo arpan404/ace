@@ -459,6 +459,7 @@ export class MachinePool {
       ...(daemonId ? { expectedHostId: daemonId } : {}),
       transport: route.transport,
       credential: route.credential,
+      grant: () => account.grant(),
     });
     client.usePaths?.(paths);
     return client;

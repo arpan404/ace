@@ -60,6 +60,8 @@ export interface AccountMachineOptions {
     expectedHostId?: string;
     transport(): Transport;
     credential(): Promise<Credential>;
+    /** A fresh device grant, sent on each open socket before its grant runs out (ADR 0114). */
+    grant(): Promise<string>;
   }): ClientApi;
 }
 

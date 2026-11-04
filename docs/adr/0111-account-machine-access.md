@@ -62,9 +62,12 @@ A correct code is remembered for this device and code version. Access is admin.
 Grants travel to the relay in the `Sec-WebSocket-Protocol` header (`ace.grant.<token>`), which
 browsers can set and URL logs do not record.
 
-**Revocation.** Each connection needs a fresh grant, so signing a device out at the backend,
-or a WorkOS account deletion, ends its access within one grant lifetime. Changing the machine
-code requires every device to enter the new one.
+**Revocation.** Each connection needs a fresh grant, and an open connection must keep
+presenting one: the daemon closes an account main socket (4014) once its grant has run out
+and no fresh one came on that socket (`account.grant.refresh`, ADR 0114; amended
+2026-11-04). So signing a device out at the backend, or a WorkOS account deletion, ends its
+access within one grant lifetime plus a 30 s grace, on sockets already open too. Changing the
+machine code requires every device to enter the new one.
 
 ### Machine code
 

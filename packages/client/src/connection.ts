@@ -6,6 +6,7 @@ import { fitsUtf8 } from "./bounds.ts";
 import { FragmentAssembly, matchesFragments, type FragmentPart } from "./fragment-assembly.ts";
 import { Heartbeat } from "./heartbeat.ts";
 import { HeldFrames, type Frame } from "./held-frames.ts";
+import { keepGrant } from "./grant-keeper.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import {
   MachineCodeRefusal,
@@ -95,6 +96,8 @@ export class Connection {
   /** A warm path to fail over to when the active one drops (`standby`). */
   #standby: { path(): WelcomedPath | undefined; used(): void } | undefined;
   #pongs: (() => void)[] = [];
+  /** Each open socket's grant refresh, for an account device (ADR 0114): stopped when it ends. */
+  #keepers = new Map<Transport, () => void>();
   /** Frames heard on the active path, so a late pong behind a busy stream isn't a miss. */
   #heard = 0;
   constructor(
@@ -205,6 +208,7 @@ export class Connection {
     this.#healthy = undefined;
     const transport = this.#transport;
     this.#transport = undefined;
+    this.#unkeep(transport);
     try {
       transport?.close();
     } catch {
@@ -451,6 +455,7 @@ export class Connection {
           });
         }
         this.#startHeartbeat();
+        this.#keepGrant(this.#transport, message);
         this.#hostId = message.hostId;
         this.#received(message);
         this.#changed();
@@ -576,7 +581,55 @@ export class Connection {
       hello: (transport, credential) =>
         JSON.stringify(this.#codec.encode(this.#hello(transport, credential))),
       decode: (text) => this.#codec.decode(JSON.parse(text)),
-    });
+    }).then((path) => this.#kept(path));
+  }
+  /**
+   * An account socket's grant runs out unless it is refreshed on that socket (ADR 0114): keep
+   * it fresh for as long as the socket is open, whether it is active, a standby or draining.
+   */
+  #keepGrant(transport: Transport | undefined, welcome: Extract<Message, { type: "welcome" }>) {
+    const grant = this.#options.grant;
+    if (!transport || welcome.grantTtlMs === undefined || !grant) return;
+    this.#unkeep(transport);
+    this.#keepers.set(
+      transport,
+      keepGrant({
+        ttlMs: welcome.grantTtlMs,
+        grant: () => grant(),
+        scheduler: this.#options.scheduler,
+        id: () => this.#options.id(),
+        send: (message) => transport.send(JSON.stringify(this.#codec.encode(message))),
+      }),
+    );
+  }
+  #unkeep(transport: Transport | undefined): void {
+    if (!transport) return;
+    this.#keepers.get(transport)?.();
+    this.#keepers.delete(transport);
+  }
+  /** A path opened beside the active one, whose grant is kept fresh until it closes. */
+  #kept(path: WelcomedPath): WelcomedPath {
+    this.#keepGrant(path.transport, path.welcome);
+    const stop = () => this.#unkeep(path.transport);
+    path.onClosed(stop);
+    return {
+      transport: path.transport,
+      welcome: path.welcome,
+      get heard() {
+        return path.heard;
+      },
+      take: (events) => path.take(events),
+      send: (text) => path.send(text),
+      close: () => {
+        stop();
+        path.close();
+      },
+      onClosed: (listener) =>
+        path.onClosed((code, reason) => {
+          stop();
+          listener(code, reason);
+        }),
+    };
   }
   /**
    * Make `path` the active path: one pointer swap, after which every send goes there. The old
@@ -671,6 +724,7 @@ export class Connection {
     this.#draining = undefined;
     draining.cancel();
     draining.fragments.clear();
+    this.#unkeep(draining.transport);
     try {
       draining.transport?.close();
     } catch {

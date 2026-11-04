@@ -98,6 +98,12 @@ export interface ClientOptions {
     options: RequestOptions,
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
+  /**
+   * A fresh ace account device grant, for an account device (ADR 0111). An account socket stays
+   * open only while its grant lasts, so the connection sends a new one on each open socket
+   * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
+   */
+  grant?(): Promise<string>;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

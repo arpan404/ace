@@ -112,8 +112,40 @@ shell that runs them on timers is `Multipath` (`multipath.ts`, `path-race.ts`,
   `ts.net` name with the publicly trusted certificate Tailscale issues for exactly that name
   (ADR 0097). Relays always work, since their pin is in the handshake. The desktop app allows
   every address a machine's worker may dial before the worker starts.
+- **Browsers trust Tailscale's public certificate on `ts.net` paths** (owner decision of
+  2026-11-04), instead of a pinned fingerprint. The safeguards stay: only names ending in
+  `.ts.net`, only names the machine itself named over an authenticated, identity-pinned
+  connection, and the welcome must name the same daemon before any swap. One order is
+  accepted as it is: the credential reaches the `ts.net` host before its welcome names the
+  daemon. A paired device posts its device token to that host's `/v1/tickets` to get the
+  socket ticket; an account device sends its grant in the hello. So if a `ts.net` name ever
+  pointed at another node (the machine renamed and the name reused), that node, which is on
+  the person's own tailnet and holds a certificate for the name, would see the token or a
+  grant good for five minutes before the client drops the path. Checking identity first isn't
+  simple: the daemon's HTTPS listener has no unauthenticated proof of who it is (a signed
+  challenge with the host key would be new), so that is a follow-up, not done here.
 - **The host token never leaves the desktop.** Other apps on the same computer use their own
   device credential, over the TLS listener, even on loopback.
+- **An account socket stays open only while it holds a grant** (owner decision of
+  2026-11-04). A device grant lasts five minutes (ADR 0111) and used to be checked only at
+  hello, so an account socket could stay open long after its grant ended. Now the daemon
+  keeps each account main socket's grant expiry (`account-access/grant-lease.ts`,
+  `grant-socket.ts`), on every path: direct, relayed, and the standby, which is a socket like
+  any other. The welcome tells the client how long its grant has left (`grantTtlMs`). Before
+  that runs out the client fetches a new device grant and sends it on the same socket
+  (`account.grant.refresh`); the daemon checks it as it checks a hello's grant, through
+  `admitDevice` (signature, expiry, its own account, the socket's device id, the current
+  machine code), keeps the socket on the account it was admitted for, and moves the expiry on
+  (never back), answering `account.grant.refresh.result`. The client (`grant-keeper.ts`)
+  refreshes a minute before expiry and times the next refresh from the new grant's own
+  lifetime, so client and backend clocks needn't agree; a failed fetch tries again after 10 s.
+  If no valid refresh arrives by the expiry plus 30 s, the daemon closes the socket with 4014
+  "Account grant expired". 4014 is not final: the client reconnects as after any drop, with a
+  fresh grant, since every connection attempt already fetches one. A client that never
+  refreshes (an older build, or iOS until it adopts this) is closed at expiry and reconnects
+  the same way; a daemon that doesn't send `grantTtlMs` is never sent a refresh. Dedicated
+  channels (files, devices, browser, screen, sign-in) aren't timed: they end when the
+  account changes, as before, and their grant is checked when they open.
 - **Revocation closes every path at once.** Revoking a paired device closes all its sockets,
   direct and relayed (unchanged). An account change (signed out, another account, a new
   machine code) now rechecks `stillAdmitted` on direct sockets as well as relay channels and
@@ -146,4 +178,6 @@ The native iOS client (ADR 0074) is out of scope here. It needs: the directory's
 `lastPath`; a dialer per path that pins the TLS public-key fingerprint (URLSession delegate) and
 the relay host key; a cheap probe (a pinned TLS handshake); `NWPathMonitor` for network changes
 and wake; and to hand those routes to the shared `Multipath` through its host contract, so the
-decisions stay in the shared JavaScript.
+decisions stay in the shared JavaScript. It also needs to pass a fresh-grant source
+(`ClientOptions.grant`) so its account sockets refresh their grant instead of reconnecting
+every five minutes.
