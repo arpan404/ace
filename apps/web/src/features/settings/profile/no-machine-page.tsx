@@ -47,17 +47,17 @@ export function NoMachineProfilePage() {
   );
 }
 
-const machineCount = (count: number) => (count === 1 ? "1 machine" : `${count} machines`);
+const machineCount = (count: number) => (count === 1 ? "1 computer" : `${count} computers`);
 
 /** The machines on the ace account, opened from Fleet. */
 function AccountMachines() {
   const account = useAccountMachines(none);
   const names = account.only.map((machine) => machine.name);
   return (
-    <SettingSection label="Machines on your account" card>
+    <SettingSection label="Computers on your account" card>
       <SettingRow
         {...settingRow("profile.machines")}
-        title={names.length ? machineCount(names.length) : "No machines yet"}
+        title={names.length ? machineCount(names.length) : "No computers yet"}
         description={
           names.length
             ? names.join(", ")

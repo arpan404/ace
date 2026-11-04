@@ -98,7 +98,7 @@ function NumberRow(props: {
       title={props.title}
       density="compact"
       inline
-      description={props.pinnedBy ? `Set by ${props.pinnedBy} on this machine` : undefined}
+      description={props.pinnedBy ? `Set by ${props.pinnedBy} on this computer` : undefined}
     >
       <span className="flex items-center gap-2 text-sm text-muted-foreground">
         <input

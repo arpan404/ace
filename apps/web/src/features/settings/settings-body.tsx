@@ -106,7 +106,7 @@ function PageScope(props: { group: SettingsGroup | undefined }) {
   return (
     <Menu>
       <MenuTrigger
-        aria-label={`Environment: ${all ? "All machines" : machine.name}`}
+        aria-label={`Environment: ${all ? "All computers" : machine.name}`}
         className="-ml-1.5 mt-0.5 flex h-6 items-center gap-1.5 rounded-md px-1.5 text-ui text-muted-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         {label}

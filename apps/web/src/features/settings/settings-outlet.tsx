@@ -23,8 +23,8 @@ export function SettingsOutlet() {
         <SettingsBody page={page.title}>
           <EmptyState
             className="mt-10 h-auto"
-            title={`${page.title} belong to one machine`}
-            description="Pick a machine under the title to see them."
+            title={`${page.title} belong to one computer`}
+            description="Pick a computer under the title to see them."
           />
         </SettingsBody>
       );
@@ -39,8 +39,8 @@ export function SettingsOutlet() {
       <SettingsBody page={page.title}>
         <EmptyState
           className="mt-10 h-auto"
-          title="This machine is no longer paired"
-          description="Pick another machine in the Settings sidebar."
+          title="This computer is no longer paired"
+          description="Pick another computer in the Settings sidebar."
           action={
             <Button size="sm" variant="secondary" onClick={() => choose(undefined)}>
               Show this machine
@@ -70,7 +70,7 @@ export function SettingsOutlet() {
   );
 }
 
-/** Pages whose settings mean the same on every machine, so "All machines" can set them at once. */
+/** Pages whose settings mean the same on every machine, so "All computers" can set them at once. */
 function supportsAllMachines(page: SettingsPath): boolean {
   return page === "/settings/agents" || page === "/settings/browser";
 }

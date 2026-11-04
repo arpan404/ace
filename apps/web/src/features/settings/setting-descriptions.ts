@@ -16,7 +16,7 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
     "Move a thread out of the active list when its linked pull request is closed without merging.",
   "generation.model": "The model ace uses for titles and other generated text.",
   "generation.autoDraftCommits": "Generate a draft commit message from your changes.",
-  "automations.enabled": "Allow scheduled automations to run on this machine.",
+  "automations.enabled": "Allow scheduled automations to run on this computer.",
   "app.openAtLogin": "Start the desktop app when you sign in to your computer.",
   "app.background": "Keep ace running after you close its windows.",
   "app.preventSleep": "Keep this computer awake while agents are working.",

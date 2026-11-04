@@ -29,7 +29,7 @@ test("source control follows the machine picked in Settings, and reconnecting re
     throughWorker: true,
   });
   const remote = app.machines.get("build");
-  if (!remote) throw new Error("Missing machine");
+  if (!remote) throw new Error("Missing computer");
   remote.services.settings.seed({
     "sourceControl.preferences": {
       hosts: [{ host: "git.example.com", account: "octo" }],

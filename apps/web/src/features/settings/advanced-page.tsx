@@ -47,7 +47,7 @@ export function AdvancedSettings() {
       <SettingSection label="Reset" scope="daemon">
         <SettingRow
           {...settingRow("advanced.reset")}
-          description="This machine's settings go back to their defaults. Appearance and notifications stay."
+          description="This computer's settings go back to their defaults. Appearance and notifications stay."
           inline
         >
           <ResetAll />
@@ -75,7 +75,7 @@ function ResetAll() {
       await backend.reset();
       setOpen(false);
     } catch {
-      const message = "This machine couldn't save the reset. Try again.";
+      const message = "This computer couldn't save the reset. Try again.";
       setError(message);
       toast.error({
         title: "Couldn't reset settings",

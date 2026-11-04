@@ -16,7 +16,7 @@ interface SettingsMachine {
   choose(id: string | undefined): void;
   /** The chosen machine is no longer paired, so nothing may stand in for it. */
   missing: boolean;
-  /** "All machines": pages read this window's machine and write to every connected one. */
+  /** "All computers": pages read this window's machine and write to every connected one. */
   all: boolean;
 }
 

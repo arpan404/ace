@@ -51,13 +51,13 @@ test("machines on the ace account list in Fleet after the paired ones, once each
   ]);
   const app = harness({ machines: [{ hostId: build, name: "Build server" }] });
   await app.open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
+  const machines = await screen.findByRole("region", { name: "Computers" });
   expect(await within(machines).findByText("Studio")).toBeDefined();
   expect(within(machines).getByText("macOS · Seen 2h ago")).toBeDefined();
   // Paired and on the account: one row, the paired one, saying it's on the account too.
   expect(within(machines).queryByText("Build server (account)")).toBeNull();
   expect(await within(machines).findByText(/On your ace account/)).toBeDefined();
-  expect(within(machines).getByRole("status").textContent).toBe("3 machines");
+  expect(within(machines).getByRole("status").textContent).toBe("3 computers");
 
   await userEvent.click(within(machines).getByRole("button", { name: "Actions for Studio" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Forget" }));
@@ -74,8 +74,8 @@ test("a window that isn't signed in to an ace account lists only its paired mach
     return Response.json({ error: "unauthenticated" }, { status: 401 });
   });
   await harness().open("/settings/remote");
-  const machines = await screen.findByRole("region", { name: "Machines" });
-  expect(within(machines).getByRole("status").textContent).toBe("1 machine");
+  const machines = await screen.findByRole("region", { name: "Computers" });
+  expect(within(machines).getByRole("status").textContent).toBe("1 computer");
   expect(calls.filter((call) => call.includes("/v1/machines"))).toEqual([]);
 });
 
@@ -88,19 +88,19 @@ test("the machine code is set, changed and cleared from this machine's page", as
   expect(within(code).getByText("Not set")).toBeDefined();
 
   await userEvent.click(within(code).getByRole("button", { name: "Set code" }));
-  await userEvent.type(within(code).getByLabelText("New machine code"), "12");
+  await userEvent.type(within(code).getByLabelText("New computer code"), "12");
   await userEvent.click(within(code).getByRole("button", { name: "Save" }));
   expect(within(code).getByRole("alert").textContent).toBe(
-    "A machine code has 4 to 128 characters.",
+    "A computer code has 4 to 128 characters.",
   );
 
-  await userEvent.type(within(code).getByLabelText("New machine code"), "3456");
+  await userEvent.type(within(code).getByLabelText("New computer code"), "3456");
   await userEvent.click(within(code).getByRole("button", { name: "Save" }));
   expect(await within(code).findByText("Set")).toBeDefined();
-  expect(within(code).queryByLabelText("New machine code")).toBeNull();
+  expect(within(code).queryByLabelText("New computer code")).toBeNull();
 
   await userEvent.click(within(code).getByRole("button", { name: "Change" }));
-  expect(within(code).getByLabelText("New machine code")).toBeDefined();
+  expect(within(code).getByLabelText("New computer code")).toBeDefined();
   await userEvent.click(within(code).getByRole("button", { name: "Cancel" }));
 
   await userEvent.click(within(code).getByRole("button", { name: "Clear" }));

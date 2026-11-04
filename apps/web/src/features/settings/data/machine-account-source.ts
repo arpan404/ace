@@ -23,8 +23,8 @@ const Failure = z.object({ error: z.string().max(256) });
 function refusal(status: number, said: string | undefined): Error {
   if (status === 403 && said === "Host token required") return hostOnly();
   if (status === 401 || status === 403)
-    return new Error("This device can't change this machine's account settings.");
-  if (status === 503) return new Error("ace accounts aren't set up on this machine.");
+    return new Error("This device can't change this computer's account settings.");
+  if (status === 503) return new Error("ace accounts aren't set up on this computer.");
   return new Error(said ?? "This machine refused the change. Try again.");
 }
 
@@ -60,7 +60,7 @@ function daemonRoutes(endpoint: DaemonEndpoint) {
         signal: AbortSignal.timeout(20_000),
       });
     } catch {
-      throw new Error("Couldn't reach this machine. Reconnect and try again.");
+      throw new Error("Couldn't reach this computer. Reconnect and try again.");
     }
     const data: unknown = await response.json().catch(() => undefined);
     if (!response.ok) throw refusal(response.status, Failure.safeParse(data).data?.error);

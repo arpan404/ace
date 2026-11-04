@@ -62,8 +62,8 @@ const entries = [
   {
     id: "profile.machines",
     page: "/settings/profile",
-    title: "Machines on your account",
-    keywords: ["account", "remote", "relay", "machine code"],
+    title: "Computers on your account",
+    keywords: ["account", "remote", "relay", "machine code", "computer code"],
   },
   {
     id: "profile.name",
@@ -375,7 +375,7 @@ const entries = [
   {
     id: "remote.agentAccess",
     page: "/settings/remote",
-    title: "Agents from other machines",
+    title: "Agents from other computers",
     keywords: [
       "machines",
       "delegate",
@@ -393,7 +393,7 @@ const entries = [
   {
     id: "remote.agentTransfers",
     page: "/settings/remote",
-    title: "Agents can move projects and threads to other machines",
+    title: "Agents can move projects and threads to other computers",
     keywords: ["transfer", "continue on", "open on", "machines", "agents", "move", "fleet"],
   },
   {
@@ -405,8 +405,17 @@ const entries = [
   {
     id: "fleet.link",
     page: "/settings/remote",
-    title: "Link machines",
-    keywords: ["fleet", "machines", "link", "connect", "add machine", "servers"],
+    title: "Link computers",
+    keywords: [
+      "fleet",
+      "machines",
+      "link",
+      "connect",
+      "add machine",
+      "add computer",
+      "computers",
+      "servers",
+    ],
   },
   // Browser
   {
@@ -460,13 +469,13 @@ const entries = [
   {
     id: "host.displayName",
     page: "/settings/remote",
-    title: "Machine name and icon",
-    keywords: ["host", "rename", "computer", "icon", "machine icon"],
+    title: "Computer name and icon",
+    keywords: ["host", "rename", "computer", "icon", "computer icon"],
   },
   {
     id: "remote.pair",
     page: "/settings/remote",
-    title: "Pair a device",
+    title: "Pair phone or browser",
     keywords: [
       "phone",
       "qr",

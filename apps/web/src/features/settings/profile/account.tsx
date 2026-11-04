@@ -88,7 +88,7 @@ export function ProfileHero(props: { account: ProfileAccount }) {
           <p className="text-ui leading-normal text-muted-foreground">
             {signIn
               ? "Continue in your browser. This page updates when you're done."
-              : "Sign in to open your machines from your phone or another computer, anywhere. Everything here works without an account."}
+              : "Sign in to open your computers from your phone or another computer, anywhere. Everything here works without an account."}
           </p>
           {signIn ? (
             <div className="flex items-center gap-2">

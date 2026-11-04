@@ -42,7 +42,7 @@ const columns: DataColumns<QueueRow> = [
 export function DaemonHealth() {
   const client = useClient();
   const identity = useHostIdentity();
-  const host = identity?.displayName ?? "This machine";
+  const host = identity?.displayName ?? "This computer";
   const toast = useToast();
   const report = useCopy(() => toast.error({ title: "Couldn't copy the diagnostics" }));
   const ready = useConnectionState() === "ready";
@@ -67,7 +67,7 @@ export function DaemonHealth() {
   // The machine this page reads, not this window's own: Settings may be editing another.
   const copy = () =>
     report.copy(JSON.stringify({ machine: host, hostId: identity?.hostId, health: data }, null, 2));
-  const rows: [string, string][] = [["Machine", host], ...healthRows(data)];
+  const rows: [string, string][] = [["Computer", host], ...healthRows(data)];
   return (
     <div className="flex flex-col gap-3 text-sm">
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1">
@@ -75,7 +75,7 @@ export function DaemonHealth() {
           <div key={label} className="contents">
             <dt className="text-muted-foreground">{label}</dt>
             <dd className="truncate tabular-nums">
-              {label === "Machine" ? <MachineLabel name={host} icon={identity?.icon} /> : value}
+              {label === "Computer" ? <MachineLabel name={host} icon={identity?.icon} /> : value}
             </dd>
           </div>
         ))}

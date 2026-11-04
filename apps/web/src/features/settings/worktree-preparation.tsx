@@ -72,7 +72,7 @@ export function WorktreePreparationSettings() {
         {...row}
         description={
           pinned
-            ? "Set by ACE_WORKTREE_PREPARATION_TIMEOUT_MS on this machine."
+            ? "Set by ACE_WORKTREE_PREPARATION_TIMEOUT_MS on this computer."
             : "How long setting up a new worktree may take before it fails."
         }
       >

@@ -186,8 +186,8 @@ function Insights(props: { activity: ProfileActivity }) {
   );
 }
 
-/** "3 machines", "1 machine". */
-const machineCount = (count: number) => (count === 1 ? "1 machine" : `${count} machines`);
+/** "3 computers", "1 computer". */
+const machineCount = (count: number) => (count === 1 ? "1 computer" : `${count} computers`);
 
 /** The ace account's machines and this computer on it, then the person's name. */
 function AccountSection(props: { signedIn: boolean }) {
@@ -210,10 +210,10 @@ function AccountMachines() {
   return (
     <>
       <MachineAccount machine={primary} label="This computer" />
-      <SettingSection label="Machines on your account" card>
+      <SettingSection label="Computers on your account" card>
         <SettingRow
           {...settingRow("profile.machines")}
-          title={names.length ? machineCount(names.length) : "No machines yet"}
+          title={names.length ? machineCount(names.length) : "No computers yet"}
           description={
             names.length
               ? names.join(", ")

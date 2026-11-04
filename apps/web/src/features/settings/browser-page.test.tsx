@@ -48,7 +48,7 @@ test("ace's Chrome saves to the daemon machine's Downloads folder unless the per
   await app.open("/settings/browser");
   const field = await screen.findByRole("textbox", { name: "Downloads folder for ace's Chrome" });
   expect(field.getAttribute("placeholder")).toBe("/Users/dev/Downloads");
-  expect(screen.getByText("Empty uses this machine's Downloads folder.")).toBeTruthy();
+  expect(screen.getByText("Empty uses this computer's Downloads folder.")).toBeTruthy();
 
   await userEvent.type(field, "/Volumes/Work/downloads{Enter}");
   await waitFor(() =>

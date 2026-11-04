@@ -14,7 +14,7 @@ function withBuildServer() {
     throughWorker: true,
   });
   const remote = app.machines.get("build");
-  if (!remote) throw new Error("Missing machine");
+  if (!remote) throw new Error("Missing computer");
   return { app, remote };
 }
 
@@ -31,7 +31,7 @@ async function pickMachine(name: string | RegExp) {
 async function pickOwnMachine() {
   await userEvent.click(await screen.findByRole("button", { name: /^Environment: / }));
   const [own] = await screen.findAllByRole("menuitemradio");
-  if (!own) throw new Error("No machines offered");
+  if (!own) throw new Error("No computers offered");
   await userEvent.click(own);
 }
 
@@ -113,7 +113,7 @@ test("with All machines picked, a change on Agents lands on every connected mach
   remote.services.settings.seed({ "threads.settleOnMerge": false });
   await app.open("/settings/agents");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await pickMachine("All machines");
+  await pickMachine("All computers");
   const merged = await screen.findByRole("switch", { name: "Settle when the PR merges" });
   // This machine has it on, Build server off: the row says they differ.
   expect(await screen.findByText("Differs")).toBeTruthy();

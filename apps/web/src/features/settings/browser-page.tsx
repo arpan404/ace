@@ -141,7 +141,7 @@ export function BrowserSettings() {
           {...settingRow("browser.downloadDir")}
           description={
             machineDownloads
-              ? "Empty uses this machine's Downloads folder."
+              ? "Empty uses this computer's Downloads folder."
               : "No usable Downloads folder here; empty keeps them with each thread."
           }
         >

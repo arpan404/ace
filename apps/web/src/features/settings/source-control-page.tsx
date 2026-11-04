@@ -254,7 +254,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         )}
         <SettingNote>
           {status?.transportInstructions ??
-            "Clone and push use Git's credential helper or SSH keys on this machine, not the GitHub API sign-in."}
+            "Clone and push use Git's credential helper or SSH keys on this computer, not the GitHub API sign-in."}
         </SettingNote>
       </SettingSection>
     </>
