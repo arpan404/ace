@@ -95,7 +95,12 @@ export function machineAccount(options: {
       return MachineAccountStatus.parse({
         signedIn: current !== undefined,
         ...(session
-          ? { origin: session.origin, account: session.account, expiresAt: session.expiresAt }
+          ? {
+              origin: session.origin,
+              account: session.account,
+              expiresAt: session.expiresAt,
+              source: session.source,
+            }
           : {}),
         ...(login && login.expiresAt > options.now()
           ? { login: { url: login.url, expiresAt: login.expiresAt } }

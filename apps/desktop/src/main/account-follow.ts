@@ -1,6 +1,6 @@
-import { MachineAccountStatus } from "@ace/protocol";
+import type { MachineAccountStatus } from "@ace/protocol";
 import type { DaemonConnection, DaemonStatus } from "../shared/contract.ts";
-import { handAccountToDaemon } from "./account-handover.ts";
+import { handAccountToDaemon, readDaemonAccount } from "./account-handover.ts";
 
 /** A handover to make: the app's session for `origin`, unless `unlessOtherThan` says otherwise. */
 export type HandoverPlan = {
@@ -53,20 +53,10 @@ export async function resumeDaemonAccount(
   connection: DaemonConnection,
   deps: FollowDeps,
 ): Promise<boolean> {
-  if (connection.mode !== "daemon" || connection.localHostId === undefined) return false;
   const send = deps.send ?? fetch;
-  const url = new URL("/v1/ace-account", connection.url);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  const response = await send(url, {
-    headers: { authorization: `Bearer ${connection.token}` },
-    signal: AbortSignal.timeout(15_000),
-  });
-  // 404: a daemon without ace account support.
-  if (!response.ok) {
-    await response.body?.cancel();
-    return false;
-  }
-  const plan = planHandover(MachineAccountStatus.parse(await response.json()), await deps.saved());
+  const daemon = await readDaemonAccount(connection, send);
+  if (!daemon) return false;
+  const plan = planHandover(daemon, await deps.saved());
   if (!plan) return false;
   if (
     plan.sameAccountAs !== undefined &&

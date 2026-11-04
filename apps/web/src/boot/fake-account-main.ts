@@ -22,9 +22,9 @@ export function fakeAccountRoutes(options: {
   removed?: ReadonlySet<string> | undefined;
 }): AccountRouteSource {
   const codes = fakeMachineCodes(options.now);
+  const holder = async () => windowAccountSession(options.session, fakeOrigin)?.account.id;
   return async (machine) => {
     if (machine.origin !== fakeOrigin) return undefined;
-    const holder = async () => windowAccountSession(options.session, fakeOrigin)?.account.id;
     const grants = trackedGrant(
       accountPinnedGrant(machine.accountId, holder, async () => {
         if ((await holder()) === undefined)

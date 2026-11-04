@@ -40,6 +40,11 @@ export const MachineAccountStatus = z.object({
   origin: z.string().max(2048).optional(),
   account: AceAccount.optional(),
   expiresAt: z.number().int().positive().optional(),
+  /**
+   * Where the session came from: signed in on this machine (`ace login`), or handed over by the
+   * ace app on this computer. Absent from daemons that predate it.
+   */
+  source: z.enum(["login", "handover"]).optional(),
   /** A sign-in started on this machine that has not finished yet. */
   login: z.object({ url: z.url(), expiresAt: z.number().int().positive() }).optional(),
   machineCode: z.object({

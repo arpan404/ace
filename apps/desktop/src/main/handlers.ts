@@ -1,6 +1,6 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { accountSecrets } from "./account-secrets.ts";
-import { handAccountToDaemon } from "./account-handover.ts";
+import { followAppAccount } from "./account-write.ts";
 import { followDaemonAccount, resumeDaemonAccount } from "./account-follow.ts";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { machineAccount } from "./machine-account.ts";
@@ -49,6 +49,12 @@ export function appearance(): NativeAppearance {
 }
 
 /** Every `window.ace` request, already parsed by `registerHandlers`. */
+/** The account id an app session belongs to, from the account backend. */
+async function accountOf(origin: string, token: string): Promise<string> {
+  return (await aceAccountClient({ origin, fetch }).session(token, AbortSignal.timeout(10_000)))
+    .account.id;
+}
+
 export function createHandlers(options: {
   info: AppInfo;
   runtime: DaemonRuntime;
@@ -88,14 +94,9 @@ export function createHandlers(options: {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
   // A daemon that starts or restarts signed out follows the app's account (never switching one
-  // that is signed in); the app hands its session over again on each change too.
+  // that is signed in); the app's sign-in and sign-out follow `account-write.ts`.
   followDaemonAccount(runtime, async () =>
-    resumeDaemonAccount(await options.connection(), {
-      saved: () => account.all(),
-      accountOf: async (origin, token) =>
-        (await aceAccountClient({ origin, fetch }).session(token, AbortSignal.timeout(10_000)))
-          .account.id,
-    }),
+    resumeDaemonAccount(await options.connection(), { saved: () => account.all(), accountOf }),
   );
   const editorIcon = editorIcons(
     {
@@ -117,10 +118,11 @@ export function createHandlers(options: {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
       await account.write(origin, token);
-      // The machine follows the app's account; a failure here leaves the app signed in.
+      // The machine follows the app's account only where that moves no one's own sign-in
+      // (`account-write.ts`); a failure here leaves the app signed in.
       void options
         .connection()
-        .then((connection) => handAccountToDaemon(connection, origin, token))
+        .then((connection) => followAppAccount(connection, { origin, token }, { accountOf }))
         .catch(() => {});
       return undefined;
     },

@@ -248,7 +248,8 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   });
   backend.completeLogins();
   await expect.poll(() => account.status().signedIn).toBe(true);
-  expect(account.status()).toMatchObject({ account: { email: "a@example.com" } });
+  // Signed in on this machine: the desktop app never signs it out or moves it.
+  expect(account.status()).toMatchObject({ account: { email: "a@example.com" }, source: "login" });
   expect(account.status().login).toBeUndefined();
 
   // The session survives a restart, and signing out ends the session sign-in created.
@@ -291,7 +292,7 @@ it("the host signs the machine in and sets its code over the local API; others a
   ).rejects.toThrow();
   expect(
     await local("/v1/ace-account", "PUT", { origin: backend.origin, token: backend.token }),
-  ).toMatchObject({ signedIn: true, account: { id: "user_a" } });
+  ).toMatchObject({ signedIn: true, account: { id: "user_a" }, source: "handover" });
   await expect(local("/v1/machine-code", "PUT", { code: "12" })).rejects.toThrow();
   expect(await local("/v1/machine-code", "PUT", { code: "2468" })).toMatchObject({
     machineCode: { set: true },
