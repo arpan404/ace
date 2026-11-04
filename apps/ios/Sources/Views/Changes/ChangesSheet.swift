@@ -22,6 +22,8 @@ struct ChangesSheet: View {
     @State private var presented: Presented?
     @State private var opened = false
     @State private var target: String?
+    /// A file to show once the scope just picked has listed its files.
+    @State private var afterScope: String?
     private var summary: ChangesSummary? { model.sheets.changes }
     private var openPaths: Set<String> { Set(summary?.open ?? []) }
     /// Line comments go on Uncommitted only; the bridge says why not elsewhere.
@@ -58,6 +60,17 @@ struct ChangesSheet: View {
                     }
                     .animation(AceDesign.Motion.arriving(reduceMotion), value: summary?.open ?? [])
                     .environment(\.changesCommentable, commentable)
+                    .environment(\.changesToUncommitted) { path in
+                        // Scrolled to once Uncommitted's list is in.
+                        afterScope = path
+                        scope("working-tree")
+                        open(path)
+                    }
+                }
+                .onChange(of: summary?.scope?.id) { _, id in
+                    guard id == "working-tree", let path = afterScope else { return }
+                    afterScope = nil
+                    target = path
                 }
                 .onChange(of: target) { _, path in
                     guard let path else { return }
@@ -313,9 +326,9 @@ struct ChangedFileHeader: View {
                     .rotationEffect(.degrees(open ? 90 : 0))
                     .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                FileStatusMark(status: file.status)
                 path
                 Spacer(minLength: AceTheme.Spacing.xs)
+                FileStatusWord(status: file.status)
                 if reviewed {
                     Text("Viewed").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.subtle)
                 } else {
@@ -386,31 +399,19 @@ struct ChangedFileHeader: View {
     }
 }
 
-/// A file's git status as a small outlined square: a dot for modified, + added, − deleted,
-/// → renamed.
-struct FileStatusMark: View {
+/// A new or deleted file says so in one quiet word beside its counts; a changed one says nothing.
+struct FileStatusWord: View {
     let status: String
     var body: some View {
-        AceShape.glyph.stroke(colour, lineWidth: AceDesign.Size.glyphStroke)
-            .frame(width: AceDesign.Size.fileMark, height: AceDesign.Size.fileMark)
-            .overlay {
-                if status == "modified" { Circle().fill(colour).frame(width: AceDesign.Size.dotTiny, height: AceDesign.Size.dotTiny) }
-                else { Image(systemName: symbol).font(AceDesign.Typeface.caption.weight(AceDesign.Typeface.strong)).foregroundStyle(colour) }
-            }
-            .accessibilityLabel(status.capitalized)
-    }
-    private var colour: Color {
-        switch status {
-        case "deleted": AceTheme.StatusText.failed
-        case "renamed", "moved": AceTheme.StatusText.working
-        default: AceTheme.StatusText.done
+        if let word = Self.word(status) {
+            Text(word).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote).foregroundStyle(AceDesign.Ink.muted)
         }
     }
-    private var symbol: String {
+    static func word(_ status: String) -> String? {
         switch status {
-        case "deleted": "minus"
-        case "renamed", "moved": "arrow.right"
-        default: "plus"
+        case "added", "untracked": "new"
+        case "deleted": "deleted"
+        default: nil
         }
     }
 }

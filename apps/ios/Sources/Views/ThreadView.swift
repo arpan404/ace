@@ -349,7 +349,7 @@ struct ThreadView: View {
                                      }
                                  },
                                  recall: { older in await model.sentText(thread.id, older: older) },
-                                 files: screen.attachments.count + screen.annotations.count + (model.sheets.chip?.count ?? 0),
+                                 files: screen.attachments.count, chips: screen.annotations.count + (model.sheets.chip?.count ?? 0),
                                  draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                                  suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                                  run: runComposerAction, focusRequest: composerFocus) {
