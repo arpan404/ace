@@ -5,6 +5,8 @@ import type { AccountConfig } from "./config.ts";
 export interface AccountIdentity {
   account: AceAccount;
   refreshToken: string;
+  /** Where WorkOS keeps the person's picture (an https address); kept by the backend only. */
+  pictureUrl?: string | undefined;
 }
 
 /** WorkOS said the refresh token or code is no longer valid: the session must end. */
@@ -18,6 +20,7 @@ const Authenticated = z.object({
     email: z.string(),
     first_name: z.string().nullish(),
     last_name: z.string().nullish(),
+    profile_picture_url: z.string().nullish(),
   }),
   refresh_token: z.string().min(1),
 });
@@ -55,6 +58,18 @@ function logRefusal(status: number, raw: unknown, config: AccountConfig): void {
       },
     }),
   );
+}
+
+/** An https address WorkOS gave (or a loopback http one, as tests run), else undefined. */
+function httpsUrl(value: string | null | undefined): string | undefined {
+  if (!value || value.length > 2048) return undefined;
+  try {
+    const url = new URL(value);
+    const loopback = url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname);
+    return url.protocol === "https:" || loopback ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -102,13 +117,16 @@ export function workos(config: AccountConfig, fetcher: typeof fetch) {
       throw new Error("WorkOS answered an unexpected shape");
     }
     const result = parsed.data;
+    const pictureUrl = httpsUrl(result.user.profile_picture_url);
     return {
       account: AceAccount.parse({
         id: result.user.id,
         email: result.user.email,
         name: [result.user.first_name, result.user.last_name].filter(Boolean).join(" "),
+        ...(pictureUrl ? { picture: true } : {}),
       }),
       refreshToken: result.refresh_token,
+      pictureUrl,
     };
   }
   return {

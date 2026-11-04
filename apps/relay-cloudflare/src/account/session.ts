@@ -43,7 +43,8 @@ export function sessionReader(deps: {
       await store.remove(hash);
       return undefined;
     }
-    if (!(await store.rotate(hash, identity.account, identity.refreshToken))) return undefined;
+    if (!(await store.rotate(hash, identity.account, identity.refreshToken, identity.pictureUrl)))
+      return undefined;
     return { account: identity.account, expiresAt: stored.expiresAt };
   }
 

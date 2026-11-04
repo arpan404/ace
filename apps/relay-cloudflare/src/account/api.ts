@@ -4,6 +4,7 @@ import type { RandomBytes } from "./crypto.ts";
 import { directoryRoutes } from "./directory.ts";
 import { loginRoutes } from "./login.ts";
 import { loginStore } from "./logins.ts";
+import { pictureRoute } from "./picture.ts";
 import { machineStore } from "./machines.ts";
 import { bearer, fail, json, secure } from "./respond.ts";
 import { sessionReader } from "./session.ts";
@@ -39,6 +40,7 @@ export function accountApi(
   const sessions = sessionStore(deps.db, seal);
   const provider = workos(config, deps.fetch);
   const reader = sessionReader({ store: sessions, provider, now });
+  const picture = pictureRoute({ sessions, fetch: deps.fetch, now });
   const logins = loginStore(deps.db, seal);
   const login = loginRoutes({
     config,
@@ -70,6 +72,7 @@ export function accountApi(
       return login.callback(request, url);
     const claim = pathname.match(loginClaim)?.[1];
     if (claim && (method === "GET" || method === "DELETE")) return login.claim(request, claim);
+    if (pathname === "/v1/account/picture" && method === "GET") return picture(request);
     if (pathname === "/v1/account/session" && (method === "GET" || method === "DELETE")) {
       const token = bearer(request);
       if (!token) return fail(401, "unauthenticated");

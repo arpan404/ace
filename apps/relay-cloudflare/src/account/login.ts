@@ -180,7 +180,13 @@ export function loginRoutes(deps: {
       const token = opaqueToken(random);
       const hash = await digest(token);
       const expiresAt = now() + SESSION_LIFETIME_MS;
-      await sessions.put(hash, identity.account, identity.refreshToken, expiresAt);
+      await sessions.put(
+        hash,
+        identity.account,
+        identity.refreshToken,
+        expiresAt,
+        identity.pictureUrl,
+      );
       const grant = AceAccountGrant.parse({ token, expiresAt, account: identity.account });
       // A cancellation or expiry while WorkOS answered wins: the new session is discarded.
       if (!(await logins.complete(row.id, hash, grant, now()))) {

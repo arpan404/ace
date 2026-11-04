@@ -12,7 +12,7 @@ import { connectClientViaRelay, connectHostToRelay } from "@ace/relay";
 import type { HostChannel } from "@ace/relay";
 import { deferred } from "@ace/relay/testing";
 import { hostId, keyPair } from "@ace/secure-channel";
-import { fakeWorkos } from "./testing/fake-workos.ts";
+import { FAKE_PICTURE, fakeWorkos } from "./testing/fake-workos.ts";
 import type { WorkosUser } from "./testing/fake-workos.ts";
 import { allowedOrigin, startWorker } from "./testing/harness.ts";
 import { continueSignIn } from "./testing/sign-in.ts";
@@ -292,4 +292,37 @@ it("a signed-in machine and device reach each other through the account, and onl
   await expect(
     client.grant(owner, { kind: "device", subject: "phone" }, signal),
   ).rejects.toMatchObject({ status: 401 });
+});
+
+it("a session sees its own picture through ace, and the picture's address stays with the backend", async () => {
+  const pictured: WorkosUser = {
+    id: "user_p",
+    email: "p@example.com",
+    first_name: "Pia",
+    last_name: null,
+    profile_picture_url: `${workos.url}/pictures/person.png`,
+  };
+  const grant = await signedIn(pictured);
+  expect(grant.account.picture).toBe(true);
+  const session = await request("/v1/account/session", bearer(grant.token));
+  const body = await session.text();
+  expect(AceAccountSession.parse(JSON.parse(body)).account.picture).toBe(true);
+  expect(body).not.toContain("/pictures/");
+
+  const picture = await request("/v1/account/picture", bearer(grant.token));
+  expect(picture.status).toBe(200);
+  expect(picture.headers.get("content-type")).toBe("image/png");
+  expect(Buffer.from(await picture.arrayBuffer())).toEqual(FAKE_PICTURE);
+
+  // No session, no picture; an account without one, and a picture that isn't an image, get none.
+  expect((await request("/v1/account/picture")).status).toBe(401);
+  const plain = await signedIn(personB);
+  expect(plain.account.picture).toBeUndefined();
+  expect((await request("/v1/account/picture", bearer(plain.token))).status).toBe(404);
+  const broken = await signedIn({
+    ...pictured,
+    id: "user_q",
+    profile_picture_url: `${workos.url}/pictures/not-an-image`,
+  });
+  expect((await request("/v1/account/picture", bearer(broken.token))).status).toBe(502);
 });
