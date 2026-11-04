@@ -255,7 +255,11 @@ test("search everything ranks commands, projects and threads by the palette's ru
   type Named = { commands: { id: string; label: string; detail: string | null }[] };
   const fleet = (await request({ type: "palette.query", query: "fleet", commands: true })) as Named;
   expect(fleet.commands[0]).toMatchObject({ id: "settings:machines", detail: "Settings" });
-  const chat = (await request({ type: "palette.query", query: "new chat", commands: true })) as Named;
+  const chat = (await request({
+    type: "palette.query",
+    query: "new chat",
+    commands: true,
+  })) as Named;
   expect(chat.commands[0]).toMatchObject({ id: "new-chat", label: "New chat", detail: "Create" });
   const usage = (await request({ type: "palette.query", query: "usage", commands: true })) as Named;
   expect(usage.commands[0]).toMatchObject({ id: "tool:usage", detail: "Go to" });

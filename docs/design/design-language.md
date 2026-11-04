@@ -52,7 +52,7 @@ One family per platform (Inter/SF on desktop and web, SF Pro on iOS), five roles
 
 | Role        | Use                                       |
 | ----------- | ----------------------------------------- |
-| Large title | A place's name (Threads, Chats, More)     |
+| Large title | A place's name (Threads, Chats, Search)   |
 | Title       | Thread titles, message text, sheet titles |
 | Body        | Row titles, answers, settings labels      |
 | Meta        | Project, branch, time, counts             |
@@ -109,14 +109,16 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 
 ### Materials
 
-- Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer block, header buttons, the model and live pills. One glass block per area, never stacked glass objects.
+- Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer block, header buttons, the iPad sidebar's places, the model and live pills. One glass block per area, never stacked glass objects.
 - Sheets use the system sheet with detents; menus are system menus; context menus replace inline action rows.
 
 ### Structure
 
-- **Tab bar:** Threads · Chats · Spade, plus the round compose button.
-- **Header:** large title that collapses on scroll; round glass buttons on the right (search, More).
-- **More:** a grouped list with Pull requests and Settings first, then the machine tools.
+- **Tab bar:** Threads · Chats · Search, plus the round compose button. Spade's tab is hidden until it launches; it comes back in its slot between Chats and Search (`HomeTabs.showsSpade`), never as a "coming soon" screen.
+- **Compose:** on iOS 27 the tab bar's prominent detached button. On iOS 26, where the detached button belongs to the search tab, Search takes it and compose is a round glass button in the Threads and Chats headers.
+- **Header:** large title that collapses on scroll; the scope or a connection problem shows under it only while it applies. On the right, one glass capsule: the scope menu (machine, project, sort, Select) and compose. The system's title menu is not used: it draws no chevron beside a large title. Threads has Inbox · Snoozed · Settled under the title; Chats is its own tab.
+- **Search:** replaces More and the web's command palette. Empty, it shows Places as capsules (Pull requests with its open count, Issues, Automations, Skills, Usage, Machines, Settings), recent searches and the latest threads. Typed, it lists actions (each saying where it goes), threads, pull requests, projects and messages. Places open in a sheet; Settings holds every machine tool.
+- **iPad and wide windows:** the list sits beside the thread; the sidebar's foot carries the places in the web rail's order (Threads, Chats, Search, then Pull requests, Automations, Skills, Settings) as bare glyphs on one glass capsule, in place of the tab bar.
 - **Thread:** title and project · branch in the navigation area; transcript; the composer block at the bottom with the pill row above the field.
 
 ### Interaction

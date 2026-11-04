@@ -42,7 +42,12 @@ const settings = (id: string, label: string, keywords: string[] = []): Command =
   detail: "Settings",
   fields: ["settings", ...keywords],
 });
-const tool = (id: string, label: string, keywords: string[] = [], detail = "Settings"): Command => ({
+const tool = (
+  id: string,
+  label: string,
+  keywords: string[] = [],
+  detail = "Settings",
+): Command => ({
   id: `tool:${id}`,
   label,
   detail,

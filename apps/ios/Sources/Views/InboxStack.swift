@@ -84,8 +84,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .inboxFootBar {
                     if holds { SidebarPlaces(tab: $tab, open: header.place, needsYou: needsYou) }
                 }
-                .modifier(ListTitle(title: HomeTabs.title(list), subtitle: subtitle, selecting: selecting,
-                                    hasMenu: !chats || inbox.showsMachineNames) { titleMenu })
+                .modifier(ListTitle(title: HomeTabs.title(list), subtitle: subtitle, selecting: selecting))
                 .toolbar { if selecting { selectToolbar } else { listToolbar } }
                 .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                     if selecting {
@@ -112,12 +111,15 @@ struct InboxStack<Destination: View, Side: View>: View {
             InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                       pair: header.pair, selection: selecting ? $selection : nil)
                 .refreshable { await refresh() }
-                // Inbox, Snoozed and Settled under the title, pinned as rows pass beneath them.
-                .inboxTopBar { tabsBar }
+                // Inbox, Snoozed and Settled under the title, pinned on the page colour: a glass
+                // bar under a large title blurs the title.
+                .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                    tabsBar.background(AceTheme.Colours.background, ignoresSafeAreaEdges: [])
+                }
         }
     }
 
-    /// The title's menu: the machine, project and sort, then Select.
+    /// The scope menu: the machine, project and sort, then Select.
     @ViewBuilder private var titleMenu: some View {
         if chats {
             Picker("Machine", selection: $machine) {
@@ -254,9 +256,17 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The round compose button, where the tab bar doesn't hold it: before iOS 27, and beside a
-    /// page in a regular window, which has no tab bar.
+    /// The scope menu and the round compose button on one glass capsule. Compose shows where the
+    /// tab bar doesn't hold it: before iOS 27, and beside a page in a regular window, which has no
+    /// tab bar. (The system's title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
+        if !chats || inbox.showsMachineNames {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu { titleMenu } label: { Image(systemName: "line.3.horizontal.decrease") }
+                    .accessibilityLabel(chats ? "Machine" : "Scope, sort and select")
+                    .accessibilityIdentifier("inbox.projects")
+            }
+        }
         if inbox.canStartThreads && (sizeClass == .regular || !HomeTabs.composeTab) {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: header.compose) { Image(systemName: HomeTabs.symbol(.compose)) }
@@ -289,20 +299,18 @@ struct HeaderLead: ViewModifier {
     func body(content: Content) -> some View { content.padding(.leading, lead) }
 }
 
-/// The list's native title (`NativeTitle`): large, collapsing as the rows scroll, its menu on the
-/// title and the scope or connection problem under it. Select mode keeps the bar's centre, where
-/// it counts the threads picked.
-private struct ListTitle<Menu: View>: ViewModifier {
+/// The list's native title (`NativeTitle`): large, collapsing as the rows scroll, the scope or a
+/// connection problem under it. Select mode keeps the bar's centre, where it counts the threads
+/// picked.
+private struct ListTitle: ViewModifier {
     let title: String
     let subtitle: String?
     let selecting: Bool
-    let hasMenu: Bool
-    @ViewBuilder let menu: () -> Menu
     func body(content: Content) -> some View {
         if selecting {
             content.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
         } else {
-            content.nativeTitle(title, subtitle: subtitle, hasMenu: hasMenu, menu: menu)
+            content.nativeTitle(title, subtitle: subtitle)
         }
     }
 }

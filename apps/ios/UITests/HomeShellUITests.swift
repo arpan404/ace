@@ -20,6 +20,18 @@ import XCTest
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
         XCTAssertFalse(app.buttons["threads.tab.chats"].exists)
         capture("threads")
+        // The scope menu sits beside compose, and starts Select.
+        let scope = app.buttons["inbox.projects"]
+        XCTAssertTrue(scope.exists)
+        XCTAssertLessThan(scope.frame.maxY, app.frame.midY)
+        scope.tap()
+        let select = app.buttons.matching(NSPredicate(format: "identifier == 'inbox.select' OR label == 'Select threads'")).firstMatch
+        XCTAssertTrue(select.waitForExistence(timeout: 5))
+        capture("scope-menu")
+        select.tap()
+        XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
+        // Picking hides the tab bar for the selection's own bar.
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
     }
 
     func testComposeOnChatsStartsAChatAndOnThreadsAThread() {
@@ -78,6 +90,26 @@ import XCTest
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))
         // A thread page hides the tab bar.
         XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+    }
+
+    func testTheIPadSidebarFootCarriesThePlacesInTheWebRailsOrder() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else { throw XCTSkip("iPad layout") }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = launch()
+        let row = app.buttons["thread.ios-form"]
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        let places = ["sidebar.threads", "sidebar.chats", "sidebar.search", "sidebar.place.pulls", "sidebar.place.automations",
+                      "sidebar.place.skills", "sidebar.place.settings"].map { app.buttons[$0] }
+        XCTAssertTrue(places[0].waitForExistence(timeout: 10))
+        // Left to right in the rail's order, with no Spade and no tab bar beside the list.
+        let xs = places.map(\.frame.midX)
+        XCTAssertEqual(xs, xs.sorted())
+        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
+        XCTAssertFalse(app.tabBars.firstMatch.buttons["Threads"].isHittable)
+        capture("ipad-sidebar")
+        app.buttons["sidebar.place.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.machines"].waitForExistence(timeout: 10))
     }
 
     private func launch() -> XCUIApplication {
