@@ -95,7 +95,8 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   `nodeOnlySuites`. Those cover code that doesn't run on Bun in production (the Cloudflare
   Worker, whose wrangler test harness refuses Bun; the self-hosted relay server and the e2e
   launcher, which run on Node), or rely on hooks and limits only Node has. A single test that
-  needs a Node-only API skips on Bun with a comment saying why. Under Bun, test isolates drop
+  needs a Node-only API skips on Bun with a comment saying why; a whole file that does goes in
+  `nodeOnlySuites`. Under Bun, test isolates drop
   `native` stack frames: Vitest looks them up as files and would read the repository's
   `native/` folder.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs

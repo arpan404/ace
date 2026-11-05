@@ -40,6 +40,12 @@ export const nodeOnlySuites = [
   // The e2e launcher runs on Node (`node src/real-daemon.ts` in playwright.config.ts). It
   // switches HOME in-process, which Bun's os.homedir() does not follow.
   "tools/web-e2e/src/real-daemon-isolation.process.test.ts",
+  // The bench's telemetry preload sees workers through Node's worker_threads diagnostics channel
+  // and reaches them through inherited --import; Bun has neither.
+  "apps/daemon/src/bench-telemetry.process.test.ts",
+  // Its read recorder patches node:fs in every isolate (inherited --import and
+  // syncBuiltinESMExports); on Bun it would see no reads, so this privacy check runs on Node.
+  "apps/daemon/src/history-startup.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
