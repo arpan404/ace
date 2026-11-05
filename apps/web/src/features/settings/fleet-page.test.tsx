@@ -29,15 +29,11 @@ test("the overview lists every machine and device with its state, and a machine'
   const { app } = withBuildServer();
   await app.open("/settings/remote");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  // The scenario's machine serves Tailscale: reachable from anywhere.
-  expect(
-    await screen.findByText(
-      "2 machines and 2 devices. Your devices can reach this computer from anywhere.",
-    ),
-  ).toBeTruthy();
   const machines = await region("Machines");
   expect(within(machines).getByText("this computer")).toBeTruthy();
+  // The scenario's machine serves Tailscale: reachable from anywhere, so no warning under the title.
   expect(await within(machines).findByText("Reached through Tailscale")).toBeTruthy();
+  expect(screen.queryByText(/can reach this computer|Remote access is off/)).toBeNull();
   expect(await within(machines).findByText("Online")).toBeTruthy();
   const devices = await region("Devices");
   expect(within(devices).getByText("iPhone 16 Pro")).toBeTruthy();
@@ -162,8 +158,9 @@ test("each network turns on and off on this computer, asking before one that dev
 test("a relay of your own is added under More options and named once it serves", async () => {
   const app = harness();
   await app.open("/settings/remote");
-  await userEvent.click(await screen.findByText("More options"));
-  await userEvent.click(await ready(document.body, "Add"));
+  const more = await screen.findByText("More options");
+  await userEvent.click(more);
+  await userEvent.click(await ready(more.closest("details") ?? document.body, "Add"));
   await userEvent.type(
     screen.getByRole("textbox", { name: "Relay address" }),
     "wss://relay.example.com/",
@@ -238,7 +235,6 @@ test("moving threads and bringing ignored files are set on every machine", async
 test("a fleet of one says what to do next, and Add machine and Pair a device reach their flows", async () => {
   const app = harness();
   await app.open("/settings/remote");
-  expect(await screen.findByText(/^Just this computer so far\./)).toBeTruthy();
   const next = await region("Next");
   await userEvent.click(within(next).getByRole("button", { name: "Add machine" }));
   const add = await screen.findByRole("dialog", { name: "Add a machine" });

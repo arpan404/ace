@@ -1,5 +1,5 @@
 import type { ContentPart } from "@ace/protocol";
-import { sanitizeUserText } from "@ace/native-session/user-text";
+import { sanitizeTypedText, sanitizeUserText } from "@ace/native-session/user-text";
 import { withoutPortableHandoff } from "@ace/projection";
 import { splitAnnotationParts, splitBrowserAnnotations } from "./browser-annotation-parse.ts";
 import { tokensFromInput } from "./composer-tokens.ts";
@@ -42,6 +42,15 @@ export function bubbleContent(input: readonly ContentPart[]): BubbleContent {
     annotations: annotated.annotations,
     ...(quoted.quotes ? { quotes: quoted.quotes } : {}),
   };
+}
+
+/**
+ * A message's words as the person typed them, a leading slash command kept, with what only the
+ * agent reads taken out (the daemon's origin marker, context envelopes, browser annotations).
+ * For a message still on its way; the transcript's bubble uses `bubbleContent`.
+ */
+export function typedWords(parts: readonly ContentPart[]): string {
+  return sanitizeTypedText(splitBrowserAnnotations(tokensFromInput(parts).text).text);
 }
 
 /** A mention's chip name: its title, else its catalog name in words. */

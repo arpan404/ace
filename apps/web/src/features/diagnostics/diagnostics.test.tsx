@@ -42,28 +42,20 @@ test("support export excludes conversations by default and downloads the chosen 
     );
   }
 });
-test("Settings → Computer use explains how to install the computer's missing tools", async () => {
-  await harness().open("/settings/computer-use");
-  const tools = await screen.findByRole("region", { name: "Tools on this machine" });
-  // The fake computer has Xcode and Git; only the Android SDK is missing.
-  expect(await within(tools).findByText(/Install Android Studio.*SDK/)).toBeTruthy();
-  expect(within(tools).queryByText(/Install Xcode from the App Store/)).toBeNull();
-  expect(within(tools).getByText("Git")).toBeTruthy();
-});
-test("the Devices list ends with the device tools' versions, and Set up shows how to add the missing one", async () => {
+test("the Devices list ends with the device tools' versions, and Set up leads to how to add the missing one", async () => {
   const { panel } = await openDevices();
   await within(panel).findByRole("searchbox", { name: "Search devices" });
   const tools = await within(panel).findByLabelText("Device tools");
   await waitFor(() =>
     expect(tools.textContent).toBe("Xcode 26.0·serve-sim 0.1.49-beta.139.1·Android SDKSet up…"),
   );
-  await userEvent.click(within(tools).getByRole("button", { name: "Set up…" }));
-  const dialog = await screen.findByRole("dialog", { name: "Device tools" });
-  expect(within(dialog).getByRole("link", { name: "Install Android Studio" })).toHaveProperty(
+  await userEvent.click(within(tools).getByRole("link", { name: "Set up…" }));
+  const setup = await screen.findByRole("region", { name: "Tools" });
+  expect(within(setup).getByRole("link", { name: "Install Android Studio" })).toHaveProperty(
     "href",
     "https://developer.android.com/studio",
   );
-  expect(within(dialog).getByRole("button", { name: "Check again" })).toBeTruthy();
+  expect(within(setup).getByRole("button", { name: "Check again" })).toBeTruthy();
 });
 
 test("a failed check offers a retry and a failed export keeps the dialog open", async () => {

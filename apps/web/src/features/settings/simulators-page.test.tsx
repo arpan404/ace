@@ -26,9 +26,21 @@ test("turning off simulators and emulators in Settings asks first, then saves it
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
-test("the emulator window choice lives with the simulators, not under Computer use", async () => {
-  await harness().open("/settings/simulators");
-  expect(await screen.findByRole("switch", { name: "Show emulator window" })).toBeTruthy();
+test("Show emulator window starts off, lives with the simulators, and the person's choice is what the daemon keeps", async () => {
+  const app = harness();
+  await app.open("/settings/simulators");
+  const toggle = await screen.findByRole("switch", { name: "Show emulator window" });
+  await waitFor(() => expect(toggle.getAttribute("aria-disabled")).not.toBe("true"));
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+  await userEvent.click(toggle);
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(true),
+  );
+  await userEvent.click(toggle);
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(false),
+  );
 });
 
 test("Computer use no longer carries the simulator and emulator settings", async () => {
