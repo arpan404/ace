@@ -1,4 +1,4 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";

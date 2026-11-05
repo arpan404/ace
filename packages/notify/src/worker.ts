@@ -1,5 +1,5 @@
 import { replayGap } from "./replay-gap.ts";
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
 import {

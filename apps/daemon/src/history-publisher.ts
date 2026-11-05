@@ -1,4 +1,4 @@
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { z } from "zod";
 import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";

@@ -24,7 +24,9 @@
     "jsx-a11y/no-static-element-interactions": "error",
     "jsx-a11y/no-noninteractive-tabindex": [
       "error",
-      { "roles": ["tabpanel", "region", "log", "application"] }
+      {
+        "roles": ["tabpanel", "region", "log", "application"]
+      }
     ],
     "jsx-a11y/prefer-tag-over-role": "off",
     "jsx-a11y/no-autofocus": "off",
@@ -43,6 +45,25 @@
       "warn",
       {
         "allow": ["**/*.css", "**/test-host.ts"]
+      }
+    ],
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "node:worker_threads",
+            "importNames": ["Worker"],
+            "message": "Start worker threads with startWorker from @ace/provider-kit/worker: on Bun only it can hand a worker the perf gate's measurement preloads, and a worker started past it goes unmeasured.",
+            "allowTypeImports": true
+          },
+          {
+            "name": "worker_threads",
+            "importNames": ["Worker"],
+            "message": "Start worker threads with startWorker from @ace/provider-kit/worker: on Bun only it can hand a worker the perf gate's measurement preloads, and a worker started past it goes unmeasured.",
+            "allowTypeImports": true
+          }
+        ]
       }
     ]
   },
@@ -71,6 +92,23 @@
         "react-compiler/config": "error",
         "react-compiler/gating": "error",
         "react-compiler/incompatible-library": "error"
+      }
+    },
+    {
+      "files": [
+        "packages/provider-kit/src/worker.ts",
+        "apps/desktop/**",
+        "apps/web/**",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*test-support*.ts",
+        "**/*.fixture.ts",
+        "**/testing/**",
+        "**/fixtures/**",
+        "**/bench/**"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
       }
     }
   ]

@@ -1,4 +1,4 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { z } from "zod";
 import { workerRequest } from "./worker-rpc.ts";

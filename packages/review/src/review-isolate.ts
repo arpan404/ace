@@ -1,6 +1,6 @@
 // Node worker_threads.postMessage has no browser targetOrigin.
 /* eslint-disable unicorn/require-post-message-target-origin */
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
 import { startWorker } from "@ace/provider-kit/worker";
 import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import {
