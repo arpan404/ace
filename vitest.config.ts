@@ -76,6 +76,7 @@ export default defineConfig({
           name: "process",
           include: [
             "{packages,tools,apps}/*/src/**/*.process.test.ts",
+            "apps/desktop/e2e/fixtures/*.process.test.ts",
             "scripts/**/*.process.test.ts",
             historyWorkerReview,
           ],

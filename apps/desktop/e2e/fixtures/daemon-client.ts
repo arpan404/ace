@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { once } from "node:events";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
@@ -34,6 +33,8 @@ export type RemoteBrowser = {
 };
 
 export interface DesktopDaemon {
+  /** The daemon's process. */
+  pid: number;
   url: string;
   tokenPath: string;
   browser: RemoteBrowser;
@@ -94,18 +95,34 @@ export async function startDesktopDaemon(
     ],
     { env, stdio: ["pipe", "pipe", "inherit"] },
   );
-  const exited = once(child, "exit");
   const pending = new Map<number, PromiseWithResolvers<unknown>>();
   const ready = Promise.withResolvers<{ url: string; tokenPath: string }>();
-  let next = 0;
-  child.once("error", (error) => ready.reject(error));
-  child.once("exit", (code, signal) => {
-    const error = new Error(`The e2e daemon exited (${signal ?? code})`);
+  // Ends when the process does, or when it never started: a failed spawn emits no exit.
+  const ended = Promise.withResolvers<void>();
+  let finished = false;
+  const end = () => {
+    finished = true;
+    ended.resolve();
+  };
+  let gone: Error | undefined;
+  const fail = (error: Error) => {
+    gone ??= error;
     ready.reject(error);
     for (const request of pending.values()) request.reject(error);
     pending.clear();
+  };
+  child.once("error", (error) => {
+    fail(new Error(`The e2e daemon could not run: ${error.message}`));
+    if (child.pid === undefined) end();
+  });
+  child.once("exit", (code, signal) => {
+    fail(new Error(`The e2e daemon exited (${signal ?? code})`));
+    end();
   });
   if (!child.stdout || !child.stdin) throw new Error("The e2e daemon has no pipes");
+  // Writing after the daemon died fails with EPIPE: that fails its requests, never the spec's
+  // process.
+  child.stdin.on("error", (error) => fail(new Error(`The e2e daemon's stdin failed: ${error.message}`)));
   createInterface({ input: child.stdout }).on("line", (line) => {
     if (!line.startsWith(marker)) {
       // The daemon's own output, not a reply.
@@ -119,8 +136,10 @@ export async function startDesktopDaemon(
     if ("error" in message) request?.reject(new Error(message.error));
     else request?.resolve(decodeValue(message.value));
   });
+  let next = 0;
   const stdin = child.stdin;
   const send = (request: Request): Promise<unknown> => {
+    if (gone) return Promise.reject(gone);
     const id = ++next;
     const reply = Promise.withResolvers<unknown>();
     pending.set(id, reply);
@@ -128,11 +147,15 @@ export async function startDesktopDaemon(
     return reply.promise;
   };
   const close = async () => {
-    if (child.exitCode !== null || child.signalCode !== null) return;
+    if (finished) return;
     stdin.end();
+    // The daemon bounds its own close at 10 s; past 15 s it is killed.
     const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
-    await exited;
-    clearTimeout(timer);
+    try {
+      await ended.promise;
+    } finally {
+      clearTimeout(timer);
+    }
   };
   // A daemon's first start in a fresh HOME transpiles every source file.
   const startup = setTimeout(() => ready.reject(new Error("The e2e daemon did not start")), 120_000);
@@ -144,7 +167,10 @@ export async function startDesktopDaemon(
     const browser = Object.fromEntries(
       browserMethods.map((method) => [method, call(method)]),
     ) as unknown as RemoteBrowser;
+    const { pid } = child;
+    if (pid === undefined) throw new Error("The e2e daemon has no process");
     return {
+      pid,
       url,
       tokenPath,
       browser,
