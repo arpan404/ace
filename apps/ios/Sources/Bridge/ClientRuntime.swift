@@ -20,6 +20,8 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private var early: String?
     /// How the VM thread competes for the CPU: below the machines' runtimes for background reads.
     private let priority: QualityOfService
+    /// The VM's thread; every JavaScriptCore call checks it in debug builds.
+    let vm = VMThread()
     /// Browser stream messages this runtime's sockets decode natively, for the live view.
     let browserStreams: BrowserStreamHub? = BrowserStreamHub()
 
@@ -83,6 +85,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
     func startAccess(_ json: String) { boot(then: (name: "aceAccess", json: json)) }
     private func run(_ entry: (name: String, json: String), in context: JSContext) {
+        vm.check("entry \(entry.name)")
         let starting = LaunchTrace.begin("script.start", entry.name)
         defer { starting.end() }
         guard let function = context.objectForKeyedSubscript(entry.name), !function.isUndefined else {
@@ -140,6 +143,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         worker.name = "ace.client.javascript"
         worker.qualityOfService = priority
         lock.withLock { thread = worker }
+        vm.adopt(worker)
         worker.start()
         ready.wait()
     }
@@ -148,6 +152,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
+            self.vm.check("execute")
             let began = CACurrentMediaTime()
             HostTrace.measure("js.run") { autoreleasepool { work(context) } }
             let spent = CACurrentMediaTime() - began
@@ -181,13 +186,4 @@ private struct AccountConfig: Encodable {}
 private struct RuntimeConfig: Encodable {
     let deviceId: String; let hostId: String; let itemLimit: Int
     let paired: PairedConfig?; let account: AccountConfig?; let inboxSort: String?
-}
-/// The value is retained across an async native operation, then read/released only on the VM thread.
-final class Callback: @unchecked Sendable {
-    let value: JSValue
-    private let traced: String?
-    private let began: Double
-    init(_ value: JSValue, traced: String? = nil, began: Double = 0) { self.value = value; self.traced = traced; self.began = began }
-    /// Adds the operation's time, request to native reply, to the host totals when traced.
-    func finish() { if let traced { HostTrace.add("host.call:" + traced, seconds: CACurrentMediaTime() - began) } }
 }

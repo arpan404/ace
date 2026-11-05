@@ -7,6 +7,7 @@ import { SettingNote, SettingRow, SettingSection } from "@/components/setting-ro
 import { Button } from "@/components/ui/button.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
+import { settingRow } from "./settings-index.ts";
 
 const familyNames: Record<string, string> = {
   chrome: "Chrome",
@@ -35,7 +36,7 @@ function connectionSummary(connection: UserBrowserConnection): string {
 }
 
 /**
- * Settings › Computer use › Use my Chrome (ADR 0084): install the native host and extension,
+ * Settings › Browser › Use my Chrome (ADR 0084): install the native host and extension,
  * see which browsers are connected, stop agents, revoke. The daemon decides; this shows and asks.
  */
 export function UseMyChromeSettings() {
@@ -83,12 +84,11 @@ export function UseMyChromeSettings() {
       ) : (
         <>
           <SettingRow
-            id="browser.userChrome.connection"
-            title="Browser connection"
+            {...settingRow("browser.userChrome.connection")}
             description={
               installed
                 ? `Installed for ${value.installed.map((host) => host.browser).join(", ")}.`
-                : "Agents work in tabs you share, with your sign-ins and extensions."
+                : "Agents work in tabs you share, with your sign-ins and extensions. Downloads save where your Chrome saves them."
             }
             inline
           >
@@ -123,8 +123,7 @@ export function UseMyChromeSettings() {
               ))}
           {installed && (
             <SettingRow
-              id="browser.userChrome.storageReads"
-              title="Let agents read cookies and site storage"
+              {...settingRow("browser.userChrome.storageReads")}
               description="When off, agents read the page, never its cookies or saved data."
               htmlFor={storageId}
               inline

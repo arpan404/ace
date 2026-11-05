@@ -469,7 +469,7 @@ export function ConnectionGate(props: {
     }));
   }, []);
   const openAccount = useCallback(
-    (machine: { origin: string; hostId: string; name: string }) => {
+    (machine: { origin: string; hostId: string; name: string; accountId?: string }) => {
       const parsed = AccountMainMachine.safeParse(machine);
       if (!parsed.success) return;
       managed.current = false;

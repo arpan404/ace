@@ -273,6 +273,9 @@ test("Clear browsing data asks first, then clears and empties the thread's histo
   await options(panel);
   await userEvent.click(await screen.findByRole("menuitem", { name: "Clear browsing data…" }));
   const confirm = await screen.findByRole("dialog", { name: "Clear browsing data?" });
+  // Clearing acts on the thread's browser profile, which other threads may share.
+  expect(confirm.textContent).toContain("browser profile this thread uses");
+  expect(confirm.textContent).toContain("Threads that share this profile are signed out too.");
   await userEvent.click(within(confirm).getByRole("button", { name: "Clear data" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Clear browsing data?" })).toBeNull(),

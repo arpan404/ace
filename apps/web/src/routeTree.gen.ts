@@ -38,6 +38,7 @@ import { Route as SettingsNotificationsRouteImport } from "./routes/settings.not
 import { Route as SettingsOverviewRouteImport } from "./routes/settings.overview"
 import { Route as SettingsProfileRouteImport } from "./routes/settings.profile"
 import { Route as SettingsPromptsRouteImport } from "./routes/settings.prompts"
+import { Route as SettingsSimulatorsRouteImport } from "./routes/settings.simulators"
 import { Route as SettingsSourceControlRouteImport } from "./routes/settings.source-control"
 import { Route as SettingsStorageRouteImport } from "./routes/settings.storage"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
@@ -202,6 +203,11 @@ const SettingsPromptsRoute = SettingsPromptsRouteImport.update({
   path: "/prompts",
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsSimulatorsRoute = SettingsSimulatorsRouteImport.update({
+  id: "/simulators",
+  path: "/simulators",
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsSourceControlRoute = SettingsSourceControlRouteImport.update({
   id: "/source-control",
   path: "/source-control",
@@ -329,6 +335,7 @@ export interface FileRoutesByFullPath {
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -374,6 +381,7 @@ export interface FileRoutesByTo {
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -425,6 +433,7 @@ export interface FileRoutesById {
   "/settings/overview": typeof SettingsOverviewRoute
   "/settings/profile": typeof SettingsProfileRoute
   "/settings/prompts": typeof SettingsPromptsRoute
+  "/settings/simulators": typeof SettingsSimulatorsRoute
   "/settings/source-control": typeof SettingsSourceControlRoute
   "/settings/storage": typeof SettingsStorageRoute
   "/skills/$skillId": typeof SkillsSkillIdRoute
@@ -477,6 +486,7 @@ export interface FileRouteTypes {
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -522,6 +532,7 @@ export interface FileRouteTypes {
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -572,6 +583,7 @@ export interface FileRouteTypes {
     | "/settings/overview"
     | "/settings/profile"
     | "/settings/prompts"
+    | "/settings/simulators"
     | "/settings/source-control"
     | "/settings/storage"
     | "/skills/$skillId"
@@ -811,6 +823,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsPromptsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    "/settings/simulators": {
+      id: "/settings/simulators"
+      path: "/simulators"
+      fullPath: "/settings/simulators"
+      preLoaderRoute: typeof SettingsSimulatorsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     "/settings/source-control": {
       id: "/settings/source-control"
       path: "/source-control"
@@ -1015,6 +1034,7 @@ interface SettingsRouteChildren {
   SettingsOverviewRoute: typeof SettingsOverviewRoute
   SettingsProfileRoute: typeof SettingsProfileRoute
   SettingsPromptsRoute: typeof SettingsPromptsRoute
+  SettingsSimulatorsRoute: typeof SettingsSimulatorsRoute
   SettingsSourceControlRoute: typeof SettingsSourceControlRoute
   SettingsStorageRoute: typeof SettingsStorageRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
@@ -1037,6 +1057,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsOverviewRoute: SettingsOverviewRoute,
   SettingsProfileRoute: SettingsProfileRoute,
   SettingsPromptsRoute: SettingsPromptsRoute,
+  SettingsSimulatorsRoute: SettingsSimulatorsRoute,
   SettingsSourceControlRoute: SettingsSourceControlRoute,
   SettingsStorageRoute: SettingsStorageRoute,
   SettingsIndexRoute: SettingsIndexRoute,

@@ -1,21 +1,24 @@
-import { fleetUpdateNowConfirm, type UpdateLine } from "@ace/ui-core";
+import { fleetUpdateNowConfirm, updateChoices, type UpdateLine } from "@ace/ui-core";
 import { useState } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { Fleet } from "./data/use-fleet.ts";
+import { FleetUpdatePicker } from "./fleet-update-picker.tsx";
 
 /**
  * Settings › Fleet's updates: one line, either the offer ("7 machines can update to 0.0.19")
- * with Update all, or the run counting down, and one sentence naming the machines it can't
- * reach. Nothing when every machine is up to date.
+ * with Update all and Choose…, or the run counting down, and one sentence naming the machines
+ * it can't reach. Nothing when every machine is up to date. One machine updates from its row.
  */
 export function FleetSoftware(props: { fleet: Fleet }) {
   const update = props.fleet.update;
   const [confirming, setConfirming] = useState<Confirming>();
+  const [choosing, setChoosing] = useState(false);
   const headline = update.headline;
   if (!headline) return null;
   const offer = headline.actions.length > 0;
+  const choices = updateChoices(update.plan).length;
   return (
     <RowGroup label="Updates">
       <HairlineRow
@@ -25,6 +28,7 @@ export function FleetSoftware(props: { fleet: Fleet }) {
         actions={
           offer && (
             <>
+              {choices > 1 && <RowAction onClick={() => setChoosing(true)}>Choose…</RowAction>}
               <RowAction className="text-foreground" onClick={() => update.startAll("idle")}>
                 Update all
               </RowAction>
@@ -43,6 +47,7 @@ export function FleetSoftware(props: { fleet: Fleet }) {
         }
       />
       <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+      {choosing && <FleetUpdatePicker update={update} onClose={() => setChoosing(false)} />}
     </RowGroup>
   );
 }

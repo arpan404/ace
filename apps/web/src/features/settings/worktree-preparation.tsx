@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SettingsValues, type SettingsProvenance } from "@ace/protocol";
 import { useClient } from "@ace/client-react";
-import { SettingNote, SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
 import { fieldClassName } from "@/components/ui/input.tsx";
 import { cn } from "@/lib/cn.ts";
 import { subscribeSettings } from "@/lib/settings-subscription.ts";
@@ -11,12 +11,12 @@ const msPerMinute = 60_000;
 
 /**
  * The worktree preparation deadline of the machine Settings edits (`SettingsOutlet` renders the
- * page against it). Each daemon enforces its own `worktree.preparationTimeoutMs` (10 minutes by
+ * page against it), a row of Settings › Agents › Worktrees. Each daemon enforces its own `worktree.preparationTimeoutMs` (10 minutes by
  * default); `ACE_WORKTREE_PREPARATION_TIMEOUT_MS` pins it with `environment` provenance.
  */
-export function WorktreePreparationSettings() {
+export function WorktreeTimeoutRow() {
   const client = useClient();
-  const row = settingRow("advanced.worktreeTimeout");
+  const row = settingRow("worktree.preparationTimeout");
   const [minutes, setMinutes] = useState<number>();
   const [provenance, setProvenance] = useState<SettingsProvenance>();
   const [error, setError] = useState<string>();
@@ -67,7 +67,7 @@ export function WorktreePreparationSettings() {
     }
   };
   return (
-    <SettingSection label="Worktrees" scope="daemon">
+    <>
       <SettingRow
         {...row}
         description={
@@ -107,6 +107,6 @@ export function WorktreePreparationSettings() {
           {error}
         </SettingNote>
       )}
-    </SettingSection>
+    </>
   );
 }

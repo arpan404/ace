@@ -6,13 +6,15 @@ import type { Actor, DevicesService } from "@ace/devices";
  * the daemon holds none of their code.
  */
 export class LazyDevices {
-  readonly #build: () => Promise<DevicesService>;
+  readonly #build: (enabled: boolean) => Promise<DevicesService>;
   #service: DevicesService | undefined;
+  /** On or off before the service exists; it is built in this state. */
+  #enabled = true;
   #loading: Promise<DevicesService> | undefined;
   #closed = false;
   readonly #enabledWatchers = new Map<(enabled: boolean) => void, (() => void) | undefined>();
   readonly #loadWatchers = new Set<(service: DevicesService) => void>();
-  constructor(build: () => Promise<DevicesService>) {
+  constructor(build: (enabled: boolean) => Promise<DevicesService>) {
     this.#build = build;
   }
   /** A service that already exists, for hosts that inject their own. */
@@ -34,8 +36,21 @@ export class LazyDevices {
   load(): Promise<DevicesService> {
     if (this.#service) return Promise.resolve(this.#service);
     if (this.#closed) return Promise.reject(new Error("Devices are closed"));
-    this.#loading ??= this.#build().then(
+    this.#loading ??= this.#build(this.#enabled).then(
       async (service) => {
+        // Settings may have turned devices on or off while the service was being built. Watchers
+        // already heard that change, so the service is brought to it before anyone sees it.
+        try {
+          while (!this.#closed && service.isEnabled() !== this.#enabled)
+            await service.request(
+              { op: "enable", enabled: this.#enabled },
+              { kind: "human", owner: "settings" },
+            );
+        } catch (error) {
+          this.#loading = undefined;
+          await service.close();
+          throw error;
+        }
         if (this.#closed) {
           await service.close();
           throw new Error("Devices are closed");
@@ -52,7 +67,30 @@ export class LazyDevices {
   }
   /** Available before loading; disabling applies for the lifetime of the loaded service. */
   isEnabled(): boolean {
-    return !this.#closed && (this.#service?.isEnabled() ?? true);
+    return !this.#closed && (this.#service?.isEnabled() ?? this.#enabled);
+  }
+  /**
+   * Turn devices on or off as the person did in Settings. Before the service exists this sets
+   * the state it is built in, and tells watchers; after, it asks the service like a person
+   * would, which ends live sessions when turning off.
+   */
+  async setEnabled(enabled: boolean): Promise<void> {
+    if (this.#closed) return;
+    const service = this.#service;
+    if (service) {
+      if (service.isEnabled() !== enabled)
+        await service.request({ op: "enable", enabled }, { kind: "human", owner: "settings" });
+      return;
+    }
+    if (this.#enabled === enabled) return;
+    this.#enabled = enabled;
+    for (const listener of this.#enabledWatchers.keys()) {
+      try {
+        listener(enabled);
+      } catch {
+        /* One subscriber cannot stop the others hearing about the change. */
+      }
+    }
   }
   watchEnabled(listener: (enabled: boolean) => void): () => void {
     this.#enabledWatchers.set(listener, this.#service?.watchEnabled(listener));

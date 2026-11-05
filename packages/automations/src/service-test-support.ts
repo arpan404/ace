@@ -81,6 +81,8 @@ export function harness(gh?: import("./index.ts").GhClient) {
   let now = start - 60_000;
   let ids = 0;
   let random = 0;
+  let paused = false;
+  const reopened = new Set<() => void>();
   const timer = new Timer(),
     inputs: ExecutionInput[] = [],
     completions: ReturnType<typeof deferred<ExecutionResult>>[] = [],
@@ -105,6 +107,13 @@ export function harness(gh?: import("./index.ts").GhClient) {
     id: () => `run-${++ids}`,
     timer,
     workspace,
+    admission: {
+      open: () => !paused,
+      onReopen(listener) {
+        reopened.add(listener);
+        return () => reopened.delete(listener);
+      },
+    },
     onRun: (run: import("@ace/protocol").AutomationRun) => {
       changes.push(run);
     },
@@ -165,6 +174,14 @@ export function harness(gh?: import("./index.ts").GhClient) {
     },
     set random(value: number) {
       random = value;
+    },
+    /** The person pauses new work, as from the tray or a Fleet page. */
+    pause() {
+      paused = true;
+    },
+    resume() {
+      paused = false;
+      for (const listener of reopened) listener();
     },
     restart() {
       service.stop();

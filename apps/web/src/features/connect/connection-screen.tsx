@@ -28,6 +28,7 @@ const problems: Record<ConnectionProblem, ReactNode> = {
   signed_out: "Sign in to your ace account to open this machine.",
   session_ended: "Your ace session ended. Sign in again.",
   not_on_account: "This machine isn't on your ace account any more.",
+  other_account: "This machine is on your other ace account.",
   machine_code: "This machine wants its machine code.",
 };
 
@@ -69,8 +70,8 @@ export function ConnectionScreen() {
           "Give this device a name so you can recognize and revoke its access later."
         ) : pairing ? (
           <>
-            On the computer running ace, open Settings › Pair a device and scan its QR code or open
-            its link here. You can also paste the link below.
+            On the computer running ace, open Settings › Fleet, choose Pair a device and scan its QR
+            code or open its link here. You can also paste the link below.
           </>
         ) : connection.desktop ? (
           <>

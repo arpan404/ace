@@ -238,3 +238,21 @@ it("an account device reads the machine's remote access and account status and i
     devices: await accessRequest(machine.f.server.httpUrl, "/v1/devices", { token }),
   });
 });
+
+it("the window's account leaving closes its account machines, and they open again on demand", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  const client = machines.client(machine.hostId);
+
+  machines.closeAccountMachines();
+  expect(machines.ids).toEqual([]);
+  expect(opened.get()).toEqual({ kind: "failed", message: "This machine is closed." });
+  expect(() => machines.client(machine.hostId)).toThrow(ClientError);
+  await expect.poll(() => client.state, { timeout: 10_000 }).not.toBe("ready");
+
+  const again = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => again.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+});

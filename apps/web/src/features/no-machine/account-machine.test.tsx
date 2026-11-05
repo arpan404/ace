@@ -9,7 +9,11 @@ import { saveAccountChoice, type ConnectionStores } from "@/boot/connection-sett
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { fakeAccountBackend, fakeHostIds, fakeOrigin } from "@/boot/fake-account.ts";
 import { fakeAccountRoutes } from "@/boot/fake-account-main.ts";
-import { AceAccountBackendContext } from "@/features/ace-account/index.ts";
+import {
+  AceAccountBackendContext,
+  AceAccountProvider,
+  useAceAccountStore,
+} from "@/features/ace-account/index.ts";
 import { machineCodeGate } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "@/boot/client.ts";
 import type { AccountRouteSource } from "@/boot/main-machine.ts";
@@ -19,13 +23,37 @@ import { NoMachineApp } from "./index.ts";
 const url = "ws://127.0.0.1:4242/";
 const laptop = { origin: fakeOrigin, hostId: fakeHostIds.laptop, name: "Travel laptop" };
 
+/** Another ace account the person also has. */
+const work = { id: "user_work", email: "work@example.com", name: "Work" };
+
+/** Signs the window in to the person's other account, as Settings › Profile would. */
+function SignInToWork() {
+  const store = useAceAccountStore();
+  return (
+    <button
+      onClick={() =>
+        void store?.signedIn({
+          token: "w".repeat(43),
+          expiresAt: Date.now() + 86_400_000,
+          account: work,
+        })
+      }
+    >
+      Sign in to Work
+    </button>
+  );
+}
+
 /** The machine's app, as far as these tests look: who it is and how this window reaches it. */
 function MachineApp(props: { hostId: string }) {
   const connection = useDaemonConnection();
   return (
-    <p>
-      Working on {props.hostId} via {connection.endpoint?.kind}
-    </p>
+    <AceAccountProvider>
+      <p>
+        Working on {props.hostId} via {connection.endpoint?.kind}
+      </p>
+      <SignInToWork />
+    </AceAccountProvider>
   );
 }
 
@@ -141,6 +169,36 @@ test("a machine that left the account says so, and Choose another machine opens 
   expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Choose another machine" }));
   expect(await screen.findByRole("button", { name: "Pair a machine" })).toBeTruthy();
+});
+
+test("a stored machine chosen on another account says it is on your other account", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  const stores = windowStores();
+  saveAccountChoice(stores, { ...laptop, accountId: work.id });
+  openWindow({ daemon, stores, session: memoryKeyValue(), signedIn: true });
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Travel laptop is on your other ace account. Sign in to that account to open it, or choose another machine.",
+  );
+  expect(screen.queryByText(/Working on/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Choose another machine" }));
+  expect(await screen.findByRole("button", { name: "Pair a machine" })).toBeTruthy();
+});
+
+test("signing in to another account closes the open account machine and says where it is", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1, token: "a".repeat(64) });
+  const session = memoryKeyValue();
+  openWindow({ daemon, stores: windowStores(), session, signedIn: true, at: "/settings/remote" });
+  await openFromFleet("Travel laptop");
+  expect(await screen.findByText(`Working on ${daemon.hostId} via account`)).toBeTruthy();
+
+  await userEvent.click(screen.getByRole("button", { name: "Sign in to Work" }));
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Travel laptop is on your other ace account. Sign in to that account to open it, or choose another machine.",
+  );
+  expect(screen.queryByText(/Working on/)).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Switch account" }));
+  expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();
 });
 
 test("a machine that wants its code asks for it on the connection screen, then opens", async () => {

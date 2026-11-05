@@ -3,6 +3,7 @@ import { agentSettingTitles } from "@ace/ui-core";
 import { desktopCli } from "@/boot/desktop-cli.ts";
 import { hasDesktopPreferences } from "@/boot/desktop-settings.ts";
 import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
+import { primaryMachineId } from "@/lib/machines.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /**
@@ -17,12 +18,15 @@ export interface SettingEntry {
   readonly title: string;
   /** Other words people use for it ("dark mode" for Theme). */
   readonly keywords?: readonly string[];
-  /** Where it opens when that's a view inside its page (Fleet's Map), not the page itself. */
-  readonly route?: "/settings/remote/map";
+  /** Where it opens when that's a view inside its page (Fleet's Map, this computer), not the page itself. */
+  readonly route?: "/settings/remote/map" | "/settings/remote/primary";
 }
 
-/** Where a setting opens: its view inside the page when it has one, else the page. */
-export const entryRoute = (entry: SettingEntry) => entry.route ?? entry.page;
+/** Where a setting opens, as link props: its view inside the page when it has one, else the page. */
+export const entryRoute = (entry: SettingEntry) =>
+  entry.route === "/settings/remote/primary"
+    ? ({ to: "/settings/remote/$machine", params: { machine: primaryMachineId } } as const)
+    : { to: entry.route ?? entry.page };
 
 const entries = [
   {
@@ -30,6 +34,42 @@ const entries = [
     page: "/settings/storage",
     title: "Storage retention and cleanup",
     keywords: ["disk", "space", "clean", "worktrees", "attachments", "recordings", "logs", "cache"],
+  },
+  {
+    id: "storage.retentionDays",
+    page: "/settings/storage",
+    title: "Keep data for",
+    keywords: ["retention", "days", "idle", "threads", "data window", "delete"],
+  },
+  {
+    id: "logs.maxBytes",
+    page: "/settings/storage",
+    title: "Log limit",
+    keywords: ["logs", "size", "megabytes", "disk"],
+  },
+  {
+    id: "storage.retention",
+    page: "/settings/storage",
+    title: "Retention by kind",
+    keywords: ["archived", "attachments", "recordings", "days", "keep", "delete"],
+  },
+  {
+    id: "storage.dailyCleanup",
+    page: "/settings/storage",
+    title: "Daily cleanup",
+    keywords: ["schedule", "clean", "delete", "retention", "automatic"],
+  },
+  {
+    id: "storage.worktreeDeletion",
+    page: "/settings/storage",
+    title: "Automatic deletion",
+    keywords: ["worktree", "worktrees", "delete", "settled", "clean", "merged"],
+  },
+  {
+    id: "storage.worktreeDays",
+    page: "/settings/storage",
+    title: "Delete after settling",
+    keywords: ["worktree", "worktrees", "days", "settled"],
   },
   {
     id: "past-sessions",
@@ -50,6 +90,24 @@ const entries = [
     page: "/settings/source-control",
     title: "Source control",
     keywords: ["github", "gh", "git", "enterprise", "account", "rescan"],
+  },
+  {
+    id: "sourceControl.host",
+    page: "/settings/source-control",
+    title: "GitHub host",
+    keywords: ["github", "enterprise", "hostname", "ghe", "server"],
+  },
+  {
+    id: "sourceControl.account",
+    page: "/settings/source-control",
+    title: "Expected account",
+    keywords: ["github", "login", "gh", "user", "account"],
+  },
+  {
+    id: "sourceControl.remote",
+    page: "/settings/source-control",
+    title: "Repository remote",
+    keywords: ["git", "remote", "origin", "upstream", "repository"],
   },
   {
     id: "prompts",
@@ -123,7 +181,19 @@ const entries = [
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: agentSettingTitles["threads.useWorktree"],
-    keywords: ["git", "branch", "checkout"],
+    keywords: ["git", "branch", "checkout", "worktrees"],
+  },
+  {
+    id: "worktree.preparationTimeout",
+    page: "/settings/agents",
+    title: "Worktree preparation timeout",
+    keywords: ["worktree", "worktrees", "timeout", "preparation", "git", "setup"],
+  },
+  {
+    id: "storage.backupWorktrees",
+    page: "/settings/agents",
+    title: "Back up worktrees to origin",
+    keywords: ["worktree", "worktrees", "backup", "push", "origin", "git"],
   },
   {
     id: "threads.sortBy",
@@ -187,7 +257,7 @@ const entries = [
   },
   {
     id: "generation.autoDraftCommits",
-    page: "/settings/agents",
+    page: "/settings/source-control",
     title: agentSettingTitles["generation.autoDraftCommits"],
     keywords: ["commit", "draft", "generate"],
   },
@@ -198,20 +268,44 @@ const entries = [
     keywords: ["block", "deny", "computer use", "screen", "apps", "privacy"],
   },
   {
+    id: "devices.enabled",
+    page: "/settings/simulators",
+    title: "Use simulators and emulators",
+    keywords: ["devices", "ios", "simulator", "android", "emulator", "disable", "turn off"],
+  },
+  {
     id: "devices.emulatorWindow",
-    page: "/settings/computer-use",
+    page: "/settings/simulators",
     title: "Show emulator window",
     keywords: ["android", "emulator", "window", "headless", "sensors", "fingerprint", "camera"],
   },
   {
+    id: "devices.frame",
+    page: "/settings/simulators",
+    title: "Show device frame",
+    keywords: ["simulator", "emulator", "bezel", "phone", "screen only", "window"],
+  },
+  {
+    id: "devices.streamStats",
+    page: "/settings/simulators",
+    title: "Show stream stats",
+    keywords: ["simulator", "emulator", "fps", "frames", "performance", "window"],
+  },
+  {
+    id: "devices.recent",
+    page: "/settings/simulators",
+    title: "Recent devices",
+    keywords: ["simulator", "emulator", "history", "clear", "window"],
+  },
+  {
     id: "browser.userChrome.connection",
-    page: "/settings/computer-use",
+    page: "/settings/browser",
     title: "Browser connection",
     keywords: ["use my chrome", "extension", "install", "browser", "chrome"],
   },
   {
     id: "browser.userChrome.storageReads",
-    page: "/settings/computer-use",
+    page: "/settings/browser",
     title: "Let agents read cookies and site storage",
     keywords: ["use my chrome", "evaluate", "localStorage", "privacy", "browser"],
   },
@@ -223,9 +317,9 @@ const entries = [
   },
   {
     id: "daemon.connection",
-    page: "/settings/general",
-    title: "Connection",
-    keywords: ["server", "url", "disconnect"],
+    page: "/settings/remote",
+    title: "Computer connection",
+    keywords: ["connection", "server", "url", "disconnect", "reconnect", "window", "daemon"],
   },
   {
     id: "threads.settleOnClose",
@@ -247,12 +341,17 @@ const entries = [
   },
   { id: "app.background", page: "/settings/general", title: "Keep running in background" },
   { id: "app.preventSleep", page: "/settings/general", title: "Prevent sleep while agents work" },
-  { id: "app.globalShortcut", page: "/settings/general", title: "Quick-thread global shortcut" },
+  {
+    id: "app.globalShortcut",
+    page: "/settings/keyboard",
+    title: "Quick-thread global shortcut",
+    keywords: ["global", "hotkey", "quick thread", "background"],
+  },
   {
     id: "app.attention",
     page: "/settings/general",
-    title: "Bounce dock icon for attention",
-    keywords: ["flash", "window", "taskbar", "urgent"],
+    title: "Get attention when agents need you",
+    keywords: ["bounce", "dock", "flash", "window", "taskbar", "urgent", "attention"],
   },
   {
     id: "app.terminalCommand",
@@ -454,32 +553,57 @@ const entries = [
   {
     id: "browser.downloadDir",
     page: "/settings/browser",
-    title: "Downloads folder",
-    keywords: ["download", "save", "folder", "location"],
+    title: "Downloads folder for ace's Chrome",
+    keywords: ["download", "save", "folder", "location", "machine"],
   },
   {
     id: "browser.deviceToolbar",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Device toolbar in new tabs",
-    keywords: ["responsive", "mobile", "emulation", "viewport"],
+    keywords: ["responsive", "mobile", "emulation", "viewport", "window"],
   },
   {
     id: "browser.pip",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Picture in picture",
-    keywords: ["pip", "floating", "mini player", "video", "float"],
+    keywords: ["pip", "floating", "mini player", "video", "float", "window"],
   },
   {
     id: "browser.revealAgentPages",
-    page: "/settings/general",
+    page: "/settings/browser",
     title: "Open the browser panel when an agent opens a page",
-    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet"],
+    keywords: ["side panel", "auto open", "reveal", "browser_open", "sheet", "window"],
+  },
+  {
+    id: "browser.extensionsButton",
+    page: "/settings/browser",
+    title: "Show Extensions button",
+    keywords: ["extensions", "toolbar", "hide", "puzzle", "window"],
+  },
+  {
+    id: "browser.connectionStats",
+    page: "/settings/browser",
+    title: "Show connection stats",
+    keywords: ["latency", "round trip", "lag", "input", "ms", "window"],
+  },
+  {
+    id: "browser.appDownloads",
+    page: "/settings/browser",
+    title: "Downloads folder for the desktop app",
+    keywords: ["download", "save", "folder", "location", "in-app browser", "desktop"],
   },
   {
     id: "host.displayName",
     page: "/settings/remote",
     title: "Machine name and icon",
     keywords: ["host", "rename", "computer", "icon", "machine icon"],
+  },
+  {
+    id: "machine.pause",
+    page: "/settings/remote",
+    route: "/settings/remote/primary",
+    title: "Pause new work",
+    keywords: ["resume", "hold", "stop new work", "maintenance", "admission", "paused", "tray"],
   },
   {
     id: "fleet.map",
@@ -518,15 +642,9 @@ const entries = [
   },
   // Advanced
   {
-    id: "advanced.worktreeTimeout",
-    page: "/settings/advanced",
-    title: "Worktree preparation timeout",
-    keywords: ["worktree", "timeout", "preparation", "git"],
-  },
-  {
     id: "advanced.diagnostics",
     page: "/settings/advanced",
-    title: "App diagnostics",
+    title: "Machine diagnostics",
     keywords: [
       "memory",
       "debug",

@@ -57,7 +57,7 @@ test("a start-without-opening key rebound in Settings works on New thread, and C
   fireEvent.keyDown(shortcut, { key: "Enter", code: "Enter", altKey: true });
   expect(shortcut.textContent).toBe("Alt+Enter");
   await waitFor(() =>
-    expect(made.daemon.services.settings.get("clients.keybindings")).toEqual({
+    expect(JSON.parse(made.storage.getItem("ace.keybindings") ?? "null")).toEqual({
       startInBackground: "alt+enter",
     }),
   );
