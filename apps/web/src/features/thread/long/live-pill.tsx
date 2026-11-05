@@ -1,7 +1,7 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn.ts";
-import { floatingControl, floatingHover, floatingMotion } from "./floating.ts";
+import { floatingControl, floatingHover, floatingMotion } from "@/components/floating-control.ts";
 
 /**
  * Where focus goes when Scroll to end leaves while holding it: the composer's
