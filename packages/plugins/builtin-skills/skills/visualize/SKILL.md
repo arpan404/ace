@@ -28,7 +28,7 @@ The bar: someone understands the point in ten seconds, and the page could only h
    Then read the plan as if it were for a different topic. Any part that would come out the same for any similar request, or that appears in [Generic defaults](#generic-defaults), gets replaced with a choice made for this content.
 
 5. **Build it** with your own markup and CSS ([Responsive layout](#responsive-layout), [Design](#design)).
-6. **Preview** with `html_preview`. Add `widths: [360, 760, 1200]` for anything people will open full screen: dashboards, wide tables, desktop mockups. Check `scheme: "light"` too when you set colours yourself. Go through [Before you publish](#before-you-publish) against the screenshots and fix with small edits. Done when the report lists nothing `html_render` would refuse and every checklist line holds.
+6. **Preview** with `html_preview`. Add `widths: [360, 760, 1200]` for anything people will open full screen: dashboards, wide tables, desktop mockups. Check `scheme: "light"` too when you set colours yourself. Go through [Before you publish](#before-you-publish) against the screenshots and fix with small edits. Done when your last preview is of the exact page you will publish, its report lists nothing `html_render` would refuse, and every checklist line holds.
 7. **Publish** with `html_render` (`{ title, html, mode, height? }`). The `title` is a short caption above the page. In your reply, say only what the page doesn't already show.
 
 ## Show, don't tell
