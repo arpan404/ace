@@ -45,6 +45,10 @@ export const nodeOnlySuites = [
   // The main process binds kernel32 through the koffi the app ships, on Electron's Node; this
   // loads it from the packaged layout on Node.
   "apps/desktop/src/main/system/koffi.process.test.ts",
+  // The desktop main process runs the stall watchdog on Electron's Node, whose worker pauses the
+  // frozen main thread through node:inspector to read its stack. Bun's node:inspector has no
+  // Debugger domain; what holds on both runtimes is in stall-watchdog.process.test.ts.
+  "packages/diagnostics/src/stall-watchdog-stacks.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
