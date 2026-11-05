@@ -138,10 +138,13 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     process can't read (mode 000, write- or execute-only) where `realpath(3)` resolves it. The
     workspace resolves such a leaf itself (`packages/workspace/src/realpath.ts`).
   - A child's stdin takes about 500 KB in one write before holding it back (Node: one 64 KB pipe
-    buffer), reports `writableLength` 0, and has no `ref()` or `unref()`. Small writes to a child
-    that has closed its stdin report success and are lost; only one too large for that buffer
-    fails with `EPIPE`, so a JSON-RPC request to such a peer waits for its timeout rather than
-    failing at once.
+    buffer), reports `writableLength` 0, and has no `ref()` or `unref()`. It is an `fs.WriteStream`
+    over a native `FileSink` that reports a write of up to about 8 KB as done once buffered; when
+    the child has closed its stdin while still running, the sink's later write fails with `EPIPE`
+    and the stream never says so (no callback error, `error` or `close`). `Bun.spawn`'s own stdin
+    does report it. Supervised spawns flush that sink after each write and destroy stdin with its
+    failure (`packages/provider-kit/src/bun-stdin.ts`), so JSON-RPC requests, including those with
+    no timeout, fail as they do on Node.
   - `node:sqlite`'s `backup()` copies the whole database in one synchronous step, so the event
     loop does not run until it finishes. Only the updater, a separate process from the daemon,
     takes such copies.

@@ -8,6 +8,7 @@ import type { OutputFlow } from "./flow-control.ts";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
+import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
@@ -127,6 +128,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  reportBunStdinFailures(child.stdin);
   const controller = new AbortController();
   const pid = child.pid;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
