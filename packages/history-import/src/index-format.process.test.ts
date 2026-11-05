@@ -1,10 +1,10 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openHistory } from "./index.ts";
+import { ReaderProcess, systemReaderRuntime } from "./reader-process.ts";
 import { environment, jsonl, claudeRecords } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -34,9 +34,10 @@ test("an index in an older format is refused once, untouched, instead of restart
   await expect(
     openHistory(
       { indexPath, instances: homes },
+      // The real reader process: its refusal has to cross a process boundary intact.
       (url, options) => {
         launches++;
-        return new Worker(url, options);
+        return new ReaderProcess(url, options, systemReaderRuntime());
       },
       {
         delay: (run) => {

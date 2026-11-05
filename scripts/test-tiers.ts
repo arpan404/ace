@@ -34,9 +34,6 @@ export const nodeOnlySuites = [
   "packages/history-import/src/observed-reads.process.test.ts",
   "packages/history-import/src/snapshot-bounds.process.test.ts",
   "packages/history-import/src/snapshot-race.process.test.ts",
-  // The reader's heap limit (Worker resourceLimits) exists only on Node: Bun ignores it, so on
-  // Bun these checks would pass without any limit at all.
-  "packages/history-import/src/memory-bounds.process.test.ts",
   // The e2e launcher runs on Node (`node src/real-daemon.ts` in playwright.config.ts). It
   // switches HOME in-process, which Bun's os.homedir() does not follow.
   "tools/web-e2e/src/real-daemon-isolation.process.test.ts",

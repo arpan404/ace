@@ -11,6 +11,7 @@ import type { ProviderHome } from "./contracts.ts";
 import type { Catalog } from "./catalog.ts";
 import { inventoryRoots } from "./scan-paths.ts";
 import { ByteBudget } from "./byte-budget.ts";
+import { unlimitedMemory, type ReaderMemory } from "./reader-memory.ts";
 import {
   sampleFile,
   unsupported,
@@ -30,6 +31,7 @@ export async function scan(
   instances: ProviderHome[],
   signal: AbortSignal,
   progress: (files: number, result: ScanTally) => void | Promise<void> = () => undefined,
+  memory: ReaderMemory = unlimitedMemory,
 ) {
   const result: ScanTally = {
     files: 0,
@@ -77,6 +79,13 @@ export async function scan(
           (path) => catalog.crashes.verdict(instance.id, path).kind === "isolate",
         );
         const together = batch.filter((path) => !alone.includes(path));
+        // Before the others, each from a freshly collected heap: if the reader goes over its
+        // memory limit now, the read in flight is the only one.
+        for (const path of alone) {
+          memory.collect();
+          const write = await sampleFile(context, path, "verifying");
+          if (write) writes.push(write);
+        }
         for (let offset = 0; offset < together.length; offset += 16) {
           const sampled = await Promise.allSettled(
             together.slice(offset, offset + 16).map((path) => sampleFile(context, path)),
@@ -86,10 +95,7 @@ export async function scan(
             if (outcome.value) writes.push(outcome.value);
           }
         }
-        for (const path of alone) {
-          const write = await sampleFile(context, path);
-          if (write) writes.push(write);
-        }
+        memory.relieve();
         signal.throwIfAborted();
         catalog.db.exec("BEGIN IMMEDIATE");
         try {
@@ -140,8 +146,11 @@ export async function scan(
           unsupported(result, instance.id, verdict.reason);
           continue;
         }
-        // Marked outside the savepoint: a crash must leave the mark durable.
-        catalog.crashes.reading(instance.id, path);
+        // Marked outside the savepoint: a crash must leave the mark durable. Databases are read
+        // one at a time, so a suspect is re-checked here on its own too.
+        const recheck = verdict.kind === "isolate";
+        if (recheck) memory.collect();
+        catalog.crashes[recheck ? "verifying" : "reading"](instance.id, path);
         let db;
         catalog.db.exec("SAVEPOINT provider_scan");
         try {
@@ -200,6 +209,7 @@ export async function scan(
         } finally {
           await db?.close();
           catalog.crashes.finished(instance.id, path);
+          memory.relieve();
         }
       }
       if (instance.provider === "codex") await scanCodexTitles(catalog, instance, epoch, signal);

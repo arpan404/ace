@@ -78,18 +78,19 @@ directories a crashed session left in `ACE_HOME/tmp/past-sessions-*`; no worker
 starts, no file is watched and no index exists until someone asks (ADR 0033,
 2026-10-15 amendment).
 
-The first `history.list` starts a session: a history worker with a private index
+The first `history.list` starts a session: a history reader with a private index
 and snapshot scratch in a new `ACE_HOME/tmp/past-sessions-*` directory. It scans
 on that first request or when `rescan` is set, then pages from the session index.
 Sessions an ace thread already holds (matched by `provider:nativeId`) are not
 listed. Unchanged files within a session require metadata checks but no content
 reads; changed JSONL files use at most 64 KiB each of head and tail, and provider
 databases are streamed into a private snapshot only when changed. Snapshots and
-imports preserve provider files. SQLite caches are 2 MiB per history connection;
-the worker has 128 MiB old-generation and 16 MiB young-generation heap limits.
+imports preserve provider files. SQLite caches are 2 MiB per history connection.
+The reader is a process of its own, killed and restarted if its resident memory
+goes over 512 MB (ADR 0033, 2026-11-04).
 
 Operations in a session run one at a time. `history.release`, ten idle minutes or
-shutdown ends the session: the worker closes and its directory is deleted.
+shutdown ends the session: the reader closes and its directory is deleted.
 Import and continue answer `unsupported` once the session has ended. The reply's
 `scan` reports the session's last scan (`state`, `stats`, unreadable sources).
 
