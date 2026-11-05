@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { threadViolations } from "../bench/budgets.ts";
+import { runtimeThreadCeiling, threadViolations } from "../bench/budgets.ts";
 import { classifyThreads, sampledThreadNames } from "../bench/threads.ts";
 
 /** Thread headings as macOS `sample` prints them for a Bun daemon (one per thread). */
@@ -49,7 +49,7 @@ const withOwnThreads = (own: number) => ({
 
 test("a native thread too many of the daemon's own fails the gate, idle or active", () => {
   const sample = withOwnThreads;
-  const limits = { idleWorkers: 1, idleOwnThreads: 4, activeOwnThreads: 5 };
+  const limits = { idleWorkers: 1, idleOwnThreads: 4, activeOwnThreads: 5, runtimeThreads: 48 };
   expect(threadViolations(sample(4), sample(5), limits)).toEqual([]);
   expect(threadViolations(sample(5), sample(6), limits)).toEqual([
     "idle daemon threads: 5 exceeds 4",
@@ -65,6 +65,29 @@ test("a worker alive in one reading but retired in another doesn't count against
     workerFloor: 1,
   };
   expect(
-    threadViolations(idle, idle, { idleWorkers: 1, idleOwnThreads: 4, activeOwnThreads: 5 }),
+    threadViolations(idle, idle, {
+      idleWorkers: 1,
+      idleOwnThreads: 4,
+      activeOwnThreads: 5,
+      runtimeThreads: 48,
+    }),
   ).toEqual([]);
+});
+
+test("a runaway Bun thread pool fails the gate, while the pool's usual size passes", () => {
+  const limits = {
+    idleWorkers: 1,
+    idleOwnThreads: 4,
+    activeOwnThreads: 6,
+    runtimeThreads: runtimeThreadCeiling(16),
+  };
+  const withRuntime = (runtime: number) => ({
+    census: { total: runtime + 4, runtime, workers: 1, own: 3 },
+    workers: [{}],
+    workerFloor: 1,
+  });
+  expect(threadViolations(withRuntime(32), withRuntime(48), limits)).toEqual([]);
+  expect(threadViolations(withRuntime(32), withRuntime(49), limits)).toEqual([
+    "active Bun runtime threads: 49 exceeds 48",
+  ]);
 });

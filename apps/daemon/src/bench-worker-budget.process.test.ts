@@ -18,7 +18,7 @@ import { threadCensus } from "../bench/threads.ts";
  * (bench/fixtures/worker-daemon.ts) that keeps the workers it is told to start.
  */
 const bench = join(import.meta.dirname, "../bench");
-const limits = { idleWorkers: 1, idleOwnThreads: 4, activeOwnThreads: 5 };
+const limits = { idleWorkers: 1, idleOwnThreads: 4, activeOwnThreads: 5, runtimeThreads: 48 };
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();

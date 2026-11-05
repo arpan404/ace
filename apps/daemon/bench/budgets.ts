@@ -26,6 +26,16 @@ export interface ThreadLimits {
   /** The daemon's own OS threads (not Bun's runtime, not workers) at idle and when active. */
   idleOwnThreads: number;
   activeOwnThreads: number;
+  /**
+   * Bun's own threads, idle or active. They grow with the machine's cores, so this is a loose,
+   * core-scaled ceiling (runtimeThreadCeiling) that only a runaway pool reaches.
+   */
+  runtimeThreads: number;
+}
+
+/** Twice the cores and 16 more: Bun 1.4.4 held 28-32 runtime threads on 16 cores. */
+export function runtimeThreadCeiling(cores: number): number {
+  return 2 * cores + 16;
 }
 
 /**
@@ -52,6 +62,14 @@ export function threadViolations(
     violations.push(`idle JS workers: ${idle.workerFloor} exceeds ${limits.idleWorkers}`);
   if (idle.census.own > limits.idleOwnThreads)
     violations.push(`idle daemon threads: ${idle.census.own} exceeds ${limits.idleOwnThreads}`);
+  for (const [phase, sample] of [
+    ["idle", idle],
+    ["active", active],
+  ] as const)
+    if (sample.census.runtime > limits.runtimeThreads)
+      violations.push(
+        `${phase} Bun runtime threads: ${sample.census.runtime} exceeds ${limits.runtimeThreads}`,
+      );
   if (active.census.own > limits.activeOwnThreads)
     violations.push(
       `active daemon threads: ${active.census.own} exceeds ${limits.activeOwnThreads}`,

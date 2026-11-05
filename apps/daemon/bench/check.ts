@@ -3,7 +3,7 @@ import { checkIdleImports } from "./idle-imports.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
-import { cpus, tmpdir, loadavg } from "node:os";
+import { availableParallelism, cpus, tmpdir, loadavg } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -13,7 +13,12 @@ import {
   checkBudgets,
 } from "@ace/perf-kit";
 import { bunBinary } from "../../../scripts/runtimes.ts";
-import { IdleThreadSample, ThreadSample, threadViolations } from "./budgets.ts";
+import {
+  IdleThreadSample,
+  runtimeThreadCeiling,
+  ThreadSample,
+  threadViolations,
+} from "./budgets.ts";
 
 const run = promisify(execFile);
 // Every phase runs on Bun, the daemon's runtime, whichever runtime started the gate.
@@ -66,6 +71,7 @@ const limits = {
   idleWorkers: 1,
   idleOwnThreads: 4,
   activeOwnThreads: 6,
+  runtimeThreads: runtimeThreadCeiling(availableParallelism()),
   eventsPerSecond: 300,
   p99Ms: 50,
   retainedHeapGrowth: 8 * MiB,
