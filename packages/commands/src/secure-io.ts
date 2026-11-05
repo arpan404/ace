@@ -20,6 +20,7 @@ import {
   type DirectoryReader,
   EntryUnavailable,
   openResolvedDirectory,
+  commandCallOwner,
 } from "./posix.ts";
 const statFd = promisify(fstat),
   closeFd = promisify(close);
@@ -27,6 +28,8 @@ export interface CommandFileIo {
   stat(root: DiscoveryRoot, path: string): Promise<Stats | undefined>;
   directory(root: DiscoveryRoot, path: string): Promise<DirectoryReader>;
   read(root: DiscoveryRoot, path: string): Promise<{ text: string; bytes: number; stat: Stats }>;
+  /** Stops new and queued calls at once; `close` then waits for running ones. */
+  cancel(): void;
   close(): Promise<void>;
 }
 /** Roots and every descendant are opened relative to pinned descriptors with O_NOFOLLOW. */
@@ -34,8 +37,10 @@ export class SecureCommandIo implements CommandFileIo {
   private readonly anchors = new Map<string, Promise<number>>();
   private closed = false;
   private readonly openChild: OpenCommandChild;
+  // Every call this instance makes; cancelling it never touches another instance's calls.
+  private readonly owner = commandCallOwner();
   constructor(openChild: OpenCommandChild = openCommandChild) {
-    this.openChild = openChild;
+    this.openChild = (directory, name, flags) => openChild(directory, name, flags, this.owner);
   }
   private async anchor(path: string): Promise<number> {
     if (this.closed) throw new Error("Command filesystem closed");
@@ -51,7 +56,7 @@ export class SecureCommandIo implements CommandFileIo {
   }
   private async openAnchor(path: string): Promise<number> {
     // Starting at / avoids following even a replaced ancestor of the registered root.
-    return openResolvedDirectory(this.openChild, resolve(path));
+    return openResolvedDirectory(this.openChild, resolve(path), this.owner);
   }
   private async open(root: DiscoveryRoot, path: string, flags: number): Promise<number> {
     const anchor = resolve(root.trustedRoot ?? dirname(root.path));
@@ -110,7 +115,7 @@ export class SecureCommandIo implements CommandFileIo {
     // Only immediate skill folders may link elsewhere in the registered user's home.
     if (!root.skill || !home || resolve(dirname(path)) !== resolve(root.path))
       throw new EntryUnavailable("Unavailable skill folder");
-    const target = resolve(dirname(path), await readCommandLink(parent, name));
+    const target = resolve(dirname(path), await readCommandLink(parent, name, this.owner));
     const tail = relative(resolve(home), target);
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep))
       throw new EntryUnavailable("Skill link outside home");
@@ -136,7 +141,7 @@ export class SecureCommandIo implements CommandFileIo {
   async directory(root: DiscoveryRoot, path: string): Promise<DirectoryReader> {
     const fd = await this.open(root, path, directoryFlags);
     try {
-      return await directoryReader(fd);
+      return await directoryReader(fd, this.owner);
     } catch (error) {
       await closeFd(fd);
       throw error;
@@ -188,7 +193,7 @@ export class SecureCommandIo implements CommandFileIo {
     let temp: number | undefined;
     try {
       for (const name of parts.slice(0, -1)) {
-        await createCommandDirectory(parent, name);
+        await createCommandDirectory(parent, name, this.owner);
         const next = await this.openChild(parent, name, directoryFlags);
         await closeFd(parent);
         parent = next;
@@ -203,7 +208,7 @@ export class SecureCommandIo implements CommandFileIo {
           .update((await this.read(root, path)).text)
           .digest("hex");
       if (current !== expected) throw new Error("prompt_conflict");
-      temp = await createCommandFile(parent, temporary);
+      temp = await createCommandFile(parent, temporary, this.owner);
       const bytes = Buffer.from(text);
       let at = 0;
       while (at < bytes.length) {
@@ -218,22 +223,33 @@ export class SecureCommandIo implements CommandFileIo {
       await promisify(fsync)(temp);
       await closeFd(temp);
       temp = undefined;
-      if (expected === null) await linkCommandFile(parent, temporary, name);
+      if (expected === null) await linkCommandFile(parent, temporary, name, this.owner);
       else {
         const latest = createHash("sha256")
           .update((await this.read(root, path)).text)
           .digest("hex");
         if (latest !== expected) throw new Error("prompt_conflict");
-        await replaceCommandFile(parent, temporary, name);
+        await replaceCommandFile(parent, temporary, name, this.owner);
       }
     } finally {
-      if (temp !== undefined) await closeFd(temp);
-      await removeCommandFile(parent, temporary);
-      await closeFd(parent);
+      // Cleanup failures (a folder that stopped answering) must neither hide the save's own
+      // error nor skip closing the parent.
+      try {
+        if (temp !== undefined) await closeFd(temp).catch(() => {});
+        await removeCommandFile(parent, temporary, this.owner).catch(() => {});
+      } finally {
+        await closeFd(parent);
+      }
     }
   }
-  async close(): Promise<void> {
+  cancel(): void {
     this.closed = true;
+    this.owner.cancel();
+  }
+  async close(): Promise<void> {
+    this.cancel();
+    // A running call may still name an anchor; close anchors only once none is on a thread.
+    await this.owner.idle();
     const descriptors = await Promise.allSettled(this.anchors.values());
     for (const descriptor of descriptors)
       if (descriptor.status === "fulfilled") await closeFd(descriptor.value);

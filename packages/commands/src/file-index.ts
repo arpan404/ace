@@ -42,6 +42,7 @@ export class FileIndex {
   }
   private readonly catalog: CommandCatalog;
   private readonly io: CommandFileIo;
+  private stopped = false;
   private readonly recovery: FileRecovery;
   private readonly roots: readonly RegisteredRoot[];
   private readonly nodes = new Map<string, Node>();
@@ -333,8 +334,13 @@ export class FileIndex {
       this.report(job.root, job.path, "Cannot scan commands directory");
     }
   }
+  /** Discovery stops advancing at once; queued work is dropped and nothing new starts. */
+  stop(): void {
+    this.stopped = true;
+    this.jobs.clear();
+  }
   async step(): Promise<boolean> {
-    for (let count = 0; count < 32; count++) {
+    for (let count = 0; count < 32 && !this.stopped; count++) {
       const next = this.jobs.entries().next().value;
       if (!next) break;
       const [slot, job] = next;
@@ -350,7 +356,8 @@ export class FileIndex {
     this.sources.clear();
   }
   async close(): Promise<void> {
-    this.jobs.clear();
-    for (const slot of this.scans.keys()) await this.stopScan(slot);
+    this.stop();
+    // In parallel: one reader on a folder that stopped answering must not hold up the others.
+    await Promise.allSettled([...this.scans.keys()].map((slot) => this.stopScan(slot)));
   }
 }

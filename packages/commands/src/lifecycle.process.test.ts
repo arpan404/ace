@@ -93,6 +93,7 @@ it("shutdown drains suspended directory I/O and releases its newly acquired curs
   const io: CommandFileIo = {
     stat: (r, p) => real.stat(r, p),
     read: (r, p) => real.read(r, p),
+    cancel: () => real.cancel(),
     close: () => real.close(),
     async directory(r, p) {
       if (p === nested) {
@@ -154,6 +155,7 @@ it("duplicate directory invalidations preserve a suspended scan until every new 
   const io: CommandFileIo = {
     stat: (r, p) => real.stat(r, p),
     read: (r, p) => real.read(r, p),
+    cancel: () => real.cancel(),
     close: () => real.close(),
     async directory(r, p) {
       const reader = await real.directory(r, p);

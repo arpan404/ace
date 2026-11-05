@@ -314,6 +314,10 @@ export class CommandFiles {
     this.stopRecovery?.();
     this.pending.clear();
     this.listeners.clear();
+    // Discovery stops advancing and queued calls fail now, so the wait below is for running
+    // calls only: at most one deadline in total, however many roots have stopped answering.
+    this.index.stop();
+    this.io.cancel();
     await Promise.allSettled([this.startup, this.healing, this.flushing, this.batch]);
     try {
       await this.index.close();
