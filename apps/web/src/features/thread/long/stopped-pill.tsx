@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 import { useActiveRootRun } from "../composer/stop-state.ts";
-import { floatingControl, floatingHover, floatingMotion } from "./floating.ts";
+import { floatingControl, floatingHover, floatingMotion } from "@/components/floating-control.ts";
 
 /**
  * Why ace or the provider cut the turn short, when nothing has run since. The person's own Stop

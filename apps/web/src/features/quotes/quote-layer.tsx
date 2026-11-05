@@ -3,7 +3,7 @@ import { QuotesIcon } from "@phosphor-icons/react";
 import { useEffect, useEffectEvent, useRef, useState, type RefObject } from "react";
 import { cn } from "@/lib/cn.ts";
 import { frameThrottle } from "@/lib/frame-throttle.ts";
-import { floatingControl } from "@/features/thread/long/floating.ts";
+import { floatingControl } from "@/components/floating-control.ts";
 import { useQuotePort } from "./store.ts";
 import { contextAround, textOffset } from "./text-offsets.ts";
 
