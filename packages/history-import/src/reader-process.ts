@@ -122,6 +122,10 @@ export class ReaderProcess extends EventEmitter {
     });
     this.child.send({ init: options.workerData });
   }
+  /** The reader's process id, once it has started. */
+  get processId(): number | undefined {
+    return this.pid;
+  }
   /** Sends in order; dropped once the reader has gone, as a terminated worker's port would. */
   postMessage(message: unknown): void {
     // Reader requests are built from the protocol's schemas, all structured-cloneable.

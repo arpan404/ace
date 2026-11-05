@@ -1,4 +1,4 @@
-import { parentPort, workerData } from "node:worker_threads";
+import { parentPort, Worker, workerData } from "node:worker_threads";
 import { z } from "zod";
 
 /** The reader's side of its channel to the daemon. */
@@ -42,6 +42,7 @@ function processHost(): Promise<{ port: ReaderPort; data: unknown }> {
   if (!send) throw new Error("The history reader needs a channel to the daemon");
   // The daemon is gone (exited or killed outright): nothing can use this reader any more.
   process.on("disconnect", () => process.exit(0));
+  watchParent();
   const fail = (error: unknown) => {
     const fault = {
       message: error instanceof Error ? error.message : String(error),
@@ -88,4 +89,22 @@ function processHost(): Promise<{ port: ReaderPort; data: unknown }> {
     else early.push(value);
   });
   return promise;
+}
+
+/**
+ * Ends the reader if the daemon dies while the reader's own thread is busy, in a long parse or
+ * a runaway one, and can't see its channel close. A thread of its own (about 5 MB) checks the
+ * parent every 250 ms. Inline, so the release bundle needs no extra entry for it.
+ */
+function watchParent(): void {
+  const sentinel = new Worker(
+    `const { workerData: parent } = require("node:worker_threads");
+    setInterval(() => {
+      let gone = process.ppid !== parent;
+      if (!gone) try { process.kill(parent, 0); } catch { gone = true; }
+      if (gone) process.kill(process.pid, "SIGKILL");
+    }, 250);`,
+    { eval: true, workerData: process.ppid },
+  );
+  sentinel.unref();
 }
