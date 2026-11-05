@@ -274,6 +274,22 @@ export function PullRequestsPage(props: {
                 <span className="min-w-0 truncate">Some totals are incomplete.</span>
               </div>
             )}
+            {byWork && single && ranked.rankingError && (
+              <div
+                role="status"
+                aria-label="Pull request ranking"
+                className="flex flex-wrap items-center gap-2 py-2 text-ui text-muted-foreground"
+              >
+                <span>
+                  {ranked.unranked
+                    ? "Couldn't rank pull requests. Showing the most recently updated ones."
+                    : "Couldn't rank more pull requests."}
+                </span>
+                <Button size="xs" variant="ghost" onClick={ranked.retry}>
+                  Try again
+                </Button>
+              </div>
+            )}
             {single && (
               <MergeStrip
                 merge={merge}

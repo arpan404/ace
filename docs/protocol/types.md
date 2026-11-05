@@ -3134,11 +3134,11 @@ Example:
   "origin": "ace",
   "results": [
     {
-      "before": 0,
+      "before": 6,
       "outcome": "failed",
       "result": "example",
       "threadId": "example",
-      "truncated": false
+      "truncated": true
     }
   ],
   "runId": "example",
@@ -8941,11 +8941,16 @@ Example:
 {
   "generation": 0,
   "outcome": {
-    "before": 6,
+    "before": null,
+    "failure": {
+      "accountLabel": "example",
+      "code": "example",
+      "message": "example"
+    },
     "outcome": "completed",
     "result": "example",
     "threadId": "example",
-    "truncated": false
+    "truncated": true
   },
   "state": "unresponsive",
   "status": {
@@ -10108,6 +10113,24 @@ Example:
 }
 ```
 
+### account.grant.refresh
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| grant | yes | string | {"minLength":1,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "grant": "example",
+  "requestId": "example",
+  "type": "account.grant.refresh"
+}
+```
+
 ## CoreServerMessage
 
 [JSON Schema](schema/CoreServerMessage.json), input validation.
@@ -10290,6 +10313,7 @@ Example:
 | hostId | yes | [HostId.json](schema/HostId.json) |  |
 | protocolVersion | yes | `1` |  |
 | headSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| grantTtlMs | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
@@ -10574,6 +10598,27 @@ Example:
 ```json
 {
   "type": "pong"
+}
+```
+
+### account.grant.refresh.result
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh.result"` |  |
+| requestId | yes | string |  |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"grantTtlMs":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["ok","grantTtlMs"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "grantTtlMs": 3,
+    "ok": true
+  },
+  "type": "account.grant.refresh.result"
 }
 ```
 
@@ -10890,12 +10935,35 @@ Example:
 }
 ```
 
+## DelegationFailure
+
+[JSON Schema](schema/DelegationFailure.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | string | {"minLength":1,"maxLength":64} |
+| message | yes | string | {"minLength":1,"maxLength":512} |
+| accountId | no | string | {"maxLength":256} |
+| accountLabel | no | string | {"maxLength":256} |
+| resetsAt | no | number | {"minimum":0} |
+
+Example:
+
+```json
+{
+  "code": "example",
+  "message": "example",
+  "resetsAt": 0
+}
+```
+
 ## DelegationOutcome
 
 [JSON Schema](schema/DelegationOutcome.json), input validation.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | outcome | yes | ["completed","failed","cancelled"] |  |
 | result | yes | string | {"maxLength":4096} |
@@ -10907,10 +10975,10 @@ Example:
 ```json
 {
   "before": null,
-  "outcome": "cancelled",
+  "outcome": "completed",
   "result": "example",
   "threadId": "example",
-  "truncated": true
+  "truncated": false
 }
 ```
 
@@ -12133,6 +12201,24 @@ Example:
 
 ```json
 "open"
+```
+
+## DeviceRevokedClose
+
+[JSON Schema](schema/DeviceRevokedClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | `4003` |  |
+| reason | yes | `"Device revoked"` |  |
+
+Example:
+
+```json
+{
+  "code": 4003,
+  "reason": "Device revoked"
+}
 ```
 
 ## DeviceScope
@@ -14890,6 +14976,7 @@ Example:
 | type | yes | `"host.identity.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
 | identity | yes | [HostIdentity.json](schema/HostIdentity.json) |  |
+| paths | no | [MachinePaths.json](schema/MachinePaths.json) |  |
 
 Example:
 
@@ -16188,13 +16275,14 @@ Example:
   "origin": "ace",
   "outcome": {
     "before": null,
-    "outcome": "cancelled",
+    "outcome": "failed",
     "result": "example",
     "threadId": "example",
     "truncated": false
   },
   "phase": "cancelling",
   "provider": "cursor",
+  "raw": [],
   "role": "example",
   "status": {
     "state": "done"
@@ -16230,7 +16318,7 @@ Example:
   "agentId": "example",
   "complete": true,
   "createdAt": 8,
-  "delivery": "ace-input",
+  "delivery": "tool",
   "executionSource": {
     "nativeSessionId": "example",
     "selection": {
@@ -16244,8 +16332,14 @@ Example:
   "origin": "ace",
   "results": [
     {
-      "before": 2,
-      "outcome": "completed",
+      "before": null,
+      "failure": {
+        "accountLabel": "example",
+        "code": "example",
+        "message": "example",
+        "resetsAt": 9
+      },
+      "outcome": "cancelled",
       "result": "example",
       "threadId": "example",
       "truncated": false
@@ -17470,6 +17564,8 @@ Example:
 | origin | no | string | {"maxLength":2048} |
 | account | no | [AceAccount.json](schema/AceAccount.json) |  |
 | expiresAt | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| source | no | ["login","handover"] |  |
+| sessionId | no | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":64},{"type":"null"}]} |
 | login | no | object | {"properties":{"url":{"type":"string","format":"ace-whatwg-url","x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},"expiresAt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["url","expiresAt"]} |
 | machineCode | yes | object | {"properties":{"set":{"type":"boolean"},"lockedUntil":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["set"]} |
 
@@ -17477,9 +17573,12 @@ Example:
 
 ```json
 {
+  "login": {
+    "expiresAt": 4,
+    "url": "https://example.invalid/"
+  },
   "machineCode": {
-    "lockedUntil": 4,
-    "set": false
+    "set": true
   },
   "origin": "example",
   "signedIn": true
@@ -18151,6 +18250,70 @@ Example:
 "bwtF1tPs9ETmo4TQAyRM2WrRIS4Cw9GHTAQ68WSxLnM7WuuwO5VjYAjeV0YN9i4"
 ```
 
+## MachinePath
+
+[JSON Schema](schema/MachinePath.json), input validation.
+
+### Variant 1
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["loopback","lan","tailscale"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| fingerprint | yes | string | {"pattern":"^[0-9a-f]{64}$"} |
+
+Example:
+
+```json
+{
+  "fingerprint": "3663bd5751cb84552e95347e61768b49c204df033ac8889f8d0d2cc290176736",
+  "kind": "tailscale",
+  "url": "https://192.168.1.4:7443"
+}
+```
+
+### Variant 2
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| kind | yes | ["relay","account"] |  |
+| url | yes | string | {"maxLength":2048,"x-ace-constraint":"An https: or wss: URL with no credentials, query or fragment.","examples":["https://192.168.1.4:7443","wss://relay.example.com"]} |
+| relayHostId | yes | string | {"pattern":"^[A-Z2-7]{52}$"} |
+
+Example:
+
+```json
+{
+  "kind": "relay",
+  "relayHostId": "WMOLCRJQAXHXTKMPKANCOQS5PVLORPZ2XHQIPK3OVRZAJMVYKIQP",
+  "url": "wss://relay.example.com"
+}
+```
+
+## MachinePathKind
+
+[JSON Schema](schema/MachinePathKind.json), input validation.
+
+Type: ["loopback","lan","tailscale","relay","account"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"account"
+```
+
+## MachinePaths
+
+[JSON Schema](schema/MachinePaths.json), input validation.
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[]
+```
+
 ## MachinePendingRequest
 
 [JSON Schema](schema/MachinePendingRequest.json), input validation.
@@ -18333,6 +18496,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | state | yes | [WatchedState.json](schema/WatchedState.json) |  |
 | title | yes | string | {"maxLength":120} |
@@ -18355,15 +18519,24 @@ Example:
 
 ```json
 {
-  "contact": "unconfirmed",
-  "elapsedSeconds": 2,
-  "needs": [],
-  "requests": [],
-  "state": "working",
-  "status": {
-    "state": "unresponsive"
+  "elapsedSeconds": 9,
+  "failure": {
+    "accountId": "example",
+    "accountLabel": "example",
+    "code": "example",
+    "message": "example"
   },
-  "step": "example",
+  "machine": "example",
+  "queuePosition": 5,
+  "requests": [],
+  "result": "example",
+  "state": "failed",
+  "status": {
+    "on": "rate_limit",
+    "queuePosition": 7,
+    "slotsInUse": 5,
+    "state": "waiting"
+  },
   "threadId": "example",
   "title": "example"
 }
@@ -19575,6 +19748,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
+| result | no | string | {"maxLength":200} |
 | id | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | parent | no | [ThreadId.json](schema/ThreadId.json) |  |
 | role | yes | string | {"maxLength":40} |
@@ -19596,13 +19771,15 @@ Example:
 
 ```json
 {
-  "elapsedSeconds": 7,
+  "ask": "example",
+  "elapsedSeconds": 9,
   "id": "example",
-  "machine": "example",
-  "queued": 1,
+  "last": "example",
+  "notice": "example",
+  "parent": "example",
+  "result": "example",
   "role": "example",
-  "state": "working",
-  "step": "example"
+  "state": "failed"
 }
 ```
 
@@ -19610,7 +19787,7 @@ Example:
 
 [JSON Schema](schema/MonitoredState.json), input validation.
 
-Type: ["working","queued","needs_you","done","failed","cancelled","unknown"]. See JSON Schema for constraints.
+Type: ["working","queued","needs_you","done","failed","cancelled","unknown","cancelling"]. See JSON Schema for constraints.
 
 Example:
 
@@ -19626,7 +19803,7 @@ Example:
 | --- | --- | --- | --- |
 | children | yes | array | {"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/MonitoredChild.json"}} |
 | omitted | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
-| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled"]} |
+| counts | yes | object | {"properties":{"working":{"type":"integer","minimum":0,"maximum":9007199254740991},"queued":{"type":"integer","minimum":0,"maximum":9007199254740991},"needs_you":{"type":"integer","minimum":0,"maximum":9007199254740991},"unknown":{"type":"integer","minimum":0,"maximum":9007199254740991},"done":{"type":"integer","minimum":0,"maximum":9007199254740991},"failed":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelled":{"type":"integer","minimum":0,"maximum":9007199254740991},"cancelling":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["working","queued","needs_you","unknown","done","failed","cancelled","cancelling"]} |
 
 Example:
 
@@ -19635,6 +19812,7 @@ Example:
   "children": [],
   "counts": {
     "cancelled": 9,
+    "cancelling": 8,
     "done": 3,
     "failed": 7,
     "needs_you": 1,
@@ -29637,7 +29815,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | version | yes | `2` |  |
-| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
+| settings | yes | object | {"properties":{"storage.retention":{"$ref":"https://ace.local/protocol/v1/StorageRetention.json"},"storage.scheduledCleanup":{"type":"boolean"},"storage.worktreeRetentionDays":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},{"type":"null"}]},"storage.backupWorktrees":{"type":"boolean"},"storage.retentionDays":{"$ref":"https://ace.local/protocol/v1/RetentionDays.json"},"logs.maxBytes":{"$ref":"https://ace.local/protocol/v1/LogMaxBytes.json"},"sourceControl.preferences":{"$ref":"https://ace.local/protocol/v1/SourceControlPreferences.json"},"providers.configuration":{"$ref":"https://ace.local/protocol/v1/ProviderConfigurations.json"},"host.displayName":{"type":"string","maxLength":256},"host.icon":{"$ref":"https://ace.local/protocol/v1/MachineIcon.json"},"projects.roots":{"maxItems":32,"type":"array","items":{"type":"string","minLength":1,"maxLength":4096}},"threads.followUpBehavior":{"type":"string","enum":["steer","queue"]},"threads.forkOnSwitch":{"type":"boolean"},"threads.limitPolicy":{"type":"string","enum":["manual","resume_at_reset","snooze_until_reset","migrate_now"]},"providers.default":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"providers.coder.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.coder.model":{"type":"string","minLength":1,"maxLength":256},"providers.coder.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.coder.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.reviewer.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.reviewer.model":{"type":"string","minLength":1,"maxLength":256},"providers.reviewer.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.reviewer.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.planner.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.planner.model":{"type":"string","minLength":1,"maxLength":256},"providers.planner.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.planner.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"providers.verifier.provider":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},{"type":"null"}]},"providers.verifier.model":{"type":"string","minLength":1,"maxLength":256},"providers.verifier.tier":{"type":"string","enum":["default","standard","fast","flex","priority"]},"providers.verifier.reasoningEffort":{"type":"string","enum":["default","none","minimal","low","medium","high","xhigh","max"]},"browser.backend":{"type":"string","enum":["auto","embedded","headless"]},"browser.backendLoss":{"type":"string","enum":["pause","headless"]},"browser.profile":{"type":"string","enum":["persistent","ephemeral"]},"browser.profileScope":{"$ref":"https://ace.local/protocol/v1/BrowserProfileScope.json"},"browser.downloadDir":{"type":"string","maxLength":4096},"browser.downloadDefault":{"type":"string","maxLength":4096},"browser.userChrome.storageReads":{"type":"boolean"},"computer.blockedApps":{"maxItems":200,"type":"array","items":{"type":"string","minLength":1,"maxLength":200}},"computer.lockedUse":{"type":"boolean"},"devices.emulatorWindow":{"type":"boolean"},"devices.enabled":{"type":"boolean"},"access.defaultMode":{"$ref":"https://ace.local/protocol/v1/AccessMode.json"},"access.nativeModes":{"type":"object","propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}},"threads.useWorktree":{"type":"boolean"},"worktree.preparationTimeoutMs":{"type":"integer","minimum":60000,"maximum":3600000},"threads.autoSettleAfter":{"type":"string","enum":["1d","2d","1w","never"]},"threads.unresponsiveAfter":{"type":"string","enum":["2m","5m","15m"]},"threads.settleOnMerge":{"type":"boolean"},"threads.settleOnClose":{"type":"boolean"},"threads.sortBy":{"type":"string","enum":["activity","created","manual"]},"threads.keepSettledFor":{"type":"string","enum":["0d","1d","3d","7d"]},"remote.enabled":{"type":"boolean"},"remote.transport":{"type":"string","enum":["local","lan","tailscale","relay"]},"remote.lan":{"type":"boolean"},"remote.tailscale":{"type":"boolean"},"remote.relay":{"type":"boolean"},"remote.agentAccess":{"type":"string","enum":["off","read","operate"]},"remote.agentTransfers":{"type":"boolean"},"remote.transferIgnoredFiles":{"type":"boolean"},"remote.hostedPairingLink":{"type":"boolean"},"remote.relayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"Empty, or a credential-free WSS relay URL without query or fragment. WS is allowed only on 127.0.0.1.","examples":["","wss://relay.example.invalid/"]},"notifications.remotePush":{"type":"boolean"},"notifications.pushGatewayUrl":{"type":"string","maxLength":2048,"x-ace-constraint":"An HTTPS origin without path, query or credentials. HTTP is allowed only on 127.0.0.1.","examples":["https://push.acehq.dev"]},"automations.enabled":{"type":"boolean"},"agents.maxRunningChildren":{"anyOf":[{"type":"integer","minimum":1,"maximum":64},{"type":"null"}]},"generation.model":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/UtilityModelChoice.json"},{"type":"null"}]},"generation.autoDraftCommits":{"type":"boolean"},"clients.theme":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"},"clients.keybindings":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/JsonValue.json"}} |
 
 Example:
 
@@ -29653,12 +29831,12 @@ Example:
     "providers.planner.tier": "priority",
     "providers.verifier.provider": "cursor",
     "providers.verifier.reasoningEffort": "default",
-    "remote.agentAccess": "read",
-    "remote.agentTransfers": false,
-    "remote.transport": "relay",
+    "remote.agentAccess": "operate",
+    "remote.enabled": false,
+    "remote.relay": true,
     "storage.backupWorktrees": true,
     "threads.forkOnSwitch": true,
-    "threads.settleOnClose": true
+    "threads.settleOnMerge": true
   },
   "version": 2
 }
@@ -29711,7 +29889,7 @@ Example:
 
 [JSON Schema](schema/SettingsKey.json), input validation.
 
-Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","devices.emulatorWindow","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
+Type: ["storage.retention","storage.scheduledCleanup","storage.worktreeRetentionDays","storage.backupWorktrees","storage.retentionDays","logs.maxBytes","sourceControl.preferences","providers.configuration","host.displayName","host.icon","projects.roots","threads.followUpBehavior","threads.forkOnSwitch","threads.limitPolicy","providers.default","providers.coder.provider","providers.coder.model","providers.coder.tier","providers.coder.reasoningEffort","providers.reviewer.provider","providers.reviewer.model","providers.reviewer.tier","providers.reviewer.reasoningEffort","providers.planner.provider","providers.planner.model","providers.planner.tier","providers.planner.reasoningEffort","providers.verifier.provider","providers.verifier.model","providers.verifier.tier","providers.verifier.reasoningEffort","browser.backend","browser.backendLoss","browser.profile","browser.profileScope","browser.downloadDir","browser.downloadDefault","browser.userChrome.storageReads","computer.blockedApps","computer.lockedUse","devices.emulatorWindow","devices.enabled","access.defaultMode","access.nativeModes","threads.useWorktree","worktree.preparationTimeoutMs","threads.autoSettleAfter","threads.unresponsiveAfter","threads.settleOnMerge","threads.settleOnClose","threads.sortBy","threads.keepSettledFor","remote.enabled","remote.transport","remote.lan","remote.tailscale","remote.relay","remote.agentAccess","remote.agentTransfers","remote.transferIgnoredFiles","remote.hostedPairingLink","remote.relayUrl","notifications.remotePush","notifications.pushGatewayUrl","automations.enabled","agents.maxRunningChildren","generation.model","generation.autoDraftCommits","clients.theme","clients.keybindings"]. See JSON Schema for constraints.
 
 Example:
 
@@ -30138,6 +30316,7 @@ Example:
 | computer.blockedApps | yes | array | {"maxItems":200,"items":{"type":"string","minLength":1,"maxLength":200}} |
 | computer.lockedUse | yes | boolean |  |
 | devices.emulatorWindow | yes | boolean |  |
+| devices.enabled | yes | boolean |  |
 | access.defaultMode | yes | [AccessMode.json](schema/AccessMode.json) |  |
 | access.nativeModes | yes | object | {"propertyNames":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"additionalProperties":{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"}} |
 | threads.useWorktree | yes | boolean |  |
@@ -30171,9 +30350,9 @@ Example:
 
 ```json
 {
-  "access.defaultMode": "ask",
+  "access.defaultMode": "auto-review",
   "access.nativeModes": {},
-  "agents.maxRunningChildren": 3,
+  "agents.maxRunningChildren": 7,
   "automations.enabled": true,
   "browser.backend": "embedded",
   "browser.backendLoss": "headless",
@@ -30183,11 +30362,12 @@ Example:
   "browser.profileScope": "project",
   "browser.userChrome.storageReads": false,
   "clients.keybindings": true,
-  "clients.theme": false,
+  "clients.theme": [],
   "computer.blockedApps": [],
   "computer.lockedUse": false,
   "devices.emulatorWindow": false,
-  "generation.autoDraftCommits": false,
+  "devices.enabled": true,
+  "generation.autoDraftCommits": true,
   "generation.model": null,
   "host.displayName": "example",
   "host.icon": {
@@ -30195,7 +30375,7 @@ Example:
   },
   "logs.maxBytes": 1048579,
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
-  "notifications.remotePush": true,
+  "notifications.remotePush": false,
   "projects.roots": [],
   "providers.coder.model": "example",
   "providers.coder.provider": "codex",
@@ -30217,14 +30397,14 @@ Example:
   "providers.verifier.tier": "default",
   "remote.agentAccess": "read",
   "remote.agentTransfers": false,
-  "remote.enabled": true,
+  "remote.enabled": false,
   "remote.hostedPairingLink": true,
-  "remote.lan": true,
+  "remote.lan": false,
   "remote.relay": false,
   "remote.relayUrl": "",
   "remote.tailscale": false,
-  "remote.transferIgnoredFiles": false,
-  "remote.transport": "tailscale",
+  "remote.transferIgnoredFiles": true,
+  "remote.transport": "local",
   "sourceControl.preferences": {
     "host": "github.com",
     "hosts": [
@@ -30246,14 +30426,14 @@ Example:
   "threads.autoSettleAfter": "1w",
   "threads.followUpBehavior": "steer",
   "threads.forkOnSwitch": true,
-  "threads.keepSettledFor": "7d",
+  "threads.keepSettledFor": "1d",
   "threads.limitPolicy": "resume_at_reset",
   "threads.settleOnClose": false,
   "threads.settleOnMerge": false,
-  "threads.sortBy": "created",
-  "threads.unresponsiveAfter": "15m",
-  "threads.useWorktree": false,
-  "worktree.preparationTimeoutMs": 60004
+  "threads.sortBy": "manual",
+  "threads.unresponsiveAfter": "5m",
+  "threads.useWorktree": true,
+  "worktree.preparationTimeoutMs": 60005
 }
 ```
 
@@ -36306,6 +36486,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| failure | no | [DelegationFailure.json](schema/DelegationFailure.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | state | yes | [WatchedState.json](schema/WatchedState.json) |  |
 | title | yes | string | {"maxLength":120} |
@@ -36325,10 +36506,12 @@ Example:
 
 ```json
 {
-  "elapsedSeconds": 5,
-  "needs": [],
-  "slotLimit": 2,
-  "state": "cancelled",
+  "contact": "lost",
+  "elapsedSeconds": 9,
+  "last": "example",
+  "slotLimit": 5,
+  "state": "done",
+  "step": "example",
   "threadId": "example",
   "title": "example"
 }

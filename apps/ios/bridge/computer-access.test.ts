@@ -39,6 +39,7 @@ async function opened(
       return client.state;
     },
     connectionState: () => client.connectionState(),
+    connectionGeneration: () => client.connectionGeneration(),
     onMessage: (listener) => client.onMessage(listener),
   };
   const access = new ComputerAccess(

@@ -14,6 +14,7 @@ import { cn } from "@/lib/cn.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { storageLabels } from "@ace/ui-core/host-care";
+import { settingRow } from "./settings-index.ts";
 
 export function StorageRetentionControls(props: { onSaved(): void }) {
   const client = useClient();
@@ -75,6 +76,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
   return (
     <SettingSection
       label="Retention"
+      anchor="storage.retention"
       scope="daemon"
       note="Days to keep archived threads and unused data, by kind. Empty keeps it; pins and live work always stay."
     >
@@ -110,7 +112,7 @@ export function StorageRetentionControls(props: { onSaved(): void }) {
         <ListSkeleton label="retention" shape="row" rows={3} />
       )}
       <SettingRow
-        title="Daily cleanup"
+        {...settingRow("storage.dailyCleanup")}
         description="Runs every day. Worktrees have their own setting."
         inline
       >

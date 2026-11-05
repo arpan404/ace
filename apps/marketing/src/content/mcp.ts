@@ -39,6 +39,7 @@ const describe: Record<string, Record<string, string>> = {
     screen_apps: "List the apps agents may use and the ones in use.",
     screen_state: "Read an app's window through accessibility.",
     screen_act: "Click, type and press keys in an app, in the background.",
+    screen_display: "Picture whole displays, leaving out apps agents can't use.",
   },
   Devices: {
     sim_list: "List iOS Simulators and Android emulators.",

@@ -45,7 +45,14 @@ is never stored.
 **A machine signs in.** The daemon gets an ace session through the same login flow as the
 apps (the desktop app hands its session to the local daemon when the person signs in, and
 again whenever the daemon starts or restarts signed out, unless the daemon's lapsed session
-was another account's; it never signs a daemon out or switches a signed-in one. Headless
+was another account's or its own sign-in. A daemon already on the same account through the app
+gets the new session; one signed in on its own (`ace login`, even once that session lapsed),
+signing in on its own right now, or on another account is never moved, and only Settings'
+explicit Switch moves it. The app's sign-out signs the daemon out only when its session came
+from the app. These changes run one at a time in the app, each reading the app's saved session
+afresh, and each is conditional on the daemon's `sessionId` it was decided on (`If-Match`, or
+`If-None-Match: *` for none; 412 when it changed); a daemon that reports no `sessionId` is never
+changed by the app. Headless
 machines run `ace login`, which prints the login URL). It asks the backend for a `machine` grant and connects to
 the hosted relay's `/host` with it. The relay's Durable Object checks the grant, completes the
 Noise handshake that proves the host key, and records host id → account in D1. Binding
@@ -62,9 +69,12 @@ A correct code is remembered for this device and code version. Access is admin.
 Grants travel to the relay in the `Sec-WebSocket-Protocol` header (`ace.grant.<token>`), which
 browsers can set and URL logs do not record.
 
-**Revocation.** Each connection needs a fresh grant, so signing a device out at the backend,
-or a WorkOS account deletion, ends its access within one grant lifetime. Changing the machine
-code requires every device to enter the new one.
+**Revocation.** Each connection needs a fresh grant, and an open connection must keep
+presenting one: the daemon closes an account main socket (4014) once its grant has run out
+and no fresh one came on that socket (`account.grant.refresh`, ADR 0114; amended
+2026-11-04). So signing a device out at the backend, or a WorkOS account deletion, ends its
+access within one grant lifetime plus a 30 s grace, on sockets already open too. Changing the
+machine code requires every device to enter the new one.
 
 ### Machine code
 

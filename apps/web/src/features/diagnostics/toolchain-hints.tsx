@@ -10,7 +10,8 @@ export const toolchainNames = {
   android: "Android emulators",
 };
 
-const installers = {
+/** Where to get the tools ace can't install itself. */
+export const toolchainInstallers = {
   xcode: { href: "https://apps.apple.com/app/xcode/id497799835", label: "Install Xcode" },
   android: { href: "https://developer.android.com/studio", label: "Install Android Studio" },
 };
@@ -64,12 +65,12 @@ export function ToolchainHints({ devices = false }: { devices?: boolean }) {
                     <p>{tool.hint}</p>
                     {(tool.id === "xcode" || tool.id === "android") && (
                       <a
-                        href={installers[tool.id].href}
+                        href={toolchainInstallers[tool.id].href}
                         target="_blank"
                         rel="noreferrer"
                         className="text-link focus-ring hover:underline"
                       >
-                        {installers[tool.id].label}
+                        {toolchainInstallers[tool.id].label}
                       </a>
                     )}
                   </div>

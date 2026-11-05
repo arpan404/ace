@@ -48,6 +48,10 @@ Batch consecutive actions into one `screen_act`, up to 20 steps. Read once after
 
 Add `screenshot: true` to `screen_state` or `screen_act` when the outline does not show what you need: layout, images, colours, or a canvas you must click into. The image is the window alone, with each clickable element tagged by its outline id, so you can click by id what you found by sight. In a large window, `screen_state {app, find: "Invoice"}` lists only matching elements with their parents. "<App> is not responding" means the app is busy: the outline may be partial, so wait or look again.
 
+### The whole screen
+
+`screen_display` returns a picture of every display, with each display's name and size; `display: 2` pictures one. Use it when the person wants to see their screen, not an app: the shell's `screencapture` fails, because macOS gives Screen Recording to ace's helper, not to your shell. Apps computer use refuses are left out of the pictures, and the result names them. The pictures are view only: to act, look at the app with `screen_state`. macOS only.
+
 If your call is stopped, the batch stops at its next step; work already done stays done, so look before you retry.
 
 The person can watch: on a visible window a small marker shows where you act, and pressing Esc while you act stops you. `stopped_by_person` means stop and ask how to continue; `person_active` means the current control conflicts with their input. Prefer another element or window; brief conflicts are waited out inside the batch. Work in a different field using its element id to preserve their caret.

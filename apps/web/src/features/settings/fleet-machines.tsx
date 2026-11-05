@@ -19,7 +19,7 @@ import { primaryMachineId, type Machine } from "@/lib/machines.ts";
 import { fleetProblem } from "./data/fleet.ts";
 import { machineGaps, reach, unlinkedWith, type LinkGap } from "./data/fleet-links.ts";
 import { summarizeNames } from "./data/list-names.ts";
-import { machineState } from "./data/fleet-words.ts";
+import { machineState, pathWordsFor } from "./data/fleet-words.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";
 import { MachineDirectory } from "./machine-directory.tsx";
@@ -132,6 +132,7 @@ function statusLine(machine: Machine, fleet: Fleet, onAccount: boolean) {
     self !== undefined &&
     fleet.facts.some((other) => other.id !== machine.id && reach(other, self).kind === "closed");
   const extra = [
+    machine.status === "online" ? pathWordsFor(machine.path) : undefined,
     onAccount ? "ace account" : undefined,
     machine.status === "online" && links?.isError ? fleetProblem(links.error) : undefined,
     closed ? "other machines' agents are off there" : undefined,

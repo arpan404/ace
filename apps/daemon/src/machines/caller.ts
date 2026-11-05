@@ -4,7 +4,6 @@ import {
   MachineDescription,
   MachineMessageResult,
   MachineSessionResult,
-  MachineStatusResult,
   MachineToolResult,
   type AgentControlResult,
   type DelegationRequest,
@@ -29,6 +28,7 @@ import type { Answer, ResendAnswer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
 import type { RemoteJobs } from "./remote-jobs.ts";
 import { MachineFailure } from "./transport.ts";
+import { machineStatusThreads } from "./status-result.ts";
 
 /**
  * A refusal the target recorded before the message ever reached its thread (its access or
@@ -314,7 +314,7 @@ export class MachineCaller {
       { op: "status", threadIds: [...ids] },
       { timeoutMs: 10_000 },
     );
-    return MachineStatusResult.parse(answer).threads;
+    return machineStatusThreads(answer);
   }
   async respond(
     entry: { machine: string; parentThreadId: ThreadId; remote: MachinePendingRequest },

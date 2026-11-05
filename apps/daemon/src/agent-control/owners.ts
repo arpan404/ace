@@ -19,6 +19,7 @@ import {
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import { ownerThreadExecutor } from "./owner-thread-executor.ts";
+import { automationAdmission } from "../automation-executor.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
 const owner = z.object({ thread_id: ThreadId, agent_id: AgentId });
@@ -59,6 +60,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     },
     onError: (error) => log.log("error", "Agent automation failed", logError(error)),
     executor: ownerThreadExecutor(context, delegations, lookup),
+    ...automationAdmission(context),
   });
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());

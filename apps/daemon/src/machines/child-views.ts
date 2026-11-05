@@ -7,7 +7,12 @@ import type {
   ThreadId,
   WatchedThread,
 } from "@ace/protocol";
-import { clip, elapsedSeconds, settledStates } from "../agent-control/watch-view.ts";
+import {
+  clip,
+  elapsedSeconds,
+  rowResultLength,
+  settledStates,
+} from "../agent-control/watch-view.ts";
 import { savedView, type ChildRow } from "./child-ledger.ts";
 import { MachineFailure } from "./transport.ts";
 
@@ -82,9 +87,38 @@ export function unconfirmedView(row: ChildRow, name: string, now: number): Machi
     elapsedSeconds: elapsedSeconds(row.created_at, now),
     status: { state: "done" },
     requests: [],
-    result: `Stopped here. ${name} never confirmed it stopped, so its work there may still be running; check on ${name}.`,
+    result: `Stopped here. ${name} hasn't confirmed it stopped, so its work there may still be running; ace keeps sending the cancel until ${name} confirms (agents_status shows it as cancelling until then).`,
     truncated: false,
     contact: "unconfirmed",
+  };
+}
+
+/** Why a stop can never be confirmed: this machine's pairing, or the child's record there, is gone. */
+export type Unconfirmable = "unpaired" | "gone";
+
+/**
+ * The settled view of a child stopped here whose stop can never be confirmed, so ace stopped
+ * sending the cancel: cancelled, saying why and that its work there may still be running.
+ */
+export function unconfirmableView(
+  row: ChildRow,
+  name: string,
+  why: Unconfirmable,
+  now: number,
+): MachineThreadView {
+  const saved = savedView(row);
+  return {
+    threadId: row.id,
+    state: "cancelled",
+    title: saved?.title || clip(row.role, 120),
+    elapsedSeconds: saved?.elapsedSeconds ?? elapsedSeconds(row.created_at, now),
+    status: { state: "done" },
+    requests: [],
+    result:
+      why === "unpaired"
+        ? `Stopped here. ${name} is no longer paired with this machine, so the stop can't be confirmed; its work there may still be running.`
+        : `Stopped here. ${name} no longer has this child, so the stop can't be confirmed.`,
+    truncated: false,
   };
 }
 
@@ -162,7 +196,8 @@ export function watchedChild(
     outcome: {
       threadId: row.id,
       outcome: outcomeOf(view.state),
-      result: view.result ?? "",
+      ...(view.failure ? { failure: view.failure } : {}),
+      result: view.result ?? view.failure?.message ?? "",
       truncated: view.truncated ?? false,
       before: null,
     },
@@ -177,12 +212,21 @@ export function monitoredChild(
   name: string,
 ): MonitoredChild {
   const notice = savedView(row)?.notice;
+  // Stopped here, and its machine hasn't confirmed it ended yet: ace is still sending the cancel.
+  const cancelling =
+    row.stopped_unconfirmed === 1 || (row.settled === 0 && row.stop_started_at !== null);
   return {
+    ...(view.failure ? { failure: view.failure } : {}),
+    ...(view.result !== undefined ? { result: clip(view.result, rowResultLength) } : {}),
     id: row.id,
     ...(row.parent_thread === caller ? {} : { parent: row.parent_thread }),
     role: clip(row.role, 40),
-    state: view.state,
-    ...(view.step ? { step: clip(view.step, 60) } : {}),
+    state: cancelling ? "cancelling" : view.state,
+    ...(cancelling
+      ? { step: clip(`Cancel sent; waiting for ${name} to confirm`, 60) }
+      : view.step
+        ? { step: clip(view.step, 60) }
+        : {}),
     ...(view.slotLimit !== undefined &&
     view.slotsInUse !== undefined &&
     view.queuePosition !== undefined

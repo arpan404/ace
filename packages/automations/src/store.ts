@@ -330,6 +330,7 @@ export class AutomationStore {
     now: number,
     input: ExecutionInput | undefined,
     failure?: string,
+    skip?: string,
   ): { run: AutomationRun; admitted: boolean; created: boolean } {
     const existing = this.sql(
       "SELECT body FROM automation_runs WHERE automation_id=? AND event_key=?",
@@ -352,7 +353,7 @@ export class AutomationStore {
     const status =
       failure !== undefined
         ? "failed"
-        : input === undefined
+        : input === undefined || skip !== undefined
           ? "skipped"
           : admission({ active, waiting, total, file: trigger === "file" });
     const admitted = status === "running";
@@ -370,7 +371,9 @@ export class AutomationStore {
         : {
             finishedAt: now,
             result:
-              failure ?? (waiting ? "A run was already waiting" : "Too many automations running"),
+              failure ??
+              skip ??
+              (waiting ? "A run was already waiting" : "Too many automations running"),
           }),
     });
     if (trigger === "file" && status === "skipped") return { run, admitted: false, created: false };

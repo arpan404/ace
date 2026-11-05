@@ -10,7 +10,8 @@ import { hashMachineCode, machineCodeMatches, type MachineCodes } from "./machin
 import { readSession, writeSession, type StoredSession } from "./session-file.ts";
 
 export type DeviceAdmission =
-  | { admitted: true; account: string }
+  /** `expiresAt`: when the grant runs out (its `exp`); the socket must refresh before then. */
+  | { admitted: true; account: string; expiresAt: number }
   | { admitted: false; code: "unauthorized" | MachineCodeRefusal; message: string };
 
 const refusals: Record<MachineCodeRefusal, string> = {
@@ -24,6 +25,14 @@ const unauthorized = (message = "Valid hello required"): DeviceAdmission => ({
   message,
 });
 const loginPollMs = 2_000;
+
+/**
+ * A sign-in or sign-out that applies only while the daemon still holds the session the caller
+ * read: its `sessionId`, or null for none.
+ */
+export type SessionCondition = { session: string | null };
+const accountChanged = () =>
+  new AccessError(412, "This machine's ace account changed. Read it again before changing it.");
 const noop = () => {};
 
 /**
@@ -44,6 +53,8 @@ export function machineAccount(options: {
 }) {
   const backend = accountBackend({ fetch: options.fetch });
   let session: StoredSession | undefined;
+  /** In memory only: a restart gives the session a new id, so no decision outlives it. */
+  let sessionId: string | null = null;
   let login: { url: string; expiresAt: number; stop(): void } | undefined;
   let writes: Promise<unknown> = Promise.resolve();
   let codeChecks: Promise<unknown> = Promise.resolve();
@@ -70,9 +81,13 @@ export function machineAccount(options: {
     writes = next.catch(() => {});
     return next;
   };
-  const adopt = (next: StoredSession | undefined) =>
+  const newId = () => options.randomBytes(16).toString("base64url");
+  /** `before` runs in turn with every other write, so a condition it checks holds for this one. */
+  const adopt = (next: StoredSession | undefined, before: () => void = noop) =>
     serial(async () => {
+      before();
       await writeSession(options.dataDir, next ?? null);
+      sessionId = next ? newId() : null;
       const changed = session?.account.id !== next?.account.id || session?.origin !== next?.origin;
       if (session?.origin !== next?.origin) keys.reset();
       session = next;
@@ -87,6 +102,7 @@ export function machineAccount(options: {
   return {
     async load(): Promise<void> {
       session = await readSession(options.dataDir);
+      sessionId = session ? newId() : null;
     },
     status(): MachineAccountStatus {
       const current = active();
@@ -95,8 +111,14 @@ export function machineAccount(options: {
       return MachineAccountStatus.parse({
         signedIn: current !== undefined,
         ...(session
-          ? { origin: session.origin, account: session.account, expiresAt: session.expiresAt }
+          ? {
+              origin: session.origin,
+              account: session.account,
+              expiresAt: session.expiresAt,
+              source: session.source,
+            }
           : {}),
+        sessionId,
         ...(login && login.expiresAt > options.now()
           ? { login: { url: login.url, expiresAt: login.expiresAt } }
           : {}),
@@ -112,8 +134,17 @@ export function machineAccount(options: {
     account(): AceAccount | undefined {
       return active()?.account;
     },
-    /** Take over a session another ace app on this machine holds, after the backend vouches for it. */
-    async handover(origin: string, token: string): Promise<MachineAccountStatus> {
+    /**
+     * Take over a session another ace app on this machine holds, after the backend vouches for
+     * it. With `condition`, only while the daemon still holds that session and no sign-in from
+     * this machine is under way (412 otherwise), so a decision made on an older read never
+     * replaces the person's own sign-in.
+     */
+    async handover(
+      origin: string,
+      token: string,
+      condition?: SessionCondition,
+    ): Promise<MachineAccountStatus> {
       let checked;
       try {
         checked = await client(origin).session(token, AbortSignal.timeout(10_000));
@@ -123,8 +154,10 @@ export function machineAccount(options: {
           error instanceof AceAccountError ? error.message : "Couldn't reach your ace account.",
         );
       }
-      stopLogin();
-      await adopt({ origin, token, ...checked, source: "handover" });
+      await adopt({ origin, token, ...checked, source: "handover" }, () => {
+        if (condition && (condition.session !== sessionId || login)) throw accountChanged();
+        stopLogin();
+      });
       return this.status();
     },
     /** Start signing in from this machine; the sign-in finishes when the person opens the URL. */
@@ -178,10 +211,18 @@ export function machineAccount(options: {
       poll();
       return this.status();
     },
-    async signOut(): Promise<MachineAccountStatus> {
-      stopLogin();
-      const ending = session;
-      await adopt(undefined);
+    /**
+     * Sign out. With `condition`, only while the daemon still holds that session (412 otherwise);
+     * a sign-in from this machine under way is then left to finish.
+     */
+    async signOut(condition?: SessionCondition): Promise<MachineAccountStatus> {
+      const ended: { session?: StoredSession | undefined } = {};
+      await adopt(undefined, () => {
+        if (condition && condition.session !== sessionId) throw accountChanged();
+        if (!condition) stopLogin();
+        ended.session = session;
+      });
+      const ending = ended.session;
       if (ending?.source === "login")
         await client(ending.origin)
           .logout(ending.token, AbortSignal.timeout(10_000))
@@ -229,6 +270,7 @@ export function machineAccount(options: {
       });
       if (!verdict.accepted) return unauthorized();
       const account = verdict.claims.account;
+      const expiresAt = verdict.claims.exp;
       // One code check at a time, so concurrent wrong codes all count toward the lock.
       const run = codeChecks.then(async (): Promise<DeviceAdmission> => {
         const code = options.codes.current();
@@ -239,10 +281,10 @@ export function machineAccount(options: {
           lock: options.codes.lock(),
           now: options.now(),
         });
-        if (step.kind === "admit") return { admitted: true, account };
+        if (step.kind === "admit") return { admitted: true, account, expiresAt };
         if (step.kind === "refuse")
           return { admitted: false, code: step.reason, message: refusals[step.reason] };
-        if (!code) return { admitted: true, account };
+        if (!code) return { admitted: true, account, expiresAt };
         const correct = await machineCodeMatches(step.code, code.hash);
         // The code changed while it was checked: the device enters the new one.
         if (options.codes.current()?.version !== code.version)
@@ -256,7 +298,7 @@ export function machineAccount(options: {
         if (next.step.kind === "refuse")
           return { admitted: false, code: next.step.reason, message: refusals[next.step.reason] };
         options.codes.rememberPass(hello.deviceId, account, code.version, options.now());
-        return { admitted: true, account };
+        return { admitted: true, account, expiresAt };
       });
       codeChecks = run.catch(() => {});
       return run;

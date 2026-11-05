@@ -1,8 +1,9 @@
 import {
   ClientError,
+  Multipath,
   Notifications,
+  knownPaths,
   machineCodeGate,
-  relayRoute,
   type MachineCodeGate,
   type ClientApi,
   type RequestOptions,
@@ -17,9 +18,17 @@ import {
   type MachineThreadRef,
   type PairedMachine,
 } from "@ace/client/machines";
-import type { CommandPayload, HostIdentity, MachineIcon } from "@ace/protocol";
+import {
+  MachineCodeRefusal,
+  type CommandPayload,
+  type HostIdentity,
+  type MachineIcon,
+  type MachinePath,
+  type MachinePathKind,
+} from "@ace/protocol";
 import { RemoteClient, type RemoteOptions } from "./remote.ts";
 import {
+  accountRoutes,
   accountMachineEntry,
   accountMachineState,
   type AccountMachine,
@@ -35,6 +44,8 @@ export interface MachineState {
   status: MachineStatus;
   identity?: HostIdentity;
   error?: ClientError;
+  /** The path the connection uses now (ADR 0114), when the machine has more than one. */
+  path?: MachinePathKind;
 }
 /** One dedicated worker per endpoint. No worker may be reused between machine entries. */
 export interface MachineWorker {
@@ -58,7 +69,10 @@ interface Live {
   state: MachineState;
   worker?: MachineWorker;
   client?: ClientApi;
+  /** Moves an account machine's connection between its paths. */
+  paths?: Multipath;
   stop?: () => void;
+  stopPath?: (() => void) | undefined;
   stopFailure?: () => void;
   /** Cancels the scheduled automatic reconnect, while one waits. */
   retry?: () => void;
@@ -99,6 +113,21 @@ export class MachinePool {
   private failures = new Map<string, number>();
   /** Account machines' code gates, kept across reconnects so an entered code is sent once. */
   private gates = new Map<string, MachineCodeGate>();
+  /** What account machines said about their paths; account machines aren't saved. */
+  private accountPaths = new Map<string, readonly MachinePath[]>();
+  /**
+   * Account machines' daemon ids, first learned over a relay (whose handshake pins the
+   * machine's host key): every later connection, on any path, must reach the same daemon.
+   */
+  private accountDaemons = new Map<string, string>();
+  /**
+   * Daemons an account machine has proved it reaches, by daemon id, with that account
+   * machine's host id: a paired entry for the same daemon stays aside while it holds, whenever
+   * that entry would connect (ADR 0114).
+   */
+  private owners = new Map<string, string>();
+  /** Paired machines an open account machine (`by`) stands in for, by daemon id. */
+  private superseded = new Map<string, { entry: MachineEntry; by: string }>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -127,7 +156,7 @@ export class MachinePool {
       .load()
       .then((entries) => {
         if (this.closed) return;
-        for (const entry of entries) this.connect(entry);
+        for (const entry of entries) if (!this.superseded.has(entry.hostId)) this.connect(entry);
       })
       .catch((error: unknown) => {
         this.starting = undefined;
@@ -162,6 +191,8 @@ export class MachinePool {
     this.assertOpen();
     const live = this.live.get(hostId);
     if (live?.removing) throw new ClientError("storage", "Machine removal pending");
+    // A paired machine standing aside for its account entry goes for good.
+    this.superseded.delete(hostId);
     if (live) {
       // Disable every async continuation and retained client handle before secret-store I/O.
       live.enabled = false;
@@ -186,6 +217,7 @@ export class MachinePool {
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
     this.notifications.emit(["ids", `machine:${hostId}`]);
+    this.release(hostId);
   }
   /**
    * Open a machine on the person's ace account (ADR 0111) and add it to the pool like a paired
@@ -229,6 +261,31 @@ export class MachinePool {
       },
       close: () => (this.live.has(hostId) ? this.remove(hostId) : Promise.resolve()),
     };
+  }
+  /**
+   * The window's ace session ended or moved to another account: close every account machine
+   * and forget its machine code gate, so nothing opened under the old session keeps its
+   * connection or sends another account's code. Paired machines stay, and any one stood aside
+   * for an account machine is back. Saved threads and queued work are kept. Opening an account
+   * machine again starts afresh, under whatever session the window then holds.
+   */
+  closeAccountMachines(): void {
+    if (this.closed) return;
+    const gone: string[] = [];
+    for (const [hostId, live] of this.live) {
+      if (live.state.entry.target.kind !== "account") continue;
+      live.enabled = false;
+      this.dispose(live);
+      this.live.delete(hostId);
+      this.failures.delete(hostId);
+      gone.push(hostId);
+    }
+    this.gates.clear();
+    if (gone.length === 0) return;
+    this.order = this.order.filter((id) => !gone.includes(id));
+    this.notifications.emit(["ids", ...gone.map((id) => `machine:${id}`)]);
+    // A paired entry one of them stood in for comes back.
+    for (const hostId of gone) this.release(hostId);
   }
   /** Retry after authorization replacement or a worker failure, retaining cached thread facts. */
   reconnect(hostId: string): void {
@@ -308,6 +365,13 @@ export class MachinePool {
     live.state = state;
     if (state.status === "online") this.failures.delete(state.entry.hostId);
     this.notifications.emit([`machine:${state.entry.hostId}`]);
+    // An account machine that can't open (signed out, another account, its code to enter)
+    // gives the paired entry it stood in for back until it proves itself again.
+    if (
+      state.entry.target.kind === "account" &&
+      (state.status === "auth_failed" || state.status === "machine_code")
+    )
+      this.release(state.entry.hostId);
   }
   /**
    * The connection ended where nothing inside it will try again (its worker died, its client
@@ -336,7 +400,43 @@ export class MachinePool {
       this.connect(live.state.entry);
     });
   }
+  /**
+   * `daemonId`'s paired entry, if any, steps aside for the account machine `by` that reached
+   * the same daemon: a signed-in device is admin on that machine, whatever scopes its pairing
+   * gave (ADR 0114). It comes back when the account machine closes.
+   */
+  private supersede(daemonId: string, by: string): void {
+    this.owners.set(daemonId, by);
+    const paired = this.live.get(daemonId);
+    if (!paired || paired.state.entry.target.kind === "account" || paired.removing) return;
+    paired.enabled = false;
+    this.dispose(paired);
+    this.live.delete(daemonId);
+    this.failures.delete(daemonId);
+    this.order = this.order.filter((id) => id !== daemonId);
+    this.superseded.set(daemonId, { entry: paired.state.entry, by });
+    this.notifications.emit(["ids", `machine:${daemonId}`]);
+  }
+  /**
+   * The account machine `by` closed or can't open: it no longer stands in for any daemon, and
+   * the paired entries it stood in for come back.
+   */
+  private release(by: string): void {
+    for (const [daemonId, owner] of this.owners) if (owner === by) this.owners.delete(daemonId);
+    for (const [daemonId, superseded] of this.superseded) {
+      if (superseded.by !== by) continue;
+      this.superseded.delete(daemonId);
+      if (!this.closed && !this.live.has(daemonId)) this.connect(superseded.entry);
+    }
+  }
   private connect(entry: MachineEntry): void {
+    // A paired entry whose daemon an open account machine already reaches stays aside, however
+    // it got here: the directory loading late, a pairing added afterwards, or a reconnect.
+    const owner = entry.target.kind === "account" ? undefined : this.owners.get(entry.hostId);
+    if (owner !== undefined) {
+      this.superseded.set(entry.hostId, { entry, by: owner });
+      return;
+    }
     const live: Live = {
       state: { entry, status: "connecting" },
       verification: 0,
@@ -385,21 +485,52 @@ export class MachinePool {
     const gate = this.gates.get(live.state.entry.hostId);
     if (!account || !gate) throw new ClientError("auth", "ace account sign-in is unavailable");
     const { hostId, deviceId } = live.state.entry;
-    const route = relayRoute({
+    const scheduler = this.options.remote.scheduler;
+    const routes = accountRoutes({
       relayUrl,
       hostId,
-      credential: () => gate.credential(),
-      socket: account.socket,
-      schedule: (callback, delayMs) => this.options.remote.scheduler.set(delayMs, callback),
-      refused: (reason, _message, lockedUntil) => gate.refused(reason, lockedUntil),
-      welcomed: () => gate.welcomed(),
+      account,
+      gate,
+      scheduler,
+      paths: () => this.accountPaths.get(hostId) ?? [],
     });
-    return account.client({
+    const visibility = this.options.remote.visibility;
+    const paths = new Multipath({
+      routes,
+      scheduler,
+      // The shell's clock; an app that injects none gets the wall clock here, at the boundary.
+      now: this.options.remote.now ?? Date.now,
+      ...(account.clock ? { clock: account.clock } : {}),
+      // A hidden window pings its machine less often.
+      ...(visibility ? { visible: () => visibility.visible() } : {}),
+      ...(account.watchNetwork ? { watchNetwork: account.watchNetwork } : {}),
+    });
+    live.paths = paths;
+    const route = paths.route();
+    const daemonId = this.accountDaemons.get(hostId);
+    const client = account.client({
       hostId,
       deviceId,
+      ...(daemonId ? { expectedHostId: daemonId } : {}),
       transport: route.transport,
       credential: route.credential,
+      grant: () => account.grant(),
     });
+    client.usePaths?.(paths);
+    return client;
+  }
+  /**
+   * The daemon id an account machine must have: the one already learned, or, when this
+   * connection runs over a relay (its handshake pins the machine's host key), the one it
+   * reports now, kept from then on. Undefined over a direct path before any relay vouched.
+   */
+  private accountDaemon(hostId: string, client: ClientApi, daemonId: string): string | undefined {
+    const known = this.accountDaemons.get(hostId);
+    if (known !== undefined) return known;
+    const path = client.activePath?.().getSnapshot();
+    if (path !== "account" && path !== "relay") return undefined;
+    this.accountDaemons.set(hostId, daemonId);
+    return daemonId;
   }
   private async open(live: Live): Promise<void> {
     const target = live.state.entry.target;
@@ -412,6 +543,16 @@ export class MachinePool {
       return;
     }
     live.client = client;
+    live.stopPath = client.activePath?.().subscribe(() => {
+      if (!this.current(live)) return;
+      const path = client.activePath?.().getSnapshot();
+      const { path: _previous, ...rest } = live.state;
+      this.publish(live, { ...rest, ...(path ? { path } : {}) });
+      if (path && live.state.entry.target.kind !== "account")
+        void this.options.directory
+          .remember(live.state.entry.hostId, { lastPath: path })
+          .catch(() => {});
+    });
     const changed = () => {
       if (!this.current(live)) return;
       const epoch = ++live.verification;
@@ -429,6 +570,11 @@ export class MachinePool {
                   : "offline",
           ...(client.error ? { error: client.error } : {}),
         });
+        // A direct path asks for the machine code by closing; the gate shows the question.
+        const refusal = MachineCodeRefusal.safeParse(client.error?.message);
+        const gate = this.gates.get(live.state.entry.hostId);
+        if (client.error?.code === "machine_code" && refusal.success && gate && !gate.asking)
+          gate.refused(refusal.data, client.error.lockedUntil);
         // A client that is connecting or offline retries by itself; a fatal one never does.
         if (client.state === "fatal") this.recover(live);
         return;
@@ -439,11 +585,13 @@ export class MachinePool {
           async (reply) => {
             if (!this.current(live) || live.verification !== epoch) return;
             // An account machine is known by its relay host id, which the pinned handshake has
-            // already proved; its daemon's own id is another value.
-            if (
-              live.state.entry.target.kind !== "account" &&
-              reply.identity.hostId !== live.state.entry.hostId
-            ) {
+            // already proved; its daemon's own id is another value, learned over a relay and
+            // then held to on every path.
+            const expected =
+              live.state.entry.target.kind === "account"
+                ? this.accountDaemon(live.state.entry.hostId, client, reply.identity.hostId)
+                : live.state.entry.hostId;
+            if (expected !== undefined && reply.identity.hostId !== expected) {
               this.publish(live, {
                 entry: live.state.entry,
                 status: "auth_failed",
@@ -452,13 +600,24 @@ export class MachinePool {
               this.stopWorker(live);
               return;
             }
+            // Signing in wins over pairing (ADR 0114): the same machine, paired from this
+            // device too, steps aside while its account entry is open.
+            if (live.state.entry.target.kind === "account" && expected !== undefined)
+              this.supersede(expected, live.state.entry.hostId);
             // Account machines come from the account's list, not the saved directory.
-            if (live.state.entry.target.kind !== "account")
+            // Paths come only from the machine itself, over this verified connection.
+            if (live.state.entry.target.kind !== "account") {
               await this.options.directory.rename(
                 live.state.entry.hostId,
                 reply.identity.displayName,
                 reply.identity.icon,
               );
+              if (reply.paths)
+                await this.options.directory.remember(live.state.entry.hostId, {
+                  paths: knownPaths(reply.paths),
+                });
+            } else if (reply.paths)
+              this.accountPaths.set(live.state.entry.hostId, knownPaths(reply.paths));
             if (!this.current(live) || live.verification !== epoch) return;
             const entry = {
               ...live.state.entry,
@@ -505,10 +664,14 @@ export class MachinePool {
     live.retry?.();
     delete live.retry;
     live.stop?.();
+    live.stopPath?.();
+    live.paths?.close();
     live.stopFailure?.();
     if (live.client) void live.client.close().catch(() => {});
     live.worker?.terminate();
     delete live.stop;
+    delete live.stopPath;
+    delete live.paths;
     delete live.stopFailure;
     delete live.client;
     delete live.worker;

@@ -3552,3 +3552,21 @@ Example:
   "type": "ping"
 }
 ```
+
+### account.grant.refresh
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"account.grant.refresh"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| grant | yes | string | {"minLength":1,"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "grant": "example",
+  "requestId": "example",
+  "type": "account.grant.refresh"
+}
+```

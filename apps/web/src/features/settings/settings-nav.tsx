@@ -110,7 +110,7 @@ export function SettingsNav() {
             {found.map((entry) => (
               <li key={entry.id}>
                 <Link
-                  to={entryRoute(entry)}
+                  {...entryRoute(entry)}
                   hash={entry.id}
                   {...panelRow("h-auto flex-col items-start gap-0 py-1.5")}
                 >

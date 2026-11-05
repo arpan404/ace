@@ -60,6 +60,7 @@ import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 import { bindLiveServices, daemonHandle, shareDiagnostics } from "./daemon-surface.ts";
 import { MaintenanceGate } from "@ace/service";
+import { keepUserPause } from "./user-pause.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { AgentPreviews } from "./agent-control/owners.ts";
 export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
@@ -345,6 +346,11 @@ export async function startDaemon(options: DaemonOptions = {}) {
       () => eventStore.updateBlockers(),
       () => eventStore.waitingBlockers(),
     );
+    // The person's pause outlives a restart until they resume.
+    const stopKeepingPause = keepUserPause(maintenance, join(config.dataDir, "paused"), (error) =>
+      log.log("warn", "Couldn't save the pause", logError(error)),
+    );
+    resources.own(stopKeepingPause, "pause marker");
     // A restart in the middle of an update keeps the update's hold (ADR 0041).
     if (process.env.ACE_MAINTENANCE === "1") maintenance.enter("update");
     const serviceContext: ServiceContext = {

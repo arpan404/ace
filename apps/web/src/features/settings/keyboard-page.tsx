@@ -31,8 +31,9 @@ import {
   type KeymapId,
   type KeyScope,
 } from "@/lib/keymap.ts";
-import { settingKeys } from "./data/setting-keys.ts";
-import { useSetting, useSettingsBackend, useSettingWrite } from "./data/use-settings.ts";
+import { useDeviceKeymap } from "@/lib/device-keymap.ts";
+import { useSettingWrite } from "./data/use-settings.ts";
+import { GlobalShortcuts } from "./keyboard-global.tsx";
 
 /** The page's sections, in order; an id not listed lands in "Other". */
 const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
@@ -182,11 +183,12 @@ type Problem =
   | { id: KeymapId; text: string; swap: { keys: string; with: KeymapId } };
 
 /**
- * Every shortcut, grouped, with rebinding. Rebindings live in the daemon's client settings and
- * apply at once everywhere (`lib/keybindings.ts`): hotkeys, tooltips, menus and the palette.
+ * Every shortcut, grouped, with rebinding. Rebindings belong to this device (each app and browser
+ * keeps its own) and apply at once across it (`lib/keybindings.ts`): hotkeys, tooltips, menus and
+ * the palette.
  */
 export function KeyboardShortcuts() {
-  const [, store] = useSetting(settingKeys.keybindings);
+  const device = useDeviceKeymap();
   const overrides = useKeybindingOverrides();
   const bindings = useResolvedKeymap();
   const write = useSettingWrite("Keyboard shortcuts");
@@ -201,18 +203,10 @@ export function KeyboardShortcuts() {
   useEffect(() => {
     latest.current = overrides;
   });
-  const backend = useSettingsBackend();
-  /** What the daemon holds now, as far as this window knows (its optimistic writes included). */
-  const authoritative = (): Keybindings => {
-    const parsed = settingKeys.keybindings.schema.safeParse(
-      backend.values.get()[settingKeys.keybindings.key],
-    );
-    return parsed.success ? parsed.data : {};
-  };
   /**
-   * Apply an edit to the rebindings: shown at once, then stored. A Retry re-applies the edit to
-   * what is current then, never an old snapshot; a refusal shows what the daemon holds, so a
-   * failed older edit can't undo a newer one that was accepted.
+   * Apply an edit to the rebindings: shown at once, then stored on this device. A Retry re-applies
+   * the edit to what is current then, never an old snapshot; a failed save shows what the device
+   * holds, so a failed older edit can't undo a newer one that was saved.
    */
   const change = (edit: (current: Keybindings) => Keybindings) =>
     write.run(async () => {
@@ -222,9 +216,9 @@ export function KeyboardShortcuts() {
       latest.current = clean;
       setKeybindingOverrides(clean);
       try {
-        await store(clean);
+        await device.set(clean);
       } catch (error) {
-        setKeybindingOverrides(authoritative());
+        setKeybindingOverrides(device.get() ?? {});
         throw error;
       }
     });
@@ -279,6 +273,7 @@ export function KeyboardShortcuts() {
 
   return (
     <div id="keyboard.shortcuts">
+      <GlobalShortcuts />
       {/* The filter sits in the title band; the first group starts a clear step below it. */}
       <div className="mb-6 flex items-center gap-3">
         <SearchField
@@ -302,7 +297,7 @@ export function KeyboardShortcuts() {
         />
       )}
       {visible.map(({ section, ids }) => (
-        <SettingSection key={section.label} label={section.label} card scope="daemon">
+        <SettingSection key={section.label} label={section.label} card>
           {ids.map((id) => (
             <ShortcutRow
               key={id}

@@ -16,6 +16,8 @@ import { StoredSession } from "./account-access/session-file.ts";
 import { startFakeAccountBackend } from "./account-backend-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
+import { WebSocket } from "ws";
+import { Client, webSocketTransport } from "@ace/client";
 
 const cleanup: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -248,7 +250,8 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   });
   backend.completeLogins();
   await expect.poll(() => account.status().signedIn).toBe(true);
-  expect(account.status()).toMatchObject({ account: { email: "a@example.com" } });
+  // Signed in on this machine: the desktop app never signs it out or moves it.
+  expect(account.status()).toMatchObject({ account: { email: "a@example.com" }, source: "login" });
   expect(account.status().login).toBeUndefined();
 
   // The session survives a restart, and signing out ends the session sign-in created.
@@ -263,6 +266,60 @@ it("ace sign-in from this machine finishes in the browser, and signing out ends 
   await restarted.signOut();
   expect(backend.live(stored.token)).toBe(false);
   expect(restarted.status().signedIn).toBe(false);
+});
+
+it("a sign-in or sign-out decided on an older read never replaces the machine's own sign-in", async () => {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  const root = await mkdtemp(join(tmpdir(), "ace-account-condition-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const store = new Store(join(root, "store.sqlite"));
+  cleanup.push(() => store.close());
+  const account = machineAccount({
+    dataDir: root,
+    codes: store.machineCodes,
+    fetch: globalThis.fetch,
+    now: Date.now,
+    randomBytes,
+    delay: (run: () => void) => {
+      const timer = setTimeout(run, 10);
+      return () => clearTimeout(timer);
+    },
+    defaultOrigin: backend.origin,
+  });
+  cleanup.push(() => account.close());
+  const read = account.status();
+  expect(read.sessionId).toBeNull();
+
+  // `ace login` finishes after the app read the machine as signed out.
+  await account.startLogin();
+  backend.completeLogins();
+  await expect.poll(() => account.status().signedIn).toBe(true);
+  const own = account.status();
+  await expect(
+    account.handover(backend.origin, backend.token, { session: read.sessionId ?? null }),
+  ).rejects.toMatchObject({ status: 412 });
+  await expect(account.signOut({ session: "stale" })).rejects.toMatchObject({ status: 412 });
+  expect(account.status()).toMatchObject({ signedIn: true, source: "login" });
+  expect(account.status().sessionId).toBe(own.sessionId);
+
+  // A sign-in under way on this machine is the person's own too.
+  await account.signOut();
+  const signedOut = account.status();
+  await account.startLogin();
+  await expect(
+    account.handover(backend.origin, backend.token, { session: signedOut.sessionId ?? null }),
+  ).rejects.toMatchObject({ status: 412 });
+  expect(account.status().login).toBeDefined();
+
+  // Once nothing changed since the read, both apply.
+  await account.signOut();
+  const handed = await account.handover(backend.origin, backend.token, { session: null });
+  expect(handed).toMatchObject({ signedIn: true, source: "handover" });
+  expect(handed.sessionId).not.toBe(own.sessionId);
+  expect(await account.signOut({ session: handed.sessionId ?? null })).toMatchObject({
+    signedIn: false,
+  });
 });
 
 it("the host signs the machine in and sets its code over the local API; others are refused", async () => {
@@ -291,7 +348,7 @@ it("the host signs the machine in and sets its code over the local API; others a
   ).rejects.toThrow();
   expect(
     await local("/v1/ace-account", "PUT", { origin: backend.origin, token: backend.token }),
-  ).toMatchObject({ signedIn: true, account: { id: "user_a" } });
+  ).toMatchObject({ signedIn: true, account: { id: "user_a" }, source: "handover" });
   await expect(local("/v1/machine-code", "PUT", { code: "12" })).rejects.toThrow();
   expect(await local("/v1/machine-code", "PUT", { code: "2468" })).toMatchObject({
     machineCode: { set: true },
@@ -303,7 +360,24 @@ it("the host signs the machine in and sets its code over the local API; others a
   expect(status).not.toContain(backend.token);
   await expect(local("/v1/machine-code", "DELETE", undefined, "0".repeat(64))).rejects.toThrow();
   expect(await local("/v1/machine-code", "DELETE")).toMatchObject({ machineCode: { set: false } });
-  expect(await local("/v1/ace-account", "DELETE")).toMatchObject({ signedIn: false });
+  // Conditional on the session the caller read: 412 once it is another.
+  const conditional = (method: string, header: Record<string, string>, body?: unknown) =>
+    fetch(new URL("/v1/ace-account", f.server.httpUrl), {
+      method,
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...header },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  const held = (await local("/v1/ace-account", "GET")) as { sessionId: string };
+  const refused = await conditional(
+    "PUT",
+    { "if-none-match": "*" },
+    { origin: backend.origin, token: backend.token },
+  );
+  expect(refused.status).toBe(412);
+  expect((await conditional("DELETE", { "if-match": '"other"' })).status).toBe(412);
+  const out = await conditional("DELETE", { "if-match": `"${held.sessionId}"` });
+  expect(out.status).toBe(200);
+  expect(await out.json()).toMatchObject({ signedIn: false, sessionId: null });
 });
 
 it("a session the backend no longer knows signs the machine out when it asks for a grant", async () => {
@@ -312,4 +386,280 @@ it("a session the backend no longer knows signs the machine out when it asks for
   await expect(daemon.account.machineGrant(daemon.host.hostId)).rejects.toThrow();
   expect(daemon.account.status().signedIn).toBe(false);
   expect(refusal((await daemon.open()).first)).toBe("unauthorized");
+});
+
+/** A daemon serving its own sockets, signed in to the fake backend's account. */
+async function signedInServer() {
+  const backend = await startFakeAccountBackend(Date.now);
+  cleanup.push(() => backend.close());
+  let account: ReturnType<typeof machineAccount> | undefined;
+  const f = await fixture({}, (store, home) => {
+    account = machineAccount({
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now: Date.now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanup.push(async () => {
+    await account?.close();
+    await f.close();
+  });
+  if (!account) throw new Error("No machine account");
+  await account.handover(backend.origin, backend.token);
+  const grant = () => {
+    const iat = Date.now();
+    return signGrant(
+      { kind: "device", account: "user_a", subject: "phone", iat, exp: iat + GRANT_LIFETIME_MS },
+      backend.signingKey,
+    );
+  };
+  /** Say hello on a direct socket as the account's phone; resolves with the first answer. */
+  const hello = async (extra: { machineCode?: string } = {}) => {
+    const client = await f.open();
+    const closed = new Promise<number>((resolve) => client.socket.once("close", resolve));
+    client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("phone"),
+      grant: grant(),
+      ...extra,
+    });
+    return { client, closed, first: await client.next() };
+  };
+  return { account, hello, grant, url: f.server.url };
+}
+
+it("a device signed in to the account opens a direct socket as admin", async () => {
+  const daemon = await signedInServer();
+  const { client, first } = await daemon.hello();
+  expect(first).toMatchObject({ type: "welcome", hostId: "host" });
+  client.send({
+    type: "provider.accounts.add",
+    requestId: "add",
+    provider: "codex",
+    method: "api_key",
+  });
+  const answer = await client.next();
+  expect(answer).toMatchObject({ type: "provider.accounts.result", requestId: "add" });
+  expect(JSON.stringify(answer)).not.toContain("forbidden");
+});
+
+it("a direct socket asks an account device for the machine code as the relay does", async () => {
+  const daemon = await signedInServer();
+  await daemon.account.setMachineCode("2468");
+  const asked = await daemon.hello();
+  expect(asked.first).toMatchObject({ type: "error", code: "machine_code_required" });
+  expect(await asked.closed).toBe(4011);
+  expect((await daemon.hello({ machineCode: "2468" })).first).toMatchObject({ type: "welcome" });
+});
+
+it("an account change closes the account device's direct sockets at once, as a change, not a revocation", async () => {
+  const daemon = await signedInServer();
+  const opened = await daemon.hello();
+  expect(opened.first).toMatchObject({ type: "welcome" });
+  await daemon.account.setMachineCode("2468");
+  expect(await opened.closed).toBe(4012);
+  const again = await daemon.hello({ machineCode: "2468" });
+  expect(again.first).toMatchObject({ type: "welcome" });
+  await daemon.account.signOut();
+  expect(await again.closed).toBe(4012);
+});
+
+it("a machine code set while a device is connected asks for the code, and entering it reconnects with its threads kept", async () => {
+  const daemon = await signedInServer();
+  let code: string | undefined;
+  let cleared = 0;
+  const options = () => ({
+    deviceId: DeviceId.parse("phone"),
+    transport: () => webSocketTransport(() => new WebSocket(daemon.url)),
+    credential: async () => ({ grant: daemon.grant(), ...(code ? { machineCode: code } : {}) }),
+    storage: { load: async () => null, save: async () => {} },
+    readSnapshots: {
+      get: async () => undefined,
+      set: async () => {},
+      clear: async () => void cleared++,
+    },
+    scheduler: {
+      set(ms: number, callback: () => void) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: randomUUID,
+    now: Date.now,
+    limits: { retryBaseMs: 1, retryCapMs: 1 },
+  });
+  const client = new Client(options());
+  cleanup.push(() => client.close());
+  await client.start();
+  await expect.poll(() => client.state).toBe("ready");
+
+  await daemon.account.setMachineCode("2468");
+  await expect.poll(() => client.state).toBe("fatal");
+  expect(client.error).toMatchObject({ code: "machine_code", message: "machine_code_required" });
+  // Asked for the code, not refused: what the phone read from this machine stays.
+  expect(cleared).toBe(0);
+
+  code = "2468";
+  const entered = new Client(options());
+  cleanup.push(() => entered.close());
+  await entered.start();
+  await expect.poll(() => entered.state).toBe("ready");
+  expect(cleared).toBe(0);
+});
+
+it("the client stops and asks for the machine code on a direct socket instead of reconnecting", async () => {
+  const daemon = await signedInServer();
+  await daemon.account.setMachineCode("2468");
+  let sockets = 0;
+  const client = new Client({
+    deviceId: DeviceId.parse("phone"),
+    transport: () => {
+      sockets++;
+      return webSocketTransport(() => new WebSocket(daemon.url));
+    },
+    credential: async () => ({ grant: daemon.grant() }),
+    storage: { load: async () => null, save: async () => {} },
+    scheduler: {
+      set(ms, callback) {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    },
+    random: () => 0.5,
+    id: randomUUID,
+    now: Date.now,
+    // Backoff would retry within this test if the refusal were taken as a drop.
+    limits: { retryBaseMs: 1, retryCapMs: 1 },
+  });
+  cleanup.push(() => client.close());
+  const stopped = new Promise<void>((resolve) => {
+    const states = client.connectionState();
+    states.subscribe(() => {
+      if (states.getSnapshot() === "fatal") resolve();
+    });
+  });
+  await client.start();
+  await stopped;
+  expect(client.error).toMatchObject({ code: "machine_code", message: "machine_code_required" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(sockets).toBe(1);
+});
+
+/** A daemon serving its own sockets on a clock the test moves, signed in to the fake account. */
+async function clockedServer() {
+  let offset = 0;
+  const now = () => Date.now() + offset;
+  const backend = await startFakeAccountBackend(now);
+  cleanup.push(() => backend.close());
+  let account: ReturnType<typeof machineAccount> | undefined;
+  // The idle timeout reads the same clock: keep it out of the way of the jumps below.
+  const f = await fixture({ now, idleTimeoutMs: 24 * 60 * 60_000 }, (store, home) => {
+    account = machineAccount({
+      dataDir: home,
+      codes: store.machineCodes,
+      fetch: globalThis.fetch,
+      now,
+      randomBytes,
+      delay: () => () => {},
+    });
+    return { machineAccount: account };
+  });
+  cleanup.push(async () => {
+    await account?.close();
+    await f.close();
+  });
+  if (!account) throw new Error("No machine account");
+  await account.handover(backend.origin, backend.token);
+  let grants = 0;
+  const grant = () => {
+    grants++;
+    const iat = now();
+    return signGrant(
+      { kind: "device", account: "user_a", subject: "phone", iat, exp: iat + GRANT_LIFETIME_MS },
+      backend.signingKey,
+    );
+  };
+  // Long timers (a grant refresh) run when the test moves the clock past them; short ones are real.
+  const long: { at: number; run(): void }[] = [];
+  const scheduler = {
+    set(ms: number, callback: () => void) {
+      if (ms >= 60_000) {
+        const timer = { at: now() + ms, run: callback };
+        long.push(timer);
+        return () => long.splice(long.indexOf(timer) >>> 0, 1);
+      }
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  };
+  const client = (refresh: boolean) => {
+    let sockets = 0;
+    const api = new Client({
+      deviceId: DeviceId.parse("phone"),
+      transport: () => {
+        sockets++;
+        return webSocketTransport(() => new WebSocket(f.server.url));
+      },
+      credential: async () => ({ grant: grant() }),
+      ...(refresh ? { grant: async () => grant() } : {}),
+      storage: { load: async () => null, save: async () => {} },
+      scheduler,
+      random: () => 0.5,
+      id: randomUUID,
+      now,
+      limits: { retryBaseMs: 1, retryCapMs: 1 },
+    });
+    cleanup.push(() => api.close());
+    return { api, sockets: () => sockets };
+  };
+  return {
+    client,
+    grants: () => grants,
+    /** Move the clock on, run the long timers now due, and let a daemon tick pass (1 s). */
+    async advance(milliseconds: number) {
+      offset += milliseconds;
+      for (const timer of long.filter((candidate) => candidate.at <= now())) {
+        long.splice(long.indexOf(timer), 1);
+        timer.run();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_300));
+    },
+  };
+}
+const ready = (client: Client) => client.connectionState().getSnapshot() === "ready";
+
+it("an account socket that refreshes its grant stays open past the first grant's expiry", async () => {
+  const daemon = await clockedServer();
+  const { api, sockets } = daemon.client(true);
+  await api.start();
+  await expect.poll(() => ready(api)).toBe(true);
+  // At four minutes the client sends a fresh grant on the same socket.
+  await daemon.advance(4 * 60_000);
+  expect(daemon.grants()).toBe(2);
+  // Past the first grant's expiry and its grace: the same socket is still open.
+  await daemon.advance(2 * 60_000);
+  expect(ready(api)).toBe(true);
+  expect(sockets()).toBe(1);
+  expect(api.connectionInfo().getSnapshot().lastClose).toBeUndefined();
+});
+
+it("an account socket that never refreshes is closed at expiry and the client reconnects", async () => {
+  const daemon = await clockedServer();
+  const { api, sockets } = daemon.client(false);
+  await api.start();
+  await expect.poll(() => ready(api)).toBe(true);
+  await daemon.advance(GRANT_LIFETIME_MS + 31_000);
+  await expect.poll(() => sockets()).toBe(2);
+  await expect.poll(() => ready(api)).toBe(true);
+  expect(api.connectionInfo().getSnapshot().lastClose).toMatchObject({
+    code: 4014,
+    reason: "Account grant expired",
+  });
+  expect(api.error).toBeUndefined();
 });

@@ -8,7 +8,7 @@ import { keyPair } from "@ace/secure-channel";
 import { Client, ClientError, machineCodeAdmin, machineCodeGate, relayRoute } from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, HostId } from "@ace/protocol";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
 import { fixture, token } from "./socket-test-support.ts";
@@ -219,6 +219,58 @@ it("the machine pool opens an account machine, asks for its code, and lists it o
   expect(machines.ids).toEqual([]);
 });
 
+it("a machine also paired from this device steps aside while its account entry is open", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  // Paired earlier, by the daemon's own id ("host"), with whatever scopes pairing gave.
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  expect(machines.ids).toEqual(["host"]);
+
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  // Signing in wins over pairing: the same machine is listed once, as the account's (admin).
+  expect(machines.ids).toEqual([machine.hostId]);
+  expect(machines.machine("host")).toBeUndefined();
+
+  await opened.close();
+  expect(machines.ids).toEqual(["host"]);
+});
+
+it("a paired entry stays aside even when added later, and comes back while the account entry asks for its code", async () => {
+  const machine = await accountMachine();
+  const admin = await machine.device("laptop").connect();
+  const machines = machine.pool("tablet");
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+
+  // Paired after the account entry proved the daemon: it never shows beside it.
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  // The machine code changes while connected: the account entry reconnects and asks for it
+  // (not a revocation), and meanwhile the paired entry is back.
+  expect((await admin.request({ type: "machine.code.set", code: "8642" })).result.ok).toBe(true);
+  await expect
+    .poll(() => opened.get(), { timeout: 10_000 })
+    .toEqual({ kind: "asking", reason: "machine_code_required" });
+  expect(machines.ids).toContain("host");
+
+  // The code entered: the account entry opens again and the paired one steps aside again.
+  opened.enter("8642");
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+});
+
 it("an account device reads the machine's remote access and account status and its devices through the hosted relay", async () => {
   const machine = await accountMachine();
   const laptop = await machine.device("laptop").connect();
@@ -237,4 +289,39 @@ it("an account device reads the machine's remote access and account status and i
     kind: "devices",
     devices: await accessRequest(machine.f.server.httpUrl, "/v1/devices", { token }),
   });
+});
+
+it("the window's account leaving closes its account machines, and they open again on demand", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  const client = machines.client(machine.hostId);
+
+  machines.closeAccountMachines();
+  expect(machines.ids).toEqual([]);
+  expect(opened.get()).toEqual({ kind: "failed", message: "This machine is closed." });
+  expect(() => machines.client(machine.hostId)).toThrow(ClientError);
+  await expect.poll(() => client.state, { timeout: 10_000 }).not.toBe("ready");
+
+  const again = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => again.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+});
+
+it("the window's account leaving brings back the paired entry its account machine stood in for", async () => {
+  const machine = await accountMachine();
+  const machines = machine.pool("tablet");
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "tablet-paired",
+    token: "e".repeat(64),
+  });
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  machines.closeAccountMachines();
+  expect(machines.ids).toEqual(["host"]);
 });

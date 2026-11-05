@@ -12,6 +12,8 @@ export function browserClientOptions(options: {
   deviceId: string;
   transport(): Transport;
   credential(): Promise<Credential>;
+  /** An account device's fresh grant, to keep its sockets open (ADR 0114). */
+  grant?: (() => Promise<string>) | undefined;
   storage: Storage;
   readSnapshots?: ClientOptions["readSnapshots"];
   /** The desktop's own daemon: the identity its current home names (`localHostId`). */
@@ -24,6 +26,7 @@ export function browserClientOptions(options: {
     ...(options.expectedHostId ? { expectedHostId: HostId.parse(options.expectedHostId) } : {}),
     transport: options.transport,
     credential: options.credential,
+    ...(options.grant ? { grant: options.grant } : {}),
     storage: options.storage,
     ...(options.readSnapshots ? { readSnapshots: options.readSnapshots } : {}),
     scheduler: {

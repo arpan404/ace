@@ -2,12 +2,12 @@ import { machineCodeGate, relayRoute } from "@ace/client";
 import { AceAccountError, aceAccountClient } from "@ace/client/ace-account";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import { accountOrigin, accountSessionKey } from "./account-config.ts";
-import { accountMachineOptions } from "./account-machine-options.ts";
+import { accountOrigin, accountSessionKey, windowAccountSession } from "./account-config.ts";
+import { accountMachineClient, accountMachineOptions } from "./account-machine-options.ts";
 import { accountSecret } from "./account-secret.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import type { AccountMainMachine, AccountMainRoute, AccountRouteSource } from "./main-machine.ts";
-import { trackedGrant } from "./tracked-grant.ts";
+import { accountPinnedGrant, trackedGrant } from "./tracked-grant.ts";
 
 const schedule = (callback: () => void, delayMs: number) => {
   const timer = setTimeout(callback, delayMs);
@@ -44,6 +44,7 @@ export function accountMainRoute(
         deviceId: options.deviceId,
         transport: route.transport,
         credential: route.credential,
+        grant: () => grants.grant(),
       });
     },
   };
@@ -59,12 +60,14 @@ export function accountMainRoute(
 export function browserAccountRoutes(options: {
   storage: KeyValueStorage;
   session: KeyValueStorage;
+  /** The desktop app's secure store of ace sessions; found on `window.ace` when omitted. */
+  secure?: ReturnType<typeof accountSecret>;
 }): AccountRouteSource {
   return async (machine) => {
     const origin = accountOrigin();
     const account = accountMachineOptions(options);
     if (!origin || !account || origin !== machine.origin) return undefined;
-    const secure = accountSecret();
+    const secure = "secure" in options ? options.secure : accountSecret();
     const key = accountSessionKey(origin);
     const backend = aceAccountClient({
       origin,
@@ -80,10 +83,19 @@ export function browserAccountRoutes(options: {
       const session = await backend.session(token, AbortSignal.timeout(15_000));
       options.session.setItem(key, JSON.stringify({ ...session, token }));
     };
+    // Only while the window holds the account the machine was chosen on: under another one the
+    // relay would turn it away, and the screen should say which account it is on instead.
+    const pinned = accountPinnedGrant(
+      machine.accountId,
+      async () => {
+        await restore();
+        return windowAccountSession(options.session, origin)?.account.id;
+      },
+      () => account.grant(),
+    );
     const grant = async () => {
       try {
-        await restore();
-        return await account.grant();
+        return await pinned();
       } catch (error) {
         // The session ended: this window is signed out everywhere, not only for this machine.
         if (error instanceof AceAccountError && error.status === 401) {
@@ -93,6 +105,15 @@ export function browserAccountRoutes(options: {
         throw error;
       }
     };
-    return accountMainRoute(machine, { ...account, grant });
+    // The window takes its session first, so the machine's client is made for the account it
+    // holds (its outbox and its account check) rather than for none. Out of reach, the grant
+    // tries again. Another account than the machine's is the grant's to turn away.
+    await restore().catch(() => {});
+    const owner = windowAccountSession(options.session, origin)?.account.id;
+    return accountMainRoute(machine, {
+      ...account,
+      grant,
+      client: (route) => accountMachineClient(options.session, origin, owner, route),
+    });
   };
 }

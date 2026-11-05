@@ -1,6 +1,6 @@
 import { commandSuggestions, mentionSuggestions } from "@ace/ui-core";
 import { useMentionTabs, type MentionTab } from "@/features/panels/index.ts";
-import { useConnectionState, useSidebarIndex } from "@ace/client-react";
+import { useConnectionGeneration, useConnectionState, useSidebarIndex } from "@ace/client-react";
 import type { CatalogEntry, ThreadListEntry } from "@ace/protocol";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -43,6 +43,8 @@ export function useSuggestions(
 ): Suggestions {
   const sources = useThreadSources();
   const ready = useConnectionState() === "ready";
+  // Discovery subscriptions end with the daemon socket; a move to another path renews them.
+  const socket = useConnectionGeneration();
   const threads = useSidebarIndex(threadReference, sameThread) ?? [];
   const { id, provider, instanceId, workspaceId, draft } = thread;
   const tabs = useMentionTabs(draft ? undefined : id, trigger?.kind === "mention");
@@ -73,7 +75,7 @@ export function useSuggestions(
     );
     // Opening the menu retries discovery even when its target is unchanged.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
-  }, [sources, scoped, ready, reference, commandOpen, draft, provider]);
+  }, [sources, scoped, ready, socket, reference, commandOpen, draft, provider]);
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),

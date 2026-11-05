@@ -1,3 +1,4 @@
+import { accountLaunchRefusal } from "./account-availability.ts";
 import {
   accountProvider,
   automaticRefusal,
@@ -91,21 +92,39 @@ function eligible(
   candidate: Candidate,
   model: CatalogModel,
 ): Candidate {
-  // This is an admission view, never a mutation of the user's recorded auth state.
-  return withoutAuth(deps, model)
-    ? { instance: candidate.instance, quota: { ...candidate.quota, auth: "logged_in" } }
-    : candidate;
+  if (!withoutAuth(deps, model)) return candidate;
+  // A model that needs no sign-in spends no account usage: neither the sign-in nor the usage
+  // limits apply, so an exhausted account still runs it. Its home must still be usable. This is
+  // an admission view, never a mutation of the account's recorded state.
+  const { limitError: _spent, ...blockers } = candidate.quota.blockers;
+  return {
+    instance: candidate.instance,
+    quota: { ...candidate.quota, auth: "logged_in", windows: {}, blockers },
+  };
 }
 function checkAuth(
   deps: DelegationDependencies,
   input: DelegationRequest,
   model: CatalogModel,
   instance: string,
+  now: number,
 ) {
+  // A model that needs no sign-in spends no account usage, so neither check applies to it.
+  const free = withoutAuth(deps, model);
+  const refusal = free
+    ? undefined
+    : accountLaunchRefusal(
+        deps.accounts?.list() ?? [],
+        instance,
+        now,
+        (id) => deps.providerEnabled?.(input.provider, id) !== false,
+        (selected, limit) => refused(deps, input.provider, selected, limit, now),
+      );
+  if (refusal) throw unavailable(refusal);
   const auth =
     deps.accounts?.get(instance)?.quota.auth ??
     deps.engine.providerAvailability(input.provider).auth;
-  if (auth === "logged_out" && !withoutAuth(deps, model)) {
+  if (auth === "logged_out" && !free) {
     const account = deps.accounts?.get(instance);
     const name = account ? accountName(input.provider, account) : providerNames[input.provider];
     throw unavailable(
@@ -139,7 +158,15 @@ function admitted(
 ) {
   const result = explicitInstance(request, candidate, now);
   if ("refusal" in result)
-    throw unavailable(refused(deps, request.provider, candidate, result.refusal, now));
+    throw unavailable(
+      accountLaunchRefusal(
+        deps.accounts?.list() ?? [],
+        candidate.instance.id,
+        now,
+        (id) => deps.providerEnabled?.(request.provider, id) !== false,
+        (selected, limit) => refused(deps, request.provider, selected, limit, now),
+      ) ?? refused(deps, request.provider, candidate, result.refusal, now),
+    );
   return result.instance;
 }
 
@@ -222,7 +249,7 @@ export function delegationSelection(
     input.instanceId ??
     (input.provider === "cursor" ? cursorDefaultInstanceId : `${input.provider}-cli-default`);
   const model = selectedDelegationModel(deps.models, input, parent, instance, configured);
-  checkAuth(deps, input, model, instance);
+  checkAuth(deps, input, model, instance, now);
   const resolvedEffort = delegationEffort(model, input, parent);
   return {
     ...(selected ? { accountId: selected.id } : {}),
@@ -251,7 +278,7 @@ export function validateDelegationSelection(
   const resolved = filter && deps.models.resolve({ ...filter, role: input.role, model: modelId });
   if (!resolved?.ok || executionModelId(resolved.model) !== modelId)
     throw new AgentControlError("model_unavailable", "Selected model is no longer available");
-  checkAuth(deps, input, resolved.model, instance);
+  checkAuth(deps, input, resolved.model, instance, now);
   if (!accountId) return;
   if (input.provider === "antigravity") {
     antigravityAccount(deps, accountId);

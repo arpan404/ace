@@ -22,6 +22,11 @@ export const AccountMainMachine = z.object({
   /** Its relay host id, the key ace's relay routes by and the client pins. */
   hostId: z.string().check(z.regex(/^[A-Z2-7]{52}$/)),
   name: z.string().check(z.minLength(1), z.maxLength(256)),
+  /**
+   * The ace account it was chosen on. Absent on a choice saved before it was kept; the window
+   * then pins it to the account of its first grant.
+   */
+  accountId: z.optional(z.string().check(z.minLength(1), z.maxLength(256))),
 });
 export type AccountMainMachine = z.infer<typeof AccountMainMachine>;
 
@@ -29,8 +34,11 @@ export type MainMachine =
   | { kind: "address"; target: DaemonTarget }
   | { kind: "account"; machine: AccountMainMachine };
 
-/** Why the account refused an attempt's grant, before any relay was dialled. */
-export type GrantProblem = "signed_out" | "session_ended";
+/**
+ * Why an attempt got no grant, before any relay was dialled: no ace session, the session ended,
+ * or the window is signed in to another account than the machine's.
+ */
+export type GrantProblem = "signed_out" | "session_ended" | "other_account";
 
 /** One account machine's way in: its machine code gate, kept across attempts, and a client per attempt. */
 export interface AccountMainRoute {

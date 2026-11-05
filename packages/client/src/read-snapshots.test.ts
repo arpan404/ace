@@ -431,7 +431,7 @@ test("a revoked device forgets every record it kept and writes none afterwards",
     view: view("Live", 12),
   });
   await expect.poll(() => lease.store.thread?.title).toBe("Live");
-  f.closeSocket(4003);
+  f.closeSocket(4003, "Device revoked");
   await expect.poll(() => f.client.state).toBe("fatal");
   expect(f.client.error?.code).toBe("auth");
   await expect.poll(() => m.values.size).toBe(0);
@@ -439,6 +439,39 @@ test("a revoked device forgets every record it kept and writes none afterwards",
   f.flush();
   await f.client.close();
   expect(m.values.size).toBe(0);
+});
+
+test.each([
+  { refusal: "a credential refused at hello (signed out, another account)", code: 4001 },
+  { refusal: "a 4003 that isn't the owner's revocation", code: 4003, reason: "Credential refused" },
+  { refusal: "the relay finding the machine on another account", code: 4403 },
+  { refusal: "a machine code to enter", code: 4011, reason: "machine_code_required" },
+])("$refusal keeps every record the device read", async ({ code, reason }) => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record());
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start();
+  f.closeSocket(code, reason);
+  await expect.poll(() => f.client.state).toBe("fatal");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(m.values.has(stored("thread:thread"))).toBe(true);
+  await f.client.close();
+});
+
+test("an unauthorized hello keeps every record the device read", async () => {
+  const m = memory();
+  m.values.set(stored("thread:thread"), record());
+  const f = harness(m.storage);
+  const lease = f.client.thread("thread");
+  await expect.poll(() => lease.store.thread?.title).toBe("Cached");
+  await f.start();
+  f.deliver({ type: "error", code: "unauthorized", message: "Valid hello required" });
+  await expect.poll(() => f.client.state).toBe("fatal");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(m.values.has(stored("thread:thread"))).toBe(true);
+  await f.client.close();
 });
 
 test("a dropped connection keeps the records for the next one", async () => {

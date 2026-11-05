@@ -89,7 +89,8 @@ export async function startDaemon(settings: DaemonSettings): Promise<RunningDaem
   const inspector = Promise.withResolvers<string>();
   child.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-8000);
-    const url = /Debugger listening on (ws:\/\/\S+)/.exec(stderr)?.[1];
+    // Node prints "Debugger listening on ws://…"; Bun prints "Listening:" and the URL below it.
+    const url = /(?:Debugger listening on|Listening:)\s+(ws:\/\/\S+)/.exec(stderr)?.[1];
     if (url) inspector.resolve(url);
   });
   child.once("exit", (code) => inspector.reject(new Error(`Daemon exited ${code}: ${stderr}`)));

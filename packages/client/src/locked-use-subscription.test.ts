@@ -12,6 +12,7 @@ interface Pending {
 /** A connection whose replies and pushes the test hands out by hand. */
 function connection() {
   let state: ConnectionState = "ready";
+  let socket = 1;
   const requests: Pending[] = [];
   const listeners = new Set<(message: ServerMessage) => void>();
   const watchers = new Set<() => void>();
@@ -21,6 +22,13 @@ function connection() {
     },
     connectionState: () => ({
       getSnapshot: () => state,
+      subscribe(listener: () => void) {
+        watchers.add(listener);
+        return () => watchers.delete(listener);
+      },
+    }),
+    connectionGeneration: () => ({
+      getSnapshot: () => (state === "ready" ? socket : undefined),
       subscribe(listener: () => void) {
         watchers.add(listener);
         return () => watchers.delete(listener);
@@ -48,6 +56,11 @@ function connection() {
         revision,
         status,
       });
+    },
+    /** The connection moves to another daemon socket and stays ready (ADR 0114). */
+    move() {
+      socket++;
+      for (const watcher of watchers) watcher();
     },
     setState(next: ConnectionState) {
       state = next;
@@ -133,6 +146,25 @@ test("after a reconnect, a restarted daemon's lower revisions are delivered agai
   wire.setState("reconnecting");
   wire.setState("ready");
   wire.reply(1, 0, { state: "off" });
+  await settle();
+  expect(seen).toEqual([{ state: "on" }, { state: "off" }]);
+});
+
+test("a move to another socket subscribes again there and follows its pushes", async () => {
+  const wire = connection();
+  const seen: LockedUseStatus[] = [];
+  subscribeLockedUse(
+    wire.owner,
+    "mac",
+    (status) => seen.push(status),
+    () => {},
+    timers(),
+  );
+  wire.reply(0, 1, { state: "on" });
+  await settle();
+  wire.move();
+  expect(wire.requests[1]?.input).toEqual({ type: "lockedUse.subscribe", subscriptionId: "mac" });
+  wire.reply(1, 2, { state: "off" });
   await settle();
   expect(seen).toEqual([{ state: "on" }, { state: "off" }]);
 });

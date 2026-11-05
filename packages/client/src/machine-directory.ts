@@ -1,5 +1,13 @@
 import { z } from "zod";
-import { DeviceToken, DeviceId, HostIdentity, HostId, MachineIcon } from "@ace/protocol";
+import {
+  DeviceToken,
+  DeviceId,
+  HostIdentity,
+  HostId,
+  MachineIcon,
+  MachinePath,
+  MachinePathKind,
+} from "@ace/protocol";
 import type { Storage } from "./types.ts";
 import { ClientError } from "./errors.ts";
 
@@ -43,12 +51,24 @@ export const MachineEntry = z.strictObject({
   icon: MachineIcon.optional(),
   target: MachineTarget,
   deviceId: z.string().min(1).max(256).pipe(DeviceId),
+  /**
+   * Every other way to reach the machine, as the machine itself last said over an
+   * authenticated, identity-pinned connection (ADR 0114). `target` stays the paired route.
+   */
+  paths: z.array(MachinePath).max(16).optional(),
+  /** The path that won the last race, tried first next time. */
+  lastPath: MachinePathKind.optional(),
 });
 export type MachineEntry = z.infer<typeof MachineEntry>;
 export type MachineTarget = z.infer<typeof MachineTarget>;
+/** Version 2 adds each machine's paths; a version 1 directory reads as one without them. */
 const Directory = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   machines: z.array(MachineEntry).max(100),
+});
+const Versioned = z.object({
+  version: z.union([z.literal(1), z.literal(2)]),
+  machines: z.array(z.unknown()).max(100),
 });
 
 /** OS keychain on desktop; remembered-token storage on web. Never a synced document. */
@@ -105,14 +125,12 @@ export class MachineDirectory {
     }
     let value: unknown;
     try {
-      value = raw ? JSON.parse(raw) : { version: 1, machines: [] };
+      value = raw ? JSON.parse(raw) : { version: 2, machines: [] };
     } catch {
       value = undefined;
     }
     const complete = Directory.safeParse(value);
-    const recoverable = z
-      .object({ version: z.literal(1), machines: z.array(z.unknown()).max(100) })
-      .safeParse(value);
+    const recoverable = Versioned.safeParse(value);
     const seen = new Set<string>();
     const parsed = complete.success
       ? complete.data.machines
@@ -128,7 +146,7 @@ export class MachineDirectory {
     return this.#entries;
   }
   async #save(entries: readonly MachineEntry[]): Promise<void> {
-    const parsed = Directory.parse({ version: 1, machines: entries });
+    const parsed = Directory.parse({ version: 2, machines: entries });
     await this.#storage.save(JSON.stringify(parsed));
     this.#entries = Object.freeze(
       parsed.machines.map((entry) =>
@@ -179,6 +197,27 @@ export class MachineDirectory {
       if (!entry) throw new ClientError("offline", "Unknown machine");
       const renamed = MachineEntry.parse({ ...entry, displayName, icon });
       await this.#save(this.#entries.map((old) => (old.hostId === hostId ? renamed : old)));
+    });
+  }
+  /**
+   * Save what the machine said about its paths, or which one won (ADR 0114). Only call with
+   * what came over an authenticated connection to this machine, never from the network.
+   */
+  remember(
+    hostId: string,
+    facts: { paths?: readonly MachinePath[]; lastPath?: MachinePathKind },
+  ): Promise<void> {
+    return this.#serialize(async () => {
+      await this.#read();
+      const entry = this.#entries.find((candidate) => candidate.hostId === hostId);
+      if (!entry) return;
+      const next = MachineEntry.parse({
+        ...entry,
+        ...(facts.paths ? { paths: facts.paths } : {}),
+        ...(facts.lastPath ? { lastPath: facts.lastPath } : {}),
+      });
+      if (JSON.stringify(next) === JSON.stringify(entry)) return;
+      await this.#save(this.#entries.map((old) => (old.hostId === hostId ? next : old)));
     });
   }
   remove(hostId: string): Promise<void> {

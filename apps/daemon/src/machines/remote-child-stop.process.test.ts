@@ -29,6 +29,8 @@ interface Rijan {
   cancels: string[];
   /** What a cancel does there; by default nothing changes (it never confirms). */
   onCancel: (id: string) => void;
+  /** False once the person unpairs Rijan from this machine. */
+  paired: boolean;
 }
 
 function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: number) {
@@ -62,7 +64,7 @@ function children(f: Awaited<ReturnType<typeof setup>>, rijan: Rijan, leaseMs?: 
     waiting: () => false,
     isDescendant: () => false,
     descendants: () => [],
-    device: () => "device-rijan",
+    device: () => (rijan.paired ? "device-rijan" : undefined),
     log: () => {},
   });
 }
@@ -81,7 +83,13 @@ const notSent = (id: ThreadId): MachineThreadView => ({
 async function parentWithChildren(count = ids.length, leaseMs?: number) {
   const f = setup();
   const parent = await f.parent();
-  const rijan: Rijan = { views: new Map(), silent: false, cancels: [], onCancel: () => {} };
+  const rijan: Rijan = {
+    views: new Map(),
+    silent: false,
+    cancels: [],
+    onCancel: () => {},
+    paired: true,
+  };
   const ledger = children(f, rijan, leaseMs);
   for (const id of ids.slice(0, count)) {
     ledger.add({
@@ -146,11 +154,13 @@ it("children whose sessions never opened, sitting in needs_you, end stopped afte
   expect(time - start).toBe(stopBound(REMOTE_STOP));
 
   const caller = { sessionId: "s", threadId: parent.threadId, agentId: parent.agentId };
+  // agents_status says the cancel is still unconfirmed; a wait reads it cancelled and returns.
   for (const child of ledger.children(caller))
-    expect(child).toMatchObject({ state: "cancelled", contact: "unconfirmed" });
-  expect(ledger.watched(ids[0] ?? ThreadId.parse("x"))?.view.result).toContain(
-    "never confirmed it stopped",
-  );
+    expect(child).toMatchObject({ state: "cancelling", contact: "unconfirmed" });
+  expect(ledger.watched(ids[0] ?? ThreadId.parse("x"))?.view).toMatchObject({
+    state: "cancelled",
+    result: expect.stringContaining("hasn't confirmed it stopped"),
+  });
   const view = parentView(f, parent);
   expect(view.holds.map((hold) => hold.status)).toEqual(ids.map(() => "stopped"));
   expect(view.rows.every((row) => row.kind === "agent" && !row.live)).toBe(true);
@@ -159,9 +169,120 @@ it("children whose sessions never opened, sitting in needs_you, end stopped afte
   );
   expect(live).not.toContain(view.status.state);
 
-  // No more cancels go out once it is stopped.
+  // Stopped here, the cancel still goes out about once a minute until Rijan confirms.
   const sent = rijan.cancels.length;
-  await at(time + 60_000);
+  await at(time + 61_000);
+  expect(rijan.cancels.length).toBe(sent + ids.length);
+});
+
+it("an unconfirmed cancel keeps going out until the child's machine confirms it ended, then stops and clears the warning", async () => {
+  const { f, parent, rijan, ledger, at } = await parentWithChildren(1);
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  ledger.stop(id);
+  await at(f.clock.now() + stopBound(REMOTE_STOP) + 1);
+  await at(f.clock.now() + 1);
+  const caller = { sessionId: "s", threadId: parent.threadId, agentId: parent.agentId };
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({ id, state: "cancelling", contact: "unconfirmed" }),
+  ]);
+
+  // Rijan stays unreachable for a while: the cancel is still sent, again and again.
+  rijan.silent = true;
+  const before = rijan.cancels.length;
+  for (let minute = 0; minute < 3; minute++) await at(f.clock.now() + 61_000);
+  expect(rijan.cancels.length).toBeGreaterThanOrEqual(before + 3);
+
+  // Back, Rijan takes the cancel and reports the child ended.
+  rijan.silent = false;
+  rijan.onCancel = (cancelled) =>
+    rijan.views.set(cancelled, {
+      ...notSent(id),
+      state: "cancelled",
+      status: { state: "done" },
+      result: "Stopped.",
+      truncated: false,
+    });
+  for (let poll = 0; poll < 12 && ledger.children(caller)[0]?.state === "cancelling"; poll++)
+    await at(f.clock.now() + 61_000);
+  expect(ledger.children(caller)).toEqual([expect.objectContaining({ id, state: "cancelled" })]);
+  expect(ledger.children(caller)[0]?.contact).toBeUndefined();
+  const rows = parentView(f, parent).rows;
+  expect(rows.map((row) => row.kind === "agent" && row.agent.machine?.contact)).toEqual([
+    undefined,
+  ]);
+
+  // Confirmed: no more cancels.
+  const confirmed = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
+  expect(rijan.cancels.length).toBe(confirmed);
+});
+
+/** Stops the one child and lets every cancel go unconfirmed, so it reads cancelling. */
+async function stoppedUnconfirmed() {
+  const parts = await parentWithChildren(1);
+  const [id] = ids;
+  if (!id) throw new Error("no child");
+  parts.ledger.stop(id);
+  await parts.at(parts.f.clock.now() + stopBound(REMOTE_STOP) + 1);
+  await parts.at(parts.f.clock.now() + 1);
+  const caller = {
+    sessionId: "s",
+    threadId: parts.parent.threadId,
+    agentId: parts.parent.agentId,
+  };
+  expect(parts.ledger.children(caller)).toEqual([
+    expect.objectContaining({ id, state: "cancelling", contact: "unconfirmed" }),
+  ]);
+  return { ...parts, id, caller };
+}
+
+it("unpairing the machine of a child whose stop is unconfirmed stops the cancel retries and settles it cancelled, saying it can't be confirmed", async () => {
+  const { f, parent, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  rijan.paired = false;
+  await at(f.clock.now() + 61_000);
+
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({
+      id,
+      state: "cancelled",
+      result: expect.stringContaining(
+        "no longer paired with this machine, so the stop can't be confirmed",
+      ),
+    }),
+  ]);
+  expect(ledger.children(caller)[0]?.contact).toBeUndefined();
+  expect(ledger.watched(id)?.view).toMatchObject({ state: "cancelled" });
+  expect(ledger.watched(id)?.view.contact).toBeUndefined();
+  expect(
+    parentView(f, parent).rows.map((row) => row.kind === "agent" && row.agent.machine?.contact),
+  ).toEqual([undefined]);
+  expect(live).not.toContain(parentView(f, parent).status.state);
+
+  // No cancel goes out any more, even if the machine is paired again later.
+  const sent = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
+  rijan.paired = true;
+  await at(f.clock.now() + 5 * 61_000);
+  expect(rijan.cancels.length).toBe(sent);
+  expect(ledger.children(caller)[0]?.state).toBe("cancelled");
+});
+
+it("a machine that no longer has the stopped child ends its cancel retries, and the child settles cancelled", async () => {
+  const { f, rijan, ledger, at, id, caller } = await stoppedUnconfirmed();
+  rijan.onCancel = () => {
+    throw new MachineFailure("refused", "not_found");
+  };
+  await at(f.clock.now() + 61_000);
+  expect(ledger.children(caller)).toEqual([
+    expect.objectContaining({
+      id,
+      state: "cancelled",
+      result: expect.stringContaining("no longer has this child"),
+    }),
+  ]);
+  const sent = rijan.cancels.length;
+  await at(f.clock.now() + 5 * 61_000);
   expect(rijan.cancels.length).toBe(sent);
 });
 

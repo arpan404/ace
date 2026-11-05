@@ -4,7 +4,8 @@ import { DeviceCredential, PairingRedemption } from "./remote.ts";
 /**
  * The daemon is closing a relayed main channel, sent as its last message. A relay channel has
  * no WebSocket close frame of its own, so this carries the code and reason a direct socket's
- * close would (4003 revoked, 4008 idle, 4009 backpressure, 4013 capacity, the resync code).
+ * close would (4003 revoked, 4008 idle, 4009 backpressure, 4012 account access changed, 4013
+ * capacity, 4014 account grant expired, the resync code).
  */
 export const ChannelClose = z.object({
   type: z.literal("channel.close"),
@@ -12,6 +13,18 @@ export const ChannelClose = z.object({
   reason: z.string().max(123),
 });
 export type ChannelClose = z.infer<typeof ChannelClose>;
+
+/**
+ * The close a paired device gets when the machine's owner revokes it: code 4003 with exactly
+ * this reason, on a direct socket or as a relay `channel.close`. Only this close lets a client
+ * delete what it read from the machine; signing out, another account, an expired or refused
+ * grant and a new machine code never do.
+ */
+export const DeviceRevokedClose = z.object({
+  code: z.literal(4003),
+  reason: z.literal("Device revoked"),
+});
+export type DeviceRevokedClose = z.infer<typeof DeviceRevokedClose>;
 
 /**
  * Redeem a pairing code through a relay (ADR 0070), as the first and only message of a relay

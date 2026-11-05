@@ -9,21 +9,29 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { mkdir, realpath } from "node:fs/promises";
 import type { ServiceContext } from "./types.ts";
+import { followDevicesSetting } from "../devices-setting.ts";
 import { LazyDevices, lazyDevices } from "../lazy-devices.ts";
 import { screenHelperExecutable } from "../screen-helper-path.ts";
 import { deviceAccessRefused, devicesUnavailable } from "./device-refusals.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-export function startDevices(context: ServiceContext): void {
+export async function startDevices(context: ServiceContext): Promise<void> {
   const { resources, services, options } = context;
   const devices = options.devices
     ? LazyDevices.of(options.devices)
-    : new LazyDevices(() => buildDevices(context));
+    : new LazyDevices((enabled) => buildDevices(context, enabled));
   resources.own(() => devices.close(), "device sessions");
   services.devices = devices;
+  // Settings › Devices: on or off for the whole machine, kept across restarts.
+  if (services.settings)
+    resources.own(
+      await followDevicesSetting(devices, services.settings, (error) =>
+        context.log.log("warn", "Devices setting not applied", logError(error)),
+      ),
+    );
 }
 /** The devices implementation, imported and built the first time something uses devices. */
-async function buildDevices(context: ServiceContext): Promise<DevicesService> {
+async function buildDevices(context: ServiceContext, enabled: boolean): Promise<DevicesService> {
   const { config, services, now, id } = context;
   const directory = join(config.dataDir, "artifacts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -32,6 +40,7 @@ async function buildDevices(context: ServiceContext): Promise<DevicesService> {
     await import("@ace/devices");
   const frameEncoder = await deviceHelper(context);
   return new DevicesService({
+    enabled,
     platform: new DevicePlatform({
       platform: process.platform,
       arch: process.arch,

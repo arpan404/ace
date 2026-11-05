@@ -9,6 +9,16 @@ export function useConnectionState(): ConnectionState {
   const selection = useMemo(() => client.connectionState(), [client]);
   return useSelection(selection) ?? client.state;
 }
+/**
+ * The daemon socket the client speaks over (`ClientApi.connectionGeneration`): an effect that
+ * holds something the daemon keeps per socket lists it as a dependency, so it starts again after
+ * a move to another path (ADR 0114) as well as after a reconnect.
+ */
+export function useConnectionGeneration(): number | undefined {
+  const client = useClient();
+  const selection = useMemo(() => client.connectionGeneration(), [client]);
+  return useSelection(selection);
+}
 export function useIntent(id: string | undefined): Intent | undefined {
   const client = useClient();
   const selection = useMemo(() => (id ? client.intent(id) : undefined), [client, id]);

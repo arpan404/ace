@@ -15,6 +15,7 @@ import { ProfileHero, useProfileAccount } from "./account.tsx";
 import { ActivityGrid } from "./activity-grid.tsx";
 import { Legal, NameSetting } from "./you.tsx";
 import { useProfileActivity, type AccountShare, type ProfileActivity } from "./use-stats.ts";
+import { SignOutButton } from "./sign-out-button.tsx";
 
 const shortDay = new Intl.DateTimeFormat("en-US", {
   month: "short",
@@ -35,18 +36,7 @@ export function ProfilePage() {
     <Screen
       title="Profile"
       namedByPanel
-      actions={
-        account.session ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={account.busy || account.restoring}
-            onClick={() => void account.signOut()}
-          >
-            Sign out
-          </Button>
-        ) : undefined
-      }
+      actions={account.session ? <SignOutButton account={account} /> : undefined}
     >
       <div className="h-full overflow-auto">
         <div className="@container mx-auto flex w-full max-w-[52rem] flex-col gap-12 px-5 pt-12 pb-20 sm:px-8">

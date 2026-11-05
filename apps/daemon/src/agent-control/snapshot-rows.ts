@@ -74,6 +74,7 @@ export function checkedChild(identity: ChildIdentity, row: unknown): CheckedChil
 const rank: Record<MonitoredState, number> = {
   needs_you: 0,
   unknown: 1,
+  cancelling: 2,
   working: 2,
   queued: 3,
   failed: 4,
@@ -91,6 +92,7 @@ export function snapshotOf(rows: readonly MonitoredChild[]): MonitorSnapshot {
     done: 0,
     failed: 0,
     cancelled: 0,
+    cancelling: 0,
   };
   for (const row of rows) counts[row.state]++;
   const children = rows

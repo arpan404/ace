@@ -76,13 +76,17 @@ export class ChildResults {
   queueResult(row: ChildRow, view: MachineThreadView | undefined): void {
     if (!view || !settledStates.has(view.state)) return;
     const outcome = outcomeOf(view.state);
-    const result = view.result ?? "";
+    const result =
+      view.result ||
+      view.failure?.message ||
+      (view.state === "failed" ? "The provider stopped without returning a result." : "");
     const key = `result:${row.id}:${digest(JSON.stringify([outcome, view.elapsedSeconds, result]))}`;
     // The same settle read again after a reopen that ran nothing: its parent already has it, so
     // it is delivered again in the ledger only, and the poll can go quiet.
     if (this.outbox.wasSent(key)) return this.deps.ledger.markResultDelivered(row.id);
     const text = result || "No text result returned.";
     const settled: DelegationOutcome = {
+      ...(view.failure ? { failure: view.failure } : {}),
       threadId: row.id,
       outcome,
       result: text.slice(0, resultLimit),

@@ -29,5 +29,45 @@ rendering has not been established. An approach change requires the maintainer's
 decision after reviewing the measurements.
 
 2026-10-27: the minimum moves to Node 26, and releases pin Node 26.12.1
-(`tools/release/src/node-runtime.ts`). The pinned Node 24.13.0 crashed at exit with
+(then `tools/release/src/node-runtime.ts`). The pinned Node 24.13.0 crashed at exit with
 0xC0000409 on Windows ARM64; Node 26 does not.
+
+## Amendment, 2026-11-04: the daemon runs on Bun
+
+Accepted by the owner. This supersedes the "Daemon runtime" row above.
+
+- **The daemon runs on Bun 1.4.4.** Releases and the desktop app ship Bun
+  (`bunVersion` in `tools/release/src/daemon-runtime.ts`) from Bun's pinned per-platform npm
+  packages. x64 targets use Bun's baseline builds, which need no AVX2. Development starts the
+  daemon with `bun --watch`.
+- **Under Node's old names.** The runtime is installed as `bin/node` (`runtime/bin/node` in the
+  desktop app) and `node.exe`. Launchers and updaters from earlier releases run
+  `<release>/bin/node ace.mjs`, and Bun runs scripts the same way under that name.
+- **Node code stays as it is.** The daemon keeps using `node:` modules; Bun-native APIs are
+  later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
+  reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
+  `Bun.spawn({ terminal })`. On Node they keep node-pty.
+- **Release builds still run on Node 26.12.1** (`nodeVersion`), which native addons are built
+  against. They are Node-API, so the same binaries load in Bun.
+- **Known Bun differences** that ace code has to respect:
+  - `os.homedir()` keeps the `HOME` the process started with.
+  - Run as `node`, Bun drops the first argument after `-e` code, so eval scripts take their
+    inputs from the environment.
+  - Bun's inspector speaks WebKit's protocol (`Heap.gc` rather than
+    `HeapProfiler.collectGarbage`).
+  - stdin destroyed in the same tick it was resumed keeps a Bun process alive, so helper
+    processes exit with `process.exit` rather than by releasing stdin.
+  - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
+  - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
+    errno; code waits on the `error` or `close` event, never on `exitCode`.
+- **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
+  each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
+  vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).
+  The footprint settles lower: 195–216 vs 163–182 MB after a minute idle, 286–287 vs 247–254 MB
+  after same-thread turns. Idle CPU is a little higher (0.8–0.9% vs 1.0%), and so is the
+  footprint just after start (209–228 vs 222–254 MB). `ace version` starts in 232 ms against
+  Node's 323 ms.
+- **Not compiled yet.** `bun build --compile` (with or without `--bytecode`) builds, but the
+  binary cannot run: native addons (koffi, node-pty) are not found inside its embedded file
+  system, and helpers launched through `process.execPath` and the worker files would need
+  Bun-specific handling. That is part of the Bun-native follow-up.

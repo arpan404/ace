@@ -33,7 +33,9 @@ const perToolCap = 650;
  * A Claude session without tool search: guidance with the brief, the core tools in full, and the
  * skill listing. It never pays for the full catalogue (claude-tool-search.ts).
  */
-const claudeWithoutToolSearchCap = 2_650;
+// 2,650 → 2,700: one guidance line naming screen_display. An agent's own screencapture fails
+// without Screen Recording, and no tool it already sees can picture a whole display.
+const claudeWithoutToolSearchCap = 2_700;
 
 let world: EvalWorld | undefined;
 afterEach(async () => {

@@ -1,6 +1,7 @@
 import { browserReadSnapshots } from "./read-snapshots.ts";
 import { daemonRoute } from "./daemon-route.ts";
-import { ClientCore } from "@ace/client";
+import { ClientCore, Multipath } from "@ace/client";
+import { lastWinnerKey, pairedRoutes } from "./machine-routes.ts";
 import { ClientHost, type PortLike } from "@ace/client-worker";
 import { HostId } from "@ace/protocol";
 import { browserClientOptions } from "./client.ts";
@@ -15,29 +16,55 @@ import { MachineTarget } from "./machine-target.ts";
  * this window's own daemon, so neither carries the other's code.
  */
 
+const timers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
+
 const host = new ClientHost({
   target(config) {
     const target = MachineTarget.parse(config);
     return {
       key: target.hostId,
-      create: () =>
-        new ClientCore({
+      create: () => {
+        // A machine with other paths moves between them (ADR 0114); one with none dials its
+        // paired address as before.
+        const routes = pairedRoutes(target, target.paths, () => performance.now());
+        const paths =
+          routes.length > 1
+            ? new Multipath({
+                routes: () => routes,
+                scheduler: timers,
+                now: () => Date.now(),
+                clock: () => performance.now(),
+                // Pings slow down while no tab of this window shows anything.
+                visible: () => host.visible(),
+                lastWinner: lastWinnerKey(routes, target.lastPath),
+                // The network changed: a better path may be back, or the active one gone.
+                watchNetwork: (changed) => {
+                  addEventListener("online", changed);
+                  return () => removeEventListener("online", changed);
+                },
+              })
+            : undefined;
+        const client = new ClientCore({
           ...browserClientOptions({
             deviceId: target.deviceId,
-            ...daemonRoute(target),
+            ...(paths ? paths.route() : daemonRoute(target)),
             storage: workerOutbox(target),
             readSnapshots: browserReadSnapshots(target),
           }),
           expectedHostId: HostId.parse(target.hostId),
-        }),
+        });
+        // Closing the client closes its paths, which stops this network watch.
+        if (paths) client.usePaths(paths);
+        return client;
+      },
     };
   },
-  scheduler: {
-    set(delayMs, callback) {
-      const timer = setTimeout(callback, delayMs);
-      return () => clearTimeout(timer);
-    },
-  },
+  scheduler: timers,
   now: () => Date.now(),
 });
 

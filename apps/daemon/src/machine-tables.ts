@@ -139,7 +139,8 @@ export const machineJobs = `CREATE TABLE IF NOT EXISTS machine_jobs (
  * - `stop_started_at`, `stop_attempts`, `stop_last_at`: a Stop in progress, so a restart picks up
  *   where it was and one past its bound gives up at once.
  * - `stopped_unconfirmed`: every cancel went out and its machine never confirmed the stop; it is
- *   stopped here, and a later report records its real end without reviving it.
+ *   stopped here, and a later report records its real end without reviving it. 1: the cancel is
+ *   still sent; 2: confirmed late; 3: can never be confirmed (unpaired, or gone there).
  */
 export const machineChildLiveness = `
   ALTER TABLE machine_children ADD COLUMN seen_at INTEGER;

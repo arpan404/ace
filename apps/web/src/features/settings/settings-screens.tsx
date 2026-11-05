@@ -181,7 +181,10 @@ export function NotificationSettingsScreen() {
 
 export function KeyboardSettingsScreen() {
   return (
-    <SettingsBody page="Keyboard">
+    <SettingsBody
+      page="Keyboard"
+      lede="These shortcuts are for this device only. Other apps and browsers keep their own."
+    >
       <KeyboardShortcuts />
     </SettingsBody>
   );
@@ -267,6 +270,20 @@ export function BrowserSettingsScreen() {
     <SettingsBody page="Browser">
       <Suspense fallback={null}>
         <BrowserSettings />
+      </Suspense>
+    </SettingsBody>
+  );
+}
+
+const SimulatorsSettings = lazy(() =>
+  import("./simulators-page.tsx").then((module) => ({ default: module.SimulatorsSettings })),
+);
+
+export function SimulatorsSettingsScreen() {
+  return (
+    <SettingsBody page="Simulators">
+      <Suspense fallback={null}>
+        <SimulatorsSettings />
       </Suspense>
     </SettingsBody>
   );

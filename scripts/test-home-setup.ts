@@ -1,9 +1,20 @@
 import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, expect, inject } from "vitest";
+import { afterAll, expect, inject, vi } from "vitest";
 import { verifyEnclosingRepository } from "./enclosing-repository-guard.ts";
 import { testHomeEnvironment } from "./test-home-environment.ts";
 import type { TestHomeContext } from "./test-home-global-setup.ts";
+
+// Bun's os.homedir() keeps the HOME it started with, while Node's follows process.env, and the
+// per-file home below is set after the worker starts. Under Bun, give code under test Node's
+// behaviour. A mock in a setup file applies to every test file.
+vi.mock("node:os", async (importOriginal) => {
+  const os = await importOriginal<typeof import("node:os")>();
+  if (!process.versions.bun) return os;
+  const homedir = () =>
+    (process.platform === "win32" ? process.env.USERPROFILE : process.env.HOME) || os.homedir();
+  return { ...os, homedir, default: { ...os, homedir } };
+});
 
 // setupFiles runs before test module evaluation. Each worker/file gets a fresh home;
 // global teardown owns cleanup, after every test's process and server cleanup has run.

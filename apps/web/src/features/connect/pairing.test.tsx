@@ -134,7 +134,7 @@ test("the bare pairing route with no connection opens the pairing form and says 
   try {
     await setup(false);
     expect(await screen.findByRole("form", { name: "Pair this device" })).toBeTruthy();
-    expect(screen.getByText(/open Settings › Pair a device/)).toBeTruthy();
+    expect(screen.getByText(/open Settings › Fleet, choose Pair a device/)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Connect to ace" })).toBeNull();
   } finally {
     window.history.replaceState(null, "", "/");

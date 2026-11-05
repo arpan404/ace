@@ -15,6 +15,10 @@ export class FakeAdmission {
     else this.holds.delete(hold);
     for (const send of this.watchers) send({ type: "admission.changed", admission: this.state() });
   }
+  /** Whether `hold` keeps admission closed now. */
+  held(hold: MaintenanceHold): boolean {
+    return this.holds.has(hold);
+  }
   /** One connection's handler; scope refusals happen before it (`request-scopes.ts`). */
   session(emit: (message: ServerMessage) => void) {
     return {

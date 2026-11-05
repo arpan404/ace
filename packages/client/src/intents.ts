@@ -54,6 +54,8 @@ export class Intents {
   #ready = false;
   #connected = false;
   #inFlight = new Set<string>();
+  /** Commands the previous path owes receipts for; newer ones wait behind them (`fence`). */
+  #fenced: Set<string> | undefined;
   #saving = new Set<string>();
   #initializing: Promise<void> | undefined;
   #options: IntentsOptions;
@@ -387,6 +389,8 @@ export class Intents {
         throw new ClientError("storage");
       }
       if (acknowledged) this.#releaseSlot(id);
+      // A command the old path owed is answered by its transcript: newer ones may go now.
+      else if (this.#fenced?.has(id)) this.#pump();
       this.#options.changed(id);
     });
   }
@@ -468,8 +472,44 @@ export class Intents {
   settled(): Promise<void> {
     return this.#chain;
   }
+  /**
+   * The connection moved to another path (ADR 0114) while these commands, in the order they
+   * were sent, wait for receipts the old path still owes. No newer command goes out until each
+   * is answered or `reask`ed: the daemon runs commands in arrival order, so a newer one on the
+   * new path must never overtake an older one still on its way over the old path.
+   */
+  fence(): string[] {
+    const ids = [...this.#inFlight];
+    this.#fenced = ids.length ? new Set(ids) : undefined;
+    return ids;
+  }
+  /**
+   * The path these commands went out on is gone without answering them: send each one still
+   * waiting for its receipt again, by the same id and in the order first sent, on the active
+   * path; then newer commands follow. The daemon answers a command it already has from its
+   * receipt instead of running it twice.
+   */
+  reask(ids: readonly string[]): void {
+    for (const id of ids) {
+      const intent = this.#records.get(id);
+      if (!this.awaitingReceipt(id) || !intent) continue;
+      this.#options.send(intent.command);
+    }
+    this.#fenced = undefined;
+    this.#pump();
+  }
+  /** Whether new commands still wait behind ones the old path owes receipts for. */
+  #holding(): boolean {
+    const fenced = this.#fenced;
+    if (!fenced) return false;
+    for (const id of fenced) if (!this.awaitingReceipt(id)) fenced.delete(id);
+    if (fenced.size) return true;
+    this.#fenced = undefined;
+    return false;
+  }
   disconnect(): void {
     this.#connected = false;
+    this.#fenced = undefined;
     this.#inFlight.clear();
     for (const retry of this.#retries.values()) {
       retry.cancel?.();
@@ -477,7 +517,7 @@ export class Intents {
     }
   }
   #pump(): void {
-    if (!this.#connected) return;
+    if (!this.#connected || this.#holding()) return;
     for (const intent of this.#records.values()) {
       if (!this.#connected || this.#inFlight.size >= 8) break;
       const id = intent.command.id;
@@ -495,6 +535,7 @@ export class Intents {
   }
   replay(): void {
     this.#connected = true;
+    this.#fenced = undefined;
     this.#inFlight.clear();
     // Replay resends every pending intent; a scheduled retry would only duplicate it.
     for (const retry of this.#retries.values()) {

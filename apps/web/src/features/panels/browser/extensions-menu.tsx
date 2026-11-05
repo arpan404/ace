@@ -12,7 +12,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { LocalStore } from "../store.ts";
+import { LocalStore, useLocal } from "../store.ts";
 import type { BrowserExtensionView, BrowserView, PreviewSource } from "../sources.ts";
 import { toolbarButton } from "./page-toolbar.tsx";
 
@@ -35,6 +35,12 @@ extensionsHidden.subscribe(() => {
     // Storage blocked: the choice lasts for this window.
   }
 });
+
+/** "Show Extensions button" (Settings › Browser › In this window), kept current. */
+export function useExtensionsShown(): [boolean, (value: boolean) => void] {
+  const hidden = useLocal(extensionsHidden, (value) => value);
+  return [!hidden, (shown) => extensionsHidden.set(() => !shown)];
+}
 
 type Listing = { state: "loading" } | { state: "ready"; items: readonly BrowserExtensionView[] };
 
@@ -98,7 +104,9 @@ export function ExtensionsMenu(props: {
         {props.backend !== "user" && (
           <MenuItem
             icon={<Icon icon={ArrowSquareOutIcon} />}
-            onClick={() => void navigate({ to: "/settings/computer-use" })}
+            onClick={() =>
+              void navigate({ to: "/settings/browser", hash: "browser.userChrome.connection" })
+            }
           >
             Use your Chrome's extensions
           </MenuItem>

@@ -144,6 +144,10 @@ Constants:
   each cancel goes to the machine; a report of its end settles it with its real outcome. After
   the last wait it settles cancelled with `contact: "unconfirmed"`, the hold ends `stopped`, the
   parent gets a result saying the machine never confirmed, and its mirrored requests close.
+  A wait reads it cancelled; `agents_status` reads it `cancelling` while the cancel still goes
+  out about once a minute, across offline spells and restarts, until the machine confirms. Once
+  this machine's pairing with it is gone, or it answers that it has no such child, the stop can
+  never be confirmed: the retries end and the child reads cancelled, saying why.
   Every status reply renews the lease (one write a tenth of a lease at most). A child with no
   reply for `REMOTE_CHILD_LEASE_MS` gets `contact: "lost"`: its hold ends `unknown`, a wait
   reads it as `failed` and returns, and it resumes (a fresh hold) when it reports. A lost child

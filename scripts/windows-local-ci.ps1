@@ -109,11 +109,12 @@ function Invoke-Step([string] $name, [scriptblock] $block) {
   if ($code -ne 0) { throw "$name failed (exit $code)" }
 }
 
-# Every stage runs on the Node the release ships (tools/release/src/node-runtime.ts), as the
-# workflows pin NODE_VERSION for every job; release builds refuse any other. Use a
+# Every stage runs on the Node release builds run on (nodeVersion in
+# tools/release/src/daemon-runtime.ts), as the workflows pin NODE_VERSION for every job; release
+# builds refuse any other. Use a
 # checksum-verified copy of it in the work folder, never the system's.
 function Use-ReleaseNode {
-  $version = (Select-String -Path tools/release/src/node-runtime.ts -Pattern 'export const nodeVersion = "([^"]+)"').Matches[0].Groups[1].Value
+  $version = (Select-String -Path tools/release/src/daemon-runtime.ts -Pattern 'export const nodeVersion = "([^"]+)"').Matches[0].Groups[1].Value
   if ((node -p "process.versions.node").Trim() -eq $version) { return }
   $name = "node-v$version-win-$arch"
   $dir = Join-Path $Work $name

@@ -133,7 +133,13 @@ function AccountMachines() {
     openAccount && origin
       ? (machine: { hostId: string; name: string }) => {
           void navigate({ to: "/", replace: true });
-          openAccount({ origin, hostId: machine.hostId, name: machine.name });
+          openAccount({
+            origin,
+            hostId: machine.hostId,
+            name: machine.name,
+            // The account it is chosen on, so another account's window says where it is.
+            ...(session ? { accountId: session.account.id } : {}),
+          });
         }
       : undefined;
   if (!store || restoring || account.loading) return null;
