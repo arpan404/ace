@@ -64,7 +64,7 @@
   ],
   "platforms": {
     "darwin-arm64": {
-      "node": "v26.8.1",
+      "node": "bun 1.4.4",
       "runs": 3,
       "workload": {
         "version": 1,
@@ -84,25 +84,25 @@
         }
       },
       "metrics": {
-        "idle.cpuPerMinute": 10.177456490431691,
-        "startup.heapUsed": 65407808,
-        "startup.rss": 229736448,
-        "startup.footprint": 192668248,
-        "phases.newThreads.cpuPerTurn": 6.41396645967352,
-        "phases.newThreads.transactionsPerTurn": 138.85,
-        "phases.newThreads.heapUsed": 81371608,
-        "phases.newThreads.rss": 266043392,
-        "phases.newThreads.footprint": 236896536,
-        "phases.sameThread.cpuPerTurn": 3.6494273602796268,
-        "phases.sameThread.transactionsPerTurn": 100.025,
-        "phases.sameThread.heapUsed": 83244216,
-        "phases.sameThread.rss": 272302080,
-        "phases.sameThread.footprint": 232081344,
-        "phases.longText.cpuPerTurn": 73.35177679445705,
-        "phases.longText.transactionsPerTurn": 2119,
-        "phases.longText.heapUsed": 85185472,
-        "phases.longText.rss": 265977856,
-        "phases.longText.footprint": 224495648
+        "idle.cpuPerMinute": 17.713461968276885,
+        "startup.heapUsed": 73454507,
+        "startup.rss": 220907008,
+        "startup.footprint": 220907008,
+        "phases.newThreads.cpuPerTurn": 8.044207794190617,
+        "phases.newThreads.transactionsPerTurn": 117.25,
+        "phases.newThreads.heapUsed": 109163107,
+        "phases.newThreads.rss": 265143952,
+        "phases.newThreads.footprint": 263767696,
+        "phases.sameThread.cpuPerTurn": 4.5174935699109104,
+        "phases.sameThread.transactionsPerTurn": 78.925,
+        "phases.sameThread.heapUsed": 112832736,
+        "phases.sameThread.rss": 274384576,
+        "phases.sameThread.footprint": 270829248,
+        "phases.longText.cpuPerTurn": 57.88943974354195,
+        "phases.longText.transactionsPerTurn": 312.3333333333333,
+        "phases.longText.heapUsed": 114576774,
+        "phases.longText.rss": 235390704,
+        "phases.longText.footprint": 235390704
       }
     }
   }
