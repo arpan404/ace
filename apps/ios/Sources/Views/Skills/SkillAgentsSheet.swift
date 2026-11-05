@@ -46,11 +46,10 @@ struct SkillAgentsSheet: View {
 
 /// One switch per agent, its mark beside its name. Locked agents stay on.
 struct SkillAgentToggles: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Binding var agents: [SkillAgentChoice]
     var body: some View {
         ForEach($agents) { $agent in
-            Toggle(isOn: $agent.on.animation(AceDesign.Motion.arriving(reduceMotion))) {
+            Toggle(isOn: $agent.on.animation()) {
                 HStack(spacing: AceTheme.Spacing.md) {
                     ProviderMark(provider: agent.id, size: AceDesign.Size.barIcon)
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {

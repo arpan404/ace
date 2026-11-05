@@ -13,7 +13,6 @@ struct LogsView: View {
     @State private var query = LogsSheet.Query.all
     @State private var copying: String?
     @State private var copied = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var logs: LogsSheet? { model.sheets.logs }
 
     var body: some View {
@@ -44,7 +43,7 @@ struct LogsView: View {
         .background(AceDesign.Surface.background)
         .overlay(alignment: .top) { if logs == nil { SkeletonRows(label: "Loading logs").transition(.opacity) } }
         .searchable(text: $query.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Filter lines")
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: logs?.lines.count)
+        .animation(.default, value: logs?.lines.count)
         .navigationTitle(logs?.scopeName ?? (query.agentId == nil ? "Logs" : "Agent log"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

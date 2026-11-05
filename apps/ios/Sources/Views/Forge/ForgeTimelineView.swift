@@ -39,7 +39,7 @@ struct ForgeTimelineView: View {
             }
             .defaultScrollAnchor(.bottom)
             .onChange(of: timeline?.rows.last?.id) { _, last in
-                if let last { withAnimation(AceMotion.smooth) { proxy.scrollTo(last, anchor: .bottom) } }
+                if let last { withAnimation { proxy.scrollTo(last, anchor: .bottom) } }
             }
         }
         .background(AceTheme.Colours.background)

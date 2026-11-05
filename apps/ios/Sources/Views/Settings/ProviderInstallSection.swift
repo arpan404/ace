@@ -4,7 +4,6 @@ import SwiftUI
 /// where) first, then live progress with Cancel, then the result. The bridge owns the job
 /// (`bridge/provider-install.ts`), so leaving the page and coming back shows the same one.
 struct ProviderInstallSection: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let provider: String
     @Binding var screen: InstallScreenData?
@@ -84,7 +83,7 @@ struct ProviderInstallSection: View {
             defer { acting = false }
             do {
                 let next = try await model.service(["type": "provider.install.act", "provider": provider, "step": step], as: InstallScreenData.self)
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { screen = next }
+                withAnimation { screen = next }
             } catch { problem = error.localizedDescription }
         }
     }
@@ -104,7 +103,7 @@ extension ProviderInstallSection {
                 let next = try await model.service(["type": "provider.install.watch", "provider": provider, "after": after], as: InstallScreenData.self, timeout: .seconds(40))
                 if next != screen.wrappedValue {
                     let finishedNow = next.changed && screen.wrappedValue?.changed != true
-                    withAnimation(AceDesign.Motion.arrive) { screen.wrappedValue = next }
+                    withAnimation { screen.wrappedValue = next }
                     if finishedNow { model.refreshMachine() }
                 }
                 after = next.revision

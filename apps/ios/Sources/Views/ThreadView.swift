@@ -347,12 +347,13 @@ struct ThreadView: View {
             // live line's plain words never sit on the transcript's.
             .background { ComposerFade() }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.queue?.strip)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.pill)
-        // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.fork?.key)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.work)
+        // Only a strip, the live line or the fork strip arriving or leaving animates, with the
+        // system's spring; the live line's words and a strip's counts change in place, so a
+        // streaming turn never moves the foot.
+        .animation(.default, value: request?.id)
+        .animation(.default, value: hasStrip)
+        .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
 
@@ -519,7 +520,7 @@ struct ThreadView: View {
     private func select(_ next: ThreadPageKind) {
         requestedPage = next == .chat ? nil : next
         guard page != next else { return }
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { page = next }
+        withAnimation { page = next }
     }
     /// The panel's keys while it has room beside this thread.
     private var panelCommands: PanelCommands? {
@@ -530,7 +531,7 @@ struct ThreadView: View {
                              closable: shown.flatMap { $0.pinned ? nil : $0.key })
     }
     private func panel(_ op: [String: Any]) {
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { model.panel(thread.id, op) }
+        withAnimation { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {

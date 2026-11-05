@@ -3,7 +3,6 @@ import SwiftUI
 /// Usage per model or per day, largest first, each line's share drawn as a hairline bar in the
 /// provider's hue. On Cost, models ace has no price for fold into one quiet line at the end.
 struct UsageBreakdown: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private enum Group: Hashable { case model, day }
     let view: UsageMetricView
     @State private var group = Group.model
@@ -42,7 +41,7 @@ struct UsageBreakdown: View {
             if group == .model, let unpriced = view.unpriced {
                 Hairline()
                 Button {
-                    withAnimation(AceDesign.Motion.arriving(reduceMotion)) { showUnpriced.toggle() }
+                    withAnimation { showUnpriced.toggle() }
                 } label: {
                     Text("\(showUnpriced ? "Hide" : "Show") \(unpriced.label)")
                         .font(AceDesign.Typeface.meta)

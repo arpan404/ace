@@ -300,13 +300,12 @@ struct FilesScreen: View {
 struct FileTreeRowView: View {
     let row: FileTreeRow
     let open: Bool
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
             Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
                 .rotationEffect(.degrees(open ? 90 : 0))
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
+                .animation(.default, value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
             Image(systemName: row.folder ? "folder" : "doc")

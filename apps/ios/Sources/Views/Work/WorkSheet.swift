@@ -10,7 +10,6 @@ struct WorkSheet: View {
     @Bindable var model: ClientModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openPullRequest) private var openPull
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var runner = WorkRunner()
     @State private var picking = false
     @State private var linking = false
@@ -28,7 +27,7 @@ struct WorkSheet: View {
                     if let work { content(work) } else { WorkSkeleton() }
                 }
                 .padding(.vertical, AceTheme.Spacing.lg)
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: work)
+                .animation(.default, value: work)
             }
             .background(AceTheme.Colours.background)
             .refreshable { model.sheet(["kind": "work.refresh"]) }

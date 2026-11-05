@@ -40,7 +40,6 @@ struct AcpAgentView: View {
     @State private var install: InstallData?
     @State private var installProblem: String?
     @State private var copied = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         List {
             Group {
@@ -56,8 +55,8 @@ struct AcpAgentView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: agent)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: install)
+        .animation(.default, value: agent)
+        .animation(.default, value: install)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: agentId) { await read() }
         .task(id: install?.session) { await follow() }

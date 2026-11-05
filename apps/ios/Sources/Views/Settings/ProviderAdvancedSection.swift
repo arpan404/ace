@@ -5,7 +5,6 @@ import SwiftUI
 /// Typed values are checked by the bridge (`@ace/ui-core` provider preferences), which says why
 /// one can't be saved.
 struct ProviderAdvancedSection: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let page: ProviderPageData
     let removeCLI: () -> Void
@@ -130,11 +129,11 @@ struct ProviderAdvancedSection: View {
             defer { saving = false }
             do {
                 try await model.editProvider(page.provider, change)
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { field?(nil) }
+                withAnimation { field?(nil) }
                 saved()
                 model.refreshMachine()
             } catch {
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
+                withAnimation {
                     if let field { field(error.localizedDescription) } else { problem = error.localizedDescription }
                 }
             }

@@ -32,7 +32,6 @@ struct ThreadPager<Page: View>: View {
     /// The page takes sideways drags itself: no swiping away from it.
     let holdsSwipe: Bool
     @ViewBuilder let page: (ThreadPageKind) -> Page
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var position: ThreadPageKind?
     /// Pages with any part on screen right now.
     @State private var visible: Set<ThreadPageKind> = []
@@ -77,7 +76,9 @@ struct ThreadPager<Page: View>: View {
         }
         .onChange(of: shown) { _, page in
             guard position != page else { return }
-            withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { position = page }
+            // A pill or a command shows its page at once, as a segmented control swaps what it
+            // shows: never a slide through the pages between. A swipe stays the finger's.
+            position = page
         }
         // A page that went away (a browser closed) leaves the pager on Chat.
         .onChange(of: pages.kinds) { _, kinds in

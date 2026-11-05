@@ -174,7 +174,7 @@ struct InboxView: View {
         // Beside an open thread, or over it as the drawer, the toast sits under the list it acted
         // on, clear of the composer and the list's foot.
         .overlay(alignment: toastBesideList ? .bottomLeading : .bottom) { toast }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: organize.undo?.serial)
+        .animation(.default, value: organize.undo?.serial)
     }
 
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
@@ -416,7 +416,7 @@ struct InboxView: View {
     /// `ace://inbox`: any open thread closes and Threads › Inbox shows, with nothing over it.
     private func showInbox() {
         place = nil
-        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close(); chatsDrawer.close() }
+        withAnimation { threadsDrawer.close(); chatsDrawer.close() }
         threadsPath = []
         chatsPath = []
         threadsTab = "inbox"
@@ -485,7 +485,7 @@ struct InboxView: View {
                 // An Undo still waiting stays until its machines answer.
                 guard !undo.busy else { return }
                 try? await Task.sleep(for: .seconds(5))
-                if organize.undo == undo { withAnimation(AceDesign.Motion.leaving(reduceMotion)) { organize.undo = nil } }
+                if organize.undo == undo { withAnimation { organize.undo = nil } }
             }
         }
     }
@@ -498,7 +498,7 @@ struct InboxView: View {
         guard let client = inbox.client(key.machineId), !listed || client.inbox[key.id] != nil else { return }
         // Shown from anywhere (a notification, a transfer, a row), the thread shows with its
         // drawer in. Already showing, it is not opened again: that would restart its session.
-        withAnimation(AceDesign.Motion.leaving(reduceMotion)) { threadsDrawer.close(); chatsDrawer.close() }
+        withAnimation { threadsDrawer.close(); chatsDrawer.close() }
         let target: InboxTab = client.inbox[key.id]?.chat == true ? .chats : .threads
         tab = target
         if path(target).wrappedValue == [.thread(key)], openMachine == key.machineId { return }

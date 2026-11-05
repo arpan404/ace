@@ -7,7 +7,6 @@ struct ChangesTreeSheet: View {
     let reveal: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var folded: Set<String> = []
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack {
@@ -24,7 +23,7 @@ struct ChangesTreeSheet: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: folded)
+            .animation(.default, value: folded)
             .navigationTitle("Files").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }

@@ -118,7 +118,7 @@ struct ForgeDiffLines: View {
         let picked = pick?.holds(line) == true
         let row = content()
             .overlay(picked ? AceDesign.Surface.picked : .clear)
-            .animation(AceMotion.smooth, value: picked)
+            .animation(.default, value: picked)
         if let anchor = line.anchor, pickable {
             Button { tap(index) } label: { row.contentShape(Rectangle()) }
                 .buttonStyle(.row)

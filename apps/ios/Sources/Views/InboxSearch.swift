@@ -71,7 +71,8 @@ struct SearchActions {
 /// Search with a query (the web's command palette and search, ⌘K): the matching actions, threads,
 /// pull requests and projects of every paired machine, then their messages, filtered by kind,
 /// project and date. Each action says where it goes at its right, as the web's ranked list does.
-/// Results stay until the next ones arrive and crossfade in; nothing blanks between keystrokes.
+/// Results stay until the next ones arrive and replace them in place, as Mail's do; nothing
+/// blanks or animates between keystrokes.
 struct InboxSearchList: View {
     @Bindable var inbox: MachineInbox
     @Binding var query: String
@@ -83,7 +84,6 @@ struct InboxSearchList: View {
     @State private var everything = SearchEverything()
     @State private var pulls = SearchPulls()
     @State private var scope = SearchScope()
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var projectChoices: [ProjectChoice] { inbox.projectChoices() }
@@ -99,8 +99,6 @@ struct InboxSearchList: View {
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.immediately)
             .environment(\.defaultMinListRowHeight, 0)
-            // New results crossfade in; under Reduce Motion they simply fade.
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: shape)
             .task(id: "\(text)|\(openTitle != nil)|\(scope.project)|\(connections)") {
                 let project = scopedMachine.flatMap { machine in scopedWorkspace.map { (machineId: machine, workspaceId: $0) } }
                 await everything.run(inbox, query: text, threadOpen: openTitle != nil, project: project)
@@ -116,12 +114,6 @@ struct InboxSearchList: View {
                 if scope.days > 0 { filters["after"] = (Date().timeIntervalSince1970 - Double(scope.days) * 86_400) * 1000 }
                 await messages.run(inbox, text: text, kind: scope.kind == "all" ? "message" : scope.kind, filters: filters, only: scopedMachine)
             }
-    }
-
-    /// What the rows are, for the crossfade: ids only, never their text.
-    private var shape: [String] {
-        everything.commands.map(\.id) + everything.projects.map(\.id) + everything.threads.map(\.id) + pulls.found.map(\.id)
-            + messages.merged(inbox).map(\.hit.id) + [scope.kind, scope.project, "\(scope.days)"]
     }
 
     private var everyKind: Bool { scope.kind == "all" && scope.project.isEmpty }

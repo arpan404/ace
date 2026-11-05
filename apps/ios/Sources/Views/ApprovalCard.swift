@@ -11,7 +11,6 @@ struct ApprovalCard: View {
     var canAct = true
     let resolve: (ApprovalRow.Option) -> Void
     @State private var details = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             RequestHeader(title: nonEmpty(approval.heading) ?? approval.title)
@@ -72,7 +71,7 @@ struct ApprovalCard: View {
     }
     @ViewBuilder private var detailsToggle: some View {
         if hasDetails {
-            Button { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { details.toggle() } } label: {
+            Button { withAnimation { details.toggle() } } label: {
                 HStack(spacing: AceDesign.Space.tight) {
                     Text("Details")
                     AceIcon(.caretRight, size: AceDesign.Size.glyphSmall, relativeTo: .caption)

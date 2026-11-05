@@ -38,7 +38,6 @@ struct OpenFilesSheet: View {
     let scope: FilesScope
     let pick: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var memory: FileMemory? { model.files.memory[scope.memoryKey] }
 
     var body: some View {
@@ -77,7 +76,7 @@ struct OpenFilesSheet: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(AceTheme.Colours.background)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: memory)
+            .animation(.default, value: memory)
             .navigationTitle("Files").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }

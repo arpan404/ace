@@ -65,7 +65,7 @@ extension View {
             .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(OtherProvidersData.read)]) {
                 guard model.connection == "ready" else { return }
                 if let next = try? await model.read(OtherProvidersData.read, as: OtherProvidersData.self) {
-                    withAnimation(AceDesign.Motion.arrive) { others.wrappedValue = next }
+                    withAnimation { others.wrappedValue = next }
                 }
             }
     }

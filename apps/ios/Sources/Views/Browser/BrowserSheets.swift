@@ -132,7 +132,6 @@ struct BrowserTabsSheet: View {
 /// be saved onto this phone: Save copies it over, then Share offers it to Files or any app.
 struct BrowserDownloadsSheet: View {
     @Bindable var model: ClientModel
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var downloads: [BrowserViewInfo.Download] { model.browser.view?.state?.downloads ?? [] }
     var body: some View {
         NavigationStack {
@@ -150,7 +149,7 @@ struct BrowserDownloadsSheet: View {
                     save(download)
                 }
                 .frame(minHeight: InsetStyle.rowHeight)
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: saving(download))
+                .animation(.default, value: saving(download))
                 .browserRow()
             }
             .listStyle(.plain)

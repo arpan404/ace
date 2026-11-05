@@ -31,7 +31,6 @@ struct NewThreadComposer: View {
     @State private var dictation = NewThreadDictation()
     /// The words before the mic was tapped; the transcript goes after them.
     @State private var beforeDictation = ""
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var draft: NewThreadDraft { drafts.draft }
 
     private var text: Binding<String> { Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }) }
@@ -77,7 +76,7 @@ struct NewThreadComposer: View {
                         submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
                         onFocus: { focus, duration in
                             if !focus { suggester.close() } else { suggester.readAhead() }
-                            withAnimation(reduceMotion ? AceDesign.Motion.reduced : .spring(duration: duration, bounce: 0)) { focused = focus }
+                            withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         identifier: "newThread.message", focusOnAppear: true,
                         onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) },

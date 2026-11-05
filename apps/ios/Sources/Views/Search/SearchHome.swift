@@ -11,7 +11,6 @@ struct SearchHome: View {
     let actions: SearchActions
     @Binding var query: String
     @State private var openPulls: Int?
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var text: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
@@ -23,7 +22,6 @@ struct SearchHome: View {
                     InboxSearchList(inbox: inbox, query: $query, includes: { _ in true }, openTitle: openTitle, actions: actions)
                 }
             }
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: text.isEmpty)
             .background(AceTheme.Colours.background)
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)

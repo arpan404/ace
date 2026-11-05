@@ -21,7 +21,6 @@ struct AgentTreePage: View {
     @State private var reviewing: RequestSheetItem?
     @State private var questionDraft = QuestionDraftState()
     @State private var answered = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var sheet: AgentSheet? { model.sheets.agents }
     private var provider: String { thread.screen.controls?.provider ?? "" }
 
@@ -41,8 +40,8 @@ struct AgentTreePage: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(AceDesign.Surface.background)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: sheet?.rows.count)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: expanded)
+        .animation(.default, value: sheet?.rows.count)
+        .animation(.default, value: expanded)
         .onChange(of: sheet?.rows.count) { _, _ in if paging == "agents" { paging = nil } }
         .onChange(of: sheet?.tasks.count) { _, _ in if paging == "tasks" { paging = nil } }
         .sensoryFeedback(AceDesign.Haptic.approve, trigger: answered)

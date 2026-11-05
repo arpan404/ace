@@ -34,7 +34,6 @@ struct AcpRegistryView: View {
     @State private var refreshing = false
     @State private var refreshProblem: String?
     @State private var revalidated = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         List {
             Group {
@@ -68,7 +67,7 @@ struct AcpRegistryView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
+        .animation(.default, value: screen)
         .searchable(text: $query, prompt: "Search agents")
         .navigationTitle("Add agent").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: query) {

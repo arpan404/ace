@@ -51,7 +51,6 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// The connection problem once it has lasted a moment, so a blip never flashes in the title.
     @State private var problem: InboxConnectionProblem?
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// The scope: a row shows when its machine and project match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -192,7 +191,7 @@ struct InboxStack<Destination: View, Side: View>: View {
             .modifier(HeaderLead())
         }
     }
-    private var listMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var listMotion: Animation { .default }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 

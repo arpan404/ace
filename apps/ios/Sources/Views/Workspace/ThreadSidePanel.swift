@@ -74,7 +74,7 @@ private struct PanelSide: View {
     private var view: PanelView? { model.panels.views[threadId] }
     /// The thread the panel's screens read: the one the client shows, once it is this one.
     private var thread: ThreadModel? { model.thread.flatMap { $0.id == threadId ? $0 : nil } }
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
     private var showing: PanelView? {
         guard let view, view.open, view.shown != nil, let room, thread != nil,
               PanelPlace.of(regular: sizeClass == .regular, width: room.window, limits: view.limits) == .beside else { return nil }

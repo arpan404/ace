@@ -72,7 +72,6 @@ struct BackgroundLine: View {
 /// running lines stay in view, Stop and all; the ended ones open from the group. The rows
 /// update in place as the tasks end; they never move.
 struct BackgroundStep: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     private var key: String { "group:\(row.id)" }
@@ -91,7 +90,7 @@ struct BackgroundStep: View {
                         LogRowBox { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                     } else {
                         Button {
-                            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { source.thread.disclosures.toggle(key) }
+                            withAnimation { source.thread.disclosures.toggle(key) }
                         } label: {
                             LogRowBox(open: open) { AceIcon(.terminal, size: AceDesign.Size.icon, relativeTo: .subheadline) } title: { Text(row.label ?? "") }
                         }

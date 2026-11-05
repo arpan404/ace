@@ -179,7 +179,7 @@ struct ConversationFeed: View {
             .modifier(TranscriptTextSize())
             .padding(.top, AceDesign.Space.related)
             // A message that wasn't sent fades in and out where it was written.
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: thread.screen.queue?.notSent?.id)
+            .animation(.default, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
@@ -436,7 +436,7 @@ struct ConversationFeed: View {
         }
         .onChange(of: barHeight) { old, new in
             // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : AceDesign.Motion.arrive
+            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
             roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in

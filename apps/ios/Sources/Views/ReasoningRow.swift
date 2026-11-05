@@ -5,7 +5,6 @@ import SwiftUI
 /// same height either way so nothing moves when it finishes. The thought opens in place as muted
 /// Markdown; the open row takes the fill, with no caret, as on the web.
 struct ReasoningRow: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: TranscriptRow
     /// Its header as the log reads it; without one it reads the row's own header, else plainly.
     var thought: BlockRow.Thought? = nil
@@ -23,7 +22,7 @@ struct ReasoningRow: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("thought", key: key) }
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
+                withAnimation {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: {

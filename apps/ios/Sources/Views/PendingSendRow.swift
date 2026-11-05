@@ -64,7 +64,6 @@ struct NotSentMessage: View {
     @State private var details = false
     @State private var confirming = false
     @State private var recovered = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
             if !text.isEmpty { UserBubble(text: text) }
@@ -77,7 +76,7 @@ struct NotSentMessage: View {
             if canAct || !detail.isEmpty || staleLock {
                 HStack(spacing: AceTheme.Spacing.none) {
                     if !detail.isEmpty {
-                        Button(details ? "Hide details" : "Details") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { details.toggle() } }
+                        Button(details ? "Hide details" : "Details") { withAnimation { details.toggle() } }
                             .buttonStyle(StripTextButtonStyle())
                             .accessibilityIdentifier("notSent.details")
                     }

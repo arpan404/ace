@@ -5,7 +5,6 @@ import SwiftUI
 /// categories as the desktop; each machine's own quiet hours stay on its own page.
 struct PhoneNotificationSections: View {
     @Bindable var notifications: NotificationCoordinator
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         Section {
@@ -40,7 +39,7 @@ struct PhoneNotificationSections: View {
     private func update(_ change: (inout PhoneNotificationPrefs) -> Void) {
         var next = prefs
         change(&next)
-        withAnimation(reduceMotion ? nil : .smooth) { notifications.setPhone(next) }
+        withAnimation { notifications.setPhone(next) }
     }
     private func toggle(_ category: (key: String, title: String), _ path: WritableKeyPath<PhoneNotificationPrefs, PhoneNotificationPrefs.Categories>, id: String) -> some View {
         Toggle(category.title, isOn: Binding(get: { prefs[keyPath: path][category.key] }, set: { on in

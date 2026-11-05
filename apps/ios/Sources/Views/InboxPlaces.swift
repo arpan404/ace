@@ -11,7 +11,6 @@ struct SidebarPlaces: View {
     let open: (SearchPlace) -> Void
     /// Each switchable place's dot: something there needs the person while it isn't showing.
     var needsYou: (InboxTab) -> Bool = { _ in false }
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
 
     private static let others: [SearchPlace] = [.pulls, .automations, .skills, .settings]
@@ -36,6 +35,8 @@ struct SidebarPlaces: View {
                 .accessibilityIdentifier("sidebar.place.\(place.rawValue)")
             }
         }
+        // Only the chosen fill slides; the tab it opens shows at once, as the tab bar's do.
+        .animation(.default, value: tab)
         .padding(AceDesign.Size.tabInset)
         .aceGlass(in: AceShape.capsule, interactive: true)
         .floatingShadow()
@@ -48,7 +49,7 @@ struct SidebarPlaces: View {
         let chosen = tab == place
         let dot = !chosen && needsYou(place)
         return Button {
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { tab = place }
+            tab = place
         } label: {
             Group {
                 if place == .spade { SpadeMark(size: AceDesign.Size.barIcon) } else { AceIcon(HomeTabs.icon(place), size: AceDesign.Size.barIcon) }

@@ -88,7 +88,7 @@ struct ForgeLogView: View {
             .onChange(of: jump) { _, line in
                 guard let line else { return }
                 read(paging.near(line))
-                withAnimation(AceMotion.smooth) { proxy.scrollTo(line, anchor: .top) }
+                withAnimation { proxy.scrollTo(line, anchor: .top) }
             }
             // Opening on the failure: once the lines around it have arrived, and only once, so a
             // person already reading elsewhere is never pulled back.
