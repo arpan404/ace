@@ -45,3 +45,20 @@ export function bunBinary(path = process.env.PATH ?? ""): string {
     "The ace daemon runs on Bun, and no `bun` was found on PATH. Install the version package.json's packageManager names (https://bun.com) or put it on PATH.",
   );
 }
+
+/**
+ * Why this Bun can't run the repository's tests, or undefined when it can. Test and benchmark
+ * results only mean something on the Bun releases ship, which package.json's packageManager pins.
+ */
+export function bunMismatch(packageJson: string, running: string | undefined): string | undefined {
+  if (running === undefined) return undefined;
+  const parsed: unknown = JSON.parse(packageJson);
+  const field =
+    typeof parsed === "object" && parsed !== null
+      ? Reflect.get(parsed, "packageManager")
+      : undefined;
+  const pinned = typeof field === "string" ? /^bun@(.+)$/.exec(field)?.[1] : undefined;
+  if (pinned === undefined) return "package.json's packageManager doesn't name a Bun version.";
+  if (pinned === running) return undefined;
+  return `This is Bun ${running}, but ace pins Bun ${pinned} (package.json's packageManager), the version releases ship. Install it with \`bun upgrade\` or https://bun.com/docs/installation, then run again.`;
+}

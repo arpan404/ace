@@ -28,9 +28,17 @@ import {
   splitByRuntime,
   type PassResult,
 } from "./test-tiers.ts";
-import { realNode } from "./runtimes.ts";
+import { bunMismatch, realNode } from "./runtimes.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const mismatch = bunMismatch(
+  readFileSync(join(root, "package.json"), "utf8"),
+  process.versions.bun,
+);
+if (mismatch) {
+  console.error(mismatch);
+  process.exit(1);
+}
 const options = parseRunArgs(process.argv.slice(2));
 
 const git = (...args: string[]) => {
