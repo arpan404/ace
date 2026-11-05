@@ -60,11 +60,16 @@ const budgets: Record<ProviderKind, number> = {
   // Lowered from 2_650 when schemas were compacted and Claude preloaded only context and delegate.
   claude: 1_550,
   codex: 1_150,
-  opencode: 2_650,
+  // Raised from 2_650 (measured 2_661 with the wording trimmed): html_render says what its 360 px
+  // layout check refuses, wait names the usage-limit hold, delegate takes another machine's
+  // account (all three load upfront here) and the guidance points at screen_display.
+  opencode: 2_700,
   // Lowered from 2_900: Cursor's MCP meta tool shows names only, so it pays for every tool's name
   // and no schema (ADR 0086, 2026-10-27).
   cursor: 1_150,
-  antigravity: 1_600,
+  // Raised from 1_600 (measured 1_604 with the wording trimmed): wait, delegate and the guidance
+  // grew as for opencode, and html_preview added a deferred name.
+  antigravity: 1_650,
   acp: 2_350,
   pi: 2_900,
 };
@@ -169,7 +174,6 @@ it("each provider's per-request ace context stays within its budget", async () =
     ].join("\n");
     // Every client starts small: deferred names, or the core list with tools_find and tools_call.
     // Each cap is the measured cost rounded up to the next 50, so a regression fails here.
-    console.log("BUDGET provider", provider, tokens(always));
     expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
   }
 });
@@ -292,7 +296,6 @@ it.runIf(process.platform === "win32")(
         listedNames(provider, agents),
         text.includes("installed as skills") ? skills : "",
       ].join("\n");
-      console.log("BUDGET provider", provider, tokens(always));
       expect.soft(tokens(always), provider).toBeLessThanOrEqual(budgets[provider]);
     }
   },

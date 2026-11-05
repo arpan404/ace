@@ -51,7 +51,7 @@ const DelegateTask = z.strictObject({
     .min(1)
     .max(256)
     .optional()
-    .describe("Account id or label; with machine, one of that machine's accounts from machines."),
+    .describe("Account id or label; with machine, one machines lists there."),
   effort: z
     .string()
     .min(1)
@@ -106,7 +106,7 @@ const wait = controlTool({
   riskClass: "read-only",
   capability: null,
   description:
-    "Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. limited: one hit its usage limit and is held until reset; cancel and redelegate it, or tell the person. timeout or interrupted: they keep working; wait again, never poll.",
+    "Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. limited: one is held at a usage limit; cancel and redelegate it, or tell the person. timeout or interrupted: they keep working; wait again, never poll.",
   input: z.strictObject({
     threadIds: z
       .array(ThreadId)

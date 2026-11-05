@@ -56,7 +56,7 @@ const toolsFind = {
   riskClass: "read-only",
   openWorld: false,
   description:
-    "Find the ace tools this session can call for what you want to do: each match's name, purpose, effect and input schema.",
+    "Find ace tools this session can call for a task: each match's name, purpose, effect and input schema.",
   input: z.strictObject({
     query: z.string().min(1).max(500).describe('In plain words, e.g. "click a button in Safari".'),
     limit: z.number().int().min(1).max(maxMatches).default(5),

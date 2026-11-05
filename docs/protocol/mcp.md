@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. The page is laid out at 360 px before publishing; invalid_html lists what is unsafe, overflows the phone width or is unreadable, and nothing is published.
+Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -173,7 +173,7 @@ Required capability: agents. Timeout: 630000 ms.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"Goal, files, constraints, how to verify: the child sees none of your conversation."},"role":{"type":"string","minLength":1,"maxLength":1024,"description":"Unique name saying what and where: 'Fix-869-toast', never 'Implementer'."},"runRole":{"description":"A role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Default: yours, or the one serving model.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Id or name, e.g. \"opus 5.5\".","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label; with machine, one of that machine's accounts from machines.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"e.g. low, high, xhigh. Default: yours on the same model.","type":"string","minLength":1,"maxLength":64},"access":{"description":"Default inherit; never above yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"From machines; needs project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"Its project in machines.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One per child."} |
+| tasks | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"object","properties":{"requestId":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$","description":"Any stable id; a repeat with it runs once."},"task":{"type":"string","minLength":1,"maxLength":262144,"description":"Goal, files, constraints, how to verify: the child sees none of your conversation."},"role":{"type":"string","minLength":1,"maxLength":1024,"description":"Unique name saying what and where: 'Fix-869-toast', never 'Implementer'."},"runRole":{"description":"A role from your Roles line.","$ref":"https://ace.local/protocol/v1/RunRole.json"},"provider":{"description":"Default: yours, or the one serving model.","$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"description":"Id or name, e.g. \"opus 5.5\".","type":"string","minLength":1,"maxLength":256},"accountId":{"description":"Account id or label; with machine, one machines lists there.","type":"string","minLength":1,"maxLength":256},"effort":{"description":"e.g. low, high, xhigh. Default: yours on the same model.","type":"string","minLength":1,"maxLength":64},"access":{"description":"Default inherit; never above yours.","$ref":"https://ace.local/protocol/v1/AccessRequest.json"},"workspace":{"$ref":"https://ace.local/protocol/v1/AgentWorkspace.json"},"machine":{"description":"From machines; needs project.","$ref":"https://ace.local/protocol/v1/MachineName.json"},"project":{"description":"Its project in machines.","type":"string","minLength":1,"maxLength":256}},"required":["requestId","task","role"],"additionalProperties":false},"description":"One per child."} |
 | waitSeconds | no | [WaitTimeoutSeconds.json](schema/WaitTimeoutSeconds.json) | {"description":"Wait for results, as wait does. Omit to return at once."} |
 | waitFor | no | [WaitMode.json](schema/WaitMode.json) | {"default":"all","description":"any returns on the first."} |
 
@@ -224,7 +224,7 @@ Example:
 
 ## wait
 
-Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. limited: one hit its usage limit and is held until reset; cancel and redelegate it, or tell the person. timeout or interrupted: they keep working; wait again, never poll.
+Wait for children or other threads to settle. needs_you: one waits on the person; tell them, it is unfinished. limited: one is held at a usage limit; cancel and redelegate it, or tell the person. timeout or interrupted: they keep working; wait again, never poll.
 
 Required capability: none beyond session authentication. Timeout: 630000 ms.
 
@@ -929,7 +929,7 @@ Example:
 
 ## thread_link_pr
 
-Link this thread's pull request, by URL or number, so the person sees its state and CI here. Call it right after you open or find the PR. unlink removes a link (all: every link); the PR never changes.
+Link this thread's pull request, by URL or number, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.
 
 Required capability: thread_control. Timeout: 630000 ms.
 
@@ -1447,7 +1447,7 @@ Example:
 
 ## tools_find
 
-Find the ace tools this session can call for what you want to do: each match's name, purpose, effect and input schema.
+Find ace tools this session can call for a task: each match's name, purpose, effect and input schema.
 
 Required capability: none beyond session authentication. Timeout: 10000 ms.
 
