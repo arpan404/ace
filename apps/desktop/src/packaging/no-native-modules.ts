@@ -2,14 +2,14 @@ import type { Plugin } from "esbuild";
 
 /**
  * Native code a main-process bundle must not import: node-pty (the app has none), `bun:ffi`,
- * which exists only in the Bun runtime the daemon runs on, and koffi. The app ships koffi beside
- * app.asar (scripts/koffi.ts), but bundling it would cut it off from its prebuilt binary, so main
- * reaches it only through `@ace/provider-kit/koffi`'s lazy require, and `bun:ffi` only through a
- * lazy require behind a Bun check.
+ * which exists only in the Bun runtime the daemon runs on, and koffi. The Windows app ships koffi
+ * beside app.asar (scripts/koffi.ts), but bundling it would cut it off from its prebuilt binary,
+ * so main reaches it only through `@ace/provider-kit/koffi`'s lazy require, and `bun:ffi` only
+ * through a lazy require behind a Bun check.
  */
-const daemonOnlyNatives = ["koffi", "node-pty", "bun:ffi"];
+const unbundledNatives = ["koffi", "node-pty", "bun:ffi"];
 const nativeImport = new RegExp(
-  `^(?:${daemonOnlyNatives.join("|")})(?:/.*)?$|\\.node$`.replaceAll("-", "\\-"),
+  `^(?:${unbundledNatives.join("|")})(?:/.*)?$|\\.node$`.replaceAll("-", "\\-"),
 );
 
 /**
