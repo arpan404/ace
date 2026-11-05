@@ -13,16 +13,16 @@ import {
   type Cleanups,
 } from "./daemon-launch-test-support.ts";
 
-// Resolves koffi as a dependency of provider-kit; nothing is imported from its sources.
-const providerKit = fileURLToPath(new URL("../../../packages/provider-kit/", import.meta.url));
+const daemonDirectory = fileURLToPath(new URL("..", import.meta.url));
 
 /**
+ * Runs on the test's runtime, Bun, whose bun:ffi binds kernel32 and user32.
  * A helper with a console of its own starts `ace start` attached to it, then raises a real
  * console control event for everything on that console: once the daemon is ready, or as soon as
  * it holds its lock (mid-startup). The helper ignores the event; the daemon must stop in order.
  */
 const helper = `
-import koffi from "koffi";
+import { dlopen } from "bun:ffi";
 import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 const plan = JSON.parse(process.env.ACE_CONSOLE_PLAN);
@@ -31,14 +31,20 @@ const report = (value) => { writeFileSync(plan.out, JSON.stringify(value)); proc
 process.stderr.write("");
 process.on("uncaughtException", (error) => report({ error: String(error?.stack ?? error) }));
 const step = (text) => process.stderr.write(text + "\\n");
-const kernel = koffi.load("kernel32.dll");
-const user = koffi.load("user32.dll");
-const alloc = kernel.func("int __stdcall AllocConsole()");
-const free = kernel.func("int __stdcall FreeConsole()");
-const consoleWindow = kernel.func("void* __stdcall GetConsoleWindow()");
-const show = user.func("int __stdcall ShowWindow(void* window, int command)");
-const handler = kernel.func("int __stdcall SetConsoleCtrlHandler(void* routine, int add)");
-const lastError = kernel.func("uint __stdcall GetLastError()");
+const kernel = dlopen("kernel32.dll", {
+  AllocConsole: { args: [], returns: "i32" },
+  FreeConsole: { args: [], returns: "i32" },
+  GetConsoleWindow: { args: [], returns: "ptr" },
+  SetConsoleCtrlHandler: { args: ["ptr", "i32"], returns: "i32" },
+  GetLastError: { args: [], returns: "u32" },
+}).symbols;
+const user = dlopen("user32.dll", { ShowWindow: { args: ["ptr", "i32"], returns: "i32" } }).symbols;
+const alloc = kernel.AllocConsole;
+const free = kernel.FreeConsole;
+const consoleWindow = kernel.GetConsoleWindow;
+const show = user.ShowWindow;
+const handler = kernel.SetConsoleCtrlHandler;
+const lastError = kernel.GetLastError;
 if (!alloc()) report({ error: "AllocConsole failed " + lastError() });
 show(consoleWindow(), 0);
 // A detached start disables Ctrl+C for the new group; the daemon inherits normal handling.
@@ -76,10 +82,11 @@ setTimeout(() => { daemon.kill(); report({ error: "daemon did not exit", sender,
 `;
 // Attaches to the target's console, ignores Ctrl+C itself, raises the event for the console.
 const sender =
-  'const koffi=require("koffi");const k=koffi.load("kernel32.dll");' +
-  'const attach=k.func("int __stdcall AttachConsole(uint pid)");' +
-  'const ignore=k.func("int __stdcall SetConsoleCtrlHandler(void* routine,int add)");' +
-  'const raise=k.func("int __stdcall GenerateConsoleCtrlEvent(uint event,uint group)");' +
+  'const k=require("bun:ffi").dlopen("kernel32.dll",{' +
+  'AttachConsole:{args:["u32"],returns:"i32"},' +
+  'SetConsoleCtrlHandler:{args:["ptr","i32"],returns:"i32"},' +
+  'GenerateConsoleCtrlEvent:{args:["u32","u32"],returns:"i32"}}).symbols;' +
+  "const attach=k.AttachConsole,ignore=k.SetConsoleCtrlHandler,raise=k.GenerateConsoleCtrlEvent;" +
   "if(!attach(Number(process.env.ACE_TARGET)))process.exit(2);ignore(null,1);" +
   "process.exit(raise(Number(process.env.ACE_EVENT),0)?0:3);";
 
@@ -104,7 +111,7 @@ export async function daemonInConsole(
   const log = join(directory, "helper.log");
   const errors = openSync(log, "w");
   const child = spawn(process.execPath, ["--input-type=module", "-e", helper], {
-    cwd: providerKit,
+    cwd: daemonDirectory,
     detached: true,
     stdio: ["ignore", errors, errors],
     env: {

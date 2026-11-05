@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
-import koffi from "koffi";
+import {
+  nativePointer,
+  openLibrary,
+  pointerSlot,
+  readWideString,
+  type NativeLibrary,
+} from "./bun-ffi.ts";
 import { childHasExited } from "./child-exit.ts";
 export { childHasExited } from "./child-exit.ts";
 import { z } from "zod";
@@ -21,7 +27,7 @@ export const WindowsSid = z
 const nativeInt = z.number().int();
 const dword = z.number().int().nonnegative().max(0xffffffff);
 
-/** NULL from Win32 arrives as null, undefined, 0, or 0n through koffi BigInt pointers. */
+/** NULL from Win32 arrives as null or 0 through bun:ffi pointers; fakes may use 0n. */
 function isNullHandle(handle: unknown): boolean {
   return handle === null || handle === undefined || handle === 0 || handle === 0n;
 }
@@ -29,7 +35,7 @@ function expectNative(ok: boolean): void {
   if (!ok) throw new Error("Kernel process identity unavailable");
 }
 
-/** Raw Win32 surface behind the identity. Tests inject a fake; production uses koffi. */
+/** Raw Win32 surface behind the identity. Tests inject a fake; production uses bun:ffi. */
 export type WindowsProcessIdentityApi = {
   open: (pid: number) => unknown;
   /** True once the process has exited, even while a handle still keeps its object alive. */
@@ -46,66 +52,74 @@ export type WindowsProcessIdentityApi = {
 };
 
 function loadWindowsProcessIdentityApi(): WindowsProcessIdentityApi {
-  const kernel = koffi.load("kernel32.dll");
-  let advapi: ReturnType<typeof koffi.load> | undefined;
-  const unload = (): void => {
-    try {
-      kernel.unload();
-    } finally {
-      advapi?.unload();
-    }
-  };
+  const kernel = openLibrary("kernel32.dll", {
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
+    GetProcessTimes: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+    GetLastError: { args: [], returns: "u32" },
+    CloseHandle: { args: ["ptr"], returns: "i32" },
+    WaitForSingleObject: { args: ["ptr", "u32"], returns: "u32" },
+    LocalFree: { args: ["ptr"], returns: "ptr" },
+  });
+  let advapi: NativeLibrary<"OpenProcessToken" | "GetTokenInformation" | "ConvertSidToStringSidW">;
   try {
-    advapi = koffi.load("Advapi32.dll");
-    const openProcess = kernel.func(
-      "void* __stdcall OpenProcess(uint access, int inherit, uint pid)",
-    );
-    const times = kernel.func(
-      "int __stdcall GetProcessTimes(void* process, void* creation, void* exit, void* kernel, void* user)",
-    );
-    const lastError = kernel.func("uint __stdcall GetLastError()");
-    const closeHandle = kernel.func("int __stdcall CloseHandle(void* handle)");
-    const wait = kernel.func("uint __stdcall WaitForSingleObject(void* handle, uint milliseconds)");
-    const localFree = kernel.func("void* __stdcall LocalFree(void* memory)");
-    const openToken = advapi.func(
-      "int __stdcall OpenProcessToken(void* process, uint access, _Out_ void** token)",
-    );
-    const tokenInfo = advapi.func(
-      "int __stdcall GetTokenInformation(void* token, int infoClass, void* info, uint length, _Out_ uint* needed)",
-    );
-    const sidToString = advapi.func(
-      "int __stdcall ConvertSidToStringSidW(void* sid, _Out_ void** text)",
-    );
-    return {
-      open: (pid) => openProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid),
-      exited(handle) {
-        const state = nativeInt.parse(wait(handle, 0));
-        expectNative(state === WAIT_OBJECT_0 || state === WAIT_TIMEOUT);
-        return state === WAIT_OBJECT_0;
-      },
-      times,
-      openToken: (handle, out) => openToken(handle, TOKEN_QUERY, out),
-      tokenInfo: (token, info, length, needed) =>
-        tokenInfo(token, TOKEN_USER, info, length, needed),
-      sidToString,
-      decodeSid: (ptr) =>
-        z
-          .string()
-          .min(1)
-          .parse(koffi.decode.string16(z.bigint().parse(ptr))),
-      free: (ptr) => void localFree(ptr),
-      lastError,
-      close: (handle) => void closeHandle(handle),
-      unload,
-    };
+    advapi = openLibrary("Advapi32.dll", {
+      OpenProcessToken: { args: ["ptr", "u32", "ptr"], returns: "i32" },
+      GetTokenInformation: { args: ["ptr", "i32", "ptr", "u32", "ptr"], returns: "i32" },
+      ConvertSidToStringSidW: { args: ["ptr", "ptr"], returns: "i32" },
+    });
   } catch (error) {
-    try {
-      unload();
-    } catch {
-      // Keep the binding failure.
-    }
+    kernel.close();
     throw error;
   }
+  const k = kernel.symbols;
+  const a = advapi.symbols;
+  return {
+    open: (pid) => k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid),
+    exited(handle) {
+      const state = nativeInt.parse(k.WaitForSingleObject(nativePointer(handle), 0));
+      expectNative(state === WAIT_OBJECT_0 || state === WAIT_TIMEOUT);
+      return state === WAIT_OBJECT_0;
+    },
+    times: (handle, creation, exit, kernelTime, user) =>
+      nativeInt.parse(k.GetProcessTimes(nativePointer(handle), creation, exit, kernelTime, user)),
+    openToken(handle, out) {
+      const token = pointerSlot();
+      const result = nativeInt.parse(
+        a.OpenProcessToken(nativePointer(handle), TOKEN_QUERY, token.slot),
+      );
+      out[0] = token.value();
+      return result;
+    },
+    tokenInfo(token, info, length, needed) {
+      const size = new Uint32Array(1);
+      const result = nativeInt.parse(
+        a.GetTokenInformation(nativePointer(token), TOKEN_USER, info, length, size),
+      );
+      needed[0] = size[0] ?? 0;
+      return result;
+    },
+    sidToString(sid, out) {
+      const text = pointerSlot();
+      const result = nativeInt.parse(a.ConvertSidToStringSidW(nativePointer(sid), text.slot));
+      out[0] = text.value();
+      return result;
+    },
+    decodeSid: (ptr) =>
+      z
+        .string()
+        .min(1)
+        .parse(readWideString(z.number().parse(nativePointer(ptr)))),
+    free: (ptr) => void k.LocalFree(nativePointer(ptr)),
+    lastError: () => nativeInt.parse(k.GetLastError()),
+    close: (handle) => void k.CloseHandle(nativePointer(handle)),
+    unload: () => {
+      try {
+        kernel.close();
+      } finally {
+        advapi.close();
+      }
+    },
+  };
 }
 
 /**
@@ -239,13 +253,12 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
     }
     if (process.platform === "darwin") {
       // Apple's proc_bsdinfo ABI includes pid, uid, pgid and the kernel start timeval.
-      const library = koffi.load("/usr/lib/libproc.dylib");
+      const library = openLibrary("/usr/lib/libproc.dylib", {
+        proc_pidinfo: { args: ["i32", "i32", "u64", "ptr", "i32"], returns: "i32" },
+      });
       try {
-        const info = library.func(
-          "int proc_pidinfo(int pid, int flavor, uint64_t arg, _Out_ void *buffer, int size)",
-        );
         const buffer = Buffer.alloc(136);
-        if (info(pid, 3, 0, buffer, buffer.length) !== buffer.length)
+        if (library.symbols.proc_pidinfo(pid, 3, 0n, buffer, buffer.length) !== buffer.length)
           throw new Error("Kernel process identity unavailable");
         const identity = ProcessIdentity.parse({
           pid: buffer.readUInt32LE(12),
@@ -256,7 +269,7 @@ export function processIdentity(pid: number): ProcessIdentity | undefined {
         if (identity.pid !== pid) throw new Error("Process identity mismatch");
         return identity;
       } finally {
-        library.unload();
+        library.close();
       }
     }
     if (process.platform === "win32") {
@@ -371,7 +384,7 @@ export function windowsTreeState(
   return state;
 }
 
-/** Native surface for recorded Windows trees. Tests inject a fake; production uses koffi. */
+/** Native surface for recorded Windows trees. Tests inject a fake; production uses bun:ffi. */
 export interface WindowsTreeRuntime {
   state(recorded: readonly WindowsProcessRecord[]): WindowsTreeState;
   /**
@@ -390,30 +403,37 @@ const PROCESS_TERMINATE = 0x0001;
 const ERROR_NO_MORE_FILES = 18;
 
 function loadWindowsTreeApi() {
-  const kernel = koffi.load("kernel32.dll");
-  try {
-    return {
-      kernel,
-      // Precise: the coarse clock lags by up to a tick, so a child created just before the
-      // snapshot would look created after it and be left out of the tree.
-      now: kernel.func("void __stdcall GetSystemTimePreciseAsFileTime(void* time)"),
-      snapshot: kernel.func("intptr_t __stdcall CreateToolhelp32Snapshot(uint flags, uint pid)"),
-      first: kernel.func("int __stdcall Process32FirstW(intptr_t snapshot, void* entry)"),
-      next: kernel.func("int __stdcall Process32NextW(intptr_t snapshot, void* entry)"),
-      closeSnapshot: kernel.func("int __stdcall CloseHandle(intptr_t handle)"),
-      open: kernel.func("void* __stdcall OpenProcess(uint access, int inherit, uint pid)"),
-      times: kernel.func(
-        "int __stdcall GetProcessTimes(void* process, void* creation, void* exit, void* kernel, void* user)",
-      ),
-      wait: kernel.func("uint __stdcall WaitForSingleObject(void* handle, uint milliseconds)"),
-      terminate: kernel.func("int __stdcall TerminateProcess(void* process, uint code)"),
-      close: kernel.func("int __stdcall CloseHandle(void* handle)"),
-      lastError: kernel.func("uint __stdcall GetLastError()"),
-    };
-  } catch (error) {
-    kernel.unload();
-    throw error;
-  }
+  const kernel = openLibrary("kernel32.dll", {
+    // Precise: the coarse clock lags by up to a tick, so a child created just before the
+    // snapshot would look created after it and be left out of the tree.
+    GetSystemTimePreciseAsFileTime: { args: ["ptr"], returns: "void" },
+    CreateToolhelp32Snapshot: { args: ["u32", "u32"], returns: "i64_fast" },
+    Process32FirstW: { args: ["i64_fast", "ptr"], returns: "i32" },
+    Process32NextW: { args: ["i64_fast", "ptr"], returns: "i32" },
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
+    GetProcessTimes: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "i32" },
+    WaitForSingleObject: { args: ["ptr", "u32"], returns: "u32" },
+    TerminateProcess: { args: ["ptr", "u32"], returns: "i32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    GetLastError: { args: [], returns: "u32" },
+  });
+  const k = kernel.symbols;
+  return {
+    kernel,
+    now: (time: Buffer) => k.GetSystemTimePreciseAsFileTime(time),
+    snapshot: (flags: number, pid: number) => k.CreateToolhelp32Snapshot(flags, pid),
+    first: (snapshot: number, entry: Buffer) => k.Process32FirstW(snapshot, entry),
+    next: (snapshot: number, entry: Buffer) => k.Process32NextW(snapshot, entry),
+    closeSnapshot: (snapshot: number) => k.CloseHandle(snapshot),
+    open: (access: number, inherit: number, pid: number) => k.OpenProcess(access, inherit, pid),
+    times: (process: unknown, creation: Buffer, exit: Buffer, kernelTime: Buffer, user: Buffer) =>
+      k.GetProcessTimes(nativePointer(process), creation, exit, kernelTime, user),
+    wait: (process: unknown, milliseconds: number) =>
+      k.WaitForSingleObject(nativePointer(process), milliseconds),
+    terminate: (process: unknown, code: number) => k.TerminateProcess(nativePointer(process), code),
+    close: (process: unknown) => k.CloseHandle(nativePointer(process) ?? 0),
+    lastError: () => k.GetLastError(),
+  };
 }
 
 function snapshotWindowsProcesses(
@@ -459,7 +479,7 @@ export const windowsTreeRuntime: WindowsTreeRuntime = {
       try {
         identityApi.unload();
       } finally {
-        tree.kernel.unload();
+        tree.kernel.close();
       }
     }
   },
@@ -496,7 +516,7 @@ export const windowsTreeRuntime: WindowsTreeRuntime = {
         api.close(handle);
       }
     } finally {
-      api.kernel.unload();
+      api.kernel.close();
     }
   },
 };

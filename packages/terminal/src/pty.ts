@@ -3,7 +3,7 @@ import { accessSync, constants } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
 import { constants as osConstants, tmpdir, userInfo } from "node:os";
-import { spawn } from "node-pty";
+import { createRequire } from "node:module";
 import { bunRuntime, spawnBunPty } from "./bun-pty.ts";
 import { win32 } from "node:path";
 import { createServer, type Socket } from "node:net";
@@ -48,25 +48,59 @@ export interface NativePty {
   onData(listener: (input: unknown) => void): { dispose(): void };
   onExit(listener: (input: unknown) => void): { dispose(): void };
 }
+/** The node-pty spawn options the backends pass; Bun's terminal reads cwd, size and env. */
+export interface NativePtyOptions {
+  cwd?: string | undefined;
+  cols?: number | undefined;
+  rows?: number | undefined;
+  name?: string;
+  env?: Record<string, string | undefined> | undefined;
+  encoding?: null;
+  handleFlowControl?: boolean;
+  useConpty?: boolean;
+  useConptyDll?: boolean;
+}
 export interface PosixPorts {
-  spawn: (shell: string, args: string[], options: Parameters<typeof spawn>[2]) => NativePty;
+  spawn: (shell: string, args: string[], options: NativePtyOptions) => NativePty;
   processes: ProcessControl;
   createLease?: () => GroupLease;
 }
 
-/** node-pty on Node. On Bun, Bun's own terminal: node-pty's addon reports nothing there. */
+function isNativePty(value: unknown): value is ConptyNative {
+  if (typeof value !== "object" || value === null) return false;
+  if (typeof Reflect.get(value, "pid") !== "number") return false;
+  return ["write", "resize", "kill", "onData", "onExit"].every(
+    (name) => typeof Reflect.get(value, name) === "function",
+  );
+}
+
+/**
+ * node-pty, loaded only when a terminal opens on Node (tests that run on Node). The daemon runs
+ * on Bun and never loads it: its addon needs Node's libuv loop and reports nothing under Bun.
+ */
+function spawnNodePty(file: string, args: string[] | string, options: NativePtyOptions) {
+  const module: unknown = createRequire(import.meta.url)("node-pty");
+  const spawn: unknown =
+    typeof module === "object" && module !== null ? Reflect.get(module, "spawn") : undefined;
+  if (typeof spawn !== "function") throw new Error("node-pty has no spawn function");
+  const pty: unknown = Reflect.apply(spawn, module, [file, args, options]);
+  if (!isNativePty(pty)) throw new Error("node-pty returned an unexpected terminal");
+  return pty;
+}
+
+/** Bun's own terminal on Bun, where the daemon runs; node-pty on Node. */
 export function spawnNativePty(
   file: string,
   args: string[] | string,
-  options: Parameters<typeof spawn>[2],
+  options: NativePtyOptions,
 ): ConptyNative {
   const bun = bunRuntime();
-  if (!bun) return spawn(file, args, options);
+  if (!bun) return spawnNodePty(file, args, options);
   return spawnBunPty(bun, file, args, {
-    cwd: options?.cwd,
-    cols: options?.cols,
-    rows: options?.rows,
-    env: options?.env,
+    cwd: options.cwd,
+    cols: options.cols,
+    rows: options.rows,
+    env: options.env,
   });
 }
 
@@ -429,11 +463,7 @@ function gatedCommandLine(gate: string, shell: string, args: readonly string[]):
 }
 
 export interface ConptyPorts {
-  spawn?: (
-    file: string,
-    args: string[] | string,
-    options: Parameters<typeof spawn>[2],
-  ) => ConptyNative;
+  spawn?: (file: string, args: string[] | string, options: NativePtyOptions) => ConptyNative;
   /** Strict kernel containment. Every failure throws; there is no fallback. */
   createJob?: () => RetainedJob;
   openGate?: () => StartupGate;
@@ -442,12 +472,12 @@ export interface ConptyPorts {
 }
 
 /**
- * Windows: the shell runs under ConPTY (`useConptyDll`) inside a kill-on-close Job Object, which
- * replaces the POSIX session lease; `activeCount()` is the only liveness source and ownership
- * outlives shell exit until close empties the job. The dll kill path terminates the exact
- * console handle, so no PID is ever signalled.
+ * Windows: the shell runs under ConPTY (Bun's terminal; node-pty's `useConptyDll` on Node) inside
+ * a kill-on-close Job Object, which replaces the POSIX session lease; `activeCount()` is the only
+ * liveness source and ownership outlives shell exit until close empties the job. Both kill paths
+ * terminate the exact process handle they spawned, so no PID is ever signalled.
  *
- * node-pty cannot create a process suspended or inside a job, so the first process is a gate:
+ * Neither can create a process suspended or inside a job, so the first process is a gate:
  * cmd.exe waits on a pipe that opens only after it joined the job, then starts the shell. A
  * shell, AutoRun or profile that starts a child at once therefore starts it contained.
  */
