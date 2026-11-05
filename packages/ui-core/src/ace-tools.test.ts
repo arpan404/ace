@@ -306,6 +306,8 @@ test("a background look or a single action reads as what it did in the app it na
   expect(words("screen_apps", { query: "calc" })?.past).toBe("Searched apps for “calc”");
   expect(words("screen_state", { app: "Calculator" })?.past).toBe("Looked at Calculator");
   expect(words("screen_state", { app: "com.apple.TextEdit" })?.running).toBe("Looking at TextEdit");
+  expect(words("screen_display", {})?.past).toBe("Looked at the displays");
+  expect(words("screen_display", { display: 2 })?.running).toBe("Looking at display 2");
   const act = (action: Record<string, unknown>, app = "com.apple.TextEdit") =>
     words("screen_act", { app, actions: [action] })?.past;
   expect(act({ type: "menu", path: ["File", "New"] })).toBe("Chose File › New in TextEdit");

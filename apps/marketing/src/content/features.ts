@@ -154,7 +154,7 @@ export const features: Feature[] = [
         ],
       },
     ],
-    tools: ["screen_apps", "screen_state", "screen_act"],
+    tools: ["screen_apps", "screen_state", "screen_act", "screen_display"],
     questions: [
       {
         question: "Can an agent use my computer while I am working?",

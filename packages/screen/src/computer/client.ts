@@ -1,7 +1,8 @@
 /*
  * The daemon's side of `ace-screen-helper --computer`: JSON lines over stdin/stdout, to a pool
  * of helpers. Each app gets its own helper, so agents in different apps run in parallel and a
- * hung app only ever stalls its own; one shared helper answers `hello`, `apps` and `resolve`.
+ * hung app only ever stalls its own; one shared helper answers `hello`, `apps`, `resolve` and
+ * the whole-display ops.
  * Helpers start on first use, restart after they exit or stop answering, and exit after a
  * while idle. At most `maxHelpers` app helpers live; the least recently used idle one goes.
  */
@@ -61,7 +62,13 @@ export interface ComputerRequestOptions {
 }
 
 /** Ops about the computer as a whole rather than one app. */
-const catalogOps: ReadonlySet<string> = new Set(["hello", "apps", "resolve"]);
+const catalogOps: ReadonlySet<string> = new Set([
+  "hello",
+  "apps",
+  "resolve",
+  "displays",
+  "capture_displays",
+]);
 const catalog = "\u0000catalog";
 
 /** Launching, settling and capturing take seconds; a batch of actions takes longest. */
