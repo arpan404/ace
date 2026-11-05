@@ -8,6 +8,7 @@ import {
   readerMemoryLimitBytes,
   systemReaderRuntime,
 } from "./reader-process.ts";
+import { residentSamplingAvailable } from "@ace/provider-kit/resident-memory";
 import { environment, claudeRecords, cwd } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -66,77 +67,81 @@ test("transcripts with huge records before their first prompt scan stay under th
   expect(await titles(service)).toEqual(expected.toSorted());
 });
 
-test("a transcript that takes the reader past its memory limit is isolated and reported instead of restarting every scan", async () => {
-  const env = await environment();
-  cleanup.push(env.close);
-  const home = join(env.root, "claude");
-  const expected: string[] = [];
-  for (let i = 0; i < 20; i++) {
-    expected.push("healthy prompt " + i);
-    await transcript(join(home, "projects/p", i + ".jsonl"), "healthy prompt " + i);
-  }
-  const poison = join(home, "projects/p", "poison.jsonl");
-  await transcript(poison, "poison prompt");
-  let launches = 0;
-  const service = await openHistory(
-    {
-      indexPath: join(env.root, "ace/index.sqlite"),
-      instances: [{ id: "claude", provider: "claude", homeDir: home }],
-    },
-    // The real reader process and its real memory limit.
-    (url, options) => {
-      launches++;
-      return new ReaderProcess(
-        url,
-        {
-          ...options,
-          execArgv: ["--import", new URL("./poison-preload.ts", import.meta.url).href],
-          env: {
-            ...process.env,
-            ACE_TEST_POISON_MARKER: "poison prompt",
-            ACE_TEST_POISON_BYTES: String(readerMemoryLimitBytes + 256 * 1024 * 1024),
-          },
-        },
-        systemReaderRuntime(),
-      );
-    },
-    {
-      delay: (run, milliseconds) => {
-        // Retire-on-idle stays off; crash recovery runs without waiting out its backoff.
-        if (milliseconds === 5000) return () => {};
-        const timer = setTimeout(run, 0);
-        return () => clearTimeout(timer);
-      },
-    },
-  );
-  cleanup.push(() => service.close());
-  let recovered = Promise.withResolvers<void>();
-  service.subscribeRecovery((retrying) => {
-    if (!retrying) recovered.resolve();
-  });
-  // The daemon rescans after each recovery. Count how many rounds it takes to settle.
-  let crashes = 0;
-  let scan;
-  while (!scan && crashes < 6) {
-    try {
-      scan = await service.scan();
-    } catch (error) {
-      expect(String(error)).toContain(readerMemoryError(readerMemoryLimitBytes).message);
-      crashes++;
-      await recovered.promise;
-      recovered = Promise.withResolvers<void>();
+// The real limit needs the real sampler: on macOS and Windows that is bun:ffi, the daemon's.
+test.skipIf(!residentSamplingAvailable())(
+  "a transcript that takes the reader past its memory limit is isolated and reported instead of restarting every scan",
+  async () => {
+    const env = await environment();
+    cleanup.push(env.close);
+    const home = join(env.root, "claude");
+    const expected: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      expected.push("healthy prompt " + i);
+      await transcript(join(home, "projects/p", i + ".jsonl"), "healthy prompt " + i);
     }
-  }
-  expect(crashes).toBeGreaterThan(0);
-  expect(crashes).toBeLessThanOrEqual(2);
-  expect(scan?.unsupported.map((entry) => entry.reason)).toEqual([
-    expect.stringContaining("stopped the history reader"),
-  ]);
-  expect(await titles(service)).toEqual(expected.toSorted());
-  const settled = launches;
-  for (let round = 0; round < 3; round++) {
-    const again = await service.scan();
-    expect(again.unsupported).toHaveLength(1);
-  }
-  expect(launches).toBe(settled);
-});
+    const poison = join(home, "projects/p", "poison.jsonl");
+    await transcript(poison, "poison prompt");
+    let launches = 0;
+    const service = await openHistory(
+      {
+        indexPath: join(env.root, "ace/index.sqlite"),
+        instances: [{ id: "claude", provider: "claude", homeDir: home }],
+      },
+      // The real reader process and its real memory limit.
+      (url, options) => {
+        launches++;
+        return new ReaderProcess(
+          url,
+          {
+            ...options,
+            execArgv: ["--import", new URL("./poison-preload.ts", import.meta.url).href],
+            env: {
+              ...process.env,
+              ACE_TEST_POISON_MARKER: "poison prompt",
+              ACE_TEST_POISON_BYTES: String(readerMemoryLimitBytes + 256 * 1024 * 1024),
+            },
+          },
+          systemReaderRuntime(),
+        );
+      },
+      {
+        delay: (run, milliseconds) => {
+          // Retire-on-idle stays off; crash recovery runs without waiting out its backoff.
+          if (milliseconds === 5000) return () => {};
+          const timer = setTimeout(run, 0);
+          return () => clearTimeout(timer);
+        },
+      },
+    );
+    cleanup.push(() => service.close());
+    let recovered = Promise.withResolvers<void>();
+    service.subscribeRecovery((retrying) => {
+      if (!retrying) recovered.resolve();
+    });
+    // The daemon rescans after each recovery. Count how many rounds it takes to settle.
+    let crashes = 0;
+    let scan;
+    while (!scan && crashes < 6) {
+      try {
+        scan = await service.scan();
+      } catch (error) {
+        expect(String(error)).toContain(readerMemoryError(readerMemoryLimitBytes).message);
+        crashes++;
+        await recovered.promise;
+        recovered = Promise.withResolvers<void>();
+      }
+    }
+    expect(crashes).toBeGreaterThan(0);
+    expect(crashes).toBeLessThanOrEqual(2);
+    expect(scan?.unsupported.map((entry) => entry.reason)).toEqual([
+      expect.stringContaining("stopped the history reader"),
+    ]);
+    expect(await titles(service)).toEqual(expected.toSorted());
+    const settled = launches;
+    for (let round = 0; round < 3; round++) {
+      const again = await service.scan();
+      expect(again.unsupported).toHaveLength(1);
+    }
+    expect(launches).toBe(settled);
+  },
+);

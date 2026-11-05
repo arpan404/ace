@@ -114,6 +114,7 @@ export class ReaderProcess extends EventEmitter {
       intervalMs: runtime.intervalMs,
       sample: runtime.sample,
       schedule: runtime.schedule,
+      onSampleError: warnUnenforced,
       onExceeded: () => {
         this.stopWatching = undefined;
         killGroup(pid, "SIGKILL");
@@ -152,4 +153,14 @@ export class ReaderProcess extends EventEmitter {
     this.exited.resolve(code);
     this.emit("exit", code);
   }
+}
+
+let warned = false;
+/** Says once per daemon that the limit isn't enforced, rather than failing silently. */
+function warnUnenforced(error: unknown): void {
+  if (warned) return;
+  warned = true;
+  process.emitWarning(
+    `The history reader's memory limit is not enforced: ${error instanceof Error ? error.message : String(error)}`,
+  );
 }

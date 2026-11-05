@@ -44,11 +44,13 @@ test("a process is reported once, with the reading, the first time it goes over 
   expect(clock.pending).toEqual([]);
 });
 
-test("polls run at the interval and skip readings that fail, then stop when told to", async () => {
+test("polls run at the interval, report and skip readings that fail, then stop when told to", async () => {
   const clock = manualClock();
   const exceeded: number[] = [];
+  const failures: unknown[] = [];
   let calls = 0;
   const stop = watchMemory({
+    onSampleError: (error) => failures.push(error),
     pid: 7,
     limitBytes: 300,
     intervalMs: 250,
@@ -62,6 +64,8 @@ test("polls run at the interval and skip readings that fail, then stop when told
   });
   for (let i = 0; i < 3; i++) await clock.tick();
   expect(calls).toBe(3);
+  // The failure is reported; a process that has gone (undefined) is not a failure.
+  expect(failures).toEqual([new Error("gone for a moment")]);
   expect(clock.pending.map((entry) => entry.milliseconds)).toEqual([250]);
   stop();
   await clock.tick();
