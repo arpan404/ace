@@ -13,7 +13,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { delimiter, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
@@ -28,6 +28,7 @@ import {
   splitByRuntime,
   type PassResult,
 } from "./test-tiers.ts";
+import { realNode } from "./runtimes.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const options = parseRunArgs(process.argv.slice(2));
@@ -92,26 +93,6 @@ function vitest(runtime: string, args: string[], timingsFile: string): Promise<E
 function filesRun(timingsFile: string) {
   if (!existsSync(timingsFile)) return 0;
   return timingsSchema.parse(JSON.parse(readFileSync(timingsFile, "utf8"))).files.length;
-}
-
-/**
- * The first `node` on PATH that is Node itself. Bun's node shim and ace's own bin/node are Bun,
- * and the Node pass exists to run what Bun can't.
- */
-function realNode(): string | undefined {
-  const name = process.platform === "win32" ? "node.exe" : "node";
-  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, name);
-    if (!existsSync(candidate)) continue;
-    const probe = spawnSync(
-      candidate,
-      ["-e", "process.stdout.write(process.versions.bun ? 'bun' : 'node')"],
-      { encoding: "utf8" },
-    );
-    if (probe.status === 0 && probe.stdout === "node") return candidate;
-  }
-  return undefined;
 }
 
 const projects = projectsFor(options);

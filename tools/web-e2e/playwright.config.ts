@@ -66,8 +66,8 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
     },
     {
-      // The entrypoint isolates the complete environment before starting daemon services.
-      command: "node src/real-daemon.ts",
+      // The launcher isolates the complete environment, then starts the daemon on Bun.
+      command: "bun src/real-daemon-launcher.ts",
       env: { ACE_TEST_REAL_HOME: process.env.ACE_TEST_REAL_HOME ?? homedir() },
       wait: { stdout: /e2e daemon ready/ },
       reuseExistingServer: false,
