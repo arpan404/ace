@@ -15,6 +15,7 @@ import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
 import { trustedCertificate } from "./tailscale-certificate.ts";
+import { sniListener } from "./sni-listener.ts";
 import { X509Certificate } from "node:crypto";
 
 const tailnet = "studio.tail1234.ts.net";
@@ -246,6 +247,45 @@ test("a Tailscale certificate that expires while renewals fail stops being offer
   now = new X509Certificate(leaf.cert).validToDate.getTime();
   expect(certificate.active()).toBe(false);
   expect(certificate.select(tailnet)).toBeUndefined();
+});
+
+test("a renewed Tailscale certificate is served to new connections without restarting the listener", async () => {
+  const ca = await authority();
+  const first = await ca.leaf(tailnet);
+  const renewed = await ca.leaf(tailnet);
+  let issued = first;
+  let refresh: (() => void) | undefined;
+  const certificate = trustedCertificate({
+    name: tailnet,
+    fetch: async () => `${issued.cert}${issued.key}`,
+    now: Date.now,
+    delay: (callback) => {
+      refresh = callback;
+      return () => {};
+    },
+  });
+  cleanups.push(() => certificate.stop());
+  const pinned = loadIdentity(tlsFixtureHome());
+  const listener = sniListener(
+    {
+      ...pinned,
+      SNICallback: (servername, done) => done(null, certificate.select(servername)),
+    },
+    (_request, response) => response.writeHead(204).end(),
+  );
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  await certificate.ready;
+  expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(first.cert));
+  expect(await presented(port, "studio.local")).toBe(pinned.fingerprint);
+
+  issued = renewed;
+  refresh?.();
+  await expect
+    .poll(() => presented(port, tailnet), { timeout: 5000 })
+    .toBe(publicKeyFingerprint(renewed.cert));
+  expect(await presented(port)).toBe(pinned.fingerprint);
+  expect(await pinnedGet(port, tailnet, pinned.fingerprint, [ca.root])).toBe(204);
 });
 
 test("the pin gives way only to a trusted certificate for the exact ts.net name asked for", async () => {
