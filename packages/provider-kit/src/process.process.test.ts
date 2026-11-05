@@ -8,6 +8,7 @@ import { createInterface } from "node:readline";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROCESS_TEST_TIMEOUT } from "./testing/cli.ts";
 import {
+  observeProcessGroups,
   probeOutput,
   spawnSupervised,
   spawnRawSupervised,
@@ -341,6 +342,37 @@ describe("supervised processes", () => {
     const rejected = expect(result).rejects.toThrow("Probe timed out");
     deadline();
     await rejected;
+  });
+  it("a probe still resolves when its tree stop cannot run after the child exits", async () => {
+    const warnings: string[] = [];
+    const warn = (warning: Error) => warnings.push(warning.message);
+    process.on("warning", warn);
+    const recorded = new Set<number>();
+    const stopObserving = observeProcessGroups({
+      add: (pid) => recorded.add(pid),
+      remove: (pid) => recorded.delete(pid),
+    });
+    try {
+      // A Windows tree stop that can't find taskkill, as in an app without a kernel32 binding.
+      const result = await probeOutput(process.execPath, ["-e", "console.log('done')"], {
+        timeoutMs: 10_000,
+        spawn: (spawnOptions) =>
+          spawnRawSupervised({
+            ...spawnOptions,
+            platform: "win32",
+            windowsJobFactory: () => undefined,
+            windowsKillTree: () => {
+              throw new Error("taskkill unavailable");
+            },
+          }),
+      });
+      expect(result).toMatchObject({ code: 0, stdout: "done" });
+      expect(recorded.size).toBe(0);
+      await expect.poll(() => warnings.join("\n")).toContain("taskkill unavailable");
+    } finally {
+      stopObserving();
+      process.off("warning", warn);
+    }
   });
   it("rejects probe output beyond the capture byte budget", async () => {
     await expect(
