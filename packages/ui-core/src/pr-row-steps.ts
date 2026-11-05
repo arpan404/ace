@@ -74,6 +74,15 @@ export function rowStep(
   thread: LinkedThread | undefined,
   runs: readonly VerifyRun[],
 ): RowStep {
+  if (row.ref.repository.forge !== "github")
+    return {
+      step: thread?.needsYou
+        ? "answer"
+        : row.state === "closed" || row.state === "merged"
+          ? "none"
+          : "wait",
+      local: undefined,
+    };
   const local = localCheckOf(
     runs,
     { owner: row.ref.repository.owner, name: row.ref.repository.name, number: row.ref.number },

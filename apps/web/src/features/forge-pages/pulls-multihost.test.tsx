@@ -64,6 +64,13 @@ test("same owner/name/number on distinct forge/host lists both rows", async () =
   expect(await within(list).findByRole("link", { name: /GitHub same number/ })).toBeTruthy();
   expect(await within(list).findByRole("link", { name: /GitLab same number/ })).toBeTruthy();
   expect(within(list).getAllByRole("listitem").length).toBe(2);
+  const hosted = within(list)
+    .getAllByRole("listitem")
+    .find((item) => within(item).queryByRole("link", { name: /GitLab same number/ }) !== null);
+  if (!hosted) throw new Error("Missing hosted review row");
+  expect(within(hosted).getByText("Review status unavailable")).toBeTruthy();
+  expect(within(hosted).queryByText("Ready to merge")).toBeNull();
+  expect(within(hosted).getByRole("button", { name: /^View:/ })).toBeTruthy();
 });
 
 test("incomplete totals are suppressed and noticed instead of showing zero or complete", async () => {

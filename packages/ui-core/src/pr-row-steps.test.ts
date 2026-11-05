@@ -115,3 +115,17 @@ test("linked reviews with equal names and numbers on different hosts keep their 
   expect(pulls.get(workKey(origin, 5))?.id).toBe("origin");
   expect(pulls.get(workKey(enterprise, 5))?.id).toBe("enterprise");
 });
+
+test("hosted reviews with unavailable review and CI data are never ready to merge", () => {
+  for (const forge of ["origin", "gitlab"] as const) {
+    const hosted = row(1, {
+      ref: { repository: { ...repository, forge }, number: 1 },
+      ci: "unknown",
+      reviewDecision: null,
+    });
+    expect(rowStep(hosted, "someone", undefined, []).step).toBe("wait");
+    expect(
+      rowStep(hosted, "someone", { id: "t", title: "Needs input", needsYou: true }, []).step,
+    ).toBe("answer");
+  }
+});
