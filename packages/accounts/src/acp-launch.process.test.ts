@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,11 +31,15 @@ test("account lifetime replacement retains the approved ACP artifact, environmen
     installationId: "approved",
     instanceId: "approved:default",
   });
+  // An installed agent runs on node; releases ship Bun under that name. Bun's own name is refused
+  // (`bun` is also a package runner), so the test runtime is started through a `node` script.
+  const node = join(root, "node");
+  await writeFile(node, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`, { mode: 0o755 });
   try {
     await agents.bind({
       ...identity,
       version: "1.0.0",
-      command: process.execPath,
+      command: node,
       args: [
         fileURLToPath(new URL("./testing/acp-server.ts", import.meta.url)),
         "--approved-artifact",
