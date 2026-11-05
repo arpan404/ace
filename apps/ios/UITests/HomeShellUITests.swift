@@ -39,7 +39,7 @@ import XCTest
         XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 30))
         XCTAssertEqual(app.newThreadButton.label, "New thread")
         app.tabBars.firstMatch.buttons["Chats"].tap()
-        XCTAssertTrue(app.buttons["chat.row"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'")).firstMatch.exists)
         capture("chats")
         let compose = app.newThreadButton
@@ -97,7 +97,7 @@ import XCTest
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         app.tapThreadsTab(app.buttons["threads.tab.snoozed"])
         app.tabBars.firstMatch.buttons["Chats"].tap()
-        let chat = app.buttons["chat.row"].firstMatch
+        let chat = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))
         chat.tap()
         XCTAssertTrue(app.buttons["thread.menu"].waitForExistence(timeout: 20))

@@ -61,6 +61,8 @@ struct ChatsList: View {
         let labels = inbox.mergedChats.menuLabels.isEmpty ? inbox.merged.menuLabels : inbox.mergedChats.menuLabels
         Button { actions.open(key) } label: { ChatRow(row: row) }
             .buttonStyle(.row)
+            // Named by machine and chat, as the Threads list's rows are: two machines may share an id.
+            .accessibilityIdentifier(inbox.showsMachineNames ? "chat.\(key.machineId).\(row.id)" : "chat.\(row.id)")
             .listRowInsets(EdgeInsets(top: 0, leading: AceDesign.Size.listInset, bottom: 0, trailing: AceDesign.Size.listInset))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -120,6 +122,5 @@ private struct ChatRow: View {
         InboxLineRow(row: row, end: .status, dimmed: look?.settled == true)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel([row.title, look?.meaning, look?.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
-            .accessibilityIdentifier("chat.row")
     }
 }
