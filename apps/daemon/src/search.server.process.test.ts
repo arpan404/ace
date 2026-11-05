@@ -1,6 +1,6 @@
 import { AgentId } from "@ace/protocol";
 import { once } from "node:events";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import { Item } from "@ace/protocol";
 import { applyDelivery } from "@ace/projection";

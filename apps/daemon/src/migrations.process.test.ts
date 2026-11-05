@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, test } from "vitest";
 import { Agent, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";

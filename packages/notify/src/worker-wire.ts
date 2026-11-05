@@ -92,6 +92,12 @@ export const FromWorker = z.discriminatedUnion("type", [
     notification: Notification,
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
+  /** The store is in a format this build cannot read; the worker waits to be stopped. */
+  z.object({
+    type: z.literal("incompatible"),
+    path: z.string().max(4096),
+    message: z.string().max(8192),
+  }),
   /** Sent after a call changes when delivery next has work or whether the worker is idle. */
   z.object({ type: z.literal("state"), deadline: seq.nullable(), idle: z.boolean() }),
 ]);

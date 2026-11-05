@@ -16,6 +16,18 @@ if (defaultWarning) {
     defaultWarning.call(process, warning);
   });
 }
-export { DatabaseSync, StatementSync } from "node:sqlite";
+import { DatabaseSync as NodeDatabaseSync, type DatabaseSyncOptions } from "node:sqlite";
+import { prepareReadOnlyOpen } from "./sqlite-read-only.ts";
+
+/** node:sqlite's database, opening read-only WAL databases the same way on Node and Bun. */
+export class DatabaseSync extends NodeDatabaseSync {
+  constructor(path: string | Buffer | URL, options?: DatabaseSyncOptions) {
+    if (options?.readOnly === true && typeof path === "string") prepareReadOnlyOpen(path);
+    // Node rejects an explicit undefined options argument.
+    if (options === undefined) super(path);
+    else super(path, options);
+  }
+}
+export { StatementSync } from "node:sqlite";
 export { backup } from "./sqlite-backup.ts";
 export type { SQLInputValue, SQLOutputValue } from "node:sqlite";
