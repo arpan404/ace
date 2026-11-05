@@ -1,5 +1,5 @@
 import { distinctRetainedInputs } from "@ace/projection";
-import { bubbleContent, inputWithText, tokensFromInput } from "@ace/ui-core";
+import { bubbleContent, inputWithText, tokensFromInput, typedWords } from "@ace/ui-core";
 import { annotationCount } from "@/features/annotations/index.ts";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import {
@@ -49,7 +49,7 @@ export function queuedLine(message: Pick<QueuedMessage, "input">): string {
   const annotations = shown.annotations?.items.length ?? 0;
   const quotes = shown.quotes?.length ?? 0;
   // Not `shown.text`: the transcript's clean-up drops a leading slash command.
-  const words = tokensFromInput(shown.parts).text.trim();
+  const words = typedWords(shown.parts);
   return [
     quotes ? `Replying to ${quotes === 1 ? "1 quote" : `${quotes} quotes`}` : "",
     words,
