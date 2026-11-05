@@ -11,3 +11,12 @@ export const userDataName = "ace-next";
 export function desktopUserData(input: { explicit: string | undefined; appData: string }): string {
   return input.explicit ? resolve(input.explicit) : join(input.appData, userDataName);
 }
+
+/**
+ * Where the app writes its logs and freeze records when `ACE_DESKTOP_USER_DATA` is set: inside
+ * that folder, so a development or test app never writes to (or reads freezes from) the
+ * installed app's logs (macOS `~/Library/Logs/ace desktop`). Undefined keeps the system's.
+ */
+export function desktopLogs(explicit: string | undefined): string | undefined {
+  return explicit ? join(resolve(explicit), "logs") : undefined;
+}

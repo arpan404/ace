@@ -9,6 +9,7 @@ import { _electron as electron, type ElectronApplication, type Page } from "play
 import {
   appEnvironment,
   desktop,
+  e2eSwitches,
   electronBinary,
   electronBundles,
   mainEntry,
@@ -62,6 +63,7 @@ export async function buildApp(): Promise<void> {
 export async function launch(scale: number): Promise<Launched> {
   const userData = await mkdtemp(join(tmpdir(), "ace-e2e-chrome-"));
   const args = [
+    ...e2eSwitches(process.platform),
     // Before ace's own main script: records what ace hands Electron (`main-probes.cjs`).
     "-r",
     join(import.meta.dirname, "main-probes.cjs"),

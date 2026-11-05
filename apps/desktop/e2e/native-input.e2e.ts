@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { appEnvironment, desktop, electronBinary } from "../scripts/common.ts";
+import { appEnvironment, desktop, e2eSwitches, electronBinary } from "../scripts/common.ts";
 
 /**
  * The embedded browser's native input in real Electron: the app's own browser backend and view
@@ -51,7 +51,7 @@ describe.skipIf(!enabled)("embedded view native input", () => {
     userData = await mkdtemp(join(tmpdir(), "ace-e2e-input-"));
     app = await electron.launch({
       executablePath: await electronBinary(),
-      args: [join(out, "main.mjs")],
+      args: [...e2eSwitches(process.platform), join(out, "main.mjs")],
       env: { ...appEnvironment(process.env), ACE_E2E_USER_DATA: userData },
     });
     await app.evaluate(async () => {

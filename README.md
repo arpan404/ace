@@ -90,7 +90,7 @@ Every development command runs its processes side by side with prefixed logs (`d
 | `bun run smoke:real`          | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
 
 **Dev data is isolated and persistent.** The dev daemon uses `ACE_HOME=~/.ace/dev` on port 4343,
-and Electron keeps its window state, sessions and settings in `~/.ace/dev-electron`. Every
+and Electron keeps its window state, sessions, settings and logs in `~/.ace/dev-electron`. Every
 checkout and worktree shares this home, so dev threads and settings survive across branches,
 and none of it touches `~/.ace` or an installed app. Set `ACE_DEV_SEED=1` to copy the fake
 daemon's demo threads into an empty dev store before the daemon starts

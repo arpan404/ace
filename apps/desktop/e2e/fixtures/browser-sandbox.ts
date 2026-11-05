@@ -1,11 +1,10 @@
 import { staticRenderer } from "./static-renderer.ts";
-import { execFileSync } from "node:child_process";
+import { copyApp } from "./app-build.ts";
 import { mkdtemp, mkdir, rm, cp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
 import { startDaemon } from "../../../daemon/src/index.ts";
 import { readConfig } from "../../../daemon/src/config.ts";
@@ -15,8 +14,8 @@ import { detectChromium } from "@ace/browser";
 import {
   appEnvironment,
   appVersion,
+  e2eSwitches,
   electronBinary,
-  electronBundles,
   mainEntry,
   repo,
 } from "../../scripts/common.ts";
@@ -122,21 +121,7 @@ Object.defineProperty(app,'isPackaged',{value:true});Object.defineProperty(proce
 process.argv=[process.argv[0]];app.setAsDefaultProtocolClient=()=>true;app.setLoginItemSettings=()=>{};globalThis.testOpened=[];shell.openExternal=async url=>{globalThis.testOpened.push(url)};
 await import('./app/${mainEntry}');`,
     );
-    for (const options of electronBundles(out, process.env)) await build(options);
-    execFileSync(
-      "bun",
-      [
-        "x",
-        "vite",
-        "build",
-        "--outDir",
-        join(out, "renderer"),
-        "--emptyOutDir",
-        "--logLevel",
-        "warn",
-      ],
-      { cwd: join(repo, "apps/web"), stdio: "inherit", env: { ...process.env, GOMAXPROCS: "1" } },
-    );
+    await copyApp(out);
     const workspaceId = daemon.store.createWorkspace(home, "Browser sandbox");
     const current = daemon;
     const engine = current.engine;
@@ -174,7 +159,11 @@ await import('./app/${mainEntry}');`,
     delete env.ACE_DAEMON_TOKEN_FILE;
     app = await electron.launch({
       executablePath: await electronBinary(),
-      args: [join(root, "Resources"), "--force-device-scale-factor=2"],
+      args: [
+        ...e2eSwitches(process.platform),
+        join(root, "Resources"),
+        "--force-device-scale-factor=2",
+      ],
       env: {
         ...env,
         HOME: root,
