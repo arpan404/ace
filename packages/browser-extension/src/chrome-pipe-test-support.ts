@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
+import { mergeDisabledFeatures } from "@ace/browser/chrome-features";
 
 const Reply = z.object({
   id: z.number(),
@@ -22,7 +23,8 @@ export async function launchTestChrome(
 ) {
   const child: ChildProcess = spawn(
     executable,
-    [
+    // A caller's own --disable-features joins this one instead of replacing it.
+    mergeDisabledFeatures([
       "--headless=new",
       "--remote-debugging-pipe",
       "--enable-unsafe-extension-debugging",
@@ -31,11 +33,20 @@ export async function launchTestChrome(
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // A headless browser has no visible page, so Chrome runs its extension processes at
+      // background priority (every thread at macOS's background band). On a busy machine the
+      // service worker then barely runs and registration through the host stalls until an
+      // extension page opens. The switches match ace's own Chrome; the performance manager's
+      // priority policy backgrounds the processes again unless it is off too.
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-features=PMProcessPriorityPolicy",
       // Windows: an elevated test would otherwise see the browser relaunch without its pipe.
       ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       ...extraArgs,
       "about:blank",
-    ],
+    ]),
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
   );
   const stderr: string[] = [];

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./chrome-features": "./src/chrome-features.ts",
     "./policy": "./src/policy.ts",
     "./policy-events": "./src/policy-events.ts",
     "./zoom": "./src/zoom.ts",
