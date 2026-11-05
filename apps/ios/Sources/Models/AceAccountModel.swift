@@ -5,6 +5,8 @@ struct AceAccountIdentity: Codable {
     let id: String
     let email: String
     let name: String
+    /// The account has a profile picture, which the backend relays (`GET /v1/account/picture`).
+    var picture: Bool? = nil
 }
 private struct AccountSession: Decodable {
     let account: AceAccountIdentity
@@ -39,6 +41,10 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
 /// The relay owns WorkOS credentials. The phone stores only its revocable ace session.
 @MainActor @Observable final class AceAccountModel {
     private(set) var account: AceAccountIdentity?
+    /// The account's profile picture as the backend relays it, so no third party sees which
+    /// device shows it; nil without one, while loading, or when it couldn't be read (the avatar
+    /// shows initials then).
+    private(set) var picture: Data?
     private(set) var login: AceAccountLogin?
     private(set) var busy = false
     private(set) var error: String?
@@ -74,8 +80,9 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
             let session: AccountSession = try await call("session", token: saved)
             guard session.expiresAt > now() else { throw AccountFailure.expired }
             token = saved; account = session.account
+            await loadPicture()
         } catch AccountFailure.expired {
-            try? secrets.delete(key); token = nil; account = nil
+            try? secrets.delete(key); token = nil; account = nil; picture = nil
         } catch { self.error = "Couldn't verify your account. Try again." }
     }
 
@@ -113,6 +120,7 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
                     try Task.checkCancellation()
                     try secrets.set(key, grant.token)
                     token = grant.token; account = grant.account; login = nil; self.error = nil
+                    await loadPicture()
                     return
                 }
             } catch {
@@ -140,11 +148,33 @@ private final class AccountRedirects: NSObject, URLSessionTaskDelegate {
         defer { busy = false }
         do {
             try await remove("session", token: token)
-            self.token = nil; account = nil
+            self.token = nil; account = nil; picture = nil
             do { try secrets.delete(key) }
             catch { self.error = "Signed out. Couldn't clear the saved account session." }
         } catch { self.error = "Couldn't sign out. Reconnect and try again." }
     }
+
+    /// Reads the picture once per session. Only PNG, JPEG, WebP or GIF up to 1 MiB, as the web.
+    private func loadPicture() async {
+        guard let origin, let token, account?.picture == true else { picture = nil; return }
+        var request = URLRequest(url: origin.appending(path: "v1/account/picture"))
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        guard let (bytes, response) = try? await http.bytes(for: request),
+              let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
+              (response.value(forHTTPHeaderField: "Content-Type") ?? "").range(of: "^image/(png|jpeg|webp|gif)$", options: .regularExpression) != nil
+        else { return }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                guard data.count < Self.pictureLimit else { return }
+                data.append(byte)
+            }
+        } catch { return }
+        // Still the same session: a sign-out while it loaded keeps no picture.
+        if self.token == token { picture = data }
+    }
+    private static let pictureLimit = 1024 * 1024
 
     private func validToken(_ value: String) -> Bool {
         value.utf8.count == 43 && value.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil
