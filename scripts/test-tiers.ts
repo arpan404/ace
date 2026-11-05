@@ -43,6 +43,9 @@ export const nodeOnlySuites = [
   // Its read recorder patches node:fs in every isolate (inherited --import and
   // syncBuiltinESMExports); on Bun it would see no reads, so this privacy check runs on Node.
   "apps/daemon/src/history-startup.process.test.ts",
+  // The Electron main process bundles provider-kit's process code and runs it on Node, where it
+  // takes koffi instead of bun:ffi and runs the probe worker on Node. These cover those paths.
+  "packages/provider-kit/src/process-on-node.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
