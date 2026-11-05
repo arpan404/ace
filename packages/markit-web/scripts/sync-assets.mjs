@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /*
@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
  * MARKIT_FEATURES change, so a submodule bump never ships a stale Wasm file.
  *
  * Needs Rust with the wasm32-unknown-unknown target and wasm-bindgen-cli matching the
- * wasm-bindgen version in packages/markit/Cargo.lock.
+ * wasm-bindgen version in packages/markit/Cargo.lock. On Windows the build script runs on Git for
+ * Windows' bash, which is not on PATH there by default.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,11 +42,27 @@ const stamp = JSON.stringify({
   edits: git("status", "--porcelain", "--untracked-files=no"),
   features: process.env.MARKIT_FEATURES ?? "",
 });
+/**
+ * The bash that runs markit's build script. On Windows it is Git for Windows' own (found from
+ * `git --exec-path`, `<git>/<mingw64|clangarm64>/libexec/git-core`): a bare `bash` there is
+ * usually missing from PATH, or is WSL's System32 launcher, which cannot run a Windows toolchain.
+ */
+function bash() {
+  if (process.platform !== "win32") return "bash";
+  const exec = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim();
+  const found = join(resolve(exec, "..", "..", ".."), "bin", "bash.exe");
+  if (existsSync(found)) return found;
+  process.stderr.write(
+    `Building markit's Wasm needs Git for Windows' bash; ${found} is missing.\n`,
+  );
+  process.exit(1);
+}
+
 const built = existsSync(stampFile) ? readFileSync(stampFile, "utf8") : undefined;
 
 if (!existsSync(wasm) || built !== stamp) {
   try {
-    execFileSync("bash", [join(markit, "scripts", "build-web.sh")], {
+    execFileSync(bash(), [join(markit, "scripts", "build-web.sh")], {
       cwd: markit,
       stdio: "inherit",
     });
