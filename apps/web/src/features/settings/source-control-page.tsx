@@ -144,7 +144,8 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     status?.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.forge ??
     "github";
   const savedName = gitProviders.find((entry) => entry.forge === savedForge)?.name ?? "GitHub";
-  const cliName = savedForge === "gitlab" ? "glab" : "gh";
+  const cliName = savedForge === "gitlab" ? "glab" : savedForge === "origin" ? "origin" : "gh";
+  const canCheck = savedForge === "github" || savedForge === "gitlab" || savedForge === "origin";
   const loading = readiness.isFetching && !readiness.isError;
   const disabled = saving || loading;
   const readError = readiness.isError
@@ -167,10 +168,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       />
       <SettingSection label={savedName}>
         <SettingRow
-          title={`${savedName} ${savedForge === "github" || savedForge === "gitlab" ? "CLI" : "connection"}`}
+          title={`${savedName} ${canCheck ? "CLI" : "connection"}`}
           description={
             status && !loading ? (
-              `${savedForge !== "github" && savedForge !== "gitlab" ? "API support pending" : status.cli === "available" ? `${cliName} ${status.version}` : "Not installed"} · ${status.preferences.host}`
+              `${!canCheck ? "API support pending" : status.cli === "available" ? `${cliName} ${status.version}` : "Not installed"} · ${status.preferences.host}`
             ) : loading ? (
               <Skeleton className="mt-1 w-40" />
             ) : undefined
@@ -188,9 +189,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
         {status && !loading && (
           <SettingRow title={`${savedName} API`} inline>
             <span className="text-sm text-muted-foreground">
-              {savedForge === "github" || savedForge === "gitlab"
-                ? apiState(status)
-                : "Not available yet"}
+              {canCheck ? apiState(status) : "Not available yet"}
             </span>
           </SettingRow>
         )}
@@ -203,9 +202,10 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             </span>
           </SettingRow>
         ) : null}
-        {savedForge === "gitlab" && (
+        {(savedForge === "gitlab" || savedForge === "origin") && (
           <SettingNote>
-            GitLab connection checks are available. Merge requests and issues aren't supported yet.
+            Pull request details and changed files are available in Code review. Reviews and merge
+            actions open on the host.
           </SettingNote>
         )}
         {/* What to do next; when everything is ready the rows above already say so. */}

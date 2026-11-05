@@ -122,3 +122,71 @@ test("Fix with agent shows the linked task's composer and puts the request there
   const message = await screen.findByRole("combobox", { name: /Message/i });
   await waitFor(() => expect(message.textContent).toContain('The check "links" fails on PR #42'));
 });
+
+test("Origin pull requests show details and diffs without GitHub mutation controls", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const origin = {
+    forge: "origin" as const,
+    host: "origin.cursor.com",
+    owner: "acme",
+    name: "api",
+  };
+  const readonlyDetail = ForgePrDetail.parse({
+    ...detail,
+    readOnly: true,
+    unavailableResources: ["comments", "checks", "reviews", "commits"],
+    status: {
+      ...detail.status,
+      ref: { repository: origin, number: 42 },
+      url: "https://cursor.com/codebase/acme/api/pull/42",
+      ci: "unknown",
+      checks: [],
+      comments: [],
+      reviewThreads: [],
+    },
+  });
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.detail", workspaceId, repository: origin, number: 42 },
+    { resource: "prDetail", value: readonlyDetail },
+  );
+  app.daemon.workspace.setForgeRead(
+    {
+      op: "forge.pr.files",
+      workspaceId,
+      repository: origin,
+      number: 42,
+      page: 1,
+      headSha: readonlyDetail.status.headSha,
+      baseSha: readonlyDetail.baseSha,
+    },
+    {
+      resource: "prFiles",
+      value: {
+        ref: readonlyDetail.status.ref,
+        headSha: readonlyDetail.status.headSha,
+        baseSha: readonlyDetail.baseSha,
+        files: [
+          {
+            path: "origin-change.ts",
+            status: "added",
+            additions: 1,
+            deletions: 0,
+            patch: "@@ -0,0 +1 @@\n+export const origin = true;",
+            truncated: false,
+          },
+        ],
+        truncated: false,
+      },
+    },
+  );
+  await openPullRequest(app, { project: "api", repository: origin, number: 42 });
+  await screen.findByText(/Read only in Ace/);
+  expect(screen.getByRole("link", { name: "Open on Cursor Origin" })).toHaveProperty(
+    "href",
+    "https://cursor.com/codebase/acme/api/pull/42",
+  );
+  expect(screen.queryByRole("button", { name: /^Merge/ })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Changed files" }));
+  await screen.findByText("origin-change.ts");
+});

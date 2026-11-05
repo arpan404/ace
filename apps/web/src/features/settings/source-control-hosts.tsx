@@ -8,6 +8,7 @@ export const gitProviders: readonly {
   host: string;
 }[] = [
   { forge: "github", name: "GitHub", host: "github.com" },
+  { forge: "origin", name: "Cursor Origin", host: "origin.cursor.com" },
   { forge: "gitlab", name: "GitLab", host: "gitlab.com" },
   { forge: "gitbucket", name: "GitBucket", host: "" },
   { forge: "bitbucket", name: "Bitbucket", host: "bitbucket.org" },

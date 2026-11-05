@@ -44,7 +44,7 @@ export function PrLine(props: {
   const { merge, checking } = useMergePr(git);
   if (!pr) return null;
   const repository = pr.repo ?? git.checkout?.repository;
-  const live = pr.state === "open" || pr.state === "draft";
+  const live = repository?.forge === "github" && (pr.state === "open" || pr.state === "draft");
   const same = git.status?.ref.number === pr.number;
   const block = git.status && same ? mergeBlock(git.status, git.checkout?.baseBranch) : undefined;
   const conflicts = block?.kind === "conflicts";

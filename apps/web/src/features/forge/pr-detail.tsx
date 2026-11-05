@@ -12,6 +12,7 @@ import {
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { HostedPrReader } from "./pr-hosted-reader.tsx";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
@@ -526,7 +527,15 @@ export function PrDetail(props: {
         props.page && "sm:[--forge-gutter:2rem]",
       )}
     >
-      {context ? (
+      {context?.detail.readOnly ? (
+        <HostedPrReader
+          key={context.detail.status.headSha}
+          context={context}
+          onBack={props.onBack}
+          tab={prWorkspaceTab(props.tab)}
+          onTab={props.onTab}
+        />
+      ) : context ? (
         <PrDetailLoaded
           context={context}
           tab={prWorkspaceTab(props.tab)}

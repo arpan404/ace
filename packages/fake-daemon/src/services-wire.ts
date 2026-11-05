@@ -454,7 +454,7 @@ export class FakeServicesWire {
             )?.account;
             const forge =
               preferences.hosts.find((entry) => entry.host === preferences.host)?.forge ?? "github";
-            const supported = forge === "github" || forge === "gitlab";
+            const supported = forge === "github" || forge === "gitlab" || forge === "origin";
             emit({
               type: "source-control.result",
               requestId: message.requestId,
