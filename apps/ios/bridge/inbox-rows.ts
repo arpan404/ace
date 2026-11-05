@@ -171,6 +171,9 @@ export function inboxLayout(
     sections: sections.map((section) => ({
       key: section.key,
       label: section.label,
+      // The tab that lists it, said outright: a section whose rows are all still unloaded (Settled,
+      // paged by the daemon) has no row to read it from.
+      tab: sectionTabs[section.key] ?? "inbox",
       ids: section.keys,
       // Rows on the phone may be fewer: the daemon pages older settled threads.
       total: section.total,

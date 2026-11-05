@@ -236,6 +236,9 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var total: Int? = nil
         /// Chats only: the section's rows are settled and draw dimmed.
         var settled: Bool? = nil
+        /// The Threads tab that lists the section ("inbox", "snoozed", "settled"); nil from older
+        /// bridges and checkpoints, which `tabs` places instead.
+        var tab: String? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }

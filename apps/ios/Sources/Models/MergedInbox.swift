@@ -52,20 +52,25 @@ struct MergedInbox: Equatable {
     static let empty = MergedInbox(sections: [], more: [], snooze: [])
 
     static func merge(_ parts: [(machineId: String, layout: InboxLayout)]) -> MergedInbox {
-        struct Group { var order: Int; var first: Int; var label: String; var tab: String; var rows: [(rank: String, key: InboxKey)]; var unloaded: [String: Int] = [:] }
+        struct Group { var order: Int; var first: Int; var label: String; var tab: String?; var rows: [(rank: String, key: InboxKey)]; var unloaded: [String: Int] = [:] }
         var groups: [String: Group] = [:]
         var seen = 0
         for (machine, part) in parts.enumerated() {
             // The tab each section is in is the daemon's: whichever of its placed lists holds it.
             let placed = part.layout.tabs
             let snoozed = Set(placed?.snoozed ?? []), settled = Set(placed?.settled ?? [])
-            func tab(of section: InboxLayout.Section) -> String {
-                guard let first = section.ids.first else { return "inbox" }
+            // Nil while the section can't say: no tab named and no loaded row to read it from.
+            func tab(of section: InboxLayout.Section) -> String? {
+                if let tab = section.tab { return tab }
+                guard let first = section.ids.first else { return nil }
                 return snoozed.contains(first) ? "snoozed" : settled.contains(first) ? "settled" : "inbox"
             }
             for (position, section) in part.layout.sections.enumerated() {
                 var group = groups[section.key] ?? Group(order: section.order ?? position, first: seen, label: section.label,
-                                                           tab: tab(of: section), rows: [])
+                                                           tab: nil, rows: [])
+                // The first machine that can say places the group, so one machine's empty section
+                // never pulls another machine's rows into the wrong tab.
+                if group.tab == nil { group.tab = tab(of: section) }
                 seen += 1
                 for (index, id) in section.ids.enumerated() {
                     // A runtime without ranks keeps its own order after every ranked row.
@@ -83,7 +88,7 @@ struct MergedInbox: Equatable {
             // UTF-16 code-unit order is JavaScript's `<`, which the shared ranks are built for.
             Section(key: key, label: group.label,
                     rows: group.rows.sorted { $0.rank.utf16.lexicographicallyPrecedes($1.rank.utf16) }.map(\.key),
-                    tab: group.tab, unloaded: group.unloaded)
+                    tab: group.tab ?? "inbox", unloaded: group.unloaded)
         }
         // The words from the first machine that sends them; the Inbox's dot from every daemon's.
         let needsYou = parts.reduce(0) { $0 + ($1.layout.attention?.threads.needsYou ?? 0) }

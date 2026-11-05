@@ -15,6 +15,7 @@ import {
 } from "@ace/protocol";
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { followInbox, type InboxClock } from "./inbox.ts";
+import { inboxLayout } from "./inbox-rows.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
 /*
@@ -177,4 +178,12 @@ test("a pinned thread the person settles rests in Settled, not among the pinned"
   });
   await until(() => tabs(sink).settled.includes("kept"), "the settle");
   expect(tabs(sink).inbox).toEqual([]);
+});
+
+test("a Settled section whose threads are all on older pages still names its tab", () => {
+  const layout = inboxLayout([], [], now, true, { settledTotal: 12 });
+  const settled = layout.sections.find((section) => section.key === "settled");
+  // No row to read its tab from: the phone would otherwise file it, and every other machine's
+  // settled rows merged into it, under the Inbox.
+  expect(settled).toMatchObject({ ids: [], total: 12, tab: "settled" });
 });
