@@ -170,9 +170,10 @@ export function killWindowsTree(pid: number, force: boolean): void {
 /** GetSystemDirectoryW: the characters written to a 1,024-character buffer, or 0. */
 type SystemDirectoryReader = { read(buffer: Buffer, size: number): unknown; unload(): void };
 
-// The daemon runs on Bun and binds kernel32 with bun:ffi. The desktop main process bundles this
-// file too and keeps koffi, required lazily like process-containment; macOS and Linux load
-// neither.
+// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes take koffi, required
+// lazily like process-containment so their bundles build. The packaged desktop app ships no
+// koffi, so there this throws and the Windows tree stop cannot find taskkill; macOS and Linux
+// load neither.
 function systemDirectoryReader(): SystemDirectoryReader {
   if (runsOnBun()) {
     const kernel = openLibrary("kernel32.dll", {

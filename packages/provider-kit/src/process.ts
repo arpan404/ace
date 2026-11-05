@@ -187,7 +187,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     ended = true;
     if (timer) clearTimeout(timer);
     if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
-      destroy(pid);
+      // This runs in the child's exit listener, where a throw would be uncaught (and would end
+      // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
+      // without a kernel32 binding, is reported and ownership still ends.
+      try {
+        destroy(pid);
+      } catch (error) {
+        process.emitWarning(`Could not stop process tree ${pid} after it exited: ${String(error)}`);
+      }
       unregisterGroup(pid);
       job?.dispose();
     }
@@ -412,3 +419,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
 export { toWindowsCommand, type WindowsCommand } from "./process-owner.ts";
+export { createProbeThread, type ProbeThread } from "./probe-thread.ts";
