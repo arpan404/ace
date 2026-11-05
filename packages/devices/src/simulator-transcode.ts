@@ -103,16 +103,24 @@ export function startSimulatorTranscode(options: {
         ),
       );
   });
-  const room = () =>
-    !stopped && child.stdin.writable && child.stdin.writableLength < simulatorTranscodeInputLimit;
+  // Bytes handed to the pipe and not yet flushed, counted from write callbacks: Bun reports
+  // `writableLength` as 0 however full the pipe is.
+  let unflushed = 0;
+  const write = (bytes: Buffer) => {
+    unflushed += bytes.length;
+    child.stdin.write(bytes, () => {
+      unflushed -= bytes.length;
+    });
+  };
+  const room = () => !stopped && child.stdin.writable && unflushed < simulatorTranscodeInputLimit;
   const gate = new VideoChunkGate();
   let owedSettings: Parameters<SimulatorTranscode["settings"]>[0] | undefined;
   let owedKeyframe = false;
   /** Settings and keyframe requests owed since the pipe filled, sent once it has room. */
   const sendControl = () => {
     if (!room()) return;
-    if (owedSettings) child.stdin.write(packet({ op: "settings", ...owedSettings }));
-    if (owedKeyframe) child.stdin.write(packet({ op: "keyframe" }));
+    if (owedSettings) write(packet({ op: "settings", ...owedSettings }));
+    if (owedKeyframe) write(packet({ op: "keyframe" }));
     owedSettings = undefined;
     owedKeyframe = false;
   };
@@ -122,7 +130,7 @@ export function startSimulatorTranscode(options: {
       sendControl();
       const outcome = gate.offer("simulator", "input", keyframe, () => {
         if (!room()) return false;
-        child.stdin.write(packet({ op: "frame", keyframe, seq, ts }, payload));
+        write(packet({ op: "frame", keyframe, seq, ts }, payload));
         return true;
       });
       if (outcome.keyframe && !stopped) options.needKeyframe();
