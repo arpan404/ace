@@ -26,32 +26,22 @@ import XCTest
         screenshot("composer-separate-add-menu")
     }
 
-    func testExpandedComposerControlsStayInsideTheFieldWithLargeText() {
+    func testTheCapsuleKeepsSendInsideItWithLargeText() {
         let app = launchIntoThread(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         let field = app.otherElements["composer.surface"].firstMatch
         let add = app.buttons["composer.attach"]
-        app.textViews["composer.input"].tap()
+        let input = app.textViews["composer.input"]
+        XCTAssertTrue(input.waitForExistence(timeout: 10))
+        input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        input.typeText("Large")
         let send = app.buttons["composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5))
         XCTAssertLessThanOrEqual(add.frame.maxX, field.frame.minX)
-        for identifier in ["composer.access", "composer.model", "composer.effort", "composer.settings", "composer.send"] {
-            let button = app.buttons[identifier]
-            if button.exists {
-                XCTAssertGreaterThanOrEqual(button.frame.minX, field.frame.minX, identifier)
-                XCTAssertLessThanOrEqual(button.frame.maxX, field.frame.maxX, identifier)
-                if identifier != "composer.send" {
-                    XCTAssertLessThanOrEqual(button.frame.maxX, send.frame.minX, identifier)
-                }
-            }
-        }
+        XCTAssertGreaterThanOrEqual(send.frame.minX, field.frame.minX)
+        XCTAssertLessThanOrEqual(send.frame.maxX, field.frame.maxX)
+        XCTAssertLessThanOrEqual(input.frame.maxX, send.frame.minX)
         screenshot("composer-large-text-fit")
-        let settings = app.buttons["composer.settings"]
-        if settings.exists {
-            XCTAssertTrue(settings.isHittable)
-            settings.tap()
-            XCTAssertTrue(app.buttons["composer.settings.model"].waitForExistence(timeout: 10))
-        }
     }
 
     func testTheAddMenuClosesCleanlyAndCanBeOpenedAgain() {

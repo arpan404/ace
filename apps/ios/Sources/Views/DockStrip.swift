@@ -72,8 +72,7 @@ struct DockStrip: View {
         .padding(.top, AceDesign.Space.row)
         .padding(.bottom, AceDesign.Space.stripBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The top section of the composer's glass block (`GlassBlock`); standing alone (a
-        // subagent's view), its own glass.
+        // Its own glass, the only glass above the composer capsule (and on a subagent's view).
         .modifier(StripSurfaceGlass(inBlock: inBlock))
         .contentShape(Rectangle())
         .gesture(swipe)

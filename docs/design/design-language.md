@@ -73,7 +73,7 @@ A 4-point grid. One side margin per platform (16 on iPhone). Fixed row heights s
 
 ### Materials
 
-Three surfaces only: **background** (flat, where content lives), **glass** (only for things that float over content: tab bar, composer block, header buttons, menus), **raised** (sheets, dialogs, anything that holds content above the page). Never glass on glass; never glass on a scrolling area.
+Three surfaces only: **background** (flat, where content lives), **glass** (only for things that float over content: tab bar, composer capsule, header buttons, menus), **raised** (sheets, dialogs, anything that holds content above the page). Never glass on glass; never glass on a scrolling area.
 
 ### Iconography
 
@@ -91,7 +91,7 @@ Plain, short, specific. Say what happened and what the person can do: "Codex is 
 
 - **Thread row:** project · status icon (and time for live work) / title (regular weight; full ink when the person is needed) / branch · PR · another machine · provider mark. No status words. The provider mark carries the account's badge only when there is more than one account for that provider.
 - **Lists:** one flat list per tab (Inbox · Snoozed · Settled), ordered pinned → needs you → running → finished unseen → idle. No section labels.
-- **The composer block:** one object at the bottom of a thread. From top: the pill row (model, live state), the request strip when there is one, the field with + and Send/Stop. Stop lives in the send button.
+- **The composer capsule:** the bottom of a thread is one capsule, as Messages draws it: a round + on its left, then the field and one trailing button. The button is the microphone while the field is empty and nothing runs, Send once there are words or chips, and Stop while the tree works and the field is empty; a typed message still steers or queues. Wrapped words grow the capsule into a rounded shape concentric with its button, up to five lines, then it scrolls. Above it, on the field's left edge: the chips on the next message (files, comments, drawings) as plain capsules, and over them one line of live state (status icon, one sentence such as "Working for 4m 12s", at most one text action such as "2 queued"), nothing when idle. A request strip takes the live line's place and is the only glass above the capsule. The model is not here: it lives in the thread's title (decided 2026-11-04).
 - **Request strip:** leads with the provider mark or status icon, one sentence, at most one line of detail (a command in mono, truncated in the middle), text actions on the right; several waiting show "1 of 3". Anything long (a plan, a question with options) opens in a sheet from "Review".
 - **Transcript:** the person's message as a bubble; the agent's work folded under "Worked for 3m 12s"; the agent's last message shown in full. Handoffs, stops and limits are one quiet line each.
 - **Empty and loading:** every list has one quiet empty state (a sentence and at most one action) and skeleton rows while loading. Never a spinner in the middle of nothing.
@@ -103,13 +103,13 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 ### Shape: full roundness
 
 - **Every control is a capsule:** buttons, pills, chips, tabs, the segmented control, the search field, the composer's text field, + and Send/Stop, strip actions.
-- **Every container is concentric with the screen:** the composer block, strips, sheets, floating bars and grouped lists use iOS 26 concentric shapes (`ConcentricRectangle` / container-concentric corners) so their curves run parallel to the device's corners.
+- **Every container is concentric with the screen:** the composer capsule once it wraps, strips, sheets, floating bars and grouped lists use iOS 26 concentric shapes (`ConcentricRectangle` / container-concentric corners) so their curves run parallel to the device's corners.
 - **Nested content** inside a container is concentric with it, ending in a capsule at the smallest level (a code line inside a strip, an image inside a message).
 - No small fixed radius anywhere.
 
 ### Materials
 
-- Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer block, header buttons, the iPad sidebar's places, the model and live pills. One glass block per area, never stacked glass objects.
+- Liquid Glass (`glassEffect`) only for floating things: the tab bar, the composer capsule and its +, the request strip, header buttons, the iPad sidebar's places. The live line is plain words, never glass. Never glass on glass.
 - Sheets use the system sheet with detents; menus are system menus; context menus replace inline action rows.
 
 ### Structure
@@ -119,7 +119,7 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 - **Header:** large title that collapses on scroll; the scope or a connection problem shows under it only while it applies. On the right, one glass capsule: the scope menu (machine, project, sort, Select) and compose. The system's title menu is not used: it draws no chevron beside a large title. Threads has Inbox · Snoozed · Settled under the title; Chats is its own tab.
 - **Search:** replaces More and the web's command palette. Empty, it shows Places as capsules (Pull requests with its open count, Issues, Automations, Skills, Usage, Machines, Settings), recent searches and the latest threads. Typed, it lists actions (each saying where it goes), threads, pull requests, projects and messages. Places open in a sheet; Settings holds every machine tool.
 - **iPad and wide windows:** the list sits beside the thread; the sidebar's foot carries the places in the web rail's order (Threads, Chats, Search, then Pull requests, Automations, Skills, Settings) as bare glyphs on one glass capsule, in place of the tab bar.
-- **Thread:** title and project · branch in the navigation area; transcript; the composer block at the bottom with the pill row above the field.
+- **Thread:** the title and, under it, the model and its effort ("Opus 5.5 · Med", provider mark at 80%); the two are one tap that opens one system menu: Model, Effort and Access first, then the thread's own actions, with project · branch as the menu's quiet header. The page pills sit under it, then the transcript, then the composer capsule.
 
 ### Interaction
 

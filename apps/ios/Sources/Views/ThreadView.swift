@@ -19,9 +19,6 @@ struct ThreadView: View {
     @State private var attachProblem: String?
     @State private var showModels = false
     @State private var showTune = false
-    /// The composer's settings sheet, and what it hands on to once it closes.
-    @State private var showSettings = false
-    @State private var afterSettings: (() -> Void)?
     @State private var lane: BlockRow.Agents.Entry?
     /// The page showing on a phone (`ThreadPager`), and the one last asked for, which stays in
     /// the pill row while it shows even before the thread has something for it.
@@ -145,14 +142,10 @@ struct ThreadView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
             }
             .toolbar {
-                ThreadToolbar(title: metadata?.title ?? "Thread", subtitle: subtitle, status: model.headerStatus(of: thread), chat: metadata?.chat == true, pageWidth: pageWidth,
-                              rename: model.canOperate && !archived ? { renaming = true } : nil,
-                              retitle: model.canOperate && !archived ? { Task { _ = await model.retitle(thread.id) } } : nil,
-                              titleActions: titleActions,
+                ThreadToolbar(heading: heading, pageWidth: pageWidth,
                               menu: ThreadMenu(model: model, thread: thread, title: metadata?.title ?? "", archived: archived,
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
                                                leave: leave),
-                              openWork: { showWork = true },
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
                               pageButtons: shownPage.barButtons)
             }
@@ -164,6 +157,11 @@ struct ThreadView: View {
             // The header's lower part (the status at accessibility sizes, the page pills) is drawn
             // once over the pages, so it stays put while they swipe, over a soft fade
             // (`ThreadHeaderFade`); each page starts below it (`PageHeaderClearance`).
+            // The page colour under the whole header (title, model line, page pills), fading out
+            // below it, so the transcript never prints through the title as it scrolls.
+            .overlay(alignment: .top) {
+                ThreadHeaderFade(reachesTop: true).frame(height: headerHeight)
+            }
             .overlay(alignment: .top) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
@@ -176,7 +174,6 @@ struct ThreadView: View {
                         ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
                     }
                 }
-                .background { if headerHeight > 0 { ThreadHeaderFade() } }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
                 // Read before the page under it.
                 .accessibilitySortPriority(1)
@@ -237,12 +234,6 @@ struct ThreadView: View {
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
             .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: .constant(false),
                                        mention: model.canOperate ? { mention = $0 } : nil))
-            .sheet(isPresented: $showSettings, onDismiss: { afterSettings?(); afterSettings = nil }) {
-                ComposerSettingsSheet(screen: screen,
-                                      openModel: { afterSettings = { showModels = true }; showSettings = false },
-                                      openTune: { afterSettings = { showTune = true }; showSettings = false },
-                                      setAccess: { mode in Task { _ = await model.setAccess(mode) } })
-            }
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
             }
@@ -305,10 +296,26 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The composer with what floats above it: the live pill and Scroll to end, and the grouped
-    /// surface just above the composer, which holds the oldest open request (a question
-    /// too, the composer staying under it). While a request needs the person the pill steps
-    /// aside. Nothing sits below the composer.
+    /// The title and the model under it, one menu: model, effort and access first, then the
+    /// thread's own actions, with "project · branch" heading it.
+    private var heading: ThreadTitleMenu {
+        let operable = model.canOperate && !archived
+        let model = model
+        let changesModel = operable && screen.controls != nil
+        return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle, status: model.headerStatus(of: thread)?.label,
+                               width: 0,
+                               model: changesModel ? ThreadModelWords.line(screen) : nil,
+                               tune: changesModel ? screen.tune : nil, access: changesModel ? screen.access : nil,
+                               canRename: operable, canRetitle: operable, actions: titleActions,
+                               openModel: { showModels = true }, openTune: { showTune = true },
+                               setEffort: { effort in Task { _ = await model.setEffort(effort) } },
+                               setSpeed: { speed in Task { _ = await model.setSpeed(speed) } },
+                               setAccess: { mode in Task { _ = await model.setAccess(mode) } },
+                               rename: { renaming = true },
+                               retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
+                               openWork: metadata == nil ? nil : { showWork = true })
+    }
+
     /// Whether a strip shows above the composer, by the same order the strip's own chain reads.
     private var hasStrip: Bool {
         !stripRequests.isEmpty
@@ -317,127 +324,118 @@ struct ThreadView: View {
             || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
     }
 
+    /// What sits at the thread's foot, from the top: Scroll to end while the person reads away
+    /// from the end; then one thing above the capsule, a strip (a request, what holds the queue, a
+    /// message that didn't go, ...) as the only glass there, or else the quiet live line; then
+    /// the composer capsule with the chips on the next message just above it. Nothing below it.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
         VStack(spacing: AceTheme.Spacing.none) {
-            // Whether a request takes the pill's place is the bridge's (`livePill`).
-            // Scroll to end floats over the transcript; the live pill sits by the model, lower down.
-            ComposerFloaters(pill: nil, behind: behind, open: openPill) { jumps += 1 }
+            ComposerFloaters(behind: behind) { jumps += 1 }
                 .padding(.bottom, AceDesign.Space.related)
-            VStack(spacing: AceTheme.Spacing.none) {
-                // Just above the strip: the model on the left, the live pill ("1m 34s · waiting on
-                // 3 agents") to its right.
-                ComposerPills(model: model.canOperate && !archived && screen.controls != nil ? screen : nil,
-                              pill: screen.pill, open: openPill,
-                              openModel: { showModels = true }, openTune: { showTune = true }, openSettings: { showSettings = true })
-                // The one strip and the composer as one glass block (`GlassBlock`): the strip is
-                // the block's top section, what needs the person first.
-                VStack(spacing: AceTheme.Spacing.none) {
-                Group {
-                    if !stripRequests.isEmpty {
-                        RequestStrip(requests: stripRequests, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
-                    }
-                    // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
-                    else if let hold = screen.queue?.strip,
-                            HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
-                        QueueHoldStrip(strip: hold,
-                                       canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
-                                       act: { await model.actOnQueue($0) },
-                                       chooseModel: { showModels = true }, openQueue: { showQueue = true })
-                    }
-                    // A message that didn't go, with Try again, Edit and Remove.
-                    else if let held = screen.queue?.notSent {
-                        NotSentStrip(message: held, canAct: model.canOperate && !archived, act: { await model.actOnQueue($0) },
-                                     edit: { message, change in await model.editQueued(message, change: change) },
-                                     words: { await model.queuedWords(held.id) },
-                                     saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
-                    }
-                    // Commands a stopped turn left running, with one Stop.
-                    else if let left = screen.leftRunning {
-                        LeftRunningStrip(row: left, canAct: model.canOperate && !archived) { id in _ = await model.stopTask(id) }
-                    }
-                    // A request needs the person first; the transfer's line waits under it.
-                    else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
-                    // What stops the checkout waits under a request and a transfer.
-                    else if let line = screen.work {
-                        WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
-                    }
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                if hasStrip {
+                    strip
+                        // A strip rises out of the composer and fades; with Reduce Motion it only fades.
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                } else if let pill = screen.pill {
+                    ComposerLiveLine(pill: pill, open: openPill)
+                        .transition(.opacity)
                 }
-                // A strip rises out of the composer and fades; with Reduce Motion it only fades.
-                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                if hasStrip { BlockHairline() }
-                if archived {
-                    ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
-                } else if model.canOperate {
-                    ComposerView(controls: screen.controls, stopping: screen.stopping,
-                                 placeholder: screen.fork != nil ? "Message the fork" : asking == nil ? placeholder : "Reply…",
-                                 send: { text, alternate, references in
-                                     let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
-                                     let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
-                                     if saved { acceptedSend += 1 }
-                                     return saved
-                                 }, stop: { model.stopTree() },
-                                 inputBegan: { model.metrics?.inputBegan() }, mention: mention,
-                                 // Paste, drop and folders join the attach menu's lock: no file joins while a
-                                 // new thread starts from this message (the bridge refuses one anyway).
-                                 intake: screen.attachmentsLocked != nil ? nil : { providers in
-                                     Task {
-                                         let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
-                                         attachProblem = result.note
-                                         for file in result.files { model.attach(file) }
-                                     }
-                                 },
-                                 recall: { older in await model.sentText(thread.id, older: older) },
-                                 files: screen.attachments.count, chips: screen.annotations.count + (model.sheets.chip?.count ?? 0),
-                                 draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
-                                 suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
-                                 run: runComposerAction, focusRequest: composerFocus) {
-                        if let fork = screen.fork {
-                            ForkStrip(fork: fork) { model.closeFork() }
-                                .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
-                        }
-                        ComposerAccessories(model: model, screen: screen, problem: attachProblem)
-                    } leading: { pick in
-                        AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
-                            .foregroundStyle(AceTheme.Colours.foreground)
-                            .disabled(screen.attachmentsLocked != nil)
-                    } access: {
-                        ThreadAccessChip(access: screen.access) { mode in Task { _ = await model.setAccess(mode) } }
-                    } model: {
-                        ComposerModelButton(screen: screen, open: { showModels = true }, openTune: { showTune = true })
-                    } settings: {
-                        Button { showSettings = true } label: {
-                            Image(systemName: "slider.horizontal.3").font(.system(size: AceDesign.Size.icon))
-                                .foregroundStyle(AceTheme.Colours.foreground)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Model and access").accessibilityIdentifier("composer.settings")
-                    }
-                    // The model sits on top (`ThreadModelPill`); the composer keeps room to type.
-                    .showsOptions(false)
-                    .task(id: thread.id) {
-                        suggester.attach(model)
-                        suggester.scope = .thread(thread.id)
-                        suggester.readAhead()
-                    }
-                } else {
-                    ViewOnlyNote.thread
-                        .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
-                }
-                }
-                // Always one block, as the approved mockup: a strip, when there is one, on top.
-                .modifier(GlassBlock(active: true))
+                composer
             }
-            .composerGlassGroup()
+            // The transcript fades out under the foot, as under the system's own bars, so the
+            // live line's plain words never sit on the transcript's.
+            .background { ThreadHeaderFade() }
         }
         .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
         .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.queue?.strip)
+        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.pill)
         // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
         .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.fork?.key)
         .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.work)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
+    }
+
+    /// The one strip above the capsule, by what needs the person first.
+    @ViewBuilder private var strip: some View {
+        if !stripRequests.isEmpty {
+            RequestStrip(requests: stripRequests, model: model, questionDraft: $questionDraft, openBrowser: { open(.browser) })
+        }
+        // Then what holds the queue: a usage limit, a stopped turn, a paused queue.
+        else if let hold = screen.queue?.strip,
+                HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).visible {
+            QueueHoldStrip(strip: hold,
+                           canAct: HoldStripState.of(strip: hold, canOperate: model.canOperate, archived: archived).actionable,
+                           act: { await model.actOnQueue($0) },
+                           chooseModel: { showModels = true }, openQueue: { showQueue = true })
+        }
+        // A message that didn't go, with Try again, Edit and Remove.
+        else if let held = screen.queue?.notSent {
+            NotSentStrip(message: held, canAct: model.canOperate && !archived, act: { await model.actOnQueue($0) },
+                         edit: { message, change in await model.editQueued(message, change: change) },
+                         words: { await model.queuedWords(held.id) },
+                         saveWords: { await model.editQueuedWords(held.id, text: $0, revision: $1) })
+        }
+        // Commands a stopped turn left running, with one Stop.
+        else if let left = screen.leftRunning {
+            LeftRunningStrip(row: left, canAct: model.canOperate && !archived) { id in _ = await model.stopTask(id) }
+        }
+        // A request needs the person first; the transfer's line waits under it.
+        else if let line = model.transfers.thread(thread.id)?.line { ThreadTransferStrip(model: model, line: line) }
+        // What stops the checkout waits under a request and a transfer.
+        else if let line = screen.work {
+            WorkProblemLine(model: model, line: line, runner: workRunner, openWork: { showWork = true }, confirmLock: { confirmingLock = true })
+        }
+    }
+
+    @ViewBuilder private var composer: some View {
+        let request = thread.approvals.first
+        if archived {
+            ArchivedNote(canOperate: model.canOperate) { await model.unarchive(thread.id) }
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.related, leading: AceDesign.Space.margin, bottom: AceDesign.Space.related, trailing: AceDesign.Space.margin)))
+        } else if model.canOperate {
+            ComposerView(controls: screen.controls, stopping: screen.stopping, placeholder: placeholder,
+                         send: { text, alternate, references in
+                             let reply = asking.map { QuestionReply(interactionId: $0.id, draft: questionDraft) }
+                             let saved = await model.sendMessage(text, alternate: alternate, reply: reply, references: references)
+                             if saved { acceptedSend += 1 }
+                             return saved
+                         }, stop: { model.stopTree() },
+                         inputBegan: { model.metrics?.inputBegan() }, mention: mention,
+                         // Paste, drop and folders join the attach menu's lock: no file joins while a
+                         // new thread starts from this message (the bridge refuses one anyway).
+                         intake: screen.attachmentsLocked != nil ? nil : { providers in
+                             Task {
+                                 let result = await ComposerIntake.stage(providers, into: AttachmentStaging())
+                                 attachProblem = result.note
+                                 for file in result.files { model.attach(file) }
+                             }
+                         },
+                         recall: { older in await model.sentText(thread.id, older: older) },
+                         files: screen.attachments.count, chips: screen.annotations.count + (model.sheets.chip?.count ?? 0),
+                         draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
+                         suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
+                         run: runComposerAction, focusRequest: composerFocus) {
+                if let fork = screen.fork {
+                    ForkStrip(fork: fork) { model.closeFork() }
+                        .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
+                }
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem)
+            } leading: { pick in
+                AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .disabled(screen.attachmentsLocked != nil)
+            }
+            .task(id: thread.id) {
+                suggester.attach(model)
+                suggester.scope = .thread(thread.id)
+                suggester.readAhead()
+            }
+        } else {
+            ViewOnlyNote.thread
+                .modifier(ComposerFrame(padding: EdgeInsets(top: AceDesign.Space.row, leading: AceDesign.Space.margin, bottom: AceDesign.Space.row, trailing: AceDesign.Space.margin)))
+        }
     }
     /// Archiving or snoozing leaves the thread: back a page, or closed when it is the open one.
     private func leave() {
@@ -464,9 +462,10 @@ struct ThreadView: View {
         default: break
         }
     }
-    /// The composer always reads the same; how a message goes while the agent works is the send
-    /// button's to say.
-    private let placeholder = "Ask anything"
+    /// What typing does now, short: ask, steer or queue while the tree works, reply while it waits.
+    private var placeholder: String {
+        ComposerPlaceholder.text(fork: screen.fork != nil, answering: !stripRequests.isEmpty, busy: screen.controls?.busy == true)
+    }
     private func open(_ destination: ThreadDestination) {
         // Beside the thread on iPad: the tool opens as a panel tab instead of over the thread.
         if panelPlace != .none, let tool = destination.panelTool {

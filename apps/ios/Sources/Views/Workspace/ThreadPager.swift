@@ -17,18 +17,33 @@ struct PageHeaderClearance: ViewModifier {
 /// so this draws the same fade the composer's floor does at the bottom (`BarFloor`). Never a box:
 /// it has no edge of its own.
 struct ThreadHeaderFade: View {
+    /// Under the thread's header: solid from the screen's top edge (behind the title and the
+    /// model line) down, with only the soft fade below.
+    var reachesTop = false
     private let fade = AceDesign.Space.fade
     var body: some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
-                .frame(height: fade)
-            AceTheme.Colours.background
-            LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: fade)
+        if reachesTop {
+            VStack(spacing: AceTheme.Spacing.none) {
+                AceTheme.Colours.background
+                LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fade)
+            }
+            .padding(.bottom, -fade)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        } else {
+            VStack(spacing: AceTheme.Spacing.none) {
+                LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fade)
+                AceTheme.Colours.background
+                LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: fade)
+            }
+            .padding(.vertical, -fade)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
-        .padding(.vertical, -fade)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 

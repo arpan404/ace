@@ -46,7 +46,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Writing the PID-reuse regression."].waitForExistence(timeout: 10))
         screenshot("thread-agent-lane")
         app.buttons["Done"].tap()
-        app.threadModelPill().tap()
+        app.openModelPicker()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 10))
         sleep(2)
         screenshot("thread-models")
@@ -89,7 +89,7 @@ import XCTest
         let last = app.staticTexts["Wiring the filters while the agents work"]
         XCTAssertTrue(last.waitForExistence(timeout: 5))
         let input = app.textViews["composer.input"]
-        let pill = app.descendants(matching: .any)["thread.pill"]
+        let pill = app.descendants(matching: .any)["composer.live"]
         let barTop = pill.exists ? min(pill.frame.minY, input.frame.minY) : input.frame.minY
         XCTAssertLessThanOrEqual(last.frame.maxY, barTop, "the last line sits under the composer")
         XCTAssertFalse(app.buttons["transcript.latest"].exists, "Scroll to end shows at the end")
@@ -179,8 +179,9 @@ import XCTest
         XCTAssertTrue(status.label.hasPrefix("Waiting on"), "the main agent only waits: \(status.label)")
         XCTAssertFalse(app.descendants(matching: .any)["thread.live"].exists, "no live line in the transcript")
         app.buttons["pill.status"].tap()
-        XCTAssertTrue(app.buttons["agents.close"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
-        app.buttons["agents.close"].tap()
+        // On a phone the agent tree is the thread's Agents page.
+        XCTAssertTrue(app.descendants(matching: .any)["agents.summary"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
+        app.buttons["thread.page.chat"].tap()
         app.navigationBars.buttons.firstMatch.tap()
 
         app.revealRow("thread.ios-goal").tap()
@@ -219,7 +220,7 @@ import XCTest
 
         app.revealRow("thread.ios-approval").tap()
         XCTAssertTrue(app.buttons["approval.allow_session"].waitForExistence(timeout: 25))
-        XCTAssertFalse(app.descendants(matching: .any)["thread.pill"].exists, "a request takes the pill's place")
+        XCTAssertFalse(app.descendants(matching: .any)["composer.live"].exists, "a request takes the live line's place")
     }
     /// A long press on an answer offers Copy, Select text and Share; Select text opens the words
     /// where any part of them can be selected.
