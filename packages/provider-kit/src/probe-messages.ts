@@ -29,3 +29,8 @@ export const ProbeReply = z.discriminatedUnion("type", [
   }),
 ]);
 export type ProbeReply = z.infer<typeof ProbeReply>;
+
+/** What a probe needs to start, whichever thread runs it. */
+export type ProbeStart = Omit<ProbeRequest, "type" | "id">;
+/** How a probe ended, with its output. */
+export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;

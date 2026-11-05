@@ -3,12 +3,12 @@
 import { Worker } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
-import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
+import { ProbeReply, type ProbeExit, type ProbeStart } from "./probe-messages.ts";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 
-export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
+export type { ProbeExit } from "./probe-messages.ts";
 export interface ProbeThread {
-  run(request: Omit<ProbeRequest, "type" | "id">, signal: AbortSignal): Promise<ProbeExit>;
+  run(request: ProbeStart, signal: AbortSignal): Promise<ProbeExit>;
 }
 
 const runtime: IdleWorkerRuntime = {

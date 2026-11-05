@@ -33,9 +33,12 @@ function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
  * goes straight through `Bun.spawn`, the daemon's most frequent spawn. Windows keeps
  * `node:child_process`, whose quoting, environment and job handling the Windows paths rely on.
  */
-export function spawnGitProcess(command: string, args: string[], options: GitSpawnOptions): GitChild {
-  if (process.platform !== "win32")
-    return spawnBunGit(requireBunSpawner(), command, args, options);
+export function spawnGitProcess(
+  command: string,
+  args: string[],
+  options: GitSpawnOptions,
+): GitChild {
+  if (process.platform !== "win32") return spawnBunGit(requireBunSpawner(), command, args, options);
   const child = spawn(command, args, options);
   if (!piped(child)) {
     child.kill("SIGKILL");
@@ -44,10 +47,7 @@ export function spawnGitProcess(command: string, args: string[], options: GitSpa
   return child;
 }
 
-export function killTree(
-  runtime: GitProcessRuntime,
-  child: GitChild,
-): Promise<void> {
+export function killTree(runtime: GitProcessRuntime, child: GitChild): Promise<void> {
   // An exited leader PID may have been reused. Without containment we cannot
   // safely signal that identity again; its escaped descendants remain unconfirmed.
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();

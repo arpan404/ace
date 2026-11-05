@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { createProbeThread } from "./probe-thread.ts";
 import { observeProcessGroups, probeOutput, stopOwnedGroups } from "./process.ts";
@@ -106,3 +110,77 @@ test.each([false, true])(
     }
   },
 );
+
+/** Running, rather than gone or a zombie waiting to be reaped. */
+function processRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  return state.stdout.trim() !== "" && !state.stdout.trim().startsWith("Z");
+}
+
+async function pidFile(): Promise<{ path: string; read: () => Promise<number> }> {
+  const directory = await mkdtemp(join(tmpdir(), "ace-probe-pids-"));
+  const path = join(directory, "pid");
+  return {
+    path,
+    read: async () => {
+      await expect.poll(() => readFile(path, "utf8").catch(() => "")).toMatch(/^\d+\n$/);
+      return Number((await readFile(path, "utf8")).trim());
+    },
+  };
+}
+
+test("a probe of an executable that does not exist fails to start promptly and owns nothing", async () => {
+  const recorded = new Set<number>();
+  const stop = observeProcessGroups({
+    add: (pid) => recorded.add(pid),
+    remove: (pid) => recorded.delete(pid),
+  });
+  try {
+    const started = performance.now();
+    await expect(probeOutput("/nonexistent/ace-probe", ["--version"])).rejects.toThrow(
+      "Probe failed to start",
+    );
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(recorded.size).toBe(0);
+  } finally {
+    stop();
+  }
+});
+
+test("an aborted probe takes the processes it started down with it", async () => {
+  const helper = await pidFile();
+  const controller = new AbortController();
+  const probe = probeOutput(
+    "/bin/sh",
+    ["-c", `sleep 30 >/dev/null 2>&1 & echo $! > '${helper.path}'; sleep 30`],
+    { signal: controller.signal },
+  );
+  const descendant = await helper.read();
+  controller.abort();
+  await expect(probe).rejects.toThrow("Probe aborted");
+  await expect.poll(() => processRunning(descendant)).toBe(false);
+});
+
+test("a probe whose command exits leaves nothing it started running", async () => {
+  const result = await probeOutput("/bin/sh", ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"]);
+  const descendant = Number(result.stdout);
+  expect(descendant).toBeGreaterThan(0);
+  await expect.poll(() => processRunning(descendant)).toBe(false);
+});
+
+test("a probe past its output budget is stopped with everything it started", async () => {
+  const helper = await pidFile();
+  const probe = probeOutput(
+    "/bin/sh",
+    ["-c", `sleep 30 >/dev/null 2>&1 & echo $! > '${helper.path}'; sleep 0.2; yes`],
+    { maxBytes: 100 },
+  );
+  await expect(probe).rejects.toThrow("Probe output exceeded limit");
+  const descendant = await helper.read();
+  await expect.poll(() => processRunning(descendant)).toBe(false);
+});

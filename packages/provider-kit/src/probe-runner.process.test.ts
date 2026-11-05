@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import type { ProbeReply } from "./probe-messages.ts";
-import { createProbeRunner } from "./probe-runner.ts";
+import { createProbeRunner, supervisedProbe } from "./probe-runner.ts";
 import { spawnRawSupervised } from "./process.ts";
 
 const directories: string[] = [];
@@ -40,7 +40,7 @@ function windows() {
 
 function runner(spawn: typeof spawnRawSupervised) {
   const replies: ProbeReply[] = [];
-  const probe = createProbeRunner((message) => replies.push(message), spawn);
+  const probe = createProbeRunner((message) => replies.push(message), supervisedProbe(spawn));
   const exit = async (id: number) => {
     await expect
       .poll(() => replies.some((reply) => reply.id === id && reply.type === "exit"))

@@ -1,11 +1,12 @@
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { spawnGitProcess as spawn } from "./index.ts";
-import { writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { GitError, GitService } from "./index.ts";
-import { execute, repository, scratch } from "./test-repo.ts";
+import { execute, proxyGit, repository, scratch } from "./test-repo.ts";
 
 test("the injected spawner can route an executable to real Git", async () => {
   const repo = await repository();
@@ -145,3 +146,62 @@ test.each(["darwin", "win32"] as const)(
     }
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "an aborted Git call kills Git and the processes it started",
+  async () => {
+    const repo = await repository();
+    const directory = await scratch();
+    const pids = join(directory, "pids.json");
+    // Git stand-in: a commit lookup starts a helper in Git's process group, then hangs.
+    const binary = await proxyGit(`if (args.includes('rev-parse')) {
+      const helper = spawn(process.execPath, [${JSON.stringify(join(directory, "helper.cjs"))}], { stdio: 'ignore' });
+      fs.writeFileSync(${JSON.stringify(pids)}, JSON.stringify({ git: process.pid, helper: helper.pid }));
+      setInterval(() => {}, 1000);
+      return;
+    }`);
+    await writeFile(join(directory, "helper.cjs"), "setInterval(() => {}, 1000);");
+    const service = new GitService({ gitBinary: binary });
+    const controller = new AbortController();
+    try {
+      const lookup = service.resolveCommit({
+        worktree: repo,
+        ref: "HEAD",
+        signal: controller.signal,
+      });
+      const rejected = expect(lookup).rejects.toMatchObject({ code: "git_cancelled" });
+      await expect.poll(async () => readFile(pids, "utf8").catch(() => "")).not.toBe("");
+      const { git, helper } = z
+        .object({ git: z.number().int().positive(), helper: z.number().int().positive() })
+        .parse(JSON.parse(await readFile(pids, "utf8")));
+      controller.abort();
+      await rejected;
+      await expect.poll(() => alive(git) || alive(helper)).toBe(false);
+    } finally {
+      await service.close();
+    }
+  },
+);
+
+test("a Git binary that cannot be started fails the call promptly", async () => {
+  const repo = await repository();
+  const service = new GitService({ gitBinary: join(await scratch(), "missing-git") });
+  try {
+    const started = performance.now();
+    await expect(service.repositoryInfo(repo)).rejects.toMatchObject({ code: "git_missing" });
+    expect(performance.now() - started).toBeLessThan(5_000);
+  } finally {
+    await service.close();
+  }
+});
+
+/** Running, rather than gone or a zombie waiting to be reaped. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  return state.stdout.trim() !== "" && !state.stdout.trim().startsWith("Z");
+}
