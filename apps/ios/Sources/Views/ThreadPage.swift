@@ -12,7 +12,8 @@ struct ThreadPage: View {
     private var live: ThreadModel? { client.thread.flatMap { $0.id == id ? $0 : nil } }
 
     var body: some View {
-        if let thread = live ?? kept {
+        // What it kept is drawn only while it is still this page's thread.
+        if let thread = live ?? kept.flatMap({ $0.id == id ? $0 : nil }) {
             ThreadView(model: client, thread: thread, openThread: openThread)
                 .onChange(of: ObjectIdentifier(thread), initial: true) { kept = thread }
         }

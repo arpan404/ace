@@ -287,6 +287,10 @@ struct InboxView: View {
                 .environment(\.openPullRequest) { project, number, repository in
                     path.wrappedValue.append(.forge(ForgeRoute(kind: .pull, machineId: key.machineId, project: project, number: number, repository: repository)))
                 }
+                // One page per thread on its machine: a stack that swaps its page in place for
+                // another thread starts that page fresh, never with the last one's transcript,
+                // open page, drafts or sheets.
+                .id(key)
             }
         } side: { key, part in
             if let client = inbox.client(key.machineId) {
