@@ -10,7 +10,7 @@ afterEach(() => {
   for (const close of cleanup.splice(0)) close();
 });
 
-test("a socket read larger than a window reaches the relay in order, one window at a time", async () => {
+async function connectedPair() {
   const server = createServer({ allowHalfOpen: true });
   cleanup.push(() => server.close());
   server.listen(0, "127.0.0.1");
@@ -22,30 +22,95 @@ test("a socket read larger than a window reaches the relay in order, one window 
   cleanup.push(() => client.destroy());
   const [raw] = await accepted;
   raw.pause();
-  // Bun reads up to 512 KiB at once; put such a read back at the head of the socket.
-  const big = Buffer.from(Array.from({ length: 600_000 }, (_, i) => i % 251));
-  raw.unshift(big);
-  client.end(Buffer.from([7, 7, 7]));
+  return { raw, client };
+}
 
+/** Reads the adapter as the mux does: pause while one chunk is sent, resume once it has gone. */
+function readLikeTheMux(raw: Socket, onPiece: (count: number) => void = () => {}) {
   const socket = previewSocket(raw);
   const pieces: Uint8Array[] = [];
   let endedAfter = -1;
+  let closedAfterEnd = false;
   const ended = new Promise<void>((resolve) =>
     socket.on("end", () => {
       endedAfter = pieces.length;
       resolve();
     }),
   );
+  const closed = new Promise<void>((resolve) =>
+    socket.on("close", () => {
+      closedAfterEnd = endedAfter >= 0;
+      resolve();
+    }),
+  );
   socket.on("data", (bytes) => {
-    // As the mux does: pause while one chunk is sent, resume once it has gone.
     pieces.push(Buffer.from(bytes));
     socket.pause();
+    onPiece(pieces.length);
     setImmediate(() => socket.resume());
   });
   socket.resume();
-  await ended;
+  return {
+    pieces,
+    endedAfter: () => endedAfter,
+    closedAfterEnd: () => closedAfterEnd,
+    ended,
+    closed,
+  };
+}
 
-  expect(pieces.every((piece) => piece.byteLength <= windowSize)).toBe(true);
-  expect(Buffer.concat(pieces)).toEqual(Buffer.concat([big, Buffer.from([7, 7, 7])]));
-  expect(endedAfter).toBe(pieces.length);
+const pattern = (length: number, seed = 0) =>
+  Buffer.from(Array.from({ length }, (_, i) => (i + seed) % 251));
+
+test("a socket read larger than a window reaches the relay in order, one window at a time", async () => {
+  const { raw, client } = await connectedPair();
+  // Bun reads up to 512 KiB at once; put such a read back at the head of the socket.
+  const big = pattern(600_000);
+  raw.unshift(big);
+  client.end(Buffer.from([7, 7, 7]));
+
+  const read = readLikeTheMux(raw);
+  await read.ended;
+
+  expect(read.pieces.every((piece) => piece.byteLength <= windowSize)).toBe(true);
+  expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([big, Buffer.from([7, 7, 7])]));
+  expect(read.endedAfter()).toBe(read.pieces.length);
+});
+
+test("the end of a socket whose last read was larger than a window waits for every byte", { timeout: 10_000 }, async () => {
+  const { raw, client } = await connectedPair();
+  const last = pattern(512 * 1024);
+  raw.unshift(last);
+  client.end();
+
+  const read = readLikeTheMux(raw);
+  await read.ended;
+
+  expect(Buffer.concat(read.pieces)).toEqual(last);
+  expect(read.endedAfter()).toBe(read.pieces.length);
+  // The close that follows reaches the relay after the end, not before it.
+  raw.end();
+  await read.closed;
+  expect(read.closedAfterEnd()).toBe(true);
+});
+
+test("data that arrives while bytes are held queues behind them", { timeout: 10_000 }, async () => {
+  const { raw, client } = await connectedPair();
+  const first = pattern(300_000);
+  const small = Buffer.from([1, 2, 3]);
+  const second = pattern(400_000, 17);
+  raw.unshift(first);
+
+  const read = readLikeTheMux(raw, (count) => {
+    // While the first read is still held, more arrives: one small chunk and one oversized.
+    if (count !== 1) return;
+    raw.emit("data", small);
+    raw.emit("data", second);
+    client.end();
+  });
+  await read.ended;
+
+  expect(read.pieces.every((piece) => piece.byteLength <= windowSize)).toBe(true);
+  expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([first, small, second]));
+  expect(read.endedAfter()).toBe(read.pieces.length);
 });
