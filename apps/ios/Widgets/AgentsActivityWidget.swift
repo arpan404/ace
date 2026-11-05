@@ -27,7 +27,7 @@ struct AgentsActivityWidget: Widget {
                     LockHeadline(summary: summary, stale: stale, trailing: "")
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let request = summary.request, summary.current, !stale {
+                    if let request = summary.request, summary.current, !summary.asOf(stale: stale) {
                         RequestView(request: request)
                     } else {
                         LockRowsList(summary: summary.limited(3), stale: stale)

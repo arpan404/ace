@@ -40,8 +40,25 @@ struct LockGallery: View {
     private var stale: LockSummary {
         var summary = LockSummary.preview
         summary.current = false
+        summary.live = false
         summary.updatedAt = Date.now.addingTimeInterval(-25 * 60)
         return summary
+    }
+    /// Eight busy threads where only three work, with one paired machine switched off: the
+    /// counts say each state, and the offline machine is a note, not a stale mark.
+    private var mixed: LockSummary {
+        let now = Date.now
+        func row(_ id: String, _ title: String, _ icon: String, _ tone: String, _ meaning: String, since: TimeInterval? = nil) -> LockRow {
+            LockRow(id: id, hostId: "", title: title, icon: icon, tone: tone, meaning: meaning,
+                    since: since.map { now.addingTimeInterval(-$0) }, link: "ace://thread/\(id)", needsYou: false)
+        }
+        return LockSummary(needsYou: 0, working: 3, waiting: 3, limited: 2, rows: [
+            row("w1", "Fix-command-discovery-stalls", "working", "working", "Working", since: 412),
+            row("w2", "Design a Polished iOS App Interface", "agents", "waiting", "Waiting on 2 agents", since: 1310),
+            row("w3", "Usage limits as a quiet line", "working", "working", "Working", since: 95),
+            row("q1", "Fleet-computer-use-over-machines", "waiting", "waiting", "Queued"),
+            row("l1", "Offshift-person-controls", "limited", "limited", "Limited 9:00 AM"),
+        ], current: false, live: true, offline: 1, busy: true, updatedAt: now)
     }
     private var quiet: LockSummary {
         LockSummary(needsYou: 0, working: 0, rows: [LockSummary.preview.rows[5]], current: true, busy: false, updatedAt: .now)
@@ -50,7 +67,9 @@ struct LockGallery: View {
     @ViewBuilder private var activity: some View {
         caption("Lock Screen")
         LockActivityView(summary: current.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
-        caption("Lock Screen, not current")
+        caption("Lock Screen, three working among eight busy, one machine off")
+        LockActivityView(summary: mixed.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
+        caption("Lock Screen, last known (no machine answered)")
         LockActivityView(summary: stale.limited(3), stale: true).background(AceTheme.Colours.card, in: lockShape)
         caption("Lock Screen, all quiet")
         LockActivityView(summary: quiet, stale: false).background(AceTheme.Colours.card, in: lockShape)

@@ -296,6 +296,7 @@ export {
   type RowStatusLook,
   type RowStatusTone,
 } from "./row-status-display.ts";
+export { rowStatusState, type RowStatusState } from "./row-status-state.ts";
 export { hoverStatusLine, type HoverStatusLine } from "./row-hover-status.ts";
 export { appList, browsingLabel, computerUseLabel } from "./agent-use.ts";
 export {
