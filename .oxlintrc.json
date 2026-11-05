@@ -65,6 +65,13 @@
           }
         ]
       }
+    ],
+    "no-restricted-properties": [
+      "error",
+      {
+        "property": "Worker",
+        "message": "Start worker threads with startWorker from @ace/provider-kit/worker: on Bun only it can hand a worker the perf gate's measurement preloads, and a worker started past it goes unmeasured."
+      }
     ]
   },
   "overrides": [
@@ -108,7 +115,8 @@
         "**/bench/**"
       ],
       "rules": {
-        "no-restricted-imports": "off"
+        "no-restricted-imports": "off",
+        "no-restricted-properties": "off"
       }
     }
   ]
