@@ -96,13 +96,21 @@ function linkedPr(
 /** Why a checkout can't open a pull request, or undefined when it can. */
 export function prBlocker(checkout: Checkout): string | undefined {
   if (checkout.repository?.forge === "gitlab")
-    return "GitLab merge requests aren't supported yet: open one on GitLab.";
+    return "Creating GitLab merge requests isn't supported yet: open one on GitLab.";
   if (checkout.repository && checkout.repository.forge !== "github")
     return "Pull requests for this Git provider aren't supported yet. Open one on its website.";
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
   if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  return undefined;
+}
+
+/** Linking an existing review only needs a read adapter, not a mutation backend. */
+export function linkPrBlocker(checkout: Checkout): string | undefined {
+  if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
+  if (!["github", "gitlab", "origin"].includes(checkout.repository.forge))
+    return "Linking pull requests for this Git provider isn't supported yet.";
   return undefined;
 }
 

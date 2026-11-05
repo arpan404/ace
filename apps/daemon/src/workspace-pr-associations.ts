@@ -36,7 +36,7 @@ export class WorkspacePrAssociations {
     if (existing) {
       try {
         const status = await (
-          await this.ctx.backends.backend(cwd, pr.repository)
+          await this.ctx.backends.reader(cwd, pr.repository, signal)
         ).status(pr.number, signal);
         signal.throwIfAborted();
         if (!allowed()) throw new Error("forbidden");
@@ -72,7 +72,7 @@ export class WorkspacePrAssociations {
     let status: ForgePrStatus;
     try {
       status = await (
-        await this.ctx.backends.backend(cwd, pr.repository)
+        await this.ctx.backends.reader(cwd, pr.repository, signal)
       ).status(pr.number, signal);
     } catch (error) {
       signal.throwIfAborted();
@@ -183,7 +183,7 @@ export class WorkspacePrAssociations {
     const revision = this.ctx.owner.capture(link.pr);
     try {
       const status = await (
-        await this.ctx.backends.backend(cwd, link.pr.repository)
+        await this.ctx.backends.reader(cwd, link.pr.repository, this.ctx.signal)
       ).status(link.pr.number, this.ctx.signal);
       await this.ctx.store.write(() => {
         check?.();
@@ -242,9 +242,7 @@ export class WorkspacePrAssociations {
     for (const group of groups.values()) {
       try {
         const check = await this.ctx.sourceControl?.guard();
-        const backend = await this.ctx.backends.backend(group.cwd, group.repo);
         const numbers = [...new Set(group.entries.map((entry) => entry.pr.number))];
-        if (!backend.states) continue;
         for (let offset = 0; offset < numbers.length; offset += 100) {
           const batch = numbers.slice(offset, offset + 100);
           const revisions = new Map(
@@ -253,7 +251,12 @@ export class WorkspacePrAssociations {
               this.ctx.owner.capture({ repository: group.repo, number }),
             ]),
           );
-          const summaries = await backend.states(batch, this.ctx.signal);
+          const summaries = await this.ctx.backends.states(
+            group.cwd,
+            group.repo,
+            batch,
+            this.ctx.signal,
+          );
           // Ownership and generation checks run inside the same commit as the projection.
           await this.ctx.store.write(() => {
             check?.();

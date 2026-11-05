@@ -124,7 +124,10 @@ test("a checkout with no recorded base never guesses one, and can still open a P
 test("GitLab checkouts explain the unsupported forge before creating a PR", () => {
   expect(
     step({ repository: { ...repository, forge: "gitlab", host: "gitlab.com" } }),
-  ).toMatchObject({ kind: "create-pr", blocked: /^GitLab merge requests aren't supported yet/ });
+  ).toMatchObject({
+    kind: "create-pr",
+    blocked: /^Creating GitLab merge requests isn't supported yet/,
+  });
 });
 
 const note = (patch: Partial<ThreadDetails>) => {
@@ -149,3 +152,15 @@ test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
     });
   },
 );
+
+test("linking existing Origin and GitLab reviews does not require create permissions or a feature branch", async () => {
+  const { linkPrBlocker } = await import("./checkout.ts");
+  for (const forge of ["origin", "gitlab"] as const) {
+    const checkout = checkoutOf(
+      details({ repository: { ...repository, forge }, branch: "main", baseBranch: "main" }),
+    );
+    if (!checkout) throw new Error("Expected checkout");
+    expect(linkPrBlocker(checkout)).toBeUndefined();
+    expect(nextGitStep(checkout)).toMatchObject({ kind: "create-pr", blocked: expect.any(String) });
+  }
+});

@@ -53,6 +53,21 @@ export class WorkspaceForgeBrowse {
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
+    if (repository.forge !== "github") {
+      const reader = await this.ctx.backends.reader(cwd, repository, signal);
+      if (operation.op === "forge.pr.list")
+        return { resource: "prList", value: await reader.listPrs(operation.query, signal) };
+      if (operation.op === "forge.pr.files")
+        return { resource: "prFiles", value: await reader.prFiles(operation, signal) };
+      if (operation.op === "forge.pr.detail") {
+        const ref = { repository, number: operation.number };
+        const revision = this.ctx.owner.capture(ref);
+        const value = await reader.prDetail(operation.number, signal);
+        if (this.ctx.owner.current(ref, revision)) this.publishStatus(value.status);
+        return { resource: "prDetail", value };
+      }
+      throw new ForgeError("unsupported");
+    }
     const backend = await this.ctx.backends.backend(cwd, repository);
     if (operation.op === "forge.pr.lifecycle") {
       const ref = { repository, number: operation.number };
