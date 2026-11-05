@@ -1,12 +1,21 @@
 import type { Credential } from "./credentials.ts";
 import type { DeviceId, HostId } from "@ace/protocol";
 
+/** A refusal one path heard (a 4xxx close from the relay or the daemon). */
+export interface PathRefusal {
+  code: number;
+  reason: string;
+}
 export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  /** The socket closed, with its close code and the peer's reason when it gave one. */
-  close(code: number, reason?: string): void;
+  /**
+   * The socket closed, with its close code and the peer's reason when it gave one. A race of
+   * paths that ends as a drop passes `refused` when a path was refused: why it can't connect
+   * while it retries.
+   */
+  close(code: number, reason?: string, refused?: PathRefusal): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;

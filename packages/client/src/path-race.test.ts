@@ -111,14 +111,14 @@ test("one path dropping and another refused closes as a drop that says why, so i
   expect(outcome).toMatchObject({ opened: false, closed: 1006, reason: "Not your machine" });
 });
 
-test("when every path is refused the attempt closes with the refusal, a final one over a later passing one", () => {
+test("when every path is refused the attempt closes with a refusal, not as a drop", () => {
   const lan = fakePath("lan");
   const relay = fakePath("relay");
   const { scheduler, outcome } = race(lan, relay);
   scheduler.advance(150);
   relay.refuse(4403, "Not your machine");
-  lan.refuse(4013, "Device state subscriber capacity reached");
-  expect(outcome).toMatchObject({ opened: false, closed: 4403, reason: "Not your machine" });
+  lan.refuse(4001, "Credential refused");
+  expect(outcome).toMatchObject({ opened: false, closed: 4001, reason: "Credential refused" });
 });
 
 test("the owner's revocation heard on one path ends the attempt even when another path dropped", () => {

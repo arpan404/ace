@@ -90,7 +90,12 @@ export function racingTransport(options: RaceOptions): Transport {
         if (!closed && exhausted()) {
           closed = true;
           if (refusal && (!dropped || revoked())) events.close(...refusal);
-          else events.close(1006, refusal?.[1] || "No path answered");
+          else if (refusal)
+            events.close(1006, refusal[1] || "No path answered", {
+              code: refusal[0],
+              reason: refusal[1],
+            });
+          else events.close(1006, "No path answered");
         }
       };
       const start = () => {
