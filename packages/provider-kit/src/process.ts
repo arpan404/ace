@@ -412,3 +412,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
 export { toWindowsCommand, type WindowsCommand } from "./process-owner.ts";
+export { createProbeThread, type ProbeThread } from "./probe-thread.ts";

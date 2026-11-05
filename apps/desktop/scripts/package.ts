@@ -114,8 +114,9 @@ const config: Configuration = {
   // dist/app has no node_modules: everything is bundled.
   npmRebuild: false,
   // Native addons and helper binaries cannot run from inside an asar archive.
-  // A worker thread's module loader cannot read the archive either (the freeze watchdog).
-  asarUnpack: ["**/*.node", "**/rg", "**/rg.exe", "stall-watchdog-worker.mjs"],
+  // A worker thread's module loader cannot read the archive either (the freeze watchdog and
+  // the toolchain probe worker).
+  asarUnpack: ["**/*.node", "**/rg", "**/rg.exe", "stall-watchdog-worker.mjs", "probe-worker.mjs"],
   extraResources: [
     ...(signed && process.platform === "darwin" && existsSync(join(dist, "locked-use"))
       ? [{ from: join(dist, "locked-use"), to: "locked-use" }]

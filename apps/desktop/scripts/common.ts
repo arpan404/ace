@@ -70,12 +70,15 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
     },
     {
       ...shared,
-      // The main-process freeze watchdog's thread. One self-contained file: it is unpacked
-      // from the asar archive, where shared chunks would not resolve.
+      // The main process's worker threads: the freeze watchdog and the CLI probe worker behind
+      // toolchain detection. Each is one self-contained file: they are unpacked from the asar
+      // archive, where shared chunks would not resolve.
       entryPoints: {
         "stall-watchdog-worker": join(repo, "packages/diagnostics/src/stall-watchdog-worker.ts"),
+        "probe-worker": join(repo, "packages/provider-kit/src/probe-worker.ts"),
       },
       outdir,
+      plugins: [zodEnglishOnly, noNativeModules],
       format: "esm",
       outExtension: { ".js": ".mjs" },
       platform: "node",

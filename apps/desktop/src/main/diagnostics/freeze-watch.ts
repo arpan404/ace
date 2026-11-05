@@ -9,6 +9,7 @@ import {
 } from "@ace/diagnostics/stall";
 import { Worker } from "node:worker_threads";
 import type { Log } from "../log/desktop-log.ts";
+import { bundledWorkerUrl } from "../bundled-worker.ts";
 
 export interface FreezeWatchOptions {
   log: Log;
@@ -67,15 +68,9 @@ export function watchFreezes(options: FreezeWatchOptions): () => Promise<void> {
 /** The watchdog thread's bundle, written beside the main bundle (`scripts/common.ts`). */
 export const STALL_WORKER_BUNDLE = "stall-watchdog-worker.mjs";
 
-/**
- * Where the bundled watchdog thread loads from, given the main bundle's URL. Electron reads
- * the archive for the main process, but a worker's module loader does not, so the bundle is
- * kept unpacked beside it (`asarUnpack`).
- */
+/** Where the bundled watchdog thread loads from, given the main bundle's URL. */
 export function stallWorkerUrl(mainUrl: string): URL {
-  const url = new URL(`./${STALL_WORKER_BUNDLE}`, mainUrl);
-  url.pathname = url.pathname.replace(/\/app\.asar\//, "/app.asar.unpacked/");
-  return url;
+  return bundledWorkerUrl(mainUrl, STALL_WORKER_BUNDLE);
 }
 
 /** Spawns the bundled watchdog thread instead of the package's source entry. */

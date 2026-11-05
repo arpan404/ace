@@ -46,6 +46,8 @@ export const nodeOnlySuites = [
   // The Electron main process bundles provider-kit's process code and runs it on Node, where it
   // takes koffi instead of bun:ffi and runs the probe worker on Node. These cover those paths.
   "packages/provider-kit/src/process-on-node.process.test.ts",
+  // The main process runs its bundle on Electron's Node; this runs its toolchain probe on Node.
+  "apps/desktop/src/main/system/toolchains.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react

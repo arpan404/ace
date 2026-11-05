@@ -36,6 +36,7 @@ import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
+import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
@@ -560,6 +561,7 @@ function main(target: DaemonTarget, crashDumps: string): void {
       background,
       window: () => window,
       env: process.env,
+      toolchains: bundledToolchains(import.meta.url),
       connection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),
