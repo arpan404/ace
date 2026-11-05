@@ -107,7 +107,11 @@ test("Reset restores the follow-up behavior on every device", async () => {
   await goTo("Advanced");
   await userEvent.click(await screen.findByRole("button", { name: "Reset" }));
   const dialog = await screen.findByRole("dialog", { name: "Reset all settings?" });
-  expect(within(dialog).getByText(/Appearance, themes, notifications and each device's keyboard shortcuts stay/)).toBeTruthy();
+  expect(
+    within(dialog).getByText(
+      /Appearance, themes, notifications and each device's keyboard shortcuts stay/,
+    ),
+  ).toBeTruthy();
   await userEvent.click(within(dialog).getByRole("button", { name: "Reset settings" }));
   await waitFor(() =>
     expect(screen.queryByRole("dialog", { name: "Reset all settings?" })).toBeNull(),

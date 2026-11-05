@@ -7,7 +7,9 @@ test("the worktree settings explain worktree isolation and still allow changing 
   await harness().open("/settings/agents");
   const toggle = await screen.findByRole("switch", { name: "New threads use a worktree" });
   const worktrees = screen.getByRole("region", { name: "Worktrees" });
-  expect(within(worktrees).getByRole("switch", { name: "New threads use a worktree" })).toBe(toggle);
+  expect(within(worktrees).getByRole("switch", { name: "New threads use a worktree" })).toBe(
+    toggle,
+  );
   await within(worktrees).findByText(
     "Start new threads in separate Git worktrees so their changes stay isolated.",
   );

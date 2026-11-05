@@ -32,7 +32,9 @@ test("settings search reveals and highlights the pairing control before it opens
   await waitFor(() => expect(add.dataset.flash).toBe("true"));
   expect(screen.queryByRole("dialog", { name: "Pair a device" })).toBeNull();
   await userEvent.click(add);
-  await userEvent.click(await screen.findByRole("menuitem", { name: /^A phone, tablet or browser/ }));
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: /^A phone, tablet or browser/ }),
+  );
   expect(await screen.findByRole("dialog", { name: "Pair a device" })).toBeTruthy();
 });
 
