@@ -101,9 +101,11 @@ struct InboxChip: View {
 }
 
 extension View {
-    /// Pins `bar` under the navigation bar. On iOS 26 it joins the bar's scroll-edge effect, so
-    /// rows pass under it; iOS 18 gives it the page colour.
-    @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    /// Pins `bar` under the navigation title, as Mail and Files pin a control there: on iOS 26 a
+    /// system bar with the hard scroll-edge effect Apple uses under a pinned control, so rows blur
+    /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
+    /// page colour.
+    @ViewBuilder func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
         if #available(iOS 26, *) {
             scrollEdgeEffectStyle(.hard, for: .top)
                 .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)

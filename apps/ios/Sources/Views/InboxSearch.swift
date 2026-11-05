@@ -93,6 +93,8 @@ struct InboxSearchList: View {
 
     var body: some View {
         List { results }
+            // Kind, project and date stay pinned under the field while the results scroll.
+            .pinnedTopBar { filterChips }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .scrollDismissesKeyboard(.immediately)
@@ -125,7 +127,6 @@ struct InboxSearchList: View {
     private var everyKind: Bool { scope.kind == "all" && scope.project.isEmpty }
 
     @ViewBuilder private var results: some View {
-        filterChips.inboxRowChrome().selectionDisabled()
         if everyKind { actionSection }
         if scope.kind == "all" || scope.kind == "thread" {
             let threads = foundThreads
@@ -267,7 +268,7 @@ struct InboxSearchList: View {
                 } label: { InboxChip(title: SearchScope.ranges.first { $0.days == scope.days }?.label ?? "Any time") }
                 .accessibilityIdentifier("search.filter.date")
             }
-            .padding(.horizontal, AceDesign.Space.related)
+            .padding(.horizontal, AceDesign.Space.margin)
             .padding(.vertical, AceDesign.Space.tight)
         }
         // The chips' glass draws past the row; clipped, it leaves a box behind them.

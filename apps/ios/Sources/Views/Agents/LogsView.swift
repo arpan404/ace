@@ -38,9 +38,7 @@ struct LogsView: View {
             .listRowSeparator(.hidden).listRowBackground(Color.clear)
             .listSectionSeparator(.hidden)
         }
-        .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-            filters.padding(.horizontal, AceDesign.Space.margin).background(AceDesign.Surface.background)
-        }
+        .pinnedTopBar { filters.padding(.horizontal, AceDesign.Space.margin) }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(AceDesign.Surface.background)

@@ -94,9 +94,9 @@ struct ChangesSheet: View {
                 }
             }
             .changesActions(model: model, summary: summary, title: title, wrap: $wrap) { header }
-            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+            .pinnedTopBar {
                 // Pinned, so Collapse all and Files stay in reach deep inside a long diff.
-                if let summary, summary.state != "error" { toolbarRow(summary).background(AceTheme.Colours.background) }
+                if let summary, summary.state != "error" { toolbarRow(summary) }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 ReviewBar(model: model, selection: $selection, comment: compose, list: { presented = .review })

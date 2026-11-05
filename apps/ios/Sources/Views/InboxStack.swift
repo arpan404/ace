@@ -113,7 +113,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .refreshable { await refresh() }
                 // Inbox, Snoozed and Settled pinned under the title, in the navigation bar's own
                 // region: rows blur and fade under both as they do under Mail's.
-                .inboxTopBar { tabsBar }
+                .pinnedTopBar { tabsBar }
         }
     }
 

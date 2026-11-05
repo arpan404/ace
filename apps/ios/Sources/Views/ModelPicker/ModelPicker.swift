@@ -49,7 +49,7 @@ struct ModelPicker: View {
             .environment(\.defaultMinListRowHeight, InsetStyle.rowHeight)
             .modifier(ModelSearchField(query: $query))
             .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
-            .inboxTopBar { if tabs.count > 1 && !searching { tabBar } }
+            .pinnedTopBar { if tabs.count > 1 && !searching { tabBar } }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button { cancel(); dismiss() } label: { Image(systemName: "xmark") }
