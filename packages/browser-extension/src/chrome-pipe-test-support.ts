@@ -31,6 +31,15 @@ export async function launchTestChrome(
       "--no-default-browser-check",
       "--use-mock-keychain",
       "--password-store=basic",
+      // A headless browser has no visible page, so Chrome runs its extension processes at
+      // background priority (every thread at macOS's background band). On a busy machine the
+      // service worker then barely runs and registration through the host stalls until an
+      // extension page opens. The switches match ace's own Chrome; the performance manager's
+      // priority policy backgrounds the processes again unless it is off too.
+      "--disable-renderer-backgrounding",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-features=PMProcessPriorityPolicy",
       // Windows: an elevated test would otherwise see the browser relaunch without its pipe.
       ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       ...extraArgs,
