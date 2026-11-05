@@ -85,6 +85,20 @@ export class Inspector {
     if (evaluated.wasThrown) throw new Error(evaluated.result.description ?? "Evaluation threw");
     return evaluated.result.value;
   }
+  /**
+   * The daemon's runtime: `bun 1.4.4`, or Node's version (`v26.8.1`). Bun reports a Node
+   * version too, so its numbers are labelled apart and never compared with Node's.
+   */
+  async runtime(): Promise<string> {
+    return z
+      .string()
+      .min(1)
+      .parse(
+        await this.evaluate(
+          `process.versions.bun ? "bun " + process.versions.bun : process.version`,
+        ),
+      );
+  }
   counters(): Promise<Counters> {
     return this.evaluate(countersExpression).then((value) => Counters.parse(value));
   }

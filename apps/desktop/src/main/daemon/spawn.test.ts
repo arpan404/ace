@@ -24,12 +24,18 @@ describe("the program that runs the daemon", () => {
         resources,
         path: "/usr/bin",
         version: "0.1.0",
-        env: { ELECTRON_RUN_AS_NODE: "1", NODE_OPTIONS: "--inspect" },
+        env: {
+          ELECTRON_RUN_AS_NODE: "1",
+          NODE_OPTIONS: "--inspect",
+          // Exported for a benchmark in the shell that opened the app.
+          ACE_BENCH_WORKER_PRELOAD: "/repo/apps/daemon/bench/telemetry.mjs",
+        },
       },
       program.env,
     );
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(env.NODE_OPTIONS).toBeUndefined();
+    expect(env.ACE_BENCH_WORKER_PRELOAD).toBeUndefined();
     expect(env.PATH).toBe("/app/Contents/Resources/bin:/usr/bin");
   });
 

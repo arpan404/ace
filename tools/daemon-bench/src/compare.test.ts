@@ -212,3 +212,55 @@ test("memory measured on another Node major isn't held to that baseline, while p
     compare({ ...measured({ "startup.rss": 400_000_000 }), node: "v24.13.0" }, baseline)[0]?.status,
   ).toBe("regressed");
 });
+
+test("memory measured on Bun is held only to a Bun baseline of the same minor version", () => {
+  const onBun = Baseline.parse({
+    ...baseline,
+    platforms: { "darwin-arm64": { ...baseline.platforms["darwin-arm64"], node: "bun 1.4.4" } },
+  });
+  const rss = (node: string) =>
+    compare({ ...measured({ "startup.rss": 400_000_000 }), node }, onBun)[0]?.status;
+  expect(rss("bun 1.4.5")).toBe("regressed");
+  expect(rss("bun 1.5.0")).toBe("unbaselined");
+  expect(rss("bun 2.0.0")).toBe("unbaselined");
+  expect(rss("v1.4.4")).toBe("unbaselined");
+  // A Node baseline doesn't hold a Bun run's memory either.
+  expect(
+    compare({ ...measured({ "startup.rss": 400_000_000 }), node: "bun 24.0.0" }, baseline)[0]
+      ?.status,
+  ).toBe("unbaselined");
+});
+
+test("raw idle CPU is held to its own platform's baseline in percent of one core", () => {
+  const withRaw = Baseline.parse({
+    ...baseline,
+    tolerances: [
+      ...baseline.tolerances,
+      { metric: "idle.cpuPercent", relative: 0.35, absolute: 0.2 },
+    ],
+    platforms: {
+      "darwin-arm64": {
+        ...baseline.platforms["darwin-arm64"],
+        metrics: { ...baseline.platforms["darwin-arm64"]?.metrics, "idle.cpuPercent": 0.8 },
+      },
+    },
+  });
+  const raw = (percent: number) =>
+    compare(measured({ "idle.cpuPercent": percent }), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    )?.status;
+  expect(raw(1.05)).toBe("pass");
+  expect(raw(1.2)).toBe("regressed");
+  // A whole run's raw idle CPU (1% here) is gated with the rest of its metrics.
+  expect(
+    compare(combine([result(standard, 100)]), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    ),
+  ).toMatchObject({ actual: 1, status: "pass" });
+  // Another platform's raw CPU says nothing about this one's.
+  expect(
+    compare(measured({ "idle.cpuPercent": 5 }, "linux-x64"), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    )?.status,
+  ).toBe("unbaselined");
+});

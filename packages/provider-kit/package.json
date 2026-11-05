@@ -47,7 +47,8 @@
     "./memory-watchdog": "./src/memory-watchdog.ts",
     "./tree-stop": "./src/tree-stop.ts",
     "./bun-ffi": "./src/bun-ffi.ts",
-    "./koffi": "./src/koffi.ts"
+    "./koffi": "./src/koffi.ts",
+    "./worker": "./src/worker.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
