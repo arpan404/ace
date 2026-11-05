@@ -181,14 +181,21 @@ export function installedElectronDist(): string {
 }
 
 /**
- * Chromium switches every e2e launch of the app passes. macOS: a mock keychain, never the login
- * keychain. The app's first `safeStorage` call creates its encryption key there; under a spec's
- * temporary HOME there is no login keychain, so macOS asks to create one in a dialog nobody
- * answers and the main process blocks in `SecItemAdd` until the spec times out. With the real
- * HOME it would write to the person's own keychain.
+ * Chromium switches for every disposable launch of the app (e2e specs, measuring, launch
+ * checks), so none reaches the person's own secret store.
+ * - macOS: a mock keychain, never the login keychain. The app's first `safeStorage` call
+ *   creates its encryption key there; under a temporary HOME there is no login keychain, so
+ *   macOS asks to create one in a dialog nobody answers and the main process blocks in
+ *   `SecItemAdd`. With the real HOME it would write to the person's own keychain.
+ * - Linux: Chromium's plaintext store, never the session's libsecret or KWallet (the real
+ *   keyring, or an unlock dialog). `account-secrets.ts` refuses that store, so a disposable
+ *   launch can't save an ace account session; no spec saves one.
+ * - Windows: nothing. DPAPI asks no one and its key file lives in the launch's own data folder.
  */
 export function e2eSwitches(platform: NodeJS.Platform): string[] {
-  return platform === "darwin" ? ["--use-mock-keychain"] : [];
+  if (platform === "darwin") return ["--use-mock-keychain"];
+  if (platform === "linux") return ["--password-store=basic"];
+  return [];
 }
 
 /**
