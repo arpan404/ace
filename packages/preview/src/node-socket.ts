@@ -11,6 +11,12 @@ import { windowSize } from "./relay-wire.ts";
  * Bytes held here always go first: a chunk that arrives while some are held queues behind them,
  * and the socket's end (and the close after it) waits until every held byte has been delivered.
  *
+ * The socket itself is paused only once its own buffer is empty. On Bun, `resume()` starts a
+ * native read straight away, and a `pause()` right after it does not stop that read landing. If
+ * the socket were paused with chunks still buffered, each resume would emit one chunk and gain a
+ * read, so a paused socket would come to hold two reads. Instead every chunk it has buffered is
+ * taken into the held queue first, and the one read a resume starts lands in an empty buffer.
+ *
  * Only a real end reaches the mux, because the mux treats a close after an end as graceful and
  * sends END. Bun emits `end` on a socket destroyed locally too; that end is an abort, so it is
  * dropped and the close goes through at once. The filter holds because `destroy()` marks the
@@ -94,7 +100,9 @@ export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
     },
     pause: () => {
       paused = true;
-      socket.pause();
+      // With chunks still buffered the socket keeps flowing them into `held`; the data handler
+      // pauses it once the buffer is empty.
+      if (socket.readableLength === 0) socket.pause();
     },
     resume: () => {
       paused = false;
@@ -114,11 +122,13 @@ export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
       if (event !== "data") return socket.on(event, listener);
       deliver = listener;
       return socket.on("data", (chunk: Buffer) => {
-        if (held.length === 0 && chunk.byteLength <= windowSize) return listener(chunk);
-        socket.pause();
-        held.push(chunk);
-        heldBytes += chunk.byteLength;
-        next();
+        if (!paused && held.length === 0 && chunk.byteLength <= windowSize) listener(chunk);
+        else {
+          held.push(chunk);
+          heldBytes += chunk.byteLength;
+          next();
+        }
+        if ((paused || held.length > 0) && socket.readableLength === 0) socket.pause();
       });
     },
     once: (event, listener) => socket.once(event, listener),
