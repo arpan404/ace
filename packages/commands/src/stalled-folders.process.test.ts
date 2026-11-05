@@ -105,8 +105,14 @@ it.skipIf(process.platform === "win32")(
     expect(failed.error).toBeInstanceOf(CommandFilesystemUnavailable);
     expect(failed.after).toBeGreaterThanOrEqual(390);
     expect(failed.after).toBeLessThan(2000);
-    // The same root reads again on another thread while the stuck one drains.
-    await closeCommandFd(await openCommandChild(rootA, "prompt.md", fileFlags));
+    // Handles of the stuck thread are dead; the root reopens and reads on another thread while
+    // the stuck one drains.
+    await expect(openCommandChild(rootA, "prompt.md", fileFlags)).rejects.toBeInstanceOf(
+      CommandFilesystemUnavailable,
+    );
+    const again = await openResolvedDirectory(openCommandChild, a);
+    await closeCommandFd(await openCommandChild(again, "prompt.md", fileFlags));
+    await closeCommandFd(again);
   },
 );
 
@@ -332,11 +338,11 @@ it.skipIf(process.platform === "win32")(
       expect(result.error).toBeInstanceOf(CommandFilesystemUnavailable);
       expect(result.at - started).toBeGreaterThanOrEqual(390);
     }
-    // The descriptors stay open while their reads may still use them, and close once the reads
-    // return.
+    // Giving back a handle whose thread is stuck is done at once; that thread closes it, with
+    // everything else it owns, once its read returns.
+    const closing = performance.now();
     for (const { fd } of pipes) await closeCommandFd(fd);
-    await new Promise((r) => setTimeout(r, 50));
-    for (const { fd } of pipes) expect(() => fstatSync(fd)).not.toThrow();
+    expect(performance.now() - closing).toBeLessThan(50);
     for (const { path } of pipes) {
       const writer = openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
       writeSync(writer, "x");
@@ -392,5 +398,49 @@ it.skipIf(process.platform === "win32")(
         await handle.close();
       }
     }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "closing command files returns at once while another reader's long queue waits on the same stuck root",
+  async () => {
+    shortDeadline(3000);
+    const path = await commandRoot();
+    await mkdir(join(path, "sub"));
+    for (let i = 0; i < 6; i++) await writeFile(join(path, "sub", `file-${i}.md`), `File ${i}`);
+    fifo(join(path, "stuck.md"));
+    const root = { path, format: "claude" as const, scope: "user" as const };
+    // Another reader of the same root: one read blocks its thread, and many more queue behind it.
+    const other = new SecureCommandIo((directory, name, flags, owner) =>
+      openCommandChild(directory, name, name === "stuck.md" ? constants.O_RDONLY : flags, owner),
+    );
+    cleanups.push(() => other.close());
+    let queued: Promise<unknown>[] = [];
+    // Discovery is mid-scan, with its directory stream open, when the other reader blocks the
+    // root's thread; its next open then waits behind that queue.
+    let blocked = false;
+    const { promise: scanning, resolve: scanned } = Promise.withResolvers<void>();
+    const io = new SecureCommandIo(async (directory, name, flags, owner) => {
+      if (!blocked && name.startsWith("file-")) {
+        blocked = true;
+        queued = [
+          other.read(root, join(path, "stuck.md")),
+          ...Array.from({ length: 50 }, () => other.read(root, join(path, "sub", "file-0.md"))),
+        ].map((call) => call.catch(() => {}));
+        await new Promise((r) => setTimeout(r, 50));
+        scanned();
+      }
+      return openCommandChild(directory, name, flags, owner);
+    });
+    const files = new CommandFiles(new CommandCatalog(() => 0), [root], { io });
+    const starting = files.start().catch(() => {});
+    await scanning;
+    const started = performance.now();
+    await files.close();
+    await starting;
+    // Before, its stream's close queued behind the other reader's stuck call: a whole deadline.
+    expect(performance.now() - started).toBeLessThan(300);
+    // The other reader's calls are untouched by this close; they end at their own deadline.
+    await Promise.all(queued);
   },
 );

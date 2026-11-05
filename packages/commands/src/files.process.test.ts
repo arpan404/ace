@@ -12,6 +12,8 @@ import {
   discoveryRoots,
   type Target,
 } from "./index.ts";
+import { closeCommandFd, openResolvedDirectory } from "./posix.ts";
+import { statCommandFd } from "./posix-calls.ts";
 const target: Target = { provider: "claude", instance: "personal", session: "t" };
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -282,8 +284,8 @@ it.skipIf(process.platform === "win32")(
     const { home } = await fixture();
     // Opening a FIFO with no writer blocks, as a call into a dead network mount does.
     execFileSync("mkfifo", [join(home, "stuck")]);
-    const root = openSync(home, constants.O_RDONLY | constants.O_DIRECTORY);
-    cleanups.push(async () => closeSync(root));
+    const root = await openResolvedDirectory(openCommandChild, home);
+    cleanups.push(() => closeCommandFd(root));
     const opening = openCommandChild(root, "stuck", constants.O_RDONLY);
     let ticks = 0;
     await new Promise<void>((resolve) => {
@@ -295,10 +297,11 @@ it.skipIf(process.platform === "win32")(
       }, 10);
     });
     expect(ticks).toBe(5);
-    // A writer lets the open finish; the descriptor it returns belongs to this process.
+    // A writer lets the open finish; its handle works like any other.
     const writer = openSync(join(home, "stuck"), constants.O_WRONLY | constants.O_NONBLOCK);
     const fd = await opening;
     closeSync(writer);
-    closeSync(fd);
+    expect((await statCommandFd(fd)).isFile()).toBe(false);
+    await closeCommandFd(fd);
   },
 );
