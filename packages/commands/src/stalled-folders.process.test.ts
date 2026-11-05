@@ -1,12 +1,22 @@
 import { execFileSync, spawn } from "node:child_process";
-import { closeSync, constants, openSync, readdirSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  openSync,
+  readdirSync,
+  statSync,
+  writeSync,
+} from "node:fs";
+import { mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { CommandCatalog, CommandFiles, SecureCommandIo, type Target } from "./index.ts";
-import { CommandFilesystemUnavailable } from "./posix-lanes.ts";
+import { CommandFilesystemUnavailable } from "./posix-ops.ts";
+import { readCommandFd } from "./posix-calls.ts";
 import {
+  closeCommandFd,
   commandCallOwner,
   directoryFlags,
   directoryReader,
@@ -84,19 +94,19 @@ it.skipIf(process.platform === "win32")(
     const rootA = await openResolvedDirectory(openCommandChild, a);
     const rootB = await openResolvedDirectory(openCommandChild, b);
     cleanups.push(async () => {
-      closeSync(rootA);
-      closeSync(rootB);
+      await closeCommandFd(rootA);
+      await closeCommandFd(rootB);
     });
     const started = performance.now();
     const stuck = stuckOpen(rootA).then((r) => ({ ...r, after: performance.now() - started }));
-    closeSync(await openCommandChild(rootB, "prompt.md", fileFlags));
+    await closeCommandFd(await openCommandChild(rootB, "prompt.md", fileFlags));
     expect(performance.now() - started).toBeLessThan(300);
     const failed = await stuck;
     expect(failed.error).toBeInstanceOf(CommandFilesystemUnavailable);
     expect(failed.after).toBeGreaterThanOrEqual(390);
     expect(failed.after).toBeLessThan(2000);
     // The same root reads again on another thread while the stuck one drains.
-    closeSync(await openCommandChild(rootA, "prompt.md", fileFlags));
+    await closeCommandFd(await openCommandChild(rootA, "prompt.md", fileFlags));
   },
 );
 
@@ -109,8 +119,8 @@ it.skipIf(process.platform === "win32")(
     await writeFile(join(a, "prompt.md"), "A");
     // Warm up: the first calls start threads and load the native library.
     const warm = await openResolvedDirectory(openCommandChild, a);
-    closeSync(await openCommandChild(warm, "prompt.md", fileFlags));
-    closeSync(warm);
+    await closeCommandFd(await openCommandChild(warm, "prompt.md", fileFlags));
+    await closeCommandFd(warm);
     const baseline = openFds();
     for (let cycle = 0; cycle < 4; cycle++) {
       const root = await openResolvedDirectory(openCommandChild, a);
@@ -131,8 +141,7 @@ it.skipIf(process.platform === "win32")(
       owner.cancel();
       expect((await cancelled).error).toBeInstanceOf(CommandFilesystemUnavailable);
       release();
-      await owner.idle();
-      closeSync(root);
+      await closeCommandFd(root);
       await until(() => openFds() <= baseline);
       expect(openFds()).toBeLessThanOrEqual(baseline);
     }
@@ -272,6 +281,116 @@ it.skipIf(process.platform === "win32")(
     await save(0);
     const baseline = openFds();
     for (let n = 1; n <= 3; n++) await save(n);
+    // Closes run on the root's thread after the call returns; give them a moment.
+    await until(() => openFds() <= baseline, 500);
     expect(openFds()).toBe(baseline);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "reads stuck in four folders leave the file pool free, fail at their deadline, and give back their descriptors",
+  async () => {
+    shortDeadline(400);
+    const baseline = openFds();
+    const pipes: { path: string; fd: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      const path = await commandRoot();
+      fifo(join(path, "pipe"));
+      const root = await openResolvedDirectory(openCommandChild, path);
+      // Read-write, so the open returns at once and the read then blocks with nothing to read.
+      pipes.push({
+        path: join(path, "pipe"),
+        fd: await openCommandChild(root, "pipe", constants.O_RDWR),
+      });
+      await closeCommandFd(root);
+    }
+    const owner = commandCallOwner();
+    const started = performance.now();
+    const reads = pipes.map(({ fd }, i) =>
+      settled(readCommandFd(fd, Buffer.alloc(16), 0, 16, null, i === 3 ? owner : undefined)),
+    );
+    // Four blocked reads would take every thread of the default pool; it stays free.
+    const healthy = await commandRoot();
+    await writeFile(join(healthy, "a.md"), "Fine");
+    await Promise.all([1, 2, 3, 4].map(() => readFile(join(healthy, "a.md"), "utf8")));
+    // Another root reads through its own thread.
+    const root = await openResolvedDirectory(openCommandChild, healthy);
+    const file = await openCommandChild(root, "a.md", fileFlags);
+    const bytes = Buffer.alloc(16);
+    const count = await readCommandFd(file, bytes, 0, 16, 0);
+    expect(bytes.subarray(0, count).toString()).toBe("Fine");
+    await closeCommandFd(file);
+    await closeCommandFd(root);
+    expect(performance.now() - started).toBeLessThan(300);
+    // Cancelling its owner ends one read at once; the others end at their deadline.
+    const cancelled = performance.now();
+    owner.cancel();
+    const results = await Promise.all(reads);
+    expect(results[3]?.error).toBeInstanceOf(CommandFilesystemUnavailable);
+    expect((results[3]?.at ?? 0) - cancelled).toBeLessThan(100);
+    for (const result of results.slice(0, 3)) {
+      expect(result.error).toBeInstanceOf(CommandFilesystemUnavailable);
+      expect(result.at - started).toBeGreaterThanOrEqual(390);
+    }
+    // The descriptors stay open while their reads may still use them, and close once the reads
+    // return.
+    for (const { fd } of pipes) await closeCommandFd(fd);
+    await new Promise((r) => setTimeout(r, 50));
+    for (const { fd } of pipes) expect(() => fstatSync(fd)).not.toThrow();
+    for (const { path } of pipes) {
+      const writer = openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
+      writeSync(writer, "x");
+      closeSync(writer);
+    }
+    await until(() => openFds() <= baseline);
+    expect(openFds()).toBeLessThanOrEqual(baseline);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "cancelling discovery at any moment never closes a descriptor the daemon has reused",
+  async () => {
+    const path = await commandRoot();
+    await mkdir(join(path, "sub"));
+    const sentinel = join(path, "sentinel.md");
+    await writeFile(sentinel, "Sentinel");
+    const identity = statSync(sentinel).ino;
+    const root = { path, format: "claude" as const, scope: "user" as const };
+    const pauses = [
+      () => Promise.resolve(),
+      () => new Promise((r) => setImmediate(r)),
+      () => new Promise((r) => setTimeout(r, 0)),
+      () => new Promise((r) => setTimeout(r, 1)),
+    ];
+    for (let i = 0; i < 48; i++) {
+      // Cancel just as the listing's openDirectory is queued or sent: before it reaches the
+      // thread, while fdopendir runs, or after it answered but before the answer is read.
+      const { promise: subOpened, resolve: opened } = Promise.withResolvers<void>();
+      const io = new SecureCommandIo(async (directory, name, flags, owner) => {
+        const fd = await openCommandChild(directory, name, flags, owner);
+        if (name === "sub") opened();
+        return fd;
+      });
+      const listing = io.directory(root, join(path, "sub")).then(
+        (reader) => reader.close(),
+        () => {},
+      );
+      const reading = io.read(root, sentinel).catch(() => {});
+      await subOpened;
+      await pauses[i % pauses.length]?.();
+      io.cancel();
+      // The daemon reuses descriptor numbers at once, from other threads (the file pool here,
+      // SQLite or sockets in the daemon). Open some there while the cancelled calls and their
+      // closes run: a stray close would close one of these, or let its number be handed out twice.
+      const fresh = await Promise.all(Array.from({ length: 12 }, () => open(sentinel, "r")));
+      await Promise.all([listing, reading]);
+      await io.close();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(new Set(fresh.map((handle) => handle.fd)).size).toBe(fresh.length);
+      for (const handle of fresh) {
+        expect(fstatSync(handle.fd).ino).toBe(identity);
+        await handle.close();
+      }
+    }
   },
 );
