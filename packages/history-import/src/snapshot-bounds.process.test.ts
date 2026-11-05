@@ -3,7 +3,7 @@ import { Worker, type WorkerOptions } from "node:worker_threads";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn as spawnProcess } from "node:child_process";
 import { once } from "node:events";
 import { openHistory, type HistoryOptions } from "./index.ts";
 import { cwd, environment, init, memorySink, roomySnapshots, text } from "./test-support.ts";
@@ -83,7 +83,7 @@ test("an unchanged live OpenCode database is not snapshotted again on the next s
 
 /** The pid of a process that has exited, as a crashed earlier reader's would be. */
 async function exitedPid(): Promise<number> {
-  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  const child = spawnProcess(process.execPath, ["-e", ""], { stdio: "ignore" });
   await once(child, "exit");
   if (child.pid === undefined) throw new Error("The child did not start");
   return child.pid;
