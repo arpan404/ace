@@ -53,6 +53,11 @@ export async function bundleDaemon(
               for (const [source, worker, output] of [
                 ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],
                 [
+                  "/commands/src/posix-worker-client.ts",
+                  "./posix-worker.ts",
+                  "./commands-posix-worker.mjs",
+                ],
+                [
                   "/files/src/exclusive-rename.ts",
                   "./rename-worker.ts",
                   "./files-rename-worker.mjs",
@@ -230,6 +235,7 @@ export async function bundleDaemon(
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
     ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],
+    ["packages/commands/src/posix-worker.ts", "commands-posix-worker.mjs"],
     ["packages/search/src/query-worker.ts", "search-query-worker.mjs"],
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
