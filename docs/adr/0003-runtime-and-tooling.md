@@ -47,6 +47,12 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
   reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
   `Bun.spawn({ terminal })`. On Node they keep node-pty.
+- **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
+  screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
+  `@ace/provider-kit/image`. It decoded and re-encoded a Simulator frame in about half sharp's
+  time and memory. sharp stays for what `Bun.Image` can't do: drawing SVG (icons, device art),
+  raw pixel input and output (app icons, skin alpha masks) and compositing (device bodies,
+  browser filmstrips).
 - **Release builds still run on Node 26.12.1** (`nodeVersion`), which native addons are built
   against. They are Node-API, so the same binaries load in Bun.
 - **Known Bun differences** that ace code has to respect:

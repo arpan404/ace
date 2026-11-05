@@ -7,7 +7,7 @@ import { z } from "zod";
 
 /** These packages locate runtime files relative to their installed package roots. */
 export const runtimePackages = [
-  { name: "sharp", workspace: "packages/context" },
+  { name: "sharp", workspace: "packages/devices" },
   { name: "koffi", workspace: "packages/files" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
   { name: "@cursor/sdk", workspace: "packages/adapter-cursor" },
