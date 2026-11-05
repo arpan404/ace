@@ -83,8 +83,8 @@ edit `standardOptions`. Either way, re-measure every platform's baseline in the 
 `--update-baseline` names the entries that are left stale.
 
 Every result records the runtime the daemon reported (`bun 1.4.4`, or a Node version), and
-heap, RSS, footprint and idle CPU are compared only with a baseline of the same runtime and
-major version. The macOS baseline is Bun 1.4.4's: the median of three standard runs on a
+heap, RSS, footprint and idle CPU are compared only with a baseline of the same runtime line:
+the same Node major, or the same Bun minor (`bun 1.4`). The macOS baseline is Bun 1.4.4's: the median of three standard runs on a
 16-core M-series Mac at load average 300–480. Across those runs new-thread and same-thread
 transactions varied by under 1% (≈117 and ≈79), long-text transactions by about 8%
 (296–319), normalized CPU per turn by up to 18%, idle CPU per minute by 4%, heap after GC by

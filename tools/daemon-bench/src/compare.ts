@@ -140,10 +140,15 @@ export function staleBaselines(baseline: Baseline, standard: Workload): string[]
     .map(([name]) => name);
 }
 
-/** `node 26` for `v26.8.1`, `bun 1` for `bun 1.4.4`: the runtime and its major version. */
-function runtimeMajor(version: string): string | undefined {
-  const match = /^(bun )?v?(\d+)/.exec(version);
-  return match ? `${match[1] ? "bun" : "node"} ${match[2]}` : undefined;
+/**
+ * The runtime line whose memory and idle costs hold: `node 26` for `v26.8.1`, `bun 1.4` for
+ * `bun 1.4.4`. Bun still changes its allocator and collector between minor versions.
+ */
+function runtimeLine(version: string): string | undefined {
+  const bun = /^bun (\d+\.\d+)\./.exec(version);
+  if (bun) return `bun ${bun[1]}`;
+  const node = /^v?(\d+)\./.exec(version);
+  return node ? `node ${node[1]}` : undefined;
 }
 
 function matches(pattern: string, metric: string) {
@@ -161,12 +166,12 @@ function matches(pattern: string, metric: string) {
 export function compare(measured: Measured, baseline: Baseline): Verdict[] {
   const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
-  // Memory and idle costs depend on the runtime: another major's, or the other runtime's,
+  // Memory and idle costs depend on the runtime: another runtime line's (Node major, Bun minor)
   // numbers don't hold.
   const sameRuntime =
     own !== undefined &&
-    runtimeMajor(own.node) !== undefined &&
-    runtimeMajor(own.node) === runtimeMajor(measured.node);
+    runtimeLine(own.node) !== undefined &&
+    runtimeLine(own.node) === runtimeLine(measured.node);
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
   if (own)
     requireSameWorkload(
