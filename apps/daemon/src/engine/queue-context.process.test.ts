@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { afterEach, expect, test } from "vitest";
 import { CommandId } from "@ace/protocol";
 import {
@@ -148,7 +149,7 @@ test("prepared context survives a child completion until the owning root turn se
     context: { mentions: [{ path: "input.txt" }], attachments: [] },
   });
   await h.engine.flush();
-  await expect(access(inputPath)).resolves.toBeUndefined();
+  expect(existsSync(inputPath)).toBe(true);
   h.contexts[0]?.onFrame(frames.frame(end));
   await h.engine.flush();
   // Await the same filesystem operation; no timer is used for synchronisation.

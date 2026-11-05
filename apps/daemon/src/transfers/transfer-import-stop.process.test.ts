@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, it, vi } from "vitest";
 import type { TransferTransport } from "./client.ts";
 import {

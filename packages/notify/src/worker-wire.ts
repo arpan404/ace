@@ -67,6 +67,19 @@ export const ToWorker = z.discriminatedUnion("type", [
     result: z.enum(["accepted", "retry", "gone", "revoked", "failed"]),
   }),
 ]);
+const refusalPathChars = 4096;
+const refusalMessageChars = 8192;
+/**
+ * The frame a worker sends when it refuses its store, cut to the wire's limits: a frame over
+ * them would fail to parse, and the daemon would degrade instead of stopping on the refusal.
+ */
+export function incompatibleFrame(refusal: { path: string; message: string }) {
+  return {
+    type: "incompatible" as const,
+    path: refusal.path.slice(0, refusalPathChars),
+    message: refusal.message.slice(0, refusalMessageChars),
+  };
+}
 export const FromWorker = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
   z.object({
@@ -92,6 +105,12 @@ export const FromWorker = z.discriminatedUnion("type", [
     notification: Notification,
   }),
   z.object({ type: z.literal("cancel"), id: seq }),
+  /** The store is in a format this build cannot read; the worker waits to be stopped. */
+  z.object({
+    type: z.literal("incompatible"),
+    path: z.string().max(refusalPathChars),
+    message: z.string().max(refusalMessageChars),
+  }),
   /** Sent after a call changes when delivery next has work or whether the worker is idle. */
   z.object({ type: z.literal("state"), deadline: seq.nullable(), idle: z.boolean() }),
 ]);

@@ -65,7 +65,12 @@ export async function resolveExisting(path: string): Promise<HostTarget> {
   try {
     target = await realpath(path);
   } catch {
-    throw new HostOpenError("path_not_found");
+    // Bun cannot resolve a socket's real path (EOPNOTSUPP), where Node can: something that
+    // exists but has no real path is still not a file or folder.
+    const info = await stat(path).catch(() => undefined);
+    throw new HostOpenError(
+      info && !info.isFile() && !info.isDirectory() ? "path_not_openable" : "path_not_found",
+    );
   }
   const info = await stat(target).catch(() => undefined);
   if (!info) throw new HostOpenError("path_not_found");

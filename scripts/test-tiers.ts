@@ -37,22 +37,37 @@ export const nodeOnlySuites = [
   // The reader's heap limit (Worker resourceLimits) exists only on Node: Bun ignores it, so on
   // Bun these checks would pass without any limit at all.
   "packages/history-import/src/memory-bounds.process.test.ts",
+  // The e2e launcher runs on Node (`node src/real-daemon.ts` in playwright.config.ts). It
+  // switches HOME in-process, which Bun's os.homedir() does not follow.
+  "tools/web-e2e/src/real-daemon-isolation.process.test.ts",
+  // The bench's telemetry preload sees workers through Node's worker_threads diagnostics channel
+  // and reaches them through inherited --import; Bun has neither.
+  "apps/daemon/src/bench-telemetry.process.test.ts",
+  // Its read recorder patches node:fs in every isolate (inherited --import and
+  // syncBuiltinESMExports); on Bun it would see no reads, so this privacy check runs on Node.
+  "apps/daemon/src/history-startup.process.test.ts",
 ];
-const nodeProjects: readonly string[] = ["node-process"];
+/**
+ * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
+ * jsdom projects, whose code runs in browsers (Vite builds it; Node is what its tooling runs on).
+ */
+export const nodeProjects: readonly string[] = ["node-process", "web", "client-react"];
 
 /**
- * A run on Bun in two passes: Bun runs every selected project but the Node-only ones, then Node
- * runs those. `undefined` skips a pass; an empty list means every project, as in projectsFor.
+ * A run on Bun in two passes: Bun runs every selected project but the Node ones, then Node runs
+ * the selected Node ones. `undefined` skips a pass; an empty list means every project, as in
+ * projectsFor (Bun's config leaves the Node projects out).
  */
 export function splitByRuntime(projects: readonly string[]): {
   bun: string[] | undefined;
   node: string[] | undefined;
 } {
-  const selectsNode = projects.length === 0 || projects.some((name) => nodeProjects.includes(name));
+  if (projects.length === 0) return { bun: [], node: [...nodeProjects] };
   const bun = projects.filter((name) => !nodeProjects.includes(name));
+  const node = projects.filter((name) => nodeProjects.includes(name));
   return {
-    bun: projects.length > 0 && bun.length === 0 ? undefined : bun,
-    node: selectsNode ? [...nodeProjects] : undefined,
+    bun: bun.length ? bun : undefined,
+    node: node.length ? node : undefined,
   };
 }
 
@@ -89,6 +104,8 @@ export interface RunOptions {
   withSlow: boolean;
   /** test:changed only: the ref to diff against (default: merge-base with origin/main). */
   base: string | undefined;
+  /** Projects named with `--project`, added to the tier's; each runs on its own runtime. */
+  projects: string[];
   /** Arguments passed through to `vitest run`. */
   vitestArgs: string[];
 }
@@ -103,6 +120,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     withProcess: false,
     withSlow: false,
     base: undefined,
+    projects: [],
     vitestArgs: [],
   };
   for (let index = 0; index < rest.length; index++) {
@@ -115,13 +133,31 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     else if (tier === "changed" && arg === "--base") {
       options.base = rest[++index];
       if (!options.base) throw new Error("--base needs a git ref");
-    } else options.vitestArgs.push(arg);
+    } else if (arg === "--project") {
+      const name = rest[++index];
+      if (!name) throw new Error("--project needs a project name");
+      options.projects.push(name);
+    } else if (arg.startsWith("--project=")) options.projects.push(arg.slice("--project=".length));
+    else options.vitestArgs.push(arg);
   }
   return options;
 }
 
-/** The Vitest projects a run selects; an empty list means every project. */
-export function projectsFor(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">) {
+/**
+ * The Vitest projects a run selects; an empty list means every project. Projects named with
+ * `--project` join the tier's, as Vitest's own flag would, and go through the runner so a Bun run
+ * sends each to the pass for its runtime instead of handing Bun a project its config leaves out.
+ */
+export function projectsFor(
+  options: Pick<RunOptions, "tier" | "withProcess" | "withSlow"> & { projects?: readonly string[] },
+): string[] {
+  const named = options.projects ?? [];
+  const tier = tierProjects(options);
+  if (named.length === 0) return tier;
+  return tier.length === 0 ? [...new Set(named)] : [...new Set([...tier, ...named])];
+}
+
+function tierProjects(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">): string[] {
   switch (options.tier) {
     case "full":
       return [];

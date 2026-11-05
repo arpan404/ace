@@ -24,6 +24,7 @@
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/service": "workspace:*",
     "esbuild": "0.25.12",
     "node-pty": "1.1.0",

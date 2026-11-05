@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setImmediate } from "node:timers/promises";
+import { setImmediate, setTimeout as sleep } from "node:timers/promises";
 import { afterEach, expect, test, vi } from "vitest";
 import type { StorageSchedule } from "./schedule.ts";
 import { SpaceReclaim } from "./space-reclaim.ts";
@@ -29,11 +29,17 @@ function manualTimers(advance: (ms: number) => void) {
       if (index >= 0) queue.splice(index, 1);
     };
   };
-  /** Wait for the loop to arm its next timer. */
+  /**
+   * Wait for the loop to arm its next timer. Bounded by time, not turns: Bun runs immediates far
+   * faster than Node, so a turn budget ran out while the loop's file and SQLite work was pending.
+   */
   async function armed(): Promise<number[]> {
+    const deadline = performance.now() + 20_000;
     for (let turn = 0; !queue.length; turn++) {
-      if (turn > 10_000) throw new Error("No timer was armed");
-      await setImmediate();
+      if (performance.now() > deadline) throw new Error("No timer was armed");
+      // Mostly immediates; every so often a timer turn lets pending I/O complete.
+      if (turn % 100 === 99) await sleep(1);
+      else await setImmediate();
     }
     return queue.map((timer) => timer.delay);
   }

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { AccountQuota, ProviderInstance, type AccountSummary } from "@ace/protocol/accounts";
 import type { DoctorContext } from "./feature.ts";

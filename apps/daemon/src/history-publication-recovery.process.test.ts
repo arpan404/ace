@@ -37,10 +37,13 @@ async function fixture() {
     now: () => 123,
     nextId: () => `import-${++id}`,
     spawnPublicationWorker(url, options) {
-      return new Worker(
-        url,
-        fail ? { ...options, execArgv: ["--import", pathToFileURL(preload).href] } : options,
-      );
+      // Node loads the fault through the worker's --import; Bun ignores that and takes `preload`.
+      const faulted = {
+        ...options,
+        execArgv: ["--import", pathToFileURL(preload).href],
+        preload: [preload],
+      };
+      return new Worker(url, fail ? faulted : options);
     },
   });
   const page = await history.handle(

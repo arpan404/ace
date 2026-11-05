@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -200,7 +201,7 @@ test("a user's push of a new-worktree conversation runs their hooks while ace's 
     // The person's push runs their own hooks, as their Git would. ace's reads of the checkout
     // around it still run no filter, LFS, fsmonitor or setup program.
     const [filter, lfs, hook, fsmonitor, setup] = markers;
-    await expect(access(hook ?? "")).resolves.toBeUndefined();
+    expect(existsSync(hook ?? "")).toBe(true);
     for (const marker of [filter, lfs, fsmonitor, setup])
       await expect(access(marker ?? "")).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
