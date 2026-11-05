@@ -129,6 +129,33 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - A pending top-level await keeps a Bun process alive, so `beforeExit` never fires.
   - Replacing a function on a builtin module's object does not reach named imports
     (`syncBuiltinESMExports` does nothing), and plugins cannot replace builtin modules.
+  - `net.Socket({ fd })` on a pipe descriptor writes without polling it: on a blocking
+    descriptor a full pipe freezes the whole process, on a non-blocking one the write fails with
+    `EAGAIN`. Pipes ace feeds itself are non-blocking on its side and written through Bun's
+    `FileSink` (`Bun.file(fd).writer()`) on Bun, which does not close a descriptor it was given.
+  - `fs.realpath` opens the final component, so it fails with `EACCES` on a file or folder the
+    process can't read (mode 000, write- or execute-only) where `realpath(3)` resolves it. The
+    workspace resolves such a leaf itself (`packages/workspace/src/realpath.ts`).
+  - A child's stdin takes about 500 KB in one write before holding it back (Node: one 64 KB pipe
+    buffer), reports `writableLength` 0, and has no `ref()` or `unref()`. It is an `fs.WriteStream`
+    over a native `FileSink` that reports a write of up to about 8 KB as done once buffered; when
+    the child has closed its stdin while still running, the sink's later write fails with `EPIPE`
+    and the stream never says so (no callback error, `error` or `close`). `Bun.spawn`'s own stdin
+    does report it. Supervised spawns flush that sink after each write and destroy stdin with its
+    failure (`packages/provider-kit/src/bun-stdin.ts`), so JSON-RPC requests, including those with
+    no timeout, fail as they do on Node.
+  - `node:sqlite`'s `backup()` copies the whole database in one synchronous step, so the event
+    loop does not run until it finishes. Only the updater, a separate process from the daemon,
+    takes such copies.
+  - `process.getActiveResourcesInfo()` is always empty. Daemon health counts open file
+    descriptors instead (`packages/diagnostics/src/open-resources.ts`): stdio and SQLite files
+    count, timers don't, and on Windows nothing is measured (0). The doctor's 10,000 leak
+    threshold holds for both counts.
+  - An Error's `stack` is a data property formatted on first access, so even reading its
+    descriptor runs `Error.prepareStackTrace` and can throw.
+  - `fs.readdir` with `recursive: true` lists entries in no fixed order.
+  - A Bun process whose stdout is a socket keeps a duplicate of it, so `closeSync(1)` alone does
+    not end the stream its parent reads.
 - **Tests on Bun.** `bun run test` and every tier run Vitest on Bun, then run the projects in
   `nodeProjects` (`scripts/test-tiers.ts`) in a second pass on Node and merge the timings: the
   `web` and `client-react` jsdom projects, whose code runs in browsers, and the suites in

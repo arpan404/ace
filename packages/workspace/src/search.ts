@@ -3,6 +3,7 @@ import type { GitIgnore } from "./ignore.ts";
 import { NodeSearch } from "./node-search.ts";
 import { command } from "./process.ts";
 import { querySource } from "./query.ts";
+import { feedablePipes } from "./descriptor.ts";
 import { rgSearch } from "./rg-search.ts";
 import { searchContent, linePackets, type SearchContent } from "./search-content.ts";
 import { transient, type SafeRoot } from "./safety.ts";
@@ -26,6 +27,8 @@ async function backend(
   if (binary === null) return "node";
   // ripgrep reads confined bytes through /dev/fd pipes, which Windows lacks.
   if (safe.runtime.platform === "win32") return "node";
+  // A native build too old to make non-blocking pipes would let a large file freeze the process.
+  if (!feedablePipes()) return "node";
   try {
     const result = await command(binary, ["--version"], signal ? { signal } : {}, safe.runtime);
     if (result.code !== 0)

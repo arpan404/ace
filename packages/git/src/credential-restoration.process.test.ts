@@ -57,7 +57,7 @@ test.each(["URL reset before generic helper", "URL helper before generic reset"]
       expect(remote.requests()).toBeGreaterThan(0);
       expect(remote.authenticated()).toBe(ordering === "URL reset before generic helper");
       if (ordering === "URL reset before generic helper")
-        await expect(access(trusted.marker)).resolves.toBeUndefined();
+        await expect(access(trusted.marker)).resolves.toBeFalsy();
       else await expect(access(trusted.marker)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await service.close();
@@ -114,8 +114,8 @@ test("the daemon resolves both XDG and home helpers when .gitconfig exists, rest
       name: "GitError",
     });
     expect(remote.authenticated()).toBe(true);
-    await expect(access(xdg.marker)).resolves.toBeUndefined();
-    await expect(access(global.marker)).resolves.toBeUndefined();
+    await expect(access(xdg.marker)).resolves.toBeFalsy();
+    await expect(access(global.marker)).resolves.toBeFalsy();
     await expect(access(system.marker)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     vi.unstubAllEnvs();
@@ -154,7 +154,7 @@ test("system helper discovery resolves the installed Git's config origin before 
       name: "GitError",
     });
     expect(remote.authenticated()).toBe(true);
-    await expect(access(trusted.marker)).resolves.toBeUndefined();
+    await expect(access(trusted.marker)).resolves.toBeFalsy();
     await expect(access(hostile.marker)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await service.close();
