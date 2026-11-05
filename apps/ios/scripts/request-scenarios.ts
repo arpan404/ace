@@ -64,6 +64,8 @@ const seeds: Record<RequestScenario, (daemon: FakeDaemon, id: string, details: D
           kind: "approval",
           title: "Codex wants to run a command",
           description: "Publishes 2 commits to GitHub",
+          // As the Codex adapter names it, so lists show the command without the transcript.
+          target: { tool: "shell", command: "git push origin fix/queue", access: "execute" },
           options: [
             { id: "deny", label: "Deny", kind: "deny" },
             { id: "always", label: "Always here", kind: "allow_session" },

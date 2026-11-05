@@ -13,6 +13,8 @@ struct InboxThreadRow: View {
     let snoozed: Bool
     var machine: MachineMark? = nil
     var project: ProjectMarkLook? = nil
+    /// The request the row waits on, as one line under the title, while it needs the person.
+    var need: InboxNeedLine? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Old payloads without a look read quietly with the shared word.
@@ -20,8 +22,10 @@ struct InboxThreadRow: View {
         row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
                             glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
     }
-    /// The third line shows for a branch or a pull request, as the owner's row rule has it.
-    private var hasContext: Bool { !(row.branchLabel ?? row.branch).isEmpty || row.pr != nil }
+    /// The third line shows for a branch or a pull request, as the owner's row rule has it. A row
+    /// that needs the person shows its request there instead, so every row stays three lines;
+    /// the branch and pull request are a tap away in the thread.
+    private var hasContext: Bool { need == nil && (!(row.branchLabel ?? row.branch).isEmpty || row.pr != nil) }
 
     var body: some View {
         let look = look
@@ -40,6 +44,7 @@ struct InboxThreadRow: View {
             }
             .frame(minHeight: AceDesign.Size.rowLine2)
             .padding(.top, AceDesign.Size.rowLineGap)
+            if let need { need.padding(.top, AceDesign.Size.rowLastLineGap) }
             if hasContext {
                 InboxRowContext(row: row, look: look, machine: machine).padding(.top, AceDesign.Size.rowLastLineGap)
             }
@@ -59,7 +64,7 @@ struct InboxThreadRow: View {
         let branch = row.branch.isEmpty ? nil : "Branch \(row.branch)"
         let pr = row.pr.map { "\($0.state) pull request #\($0.number)" }
         let work = row.work.map { "\($0.added) lines added, \($0.removed) lines removed" }
-        return [row.title, meaning, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
+        return [row.title, meaning, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
                 row.browsing, row.computerUse, branch, pr, work]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
     }

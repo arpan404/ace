@@ -348,6 +348,8 @@ extension ApprovalRow {
         let label: String
         let scope: String
         let emphasis: String
+        /// The action named once with what it covers ("Always allow here"); nil from older bridges.
+        var name: String? = nil
     }
     struct Other: Codable, Sendable, Equatable {
         let option: Int

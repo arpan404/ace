@@ -70,6 +70,10 @@ struct InboxList: View {
     var selection: Binding<Set<InboxKey>>? = nil
     @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
+    /// The needs-you run is open.
+    @State private var running = false
+    /// The run's pages, here so they outlive any redraw of the run's screen.
+    @State private var run = NeedsRunQueue()
     private var surface: Color { onGlass ? .clear : AceTheme.Colours.background }
 
     private var sections: [MergedInbox.Section] {
@@ -84,6 +88,14 @@ struct InboxList: View {
                 if !inbox.sessions.isEmpty && inbox.sessions.allSatisfy({ !$0.client.canOperate }) {
                     ViewOnlyNote(message: "View only")
                         .accessibilityHint("Pair with View and act to send, archive or snooze.")
+                        .inboxRowChrome()
+                        .selectionDisabled()
+                }
+                if tab == "inbox", selection == nil, let words = NeedWords.count(needs(shown).count) {
+                    NeedsYouLine(words: words) {
+                        run = NeedsRunQueue(needs(shown))
+                        running = true
+                    }
                         .inboxRowChrome()
                         .selectionDisabled()
                 }
@@ -132,6 +144,21 @@ struct InboxList: View {
                 reveal = nil
                 withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { proxy.scrollTo(key, anchor: .center) }
             }
+            .fullScreenCover(isPresented: $running) {
+                NeedsRun(inbox: inbox, live: { needs(sections.filter { $0.tab == "inbox" }) }, queue: $run) { key in
+                    running = false
+                    actions.open(key)
+                }
+            }
+        }
+    }
+    /// Everything waiting on the person in the open tab's rows, in the list's order: each
+    /// request, and each thread that needs the person with no request to answer here.
+    private func needs(_ shown: [MergedInbox.Section]) -> [NeedsRunQueue.Entry] {
+        shown.filter { $0.key != "unsent" }.flatMap(\.rows).flatMap { key -> [NeedsRunQueue.Entry] in
+            let asks = inbox.client(key.machineId)?.needsYou(key.id) ?? []
+            if !asks.isEmpty { return asks.map { NeedsRunQueue.Entry(thread: key, request: $0.id) } }
+            return inbox.row(key)?.look?.level == "needs-you" ? [NeedsRunQueue.Entry(thread: key, request: nil)] : []
         }
     }
     /// The row to reveal, once the open tab lists it.
@@ -248,6 +275,9 @@ private struct InboxThreadCell: View {
     var selecting = false
     /// The thread open beside the list.
     @Environment(\.openThreadRow) private var open
+    /// Row swipes taken, for their haptic.
+    @State private var swipes = 0
+    private func swiped() { swipes += 1 }
 
     var body: some View {
         if let row = inbox.row(key) { threadRow(row) }
@@ -266,8 +296,13 @@ private struct InboxThreadCell: View {
         let canOperate = inbox.client(key.machineId)?.canOperate ?? false
         // The daemon refuses to settle a tree that still runs.
         let canSettle = canOperate && !settled && row.state != "working"
+        let model = inbox.client(key.machineId)
+        let asks = selecting ? [] : model?.needsYou(row.id) ?? []
+        let need = model.flatMap { model in
+            asks.isEmpty ? nil : InboxNeedLine(requests: asks, total: model.needsCount(row.id), model: model, threadId: row.id) { actions.open(key) }
+        }
         let label = InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
-                                   project: inbox.projectLook(key, workspace: row.workspaceId))
+                                   project: inbox.projectLook(key, workspace: row.workspaceId), need: need)
         // One view in both modes, so entering Select mode only slides the check circles in: in
         // it the list picks the row, and the button underneath takes no taps.
         return Button { actions.open(key) } label: { label }
@@ -280,25 +315,27 @@ private struct InboxThreadCell: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             if canOperate && !selecting {
                 if settled {
-                    Button("Unsettle", ace: .arrowUUpLeft) { actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
+                    Button("Unsettle", ace: .arrowUUpLeft) { swiped(); actions.unsettle(row, key) }.tint(Color(uiColor: .systemGray))
                 } else if canSettle {
-                    Button("Settle", ace: .check) { actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
+                    Button("Settle", ace: .check) { swiped(); actions.settle(row, key) }.tint(Color(uiColor: .systemGray))
                 }
                 if snoozed {
-                    Button("Wake", ace: .sun) { actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Wake", ace: .sun) { swiped(); actions.wake(row, key) }.tint(Color(uiColor: .systemGray2))
                 } else if !settled {
-                    Button("Snooze", ace: .clock) { actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
+                    Button("Snooze", ace: .clock) { swiped(); actions.snooze(key) }.tint(Color(uiColor: .systemGray2))
                 }
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
-            if canOperate && !selecting {
-                pinButton(row, pinned).tint(Color(uiColor: .systemGray))
-                Button("Rename", ace: .pencilSimple) { actions.rename(key) }.tint(Color(uiColor: .systemGray3))
-                Button("Archive", ace: .archive) { actions.archive(row, key) }.tint(Color(uiColor: .systemGray2))
-            }
+            // Pin alone, as Mail's leading swipe; Rename and Archive are in the long-press menu.
+            if canOperate && !selecting { pinButton(row, pinned).tint(Color(uiColor: .systemGray)) }
         }
+        .sensoryFeedback(AceDesign.Haptic.rowAction, trigger: swipes)
         .accessibilityActions {
+            if let model, let request = asks.first, request.kind == "approval", model.approvalSubmissions[request.id] == nil {
+                let words = NeedActions(request: request, model: model, threadId: row.id, open: { actions.open(key) }, review: {}, decided: {})
+                ForEach(words.row) { word in Button(word.label, action: word.run) }
+            }
             if canOperate {
                 if canMoveUp { Button("Move up") { step(-1) } }
                 if canMoveDown { Button("Move down") { step(1) } }
@@ -320,7 +357,7 @@ private struct InboxThreadCell: View {
     }
 
     private func pinButton(_ row: ThreadRow, _ pinned: Bool) -> some View {
-        Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { actions.pin(row, key, !pinned) }
+        Button(pinned ? "Unpin" : "Pin", ace: pinned ? .pushPinSlash : .pushPin) { swiped(); actions.pin(row, key, !pinned) }
     }
     /// One place up or down among the section's rows as shown.
     private func step(_ by: Int) {

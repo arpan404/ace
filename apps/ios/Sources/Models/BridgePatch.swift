@@ -295,6 +295,10 @@ enum BridgePatch: Decodable, Sendable {
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
     case inboxReset([String]?)
     case inbox(String, ThreadRow?)
+    /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
+    case needs(String, InboxNeeds)
+    /// The agent's last words for the needs-you run's page of a thread.
+    case needsWords(String, String)
     case threadReset(String, Int, Int?, Int?)
     case position(String, Int, String, Int?)
     case item(String, Int, String, TranscriptRow?, ItemRemoval?)
@@ -378,7 +382,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -394,6 +398,8 @@ enum BridgePatch: Decodable, Sendable {
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
+        case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
+        case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))
         case "thread.reset":
             let (id, epoch) = try scope()
             self = .threadReset(id, epoch, try box.decodeIfPresent(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
