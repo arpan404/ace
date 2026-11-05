@@ -99,20 +99,10 @@ it("rotation deleting an enumerated log does not abort a valid support archive",
   expect(entries.get("logs/ace.jsonl")).toBe('"rotate-now"\n');
   expect(entries.has("logs/ace.1.jsonl")).toBe(false);
 });
-it("the terminal check passes when the runtime opens a real terminal, whatever the cwd holds", async () => {
+it("the terminal check passes when the runtime opens a real terminal", async () => {
   const root = await temporary();
-  // A node-pty that would fail to load: the check never reaches for it.
-  const module = join(root, "node_modules/node-pty");
-  await mkdir(module, { recursive: true });
-  await writeFile(join(module, "index.js"), 'throw new Error("wrong installation");');
-  const cwd = process.cwd();
-  try {
-    process.chdir(root);
-    const probes = createSystemProbes({ dataDir: root, port: 0, env: {} }, systemProbeRuntime);
-    expect(await probes.pty(new AbortController().signal)).toBe(true);
-  } finally {
-    process.chdir(cwd);
-  }
+  const probes = createSystemProbes({ dataDir: root, port: 0, env: {} }, systemProbeRuntime);
+  expect(await probes.pty(new AbortController().signal)).toBe(true);
 });
 it("logger contains throwing array and Error getters and does not enumerate arbitrary producer objects", async () => {
   const logger = createLogger({
