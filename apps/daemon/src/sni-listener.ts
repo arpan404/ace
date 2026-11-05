@@ -40,7 +40,7 @@ interface Connection {
   /** The TCP socket under it: the same object on Bun, its parent on Node. */
   raw: Socket;
   inflight: number;
-  cancel?: () => void;
+  cancel: (() => void) | undefined;
 }
 
 /** Identifies a TCP connection, so the TLS socket on top can be matched to its raw socket. */
@@ -89,7 +89,11 @@ export function sniListener(options: SniListenerOptions): SniListener {
   front.on("tlsClientError", (_error, socket) => socket.destroy());
   front.on("secureConnection", (socket: Socket) => {
     const key = peer(socket);
-    const connection: Connection = { raw: handshaking.get(key) ?? socket, inflight: 0 };
+    const connection: Connection = {
+      raw: handshaking.get(key) ?? socket,
+      inflight: 0,
+      cancel: undefined,
+    };
     handshaking.delete(key);
     own(socket);
     connections.set(socket, connection);

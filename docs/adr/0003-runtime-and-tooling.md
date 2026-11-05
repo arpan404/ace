@@ -64,7 +64,10 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     serves only its default certificate. Its `node:tls` server honours `SNICallback`. The remote
     listener therefore ends TLS in a `node:tls` server and hands each socket to a plain
     `node:http` server (`apps/daemon/src/sni-listener.ts`), so a ts.net name gets the Tailscale
-    certificate and a renewed one applies to the next connection without a restart. `Bun.serve`
+    certificate and a renewed one applies to the next connection without a restart. That HTTP
+    server never listens, so its own timeouts never run: the listener bounds the handshake, the
+    first request and idle keep-alive connections itself, and destroys sockets whose handshake
+    fails or stalls (neither runtime does that unasked). `Bun.serve`
     accepts a per-name `tls` array, but using it would mean leaving `node:http`'s request and
     upgrade handling, and a certificate change would mean restarting the server.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
