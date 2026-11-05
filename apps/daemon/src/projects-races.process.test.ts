@@ -1,4 +1,3 @@
-import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnGitProcess as spawn } from "@ace/git";
 import { mkdtemp, mkdir, rename, symlink, rm, stat, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,13 +5,13 @@ import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CommandId, type WorkspaceCloneProgress } from "@ace/protocol";
 import { projectFixture } from "./projects-test-support.ts";
-import type { GitProcessRuntime } from "@ace/git";
+import type { GitChild, GitProcessRuntime } from "@ace/git";
 
 // Deterministic process gates; not executed (tests run at merge).
 function metadataGate(matches: (args: string[]) => boolean) {
   const ready = Promise.withResolvers<void>();
   const exited = Promise.withResolvers<void>();
-  let child: ChildProcessWithoutNullStreams | undefined;
+  let child: GitChild | undefined;
   let held = false;
   return {
     ready: ready.promise,

@@ -3,7 +3,7 @@ import type {
   MutationCleanupSupervisor,
   MutationLease,
 } from "@ace/provider-kit/cleanup";
-import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "node:child_process";
+import type { Writable } from "node:stream";
 
 /** A durable mutation intent ace retired, and why: for the host's log. */
 export interface RetiredLease {
@@ -25,14 +25,72 @@ export interface RetiredLease {
     | "confirmed_stale";
 }
 
+export interface GitSpawnOptions {
+  cwd?: string | undefined;
+  env?: Record<string, string | undefined> | undefined;
+  shell?: false | undefined;
+  /** POSIX: Git leads its own process group, so stopping it reaches everything it started. */
+  detached?: boolean | undefined;
+  windowsHide?: boolean | undefined;
+  /** Three owned pipes, then descriptors Git inherits as fd 3, 4, … */
+  stdio: ["pipe", "pipe", "pipe", ...number[]];
+}
+
+/** Git's stdin. A Node `Writable` is one; so is the Bun pipe in `bun-git-child.ts`. */
+export interface GitChildInput {
+  /** False once bytes are queued; wait for `drain` before writing more. */
+  write(chunk: Buffer | string): boolean;
+  end(chunk?: Buffer | string): unknown;
+  destroy(): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  once(event: "drain", listener: () => void): unknown;
+  off(event: "drain", listener: () => void): unknown;
+}
+
+/** Git's stdout or stderr. A Node `Readable` is one; so is the Bun pipe in `bun-git-child.ts`. */
+export interface GitChildOutput {
+  on(event: "data", listener: (chunk: Buffer) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  once(event: "data", listener: (chunk: Buffer) => void): unknown;
+  once(event: "error", listener: (error: Error) => void): unknown;
+  off(event: "data", listener: (chunk: Buffer) => void): unknown;
+  off(event: "error", listener: (error: Error) => void): unknown;
+  pipe(destination: Writable): unknown;
+  unpipe(destination: Writable): unknown;
+  /** Read and discard everything. */
+  resume(): unknown;
+  /** Stop reading; with an error, report it as this stream's `error` first. */
+  destroy(error?: Error): unknown;
+}
+
+/**
+ * One Git process, with Node's `ChildProcess` events: `spawn`, then `exit` when Git ends and
+ * `close` once its output pipes have closed too. A failed spawn has no pid and reports `error`
+ * then `close`.
+ */
+export interface GitChild {
+  readonly pid?: number | undefined;
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  readonly stdin: GitChildInput;
+  readonly stdout: GitChildOutput;
+  readonly stderr: GitChildOutput;
+  kill(signal?: NodeJS.Signals): boolean;
+  unref(): void;
+  on(event: "spawn", listener: () => void): unknown;
+  on(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+  on(event: "exit" | "close", listener: GitExitListener): unknown;
+  once(event: "spawn", listener: () => void): unknown;
+  once(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+  once(event: "exit" | "close", listener: GitExitListener): unknown;
+  off(event: "spawn", listener: () => void): unknown;
+  off(event: "error", listener: (error: NodeJS.ErrnoException) => void): unknown;
+  off(event: "exit" | "close", listener: GitExitListener): unknown;
+}
+export type GitExitListener = (code: number | null, signal: NodeJS.Signals | null) => void;
+
 export interface GitProcessRuntime {
-  spawn: (
-    command: string,
-    args: string[],
-    options: Omit<SpawnOptionsWithoutStdio, "stdio"> & {
-      stdio: ["pipe", "pipe", "pipe", ...number[]];
-    },
-  ) => ChildProcessWithoutNullStreams;
+  spawn: (command: string, args: string[], options: GitSpawnOptions) => GitChild;
   scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
   signalGroup: (pid: number, signal: NodeJS.Signals) => void;
@@ -51,7 +109,7 @@ export interface GitProcessRuntime {
    * were set. Separate from `GitOptions.now`, which dates what ace records.
    */
   fileClock: () => number;
-  cleanupSupervisor?: MutationCleanupSupervisor<ChildProcessWithoutNullStreams>;
+  cleanupSupervisor?: MutationCleanupSupervisor<GitChild>;
 }
 
 export interface GitOptions {

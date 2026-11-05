@@ -1,10 +1,9 @@
-import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnGitProcess as spawn } from "@ace/git";
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { Command, CommandId, Project, type WorkspaceCloneProgress } from "@ace/protocol";
-import { GitError, GitService } from "@ace/git";
+import { GitError, GitService, type GitChild } from "@ace/git";
 import { projectFixture, projectServer, until } from "./projects-test-support.ts";
 
 // File transport exists only in this fixture. Production command inputs cannot enable it.
@@ -233,7 +232,7 @@ test("revoking a paired device cancels its stalled clone even when no more progr
 test.skipIf(process.platform === "win32")(
   "an admitted clone survives disconnect and a reconnect receives the same durable receipt",
   async () => {
-    let child: ChildProcessWithoutNullStreams | undefined;
+    let child: GitChild | undefined;
     const f = await projectFixture({
       gitPolicy: fixturePolicy,
       git: {

@@ -30,6 +30,7 @@ import { hooksInsideCheckout } from "./reviewer-hooks.ts";
 import { hooksInsideWindowsCheckout } from "./reviewer-hooks-identity.ts";
 import { Readable, type Writable } from "node:stream";
 import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
+import { feedInput } from "./stdin-feed.ts";
 import { StringDecoder } from "node:string_decoder";
 import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
@@ -896,12 +897,13 @@ export class GitCli {
         spawnFailure = classifySpawn(error, cwd, binary);
       };
       child.on("error", spawnError);
+      let stopFeeding: (() => void) | undefined;
       const detach = () => {
         cancelDeadline();
         this.cancellations.delete(cancel);
         options.signal?.removeEventListener("abort", abort);
         if (options.input instanceof Readable) {
-          options.input.unpipe(child.stdin);
+          stopFeeding?.();
           options.input.off("error", streamFailure);
         }
         if (options.output) {
@@ -957,7 +959,7 @@ export class GitCli {
       child.stdin.on("error", () => {});
       if (options.input instanceof Readable) {
         options.input.on("error", streamFailure);
-        options.input.pipe(child.stdin);
+        stopFeeding = feedInput(options.input, child.stdin);
       } else child.stdin.end(options.input);
       if (options.signal?.aborted) abort();
       if (this.closed) cancel();

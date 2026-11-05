@@ -1,8 +1,10 @@
 import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { join } from "node:path";
+import { requireBunSpawner } from "@ace/provider-kit/bun-spawn";
+import { spawnBunGit } from "./bun-git-child.ts";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
-import type { GitProcessRuntime } from "./types.ts";
+import type { GitChild, GitProcessRuntime, GitSpawnOptions } from "./types.ts";
 
 export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitProcessRuntime {
   return {
@@ -25,12 +27,15 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
 function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
   return child.stdin !== null && child.stdout !== null && child.stderr !== null;
 }
-/** Node's three-pipe overload does not describe additional inherited descriptors. Check the edge. */
-export function spawnGitProcess(
-  command: string,
-  args: string[],
-  options: Parameters<GitProcessRuntime["spawn"]>[2],
-): ChildProcessWithoutNullStreams {
+
+/**
+ * Start Git with three owned pipes (and any extra inherited descriptors). On macOS and Linux this
+ * goes straight through `Bun.spawn`, the daemon's most frequent spawn. Windows keeps
+ * `node:child_process`, whose quoting, environment and job handling the Windows paths rely on.
+ */
+export function spawnGitProcess(command: string, args: string[], options: GitSpawnOptions): GitChild {
+  if (process.platform !== "win32")
+    return spawnBunGit(requireBunSpawner(), command, args, options);
   const child = spawn(command, args, options);
   if (!piped(child)) {
     child.kill("SIGKILL");
@@ -41,7 +46,7 @@ export function spawnGitProcess(
 
 export function killTree(
   runtime: GitProcessRuntime,
-  child: ChildProcessWithoutNullStreams,
+  child: GitChild,
 ): Promise<void> {
   // An exited leader PID may have been reused. Without containment we cannot
   // safely signal that identity again; its escaped descendants remain unconfirmed.
@@ -102,7 +107,7 @@ export function killTree(
 
 /** Drain the owned leader without waiting for inherited pipes or claiming containment. */
 export function drainProcessExit(
-  child: ChildProcessWithoutNullStreams,
+  child: GitChild,
   schedule: GitProcessRuntime["scheduleTimeout"],
 ): Promise<void> {
   if (!child.pid || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();

@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { once } from "node:events";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { GitService, spawnGitProcess } from "@ace/git";
@@ -91,7 +90,8 @@ test("revoking an external enrollment during workspace preparation prevents its 
     let settled = false;
     void effect.finally(() => (settled = true));
     child = await entered.promise;
-    const exited = once(child, "close");
+    const closing = child;
+    const exited = new Promise<void>((resolve) => closing.once("close", () => resolve()));
     // The spawn is still inside workspace preparation when the enrollment is revoked.
     expect(settled).toBe(false);
     const revoked = await invoke(join(f.h.home, "daemon"), ["mcp", "revoke", lease.id, "--json"]);

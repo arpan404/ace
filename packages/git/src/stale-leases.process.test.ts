@@ -1,11 +1,15 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { once } from "node:events";
 import { access, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { GitError, GitService, spawnGitProcess, type RetiredLease } from "./index.ts";
+import {
+  GitError,
+  GitService,
+  spawnGitProcess,
+  type GitChild,
+  type RetiredLease,
+} from "./index.ts";
 import { git, holdGit, repository, scalar, scratch } from "./test-repo.ts";
 
 /** A local port nothing listens on: the endpoint of a daemon that has stopped. */
@@ -187,7 +191,7 @@ test("a stopped daemon's lease on a checkout that still exists retires once no G
 
 test("a lease whose git process is still alive is never retired", async () => {
   const { x } = await worktrees();
-  let writer: ChildProcessWithoutNullStreams | undefined;
+  let writer: GitChild | undefined;
   // This daemon's own Git process fails mid-checkpoint, and the kill request never reaches it.
   const owner = new GitService({
     leaseWaitMs: 0,
@@ -219,7 +223,8 @@ test("a lease whose git process is still alive is never retired", async () => {
     await expect(checkpoint(other, x)).rejects.toMatchObject({ code: "git_quarantined" });
     // Once the process is really gone, the same lease retires without anyone asking.
     if (!writer) throw new Error("Missing fixture writer");
-    const exited = once(writer, "exit");
+    const ending = writer;
+    const exited = new Promise<void>((resolve) => ending.once("exit", () => resolve()));
     writer.kill("SIGKILL");
     await exited;
     await expect

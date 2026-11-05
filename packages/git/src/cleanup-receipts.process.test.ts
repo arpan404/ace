@@ -1,7 +1,12 @@
-import { once } from "node:events";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { GitError, GitService, spawnGitProcess, type GitProcessRuntime } from "./index.ts";
+import {
+  GitError,
+  GitService,
+  spawnGitProcess,
+  type GitChild,
+  type GitProcessRuntime,
+} from "./index.ts";
 import { git, repository } from "./test-repo.ts";
 
 test("one confirmed process cannot release a snapshot's other unconfirmed writer", async () => {
@@ -28,7 +33,7 @@ test("one confirmed process cannot release a snapshot's other unconfirmed writer
           ["-e", "setInterval(()=>{},1000)"],
           options,
         );
-        closed.push(once(child, "exit"));
+        closed.push(exitOf(child));
         if (args.includes("pack-objects")) {
           pack = child;
           child.once("spawn", () => packReady.resolve());
@@ -43,7 +48,7 @@ test("one confirmed process cannot release a snapshot's other unconfirmed writer
       },
       cleanupSupervisor: {
         stop: (child) => {
-          const exit = once(child, "exit");
+          const exit = exitOf(child);
           child.kill("SIGKILL");
           const confirmed = ++stops === 1;
           return {
@@ -146,3 +151,7 @@ test("worktree timeout keeps its cleanup receipt and fences the repository until
     await operation;
   }
 });
+
+function exitOf(child: GitChild): Promise<void> {
+  return new Promise((resolve) => child.once("exit", () => resolve()));
+}
