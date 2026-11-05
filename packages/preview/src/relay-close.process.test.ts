@@ -1,6 +1,7 @@
 import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
+import { previewSocket } from "./node-socket.ts";
 import { openPreviewProxy, type PreviewChannel } from "./transport.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -80,7 +81,8 @@ test.each(["credit", "writer"])(
             accepted = socket;
             sockets.add(socket);
             socket.once("close", () => sockets.delete(socket));
-            openSocket(socket);
+            // As the Node runtime does: Bun reads more than one window at a time.
+            openSocket(previewSocket(socket));
             let seen = 0;
             socket.on("data", (bytes) => {
               seen += bytes.length;

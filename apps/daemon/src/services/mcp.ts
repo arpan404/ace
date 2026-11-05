@@ -1,6 +1,6 @@
 import { createTextRedactor } from "@ace/redaction";
 import { htmlPublication } from "../html-publication.ts";
-import { htmlPreview } from "../html-preview.ts";
+import { htmlLayout, htmlPreview, MeasuredLayouts } from "../html-preview.ts";
 import { imagePublication } from "../image-publication.ts";
 import { logError } from "@ace/diagnostics";
 import { toolResultObserver } from "../tool-result-mcp.ts";
@@ -119,6 +119,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     now: context.now,
     id: context.id,
   });
+  const layouts = new MeasuredLayouts();
   const mcp = await startDaemonMcp(
     store,
     [
@@ -128,8 +129,9 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         now: context.now,
         id: context.id,
         redactTitle: createTextRedactor({ env: process.env }),
+        layout: htmlLayout(() => services.browser, layouts),
       }),
-      htmlPreview(() => services.browser),
+      htmlPreview(() => services.browser, layouts),
       imagePublication({
         store,
         context: () => services.context,

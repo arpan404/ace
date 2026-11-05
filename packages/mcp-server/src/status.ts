@@ -49,6 +49,11 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
       : tools.includes("screen_open_app")
         ? "screen_open_app"
         : "guide ace-computer-use";
+  // macOS pictures whole displays; an agent's own screencapture lacks Screen Recording.
+  const wholeScreen =
+    has("screen") && (!tools || tools.includes("screen_display"))
+      ? " displays: screen_display;"
+      : "";
   return [
     "ace runs this session. Your shell, file and web tools work as usual; use ace's for what only ace can:",
     "- you start in an existing project: context first;",
@@ -63,7 +68,9 @@ export function aceGuidance(groups?: readonly string[], tools?: readonly string[
     has("thread_control")
       ? "- the person wants a separate thread in any project: thread_start; settle only when they explicitly ask: thread_control settle;"
       : "",
-    has("screen", "devices") ? `- the person names a native app or simulator: ${nativeApps};` : "",
+    has("screen", "devices")
+      ? `- the person names a native app or simulator: ${nativeApps};${wholeScreen}`
+      : "",
     "Not sure which ace tool fits? tools_find with what you want to do.",
     `How-tos and more tools: guide with topic ${guideTopics.join(", ")}.`,
     "If an ace tool says its group is off, tell the person. Agents never answer approvals.",

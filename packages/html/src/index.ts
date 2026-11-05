@@ -1,5 +1,10 @@
 export { validateHtml, maxHtmlBytes } from "./validation.ts";
-export { checkHtmlForPublish, lintHtmlLayout, narrowestColumn } from "./layout-lint.ts";
+export {
+  checkHtmlForPublish,
+  estimateHtmlLayout,
+  lintHtmlLayout,
+  narrowestColumn,
+} from "./layout-lint.ts";
 export { hasScript, resolveHtmlMode } from "./mode.ts";
 export {
   visualizationDocument,
@@ -17,10 +22,13 @@ export {
 } from "./document.ts";
 export { heightFromTitle, visualizationPartition } from "./scripts.ts";
 export {
+  measuredLayoutProblems,
+  phoneWidth,
   previewMaxHeight,
   previewMeasure,
   previewReport,
   previewWidths,
   smallTextPx,
+  unreadableTextPx,
   type PreviewMeasurement,
 } from "./preview.ts";
