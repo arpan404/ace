@@ -1,13 +1,12 @@
-import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, cp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { build } from "esbuild";
 import { _electron as electron } from "playwright-core";
 import { expect, it } from "vitest";
 import { z } from "zod";
+import { copyApp } from "./fixtures/app-build.ts";
 import { startDaemon } from "../../daemon/src/index.ts";
 import { readConfig } from "../../daemon/src/config.ts";
 import { createDevThread } from "../../daemon/src/commands.ts";
@@ -16,7 +15,6 @@ import {
   appVersion,
   e2eSwitches,
   electronBinary,
-  electronBundles,
   mainEntry,
   repo,
 } from "../scripts/common.ts";
@@ -68,21 +66,7 @@ await import('./app/${mainEntry}');`,
       );
       await cp(join(repo, "apps/desktop/resources"), join(root, "resources"), { recursive: true });
       await cp(join(repo, "apps/desktop/build"), join(root, "build"), { recursive: true });
-      for (const options of electronBundles(out, process.env)) await build(options);
-      execFileSync(
-        "bun",
-        [
-          "x",
-          "vite",
-          "build",
-          "--outDir",
-          join(out, "renderer"),
-          "--emptyOutDir",
-          "--logLevel",
-          "warn",
-        ],
-        { cwd: join(repo, "apps/web"), stdio: "inherit" },
-      );
+      await copyApp(out);
       const workspaceId = daemon.store.createWorkspace(home, "Native test");
       const thread = createDevThread(daemon.store, workspaceId);
       const env = appEnvironment(process.env);
