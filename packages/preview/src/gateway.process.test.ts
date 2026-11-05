@@ -142,7 +142,12 @@ test(
     }
     expect(received).toBe(size);
     expect(maxQueue).toBeLessThan(262_144 + extraSocketReadBytes);
-    expect(maxGatewayQueue).toBeLessThan(524_288);
+    // What the gateway holds per download: the upstream response's read buffer (its 64 KiB
+    // high-water mark plus one socket read) and the browser response's write queue. Node reads
+    // 64 KiB at a time, which stays under 512 KiB. Bun reads up to 512 KiB at once and hands the
+    // whole read to the response, so its peak sits one Bun read above Node's: the bound is the
+    // same design bound plus that read, and it stays flat however much of the 50 MiB has gone.
+    expect(maxGatewayQueue).toBeLessThan(524_288 + extraSocketReadBytes);
   },
 );
 
