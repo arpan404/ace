@@ -73,7 +73,12 @@ function AddMenu(props: { onPick(adding: Adding): void }) {
         ref={trigger}
         id="remote.pair"
         data-flash={flashing || undefined}
-        className={cn(buttonVariants({ size: "sm", variant: "primary" }), "gap-1")}
+        className={cn(
+          buttonVariants({ size: "sm", variant: "primary" }),
+          "gap-1",
+          // The focus ring's look, for the moment it flashes.
+          flashing && "ring-2 ring-ring ring-offset-2 ring-offset-background",
+        )}
       >
         Add
         <CaretDownIcon aria-hidden size={12} />

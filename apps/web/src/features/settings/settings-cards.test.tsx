@@ -58,7 +58,8 @@ test("a link to an action row scrolls to it and flashes it, as for any setting",
     Element.prototype.scrollIntoView = scrollIntoView;
   });
   await harness().open("/settings/remote#remote.pair");
-  const pair = await screen.findByRole("button", { name: "Pair a device" });
+  // Pairing is under the Add menu; its button is what the link names.
+  const pair = await screen.findByRole("button", { name: "Add", expanded: false });
   await waitFor(() => expect(scrolled).toContain(pair));
   await waitFor(() => expect(pair.dataset.flash).toBe("true"));
   // The flash is a moment, not a state.
