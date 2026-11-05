@@ -5,23 +5,38 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { bunBinary } from "../../../scripts/runtimes.ts";
+import { workerPreloadVariable } from "@ace/provider-kit/worker";
+import { threadCensus } from "./threads.ts";
 
 /**
  * Source entry keeps dependency names visible; bundled RSS is checked separately. The daemon
  * runs on Bun, and its first start in a fresh HOME transpiles every source file, so startup
  * gets more room than a warm start needs.
  */
-export async function checkIdleImports(): Promise<void> {
+export async function checkIdleImports(
+  options: {
+    /** The program to watch: the source benchmark daemon unless a test names a stand-in. */
+    entry?: string;
+    args?: string[];
+    /** How long it idles before the check: background initialization and worker retirement. */
+    settleMs?: number;
+  } = {},
+): Promise<void> {
+  const { entry = join(import.meta.dirname, "entry.ts"), args = [], settleMs = 7000 } = options;
   const directory = await mkdtemp(join(tmpdir(), "ace-idle-imports-"));
   // The daemon may rename an unversioned data home on startup. Keep the guard's
   // output outside that home so the import hook and the reader share one path.
   const home = join(directory, "daemon");
   const output = join(directory, "imports.log");
+  const isolates = join(directory, "isolates.log");
   await writeFile(output, "");
-  const child = fork(join(import.meta.dirname, "entry.ts"), [], {
-    // The hook is a Bun preload: the guard watches the daemon on its own runtime.
+  await writeFile(isolates, "");
+  const hook = join(import.meta.dirname, "idle-import-hook.ts");
+  const child = fork(entry, args, {
+    // The hook is a Bun preload: the guard watches the daemon on its own runtime, in its main
+    // isolate and in every worker ace starts.
     execPath: bunBinary(),
-    execArgv: ["--preload", join(import.meta.dirname, "idle-import-hook.ts")],
+    execArgv: ["--preload", hook],
     env: {
       ...process.env,
       BUN_OPTIONS: undefined,
@@ -35,6 +50,8 @@ export async function checkIdleImports(): Promise<void> {
       ACE_LISTEN: "local",
       ACE_RELAY_URL: undefined,
       ACE_IDLE_IMPORT_LOG: output,
+      ACE_IDLE_IMPORT_ISOLATES: isolates,
+      [workerPreloadVariable]: hook,
       PATH: "",
     },
     stdio: ["ignore", "ignore", "pipe", "ipc"],
@@ -61,8 +78,11 @@ export async function checkIdleImports(): Promise<void> {
       await pause(25);
     }
     // Include background feature initialization and the idle worker retirement interval.
-    await pause(7000);
+    await pause(settleMs);
     if (!child.connected) throw new Error(`Idle import daemon disconnected: ${stderr}`);
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("Idle import daemon has no process");
+    const running = (await threadCensus(pid)).workers;
     child.send({ id: 1, op: "close" });
     const [code, signal] = await exited;
     if (code !== 0 || signal) throw new Error(`Idle import shutdown failed: ${stderr}`);
@@ -70,7 +90,17 @@ export async function checkIdleImports(): Promise<void> {
       Boolean,
     );
     if (violations.length) throw new Error(`Modules loaded at idle:\n${violations.join("\n")}`);
-    process.stdout.write("Idle import guard passed in the main isolate\n");
+    // The main isolate is thread 0; any other id is a worker the hook ran in.
+    const watched = new Set(
+      (await readFile(isolates, "utf8")).split("\n").filter((id) => id && id !== "0"),
+    );
+    if (running > 0 && watched.size === 0)
+      throw new Error(
+        `Idle imports in workers: not measured (${running} running, the hook ran in none)`,
+      );
+    process.stdout.write(
+      `Idle import guard passed in the main isolate and ${watched.size} worker(s)\n`,
+    );
   } finally {
     clearTimeout(deadline);
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");

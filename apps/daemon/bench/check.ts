@@ -13,6 +13,7 @@ import {
   checkBudgets,
 } from "@ace/perf-kit";
 import { bunBinary } from "../../../scripts/runtimes.ts";
+import { IdleThreadSample, ThreadSample, threadViolations } from "./budgets.ts";
 
 const run = promisify(execFile);
 // Every phase runs on Bun, the daemon's runtime, whichever runtime started the gate.
@@ -39,11 +40,12 @@ const root = resolve(import.meta.dirname, "../../..");
 const long = process.argv.includes("--long");
 const bytes = z.number().nonnegative();
 const memory = z.object({ rss: bytes, heapUsed: bytes });
-const Sample = z.object({ memory, threads: z.number().int(), workers: z.array(z.unknown()) });
+const Sample = z.object({ memory, workers: z.array(z.unknown()) });
 const Measurement = z.object({
   startupMs: bytes,
   idle10: Sample,
-  active: Sample,
+  idleThreads: IdleThreadSample,
+  active: Sample.extend(ThreadSample.shape),
   eventsPerSecond: bytes,
   p99Ms: bytes,
   shutdownMs: bytes,
@@ -52,16 +54,18 @@ const Measurement = z.object({
   soak: z.array(z.object({ elapsedMs: bytes, rss: bytes })),
 });
 const MiB = 1024 * 1024;
-// Headroom above the values measured on Bun 1.4.4 (Apple M-series, 16 cores). The 150 MiB goal
-// remains open. Bun's runtime alone holds about 27 threads at idle there (its thread pool, GC
-// heap helpers and collectors, JIT helpers); the daemon adds its two idle workers. Measured
-// idle 31-36, active 38. Under Node 24/26 the same daemon held under 18 and 20.
+// The 150 MiB goal remains open. Threads are budgeted by owner (threads.ts): Bun's runtime
+// threads grow with the machine's cores and are not counted. On Bun 1.4.4 the daemon kept one
+// worker alive at idle (the stall watchdog; idle workers retire after five idle seconds), and
+// 2-3 threads of its own at idle and 3-4 when active (the main thread, the file watcher's run
+// loop, native helpers). One leaked worker fails; the daemon's own threads get one thread of
+// headroom at idle and two when active over the most measured.
 const limits = {
   idleRss: 256 * MiB,
   startupMs: 5000,
-  idleThreads: 42,
   idleWorkers: 1,
-  activeThreads: 46,
+  idleOwnThreads: 4,
+  activeOwnThreads: 6,
   eventsPerSecond: 300,
   p99Ms: 50,
   retainedHeapGrowth: 8 * MiB,
@@ -146,7 +150,7 @@ try {
             "--fresh-cycles",
             `--output=${output}`,
           ],
-          { cwd: root, timeout: long ? 360000 : 35000, maxBuffer: 4 * 1024 * 1024 },
+          { cwd: root, timeout: long ? 420000 : 120000, maxBuffer: 4 * 1024 * 1024 },
         ),
       );
       const data = Measurement.parse(JSON.parse(raw));
@@ -160,9 +164,7 @@ try {
       }
       maximum("idle RSS", data.idle10.memory.rss, limits.idleRss);
       maximumTiming("startup ms", data.startupMs, limits.startupMs);
-      maximum("idle OS threads", data.idle10.threads, limits.idleThreads);
-      maximum("idle JS workers", data.idle10.workers.length, limits.idleWorkers);
-      maximum("active OS threads", data.active.threads, limits.activeThreads);
+      violations.push(...threadViolations(data.idleThreads, data.active, limits));
       maximumTiming("p99 ms", data.p99Ms, limits.p99Ms);
       maximum(
         "retained heap growth",

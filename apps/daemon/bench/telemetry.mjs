@@ -1,9 +1,14 @@
 // Measurement-only preload. Each isolate reports its own heap; RSS and CPU are process-wide.
 import { threadId, isMainThread, Worker, BroadcastChannel } from "node:worker_threads";
-import { subscribe } from "node:diagnostics_channel";
+import { channel as diagnosticsChannel } from "node:diagnostics_channel";
 import { writeFileSync, renameSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+// Held for the process's life: Bun keeps a channel only while something references it, and
+// doesn't keep a preload's module scope alive, so a collected channel would leave later worker
+// announcements unheard.
+const created = diagnosticsChannel("worker_threads");
+Reflect.set(globalThis, "acePerfWorkerChannel", created);
 const directory = process.env.ACE_PERF_TELEMETRY;
 if (directory) {
   const workers = new Set();
@@ -26,9 +31,12 @@ if (directory) {
         /* no collection requested */
       }
       if (requested && requested !== collection) {
-        if (!globalThis.gc) throw new Error("Worker GC was not exposed by the measurement runtime");
-        globalThis.gc();
-        globalThis.gc();
+        // Bun's --expose-gc reaches only the main isolate; its workers collect with Bun.gc.
+        const bun = Reflect.get(globalThis, "Bun");
+        const gc = globalThis.gc ?? (bun?.gc ? () => bun.gc(true) : undefined);
+        if (!gc) throw new Error("Worker GC was not exposed by the measurement runtime");
+        gc();
+        gc();
         collection = requested;
       }
     }
@@ -71,7 +79,9 @@ if (directory) {
     rmSync(file, { force: true });
     rmSync(join(directory, `${id}.tmp`), { force: true });
   };
-  subscribe("worker_threads", (message) => {
+  // Node announces every new worker here. Bun announces none, so ace's own worker factory
+  // (startWorker in @ace/provider-kit/worker) announces the workers it gives this preload.
+  created.subscribe((message) => {
     if (!(message?.worker instanceof Worker)) throw new Error("Invalid worker lifecycle event");
     const worker = message.worker;
     const id = worker.threadId;

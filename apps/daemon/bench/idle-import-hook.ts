@@ -1,11 +1,14 @@
 import { appendFileSync, readFileSync } from "node:fs";
+import { threadId } from "node:worker_threads";
 
 /**
  * Records, in ACE_IDLE_IMPORT_LOG, every provider session and heavy package the daemon loads.
  * Bun's resolve hook never sees package imports, so this watches loads: a hook for exactly the
  * forbidden files logs each one and loads its source as written. Any such load already fails
- * the guard, so how it then loads can't hide a violation. Bun applies a preload to the main
- * isolate only (worker threads take no hooks from outside), so this watches the main isolate.
+ * the guard, so how it then loads can't hide a violation. Bun gives worker threads no preload
+ * of their parent's: ace's workers take this one through ACE_BENCH_WORKER_PRELOAD (startWorker
+ * in @ace/provider-kit/worker), and each isolate it runs in is listed in ACE_IDLE_IMPORT_ISOLATES
+ * so the guard can tell a watched worker from an unwatched one.
  */
 const forbidden = [
   "sharp",
@@ -38,6 +41,8 @@ const watched = new RegExp(
   ].join("|"),
 );
 const output = process.env.ACE_IDLE_IMPORT_LOG;
+const isolates = process.env.ACE_IDLE_IMPORT_ISOLATES;
+if (isolates) appendFileSync(isolates, `${threadId}\n`);
 
 /** What the file is: the session sources are TypeScript, the packages JavaScript. */
 const loaderOf = (path: string) => (/\.[cm]?ts$/.test(path) ? "ts" : "js");

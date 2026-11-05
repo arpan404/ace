@@ -1,7 +1,7 @@
 import { writeSync } from "node:fs";
 import { fork, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -13,6 +13,8 @@ import { readWorkerSnapshot, measureWithCleanup, TimingFailure } from "@ace/perf
 import { Telemetry, Response } from "./telemetry-schema.ts";
 import { writeMeasurement } from "./output.ts";
 import { bunBinary } from "../../../scripts/runtimes.ts";
+import { workerPreloadVariable } from "@ace/provider-kit/worker";
+import { threadCensus } from "./threads.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
@@ -68,6 +70,8 @@ const child = fork(
       ACE_RELAY_URL: undefined,
       ACE_WORKSPACE_ROOT: home,
       ACE_PERF_TELEMETRY: telemetry,
+      // Bun gives a worker no preload of its parent's: ace's workers take this one by name.
+      [workerPreloadVariable]: join(import.meta.dirname, "telemetry.mjs"),
       ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
       ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
     },
@@ -123,17 +127,10 @@ async function sample() {
     pause: () => delay(10),
     timeoutMs: 4000,
   });
-  const pid = child.pid;
-  if (!pid) throw new Error("Missing child PID");
-  const threads =
-    process.platform === "linux"
-      ? (await readdir(`/proc/${pid}/task`)).length
-      : (await run("ps", ["-M", "-p", String(pid)])).stdout.trim().split("\n").length - 1;
   return {
     runtime: main.runtime,
     memory: main.memory,
     cpu: main.cpu,
-    threads,
     workers: workers.map(({ threadId, entry, memory, collection }) => ({
       threadId,
       entry,
@@ -141,6 +138,39 @@ async function sample() {
       collection,
     })),
   };
+}
+/**
+ * A sample with the process's threads by owner, which take seconds to read. Workers start and
+ * retire meanwhile, so it is taken again until the OS counts the same workers before and after
+ * the telemetry read; the last try stands either way, and the gate compares the two counts.
+ */
+async function censusSample() {
+  const pid = child.pid;
+  if (!pid) throw new Error("Missing child PID");
+  let taken;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const before = await threadCensus(pid);
+    const observed = await sample();
+    const census = await threadCensus(pid);
+    taken = { ...observed, threads: census.total, census };
+    if (before.workers === census.workers && census.workers === observed.workers.length) break;
+    await delay(500);
+  }
+  if (!taken) throw new Error("No thread sample");
+  return taken;
+}
+/**
+ * The fewest JS workers alive across five seconds of idle. Idle workers retire after five idle
+ * seconds and some wake on a timer, so one reading may catch one; a worker that never retires
+ * raises the floor.
+ */
+async function idleWorkerFloor() {
+  let floor = Infinity;
+  for (let reading = 0; reading < 10; reading++) {
+    floor = Math.min(floor, (await sample()).workers.length);
+    await delay(500);
+  }
+  return floor;
 }
 async function memoryRegions() {
   const pid = child.pid;
@@ -188,6 +218,8 @@ async function measure() {
   await delay(Math.max(0, idleMs - Math.min(10000, idleMs)));
   const idle60 = idleMs >= 60000 ? await sample() : null;
   const idleEnd = idle60 ?? (await sample());
+  // After the idle CPU window: reading thread names pauses the process to sample it.
+  const idleThreads = { ...(await censusSample()), workerFloor: await idleWorkerFloor() };
   const idleRegions = regions ? await memoryRegions() : undefined;
   const idleCpuPercent =
     (idleEnd.cpu.user + idleEnd.cpu.system - (idle10.cpu.user + idle10.cpu.system)) /
@@ -208,6 +240,7 @@ async function measure() {
       idleSampleMs: idleMs,
       idle10,
       idle60,
+      idleThreads,
       idleCpuPercent,
       idleRegions,
       stderr,
@@ -220,7 +253,7 @@ async function measure() {
   mark("sessions");
   const active = await request({ op: "sessions", count });
   await delay(1000);
-  const activeSample = await sample();
+  const activeSample = await censusSample();
   mark("websocket");
   socket = new WebSocket(endpoint.replace("http:", "ws:"));
   await once(socket, "open");
@@ -337,6 +370,7 @@ async function measure() {
     idleSampleMs: idleMs,
     idle10,
     idle60,
+    idleThreads,
     idleCpuPercent,
     activeSessions: count,
     active: activeSample,
