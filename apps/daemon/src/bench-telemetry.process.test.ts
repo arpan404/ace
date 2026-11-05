@@ -9,11 +9,15 @@ import { liveWorkerTelemetry } from "@ace/perf-kit";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
 const run = promisify(execFile);
+// The telemetry preload sees workers through Node's `worker_threads` diagnostics channel and
+// reaches them because workers inherit `--import`. Bun has neither, and its preloads cannot
+// wrap `Worker` for other modules, so on Bun the bench reports only the main isolate.
+const nodeOnly = test.skipIf(Boolean(process.versions.bun));
 // Snapshot readiness is determined by lifecycle acknowledgments, not elapsed
 // time. A fixed injected clock keeps load out of the verdict; execFile and the
 // process project retain their shared timeout as the deadlock guard.
 
-test("retired isolates are excluded even when a caller retains their old samples", async () => {
+nodeOnly("retired isolates are excluded even when a caller retains their old samples", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-telemetry-test-"));
   try {
     const { stdout } = await run(
@@ -62,7 +66,7 @@ test("retired isolates are excluded even when a caller retains their old samples
   }
 });
 
-test("sampling waits for worker initialization and follows retirement during file reads", async () => {
+nodeOnly("sampling waits for worker initialization and follows retirement during file reads", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ace-telemetry-churn-"));
   const preload = join(import.meta.dirname, "../bench/telemetry.mjs");
   const delayed = join(directory, "delay.mjs");
