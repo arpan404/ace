@@ -5,6 +5,8 @@ import {
   fstatSync,
   openSync,
   readdirSync,
+  readlinkSync,
+  realpathSync,
   statSync,
   writeSync,
 } from "node:fs";
@@ -79,7 +81,28 @@ function shortDeadline(ms: number): void {
   const restore = useCommandCallDeadline(ms);
   cleanups.push(async () => restore());
 }
-const openFds = () => readdirSync("/dev/fd").length;
+// Only descriptors open on this file's own temp folders count, so descriptors that other code in
+// the test process opens and closes meanwhile can't move the number. A leak in these folders
+// still shows. Linux resolves /proc/self/fd; macOS has no path behind /dev/fd entries, so it asks
+// lsof for this process's open paths.
+const ours = `${realpathSync(tmpdir())}/ace-command-stall-`;
+function openFds(): number {
+  if (process.platform === "linux") {
+    let count = 0;
+    for (const fd of readdirSync("/proc/self/fd")) {
+      try {
+        if (readlinkSync(`/proc/self/fd/${fd}`).startsWith(ours)) count++;
+      } catch {
+        // Closed between listing and reading.
+      }
+    }
+    return count;
+  }
+  const listed = execFileSync("lsof", ["-w", "-p", String(process.pid), "-Fn"], {
+    encoding: "utf8",
+  });
+  return listed.split("\n").filter((line) => line.startsWith(`n${ours}`)).length;
+}
 /** When a call ended, and how. */
 const settled = <T>(promise: Promise<T>): Promise<{ at: number; error?: unknown }> =>
   promise.then(
