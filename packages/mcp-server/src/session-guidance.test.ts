@@ -117,6 +117,18 @@ it("native apps point at the screen tool the session can actually call", () => {
   expect(devices).not.toContain("screen_");
 });
 
+it("a screenshot of the whole screen points at screen_display where the engine offers it", () => {
+  const mac = developerInstructions("pi", {
+    tools: ["context", "screen_apps", "screen_state", "screen_act", "screen_display"],
+  });
+  expect(mac).toContain("native app or simulator: screen_state; displays: screen_display;");
+  // Linux and Windows engines picture single windows only.
+  const linux = developerInstructions("pi", {
+    tools: ["context", "screen_apps", "screen_state", "screen_act"],
+  });
+  expect(linux).not.toContain("screen_display");
+});
+
 it("Cursor lists every ace tool while its MCP meta tool shows names only, else a fixed list", () => {
   // With the meta tool on (the SDK's default) a tool Cursor never listed cannot be called, and a
   // listed one costs only its name; without it every listed tool would load in full.

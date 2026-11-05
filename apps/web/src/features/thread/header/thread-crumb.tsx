@@ -11,7 +11,7 @@ import { useIsChatThread, useProjectName, type ChatTestEntry } from "@/lib/proje
 
 /**
  * A child ace delegated names its parent thread before its title, as a link back. Any other
- * thread has no crumb: its project shows as the folder glyph before its title (`ThreadMark`).
+ * thread has no parent crumb: its project shows as a folder and name before its title.
  * A fork is a thread of its own; its transcript says where it was forked from.
  */
 export function ThreadCrumb(props: { threadId: string }) {
@@ -41,9 +41,9 @@ function RemoteParentCrumb(props: { from: DelegatedFrom }) {
 }
 
 /**
- * The glyph before a thread's title in the top bar: its project's folder, named in its tooltip
- * and to assistive tech, after the machine when the work runs on another one (ADR 0102). A chat
- * has no project (ADR 0099): it shows the chat bubble and is named a chat.
+ * The project folder and name before a thread's title, visible even with the sidebar hidden.
+ * The tooltip also names a remote computer (ADR 0102). A chat has no project (ADR 0099), so it
+ * keeps only its chat bubble.
  */
 export function ProjectGlyph(props: { thread: ChatTestEntry }) {
   const name = useProjectName()(props.thread.workspaceId);
@@ -53,8 +53,18 @@ export function ProjectGlyph(props: { thread: ChatTestEntry }) {
   const said = machine ? `${machine.name} / ${what}` : what;
   return (
     <Tip label={said}>
-      <span role="img" aria-label={chat ? said : `Project ${said}`} className="inline-flex">
-        <Icon icon={chat ? ChatCircleIcon : FolderSimpleIcon} />
+      <span className="inline-flex min-w-0 items-center gap-2">
+        <span role="img" aria-label={chat ? said : `Project ${said}`} className="inline-flex">
+          <Icon icon={chat ? ChatCircleIcon : FolderSimpleIcon} />
+        </span>
+        {!chat && (
+          <>
+            <span className="max-w-32 truncate text-ui">{name}</span>
+            <span aria-hidden className="text-subtle-foreground">
+              /
+            </span>
+          </>
+        )}
       </span>
     </Tip>
   );
