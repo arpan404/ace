@@ -282,7 +282,7 @@ import XCTest
             app.buttons["changes.close"].tap()
             // The model sheet reads nothing; this is tap to shown, XCUITest's own time included.
             models.append(timed {
-                app.threadModelPill().tap()
+                app.openModelPicker()
                 XCTAssertTrue(app.buttons["modelSheet.close"].waitForExistence(timeout: 15))
             })
             app.buttons["modelSheet.close"].tap()

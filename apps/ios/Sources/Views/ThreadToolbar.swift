@@ -26,24 +26,14 @@ struct PanelToggle {
 }
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
-/// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
-/// with a small "project · branch" line under it (a button that opens Work), then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title
+/// centred with the model and its effort under it, both one menu (`ThreadTitleMenu`), then ⋯.
+/// Agents are secondary: the agent tree is one entry in ⋯, never its own control.
 struct ThreadToolbar: ToolbarContent {
-    let title: String
-    /// "project · branch" (or the machine where there is no branch).
-    let subtitle: String
-    let status: StatusDisplay?
-    /// A chat (ADR 0099) leads its line with a bubble; a project thread with its folder.
-    var chat = false
+    /// The title and the line under it; its width is the toolbar's to give.
+    let heading: ThreadTitleMenu
     let pageWidth: CGFloat
-    /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
-    var rename: (() -> Void)? = nil
-    var retitle: (() -> Void)? = nil
-    /// The rest of the title's menu: fork from the last turn, copy the link, settle or unsettle.
-    var titleActions = ThreadTitleActions()
     let menu: ThreadMenu
-    /// Opens the thread's Work sheet from the "project · branch" line.
-    let openWork: () -> Void
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
     var coveredByDrawer = false
@@ -57,13 +47,13 @@ struct ThreadToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
+            ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
             if pageButtons == 0 {
                 ToolbarItem(placement: .topBarTrailing) { displayedMenu }
                     .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
             }
         } else {
-            ToolbarItem(placement: .principal) { heading }
+            ToolbarItem(placement: .principal) { title }
             if pageButtons == 0 { ToolbarItem(placement: .topBarTrailing) { displayedMenu } }
         }
         if let panel {
@@ -74,81 +64,31 @@ struct ThreadToolbar: ToolbarContent {
             }
         }
     }
+    private var title: some View {
+        var heading = heading
+        heading.width = headingWidth
+        return EquatableView(content: heading).clipped()
+    }
     private var displayedMenu: some View {
         EquatableView(content: menu)
             .opacity(coveredByDrawer ? 0 : 1)
             .allowsHitTesting(!coveredByDrawer)
             .accessibilityHidden(coveredByDrawer)
     }
-    /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
-    /// beside it says so. The "project · branch" line under it opens Work.
-    private var heading: some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            titleRow
-            if !subtitle.isEmpty {
-                // The checkout's line opens Work: where the thread runs and what can move it.
-                Button(action: openWork) {
-                    Text(subtitle).lineLimit(1).truncationMode(.middle)
-                        .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(width: headingWidth)
-                    .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(subtitle)
-                .accessibilityHint("Opens Work")
-                .accessibilityIdentifier("thread.subtitle")
-            }
-        }
-        // UIKit measures principal items at their ideal size. Reserve equal space
-        // for the controls on either side before proposing a width to the text.
-        .frame(width: headingWidth)
-        .clipped()
-        .accessibilityElement(children: .contain)
-    }
-    @ViewBuilder private var titleRow: some View {
-        if rename != nil || !titleActions.isEmpty {
-            Menu {
-                Section {
-                    if let rename { Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename") }
-                    if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
-                }
-                Section {
-                    if let fork = titleActions.fork { Button("Fork from the last turn", ace: .gitFork, action: fork).accessibilityIdentifier("thread.title.fork") }
-                    if let copy = titleActions.copyLink { Button("Copy link", ace: .link, action: copy).accessibilityIdentifier("thread.title.copyLink") }
-                }
-                if let settle = titleActions.settle {
-                    Section {
-                        Button(settle.label, ace: settle.settled ? .arrowUUpLeft : .check, action: settle.run)
-                            .accessibilityIdentifier("thread.title.settle")
-                    }
-                }
-            } label: { titleText(chevron: true) }
-            .accessibilityIdentifier("thread.title")
-            .accessibilityHint("Thread actions")
-        } else {
-            titleText(chevron: false).accessibilityIdentifier("thread.title")
-        }
-    }
-    private func titleText(chevron: Bool) -> some View {
-        HStack(spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-        }
-        .frame(width: headingWidth)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(status?.label ?? "")
-    }
 }
 
 /// What the title's menu offers beyond its name, each nil where it can't be done now.
-struct ThreadTitleActions {
+struct ThreadTitleActions: Equatable {
     struct Settle { let label: String; let settled: Bool; let run: () -> Void }
     var fork: (() -> Void)? = nil
     var copyLink: (() -> Void)? = nil
     var settle: Settle? = nil
     var isEmpty: Bool { fork == nil && copyLink == nil && settle == nil }
+    /// The same actions offered under the same words; what they run is not compared.
+    nonisolated static func == (lhs: ThreadTitleActions, rhs: ThreadTitleActions) -> Bool {
+        (lhs.fork == nil) == (rhs.fork == nil) && (lhs.copyLink == nil) == (rhs.copyLink == nil)
+            && lhs.settle?.label == rhs.settle?.label && lhs.settle?.settled == rhs.settle?.settled
+    }
 }
 
 /// The ⋯ menu: the thread's other places and what can be done to it. It redraws only when what

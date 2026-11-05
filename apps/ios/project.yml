@@ -76,6 +76,8 @@ targets:
             CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
+        NSMicrophoneUsageDescription: Dictate a message to an agent.
+        NSSpeechRecognitionUsageDescription: Turn what you say into the words of your message, on this iPhone where it can.
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:

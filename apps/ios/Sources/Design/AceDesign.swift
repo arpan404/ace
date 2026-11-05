@@ -216,9 +216,11 @@ import UIKit
         static func leaving(_ reduce: Bool) -> Animation { reduce ? reduced : leave }
     }
 
-    /// Haptics confirm what the person did: send, approve, tab change, pull to refresh.
+    /// Haptics confirm what the person did: send, stop, approve, tab change, pull to refresh.
     enum Haptic {
         static let send = SensoryFeedback.impact(weight: .light)
+        /// Stopping the tree: a firmer tap than Send, so the two never feel alike.
+        static let stop = SensoryFeedback.impact(weight: .medium)
         static let approve = SensoryFeedback.success
         static let tab = SensoryFeedback.selection
         static let refresh = SensoryFeedback.impact(weight: .light)

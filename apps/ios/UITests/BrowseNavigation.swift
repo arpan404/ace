@@ -8,22 +8,31 @@ extension XCUIApplication {
         XCTAssertTrue(threadMenuItem("thread.agents").waitForExistence(timeout: 10))
         threadMenuItem("thread.agents").tap()
     }
-    /// One of the composer's own controls (`composer.model`, `composer.effort`, `composer.access`):
-    /// they show once the composer opens, so an at-rest composer is tapped into first.
-    @MainActor @discardableResult func composerControl(_ identifier: String, timeout: TimeInterval = 15) -> XCUIElement {
-        let control = buttons[identifier]
-        if !control.waitForExistence(timeout: 2) {
-            let input = textViews["composer.input"]
-            if input.waitForExistence(timeout: timeout) { input.tap() }
-        }
-        XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed in the composer")
-        return control
+    /// The thread's title, which opens its menu: model, effort and access, then the thread's actions.
+    @MainActor @discardableResult func threadTitle(timeout: TimeInterval = 15) -> XCUIElement {
+        let title = buttons["thread.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: timeout), "the thread's title never showed")
+        return title
     }
-    /// The thread's model pill just above the composer (`thread.model`).
-    @MainActor @discardableResult func threadModelPill(_ identifier: String = "thread.model", timeout: TimeInterval = 15) -> XCUIElement {
-        let control = buttons[identifier]
-        XCTAssertTrue(control.waitForExistence(timeout: timeout), "\(identifier) never showed under the thread's title")
-        return control
+    /// An item of the title's menu, by identifier or (iOS 27 drops a menu item's identifier) by
+    /// the start of its label.
+    @MainActor func titleMenuItem(_ identifier: String, label: String) -> XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", identifier, label)).firstMatch
+    }
+    /// The thread's Work sheet, from ⋯.
+    @MainActor func openWork() {
+        XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 15))
+        buttons["thread.menu"].tap()
+        let work = threadMenuItem("thread.work")
+        XCTAssertTrue(work.waitForExistence(timeout: 10))
+        work.tap()
+    }
+    /// The model picker, from the title's menu.
+    @MainActor func openModelPicker(timeout: TimeInterval = 15) {
+        threadTitle(timeout: timeout).tap()
+        let item = titleMenuItem("thread.title.model", label: "Model")
+        XCTAssertTrue(item.waitForExistence(timeout: 10), "the title's menu has no Model")
+        item.tap()
     }
     /// An item of the thread's ⋯ panel. iOS 27 drops a menu item's identifier and keeps its label,
     /// so the item is found by either. Secondary actions are grouped in native menus.

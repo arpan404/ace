@@ -231,6 +231,8 @@ const extra = [
   "chat-circle-text",
   "square-split-horizontal",
   "pencil-simple-line",
+  // The composer capsule's dictation button.
+  "microphone",
   // Device viewing and stream stats.
   "frame-corners",
   "gauge",
