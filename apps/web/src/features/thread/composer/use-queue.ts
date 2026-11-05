@@ -40,16 +40,19 @@ export const queuedText = (message: Pick<QueuedMessage, "input">) =>
   tokensFromInput(message.input).text;
 
 /**
- * A message on its way in one line: its words without the blocks only the agent reads, what it
- * replies to and how many annotations go with it.
+ * A message on its way in one line: its words as the person wrote them (a `/goal` or other
+ * command included) without the blocks only the agent reads, what it replies to and how many
+ * annotations go with it.
  */
 export function queuedLine(message: Pick<QueuedMessage, "input">): string {
   const shown = bubbleContent(message.input);
   const annotations = shown.annotations?.items.length ?? 0;
   const quotes = shown.quotes?.length ?? 0;
+  // Not `shown.text`: the transcript's clean-up drops a leading slash command.
+  const words = tokensFromInput(shown.parts).text.trim();
   return [
     quotes ? `Replying to ${quotes === 1 ? "1 quote" : `${quotes} quotes`}` : "",
-    shown.text,
+    words,
     annotations ? annotationCount(annotations) : "",
   ]
     .filter(Boolean)
