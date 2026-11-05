@@ -58,7 +58,7 @@ test("an authorized parent push never recursively signs an initialized submodule
       "HEAD",
     ),
   ).rejects.toBeDefined();
-  await expect(access(marker)).resolves.toBeUndefined();
+  await expect(access(marker)).resolves.toBeFalsy();
   await rm(marker);
   const service = new GitService({
     transportProtocols: ["file"],

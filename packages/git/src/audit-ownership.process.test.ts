@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
-import { execute, git, put, repository, scratch } from "./test-repo.ts";
+import { execute, idleBarrierScript, git, put, repository, scratch } from "./test-repo.ts";
 
 const service = new GitService();
 
@@ -71,8 +71,8 @@ test.each(["compatible", "incompatible"])(
     // idle barrier after the competing checkpoint's real Git I/O has drained.
     // The barrier re-references them before releasing the filter.
     const script = `
-      import fs from 'node:fs';
-      import { spawn } from 'node:child_process';
+      const { default: fs } = await import('node:fs');
+      const { spawn } = await import('node:child_process');
       const { GitService } = await import(${JSON.stringify(entry)});
       const ready = Promise.withResolvers();
       const running = new Set();
@@ -109,12 +109,12 @@ test.each(["compatible", "incompatible"])(
         const idle = Promise.withResolvers();
         process.once('beforeExit', () => {
           checkout.ref();
-          for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.ref();
+          for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.ref?.();
           fs.writeFileSync(${JSON.stringify(release)}, 'release');
           idle.resolve(checkpointSettled);
         });
         checkout.unref();
-        for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.unref();
+        for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.unref?.();
         const settledDuringCheckout = await idle.promise;
         await restore;
         const saved = await checkpoint;
@@ -122,7 +122,7 @@ test.each(["compatible", "incompatible"])(
       } finally {
         if (checkout) {
           checkout.ref();
-          for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.ref();
+          for (const pipe of [checkout.stdin, checkout.stdout, checkout.stderr]) pipe.ref?.();
         }
         fs.writeFileSync(${JSON.stringify(release)}, 'release');
         await restore.catch(() => {});
@@ -130,7 +130,7 @@ test.each(["compatible", "incompatible"])(
     `;
     let stdout: string;
     try {
-      ({ stdout } = await execute(process.execPath, ["--input-type=module", "--eval", script], {
+      ({ stdout } = await execute(process.execPath, idleBarrierScript(script), {
         timeout: PROCESS_TEST_TIMEOUT,
       }));
     } finally {
