@@ -19,7 +19,8 @@ const parent = ThreadId.parse("parent");
 
 /**
  * The ledger of children on other machines, with the other machine played by `views` and the
- * parent by `delivered`. `refusals` makes the next deliveries fail, as a parent not ready does.
+ * parent by `delivered`. While `parentReady` is false every delivery fails, as it does while the
+ * parent's agent control is not ready; how often the ledger tries in between is its own business.
  */
 function ledger() {
   const home = mkdtempSync(join(tmpdir(), "ace-machine-children-"));
@@ -30,7 +31,7 @@ function ledger() {
   const delivered: string[] = [];
   /** The parent's receipts: a key it already took is never handed over twice. */
   const taken = new Set<string>();
-  const state = { refusals: 0 };
+  const state = { parentReady: true };
   const children = new MachineChildren({
     store,
     engine: () => undefined,
@@ -48,10 +49,7 @@ function ledger() {
     }),
     label: () => "Studio",
     deliver: (_parent, key, text) => {
-      if (state.refusals > 0) {
-        state.refusals--;
-        throw new Error("Agent control is not ready");
-      }
+      if (!state.parentReady) throw new Error("Agent control is not ready");
       if (taken.has(key)) return;
       taken.add(key);
       delivered.push(text);
@@ -98,9 +96,10 @@ it("a message notice the parent couldn't take yet is delivered on a later poll",
   h.report({
     notice: { text: "Your message wasn't sent.", commandId: "message-a", code: "input_queued" },
   });
-  h.state.refusals = 1;
+  h.state.parentReady = false;
   await h.children.poll();
   expect(h.delivered).toEqual([]);
+  h.state.parentReady = true;
   await h.children.poll();
   expect(h.delivered).toEqual([expect.stringContaining("Your message wasn't sent.")]);
   await h.children.poll();
@@ -120,9 +119,10 @@ it("two messages refused for the same reason each reach the parent", async () =>
 it("a child messaged again before its result reached the parent still delivers that result", async () => {
   const h = ledger();
   h.report(done("First pass done.", 5));
-  h.state.refusals = 1;
+  h.state.parentReady = false;
   await h.children.poll();
   expect(h.delivered).toEqual([]);
+  h.state.parentReady = true;
   h.children.reopen(child);
   h.report({});
   await h.children.poll();
@@ -138,12 +138,13 @@ it("a child messaged again before its result reached the parent still delivers t
 it("a result the parent couldn't take, even at reopen, still reaches it later", async () => {
   const h = ledger();
   h.report(done("First pass done.", 5));
-  h.state.refusals = 2;
+  h.state.parentReady = false;
   await h.children.poll();
   h.children.reopen(child);
   h.report({});
   await h.children.poll();
   expect(h.delivered).toEqual([]);
+  h.state.parentReady = true;
   await h.children.poll();
   expect(h.delivered).toEqual([expect.stringContaining("First pass done.")]);
 });
@@ -154,8 +155,10 @@ it("a notice that arrives with the result and can't be delivered yet is retried 
     ...done("First pass done.", 5),
     notice: { text: "Your message wasn't sent.", commandId: "message-a", code: "input_queued" },
   });
-  h.state.refusals = 1;
+  h.state.parentReady = false;
   await h.children.poll();
+  expect(h.delivered).toEqual([]);
+  h.state.parentReady = true;
   await h.children.poll();
   expect(h.delivered).toEqual(
     expect.arrayContaining([
