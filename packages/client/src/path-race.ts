@@ -27,7 +27,9 @@ export interface RaceOptions {
  * One connection attempt over every path at once, happy-eyeballs style (ADR 0114): the first
  * path starts at once and each next one 150 ms after, or as soon as the one before it fails.
  * The first to open its secure transport (a pinned TLS socket, or a relay's pinned handshake)
- * carries the attempt; the rest close. When every path fails, the attempt closes as a drop.
+ * carries the attempt; the rest close. When every path fails, the attempt closes as a drop, or
+ * with the refusal a path heard (a 4xxx close from the relay or the daemon, such as "not your
+ * machine" or a revoked device), so the connection can stop instead of retrying.
  */
 export function racingTransport(options: RaceOptions): Transport {
   let winner: Transport | undefined;
@@ -63,12 +65,15 @@ export function racingTransport(options: RaceOptions): Transport {
     },
     open(events: TransportEvents) {
       let next = 0;
+      /** The last refusal a path closed with before any path won. */
+      let refusal: [number, string] | undefined;
       const exhausted = () =>
         !winner && next >= options.routes.length && started.every((entry) => entry.failed);
       const lost = () => {
         if (!closed && exhausted()) {
           closed = true;
-          events.close(1006, "No path answered");
+          if (refusal) events.close(...refusal);
+          else events.close(1006, "No path answered");
         }
       };
       const start = () => {
@@ -89,8 +94,9 @@ export function racingTransport(options: RaceOptions): Transport {
         }
         const entry = { route, transport, failed: false };
         started.push(entry);
-        const fail = () => {
+        const fail = (code?: number, reason?: string) => {
           if (entry.failed || winner === transport) return;
+          if (code !== undefined && code >= 4000) refusal = [code, reason ?? ""];
           entry.failed = true;
           options.failed(route);
           // A path that fails fast lets the next one start without waiting out its stagger.
@@ -119,7 +125,7 @@ export function racingTransport(options: RaceOptions): Transport {
           },
           close: (code, reason) => {
             if (winner === transport) events.close(code, reason);
-            else fail();
+            else fail(code, reason);
           },
         });
         if (!winner && next < options.routes.length)

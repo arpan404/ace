@@ -26,6 +26,7 @@ function fakePath(kind: MachinePathKind) {
     state,
     open: () => state.events?.open(),
     fail: () => state.events?.close(1006, "refused"),
+    refuse: (code: number, reason: string) => state.events?.close(code, reason),
   };
 }
 
@@ -36,6 +37,7 @@ function race(...paths: ReturnType<typeof fakePath>[]) {
     failed: [] as string[],
     opened: false,
     closed: undefined as number | undefined,
+    reason: undefined as string | undefined,
   };
   const transport = racingTransport({
     routes: paths.map((path) => path.route),
@@ -46,7 +48,10 @@ function race(...paths: ReturnType<typeof fakePath>[]) {
   transport.open({
     open: () => (outcome.opened = true),
     message: () => {},
-    close: (code) => (outcome.closed = code),
+    close: (code, reason) => {
+      outcome.closed = code;
+      outcome.reason = reason;
+    },
   });
   return { scheduler, outcome };
 }
@@ -92,6 +97,27 @@ test("when every path fails the attempt closes as a drop, once", () => {
   lan.fail();
   relay.fail();
   expect(outcome).toMatchObject({ opened: false, closed: 1006, failed: ["lan", "relay"] });
+});
+
+test("when every path fails and one was refused, the attempt closes with that refusal", () => {
+  const lan = fakePath("lan");
+  const relay = fakePath("relay");
+  const { scheduler, outcome } = race(lan, relay);
+  scheduler.advance(150);
+  relay.refuse(4403, "Not your machine");
+  expect(outcome.closed).toBeUndefined();
+  // The refusal is what the attempt ends with, though a plain drop came after it.
+  lan.fail();
+  expect(outcome).toMatchObject({ opened: false, closed: 4403, reason: "Not your machine" });
+});
+
+test("a refused path does not end the attempt while another path can still win", () => {
+  const lan = fakePath("lan");
+  const relay = fakePath("relay");
+  const { outcome } = race(lan, relay);
+  lan.refuse(4003, "Device revoked");
+  relay.open();
+  expect(outcome).toMatchObject({ won: "relay", opened: true, closed: undefined });
 });
 
 test("a machine with no usable path closes at once", () => {

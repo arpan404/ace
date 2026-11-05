@@ -25,6 +25,9 @@ export const nodeOnlySuites = [
   // The Worker runs on Cloudflare's workerd. Wrangler's test harness refuses to forward requests
   // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
   "apps/relay-cloudflare/src/**/*.process.test.ts",
+  // A daemon and its clients through that same Worker harness; the daemon's relay path on Bun is
+  // covered against the self-hosted relay.
+  "apps/daemon/src/relay-cloudflare-e2e.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",
