@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { designTokens } from "@ace/design-tokens";
+import { chartSeries } from "@ace/themes";
 import type { BrowserService } from "@ace/browser";
 import {
   inlineVisualizationUrl,
@@ -47,6 +48,9 @@ export function previewTheme(scheme: HtmlColorScheme): HtmlTheme {
     success: statusText.done,
     warning: statusText.needsYou,
     info: statusText.working,
+    ...Object.fromEntries(
+      chartSeries(scheme).map((colour, index) => [`chart-${index + 1}`, colour]),
+    ),
     radius: "8px",
     "font-sans":
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',

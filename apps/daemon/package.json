@@ -69,6 +69,7 @@
     "@ace/service": "workspace:*",
     "@ace/settings": "workspace:*",
     "@ace/terminal": "workspace:*",
+    "@ace/themes": "workspace:*",
     "@ace/ui-core": "workspace:*",
     "@ace/usage": "workspace:*",
     "@ace/workspace": "workspace:*",
