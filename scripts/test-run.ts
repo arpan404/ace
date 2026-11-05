@@ -3,10 +3,13 @@
 //   node scripts/test-run.ts full|fast|process|slow [vitest args]
 //   node scripts/test-run.ts changed [--with-process] [--with-slow] [--base <ref>] [vitest args]
 //
+// Run with bun, Vitest runs on Bun, except the suites in nodeOnlySuites (scripts/test-tiers.ts),
+// which follow in a second pass on Node.
+//
 // Every run writes test-timings/last.json. A run with no extra arguments also writes
 // test-timings/<tier>.json, so the latest unfiltered run of each tier is kept.
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +22,7 @@ import {
   overBudget,
   parseRunArgs,
   projectsFor,
+  splitByRuntime,
 } from "./test-tiers.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -30,33 +34,83 @@ const git = (...args: string[]) => {
   return result.stdout.trim();
 };
 
-const args = ["run", ...projectsFor(options).flatMap((name) => ["--project", name])];
+const shared: string[] = [];
 if (options.tier === "changed") {
   // Diff from where this branch left main, so main's own later changes don't count.
   const base = options.base ?? git("merge-base", "HEAD", "origin/main");
   console.log(`Running tests affected by changes since ${base.slice(0, 12)}`);
-  args.push("--changed", base);
+  shared.push("--changed", base);
 }
-args.push(...options.vitestArgs);
+shared.push(...options.vitestArgs);
 
 const timingsDir = join(root, "test-timings");
 const lastRun = join(timingsDir, "last.json");
+const nodeRun = join(timingsDir, "last-node.json");
 rmSync(lastRun, { force: true });
+rmSync(nodeRun, { force: true });
 const require = createRequire(import.meta.url);
 const vitestBin = join(dirname(require.resolve("vitest/package.json")), "vitest.mjs");
-const child = spawn(process.execPath, [vitestBin, ...args], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, ACE_TEST_TIMINGS_FILE: lastRun },
-});
-for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => child.kill(signal));
-const exitCode = await new Promise<number>((resolve) =>
-  child.on("close", (code, signal) => resolve(code ?? (signal ? 1 : 0))),
-);
 
-const timingsSchema = z.object({
-  files: z.array(z.object({ file: z.string(), project: z.string(), ownMs: z.number() })),
+const timingsSchema = z.looseObject({
+  files: z.array(z.looseObject({ file: z.string(), project: z.string(), ownMs: z.number() })),
 });
+
+const projectArgs = (projects: readonly string[]) =>
+  projects.flatMap((name) => ["--project", name]);
+function vitest(runtime: string, args: string[], timingsFile: string): Promise<number> {
+  const child = spawn(runtime, [vitestBin, "run", ...args], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, ACE_TEST_TIMINGS_FILE: timingsFile },
+  });
+  const forward = (signal: NodeJS.Signals) => child.kill(signal);
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
+  return new Promise<number>((resolve) =>
+    child.on("close", (code, signal) => {
+      for (const name of ["SIGINT", "SIGTERM"] as const) process.off(name, forward);
+      resolve(code ?? (signal ? 1 : 0));
+    }),
+  );
+}
+
+const projects = projectsFor(options);
+let exitCode = 0;
+if ("bun" in process.versions) {
+  // Suites for code that doesn't run on Bun in production run on Node (`node` on PATH).
+  const passes = splitByRuntime(projects);
+  // A file filter may select only Node-only suites, leaving the Bun pass empty.
+  const empty = passes.node ? ["--passWithNoTests"] : [];
+  if (passes.bun)
+    exitCode = await vitest(
+      process.execPath,
+      [...projectArgs(passes.bun), ...empty, ...shared],
+      lastRun,
+    );
+  if (passes.node) {
+    console.log("\nRunning the Node-only suites on Node");
+    const nodeExit = await vitest(
+      "node",
+      [...projectArgs(passes.node), "--passWithNoTests", ...shared],
+      nodeRun,
+    );
+    exitCode ||= nodeExit;
+    mergeTimings(lastRun, nodeRun);
+  }
+} else exitCode = await vitest(process.execPath, [...projectArgs(projects), ...shared], lastRun);
+
+/** Appends the Node pass's file timings to the main run's, so budgets see both. */
+function mergeTimings(into: string, from: string) {
+  if (!existsSync(from)) return;
+  const extra = timingsSchema.parse(JSON.parse(readFileSync(from, "utf8")));
+  rmSync(from, { force: true });
+  if (!existsSync(into)) return writeFileSync(into, `${JSON.stringify(extra, null, 1)}\n`);
+  const main = timingsSchema.parse(JSON.parse(readFileSync(into, "utf8")));
+  writeFileSync(
+    into,
+    `${JSON.stringify({ ...main, files: [...main.files, ...extra.files] }, null, 1)}\n`,
+  );
+}
+
 const allowlistSchema = z.object({
   fast: z.record(z.string(), z.string()),
   process: z.record(z.string(), z.string()),

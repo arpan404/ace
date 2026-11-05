@@ -6,6 +6,7 @@ import {
   overBudget,
   parseRunArgs,
   projectsFor,
+  splitByRuntime,
 } from "./test-tiers.ts";
 
 const allowlist = {
@@ -54,9 +55,28 @@ test("a budget scale loosens every budget for slower machines", () => {
 test("affected-only runs cover the fast tier unless asked to include process or slow tests", () => {
   const fast = projectsFor(parseRunArgs(["changed"]));
   expect(fast).toEqual(["unit", "web", "client-react"]);
-  expect(projectsFor(parseRunArgs(["changed", "--with-process"]))).toEqual([...fast, "process"]);
+  expect(projectsFor(parseRunArgs(["changed", "--with-process"]))).toEqual([
+    ...fast,
+    "process",
+    "node-process",
+  ]);
   expect(projectsFor(parseRunArgs(["changed", "--with-slow"]))).toContain("browser-process");
   expect(projectsFor(parseRunArgs(["full"]))).toEqual([]);
+});
+
+test("on Bun, Node-only suites run in a Node pass of their own and nowhere else", () => {
+  const process = projectsFor(parseRunArgs(["process"]));
+  expect(splitByRuntime(process)).toEqual({ bun: ["process"], node: ["node-process"] });
+  // Every project: Bun's config leaves the Node-only project out, Node runs it.
+  expect(splitByRuntime(projectsFor(parseRunArgs(["full"])))).toEqual({
+    bun: [],
+    node: ["node-process"],
+  });
+  expect(splitByRuntime(projectsFor(parseRunArgs(["fast"])))).toEqual({
+    bun: ["unit", "web", "client-react"],
+    node: undefined,
+  });
+  expect(splitByRuntime(["node-process"])).toEqual({ bun: undefined, node: ["node-process"] });
 });
 
 test("runner arguments pass through to Vitest without the npm-style separator", () => {

@@ -5,7 +5,7 @@ export const tiers: readonly Tier[] = ["full", "fast", "process", "slow", "chang
 
 /** Vitest projects (see vitest.config.ts) that make up each budgeted tier. */
 export const fastProjects = ["unit", "web", "client-react"] as const;
-export const processProjects = ["process"] as const;
+export const processProjects = ["process", "node-process"] as const;
 export const slowProjects = ["slow-process", "browser-process", "history-scale"] as const;
 
 /** Per-file budgets in milliseconds; projects not listed have no budget. */
@@ -14,7 +14,47 @@ export const budgetMs: Readonly<Record<string, number>> = {
   web: 5_000,
   "client-react": 5_000,
   process: 30_000,
+  "node-process": 30_000,
 };
+
+/**
+ * Process suites that always run on Node, also in a run on Bun (the `node-process` project).
+ * Each covers code whose production runtime is not Bun.
+ */
+export const nodeOnlySuites = [
+  // The Worker runs on Cloudflare's workerd. Wrangler's test harness refuses to forward requests
+  // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
+  "apps/relay-cloudflare/src/**/*.process.test.ts",
+  // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
+  // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
+  "apps/relay/src/abuse.process.test.ts",
+  // Their test preloads patch node:fs/promises inside the history worker. Bun's named imports of
+  // builtins don't see such patches, and Bun lets nothing replace a builtin module.
+  "packages/history-import/src/audit-scan.process.test.ts",
+  "packages/history-import/src/observed-reads.process.test.ts",
+  "packages/history-import/src/snapshot-bounds.process.test.ts",
+  "packages/history-import/src/snapshot-race.process.test.ts",
+  // The reader's heap limit (Worker resourceLimits) exists only on Node: Bun ignores it, so on
+  // Bun these checks would pass without any limit at all.
+  "packages/history-import/src/memory-bounds.process.test.ts",
+];
+const nodeProjects: readonly string[] = ["node-process"];
+
+/**
+ * A run on Bun in two passes: Bun runs every selected project but the Node-only ones, then Node
+ * runs those. `undefined` skips a pass; an empty list means every project, as in projectsFor.
+ */
+export function splitByRuntime(projects: readonly string[]): {
+  bun: string[] | undefined;
+  node: string[] | undefined;
+} {
+  const selectsNode = projects.length === 0 || projects.some((name) => nodeProjects.includes(name));
+  const bun = projects.filter((name) => !nodeProjects.includes(name));
+  return {
+    bun: projects.length > 0 && bun.length === 0 ? undefined : bun,
+    node: selectsNode ? [...nodeProjects] : undefined,
+  };
+}
 
 export type BudgetTier = "fast" | "process";
 const budgetTier = (project: string): BudgetTier | undefined =>
