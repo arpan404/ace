@@ -11,11 +11,14 @@ import { windowSize } from "./relay-wire.ts";
  * Bytes held here always go first: a chunk that arrives while some are held queues behind them,
  * and the socket's end (and the close after it) waits until every held byte has been delivered.
  *
- * The socket itself is paused only once its own buffer is empty. On Bun, `resume()` starts a
- * native read straight away, and a `pause()` right after it does not stop that read landing. If
- * the socket were paused with chunks still buffered, each resume would emit one chunk and gain a
- * read, so a paused socket would come to hold two reads. Instead every chunk it has buffered is
- * taken into the held queue first, and the one read a resume starts lands in an empty buffer.
+ * A paused socket holds at most one read. On Bun, `resume()` starts a native read straight away,
+ * and a `pause()` right after it does not stop that read landing. If the socket were paused with
+ * chunks still buffered, each resume would emit one chunk and gain a read, so a paused socket
+ * would come to hold two reads. So pausing a socket that was flowing first reads out what it has
+ * buffered (`read()` emits it as data, which queues it in `held`), and the one read the resume
+ * started lands in an empty buffer. The buffer is read here, synchronously, rather than left to
+ * the stream's flow loop, so the bound does not depend on how a runtime schedules that loop.
+ * On Node the same applies; its reads are 64 KiB, so it only moves buffered chunks into `held`.
  *
  * Only a real end reaches the mux, because the mux treats a close after an end as graceful and
  * sends END. Bun emits `end` on a socket destroyed locally too; that end is an abort, so it is
@@ -100,9 +103,16 @@ export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
     },
     pause: () => {
       paused = true;
-      // With chunks still buffered the socket keeps flowing them into `held`; the data handler
-      // pauses it once the buffer is empty.
-      if (socket.readableLength === 0) socket.pause();
+      // Only a socket that was flowing can hold chunks it has not emitted yet. One already
+      // paused holds at most the read that landed after it paused, and reading that out would
+      // only let another land behind it.
+      const flowing = socket.readableFlowing === true;
+      socket.pause();
+      // One `read()` with no size returns everything a paused stream buffers. It is not repeated:
+      // on Bun a read can start another native read, so reading until the buffer stays empty
+      // would drain the connection. A size is not passed either: asking for more than the
+      // high-water mark raises it, and a paused socket would then take in more than one read.
+      if (flowing && deliver && socket.readableLength > 0) socket.read();
     },
     resume: () => {
       paused = false;
@@ -122,13 +132,10 @@ export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
       if (event !== "data") return socket.on(event, listener);
       deliver = listener;
       return socket.on("data", (chunk: Buffer) => {
-        if (!paused && held.length === 0 && chunk.byteLength <= windowSize) listener(chunk);
-        else {
-          held.push(chunk);
-          heldBytes += chunk.byteLength;
-          next();
-        }
-        if ((paused || held.length > 0) && socket.readableLength === 0) socket.pause();
+        if (!paused && held.length === 0 && chunk.byteLength <= windowSize) return listener(chunk);
+        held.push(chunk);
+        heldBytes += chunk.byteLength;
+        next();
       });
     },
     once: (event, listener) => socket.once(event, listener),
