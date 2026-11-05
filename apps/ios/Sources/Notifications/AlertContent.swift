@@ -10,7 +10,8 @@ struct AlertContent: Equatable, Sendable {
     static let answerCategory = "ACE_ANSWER"
     enum Level: Equatable, Sendable { case passive, active, timeSensitive }
 
-    let identifier: String
+    /// The system request identifier; `AlertStack` sets the thread's own when it lands.
+    var identifier: String
     let title: String
     let body: String
     let threadIdentifier: String
@@ -30,6 +31,8 @@ struct AlertContent: Equatable, Sendable {
     var hostId: String? = nil
     /// Shown over the open app; false files it in the list only (Settings › Notifications).
     var banner = true
+    /// The thread's own title, for the finished summary.
+    private(set) var threadTitle = ""
 
     /// The system request identifier for a daemon alert. Alert ids are unique only within their
     /// daemon, so the machine is part of it: the same id from two machines is two notifications.
@@ -48,9 +51,17 @@ struct AlertContent: Equatable, Sendable {
         content.hostId = hostId
         return content
     }
-    private init(identifier: String, title: String, body: String, threadId: String) {
+    /// Several threads that finished close together, as one quiet notification: "3 threads
+    /// finished" over their titles, newest first. It opens ace, not one of them.
+    static func finishedSummary(count: Int, titles: [String]) -> AlertContent {
+        let named = titles.prefix(3).joined(separator: ", ")
+        let body = titles.count > 3 ? "\(named) and \(titles.count - 3) more" : named
+        return AlertContent(identifier: AlertStack.summaryId, title: "\(count) threads finished", body: body, threadId: "",
+                            group: AlertStack.summaryId)
+    }
+    private init(identifier: String, title: String, body: String, threadId: String, group: String? = nil) {
         self.identifier = identifier; self.title = title; self.body = body
-        threadIdentifier = threadId; self.threadId = threadId; category = Self.threadCategory; level = .passive
+        threadIdentifier = group ?? threadId; self.threadId = threadId; category = Self.threadCategory; level = .passive
         interactionId = nil; approveOption = nil; denyOption = nil
     }
     init(_ alert: AlertNotification, hostId: String? = nil) {
@@ -62,6 +73,7 @@ struct AlertContent: Equatable, Sendable {
         approveOption = alert.actions.first { $0.action == "approve" }?.optionId
         denyOption = alert.actions.first { $0.action == "deny" }?.optionId
         let thread = alert.title.isEmpty ? "ace" : alert.title
+        threadTitle = alert.title.isEmpty ? "New thread" : alert.title
         let phrase: String
         switch alert.status {
         case "needs_you": phrase = "Needs you"; level = .timeSensitive

@@ -57,7 +57,10 @@ extension NotificationCoordinator {
     /// Confirmed: the alert goes. Anything else: a quiet notice in its place, saying what happened.
     func report(_ outcome: NotificationPatch.ActionOutcome?, for answer: NotificationAnswer, notificationId: String,
                 threadId: String, hostId: String?) async {
-        if outcome == .confirmed || outcome == .stale { notifier.withdraw(notificationId) }
+        if outcome == .confirmed || outcome == .stale {
+            notifier.withdraw(notificationId)
+            desk.clear(threadId: threadId, hostId: hostId)
+        }
         guard let words = ActionNotice.words(outcome, for: answer) else { return }
         await notifier.notice(id: "action:\(notificationId)", threadId: threadId, title: words.title, body: words.body, hostId: hostId)
     }

@@ -13,7 +13,20 @@ extension NotificationCoordinator {
             return LockScreenBuilder.Machine(hostId: entry.hostId, rows: rows, online: entry.model.connection == "ready")
         }
         approvals = approvals.filter { waiting.contains($0.key) }
+        withdrawAnswered()
         return (list, approvals)
+    }
+
+    /// A request answered anywhere (here, on a computer, or by the agent moving on) takes its
+    /// notification with it: once the thread's confirmed row no longer needs the person.
+    private func withdrawAnswered() {
+        for entry in machines where entry.model.connection == "ready" {
+            for threadId in desk.stack.asking(hostId: entry.hostId) {
+                guard let row = entry.model.inbox[threadId], row.confirmed == true, let look = row.look,
+                      look.level != "syncing", LockScreenBuilder.state(look) != "needs-you" else { continue }
+                desk.clear(threadId: threadId, hostId: entry.hostId)
+            }
+        }
     }
 
     /// An alert for an approval with the daemon's fixed Allow/Deny pair: the Live Activity may
