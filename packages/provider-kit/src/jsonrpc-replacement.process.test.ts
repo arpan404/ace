@@ -8,6 +8,8 @@ const processes: SupervisedProcess[] = [];
 afterEach(async () => {
   await Promise.all(processes.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
 });
+// The writes these tests block are larger than a child's stdin takes in one go on either runtime:
+// Node accepts about one 64 KB pipe buffer, Bun buffers up to about 500 KB itself.
 function child(script: string) {
   const proc = spawnSupervised({
     command: process.execPath,
@@ -70,20 +72,20 @@ it("concurrent peers correlate distinct requests on one process", async () => {
 it("replacements retain the process byte bound while old stdin writes are blocked", async () => {
   const proc = child("console.log('ready');setInterval(()=>{},1000);");
   await once(proc.stdout, "line");
-  const limits = { maxQueuedBytes: 600000, maxMessageBytes: 600000, timeoutMs: null };
+  const limits = { maxQueuedBytes: 4_800_000, maxMessageBytes: 4_800_000, timeoutMs: null };
   const old = new JsonRpcPeer(proc, limits);
-  const active = old.notify("blocked", "x".repeat(500000)).catch((error: unknown) => String(error));
+  const active = old.notify("blocked", "x".repeat(4_000_000)).catch((error: unknown) => String(error));
   old.close();
   expect(await active).toContain("peer closed");
   for (let i = 0; i < 20; i++) {
     const replacement = new JsonRpcPeer(proc, {
       ...limits,
-      maxQueuedBytes: i % 2 ? 1200000 : 600000,
+      maxQueuedBytes: i % 2 ? 9_600_000 : 4_800_000,
     });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        replacement.notify("extra", "x".repeat(200000)).then(
+        replacement.notify("extra", "x".repeat(1_600_000)).then(
           () => "accepted",
           (error: unknown) => String(error),
         ),
@@ -92,7 +94,7 @@ it("replacements retain the process byte bound while old stdin writes are blocke
         }),
       ]);
       expect(result).toContain("write queue exceeded limit");
-      expect(proc.stdin.writableLength).toBeLessThanOrEqual(600000);
+      expect(proc.stdin.writableLength).toBeLessThanOrEqual(4_800_000);
     } finally {
       clearTimeout(timer);
       replacement.close();
@@ -133,12 +135,12 @@ it("replacement resumes after old bytes drain and never sends disposed queued no
   );
   const [pid] = await once(proc.stdout, "line");
   const limits = {
-    maxQueuedBytes: 600000,
-    maxMessageBytes: 600000,
+    maxQueuedBytes: 4_800_000,
+    maxMessageBytes: 4_800_000,
     timeoutMs: PROCESS_TEST_TIMEOUT,
   };
   const old = new JsonRpcPeer(proc, limits);
-  const flood = old.notify("flood", "x".repeat(500000)).catch((error: unknown) => String(error));
+  const flood = old.notify("flood", "x".repeat(4_000_000)).catch((error: unknown) => String(error));
   const discarded = old
     .notify("discarded", "x".repeat(1000))
     .catch((error: unknown) => String(error));
@@ -152,7 +154,7 @@ it("replacement resumes after old bytes drain and never sends disposed queued no
     const resumed = replacement.request("echo", "resumed");
     process.kill(Number(pid), "SIGUSR1");
     expect(await resumed).toBe("resumed");
-    await replacement.notify("second", "x".repeat(500000));
+    await replacement.notify("second", "x".repeat(4_000_000));
     expect(await replacement.request("echo", "drained")).toBe("drained");
     expect(received).toEqual(["flood", "echo", "second", "echo"]);
   } finally {

@@ -4,6 +4,7 @@ import { Worker } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
+import { z } from "zod";
 import { admitProcess, killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 
 export type ProbeExit = Omit<Extract<ProbeReply, { type: "exit" }>, "type" | "id">;
@@ -33,6 +34,8 @@ function stopGroup(pid: number): void {
     // A group this daemon can no longer signal is not one it can stop.
   }
 }
+
+const ProbeAddress = z.object({ id: z.number().int().nonnegative() });
 
 type Flight = {
   id: number;
@@ -80,7 +83,17 @@ export function createProbeThread(
   };
   worker.on("message", (input: unknown) => {
     const message = ProbeReply.safeParse(input);
-    if (!message.success) return;
+    if (!message.success) {
+      // A probe waiting on a reply it can't read would wait forever; fail it instead.
+      const addressed = ProbeAddress.safeParse(input);
+      const flight = addressed.success ? flights.get(addressed.data.id) : undefined;
+      if (!flight) return;
+      if (flight.pid !== undefined) stopGroup(flight.pid);
+      end(flight);
+      flight.done.reject(new Error("Probe worker sent an invalid reply"));
+      if (!flights.size) worker.idle();
+      return;
+    }
     const flight = flights.get(message.data.id);
     if (!flight) return;
     if (message.data.type === "spawned") {

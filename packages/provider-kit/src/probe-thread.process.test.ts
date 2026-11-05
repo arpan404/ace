@@ -70,6 +70,11 @@ test("a probe past its timeout is stopped with its descendants and no longer own
   }
 });
 
+test("a reply the main thread can't read fails its probe instead of leaving it waiting", async () => {
+  const thread = createProbeThread(new URL("./testing/malformed-probe-worker.ts", import.meta.url));
+  await expect(probeOutput("anything", [], { thread })).rejects.toThrow("invalid reply");
+});
+
 test("a spawn that blocks its thread leaves the main thread answering", async () => {
   const thread = createProbeThread(new URL("./testing/slow-probe-worker.ts", import.meta.url));
   let last = performance.now();

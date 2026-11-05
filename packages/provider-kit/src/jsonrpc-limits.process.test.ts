@@ -8,6 +8,8 @@ const processes: SupervisedProcess[] = [];
 afterEach(async () => {
   await Promise.all(processes.splice(0).map((proc) => proc.stop({ graceMs: 0 })));
 });
+// The writes these tests block are larger than a child's stdin takes in one go on either runtime:
+// Node accepts about one 64 KB pipe buffer, Bun buffers up to about 500 KB itself.
 function child(script: string) {
   const proc = spawnSupervised({
     command: process.execPath,
@@ -58,15 +60,15 @@ it("nonreading peers retain byte capacity after cancellation and dispose blocked
   const proc = child(`console.log('ready');setInterval(()=>{},1000);`);
   await once(proc.stdout, "line");
   const rpc = new JsonRpcPeer(proc, {
-    maxQueuedBytes: 600000,
-    maxMessageBytes: 600000,
+    maxQueuedBytes: 4_800_000,
+    maxMessageBytes: 4_800_000,
     timeoutMs: null,
   });
   const controller = new AbortController();
   const pending = rpc
-    .request("blocked", "x".repeat(500000), { signal: controller.signal })
+    .request("blocked", "x".repeat(4_000_000), { signal: controller.signal })
     .catch((error: unknown) => String(error));
-  const failedNotify = rpc.notify("extra", "x".repeat(200000));
+  const failedNotify = rpc.notify("extra", "x".repeat(1_600_000));
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const admission = await Promise.race([
@@ -81,10 +83,10 @@ it("nonreading peers retain byte capacity after cancellation and dispose blocked
     expect(admission).toContain("write queue exceeded limit");
     controller.abort(new Error("cancelled"));
     expect(await pending).toContain("cancelled");
-    await expect(rpc.request("extra", "x".repeat(200000))).rejects.toThrow(
+    await expect(rpc.request("extra", "x".repeat(1_600_000))).rejects.toThrow(
       "write queue exceeded limit",
     );
-    expect(proc.stdin.writableLength).toBeLessThanOrEqual(600000);
+    expect(proc.stdin.writableLength).toBeLessThanOrEqual(4_800_000);
     const notification = rpc.notify("queued", "queued");
     rpc.close();
     await expect(notification).rejects.toThrow("peer closed");
@@ -101,13 +103,13 @@ it("queued cancelled requests are never delivered once a blocked peer reads agai
   );
   const [pid] = await once(proc.stdout, "line");
   const rpc = new JsonRpcPeer(proc, {
-    maxQueuedBytes: 1000000,
-    maxMessageBytes: 600000,
+    maxQueuedBytes: 8_000_000,
+    maxMessageBytes: 4_800_000,
     timeoutMs: null,
   });
   const received: unknown[] = [];
   rpc.onNotification = (message) => received.push(message.params);
-  const flood = rpc.notify("flood", "x".repeat(500000));
+  const flood = rpc.notify("flood", "x".repeat(4_000_000));
   const controller = new AbortController();
   const pending = rpc
     .request("cancelled", "x".repeat(1000), { signal: controller.signal })

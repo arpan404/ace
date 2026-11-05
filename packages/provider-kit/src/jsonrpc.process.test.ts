@@ -166,7 +166,9 @@ describe("JSON-RPC stdio", () => {
       (error: unknown) => String(error),
     );
     await closed;
-    const write = rpc.request("write").then(
+    // Bun reports a small write to a closed stdin as sent and drops it; only a write too large
+    // for its own buffer fails with EPIPE. Node fails any write.
+    const write = rpc.request("write", "x".repeat(4_000_000)).then(
       () => "resolved",
       (error: unknown) => String(error),
     );
