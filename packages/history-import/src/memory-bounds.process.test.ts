@@ -1,8 +1,13 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { openHistory, type HistoryService } from "./index.ts";
+import {
+  ReaderProcess,
+  readerMemoryError,
+  readerMemoryLimitBytes,
+  systemReaderRuntime,
+} from "./reader-process.ts";
 import { environment, claudeRecords, cwd } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -33,7 +38,7 @@ async function titles(service: HistoryService): Promise<string[]> {
   return page.sessions.map((session) => session.title).toSorted();
 }
 
-test("transcripts with huge records before their first prompt scan under the production heap limit", async () => {
+test("transcripts with huge records before their first prompt scan stay under the reader's memory limit", async () => {
   const env = await environment();
   cleanup.push(env.close);
   const home = join(env.root, "claude");
@@ -61,7 +66,7 @@ test("transcripts with huge records before their first prompt scan under the pro
   expect(await titles(service)).toEqual(expected.toSorted());
 });
 
-test("a transcript that exhausts the reader is isolated and reported instead of restarting every scan", async () => {
+test("a transcript that takes the reader past its memory limit is isolated and reported instead of restarting every scan", async () => {
   const env = await environment();
   cleanup.push(env.close);
   const home = join(env.root, "claude");
@@ -78,13 +83,22 @@ test("a transcript that exhausts the reader is isolated and reported instead of 
       indexPath: join(env.root, "ace/index.sqlite"),
       instances: [{ id: "claude", provider: "claude", homeDir: home }],
     },
+    // The real reader process and its real memory limit.
     (url, options) => {
       launches++;
-      return new Worker(url, {
-        ...options,
-        env: { ...process.env, ACE_TEST_POISON: poison },
-        execArgv: ["--import", new URL("./poison-preload.ts", import.meta.url).href],
-      });
+      return new ReaderProcess(
+        url,
+        {
+          ...options,
+          execArgv: ["--import", new URL("./poison-preload.ts", import.meta.url).href],
+          env: {
+            ...process.env,
+            ACE_TEST_POISON_MARKER: "poison prompt",
+            ACE_TEST_POISON_BYTES: String(readerMemoryLimitBytes + 256 * 1024 * 1024),
+          },
+        },
+        systemReaderRuntime(),
+      );
     },
     {
       delay: (run, milliseconds) => {
@@ -107,7 +121,7 @@ test("a transcript that exhausts the reader is isolated and reported instead of 
     try {
       scan = await service.scan();
     } catch (error) {
-      expect(String(error)).toMatch(/memory/);
+      expect(String(error)).toContain(readerMemoryError(readerMemoryLimitBytes).message);
       crashes++;
       await recovered.promise;
       recovered = Promise.withResolvers<void>();

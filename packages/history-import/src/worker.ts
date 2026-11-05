@@ -2,7 +2,6 @@ import { progressReporter } from "./progress-reporter.ts";
 import type { z } from "zod";
 import type { ScanResult } from "./contracts.ts";
 import { nativeReference } from "./native-reference.ts";
-import { parentPort, workerData } from "node:worker_threads";
 import { mkdir, chmod, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -13,8 +12,11 @@ import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Envelope, Options, type Packet, type ImportInit } from "./contracts.ts";
 import { scan } from "./scan.ts";
 import { importHistory } from "./import-history.ts";
+import { readerHost } from "./reader-host.ts";
 
-const options = Options.parse(workerData);
+// The history reader: a process of its own under the daemon (reader-process.ts).
+const { port, data } = await readerHost();
+const options = Options.parse(data);
 await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
@@ -29,11 +31,10 @@ async function openCatalog(): Promise<Catalog> {
     });
   } catch (error) {
     const refused = incompatibleData(error);
-    if (!refused || !parentPort) throw error;
-    // Report the refusal with its fields, then wait for the parent to stop this worker.
-    // oxlint-disable-next-line unicorn/require-post-message-target-origin
-    parentPort.postMessage({ refused: { code: "incompatible-data", ...refused } });
-    parentPort.on("message", () => {});
+    if (!refused) throw error;
+    // Report the refusal with its fields, then wait for the daemon to stop this reader.
+    port.postMessage({ refused: { code: "incompatible-data", ...refused } });
+    port.on("message", () => {});
     return new Promise<never>(() => {});
   }
 }
@@ -45,8 +46,6 @@ let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
 let scanning = false;
-const port = parentPort;
-if (!port) throw new Error("History worker needs a parent port");
 port.on("message", async (value: unknown) => {
   if (value === "cancel") {
     controller.abort();
