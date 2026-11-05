@@ -1,6 +1,6 @@
 // MessagePort.postMessage has no browser targetOrigin argument.
 /* eslint-disable unicorn/require-post-message-target-origin */
-import { Worker } from "node:worker_threads";
+import { startWorker } from "./worker.ts";
 import { IdleWorker, type IdleWorkerRuntime } from "./idle-worker.ts";
 import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
@@ -14,7 +14,7 @@ export interface ProbeThread {
 
 const runtime: IdleWorkerRuntime = {
   spawn(entry, options) {
-    const worker = new Worker(entry, options);
+    const worker = startWorker(entry, options);
     // An idle isolate never keeps a CLI command or a stopping daemon alive.
     worker.unref();
     return worker;

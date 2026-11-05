@@ -1,6 +1,7 @@
 // Node worker_threads.postMessage has no browser targetOrigin.
 /* eslint-disable unicorn/require-post-message-target-origin */
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import {
   Command,
@@ -44,7 +45,7 @@ export class ReviewIsolate {
   ) {
     this.onFailure = privateFailure;
     this.persistent = path !== ":memory:";
-    const create = options.createWorker ?? ((url, init) => new Worker(url, init));
+    const create = options.createWorker ?? ((url, init) => startWorker(url, init));
     this.worker = new IdleWorker(
       new URL("./worker.ts", import.meta.url),
       {

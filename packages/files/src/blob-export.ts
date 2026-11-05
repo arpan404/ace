@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { z } from "zod";
 import { workerRequest } from "./worker-rpc.ts";
 import { FileError } from "./types.ts";
@@ -17,7 +18,7 @@ const Reply = z.discriminatedUnion("ok", [
 /** Export one immutable SQLite blob without ever selecting its complete bytes into Node. */
 export function createBlobExport(
   createWorker: () => Worker = () =>
-    new Worker(new URL("./blob-worker.ts", import.meta.url), { execArgv: [] }),
+    startWorker(new URL("./blob-worker.ts", import.meta.url), { execArgv: [] }),
 ) {
   const owner = workerRequest(createWorker);
   return {

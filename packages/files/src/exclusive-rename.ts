@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { z } from "zod";
 import { FileError } from "./types.ts";
 import { workerRequest } from "./worker-rpc.ts";
@@ -14,7 +15,7 @@ const Reply = z.discriminatedUnion("ok", [
 /** One lazy I/O worker and at most one syscall in flight. Never fall back to overwrite. */
 export function createExclusiveRename(
   createWorker: () => Worker = () =>
-    new Worker(new URL("./rename-worker.ts", import.meta.url), { execArgv: [] }),
+    startWorker(new URL("./rename-worker.ts", import.meta.url), { execArgv: [] }),
 ): ExclusiveRename {
   const owner = workerRequest(createWorker);
   return {
