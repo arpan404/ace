@@ -1,6 +1,6 @@
 import { PreviewPort } from "@ace/protocol/preview";
 import { z } from "zod";
-import { createMux, type PreviewChannel, type PreviewSocket } from "./relay-mux.ts";
+import { createMux, systemTimer, type PreviewChannel, type PreviewSocket } from "./relay-mux.ts";
 export type { PreviewChannel, PreviewSocket } from "./relay-mux.ts";
 export { requestHeaders, responseHeaders } from "./headers.ts";
 
@@ -36,7 +36,12 @@ export async function openPreviewProxy(options: {
       void closing.catch(() => {});
     }
   };
-  const mux = createMux({ channel: options.channel, maxStreams, onClosed: closeLoopback });
+  const mux = createMux({
+    channel: options.channel,
+    maxStreams,
+    onClosed: closeLoopback,
+    timer: systemTimer,
+  });
   try {
     const listener = await options.runtime.listen({
       port,

@@ -8,7 +8,7 @@ import {
 import { createServer as createHttpServer } from "node:http";
 import { z } from "zod";
 import { loopbackConnection } from "./loopback.ts";
-import { createMux, type PreviewChannel } from "./relay-mux.ts";
+import { createMux, systemTimer, type PreviewChannel } from "./relay-mux.ts";
 import { openPreviewProxy as openPortableProxy, type PreviewLoopbackRuntime } from "./transport.ts";
 import { forwardHttp, forwardUpgrade, type Track } from "./forward.ts";
 import { previewSocket } from "./node-socket.ts";
@@ -30,10 +30,11 @@ export function attachPreviewRelay(options: {
     channel: options.channel,
     allowPort: options.allowPort,
     maxStreams: cap(options.maxStreams),
+    timer: systemTimer,
     socketFactory: (port) => {
       const socket = new Socket({ allowHalfOpen: true });
       return {
-        socket: previewSocket(socket),
+        socket: previewSocket(socket, systemTimer),
         connect: () => {
           socket.connect(loopbackConnection(port));
         },
@@ -86,7 +87,7 @@ async function createNodeLoopback(options: Parameters<PreviewLoopbackRuntime["li
       }
       socket.setTimeout(0);
       if (bytes < chunk.length) socket.unshift(chunk.subarray(bytes));
-      options.openSocket(previewSocket(socket));
+      options.openSocket(previewSocket(socket, systemTimer));
     };
     socket.on("error", () => socket.destroy());
     socket.on("data", authenticate);
