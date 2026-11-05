@@ -455,7 +455,15 @@ export async function startServer(options: ServerOptions): Promise<{
             );
             return;
           }
-          if (frame.kind === "invalid") throw new Error("Message does not match the protocol");
+          if (frame.kind === "invalid") {
+            fail(
+              "invalid_message",
+              "Message does not match the protocol",
+              false,
+              frame.requestId ? { requestId: frame.requestId } : {},
+            );
+            return;
+          }
           message = frame.message;
         } else message = parseSocketMessage(frameValue);
       } catch {

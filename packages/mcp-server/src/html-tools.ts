@@ -82,7 +82,7 @@ export const htmlToolCatalog = [
     name: "html_render",
     title: "Show an HTML visual inline",
     description:
-      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. The page is laid out at 360 px before publishing; invalid_html lists what is unsafe, overflows the phone width or is unreadable, and nothing is published.",
+      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. invalid_html lists what is unsafe, overflows a 360 px phone or is unreadable; nothing is published.",
     input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,

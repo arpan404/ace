@@ -28,6 +28,7 @@ import {
   type ConnectionInfo,
   type ConnectionState,
   type Limits,
+  type PathRefusal,
   type Transport,
 } from "./types.ts";
 
@@ -327,7 +328,7 @@ export class Connection {
               else this.fail(new ClientError("auth"));
             });
         },
-        close: (code, reason) => this.#closed(epoch, code, reason ?? ""),
+        close: (code, reason, refused) => this.#closed(epoch, code, reason ?? "", refused),
         message: (text) => this.#receiveFrame(text, epoch),
         binary: (bytes) => this.#receiveFrame(bytes, epoch),
       });
@@ -535,8 +536,14 @@ export class Connection {
       missed: () => this.#lost(1006, heartbeatMissed),
     });
   }
-  #closed(epoch: number, code: number, reason: string): void {
-    if (epoch === this.#epoch) this.#lost(code, reason);
+  #closed(epoch: number, code: number, reason: string, refused?: PathRefusal): void {
+    // A drop whose paths were partly refused retries, and says why while it does.
+    if (epoch === this.#epoch)
+      this.#lost(
+        code,
+        reason,
+        refused && new ClientError("offline", refused.reason || `Path refused (${refused.code})`),
+      );
     else if (epoch === this.#draining?.epoch) this.#finishDrain();
   }
 

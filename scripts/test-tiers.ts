@@ -25,6 +25,9 @@ export const nodeOnlySuites = [
   // The Worker runs on Cloudflare's workerd. Wrangler's test harness refuses to forward requests
   // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
   "apps/relay-cloudflare/src/**/*.process.test.ts",
+  // A daemon and its clients through that same Worker harness; the daemon's relay path on Bun is
+  // covered against the self-hosted relay.
+  "apps/daemon/src/relay-cloudflare-e2e.process.test.ts",
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",
@@ -45,6 +48,10 @@ export const nodeOnlySuites = [
   // The main process binds kernel32 through the koffi the app ships, on Electron's Node; this
   // loads it from the packaged layout on Node.
   "apps/desktop/src/main/system/koffi.process.test.ts",
+  // The desktop main process runs the stall watchdog on Electron's Node, whose worker pauses the
+  // frozen main thread through node:inspector to read its stack. Bun's node:inspector has no
+  // Debugger domain; what holds on both runtimes is in stall-watchdog.process.test.ts.
+  "packages/diagnostics/src/stall-watchdog-stacks.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react

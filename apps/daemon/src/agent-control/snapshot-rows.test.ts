@@ -17,10 +17,11 @@ it("a tree larger than the list still validates, counts every child and says how
     row(71, "queued"),
     row(72, "needs_you"),
     row(73, "unknown"),
+    row(74, "cancelling"),
   ];
   const snapshot = MonitorSnapshot.parse(snapshotOf(rows));
   expect(snapshot.children).toHaveLength(64);
-  expect(snapshot.omitted).toBe(10);
+  expect(snapshot.omitted).toBe(11);
   expect(snapshot.counts).toEqual({
     working: 1,
     queued: 1,
@@ -29,12 +30,14 @@ it("a tree larger than the list still validates, counts every child and says how
     done: 70,
     failed: 0,
     cancelled: 0,
+    cancelling: 1,
   });
   // Children still open lead, in the order that matters most; settled ones keep their order.
-  expect(snapshot.children.slice(0, 5).map((child) => child.id)).toEqual([
+  expect(snapshot.children.slice(0, 6).map((child) => child.id)).toEqual([
     "child-72",
     "child-73",
     "child-70",
+    "child-74",
     "child-71",
     "child-0",
   ]);

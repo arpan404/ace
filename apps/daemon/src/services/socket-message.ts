@@ -62,11 +62,15 @@ export function parseSocketMessage(input: unknown): SocketMessage {
 
 const RequestShape = z.object({ type: z.string(), requestId: z.string().optional() });
 
-/** A frame from a signed-in device: a message, a request this daemon doesn't know, or junk. */
+/**
+ * A frame from a signed-in device: a message, a request whose type this daemon doesn't know
+ * (a newer or older client's), or a frame that doesn't match the protocol. A known type with
+ * bad fields is invalid, not unsupported; either answer carries the request id when it has one.
+ */
 export type DeviceFrame =
   | { kind: "message"; message: SocketMessage }
   | { kind: "unsupported"; requestId?: string }
-  | { kind: "invalid" };
+  | { kind: "invalid"; requestId?: string };
 
 export function decodeDeviceFrame(value: unknown): DeviceFrame {
   try {
@@ -74,9 +78,8 @@ export function decodeDeviceFrame(value: unknown): DeviceFrame {
   } catch {
     const shape = RequestShape.safeParse(value);
     if (!shape.success) return { kind: "invalid" };
-    return shape.data.requestId
-      ? { kind: "unsupported", requestId: shape.data.requestId }
-      : { kind: "unsupported" };
+    const kind = candidatesByType.has(shape.data.type) ? "invalid" : "unsupported";
+    return shape.data.requestId ? { kind, requestId: shape.data.requestId } : { kind };
   }
 }
 

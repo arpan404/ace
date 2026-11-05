@@ -14,7 +14,8 @@ import { readStallOperation } from "./stall-operation.ts";
  * reads one shared integer and the process CPU clock per check, and stats one directory a
  * second on the shared thread pool. When the heartbeat stops, it writes what it knows to disk
  * (a frozen daemon may be killed before it can log) and asks the main thread for its JavaScript
- * stack through the inspector, then lets it run on.
+ * stack through the inspector, then lets it run on. Bun's node:inspector has no Debugger domain,
+ * so on Bun (the daemon) the pause is refused and reports carry no stack (`caught: false`).
  */
 const positive = () => z.int().check(z.positive());
 const input = z
