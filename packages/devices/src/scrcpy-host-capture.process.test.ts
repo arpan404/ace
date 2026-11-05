@@ -15,8 +15,10 @@ const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
+/** Polls until `read` has a value. The first test also waits out the helper's cold start. */
 async function until<T>(read: () => T | undefined | Promise<T | undefined>): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt++) {
+  const deadline = performance.now() + 15_000;
+  while (performance.now() < deadline) {
     const value = await read();
     if (value !== undefined) return value;
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -334,9 +336,13 @@ it("stopping removes the shared picture file", async () => {
   const { capture, emulator, frames } = await fixture();
   await until(() => (frames.length ? true : undefined));
   const file = emulator.requests[0]?.file ?? "";
-  await expect(access(file)).resolves.toBeUndefined();
+  const exists = () => access(file).then(
+    () => true,
+    () => false,
+  );
+  expect(await exists()).toBe(true);
   await capture.stop();
-  await expect(access(file)).rejects.toThrow();
+  expect(await exists()).toBe(false);
 });
 
 it("an emulator that refuses the token leaves the picture to scrcpy", async () => {
