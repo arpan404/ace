@@ -126,3 +126,28 @@ test("the launch copy keeps chats in their own list, out of Threads", async () =
   expect(ids("inbox.sections")).toEqual(["fix"]);
   expect(ids("chats.sections")).toEqual(["trip"]);
 });
+
+test("a chat moved into a project is a project thread on its row, as in the list that holds it", async () => {
+  const { sink } = await following((daemon) => {
+    // Moved to the "ace" project; its details still name the chat folder it came from.
+    daemon.createThread({
+      id: "moved",
+      workspaceId: "ace",
+      title: "Lisbon notes, now a project thread",
+      provider: "claude",
+      hasSentMessage: true,
+      details: {
+        workspace: { id: "chat-moved", name: "Chat", path: "/c/moved", kind: "chat" },
+        mode: "local",
+      },
+    });
+    daemon.apply("moved", [facts.rootAgent("claude"), facts.turn("root"), facts.endTurn("root")]);
+  });
+  const row = () =>
+    (sink.read("inbox:moved") as { row: { chat: boolean; project: string } } | undefined)?.row;
+  await until(() => listed(sink, "inbox:sections").includes("moved"), "the moved thread");
+  expect(listed(sink, "chats:sections")).not.toContain("moved");
+  // The phone opens a row on Chats or Threads by this flag: it must name the list's tab.
+  expect(row()?.chat).toBe(false);
+  expect(row()?.project).not.toBe("Chat");
+});

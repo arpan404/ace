@@ -5,6 +5,7 @@ import type { ThreadReader } from "@ace/client";
 import {
   cardDetails,
   inputLine,
+  isChatEntry,
   listTreeFacts,
   liveStatusSince,
   parseDelegationResults,
@@ -53,8 +54,14 @@ function quietLine(item: Item) {
 
 export function threadRow(thread: Thread | ThreadListEntry) {
   const card = cardDetails(thread, undefined);
-  // A chat with no project (ADR 0099) reads as a chat, never as its hidden folder.
-  const chat = thread.details?.workspace?.kind === "chat";
+  // A chat with no project (ADR 0099) reads as a chat, never as its hidden folder. The lists'
+  // own rule decides it, so a chat moving into a project is a chat or a thread everywhere at
+  // once: its row, the tab it opens on and the list that holds it never disagree.
+  const chat = isChatEntry(thread);
+  // Details naming another project (a move not yet confirmed) no longer name this one.
+  const workspace =
+    thread.details?.workspace?.id === thread.workspaceId ? thread.details.workspace : undefined;
+  const name = workspace?.name ?? thread.workspaceId;
   return {
     id: thread.id,
     workspaceId: thread.workspaceId,
@@ -63,7 +70,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
       ? ""
       : projectBadge({
           id: thread.workspaceId,
-          name: thread.details?.workspace?.name ?? thread.workspaceId,
+          name,
         }).initials,
     diff: thread.details?.diff ?? null,
     testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
@@ -71,7 +78,7 @@ export function threadRow(thread: Thread | ThreadListEntry) {
     state: thread.status.state,
     status: mobileThreadStatus(thread),
     attention: threadAttention(thread) ?? null,
-    project: chat ? "Chat" : preview(thread.details?.workspace?.name ?? thread.workspaceId),
+    project: chat ? "Chat" : preview(name),
     branch: preview(thread.details?.branch ?? ""),
     machine: preview(thread.details?.machine?.name ?? ""),
     provider: thread.provider,

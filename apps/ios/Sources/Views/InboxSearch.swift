@@ -27,12 +27,20 @@ import SwiftUI
     }
     func hits(_ hostId: String) -> [ConversationHit] { searches[hostId]?.hits ?? [] }
     /// Every machine's hits together, most relevant first.
-    func merged(_ inbox: MachineInbox) -> [(machineId: String, hit: ConversationHit)] {
-        inbox.sessions.flatMap { session in hits(session.hostId).map { (session.hostId, $0) } }
+    func merged(_ inbox: MachineInbox) -> [FoundHit] {
+        inbox.sessions.flatMap { session in hits(session.hostId).map { FoundHit(machineId: session.hostId, hit: $0) } }
             .sorted { ($0.hit.score ?? 0, $0.hit.createdAt) > ($1.hit.score ?? 0, $1.hit.createdAt) }
     }
     var loading: Bool { searches.values.contains { $0.loading } }
     var settled: Bool { !searches.isEmpty && searches.values.allSatisfy { $0.loaded || $0.problem != nil || !$0.loading } }
+}
+
+/// One machine's message hit. Two machines can hold the same thread id, so a hit is told apart
+/// by its machine too: the list never draws one machine's hit, or opens its thread, for another's.
+struct FoundHit: Identifiable {
+    let machineId: String
+    let hit: ConversationHit
+    var id: String { machineId + "/" + hit.id }
 }
 
 /// The search's filters, as the web's search sheet offers them: what kind of hit, which
@@ -198,7 +206,7 @@ struct InboxSearchList: View {
         let hits = messages.merged(inbox)
         if !hits.isEmpty {
             Section {
-                ForEach(hits, id: \.hit.id) { found in
+                ForEach(hits) { found in
                     // The thread opens at the hit, in its own history window.
                     Button {
                         remember()
