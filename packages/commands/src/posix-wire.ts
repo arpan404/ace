@@ -21,7 +21,8 @@ export const posixChunkLimit = 1024 * 1024;
 
 /** One call for a POSIX worker. Names are single path components; paths are absolute. */
 export const PosixOperation = z.discriminatedUnion("op", [
-  // Opening calls store their result under the new `handle`; they answer 0, or -1 on failure.
+  // Opening calls store their result under the new `handle`; they answer what they opened (its
+  // stat, whose dev and ino identify it), or -1 on failure.
   z.object({ op: z.literal("open"), directory, name, flags, handle }),
   z.object({ op: z.literal("create"), directory: handle, name, flags, handle }),
   // `path` opened from `/` one component at a time, never following a link.
@@ -97,7 +98,8 @@ export type PosixStat = z.infer<typeof PosixStat>;
 
 /**
  * Integer results are the call's own return value (negative on failure); see each call above.
- * `listDirectory` answers entry names (null if the directory can't be read), `readLink` the
+ * `listDirectory` answers up to `limit` entry names, not counting `.` and `..`, and whether more
+ * were left (null if the directory can't be read), `readLink` the
  * link text or null,
  * `read` and `readPathNoFollow` bytes, stat calls the stat fields, `readdirPath` names and
  * `realpath` the path. Calls that throw answer the error's message and code.
@@ -113,6 +115,7 @@ export const PosixReply = z.discriminatedUnion("ok", [
       z.instanceof(Uint8Array),
       PosixStat,
       z.array(z.string()),
+      z.object({ names: z.array(z.string()), truncated: z.boolean() }),
     ]),
   }),
   z.object({

@@ -62,7 +62,13 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     by the worker that opened it and closed only there, because the OS hands a freed number out
     again at once and replies from different workers arrive in no fixed order. A call past its
     deadline drains its worker: the worker's handles stop working at once, and the worker closes
-    everything it owns and exits once the stuck call returns.
+    everything it owns and exits once the stuck call returns. Lanes are keyed by anchor path
+    (`commandLane`, `skillLane`), so a folder reached through two anchors, or a symlinked skill
+    root under its two names, runs on two lanes: a stalled mount can cost up to two draining
+    threads per name, and the reserve (no new thread once stuck ones fill the room beyond the
+    serving threads) bounds the total. Changes are fenced by what they change, not by lane: a
+    change that may still land keeps its folder's identity (dev and inode) off limits to changes
+    through every lane until it returns.
 - **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
   screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
   `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms

@@ -334,14 +334,19 @@ export class SkillLibrary {
       }
       case "delete": {
         const { place, canonical } = await this.editable(op.id, op.workspaceId);
-        await withSkillFolder(this.disk, canonical, async (root, folder) => {
+        const unchanged = async (folder: number) => {
           if ((await readPinnedSkill(this.disk, folder))?.hash !== op.expectedHash)
             throw new SkillError(
               "conflict",
               "This skill changed elsewhere. Reload it before deleting.",
             );
-          for (const link of place.members.filter((m) => m.link))
-            await unlinkSkill(this.disk, link);
+        };
+        await withSkillFolder(this.disk, canonical, (_root, folder) => unchanged(folder));
+        // Links live under other roots: they go with nothing else pinned, since holding one
+        // root's thread while waiting for another's can deadlock when every thread is taken.
+        for (const link of place.members.filter((m) => m.link)) await unlinkSkill(this.disk, link);
+        await withSkillFolder(this.disk, canonical, async (root, folder) => {
+          await unchanged(folder);
           // Contents go through the pinned folder; the name is removed only if it is still it.
           await this.disk.empty(folder);
           await this.disk.removeEmptyDirectory(root, canonical.name);

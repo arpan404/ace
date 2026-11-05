@@ -8,7 +8,7 @@ import {
   created,
   createdBy,
 } from "./posix-ops.ts";
-import type { PosixOperation } from "./posix-wire.ts";
+import type { PosixOperation, PosixStat } from "./posix-wire.ts";
 
 interface FakeThread {
   events: PosixExecutorEvents;
@@ -18,7 +18,8 @@ interface FakeThread {
   /** The descriptor number behind each handle this thread holds, as the OS would hand it out. */
   fds: Map<number, number>;
   /** Answers the call it is running. */
-  answer(value: number | string | null): void;
+  /** 0 answers an opening call with a stat whose ino is the new handle's id. */
+  answer(value: number | string | null | PosixStat): void;
   exit(): void;
 }
 
@@ -47,6 +48,7 @@ function harness(options: Partial<PosixLaneOptions> = {}) {
           if (!last) throw new Error("Nothing running");
           const { operation } = last;
           const handle = createdBy(operation);
+          if (handle !== undefined && value === 0) value = statOf(handle);
           if (handle !== undefined && created(operation, value))
             thread.fds.set(handle, lowestFree());
           if (operation.op === "close") {
@@ -104,6 +106,23 @@ function harness(options: Partial<PosixLaneOptions> = {}) {
   return { lanes, threads, advance, open };
 }
 
+/** A folder's stat; two handles with the same `ino` are the same folder. */
+const statOf = (ino: number): PosixStat => ({
+  dev: 1,
+  ino,
+  mode: 0o40755,
+  size: 0,
+  mtimeMs: 0,
+  ctimeMs: 0,
+});
+const renameIn = (directory: number): PosixOperation => ({
+  op: "rename",
+  from: directory,
+  fromName: ".prompt-1",
+  to: directory,
+  toName: "x.md",
+  flags: 0,
+});
 const child = (directory: number, name: string, handle: number): PosixOperation => ({
   op: "open",
   directory,
@@ -245,7 +264,7 @@ it("cancelling one owner leaves another owner's calls on the same root running i
   threads[0]?.answer(0);
   expect(ops(threads[0]).at(-1)).toEqual(child(a, "theirs", theirs));
   threads[0]?.answer(0);
-  await expect(other).resolves.toMatchObject({ value: 0 });
+  await expect(other).resolves.toMatchObject({ value: { ino: expect.any(Number) } });
   await expect(closing.run("/a", fstat(a))).rejects.toThrow("closed");
 });
 
@@ -442,7 +461,7 @@ it("many roots on one dead mount never start more threads than the cap", async (
   const healthy = lanes.run("/home/prompts", fresh());
   expect(threads).toHaveLength(5);
   threads[4]?.answer(0);
-  await expect(healthy).resolves.toMatchObject({ value: 0 });
+  await expect(healthy).resolves.toMatchObject({ value: { ino: expect.any(Number) } });
 });
 
 it("a root waiting for a thread takes the next one another root lets go", async () => {
@@ -454,5 +473,55 @@ it("a root waiting for a thread takes the next one another root lets go", async 
   threads[0]?.answer(0);
   expect(ops(threads[0]).at(-1)).toMatchObject({ op: "openPath", path: "/b" });
   threads[0]?.answer(0);
-  await expect(waiting).resolves.toMatchObject({ value: 0 });
+  await expect(waiting).resolves.toMatchObject({ value: { ino: expect.any(Number) } });
+});
+
+it("a change that may still land in a folder blocks changes to it through any other anchor", async () => {
+  const { lanes, threads, advance } = harness({ stuckPerRoot: 2 });
+  // One folder reached through two anchors (ace's home inside a workspace): two lanes, one ino.
+  const opened = async (root: string, thread: () => FakeThread | undefined) => {
+    const handle = lanes.allocate();
+    const opening = lanes.run(root, { op: "openPath", path: root, handle });
+    thread()?.answer(statOf(77));
+    await opening;
+    return handle;
+  };
+  const global = await opened("/w/.ace", () => threads[0]);
+  const project = await opened("/w", () => threads[1]);
+  const timedOut = settle(lanes.run("/w/.ace", renameIn(global)));
+  advance(1000);
+  expect((await timedOut).error).toBeInstanceOf(CommandWriteOutcomeUnknown);
+  // The project's lane is healthy, but its change would race the global one still landing.
+  await expect(lanes.run("/w", renameIn(project))).rejects.toThrow("hasn't finished");
+  const read = lanes.run("/w", fstat(project));
+  threads[1]?.answer(0);
+  await read;
+  // The global rename returns at last: the folder takes changes again.
+  threads[0]?.answer(0);
+  const after = lanes.run("/w", renameIn(project));
+  threads[1]?.answer(0);
+  await expect(after).resolves.toMatchObject({ value: 0 });
+});
+
+it("a change given up while running blocks its folder through other anchors until it returns", async () => {
+  const { lanes, threads } = harness();
+  const opened = async (root: string, thread: () => FakeThread | undefined) => {
+    const handle = lanes.allocate();
+    const opening = lanes.run(root, { op: "openPath", path: root, handle });
+    thread()?.answer(statOf(88));
+    await opening;
+    return handle;
+  };
+  const one = await opened("/one", () => threads[0]);
+  const two = await opened("/two", () => threads[1]);
+  const owner = new PosixCallOwner(lanes);
+  const change = { op: "unlink" as const, name: "x.md", flags: 0 };
+  const cancelled = settle(owner.run("/one", { ...change, directory: one }));
+  owner.cancel();
+  expect((await cancelled).error).toBeInstanceOf(CommandWriteOutcomeUnknown);
+  await expect(lanes.run("/two", { ...change, directory: two })).rejects.toThrow("hasn't finished");
+  threads[0]?.answer(0);
+  const after = lanes.run("/two", { ...change, directory: two });
+  threads[1]?.answer(0);
+  await expect(after).resolves.toMatchObject({ value: 0 });
 });

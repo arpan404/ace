@@ -8,12 +8,28 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { mkdir, mkdtemp, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { CommandCatalog, CommandFiles, SecureCommandIo, type Target } from "./index.ts";
+import {
+  CommandCatalog,
+  CommandFiles,
+  SecureCommandIo,
+  SkillLibrary,
+  type Target,
+} from "./index.ts";
 import { CommandFilesystemUnavailable } from "./posix-ops.ts";
 import { readCommandFd } from "./posix-calls.ts";
 import {
@@ -547,5 +563,54 @@ it.skipIf(process.platform === "win32")(
     // Neither copy was overwritten: the edit in the pinned folder is kept.
     expect(await readFile(join(base, "moved", "prompts", "x.md"), "utf8")).toBe("Theirs");
     expect(await readFile(join(anchor, "prompts", "x.md"), "utf8")).toBe("Original");
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "a linked skill is deleted with a single thread, without a deadlock",
+  async () => {
+    const restoreCaps = useCommandCallDeadline(3000, { maxWorkers: 1, maxThreads: 2 });
+    cleanups.push(async () => restoreCaps());
+    const home = await folder();
+    await mkdir(join(home, ".agents/skills/research"), { recursive: true });
+    await writeFile(
+      join(home, ".agents/skills/research/SKILL.md"),
+      "---\nname: research\ndescription: Research\n---\n# Research\n",
+    );
+    await mkdir(join(home, ".claude/skills"), { recursive: true });
+    execFileSync("ln", [
+      "-s",
+      "../../.agents/skills/research",
+      join(home, ".claude/skills/research"),
+    ]);
+    let sequence = 0;
+    const library = new SkillLibrary({
+      homes: {
+        home,
+        claude: join(home, ".claude"),
+        codex: join(home, ".codex"),
+        opencode: join(home, ".config/opencode"),
+        cursor: join(home, ".cursor"),
+        pi: join(home, ".pi/agent"),
+      },
+      workspace: () => undefined,
+      id: () => `t${++sequence}`,
+    });
+    cleanups.push(() => library.close());
+    const listed = await library.request({ op: "list" });
+    if (listed.kind !== "list") throw new Error(JSON.stringify(listed));
+    const research = listed.entries.find((entry) => entry.name === "research");
+    if (!research) throw new Error("Missing research");
+    // The skill folder and its link sit under different roots, so different lanes.
+    const started = performance.now();
+    const deleted = await library.request({
+      op: "delete",
+      id: research.id,
+      expectedHash: research.hash,
+    });
+    expect(deleted).toMatchObject({ kind: "deleted" });
+    expect(performance.now() - started).toBeLessThan(1500);
+    await expect(readFile(join(home, ".agents/skills/research/SKILL.md"))).rejects.toThrow();
+    await expect(lstat(join(home, ".claude/skills/research"))).rejects.toThrow();
   },
 );

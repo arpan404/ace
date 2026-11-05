@@ -58,10 +58,11 @@ export class PosixThread {
     if (fd === undefined) throw new Error("Unknown command handle");
     return fd;
   }
-  private keep(handle: number, fd: number): number {
+  /** Stores `fd` under `handle` and answers what it is (its identity), or -1 if it failed. */
+  private keep(handle: number, fd: number): PosixStat | -1 {
     if (fd < 0) return -1;
     this.fds.set(handle, fd);
-    return 0;
+    return statFields(fstatSync(fd));
   }
 
   run(operation: PosixOperation): PosixValue {
@@ -101,13 +102,16 @@ export class PosixThread {
         }
         if (typeof stream !== "number") return null;
         try {
+          // `.` and `..` aren't entries: up to `limit` real names, and whether any were left.
           const names: string[] = [];
-          while (names.length < operation.limit) {
+          for (;;) {
             const entry: unknown = c.readdir(stream);
-            if (typeof entry !== "number") break;
-            names.push(readCString(entry, nameOffset));
+            if (typeof entry !== "number") return { names, truncated: false };
+            const name = readCString(entry, nameOffset);
+            if (name === "." || name === "..") continue;
+            if (names.length === operation.limit) return { names, truncated: true };
+            names.push(name);
           }
-          return names;
         } finally {
           c.closedir(stream);
         }

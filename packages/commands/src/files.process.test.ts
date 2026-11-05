@@ -305,3 +305,36 @@ it.skipIf(process.platform === "win32")(
     await closeCommandFd(fd);
   },
 );
+
+it("a folder with exactly the entry limit is indexed whole, and one over it is reported", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "ace-command-limit-")));
+  cleanups.push(() => rm(base, { recursive: true, force: true }));
+  const discover = async (count: number, extension: string) => {
+    const path = join(base, `anchor-${count}`, "commands");
+    await mkdir(path, { recursive: true });
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        writeFile(join(path, `c${count}-${i}.${extension}`), "Body"),
+      ),
+    );
+    const catalog = new CommandCatalog(() => 0);
+    const files = new CommandFiles(catalog, [
+      { path, format: "claude", scope: "user", instance: "personal" },
+    ]);
+    cleanups.push(() => files.close());
+    await files.start();
+    return { catalog, files };
+  };
+  // `.` and `..` aren't entries: every one of the 2,048 files is read, and no limit is reported.
+  const exact = await discover(2048, "md");
+  expect(exact.files.metrics().fileReads).toBe(2048);
+  // (The catalog admits fewer commands than that; its own cap is reported separately.)
+  expect(exact.catalog.list(target).diagnostics.map((d) => d.message)).not.toContain(
+    "Directory entry limit exceeded",
+  );
+  // Entries that aren't commands, so no catalog admission notes crowd out the report.
+  const over = await discover(2049, "txt");
+  expect(over.catalog.list(target).diagnostics.map((d) => d.message)).toContain(
+    "Directory entry limit exceeded",
+  );
+});

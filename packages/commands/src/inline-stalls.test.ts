@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SkillResult } from "@ace/protocol";
-import { CommandCatalog, CommandFiles, SkillLibrary } from "./index.ts";
+import { CommandCatalog, CommandFiles, SecureCommandIo, SkillLibrary } from "./index.ts";
+import { createHash } from "node:crypto";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
+import { commandLane, commandRootSettled } from "./posix-calls.ts";
 import { useCommandLanes } from "./posix-calls.ts";
 import { inlineLanes } from "./posix-inline.ts";
 
@@ -14,6 +17,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 const unreadable = "Unreadable skill update journal left in place";
+const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 test.skipIf(process.platform === "win32")(
   "a skill save whose rename times out says its outcome is unknown, and recovery runs once the folder answers",
@@ -137,5 +141,61 @@ test.skipIf(process.platform === "win32")(
     await pass;
     // Without cancelling recovery's own calls, close waits a deadline for each stalled check.
     expect(performance.now() - closing).toBeLessThan(300);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a save that may still land blocks saving the same prompt through another anchor",
+  async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "ace-overlap-")));
+    cleanups.push(() => rm(base, { recursive: true, force: true }));
+    // ace's home inside a workspace: global and project prompts are the same folder, reached
+    // through two anchors, so two lanes.
+    const workspace = join(base, "workspace");
+    const prompts = join(workspace, ".ace", "prompts");
+    await mkdir(prompts, { recursive: true });
+    const file = join(prompts, "x.md");
+    await writeFile(file, "Original");
+    const { lanes, release } = inlineLanes(
+      (operation) => operation.op === "rename" && operation.fromName === "prompt-global",
+      { deadlineMs: 200 },
+    );
+    const restore = useCommandLanes(lanes);
+    cleanups.push(async () => {
+      release();
+      restore();
+    });
+    const global = new SecureCommandIo();
+    const project = new SecureCommandIo();
+    cleanups.push(async () => {
+      await global.close();
+      await project.close();
+    });
+    const globalRoot = {
+      path: prompts,
+      trustedRoot: join(workspace, ".ace"),
+      format: "library" as const,
+      scope: "user" as const,
+    };
+    const projectRoot = { ...globalRoot, trustedRoot: workspace, scope: "workspace" as const };
+    // The global save's rename gets stuck and times out: it may still land.
+    const timedOut = await global
+      .writePrompt(globalRoot, file, "Global", hash("Original"), "prompt-global")
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(writeOutcomeUnknown(timedOut)).toBeDefined();
+    // The project save would be overwritten by it, so it is refused rather than told it worked.
+    await expect(
+      project.writePrompt(projectRoot, file, "Project", hash("Original"), "prompt-project-1"),
+    ).rejects.toThrow("hasn't finished");
+    expect(await readFile(file, "utf8")).toBe("Original");
+    // The stuck rename lands; after that the project saves over it normally.
+    release();
+    await commandRootSettled(commandLane(join(workspace, ".ace")));
+    expect(await readFile(file, "utf8")).toBe("Global");
+    await project.writePrompt(projectRoot, file, "Project", hash("Global"), "prompt-project-2");
+    expect(await readFile(file, "utf8")).toBe("Project");
   },
 );

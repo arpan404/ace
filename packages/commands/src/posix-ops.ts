@@ -1,4 +1,4 @@
-import type { PosixOperation } from "./posix-wire.ts";
+import type { PosixOperation, PosixStat } from "./posix-wire.ts";
 
 /** A command folder's call failed without an answer: it stopped responding, or was cancelled. */
 export class CommandFilesystemUnavailable extends Error {}
@@ -78,7 +78,10 @@ export function createdBy(operation: PosixOperation): number | undefined {
   }
 }
 /** Whether a call that answered `value` created its handle. */
-export const created = (_operation: PosixOperation, value: unknown) => value === 0;
+export const created = (_operation: PosixOperation, value: unknown): value is PosixStat =>
+  typeof value === "object" && value !== null && "ino" in value && "dev" in value;
+/** What identifies an opened file or folder across every handle and lane: its dev and ino. */
+export const identityOf = (stat: PosixStat) => `${stat.dev}:${stat.ino}`;
 /** listDirectory takes its descriptor over once sent; it is gone whatever the outcome. */
 export const consumedBy = (operation: PosixOperation): number | undefined =>
   operation.op === "listDirectory" ? operation.fd : undefined;

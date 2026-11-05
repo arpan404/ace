@@ -81,18 +81,20 @@ export async function openCommandPath(
   if (handle < 0) throw new EntryUnavailable("Cannot open command folder without following links");
   return handle;
 }
-/** Names a directory listing reads at most: discovery's entry limit, plus one to notice it. */
-export const listingLimit = 2049;
+/** Real entries (never `.` or `..`) a directory listing reads at most: discovery's limit. */
+export const listingLimit = 2048;
+/** A listing had more entries than its limit; its reader has given every name it read. */
+export class DirectoryListingTruncated extends Error {}
 const entryName = z
   .string()
   .min(1)
   .max(1024)
   .refine((name) => !name.includes("/") && !name.includes("\0"));
-const entryNames = z.array(entryName);
+const Listing = z.object({ names: z.array(entryName), truncated: z.boolean() });
 /**
- * Takes `fd` over in every case and lists up to `limit` names in one call on its thread, which
- * closes the directory before answering, so no handle outlives the call. The reader reads the
- * names from memory.
+ * Takes `fd` over in every case and lists up to `limit` real entries in one call on its thread,
+ * which closes the directory before answering, so no handle outlives the call. The reader gives
+ * the names from memory, then throws `DirectoryListingTruncated` if more were left.
  */
 export async function directoryReader(
   fd: number,
@@ -102,18 +104,22 @@ export async function directoryReader(
   if (process.platform === "win32") return windowsDirectoryReader(fd);
   const value = await posix({ op: "listDirectory", fd, limit }, fd, owner);
   if (value === null) throw new Error("Cannot enumerate command directory");
-  return memoryReader(entryNames.parse(value));
+  const listing = Listing.parse(value);
+  return memoryReader(listing.names, listing.truncated);
 }
-function memoryReader(names: string[]): DirectoryReader {
+function memoryReader(names: string[], truncated: boolean): DirectoryReader {
   let next = 0;
   return {
     async read() {
       // Each entry yields to the event loop, so a scan never runs ahead of the batch that asked.
       await new Promise((resolve) => setImmediate(resolve));
-      return names[next++];
+      if (next < names.length) return names[next++];
+      if (truncated) throw new DirectoryListingTruncated("Directory entry limit exceeded");
+      return undefined;
     },
     async close() {
       next = names.length;
+      truncated = false;
     },
   };
 }

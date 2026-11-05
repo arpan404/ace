@@ -1,4 +1,5 @@
 import { basename, dirname, join, relative, sep } from "node:path";
+import { DirectoryListingTruncated } from "./posix.ts";
 import type { CommandStat as Stats } from "./posix-calls.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { FileRecovery, statVersion } from "./recovery.ts";
@@ -329,9 +330,15 @@ export class FileIndex {
         }
       }
       this.queue(job);
-    } catch {
+    } catch (error) {
       await this.stopScan(slot);
-      this.report(job.root, job.path, "Cannot scan commands directory");
+      this.report(
+        job.root,
+        job.path,
+        error instanceof DirectoryListingTruncated
+          ? "Directory entry limit exceeded"
+          : "Cannot scan commands directory",
+      );
     }
   }
   /** Discovery stops advancing at once; queued work is dropped and nothing new starts. */

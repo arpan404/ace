@@ -7,6 +7,7 @@ import {
   created,
   createdBy,
   handlesOf,
+  identityOf,
   isChange,
 } from "./posix-ops.ts";
 
@@ -54,6 +55,10 @@ interface Job {
   reject(error: Error): void;
   /** The caller gave up while it ran; what it opened is closed, not delivered. */
   detached: boolean;
+  /** The identities of the handles it names. */
+  identities: string[];
+  /** A change holding its identities as landing until it returns natively. */
+  holding: boolean;
   unlisten(): void;
 }
 interface Lane {
@@ -89,7 +94,16 @@ export class PosixLanes {
   private readonly draining = new Map<string, number>();
   private readonly settles = new Map<string, (() => void)[]>();
   /** Open handles, each with its root and the thread that owns it. */
-  private readonly handles = new Map<number, { root: string; executor: Executor }>();
+  private readonly handles = new Map<
+    number,
+    { root: string; executor: Executor; identity: string | undefined }
+  >();
+  /**
+   * Files and folders, by identity (dev and ino), that a change may still be landing in: one
+   * that timed out, or was given up while running. Different anchors (lanes) can reach the same
+   * folder, so this is shared by every lane, not kept per root.
+   */
+  private readonly landing = new Map<string, number>();
   private drainingTotal = 0;
   private live = 0;
   private allocated = 0;
@@ -154,6 +168,7 @@ export class PosixLanes {
       return Promise.reject(error);
     };
     let owner: Executor | undefined;
+    const identities: string[] = [];
     for (const handle of handlesOf(operation)) {
       const entry = this.handles.get(handle);
       if (!entry) return refuse(closedHandle());
@@ -163,10 +178,14 @@ export class PosixLanes {
         );
       owner = entry.executor;
       root = entry.root;
+      if (entry.identity !== undefined) identities.push(entry.identity);
     }
     if (signal?.aborted) return refuse(cancelled(signal));
     const stuck = this.draining.get(root) ?? 0;
-    if (stuck > 0 && isChange(operation))
+    if (
+      isChange(operation) &&
+      (stuck > 0 || identities.some((identity) => this.landing.has(identity)))
+    )
       return refuse(
         new CommandFilesystemUnavailable("An earlier change to this folder hasn't finished"),
       );
@@ -186,6 +205,7 @@ export class PosixLanes {
     if (consumed !== undefined) this.handles.delete(consumed);
     return new Promise((resolve, reject) => {
       const job = this.job(root, operation, owner, resolve, reject);
+      job.identities = identities;
       if (signal) {
         const abort = () => this.cancel(job, cancelled(signal));
         signal.addEventListener("abort", abort, { once: true });
@@ -229,8 +249,28 @@ export class PosixLanes {
       resolve,
       reject,
       detached: false,
+      identities: [],
+      holding: false,
       unlisten: quiet,
     };
+  }
+
+  /** A change that may still land keeps what it changes off limits to other changes. */
+  private hold(job: Job): void {
+    if (job.holding || !isChange(job.operation)) return;
+    job.holding = true;
+    for (const identity of job.identities)
+      this.landing.set(identity, (this.landing.get(identity) ?? 0) + 1);
+  }
+  /** The change has returned natively, or its thread has exited: it can't land any more. */
+  private landed(job: Job): void {
+    if (!job.holding) return;
+    job.holding = false;
+    for (const identity of job.identities) {
+      const left = (this.landing.get(identity) ?? 1) - 1;
+      if (left > 0) this.landing.set(identity, left);
+      else this.landing.delete(identity);
+    }
   }
 
   private enqueue(job: Job): void {
@@ -324,6 +364,7 @@ export class PosixLanes {
     const job = executor.inflight;
     if (!job || job.id !== reply.id) return;
     executor.inflight = undefined;
+    this.landed(job);
     // A draining thread closes everything it owns, late results included, before it exits.
     if (executor.gone) return;
     const lane = executor.lane;
@@ -343,7 +384,8 @@ export class PosixLanes {
       // Nobody will close what a caller who gave up opened: close it here, first.
       if (job.detached)
         lane.queue.unshift(this.job(lane.root, { op: "close", handle }, executor, quiet, quiet));
-      else this.handles.set(handle, { root: lane.root, executor });
+      else
+        this.handles.set(handle, { root: lane.root, executor, identity: identityOf(reply.value) });
     }
     if (!job.detached) {
       if (reply.ok) job.resolve({ value: reply.value });
@@ -371,6 +413,8 @@ export class PosixLanes {
     if (executor.exited) return;
     if (!executor.gone) this.failed(executor, new Error("Command discovery worker exited"));
     executor.exited = true;
+    // A thread that has exited is in no call: whatever it was changing can't land any more.
+    if (executor.inflight) this.landed(executor.inflight);
     executor.inflight = undefined;
     this.allocated--;
     if (executor.gone === "draining") {
@@ -404,6 +448,7 @@ export class PosixLanes {
     if (lane.running?.job === job) {
       job.detached = true;
       job.unlisten();
+      this.hold(job);
       return job.reject(
         isChange(job.operation)
           ? new CommandWriteOutcomeUnknown("A change to a command folder was cancelled", job.root)
@@ -438,6 +483,7 @@ export class PosixLanes {
     this.forgetHandles(executor);
     executor.native.hold(false);
     executor.native.drain();
+    this.hold(running.job);
     const change = isChange(running.job.operation);
     this.fail(
       lane,

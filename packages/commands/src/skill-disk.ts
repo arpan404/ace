@@ -17,7 +17,7 @@ import {
 } from "./posix.ts";
 import { commandEntryIsLink } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
-import { commandEntryExists, commandRootSettled } from "./posix.ts";
+import { DirectoryListingTruncated, commandEntryExists, commandRootSettled } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
@@ -121,14 +121,17 @@ export class SkillDisk {
   async names(directory: number): Promise<string[]> {
     const fd = await this.openChild(directory, ".", directoryFlags);
     // The reader takes the descriptor in every case, including when it fails.
-    const reader = await directoryReader(fd);
+    const limit = skillFolderLimits.files * 2;
+    const reader = await directoryReader(fd, undefined, limit);
     const names: string[] = [];
     try {
       for (let name = await reader.read(); name !== undefined; name = await reader.read()) {
         if (name === "." || name === "..") continue;
-        if (names.length >= skillFolderLimits.files * 2) throw tooLarge();
+        if (names.length >= limit) throw tooLarge();
         names.push(name);
       }
+    } catch (error) {
+      throw error instanceof DirectoryListingTruncated ? tooLarge() : error;
     } finally {
       await reader.close();
     }

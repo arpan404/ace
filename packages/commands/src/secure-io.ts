@@ -124,10 +124,11 @@ export class SecureCommandIo implements CommandFileIo {
     if (!root.skill || !home || resolve(dirname(path)) !== resolve(root.path))
       throw new EntryUnavailable("Unavailable skill folder");
     const target = resolve(dirname(path), await readCommandLink(parent, name, this.owner));
-    // Give back the handle on this root before opening the link's: holding one lane's thread
-    // while waiting for another's could deadlock when every thread is taken. Closing it again
-    // later does nothing.
-    await closeFd(parent, this.owner);
+    // POSIX: give back the handle on this root before opening the link's. Holding one lane's
+    // thread while waiting for another's could deadlock when every thread is taken; a handle is
+    // never reused, so the caller's later close of it does nothing. Windows has no lanes and its
+    // descriptors are reused numbers, so there the caller alone closes it.
+    if (process.platform !== "win32") await closeFd(parent, this.owner);
     const tail = relative(resolve(home), target);
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep))
       throw new EntryUnavailable("Skill link outside home");
