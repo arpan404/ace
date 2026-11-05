@@ -164,3 +164,23 @@ test("linking existing Origin and GitLab reviews does not require create permiss
     expect(nextGitStep(checkout)).toMatchObject({ kind: "create-pr", blocked: expect.any(String) });
   }
 });
+
+test("a status from another host cannot change a linked review with the same name and number", () => {
+  const status: ForgePrStatus = {
+    ref: { repository: { ...repository, forge: "origin", host: "origin.cursor.com" }, number: 9 },
+    title: "Other review",
+    raw: {},
+    url: "https://cursor.com/codebase/acme/relay/pull/9",
+    headSha: "a".repeat(40),
+    state: "merged",
+    mergeability: "unknown",
+    ci: "unknown",
+    checks: [],
+    comments: [],
+    reviewThreads: [],
+  };
+  expect(checkoutOf(details(link(9)), status)?.pr).toMatchObject({
+    state: "open",
+    repo: repository,
+  });
+});

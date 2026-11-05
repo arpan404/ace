@@ -21,8 +21,8 @@ export interface LinkedThread {
 export type LinkedThreads = ReadonlyMap<string, LinkedThread>;
 
 /** One key per PR or issue: repository and number, case-insensitive like GitHub's names. */
-export function workKey(repository: Pick<ForgeRepository, "owner" | "name">, number: number) {
-  return `${repository.owner}/${repository.name}#${number}`.toLowerCase();
+export function workKey(repository: ForgeRepository, number: number) {
+  return `${repository.forge}@${repository.host}/${repository.owner}/${repository.name}#${number}`.toLowerCase();
 }
 
 /**

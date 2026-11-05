@@ -82,6 +82,8 @@ function linkedPr(
   // The forge's live status refines the link only when it describes the same PR.
   const same =
     status?.ref.number === linked.number &&
+    status.ref.repository.forge === linked.repo.forge &&
+    status.ref.repository.host === linked.repo.host &&
     status.ref.repository.owner === linked.repo.owner &&
     status.ref.repository.name === linked.repo.name;
   if (!same) return { ...linked };

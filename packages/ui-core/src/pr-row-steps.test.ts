@@ -1,4 +1,4 @@
-import { ForgePrRow, type ThreadListEntry } from "@ace/protocol";
+import { ForgePrRow, type ForgeRepository, type ThreadListEntry } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { groupBySteps, linkedWork, rowStep, waitingWord, workKey } from "./pr-row-steps.ts";
 
@@ -56,7 +56,13 @@ test("a waiting row says checks are running before it says it waits on review", 
 
 const entry = (
   id: string,
-  patch: { archivedAt?: number; state?: string; prs?: number[]; issues?: number[] },
+  patch: {
+    archivedAt?: number;
+    state?: string;
+    prs?: number[];
+    issues?: number[];
+    repository?: ForgeRepository;
+  },
 ): ThreadListEntry =>
   ({
     id,
@@ -65,7 +71,7 @@ const entry = (
     status: { state: patch.state ?? "working" },
     details: {
       linkedPrs: (patch.prs ?? []).map((number) => ({
-        repo: { ...repository, owner: "acme", name: "ace" },
+        repo: patch.repository ?? { ...repository, owner: "acme", name: "ace" },
         number,
       })),
       linkedIssues: (patch.issues ?? []).map((number) => ({ repository, number })),
@@ -90,5 +96,22 @@ test("linked work names the first listed thread per pull request or issue, skips
     working: false,
   });
   expect(pulls.get(workKey(repository, 6))).toMatchObject({ id: "other", working: true });
-  expect(issues.get(workKey({ owner: "ACME", name: "ace" }, 7))?.id).toBe("new");
+  expect(issues.get(workKey({ ...repository, owner: "ACME", name: "ace" }, 7))?.id).toBe("new");
+});
+
+test("linked reviews with equal names and numbers on different hosts keep their own threads", () => {
+  const origin: ForgeRepository = { ...repository, forge: "origin", host: "origin.cursor.com" };
+  const enterprise: ForgeRepository = { ...repository, host: "git.company.test" };
+  const threads = [
+    entry("github", { prs: [5] }),
+    entry("origin", { prs: [5], repository: origin }),
+    entry("enterprise", { prs: [5], repository: enterprise }),
+  ];
+  const { pulls } = linkedWork({
+    ids: threads.map((thread) => thread.id),
+    thread: (id) => threads.find((thread) => thread.id === id),
+  });
+  expect(pulls.get(workKey(repository, 5))?.id).toBe("github");
+  expect(pulls.get(workKey(origin, 5))?.id).toBe("origin");
+  expect(pulls.get(workKey(enterprise, 5))?.id).toBe("enterprise");
 });
