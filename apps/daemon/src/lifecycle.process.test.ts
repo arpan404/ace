@@ -138,12 +138,13 @@ describe("daemon lifecycle", () => {
     cleanups.push(() => first.close());
     const secondHome = tempHome();
     const port = new URL(first.url).port;
+    // The code, not the message: Bun words the listen error differently from Node.
     await expect(
       startDaemon({
         engine: noProviderDiscovery,
         config: readConfig({ ACE_HOME: secondHome, ACE_PORT: port, ACE_LOG_LEVEL: "silent" }),
       }),
-    ).rejects.toThrow("EADDRINUSE");
+    ).rejects.toMatchObject({ code: "EADDRINUSE" });
     const second = await startDaemon({
       engine: noProviderDiscovery,
       config: readConfig({ ACE_HOME: secondHome, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),

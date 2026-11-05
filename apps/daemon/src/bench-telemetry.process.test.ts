@@ -66,26 +66,28 @@ nodeOnly("retired isolates are excluded even when a caller retains their old sam
   }
 });
 
-nodeOnly("sampling waits for worker initialization and follows retirement during file reads", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "ace-telemetry-churn-"));
-  const preload = join(import.meta.dirname, "../bench/telemetry.mjs");
-  const delayed = join(directory, "delay.mjs");
-  await writeFile(
-    delayed,
-    `import { parentPort } from 'node:worker_threads';
+nodeOnly(
+  "sampling waits for worker initialization and follows retirement during file reads",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ace-telemetry-churn-"));
+    const preload = join(import.meta.dirname, "../bench/telemetry.mjs");
+    const delayed = join(directory, "delay.mjs");
+    await writeFile(
+      delayed,
+      `import { parentPort } from 'node:worker_threads';
      import { once } from 'node:events';
      await once(parentPort, 'message');
      await import(${JSON.stringify(new URL("../bench/telemetry.mjs", import.meta.url).href)});`,
-  );
-  try {
-    const { stdout } = await run(
-      process.execPath,
-      [
-        "--import",
-        preload,
-        "--input-type=module",
-        "-e",
-        `
+    );
+    try {
+      const { stdout } = await run(
+        process.execPath,
+        [
+          "--import",
+          preload,
+          "--input-type=module",
+          "-e",
+          `
       import { Worker } from 'node:worker_threads';
       import { once } from 'node:events';
       import { readFile, readdir } from 'node:fs/promises';
@@ -128,25 +130,26 @@ nodeOnly("sampling waits for worker initialization and follows retirement during
       }
       console.log(JSON.stringify({starting:starting.workers.map(w=>w.threadId),id,ending:ending.workers.length,files:(await readdir(directory)).filter(f=>f.endsWith('.json'))}));
     `,
-      ],
-      {
-        cwd: import.meta.dirname,
-        env: { ...process.env, ACE_PERF_TELEMETRY: directory },
-        timeout: PROCESS_TEST_TIMEOUT,
-      },
-    );
-    const data = z
-      .object({
-        starting: z.array(z.number()),
-        id: z.number(),
-        ending: z.number(),
-        files: z.array(z.string()),
-      })
-      .parse(JSON.parse(stdout));
-    expect(data.starting).toEqual([data.id]);
-    expect(data.ending).toBe(0);
-    expect(data.files).toEqual(["0.json"]);
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+        ],
+        {
+          cwd: import.meta.dirname,
+          env: { ...process.env, ACE_PERF_TELEMETRY: directory },
+          timeout: PROCESS_TEST_TIMEOUT,
+        },
+      );
+      const data = z
+        .object({
+          starting: z.array(z.number()),
+          id: z.number(),
+          ending: z.number(),
+          files: z.array(z.string()),
+        })
+        .parse(JSON.parse(stdout));
+      expect(data.starting).toEqual([data.id]);
+      expect(data.ending).toBe(0);
+      expect(data.files).toEqual(["0.json"]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
