@@ -14,8 +14,8 @@ import { randomUUID } from "node:crypto";
 import { detectChromium } from "@ace/browser";
 import {
   appEnvironment,
-  e2eSwitches,
   appVersion,
+  e2eSwitches,
   electronBinary,
   electronBundles,
   mainEntry,
@@ -175,7 +175,11 @@ await import('./app/${mainEntry}');`,
     delete env.ACE_DAEMON_TOKEN_FILE;
     app = await electron.launch({
       executablePath: await electronBinary(),
-      args: [...e2eSwitches(process.platform), join(root, "Resources"), "--force-device-scale-factor=2"],
+      args: [
+        ...e2eSwitches(process.platform),
+        join(root, "Resources"),
+        "--force-device-scale-factor=2",
+      ],
       env: {
         ...env,
         HOME: root,

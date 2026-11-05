@@ -8,8 +8,8 @@ import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
 import {
   appEnvironment,
-  e2eSwitches,
   desktop,
+  e2eSwitches,
   electronBinary,
   electronBundles,
   mainEntry,

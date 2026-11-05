@@ -13,8 +13,8 @@ import { readConfig } from "../../daemon/src/config.ts";
 import { createDevThread } from "../../daemon/src/commands.ts";
 import {
   appEnvironment,
-  e2eSwitches,
   appVersion,
+  e2eSwitches,
   electronBinary,
   electronBundles,
   mainEntry,
