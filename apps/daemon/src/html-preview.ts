@@ -1,16 +1,26 @@
+import { createHash } from "node:crypto";
 import { designTokens } from "@ace/design-tokens";
+import { chartSeries } from "@ace/themes";
 import type { BrowserService } from "@ace/browser";
 import {
   inlineVisualizationUrl,
+  measuredLayoutProblems,
+  phoneWidth,
   previewMaxHeight,
   previewMeasure,
   previewReport,
-  previewWidths,
   styleKitVersion,
   type HtmlTheme,
 } from "@ace/html";
-import { htmlPreviewToolkit, type HtmlPreviewPort, type HtmlPreviewResult } from "@ace/mcp-server";
-import type { HtmlColorScheme } from "@ace/protocol";
+import {
+  htmlPreviewToolkit,
+  type HtmlLayoutPort,
+  type HtmlPreviewPort,
+  type HtmlPreviewResult,
+} from "@ace/mcp-server";
+import type { HtmlColorScheme, HtmlDiagnostics, HtmlMode } from "@ace/protocol";
+
+type Diagnostic = HtmlDiagnostics["diagnostics"][number];
 
 /**
  * The page variables the app's default theme gives a visualization, from the shared design
@@ -38,6 +48,9 @@ export function previewTheme(scheme: HtmlColorScheme): HtmlTheme {
     success: statusText.done,
     warning: statusText.needsYou,
     info: statusText.working,
+    ...Object.fromEntries(
+      chartSeries(scheme).map((colour, index) => [`chart-${index + 1}`, colour]),
+    ),
     radius: "8px",
     "font-sans":
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
@@ -54,14 +67,16 @@ export async function previewHtml(
   const theme = previewTheme(page.scheme);
   const shots = await service.previewPage({
     url: inlineVisualizationUrl(page.html, theme, page.mode, styleKitVersion),
-    widths: previewWidths,
+    widths: page.widths,
     scheme: page.scheme,
     background: theme.background ?? "transparent",
     maxHeight: previewMaxHeight,
     measure: previewMeasure,
     signal,
   });
+  const phone = shots.find((shot) => shot.width === phoneWidth);
   return {
+    ...(phone ? { problems: measuredLayoutProblems(phone.measured) } : {}),
     report: previewReport(
       shots.map((shot) => ({
         width: shot.width,
@@ -74,13 +89,74 @@ export async function previewHtml(
   };
 }
 
+/**
+ * Phone-width problems of pages laid out recently, by exact document and mode, so publishing a
+ * page just previewed doesn't lay it out again. Oldest forgotten first.
+ */
+export class MeasuredLayouts {
+  private entries = new Map<string, Diagnostic[]>();
+  private limit: number;
+  constructor(limit = 32) {
+    this.limit = limit;
+  }
+  private key(html: string, mode: HtmlMode): string {
+    return createHash("sha256").update(mode).update("\0").update(html).digest("hex");
+  }
+  recall(html: string, mode: HtmlMode): Diagnostic[] | undefined {
+    return this.entries.get(this.key(html, mode));
+  }
+  remember(html: string, mode: HtmlMode, problems: Diagnostic[]): void {
+    const key = this.key(html, mode);
+    this.entries.delete(key);
+    this.entries.set(key, problems);
+    for (const oldest of this.entries.keys()) {
+      if (this.entries.size <= this.limit) break;
+      this.entries.delete(oldest);
+    }
+  }
+}
+
 /** html_preview, through whichever browser service the daemon is running. */
-export function htmlPreview(browser: () => BrowserService | undefined) {
+export function htmlPreview(browser: () => BrowserService | undefined, layouts: MeasuredLayouts) {
   return htmlPreviewToolkit({
-    preview(page, signal) {
+    async preview(page, signal) {
       const service = browser();
       if (!service) throw new Error("HTML preview unavailable: ace's browser is not running");
-      return previewHtml(service, page, signal);
+      const result = await previewHtml(service, page, signal);
+      if (result.problems) layouts.remember(page.html, page.mode, result.problems);
+      return result;
     },
   });
+}
+
+/**
+ * The phone-width check html_render runs before publishing: the preview's result for this exact
+ * page, else a layout at 360 px within `budgetMs`. A browser that is missing, slow to start or
+ * fails gives `undefined`, and publishing falls back to its guess from the markup.
+ */
+export function htmlLayout(
+  browser: () => BrowserService | undefined,
+  layouts: MeasuredLayouts,
+  budgetMs = 10_000,
+): HtmlLayoutPort {
+  return {
+    async measure(page, signal) {
+      const known = layouts.recall(page.html, page.mode);
+      if (known) return known;
+      const service = browser();
+      if (!service) return undefined;
+      try {
+        const { problems } = await previewHtml(
+          service,
+          { ...page, scheme: "dark", widths: [phoneWidth] },
+          AbortSignal.any([signal, AbortSignal.timeout(budgetMs)]),
+        );
+        if (problems) layouts.remember(page.html, page.mode, problems);
+        return problems;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        return undefined;
+      }
+    },
+  };
 }

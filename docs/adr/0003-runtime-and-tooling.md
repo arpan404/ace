@@ -60,6 +60,16 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
   - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
     errno; code waits on the `error` or `close` event, never on `exitCode`.
+  - Bun's `node:https` server ignores `SNICallback`, `addContext` and `setSecureContext`, and
+    serves only its default certificate. Its `node:tls` server honours `SNICallback`. The remote
+    listener therefore ends TLS in a `node:tls` server and hands each socket to a plain
+    `node:http` server (`apps/daemon/src/sni-listener.ts`), so a ts.net name gets the Tailscale
+    certificate and a renewed one applies to the next connection without a restart. That HTTP
+    server never listens, so its own timeouts never run: the listener bounds the handshake, the
+    first request and idle keep-alive connections itself, and destroys sockets whose handshake
+    fails or stalls (neither runtime does that unasked). `Bun.serve`
+    accepts a per-name `tls` array, but using it would mean leaving `node:http`'s request and
+    upgrade handling, and a certificate change would mean restarting the server.
   - Bun reads a socket up to 512 KiB at a time whatever its high-water mark (Node: 64 KiB), and
     a paused socket can hold one such read. The preview relay splits reads larger than its
     window before they reach the stream mux.
@@ -72,7 +82,9 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     fixed.
   - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing
     `-shm` but not the `-wal`, where Node creates both. `@ace/provider-kit/sqlite`'s
-    `DatabaseSync` creates the empty `-wal` first, so read-only opens go through it.
+    `DatabaseSync` probes a read-only open and, only after that failure, creates the empty `-wal`
+    with the database's mode and retries; read-only opens go through it. It never opens the
+    database file itself: closing any descriptor of it drops this process's POSIX locks on it.
   - After a failed spawn, the `close` event's signal is `undefined` rather than `null`; the
     spawn wrappers report `null`, so a probe of a missing command settles.
   - An error thrown inside an `unhandledRejection` listener, a `setImmediate` or a
@@ -117,7 +129,8 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   `nodeOnlySuites`. Those cover code that doesn't run on Bun in production (the Cloudflare
   Worker, whose wrangler test harness refuses Bun; the self-hosted relay server and the e2e
   launcher, which run on Node), or rely on hooks and limits only Node has. A single test that
-  needs a Node-only API skips on Bun with a comment saying why. Under Bun, test isolates drop
+  needs a Node-only API skips on Bun with a comment saying why; a whole file that does goes in
+  `nodeOnlySuites`. Under Bun, test isolates drop
   `native` stack frames: Vitest looks them up as files and would read the repository's
   `native/` folder.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs

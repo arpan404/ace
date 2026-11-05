@@ -1,21 +1,29 @@
 # HTML visualizations in chat
 
 Agents call `html_render({ title, html, mode?, height? })` to publish a page inline in
-their reply. Render checks first (`checkHtmlForPublish`): a page with unsupported features
-or a layout that breaks in the chat column fails with `invalid_html`, lists each problem in
-`issues`, and publishes nothing, so one call both checks and publishes. HTML in a normal
-message remains text.
+their reply. Render checks first, in two steps, and a page that fails either comes back as
+`invalid_html` with each problem in `issues`; nothing is published. HTML in a normal message
+remains text.
 
-### Layout lint
+### Checks before publishing
 
-The same page shows 360 px wide on a phone, about 760 px on a desktop and up to about 1200 px
-in the side panel. `lintHtmlLayout` (`@ace/html`) reads the markup and CSS and refuses what
-the transcript has shown breaking there: viewport units and `height: 100%` on the root (the
-frame grows to fit the page, so they grow it without end), `position: fixed`, fixed widths
-over 360 px outside an `ace-scroll-x` or a `min-width` media query, font sizes under 10 px,
-and SVGs whose smallest label would render under 9 px once scaled to 360 px. It runs only at
-publication: rendering applies the safety validator alone, so pages published before a rule
-existed still display.
+The same page shows 360 px wide on a phone, about 760 px on a desktop and about 1200 px in the
+side panel.
+
+1. **Markup** (`checkHtmlForPublish`, `@ace/html`): the safety validator, then what breaks the
+   frame at any width (`lintHtmlLayout`). The frame grows to fit the page, so viewport units and
+   `height: 100%` on the root grow it without end, and `position: fixed` pins to the whole page.
+2. **Layout at 360 px.** A page that passes is laid out in the preview browser at the phone width
+   (`htmlLayout`, `apps/daemon/src/html-preview.ts`) and `measuredLayoutProblems` refuses what
+   reaches past the edge outside a sideways scroller (`overflow`) and text rendered under 9 px
+   (`text-too-small`). The result of an `html_preview` that included 360 px is reused for the
+   same document and mode (`MeasuredLayouts`, the last 32 pages, in memory). A measurement gets
+   10 seconds. If the browser is missing, slow to start or fails, `estimateHtmlLayout` guesses
+   from the markup instead: fixed widths over 360 px (`fixed-width`), font sizes under 10 px and
+   SVG labels that would shrink under 9 px (`svg-text-too-small`).
+
+Rendering applies the safety validator alone, so pages published before a rule existed still
+display.
 
 The document cap is 16 MiB of UTF-8 (`maxHtmlDocumentBytes`), so a page can carry its
 raster images inline as base64 `data:` URLs, with a 160-character title and an optional
@@ -33,12 +41,14 @@ Remote and relay clients fetch through their owning connection's attachment API.
 
 ## Previewing before publishing
 
-`html_preview({ html, mode?, scheme? })` lets an agent look at a page before it publishes
-it. A safety problem (`validateHtml`) fails with the same `invalid_html` error as
-`html_render`. Layout-lint problems (`lintHtmlLayout`), which `html_render` refuses, do not stop
-a preview: they are listed under the report beside the pictures that show them. It lays the
-page out in the transcript's own document (`inlineVisualizationUrl` with the current
-`styleKitVersion`: style kit, sandboxed out-of-process frame, CSP) at 360 px and 760 px, the phone and the desktop message column. The theme comes
+`html_preview({ html, mode?, scheme?, widths? })` lets an agent look at a page before it
+publishes it. A safety problem (`validateHtml`) fails with the same `invalid_html` error as
+`html_render`. What `html_render` would refuse for layout does not stop a preview: the frame
+rules and the 360 px check are listed under the report, beside the pictures that show them. It
+lays the page out in the transcript's own document (`inlineVisualizationUrl` with the current
+`styleKitVersion`: style kit, sandboxed out-of-process frame, CSP) at each of `widths`: 360
+(phone), 760 (desktop message column) and 1200 (full screen in the side panel), by default 360
+and 760. The theme comes
 from `@ace/design-tokens` for `scheme` (default `dark`), with the thread background behind the
 frame. Nothing is stored, posted or shown to the person, and no provider quota is spent.
 
@@ -49,7 +59,7 @@ frame. Nothing is stored, posted or shown to the person, and no provider quota i
 - **Settling.** It waits for load and `document.fonts.ready`, emulates reduced motion (the
   kit's entry animation does not run), finishes finite authored animations, then waits two
   frames before measuring and capturing.
-- **Result.** One terse line per width, then the two images (PNG, JPEG above 900 KiB). Each
+- **Result.** One terse line per width, then one image per width (PNG, JPEG above 900 KiB). Each
   image is the full content height, cut at 2000 px. The line gives the content height, whether
   the page overflows sideways and which outermost elements reach past the edge, boxes hiding
   content with `overflow: hidden`, and visible text drawn under 11 px after every scale
@@ -218,7 +228,8 @@ on the daemon's machine.
   option cards built from buttons lay out as written; a bare button, one whose only class is a
   state (`active`, `selected`, …) and the kit's variants keep the ace button look. Unlayered
   authored CSS always wins. The kit sets no SVG paint, so chart attributes stand. The
-  visualize skill lists the classes.
+  visualize skill teaches agents to design their own pages and lists the kit's classes as
+  optional helpers.
 - **Theme.** A page receives the app theme as CSS variables (`themeProperties`): surfaces,
   text tiers, hairlines and control edges, primary, accent (the accent picker) and accent text, status colours (`--success`, `--warning`,
   `--info`, `--destructive`), `--chart-1`…`--chart-6`, radius and fonts. When the theme or mode
@@ -292,8 +303,8 @@ provider and verifies reclamation. Additional guards cover pending spawn records
 missing evidence, denied inspection, failed recovery and fresh projections.
 
 The skill teaches when a page helps (explanations, interactive learning, comparisons,
-diagrams, mockups and charts), when to choose each mode,
-and how to write one: self-contained, theme variables, no
-network, fluid width, content-driven height, accessible controls. It covers preview before
-render and concise prose after publication. Native provider skill discovery sees it as part
+diagrams, mockups and charts), when to choose each mode, and how to write one: designed
+phone first in the page's own HTML and CSS, laid out with intrinsic sizing and container
+queries, self-contained, theme variables, content-driven height, accessible controls. It covers
+preview before render and concise prose after publication. Native provider skill discovery sees it as part
 of the `ace-builtins` plugin.

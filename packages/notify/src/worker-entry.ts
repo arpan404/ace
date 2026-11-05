@@ -1,7 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { NotificationService, type DeliveryResult } from "./service.ts";
-import { ToWorker, WorkerConfig, type WorkerValue } from "./worker-wire.ts";
+import { ToWorker, WorkerConfig, incompatibleFrame, type WorkerValue } from "./worker-wire.ts";
 
 const port = parentPort;
 if (!port) throw new Error("Notification worker requires a parent");
@@ -49,7 +49,7 @@ try {
   if (!incompatible) throw error;
   // Bun's worker error event drops the error's path, so send the fields and wait here, with
   // the port held open, until the parent stops this worker.
-  port.postMessage({ type: "incompatible", ...incompatible });
+  port.postMessage(incompatibleFrame(incompatible));
   port.on("message", () => {});
   await new Promise<never>(() => {});
   throw error;

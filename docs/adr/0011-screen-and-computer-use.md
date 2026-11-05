@@ -142,3 +142,21 @@ negotiation: daemon, web, desktop and iOS change together.
   (`FrameDecoder`); their header schemas live with the helper messages in the protocol package.
   This replaces the "Protocol and wire additions" paragraph that described the packet as the
   client wire format and said clients inspect the helper's framing.
+
+## Whole-display pictures for agents (2026-11-04)
+
+Agents asked for a screenshot of the person's screen ran `screencapture` in their shell, which
+fails: the shell's responsible process is whatever launched the daemon, and Screen Recording
+belongs to "Ace Screen Helper" (see Permission attribution above). The background engine
+pictured single windows only, so agents had no ace tool to use instead.
+
+- **Tool.** `screen_display {display?}` (macOS) returns a JPEG of every display, or one, with
+  each display's name, size, main flag and rotation. It is read only and view only: no input
+  uses display coordinates. Remote machines may call it at Read only.
+- **What it shows.** Apps computer use refuses (built-in and the person's list) are left out of
+  the picture and named in the reply. The shared helper first lists the apps with windows on
+  screen; the daemon drops refused ones and asks for a picture of the remaining apps' windows
+  only. An app that appears between the two requests is therefore absent, not exposed.
+- **Why not grant the app or the shell.** Granting Screen Recording to ace itself would let
+  every agent shell command capture silently, without the refusal list, and ad-hoc builds would
+  lose the grant on every rebuild.

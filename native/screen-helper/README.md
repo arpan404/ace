@@ -22,6 +22,10 @@ Mac-only `capture {enabled}` leases pixel capture independently of target select
 
 The owner's current rule permits static checks only. Runtime assertions, CPU/RSS measurements and all mutation cases **need run at merge**; do not execute the tests or benchmarks during feature work.
 
+## Display pictures
+
+In `--computer` mode, `displays` returns the displays in `NSScreen` order (`index`, `name`, `width` and `height` in points, `main`, `rotation`) and the apps with windows on screen (`bundleId`, `name`). `capture_displays {displays: [index], include: [bundleId]}` pictures those displays as JPEG at the window screenshot limits, showing only on-screen windows of the listed apps and windows that belong to no app. It filters by window list because an app filter came back black on macOS 27. Both need Screen Recording; capture refuses while the Mac is locked and needs macOS 14 (`SCScreenshotManager`).
+
 ## Interaction timing
 
 `measure_interaction` takes a live approved window session, optional `action` in

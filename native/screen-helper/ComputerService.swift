@@ -16,7 +16,7 @@ import ApplicationServices
 
     static let capabilities = [
         "click", "move", "type", "paste", "key", "set_value", "select_text", "scroll", "scroll_to", "action", "menu", "focus",
-        "drag", "window", "wait", "wait_for", "activate", "cancel", "outline_off", "when",
+        "drag", "window", "wait", "wait_for", "activate", "cancel", "outline_off", "when", "displays",
     ]
 
     func enqueue(id: String, request: CUObject) {
@@ -54,6 +54,8 @@ import ApplicationServices
             let bundleId = resolved.running?.bundleIdentifier ?? resolved.installed?.bundleId ?? ""
             let name = resolved.running?.localizedName ?? resolved.installed?.name ?? bundleId
             return ["bundleId": bundleId, "name": name, "running": resolved.running != nil]
+        case "displays": return try await CUDisplays.list()
+        case "capture_displays": return try await CUDisplays.capture(request)
         case "state", "act":
             try awake.hold()
             var keepAwake = false

@@ -40,6 +40,12 @@ export const nodeOnlySuites = [
   // The e2e launcher runs on Node (`node src/real-daemon.ts` in playwright.config.ts). It
   // switches HOME in-process, which Bun's os.homedir() does not follow.
   "tools/web-e2e/src/real-daemon-isolation.process.test.ts",
+  // The bench's telemetry preload sees workers through Node's worker_threads diagnostics channel
+  // and reaches them through inherited --import; Bun has neither.
+  "apps/daemon/src/bench-telemetry.process.test.ts",
+  // Its read recorder patches node:fs in every isolate (inherited --import and
+  // syncBuiltinESMExports); on Bun it would see no reads, so this privacy check runs on Node.
+  "apps/daemon/src/history-startup.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
@@ -65,6 +71,24 @@ export function splitByRuntime(projects: readonly string[]): {
   };
 }
 
+export interface PassResult {
+  exitCode: number;
+  /** Test files the pass ran, from its timings. */
+  files: number;
+}
+
+/**
+ * The exit code of a run made of passes. Each pass may select nothing (a filter can match only
+ * one runtime's suites), but a filtered run that ran no file at all fails, as Vitest does on Node:
+ * a mistyped filter must not pass.
+ */
+export function combinedExit(passes: readonly PassResult[], filtered: boolean): number {
+  const failed = passes.find((pass) => pass.exitCode !== 0);
+  if (failed) return failed.exitCode;
+  const files = passes.reduce((total, pass) => total + pass.files, 0);
+  return filtered && files === 0 ? 1 : 0;
+}
+
 export type BudgetTier = "fast" | "process";
 const budgetTier = (project: string): BudgetTier | undefined =>
   (fastProjects as readonly string[]).includes(project)
@@ -80,6 +104,8 @@ export interface RunOptions {
   withSlow: boolean;
   /** test:changed only: the ref to diff against (default: merge-base with origin/main). */
   base: string | undefined;
+  /** Projects named with `--project`, added to the tier's; each runs on its own runtime. */
+  projects: string[];
   /** Arguments passed through to `vitest run`. */
   vitestArgs: string[];
 }
@@ -94,6 +120,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     withProcess: false,
     withSlow: false,
     base: undefined,
+    projects: [],
     vitestArgs: [],
   };
   for (let index = 0; index < rest.length; index++) {
@@ -106,13 +133,31 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     else if (tier === "changed" && arg === "--base") {
       options.base = rest[++index];
       if (!options.base) throw new Error("--base needs a git ref");
-    } else options.vitestArgs.push(arg);
+    } else if (arg === "--project") {
+      const name = rest[++index];
+      if (!name) throw new Error("--project needs a project name");
+      options.projects.push(name);
+    } else if (arg.startsWith("--project=")) options.projects.push(arg.slice("--project=".length));
+    else options.vitestArgs.push(arg);
   }
   return options;
 }
 
-/** The Vitest projects a run selects; an empty list means every project. */
-export function projectsFor(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">) {
+/**
+ * The Vitest projects a run selects; an empty list means every project. Projects named with
+ * `--project` join the tier's, as Vitest's own flag would, and go through the runner so a Bun run
+ * sends each to the pass for its runtime instead of handing Bun a project its config leaves out.
+ */
+export function projectsFor(
+  options: Pick<RunOptions, "tier" | "withProcess" | "withSlow"> & { projects?: readonly string[] },
+): string[] {
+  const named = options.projects ?? [];
+  const tier = tierProjects(options);
+  if (named.length === 0) return tier;
+  return tier.length === 0 ? [...new Set(named)] : [...new Set([...tier, ...named])];
+}
+
+function tierProjects(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">): string[] {
   switch (options.tier) {
     case "full":
       return [];
