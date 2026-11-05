@@ -38,7 +38,7 @@ import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activa
 import { appearance, createHandlers } from "./handlers.ts";
 import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
-import { claimKeychainName, devKeychainName, keychainName } from "./keychain.ts";
+import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
 import { terminalCommand, terminalCommandCheck } from "./os/cli-command.ts";
 import { cliShimCheck, cliShimLog, runningAppImage, type CliShimResult } from "./os/cli-shim.ts";
@@ -98,9 +98,8 @@ if (process.platform === "win32")
   app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
 // Local crash dumps only (never uploaded), started before any helper process launches.
 const crashDumpDir = startLocalCrashReporter(userData);
-// Before anything starts Chromium's network service: never the older ace app's keychain item,
-// and a development app never the installed app's.
-claimKeychainName(app, process.platform, app.isPackaged ? keychainName : devKeychainName);
+// Before anything starts Chromium's network service: never the older ace app's keychain item.
+claimKeychainName(app, process.platform);
 // Blink's DNS hints never reach a session's network layer (visualization-isolation.ts).
 disableDnsPrefetching(app);
 // Wayland: the quick-thread global shortcut goes through the GlobalShortcuts portal.

@@ -6,12 +6,6 @@
  */
 export const keychainName = "ace desktop";
 
-/**
- * The keychain name of an unpackaged app (`bun run dev`, local measuring and e2e launches), so a
- * development app never reads or writes the installed app's "ace desktop Safe Storage" item.
- */
-export const devKeychainName = "ace desktop dev";
-
 /** The slice of Electron's `app` that `claimKeychainName` uses; injected for tests. */
 export interface NamedApp {
   getName(): string;
@@ -32,14 +26,10 @@ export interface NamedApp {
  * Nothing in the app needs the keychain today (cookie encryption is off and `safeStorage` is
  * unused), so this only guarantees that a future use can never read the legacy app's item.
  */
-export function claimKeychainName(
-  app: NamedApp,
-  platform: NodeJS.Platform,
-  keychain: string = keychainName,
-): void {
+export function claimKeychainName(app: NamedApp, platform: NodeJS.Platform): void {
   if (platform !== "darwin") return;
   const name = app.getName();
   app.setPath("userData", app.getPath("userData"));
-  app.setName(keychain);
+  app.setName(keychainName);
   void app.whenReady().then(() => app.setName(name));
 }

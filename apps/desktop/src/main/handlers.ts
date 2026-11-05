@@ -1,5 +1,5 @@
 import { writableFolder } from "./browser/download-folder.ts";
-import { accountSecrets, electronCipher } from "./account-secrets.ts";
+import { accountSecrets } from "./account-secrets.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
 import { aceAccountClient } from "@ace/client/ace-account";
@@ -93,7 +93,7 @@ export function createHandlers(options: {
   };
 }): Handlers {
   const { runtime, settings, background } = options;
-  const account = accountSecrets(app.getPath("userData"), electronCipher);
+  const account = accountSecrets(app.getPath("userData"));
   // A daemon that starts or restarts signed out follows the app's account (never switching one
   // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
   // both, so an older change never lands after a newer one.

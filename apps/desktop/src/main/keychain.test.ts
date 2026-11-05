@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimKeychainName, devKeychainName, keychainName, type NamedApp } from "./keychain.ts";
+import { claimKeychainName, keychainName, type NamedApp } from "./keychain.ts";
 
 /** Electron's `app` as far as naming goes: the data folder defaults from the name. */
 function fakeApp(name: string) {
@@ -38,13 +38,6 @@ describe("keychain name", () => {
     await app.whenReady();
     await Promise.resolve();
     expect(app.getName()).toBe("ace");
-  });
-
-  it("starts a development app under its own name, never the installed app's item", () => {
-    const { app } = fakeApp("ace");
-    claimKeychainName(app, "darwin", devKeychainName);
-    expect(`${app.getName()} Safe Storage`).not.toBe(`${keychainName} Safe Storage`);
-    expect(app.getPath("userData")).toBe("/Users/me/Library/Application Support/ace");
   });
 
   it("leaves other platforms alone", () => {
