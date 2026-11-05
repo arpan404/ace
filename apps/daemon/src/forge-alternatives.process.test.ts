@@ -31,6 +31,7 @@ test("Origin pull request browsing uses its CLI, preserves its identity and bloc
   const settings = new SettingsService({ dataDir: root });
   const store = new Store(join(root, "store.sqlite"));
   let signedIn = "person@example.com";
+  let switchAfterApi = false;
   const runner: CommandRunner = async (request) => {
     if (request.command !== "origin") throw new Error("Origin must never call gh");
     const args = request.args;
@@ -58,6 +59,7 @@ test("Origin pull request browsing uses its CLI, preserves its identity and bloc
       : endpoint.includes("/pulls?")
         ? { pullRequests: [pr], nextPageToken: "" }
         : pr;
+    if (switchAfterApi) signedIn = "changed@example.com";
     return { code: 0, stdout: JSON.stringify(value), truncated: false };
   };
   const source = new SourceControl(settings, () => runner, root);
@@ -120,6 +122,11 @@ test("Origin pull request browsing uses its CLI, preserves its identity and bloc
     };
     await expect(admitted.runner(request)).rejects.toMatchObject({ kind: "unsupported" });
     signedIn = "other@example.com";
+    await expect(
+      admitted.runner({ ...request, args: ["api", "/repos/team/repo/pulls/7", "--method", "GET"] }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+    signedIn = "person@example.com";
+    switchAfterApi = true;
     await expect(
       admitted.runner({ ...request, args: ["api", "/repos/team/repo/pulls/7", "--method", "GET"] }),
     ).rejects.toMatchObject({ kind: "forbidden" });
