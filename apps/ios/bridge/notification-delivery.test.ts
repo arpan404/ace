@@ -102,10 +102,10 @@ describe("phone notification delivery", () => {
   });
 });
 
-describe("which alerts the phone posts at all", () => {
-  const own = (status: string) => ({ status, delegated: false });
-  const delegated = (status: string) => ({ status, delegated: true });
+const own = (status: string) => ({ status, delegated: false });
+const delegated = (status: string) => ({ status, delegated: true });
 
+describe("which alerts the phone posts at all", () => {
   it("a background task finishing never alerts, whatever the settings", () => {
     const everything = prefs({ inApp: all(true), system: all(true) });
     expect(alertDelivery(own("background_done"), everything, away).post).toBe(false);
