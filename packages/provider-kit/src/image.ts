@@ -5,7 +5,12 @@
  * compositing stays on sharp, which Bun's pipeline does not offer.
  */
 
-/** Where the image comes from: bytes, or a file ace itself wrote (never a path from outside). */
+/**
+ * Where the image comes from: bytes, or a file ace itself wrote (never a path from outside).
+ * Bytes are borrowed, not copied: the decode reads them off the JavaScript thread, so they must
+ * not change until the call settles (hand over a buffer nothing else writes to). A
+ * `SharedArrayBuffer` or resizable buffer is refused.
+ */
 export type ImageInput = Uint8Array | { path: string };
 
 export interface ImageSource {
