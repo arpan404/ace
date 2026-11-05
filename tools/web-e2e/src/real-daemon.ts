@@ -54,6 +54,9 @@ if (homedir() !== daemonHome || process.env.ACE_HOME !== daemonHome)
   throw new Error("Start the e2e daemon with src/real-daemon-launcher.ts, which isolates it");
 await assertRealDaemonEnvironment(process.env, daemonHome);
 const pluginMarketPath = pluginMarketIn(daemonHome);
+const gitConfigPath = join(daemonHome, ".gitconfig");
+/** No background maintenance or gc: nothing repacks a fixture repository while it is in use. */
+const quietGitConfig = ["[maintenance]", "\tauto = false", "[gc]", "\tauto = 0", ""];
 
 // The launcher holds the other end of stdin for as long as it lives. When it dies, even by
 // SIGKILL, stdin ends and the daemon stops rather than outliving it.
@@ -90,6 +93,10 @@ function scriptedProvider(provider: ProviderKind) {
 assertRemovable(daemonHome, fixture);
 rmSync(daemonHome, { recursive: true, force: true });
 prepareDaemonHome(daemonHome);
+// The fixture's global Git config (GIT_CONFIG_GLOBAL, in the daemon home), before any git runs.
+// After a commit Git starts maintenance in the background, and current Git (2.54) repacks even
+// a small repository at once, deleting loose objects a clone of it may still be copying.
+writeFileSync(gitConfigPath, quietGitConfig.join("\n"));
 const project = join(daemonHome, "projects", workspaceName);
 mkdirSync(project, { recursive: true });
 for (const key of [
@@ -336,8 +343,9 @@ function seedProjects(): void {
   const pacer = join(daemonHome, "pace-pack.mjs");
   writeFileSync(pacer, pacePackObjects());
   writeFileSync(
-    join(daemonHome, ".gitconfig"),
+    gitConfigPath,
     [
+      ...quietGitConfig,
       `[url "file://${remotes}/"]`,
       "\tinsteadOf = https://git.e2e.invalid/",
       "[uploadpack]",
