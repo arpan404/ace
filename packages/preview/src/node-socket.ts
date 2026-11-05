@@ -10,6 +10,10 @@ import { windowSize } from "./relay-wire.ts";
  *
  * Bytes held here always go first: a chunk that arrives while some are held queues behind them,
  * and the socket's end (and the close after it) waits until every held byte has been delivered.
+ *
+ * Only a real end reaches the mux, because the mux treats a close after an end as graceful and
+ * sends END. Bun emits `end` on a socket destroyed locally too; that end is an abort, so it is
+ * dropped and the close goes through at once.
  */
 export function previewSocket(socket: Socket): PreviewSocket {
   let deliver: ((bytes: Uint8Array) => void) | undefined;
@@ -43,6 +47,7 @@ export function previewSocket(socket: Socket): PreviewSocket {
     next();
   };
   socket.on("end", () => {
+    if (socket.destroyed) return;
     ended = true;
     if (held.length === 0) emitEnd();
   });
