@@ -60,6 +60,13 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
   - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
     errno; code waits on the `error` or `close` event, never on `exitCode`.
+  - Bun's `node:https` server ignores `SNICallback`, `addContext` and `setSecureContext`, and
+    serves only its default certificate. Its `node:tls` server honours `SNICallback`. The remote
+    listener therefore ends TLS in a `node:tls` server and hands each socket to a plain
+    `node:http` server (`apps/daemon/src/sni-listener.ts`), so a ts.net name gets the Tailscale
+    certificate and a renewed one applies to the next connection without a restart. `Bun.serve`
+    accepts a per-name `tls` array, but using it would mean leaving `node:http`'s request and
+    upgrade handling, and a certificate change would mean restarting the server.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
   each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
   vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).
