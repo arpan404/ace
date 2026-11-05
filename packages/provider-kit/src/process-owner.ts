@@ -2,9 +2,8 @@ import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { win32 } from "node:path";
-import type koffiModule from "koffi";
-import { createRequire } from "node:module";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
@@ -170,10 +169,9 @@ export function killWindowsTree(pid: number, force: boolean): void {
 /** GetSystemDirectoryW: the characters written to a 1,024-character buffer, or 0. */
 type SystemDirectoryReader = { read(buffer: Buffer, size: number): unknown; unload(): void };
 
-// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes take koffi, required
-// lazily like process-containment so their bundles build. The packaged desktop app ships no
-// koffi, so there this throws and the Windows tree stop cannot find taskkill; macOS and Linux
-// load neither.
+// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes take koffi: the desktop
+// app ships it for its main process and probe worker, so their Windows tree stops find
+// taskkill there; the daemon ships none. macOS and Linux load neither.
 function systemDirectoryReader(): SystemDirectoryReader {
   if (runsOnBun()) {
     const kernel = openLibrary("kernel32.dll", {
@@ -184,8 +182,7 @@ function systemDirectoryReader(): SystemDirectoryReader {
       unload: () => kernel.close(),
     };
   }
-  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-  const kernel = koffi.load("kernel32.dll");
+  const kernel = loadKoffi().load("kernel32.dll");
   try {
     const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
     return { read: (buffer, size) => read(buffer, size), unload: () => kernel.unload() };

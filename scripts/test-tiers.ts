@@ -48,6 +48,9 @@ export const nodeOnlySuites = [
   "packages/provider-kit/src/process-on-node.process.test.ts",
   // The main process runs its bundle on Electron's Node; this runs its toolchain probe on Node.
   "apps/desktop/src/main/system/toolchains.process.test.ts",
+  // The main process binds kernel32 through the koffi the app ships, on Electron's Node; this
+  // loads it from the packaged layout on Node.
+  "apps/desktop/src/main/system/koffi.process.test.ts",
 ];
 /**
  * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react

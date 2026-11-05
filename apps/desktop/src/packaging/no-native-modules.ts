@@ -1,9 +1,11 @@
 import type { Plugin } from "esbuild";
 
 /**
- * Native code the Electron main process cannot load: koffi and node-pty (app.asar has neither)
- * and `bun:ffi`, which exists only in the Bun runtime the daemon runs on. Code bundled into the
- * main process reaches `bun:ffi` only through a lazy require behind a Bun check.
+ * Native code a main-process bundle must not import: node-pty (the app has none), `bun:ffi`,
+ * which exists only in the Bun runtime the daemon runs on, and koffi. The app ships koffi beside
+ * app.asar (scripts/koffi.ts), but bundling it would cut it off from its prebuilt binary, so main
+ * reaches it only through `@ace/provider-kit/koffi`'s lazy require, and `bun:ffi` only through a
+ * lazy require behind a Bun check.
  */
 const daemonOnlyNatives = ["koffi", "node-pty", "bun:ffi"];
 const nativeImport = new RegExp(

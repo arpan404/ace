@@ -1,7 +1,6 @@
-import { createRequire } from "node:module";
-import type koffiModule from "koffi";
 import { z } from "zod";
 import { nativeHandle, openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { loadKoffi } from "./koffi.ts";
 
 /**
  * Windows Job Object containment for a tree where process groups do not exist. The kernel kills
@@ -50,9 +49,9 @@ type JobKernel = {
   unload(): void;
 };
 
-// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes bundle this file too
-// (the desktop main process reaches it through process.ts) and keep koffi, required lazily so
-// their bundles build; a failed load leaves the tree stop in charge.
+// The daemon runs on Bun and binds kernel32 with bun:ffi; it ships no koffi. The desktop main
+// process reaches this file through process.ts on Electron's Node and binds kernel32 with the
+// koffi the app ships (./koffi.ts). A failed load leaves the tree stop in charge.
 // HANDLEs are 64-bit integers (`i64_fast`), never `ptr`; `ptr` is only for the info buffers.
 function bunJobKernel(): JobKernel {
   const library = openLibrary("kernel32.dll", {
@@ -83,8 +82,7 @@ function bunJobKernel(): JobKernel {
 }
 
 function koffiJobKernel(): JobKernel {
-  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-  const library = koffi.load("kernel32.dll");
+  const library = loadKoffi().load("kernel32.dll");
   try {
     const create = library.func("void* __stdcall CreateJobObjectW(void* attrs, void* name)");
     const setInfo = library.func(

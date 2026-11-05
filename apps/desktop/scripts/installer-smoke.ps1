@@ -132,7 +132,10 @@ Get-ChildItem $installDir -ErrorAction SilentlyContinue | Select-Object -First 2
 if (-not $installDir.StartsWith($env:LOCALAPPDATA, [StringComparison]::OrdinalIgnoreCase)) { Fail "not a per-user install: $installDir" }
 foreach ($file in @(
     "ace.exe", "resources\runtime\node.exe", "resources\daemon\ace.mjs", "resources\daemon\descriptor.node",
-    "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs")) {
+    "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs",
+    "resources\node_modules\koffi\package.json",
+    # The build checked its architecture (verify-natives.ts).
+    "resources\node_modules\@koromix\koffi-win32-*\win32_*\koffi.node")) {
   if (-not (Test-Path (Join-Path $installDir $file))) { Fail "missing $file" }
 }
 if (-not (Test-Path $shim)) { Fail "the installer wrote no $shim" }

@@ -7,7 +7,8 @@
     ".": "./src/bundle.ts",
     "./daemon-runtime": "./src/daemon-runtime.ts",
     "./native-arch": "./src/native-arch.ts",
-    "./glibc": "./src/glibc.ts"
+    "./glibc": "./src/glibc.ts",
+    "./runtime-package": "./src/copy-runtime-package.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

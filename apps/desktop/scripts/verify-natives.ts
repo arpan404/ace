@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { mismatchedBinaries, type Arch } from "@ace/release/native-arch";
 import { dist } from "./common.ts";
+import { koffiBinary, koffiLicense } from "./koffi.ts";
 
 /**
  * Never ship a package whose native code cannot run: each required piece must be present,
@@ -11,6 +12,9 @@ export async function verifyNatives(arch: Arch): Promise<void> {
   // Windows terminals need no guardian: a Job Object owns them (ADR 0095).
   const required = [
     join(dist, "bin", process.platform === "win32" ? "rg.exe" : "rg"),
+    // The main process's Windows tree stop and Job Objects bind kernel32 through it.
+    koffiBinary(join(dist, "node_modules"), process.platform, arch),
+    koffiLicense(join(dist, "node_modules")),
     ...(process.platform === "win32"
       ? [join(dist, "runtime", "node.exe"), join(dist, "daemon/descriptor.node")]
       : [
@@ -22,7 +26,7 @@ export async function verifyNatives(arch: Arch): Promise<void> {
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
   for (const found of await mismatchedBinaries(
-    ["daemon", "bin", "helpers", "runtime"]
+    ["daemon", "node_modules", "bin", "helpers", "runtime"]
       .map((name) => join(dist, name))
       .filter((path) => existsSync(path)),
     process.platform,

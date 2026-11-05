@@ -126,6 +126,15 @@ export const asarUnpacked = [
   "probe-worker.mjs",
 ];
 
+/**
+ * Folders of `dist/` the package copies, as plain files, to `Resources/` beside app.asar
+ * (package.ts's afterPack; extraResources would drop node_modules, and electron-builder never
+ * packs the app folder's own node_modules). `daemon` is the daemon. `node_modules` holds the
+ * main process's native packages (koffi: scripts/koffi.ts), which Node reaches by walking up
+ * from app.asar and from app.asar.unpacked.
+ */
+export const packagedBesideApp = ["daemon", "node_modules"] as const;
+
 /** The desktop app's version (`apps/desktop/package.json`). */
 export function appVersion(): string {
   const manifest: unknown = JSON.parse(readFileSync(join(desktop, "package.json"), "utf8"));
