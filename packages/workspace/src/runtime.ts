@@ -4,6 +4,7 @@ import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { win32 } from "node:path";
 import { Worker } from "node:worker_threads";
 import { openMetadataAt, openRoot } from "./descriptor.ts";
+import { canonicalPath } from "./realpath.ts";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
@@ -11,7 +12,7 @@ export interface WorkspaceFileSystem {
   lstat(path: string): Promise<Stats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-export const filesystem: WorkspaceFileSystem = { realpath, stat, lstat, open };
+export const filesystem: WorkspaceFileSystem = { realpath: canonicalPath, stat, lstat, open };
 if (process.platform === "win32")
   Object.assign(filesystem, { stat: windowsStat, lstat: windowsLstat });
 

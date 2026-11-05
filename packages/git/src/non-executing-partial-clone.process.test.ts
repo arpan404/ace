@@ -61,7 +61,7 @@ test("a protected partial-clone checkout never launches a promisor SSH command f
       `require('node:fs').writeFileSync(${JSON.stringify(controlMarker)}, 'executed'); process.exit(1);\n`,
     );
     await expect(git(repo, "cat-file", "blob", blob)).rejects.toThrow();
-    expect(await access(controlMarker)).toBeUndefined();
+    await expect(access(controlMarker)).resolves.toBeFalsy();
     await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
   } finally {
     await service.close();

@@ -4,6 +4,14 @@ import { runInNewContext } from "node:vm";
 import { expect, test } from "vitest";
 import { listedSources, watchedPaths } from "./config-sources.ts";
 
+// Bun has no --expose-gc and no gc in a fresh vm context; it exposes a forced collection instead.
+const bunGc = (globalThis as { Bun?: { gc(force: boolean): void } }).Bun?.gc;
+const collectGarbage = (): (() => void) => {
+  if (bunGc) return () => bunGc(true);
+  setFlagsFromString("--expose-gc");
+  return runInNewContext("gc") as () => void;
+};
+
 const layout = { gitDir: "/wt/.git", commonDir: "/wt/.git", toplevel: "/wt" };
 
 test("a bare repository planted between a subdirectory and its checkout root invalidates cached facts", () => {
@@ -21,8 +29,7 @@ test("a directory outside its checkout root can't be stamped, so nothing is cach
 });
 
 test("kept config sources don't hold the whole Git config listing in memory", () => {
-  setFlagsFromString("--expose-gc");
-  const gc = runInNewContext("gc") as () => void;
+  const gc = collectGarbage();
   // A repository with many branches lists hundreds of KB of settings beside a few file names.
   // Below 1 MB, so Node decodes it into the JS heap rather than an external string. Node 24 (the
   // shipped runtime) keeps slices of it alive; newer V8 copies strings put in a Set.

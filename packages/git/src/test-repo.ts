@@ -9,6 +9,18 @@ import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 import { assertTestGitDirectory, testGitEnvironment } from "@ace/provider-kit/test-isolation";
 
 export const execute = promisify(execFile);
+/**
+ * Arguments that run `body` as an ES module script whose work happens in an async function.
+ * Bun neither fires beforeExit nor exits while a module's top-level await is pending, so a
+ * script that waits for an idle barrier must not wait at the top level.
+ */
+export function idleBarrierScript(body: string): string[] {
+  return [
+    "--input-type=module",
+    "--eval",
+    `(async () => {\n${body}\n})().catch((error) => { console.error(error); process.exit(1); });`,
+  ];
+}
 const directories: string[] = [];
 // Captured once: a test may point TMPDIR elsewhere while its fixtures stay where they are.
 const temporaryRoot = tmpdir();

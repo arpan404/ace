@@ -529,7 +529,8 @@ export function spawnWindowsHelper(options: SpawnOptions): SupervisedProcess {
       stderr.close();
       resolve({
         code,
-        signal,
+        // Bun reports a failed spawn's signal as undefined.
+        signal: signal ?? null,
         reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
       });
     }),
