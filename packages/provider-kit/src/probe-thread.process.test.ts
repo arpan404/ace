@@ -17,6 +17,15 @@ test("a probe returns its output and exit code", async () => {
   ).resolves.toEqual({ stdout: "out", stderr: "err", code: 3 });
 });
 
+test("a probe of a command that is not installed fails to start instead of hanging", async () => {
+  await expect(
+    probeOutput("ace-probe-missing-command", ["--version"], {
+      env: { PATH: "/nonexistent-ace-probe-path" },
+      timeoutMs: 10_000,
+    }),
+  ).rejects.toThrow("Probe failed to start");
+});
+
 test("a probe sees its own environment over the daemon's", async () => {
   const result = await probeOutput("/bin/sh", ["-c", 'printf "$ACE_PROBE_VALUE"'], {
     env: { ACE_PROBE_VALUE: "chosen" },

@@ -207,7 +207,8 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       }
       resolve({
         code,
-        signal,
+        // After a failed spawn Bun reports no signal at all, where Node reports null.
+        signal: signal ?? null,
         reason: outputLimited
           ? "output-limit"
           : failed
