@@ -64,7 +64,9 @@ struct InboxThreadRow: View {
         let branch = row.branch.isEmpty ? nil : "Branch \(row.branch)"
         let pr = row.pr.map { "\($0.state) pull request #\($0.number)" }
         let work = row.work.map { "\($0.added) lines added, \($0.removed) lines removed" }
-        return [row.title, meaning, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
+        // A snoozed row says when it wakes, as it shows it.
+        let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil
+        return [row.title, meaning, wake, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
                 row.browsing, row.computerUse, branch, pr, work]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
     }
