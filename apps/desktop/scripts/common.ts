@@ -112,6 +112,20 @@ export function electronBundles(outdir: string, env: NodeJS.ProcessEnv): BuildOp
 /** The main-process entry `electronBundles` writes into its output directory. */
 export const mainEntry = "main.mjs";
 
+/**
+ * What electron-builder keeps outside app.asar (`asarUnpack`, relative to the app directory).
+ * Native addons and helper binaries cannot run from inside an asar archive, and a worker
+ * thread's module loader cannot read it either (the freeze watchdog and the toolchain probe
+ * worker, which load from `app.asar.unpacked`: src/main/bundled-worker.ts).
+ */
+export const asarUnpacked = [
+  "**/*.node",
+  "**/rg",
+  "**/rg.exe",
+  "stall-watchdog-worker.mjs",
+  "probe-worker.mjs",
+];
+
 /** The desktop app's version (`apps/desktop/package.json`). */
 export function appVersion(): string {
   const manifest: unknown = JSON.parse(readFileSync(join(desktop, "package.json"), "utf8"));

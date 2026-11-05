@@ -554,14 +554,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
     void terminal.status().then((status) => (terminalStatus = status));
     let bindings: Readonly<Record<string, string>> | undefined;
+    const toolchains = bundledToolchains(import.meta.url);
     const handlers = createHandlers({
       info,
       runtime,
       settings,
       background,
       window: () => window,
-      env: process.env,
-      toolchains: bundledToolchains(import.meta.url),
+      toolchains: () => toolchains(process.env),
       connection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),

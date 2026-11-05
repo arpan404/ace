@@ -61,9 +61,8 @@ export function createHandlers(options: {
   settings: SettingsStore;
   background: Background;
   window(): BrowserWindow | undefined;
-  env: NodeJS.ProcessEnv;
   /** Git, Xcode and the Android tools on this machine (system/toolchains.ts). */
-  toolchains(env: NodeJS.ProcessEnv): Promise<Toolchain[]>;
+  toolchains(): Promise<Toolchain[]>;
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
   authorizeDaemon(url: string): void;
@@ -158,7 +157,7 @@ export function createHandlers(options: {
     "daemon.showLogs": () => options.showLogs(),
     "daemon.pause": (paused) => runtime.pause(paused),
     "onboarding.providers": () => runtime.providers(),
-    "system.toolchains": () => options.toolchains(options.env),
+    "system.toolchains": () => options.toolchains(),
     "shell.openInEditor": (request) => openInEditor(request),
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),
