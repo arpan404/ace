@@ -11,7 +11,15 @@ struct LockProvider: TimelineProvider {
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<LockEntry>) -> Void) {
         let now = Date.now
-        completion(Timeline(entries: [LockEntry(date: now, summary: LockSnapshotStore.read())], policy: .after(now.addingTimeInterval(Self.reread))))
+        let summary = LockSnapshotStore.read()
+        var entries = [LockEntry(date: now, summary: summary)]
+        // A second entry at the moment the snapshot stops counting as fresh, so it turns to
+        // "as of" on time even when the app isn't running to rewrite it.
+        if let summary, summary.live {
+            let stale = summary.updatedAt.addingTimeInterval(LockSummary.freshFor + 1)
+            if stale > now { entries.append(LockEntry(date: stale, summary: summary)) }
+        }
+        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(Self.reread))))
     }
 }
 

@@ -18,8 +18,8 @@ import {
 import { sendPayload } from "./thread-controls.ts";
 import {
   PhoneNotificationPrefs,
+  alertDelivery,
   defaultPhonePrefs,
-  phoneDelivery,
   type PhoneDelivery,
 } from "./notification-delivery.ts";
 
@@ -254,11 +254,25 @@ export class NotificationBridge {
   }
   /** The alert with how this phone shows it now (`notification-delivery.ts`). */
   #delivered(notification: Notification): Delivered {
-    const delivery = phoneDelivery(notification.status, this.#phone, {
+    const facts = {
+      status: notification.status,
+      delegated: this.#delegated(notification.threadId),
+    };
+    const delivery = alertDelivery(facts, this.#phone, {
       foreground: this.#appState === "foreground",
       minuteOfDay: this.#minuteOfDay(),
     });
     return { ...notification, delivery };
+  }
+  /** The thread list says an agent delegated this thread; unknown reads as the person's own. */
+  #delegated(threadId: string): boolean {
+    const list = this.#client.threads();
+    try {
+      const entry = list.store.thread(threadId);
+      return entry?.delegatedBy !== undefined || entry?.delegatedFrom !== undefined;
+    } finally {
+      list.release();
+    }
   }
   /**
    * A needs-you alert says what is asked ("Claude Code wants to run a command") and offers a

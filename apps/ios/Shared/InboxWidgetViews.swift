@@ -56,7 +56,7 @@ struct SmallInbox: View {
                     .foregroundStyle(top.needsYou ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
                     .lineLimit(2)
             }
-            if !summary.current || stale {
+            if summary.asOf(stale: stale) {
                 Text("as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))")
                     .font(LockType.caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -82,7 +82,7 @@ struct ListInbox: View {
             } else {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
                     ForEach(summary.rows) { row in
-                        let view = LockRowView(row: row, current: summary.current && !stale)
+                        let view = LockRowView(row: row, current: !summary.asOf(stale: stale))
                         if let url = URL(string: row.link) { Link(destination: url) { view } } else { view }
                     }
                 }
@@ -141,7 +141,7 @@ struct AccessoryCount: View {
         }
         .widgetAccentable()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(summary?.spokenHeadline ?? "Open ace to see your agents")
+        .accessibilityLabel(summary?.spokenHeadline(stale: false) ?? "Open ace to see your agents")
     }
 }
 
@@ -160,7 +160,7 @@ struct AccessoryTopThread: View {
             } else if summary == nil {
                 Text("Open ace to see your agents").font(LockType.body).lineLimit(2)
             }
-            if let summary, !summary.current || now.timeIntervalSince(summary.updatedAt) > LockSummary.freshFor {
+            if let summary, summary.asOf(stale: now.timeIntervalSince(summary.updatedAt) > LockSummary.freshFor) {
                 Text("as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))").font(LockType.caption)
             }
         }

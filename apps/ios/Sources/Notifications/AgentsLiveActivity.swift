@@ -15,8 +15,9 @@ enum AgentsActivityPlan {
     static let quietGrace: TimeInterval = 120
     /// How long a quiet last state stays on the Lock Screen after it ends.
     static let lingerAfterEnd: TimeInterval = 15 * 60
-    /// How long content counts as current. Past it the activity says to open ace; updates arrive
-    /// only while ace runs (open, or refreshing in the background) until push updates exist.
+    /// How long content counts as current. Past it the activity says "as of" its time; updates
+    /// arrive only while ace runs (open, or refreshing in the background) until push updates
+    /// exist, and the hub renews it every minute while ace is open.
     static let staleAfter = LockSummary.freshFor
     /// An unchanged summary is re-sent this often while ace runs, so its stale date moves on.
     static let renewEvery: TimeInterval = 60

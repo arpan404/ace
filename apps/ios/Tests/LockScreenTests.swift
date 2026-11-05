@@ -132,10 +132,92 @@ import Testing
         #expect(read.updatedAt == t0)
     }
 
+    @Test func waitsAndUsageLimitsAreNeverCountedAsWorkingAndShowNoRunningTime() throws {
+        // The report's morning: eight busy rows, three of them working.
+        let summary = LockScreenBuilder.summary([.init(hostId: "studio", rows: [
+            try row("w1", level: "active", icon: "working", since: 300),
+            try row("w2", level: "active", icon: "working", since: 200),
+            try row("q1", level: "active", icon: "waiting", since: 100),
+            try row("q2", level: "active", icon: "waiting", since: 110),
+            try row("q3", level: "active", icon: "waiting", since: 120),
+            try row("l1", level: "active", icon: "limited"),
+            try row("l2", level: "active", icon: "limited"),
+            try row("b1", level: "active", icon: "background", since: 50),
+        ], online: true)], requests: [:], now: t0)
+        #expect(summary.working == 2 && summary.waiting == 3 && summary.limited == 2 && summary.background == 1)
+        #expect(summary.headline == "2 working · 3 waiting · 2 limited")
+        // Working first, then the waits; only live work counts its running time.
+        #expect(summary.rows.prefix(3).map(\.id) == ["w2", "w1", "q1"])
+        #expect(summary.rows.first { $0.id == "q1" }?.since == nil)
+        let background = LockScreenBuilder.summary([.init(hostId: "studio", rows: [try row("b1", level: "active", icon: "background", since: 50)], online: true)],
+                                                   requests: [:], now: t0)
+        #expect(background.rows.first?.since != nil)
+        #expect(background.headline == "1 in background")
+    }
+
+    @Test func aFinishedRootWhoseSubagentsStillWorkCountsAsWorking() throws {
+        let summary = LockScreenBuilder.summary([.init(hostId: "studio", rows: [try row("a", level: "active", icon: "agents", since: 10)], online: true)],
+                                                requests: [:], now: t0)
+        #expect(summary.working == 1)
+        #expect(summary.headline == "1 working")
+    }
+
+    @Test func needingThePersonLeadsTheHeadlineAndTheRows() throws {
+        let summary = LockScreenBuilder.summary([.init(hostId: "studio", rows: [
+            try row("w", level: "active", icon: "working", since: 1),
+            try row("q", level: "active", icon: "waiting", since: 2),
+            try row("n", level: "needs-you", icon: "approve"),
+        ], online: true)], requests: [:], now: t0)
+        #expect(summary.headline == "1 needs you · 1 working · 1 waiting")
+        #expect(summary.rows.first?.id == "n")
+    }
+
+    @Test func aPairedMachineThatIsOffIsANoteBesideFreshCountsNotAnAsOf() throws {
+        let summary = LockScreenBuilder.summary([
+            .init(hostId: "studio", rows: [try row("a", level: "active", icon: "working", since: 1)], online: true),
+            .init(hostId: "vm", rows: [], online: false),
+        ], requests: [:], now: t0)
+        #expect(summary.live && !summary.current)
+        #expect(summary.headline == "1 working")
+        #expect(summary.note(stale: false, fresh: "ace") == "1 machine offline")
+        #expect(!summary.asOf(stale: false))
+        // Nothing else to count: the offline machine is the sentence, never "Nothing needs you".
+        let quiet = LockScreenBuilder.summary([.init(hostId: "studio", rows: [], online: true), .init(hostId: "vm", rows: [], online: false)],
+                                              requests: [:], now: t0)
+        #expect(quiet.headline == "1 machine offline")
+        #expect(!quiet.busy)
+        // Past its stale date the same content says "as of" its time.
+        #expect(summary.asOf(stale: true))
+    }
+
+    @Test func whenNoMachineAnswersTheLastConfirmedCountsStayAsOfTheirTime() async throws {
+        let port = FakeActivity()
+        var clock = t0
+        var online = true
+        let hub = LockScreenHub(edges: .init(activity: port, writeSnapshot: { _ in }, reloadWidgets: {}), now: { clock }, sleep: { _ in })
+        let working = try row("a", level: "active", icon: "working", since: 0)
+        hub.read = { ([.init(hostId: "studio", rows: online ? [working] : [], online: online)], [:]) }
+        hub.rebuild()
+        online = false
+        clock = t0.addingTimeInterval(30)
+        hub.rebuild()
+        await hub.settle()
+        let shown = try #require(port.updated.last)
+        #expect(shown.headline == "1 working")
+        #expect(!shown.live && shown.asOf(stale: false))
+        #expect(shown.updatedAt == t0)
+        #expect(port.ended.isEmpty)
+    }
+
     // MARK: Support
 
+    /// The bridge's state for each mark, as `rowStatusState` gives it.
+    private static let states = ["working": "working", "agents": "working", "waiting": "waiting", "limited": "limited",
+                                 "background": "background", "approve": "needs-you", "question": "needs-you",
+                                 "failed": "failed", "done": "finished", "none": "idle"]
     private func row(_ id: String, level: String, icon: String, since: Double? = nil, confirmed: Bool = true) throws -> ThreadRow {
-        let look = #"{"level":"\#(level)","tone":"idle","muted":false,"settled":false,"subagents":0,"icon":"\#(icon)","iconTone":"working","mode":"\#(since == nil ? "icon" : "elapsed")","meaning":"Working"\#(since.map { #","since":\#($0)"# } ?? "")}"#
+        let state = Self.states[icon] ?? "idle"
+        let look = #"{"level":"\#(level)","state":"\#(state)","tone":"idle","muted":false,"settled":false,"subagents":0,"icon":"\#(icon)","iconTone":"working","mode":"\#(since == nil ? "icon" : "elapsed")","meaning":"Working"\#(since.map { #","since":\#($0)"# } ?? "")}"#
         let json = #"{"id":"\#(id)","title":"Thread \#(id)","state":"working","project":"ace","branch":"main","machine":"mbp","provider":"claude","model":"opus","agents":1,"updatedAt":0,"canSteer":true,"status":{"label":"Working","token":"working"},"confirmed":\#(confirmed),"generation":0,"look":\#(look)}"#
         return try JSONDecoder().decode(ThreadRow.self, from: Data(json.utf8))
     }

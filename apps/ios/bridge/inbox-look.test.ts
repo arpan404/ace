@@ -41,3 +41,17 @@ test("a request on a woken thread keeps the phone row's request icon", () => {
   expect(asking.icon).not.toBe("woke");
   expect(asking.level).toBe("needs-you");
 });
+
+const live = (status: Record<string, unknown>) =>
+  inboxLook(thread({ status, snoozeWoke: undefined, readAt: now }), 0, now).state;
+
+test("the lock screen counts a row as working only while the daemon says its tree works", () => {
+  // The root's own turn ended while two subagents still run: the daemon's status is the tree's.
+  expect(live({ state: "working", agents: 2 })).toBe("working");
+  expect(live({ state: "waiting", on: "queue" })).toBe("waiting");
+  expect(live({ state: "waiting", on: "rate_limit" })).toBe("waiting");
+  expect(live({ state: "waiting", on: "background_task" })).toBe("background");
+  expect(live({ state: "limited", until: now + 60 * minute })).toBe("limited");
+  expect(live({ state: "needs_you", interactions: 1 })).toBe("needs-you");
+  expect(live({ state: "done" })).toBe("idle");
+});

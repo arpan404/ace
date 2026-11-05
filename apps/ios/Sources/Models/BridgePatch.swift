@@ -103,6 +103,10 @@ struct RowLook: Codable, Sendable, Equatable {
     var meaning: String? = nil
     /// Only a thread that needs the person sets its title in semibold.
     var strong: Bool? = nil
+    /// The design language's status state (`rowStatusState`): "needs-you", "failed", "working",
+    /// "waiting", "limited", "background", "finished", "idle" or "syncing". The lock screen
+    /// counts by it. Nil from older bridges.
+    var state: String? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }

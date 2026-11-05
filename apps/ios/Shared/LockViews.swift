@@ -28,7 +28,8 @@ enum LockType {
 /// time for live work. No status words: the mark says it, and VoiceOver reads its meaning.
 struct LockRowView: View {
     let row: LockRow
-    /// False when the summary isn't current: a running time would keep counting on a guess.
+    /// False when the summary is last known or past its stale date: a running time would keep
+    /// counting on a guess.
     let current: Bool
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
@@ -61,8 +62,8 @@ struct RunningTime: View {
     }
 }
 
-/// The summary's one sentence, with "as of" its time when it isn't current, so a lock screen
-/// never shows old counts as fresh.
+/// The summary's one sentence, then "as of" its time when it isn't fresh, so a lock screen
+/// never shows old counts as fresh, or the machines out of reach when only the others counted.
 struct LockHeadline: View {
     let summary: LockSummary
     let stale: Bool
@@ -74,16 +75,14 @@ struct LockHeadline: View {
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Group {
-                if summary.current && !stale { Text(trailing) }
-                else { Text("as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))") }
-            }
-            .font(LockType.meta)
-            .foregroundStyle(AceTheme.Colours.mutedForeground)
-            .lineLimit(1)
+            Text(summary.note(stale: stale, fresh: trailing))
+                .font(LockType.meta)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .lineLimit(1)
+                .layoutPriority(1)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(summary.current && !stale ? summary.headline : "\(summary.headline), as of \(summary.updatedAt.formatted(date: .omitted, time: .shortened))")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(summary.spokenHeadline(stale: stale))
     }
 }
 
@@ -120,7 +119,7 @@ struct LockRowsList: View {
         if !summary.rows.isEmpty {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xs + AceTheme.Spacing.xxs) {
                 ForEach(summary.rows) { row in
-                    let view = LockRowView(row: row, current: summary.current && !stale)
+                    let view = LockRowView(row: row, current: !summary.asOf(stale: stale))
                     if let url = URL(string: row.link) { Link(destination: url) { view } } else { view }
                 }
             }

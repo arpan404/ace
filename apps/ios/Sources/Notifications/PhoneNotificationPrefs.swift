@@ -9,7 +9,8 @@ struct PhoneNotificationPrefs: Codable, Equatable, Sendable {
         var needsYou = true
         var failures = true
         var finished = true
-        var agentSays = true
+        /// Opt-in: by default the phone alerts only for requests, failures and finishes.
+        var agentSays = false
         subscript(_ key: String) -> Bool {
             get { switch key { case "needsYou": needsYou; case "failures": failures; case "finished": finished; default: agentSays } }
             set {

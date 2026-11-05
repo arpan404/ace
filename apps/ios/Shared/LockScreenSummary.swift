@@ -37,38 +37,84 @@ struct LockRequest: Codable, Hashable, Sendable {
     let title: String
 }
 
-/// The person's agents across every paired machine, as one glance: how many need them, how many
-/// work, and the most urgent threads. `current` is false whenever any machine is unreachable or
-/// any row is a copy its machine hasn't confirmed; then the counts are the last known and nothing
-/// may read as finished.
+/// The person's agents across every paired machine, as one glance: how many are in each state
+/// of the design language's status table (each row's state comes from the bridge, never derived
+/// here), and the most urgent threads.
+///
+/// `live` is true when the counts come from at least one connected machine at `updatedAt`; false
+/// means they are the last known and every surface says "as of" their time. `current` is stricter:
+/// every paired machine is connected and every row confirmed, so only then may anything read as
+/// quiet ("Nothing needs you") or offer Allow and Deny.
 struct LockSummary: Codable, Hashable, Sendable {
     var needsYou: Int
     var working: Int
-    /// Most urgent first: needs you, then working, then failed and unseen results.
+    var failed = 0
+    /// Any other wait: the queue, a recovery to review, the network or provider.
+    var waiting = 0
+    /// Held at a usage limit.
+    var limited = 0
+    /// Only background commands run.
+    var background = 0
+    /// Most urgent first: needs you, failed, working, waiting, limited, background, then unseen results.
     var rows: [LockRow]
     var request: LockRequest? = nil
     var current: Bool
+    var live: Bool
+    /// Paired machines that couldn't be reached; their threads aren't counted.
+    var offline = 0
     /// Something works, waits or needs the person, or its state can't be confirmed.
     var busy: Bool
+    /// When the counts were last confirmed by a connected machine.
     var updatedAt: Date
 
+    init(needsYou: Int, working: Int, failed: Int = 0, waiting: Int = 0, limited: Int = 0, background: Int = 0,
+         rows: [LockRow], request: LockRequest? = nil, current: Bool, live: Bool? = nil, offline: Int = 0,
+         busy: Bool, updatedAt: Date) {
+        self.needsYou = needsYou; self.working = working; self.failed = failed; self.waiting = waiting
+        self.limited = limited; self.background = background; self.rows = rows; self.request = request
+        self.current = current; self.live = live ?? current; self.offline = offline; self.busy = busy; self.updatedAt = updatedAt
+    }
+
     /// How long a summary counts as current without an update; past it every surface says
-    /// "as of" its time.
-    static let freshFor: TimeInterval = 10 * 60
+    /// "as of" its time. ace refreshes it every minute while it runs, so this is the most a
+    /// suspended app's last word can stay on screen looking fresh.
+    static let freshFor: TimeInterval = 3 * 60
 
     static let empty = LockSummary(needsYou: 0, working: 0, rows: [], current: false, busy: false, updatedAt: .distantPast)
 
-    /// "2 need you · 4 working", "4 working", "Nothing needs you". Without current state and with
-    /// nothing known to be running, it asks to open ace rather than claim all is quiet.
+    /// The counts in words, most urgent first, at most three: "2 need you · 3 working · 5 waiting".
+    var parts: [String] {
+        let all: [(Int, String)] = [
+            (needsYou, needsYou == 1 ? "needs you" : "need you"), (failed, "failed"), (working, "working"),
+            (waiting, "waiting"), (limited, "limited"), (background, "in background"),
+        ]
+        return all.filter { $0.0 > 0 }.prefix(3).map { "\($0.0) \($0.1)" }
+    }
+    /// The parts joined; with nothing to count, "Nothing needs you" only when every machine is
+    /// confirmed, the machines out of reach when some others answered, else a nudge to open ace.
     var headline: String {
-        let needs = needsYou == 0 ? nil : "\(needsYou) need\(needsYou == 1 ? "s" : "") you"
-        let work = working == 0 ? nil : "\(working) working"
-        let parts = [needs, work].compactMap { $0 }
+        let parts = parts
         if !parts.isEmpty { return parts.joined(separator: " · ") }
-        return current ? "Nothing needs you" : "Open ace to check"
+        if current { return "Nothing needs you" }
+        if live, offline > 0 { return offlineWords }
+        return "Open ace to check"
+    }
+    /// "1 machine offline", "2 machines offline".
+    var offlineWords: String { "\(offline) machine\(offline == 1 ? "" : "s") offline" }
+    /// Whether the content is to be read "as of" its time: the last known, or past its stale date.
+    func asOf(stale: Bool) -> Bool { stale || !live }
+    /// What sits after the headline: "as of 7:26 AM" when it isn't fresh, the machines out of
+    /// reach when the headline counts only the others, else `fresh`.
+    func note(stale: Bool, fresh: String) -> String {
+        if asOf(stale: stale) { return "as of \(updatedAt.formatted(date: .omitted, time: .shortened))" }
+        if offline > 0, headline != offlineWords { return offlineWords }
+        return fresh
     }
     /// The same, for VoiceOver.
-    var spokenHeadline: String { current ? headline : "\(headline), as of \(updatedAt.formatted(date: .omitted, time: .shortened))" }
+    func spokenHeadline(stale: Bool) -> String {
+        let note = note(stale: stale, fresh: "")
+        return note.isEmpty ? headline : "\(headline), \(note)"
+    }
 
     /// The same summary with at most `limit` rows, for surfaces with less room.
     func limited(_ limit: Int) -> LockSummary {
@@ -81,6 +127,28 @@ struct LockSummary: Codable, Hashable, Sendable {
         var a = self, b = other
         a.updatedAt = .distantPast; b.updatedAt = .distantPast
         return a == b
+    }
+
+    private enum Keys: String, CodingKey {
+        case needsYou, working, failed, waiting, limited, background, rows, request, current, live, offline, busy, updatedAt
+    }
+    /// Activities and snapshots from earlier builds lack the newer counts; they decode as zero,
+    /// and their content as live only if it was current.
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        needsYou = try box.decode(Int.self, forKey: .needsYou)
+        working = try box.decode(Int.self, forKey: .working)
+        failed = try box.decodeIfPresent(Int.self, forKey: .failed) ?? 0
+        waiting = try box.decodeIfPresent(Int.self, forKey: .waiting) ?? 0
+        limited = try box.decodeIfPresent(Int.self, forKey: .limited) ?? 0
+        background = try box.decodeIfPresent(Int.self, forKey: .background) ?? 0
+        rows = try box.decode([LockRow].self, forKey: .rows)
+        request = try box.decodeIfPresent(LockRequest.self, forKey: .request)
+        current = try box.decode(Bool.self, forKey: .current)
+        live = try box.decodeIfPresent(Bool.self, forKey: .live) ?? current
+        offline = try box.decodeIfPresent(Int.self, forKey: .offline) ?? 0
+        busy = try box.decode(Bool.self, forKey: .busy)
+        updatedAt = try box.decode(Date.self, forKey: .updatedAt)
     }
 }
 

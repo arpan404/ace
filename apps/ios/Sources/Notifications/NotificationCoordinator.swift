@@ -49,6 +49,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     var model: ClientModel? { machines.first?.model }
     /// Local notices (an action that couldn't finish) and withdrawals; no ledger of its own.
     @ObservationIgnored let notifier: LocalNotifier
+    /// Every machine's alerts land here: one per thread, bursts of finishes folded into one.
+    @ObservationIgnored let desk: AlertDesk
     @ObservationIgnored private let center: any NotificationCenterPort
     @ObservationIgnored private let authorizer: any NotificationAuthorizer
     @ObservationIgnored private let defaults: UserDefaults
@@ -78,7 +80,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
          makeId: @escaping () -> String = { UUID().uuidString.lowercased() },
          connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect,
          lockScreenEdges: LockScreenHub.Edges? = nil) {
-        notifier = LocalNotifier(center: center)
+        desk = AlertDesk(center: center, defaults: defaults, now: now)
+        notifier = LocalNotifier(center: center, desk: desk)
         self.center = center
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
         self.makeId = makeId; self.connectInBackground = connectInBackground
@@ -98,7 +101,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     func attach(_ model: ClientModel, target: ConnectionTarget) async {
         if transient.contains(where: { $0 !== model }) { await releaseTransient() }
         let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let ledger = LocalNotifier(center: center, hostId: target.hostId)
+        let ledger = LocalNotifier(center: center, hostId: target.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
         machines.removeAll { $0.hostId == target.hostId || $0.model === model }
         machines.append((target.hostId, model, ledger))
@@ -106,6 +109,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
         model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
         model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        // Opening a thread here is reading it: its notification goes.
+        model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
         lockScreen.changed()
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
         // Read once the runtime is starting, never before it: the permission's sync goes to that
@@ -119,6 +124,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
+        model.onOpenThread = nil
         lockScreen.changed()
     }
     func client(_ hostId: String?) -> ClientModel? {

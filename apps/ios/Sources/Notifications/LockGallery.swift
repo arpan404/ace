@@ -9,12 +9,15 @@ import WidgetKit
 /// raised surface the activity sets as its tint.
 struct LockGallery: View {
     static var requested: Bool { ProcessInfo.processInfo.arguments.contains("--lock-gallery") }
-    /// Which part to show, so each fits one screenshot: `--lock-gallery-page 1…3`.
+    /// Which part to show, so each fits one screenshot: `--lock-gallery-page 1…4`.
     private var page: Int {
         let args = ProcessInfo.processInfo.arguments
         guard let at = args.firstIndex(of: "--lock-gallery-page"), args.indices.contains(at + 1) else { return 1 }
         return Int(args[at + 1]) ?? 1
     }
+
+    /// Page 4 draws what the hub built from the attached machines' real rows.
+    @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
 
     var body: some View {
         ScrollView {
@@ -22,6 +25,7 @@ struct LockGallery: View {
                 switch page {
                 case 2: widgets
                 case 3: accessories
+                case 4: live
                 default: activity
                 }
             }
@@ -40,8 +44,25 @@ struct LockGallery: View {
     private var stale: LockSummary {
         var summary = LockSummary.preview
         summary.current = false
+        summary.live = false
         summary.updatedAt = Date.now.addingTimeInterval(-25 * 60)
         return summary
+    }
+    /// Eight busy threads where only three work, with one paired machine switched off: the
+    /// counts say each state, and the offline machine is a note, not a stale mark.
+    private var mixed: LockSummary {
+        let now = Date.now
+        func row(_ id: String, _ title: String, _ icon: String, _ tone: String, _ meaning: String, since: TimeInterval? = nil) -> LockRow {
+            LockRow(id: id, hostId: "", title: title, icon: icon, tone: tone, meaning: meaning,
+                    since: since.map { now.addingTimeInterval(-$0) }, link: "ace://thread/\(id)", needsYou: false)
+        }
+        return LockSummary(needsYou: 0, working: 3, waiting: 3, limited: 2, rows: [
+            row("w1", "Fix-command-discovery-stalls", "working", "working", "Working", since: 412),
+            row("w2", "Design a Polished iOS App Interface", "agents", "waiting", "Waiting on 2 agents", since: 1310),
+            row("w3", "Usage limits as a quiet line", "working", "working", "Working", since: 95),
+            row("q1", "Fleet-computer-use-over-machines", "waiting", "waiting", "Queued"),
+            row("l1", "Offshift-person-controls", "limited", "limited", "Limited 9:00 AM"),
+        ], current: false, live: true, offline: 1, busy: true, updatedAt: now)
     }
     private var quiet: LockSummary {
         LockSummary(needsYou: 0, working: 0, rows: [LockSummary.preview.rows[5]], current: true, busy: false, updatedAt: .now)
@@ -50,7 +71,9 @@ struct LockGallery: View {
     @ViewBuilder private var activity: some View {
         caption("Lock Screen")
         LockActivityView(summary: current.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
-        caption("Lock Screen, not current")
+        caption("Lock Screen, three working among eight busy, one machine off")
+        LockActivityView(summary: mixed.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
+        caption("Lock Screen, last known (no machine answered)")
         LockActivityView(summary: stale.limited(3), stale: true).background(AceTheme.Colours.card, in: lockShape)
         caption("Lock Screen, all quiet")
         LockActivityView(summary: quiet, stale: false).background(AceTheme.Colours.card, in: lockShape)
@@ -69,6 +92,19 @@ struct LockGallery: View {
             SummaryGlyph(summary: current, size: LockType.islandGlyph).frame(width: 37, height: 37).background(.black, in: Circle())
         }
         .environment(\.colorScheme, .dark)
+    }
+
+    /// The summary the Live Activity is sent now, re-read every second (the hub isn't observed).
+    @ViewBuilder private var live: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let summary = notifications?.lockScreen.summary ?? .empty
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
+                caption("Lock Screen, live from the attached machines")
+                LockActivityView(summary: summary.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
+                caption("Large widget, the same summary")
+                widget(width: 364, height: 382) { ListInbox(summary: summary.limited(6), stale: false) }
+            }
+        }
     }
 
     @ViewBuilder private var widgets: some View {

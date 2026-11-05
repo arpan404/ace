@@ -11,9 +11,12 @@ import WidgetKit
         var activity: any AgentsActivityPort
         var writeSnapshot: (LockSummary) -> Void
         var reloadWidgets: () -> Void
+        /// How often a running activity is rebuilt while ace is open, so an unchanged inbox
+        /// never reaches its stale date while it is still being confirmed. Nil: never.
+        var renewal: Duration? = nil
         static var system: Edges {
             Edges(activity: SystemAgentsActivity(), writeSnapshot: { LockSnapshotStore.write($0) },
-                  reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() })
+                  reloadWidgets: { WidgetCenter.shared.reloadAllTimelines() }, renewal: .seconds(AgentsActivityPlan.renewEvery))
         }
         /// Touches nothing outside the process: the default where no app runs (tests, previews).
         static var inert: Edges { Edges(activity: InertActivity(), writeSnapshot: { _ in }, reloadWidgets: {}) }
@@ -21,12 +24,16 @@ import WidgetKit
     /// How long a burst of inbox changes is gathered into one rebuild.
     static let coalesce: Duration = .milliseconds(300)
     /// An unchanged snapshot is rewritten this often, so the widgets' "as of" time moves on.
-    static let snapshotRenewal: TimeInterval = 5 * 60
+    static let snapshotRenewal: TimeInterval = 60
     private static let log = Logger(subsystem: "app.ace.ios", category: "lockScreen")
 
     private let edges: Edges
     private let now: () -> Date
     private let sleep: @Sendable (Duration) async -> Void
+    private var renewing: Task<Void, Never>?
+    /// The last summary a connected machine confirmed: what stays up, "as of" its time, once
+    /// no machine answers (the phone offline, or the app letting its connections go).
+    private var lastLive: LockSummary?
     typealias Input = (machines: [LockScreenBuilder.Machine], requests: [String: LockRequest])
     /// Reads every attached machine's rows and the approvals it was told about.
     var read: @MainActor () -> Input = { ([], [:]) }
@@ -66,10 +73,36 @@ import WidgetKit
     func rebuild() {
         let at = now()
         let input = read()
-        let next = LockScreenBuilder.summary(input.machines, requests: input.requests, now: at)
+        let next = Self.held(LockScreenBuilder.summary(input.machines, requests: input.requests, now: at), last: &lastLive)
         summary = next
         writeSnapshot(next, at: at)
         drive(next, at: at)
+        renew()
+    }
+
+    /// With no machine answering, the last confirmed counts stay, marked as the last known (so
+    /// every surface says "as of" their time, with no running times and no Allow or Deny) rather
+    /// than blanking to "Open ace to check" or claiming they are current.
+    static func held(_ next: LockSummary, last: inout LockSummary?) -> LockSummary {
+        if next.live { last = next; return next }
+        guard var kept = last else { return next }
+        kept.live = false
+        kept.current = false
+        kept.request = nil
+        kept.busy = true
+        return kept
+    }
+
+    /// While the activity runs and ace is open, rebuild every `renewal` so its stale date keeps
+    /// moving with confirmed content; once ace leaves, it ages to "as of" by itself.
+    private func renew() {
+        guard let renewal = edges.renewal, renewing == nil, foreground, edges.activity.running else { return }
+        renewing = Task { @MainActor [weak self, sleep] in
+            await sleep(renewal)
+            guard let self else { return }
+            self.renewing = nil
+            if self.foreground { self.rebuild() }
+        }
     }
 
     private func writeSnapshot(_ next: LockSummary, at: Date) {

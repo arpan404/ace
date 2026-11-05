@@ -132,6 +132,8 @@ import QuartzCore
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// Told when the person opens a thread, so its notification goes (`NotificationCoordinator`).
+    @ObservationIgnored var onOpenThread: ((String) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
     /// Each thread's side panel on iPad.
@@ -673,6 +675,7 @@ import QuartzCore
         }
     }
     func open(_ id: String, isSnapshotRetry: Bool = false) {
+        if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
         sheets.reset()
