@@ -1,4 +1,5 @@
 import {
+  chartSeries,
   oklchToHex,
   rampSteps,
   rowStatusColours,
@@ -45,24 +46,13 @@ const projectSets: Record<Scheme, Record<`--project-${number}`, string>> = {
   dark: projectTints("dark"),
 };
 
-/**
- * Chart series for published HTML visualizations (@ace/html `themeProperties`): blue, red,
- * green, magenta, amber and cyan, 55–60° apart at one lightness per scheme, so each is distinct
- * from the others and reads on the theme's background.
- */
-const chartHues = [260, 30, 145, 330, 85, 200] as const;
-const chartLightness: Record<Scheme, { l: number; c: number }> = {
-  dark: { l: 0.78, c: 0.14 },
-  light: { l: 0.55, c: 0.16 },
-};
 const chartSets: Record<Scheme, Record<string, string>> = {
-  light: chartSeries("light"),
-  dark: chartSeries("dark"),
+  light: chartVariables("light"),
+  dark: chartVariables("dark"),
 };
-function chartSeries(scheme: Scheme): Record<string, string> {
-  const { l, c } = chartLightness[scheme];
+function chartVariables(scheme: Scheme): Record<string, string> {
   return Object.fromEntries(
-    chartHues.map((hue, index) => [`--chart-${index + 1}`, oklchToHex(l, c, hue)]),
+    chartSeries(scheme).map((colour, index) => [`--chart-${index + 1}`, colour]),
   );
 }
 

@@ -1,6 +1,5 @@
-import { createRequire } from "node:module";
-import type koffiModule from "koffi";
 import { z } from "zod";
+import { openLibrary, wideString } from "@ace/provider-kit/bun-ffi";
 
 /**
  * Windows test fixture: turns the existing folder `directory` itself into a junction to `target`
@@ -8,16 +7,19 @@ import { z } from "zod";
  * whether Windows accepted it; it refuses a folder that has any entry.
  */
 export function junctionInPlace(directory: string, target: string): boolean {
-  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-  const kernel = koffi.load("kernel32.dll");
+  const kernel = openLibrary("kernel32.dll", {
+    CreateFileW: {
+      args: ["ptr", "u32", "u32", "ptr", "u32", "u32", "i64_fast"],
+      returns: "i64_fast",
+    },
+    DeviceIoControl: {
+      args: ["i64_fast", "u32", "ptr", "u32", "ptr", "u32", "ptr", "ptr"],
+      returns: "i32",
+    },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+  });
+  const { CreateFileW: open, DeviceIoControl: control, CloseHandle: close } = kernel.symbols;
   try {
-    const open = kernel.func(
-      "intptr_t __stdcall CreateFileW(str16 path, uint32 access, uint32 share, void* security, uint32 disposition, uint32 flags, intptr_t template)",
-    );
-    const control = kernel.func(
-      "int __stdcall DeviceIoControl(intptr_t device, uint32 code, void* input, uint32 inputSize, void* output, uint32 outputSize, _Out_ uint32* returned, void* overlapped)",
-    );
-    const close = kernel.func("int __stdcall CloseHandle(intptr_t handle)");
     const substitute = Buffer.from(`\\??\\${target}`, "utf16le");
     const print = Buffer.from(target, "utf16le");
     const names = Buffer.concat([substitute, Buffer.alloc(2), print, Buffer.alloc(2)]);
@@ -30,16 +32,21 @@ export function junctionInPlace(directory: string, target: string): boolean {
     data.writeUInt16LE(print.length, 14);
     names.copy(data, 16);
     // GENERIC_WRITE; share everything; OPEN_EXISTING; backup semantics, the folder itself.
-    const handle = z.number().parse(open(directory, 0x40000000, 0x7, null, 3, 0x02200000, 0));
+    const handle = z
+      .number()
+      .parse(open(wideString(directory), 0x40000000, 0x7, null, 3, 0x02200000, 0));
     if (handle === -1 || handle === 0) return false;
     try {
       return (
-        z.number().parse(control(handle, 0x900a4, data, data.length, null, 0, [0], null)) !== 0
+        z
+          .number()
+          .parse(control(handle, 0x900a4, data, data.length, null, 0, new Uint32Array(1), null)) !==
+        0
       );
     } finally {
       close(handle);
     }
   } finally {
-    kernel.unload();
+    kernel.close();
   }
 }

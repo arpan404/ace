@@ -96,13 +96,10 @@ jobs:
           fi
           echo "ACE_RELEASE_PUBLIC_KEY_FILE=$RUNNER_TEMP/release-key/public.pem" >> "$GITHUB_ENV"
 
-      - name: Build node-pty for ${{ matrix.target }}
-        run: node tools/release/src/native.ts ${{ matrix.target }}
-
       - name: Build the daemon archive
         run: >-
           node tools/release/src/build.ts "$VERSION" ${{ matrix.target }}
-          "$ACE_RELEASE_PUBLIC_KEY_FILE" tools/release/dist/native/${{ matrix.target }}.json
+          "$ACE_RELEASE_PUBLIC_KEY_FILE"
 
       - name: Check the glibc floor
         run: node tools/release/src/glibc-check.ts tools/release/dist/${{ matrix.target }}
@@ -121,7 +118,6 @@ jobs:
           path: |
             tools/release/dist/ace-*-${{ matrix.target }}.tar.gz
             tools/release/dist/${{ matrix.target }}.json
-            tools/release/dist/native/${{ matrix.target }}/provenance.json
 
       - name: Upload the desktop packages
         uses: actions/upload-artifact@v7

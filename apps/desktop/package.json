@@ -10,7 +10,6 @@
     "dev": "node scripts/dev.ts",
     "build": "node scripts/build.ts",
     "package": "node scripts/package.ts",
-    "rebuild-native": "node scripts/rebuild-native.ts",
     "e2e": "vitest run --config vitest.e2e.config.ts",
     "measure:memory": "node scripts/measure-memory.ts"
   },
@@ -30,7 +29,6 @@
     "@ace/browser-extension": "workspace:*",
     "@ace/daemon": "workspace:*",
     "@ace/release": "workspace:*",
-    "@electron/rebuild": "4.2.0",
     "@types/ws": "^8.18.1",
     "@vscode/ripgrep": "1.18.0",
     "electron": "44.5.1",

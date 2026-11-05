@@ -68,7 +68,7 @@ export function missingUpdatePackages(assets: readonly string[]): string[] {
 
 /**
  * The standalone daemon archives a release built on this host can include. A Mac builds both
- * macOS targets; Linux natives (node-pty, the workspace addon, the screen helper) are built on
+ * macOS targets; Linux natives (the workspace addon, the terminal guardian, the screen helper) are built on
  * a host of the target architecture, so a Linux host builds only its own target.
  */
 export function daemonTargetsFor(

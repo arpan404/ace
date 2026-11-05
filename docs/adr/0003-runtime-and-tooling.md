@@ -44,9 +44,19 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   desktop app) and `node.exe`. Launchers and updaters from earlier releases run
   `<release>/bin/node ace.mjs`, and Bun runs scripts the same way under that name.
 - **Node code stays as it is.** The daemon keeps using `node:` modules; Bun-native APIs are
-  later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
-  reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
-  `Bun.spawn({ terminal })`. On Node they keep node-pty.
+  later work. Two exceptions:
+  - Terminals: node-pty's addon needs Node's libuv loop and reports neither output nor exit
+    under Bun, so the terminal backends (POSIX and Windows ConPTY) spawn through
+    `Bun.spawn({ terminal })`. node-pty is a development dependency, loaded only when a test
+    opens a terminal on Node; releases and the desktop app ship none of it.
+  - Native calls: C and Win32 functions are bound with `bun:ffi` through
+    `@ace/provider-kit/bun-ffi`, not koffi. Two provider-kit files the desktop main process
+    also bundles (`process-owner.ts`, `process-containment.ts`) keep a lazy koffi path for
+    runtimes that are not Bun; the daemon never loads koffi, and the desktop bundle refuses a
+    static `bun:ffi` import. bun:ffi has no variadic calls, so the one `openat` with `O_CREAT`
+    goes through `@ace/workspace`'s add-on. bun:ffi calls run on the calling thread, so command
+    discovery's filesystem calls run in their own worker (`packages/commands/src/posix-worker.ts`),
+    where a stuck mount blocks only that worker.
 - **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
   screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
   `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms
@@ -79,6 +89,57 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     write. Code counts unflushed bytes from write callbacks.
   - `Bun.Image` handles a JPEG cut short differently by version: 1.4.0 refuses it, 1.4.4 fills
     the missing data with grey and succeeds. Releases pin 1.4.4.
+  - Bun's `node:https` server ignores `SNICallback`, `addContext` and `setSecureContext`, and
+    serves only its default certificate. Its `node:tls` server honours `SNICallback`. The remote
+    listener therefore ends TLS in a `node:tls` server and hands each socket to a plain
+    `node:http` server (`apps/daemon/src/sni-listener.ts`), so a ts.net name gets the Tailscale
+    certificate and a renewed one applies to the next connection without a restart. That HTTP
+    server never listens, so its own timeouts never run: the listener bounds the handshake, the
+    first request and idle keep-alive connections itself, and destroys sockets whose handshake
+    fails or stalls (neither runtime does that unasked). `Bun.serve`
+    accepts a per-name `tls` array, but using it would mean leaving `node:http`'s request and
+    upgrade handling, and a certificate change would mean restarting the server.
+  - Bun reads a socket up to 512 KiB at a time whatever its high-water mark (Node: 64 KiB), and
+    a paused socket can hold one such read. The preview relay splits reads larger than its
+    window before they reach the stream mux.
+  - Bun serves its own built-in `ws` in place of the npm package. It has no `maxFragments` or
+    `maxBufferedChunks`; `maxPayload` still caps a message's size.
+  - An error thrown in a worker reaches the parent with its `code` but without its name or other
+    fields. A worker reports a failure the parent must recognise as a message.
+  - Bun ignores a Worker's `resourceLimits`. The history reader's 128 MB heap limit holds only
+    on Node, so on Bun a transcript that exhausts the reader grows the daemon instead. Not yet
+    fixed.
+  - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing
+    `-shm` but not the `-wal`, where Node creates both. `@ace/provider-kit/sqlite`'s
+    `DatabaseSync` probes a read-only open and, only after that failure, creates the empty `-wal`
+    with the database's mode and retries; read-only opens go through it. It never opens the
+    database file itself: closing any descriptor of it drops this process's POSIX locks on it.
+  - After a failed spawn, the `close` event's signal is `undefined` rather than `null`; the
+    spawn wrappers report `null`, so a probe of a missing command settles.
+  - An error thrown inside an `unhandledRejection` listener, a `setImmediate` or a
+    `process.nextTick` callback is reported but does not end the process; one thrown from a
+    timer does. The daemon's rejection guard rethrows from a timer.
+  - `realpath` of a Unix socket fails with `EOPNOTSUPP`.
+  - `fs.promises.access` resolves `null`, not `undefined`.
+  - A listen error keeps `code: "EADDRINUSE"` but has a different message.
+  - There is no `gc` global behind `--expose-gc`; `Bun.gc(true)` collects.
+  - `node:v8` has no `queryObjects`, and there is no `worker_threads` diagnostics channel.
+    Workers don't inherit `--import` or `execArgv` preloads; Bun's Worker takes `preload`.
+  - A `--` right after the script path is dropped from `process.argv`.
+  - Stack frames of Bun's built-in code are named `native`.
+  - A pending top-level await keeps a Bun process alive, so `beforeExit` never fires.
+  - Replacing a function on a builtin module's object does not reach named imports
+    (`syncBuiltinESMExports` does nothing), and plugins cannot replace builtin modules.
+- **Tests on Bun.** `bun run test` and every tier run Vitest on Bun, then run the projects in
+  `nodeProjects` (`scripts/test-tiers.ts`) in a second pass on Node and merge the timings: the
+  `web` and `client-react` jsdom projects, whose code runs in browsers, and the suites in
+  `nodeOnlySuites`. Those cover code that doesn't run on Bun in production (the Cloudflare
+  Worker, whose wrangler test harness refuses Bun; the self-hosted relay server and the e2e
+  launcher, which run on Node), or rely on hooks and limits only Node has. A single test that
+  needs a Node-only API skips on Bun with a comment saying why; a whole file that does goes in
+  `nodeOnlySuites`. Under Bun, test isolates drop
+  `native` stack frames: Vitest looks them up as files and would read the repository's
+  `native/` folder.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
   each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
   vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).
@@ -87,6 +148,6 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   footprint just after start (209–228 vs 222–254 MB). `ace version` starts in 232 ms against
   Node's 323 ms.
 - **Not compiled yet.** `bun build --compile` (with or without `--bytecode`) builds, but the
-  binary cannot run: native addons (koffi, node-pty) are not found inside its embedded file
+  binary cannot run: native addons (`descriptor.node`) are not found inside its embedded file
   system, and helpers launched through `process.execPath` and the worker files would need
   Bun-specific handling. That is part of the Bun-native follow-up.

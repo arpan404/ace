@@ -1,5 +1,6 @@
 import { replayGap } from "./replay-gap.ts";
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
 import {
   NotificationAddress,
   NotificationFeed,
@@ -150,6 +151,7 @@ export class NotificationWorker {
             ),
           );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
+      else if (message.type === "incompatible") this.fail(revivedIncompatibleData(message));
       else if (message.type === "state")
         options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {

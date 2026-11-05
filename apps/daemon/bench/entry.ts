@@ -9,7 +9,7 @@ import {
 } from "@ace/daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
-import { getHeapCodeStatistics, queryObjects } from "node:v8";
+import * as v8 from "node:v8";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { setImmediate } from "node:timers/promises";
 
@@ -157,11 +157,15 @@ process.on("message", (input: unknown) => {
         await setImmediate();
         globalThis.gc();
         await setImmediate();
-        const native = {
-          statements: queryObjects(StatementSync),
-          databases: queryObjects(DatabaseSync),
-          code: getHeapCodeStatistics(),
-        };
+        // Bun's node:v8 has no queryObjects; there the counts are left out.
+        const native =
+          typeof v8.queryObjects === "function"
+            ? {
+                statements: v8.queryObjects(StatementSync),
+                databases: v8.queryObjects(DatabaseSync),
+                code: v8.getHeapCodeStatistics(),
+              }
+            : undefined;
         process.send?.({ id: request.id, threads: [], memory: process.memoryUsage(), native });
         return;
       }

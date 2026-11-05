@@ -1,6 +1,6 @@
 # @ace/terminal
 
-POSIX PTY sessions owned by the local daemon. This package has no client UI or daemon transport wiring. `node-pty` is its only new external runtime dependency; schemas come from the existing `@ace/protocol` workspace package.
+PTY sessions owned by the local daemon. This package has no client UI or daemon transport wiring. The daemon runs on Bun, and its terminals use Bun's own PTY (`Bun.spawn({ terminal })`, ConPTY on Windows); schemas come from the existing `@ace/protocol` workspace package.
 
 ## API
 
@@ -74,43 +74,8 @@ The manager accepts `dependencies` with `backendFactory`, `resolveShell`, `creat
 
 `snapshot()` returns JSON-safe versioned metadata, dimensions, capacity, raw byte offsets, base64 retained bytes and the retained exit status. A snapshot may start inside a UTF-8 character or end with an incomplete one. Restore consumers must align/decode it as described above. Snapshot loading and restarting live shells are left to future daemon work. After persisting a snapshot, call `await manager.release(terminal)` to stop any remaining owned jobs, free its ring and remove the manager's handle. Late attachment remains available until explicit release. Released handles reject replay and snapshots. The daemon chooses when to release historical terminals.
 
-## Native installation and Electron
+## Native installation
 
-From the repository root, run `bun install`. Root `trustedDependencies` allows node-pty's install hooks. Root postinstall also compiles the package-owned POSIX keeper with `cc`; no additional runtime package is installed. Upstream selects its bundled native binaries when available and runs `node-gyp` otherwise. Compilation requires C/C++ toolchains and Python; on macOS install Xcode command-line tools, and on Linux install Python, make and a C++ compiler. See the [node-pty build instructions](https://github.com/microsoft/node-pty#dependencies).
+The daemon needs no PTY package: Bun provides the terminal. The root postinstall compiles the package-owned POSIX keeper (`native/group-keeper`) with `cc`; the release and desktop builds compile it for their target. It is a standalone libc executable.
 
-node-pty 1.1.0's macOS tarball contains a non-executable prebuilt spawn helper. The root postinstall runs this package's `prepare-native` script to set its executable mode. This also handles source builds and keeps a plain `bun install` usable on macOS.
-
-To verify compilation rather than using the vendor prebuild:
-
-```sh
-npm_config_build_from_source=true bun install --force
-```
-
-Both this source-build path and plain `bun install --force` were exercised on macOS arm64 before the current static-only policy. Native spawning verification now needs run at merge. The source-build flag is documented by [node-pty's install script](https://github.com/microsoft/node-pty/blob/main/scripts/prebuild.js).
-
-Desktop packaging will rebuild node-pty in the staged Electron app for that Electron version and architecture. Add `@electron/rebuild` as desktop build tooling when that package exists, then run, for example:
-
-```sh
-bunx @electron/rebuild --force --which-module node-pty \
-  --build-from-source --version "$ACE_ELECTRON_VERSION" \
-  --module-dir "$ACE_STAGED_APP_DIR"
-```
-
-Remove node-pty's bundled `prebuilds` directory in the staged copy before rebuilding, so it loads the rebuilt `build/Release` artifact. Rebuild in the staged copy rather than overwriting the standalone daemon's native binary. Package the native addon, macOS spawn helper and `@ace/terminal/native/group-keeper` outside ASAR and preserve executable modes. Compile the keeper for the staged app's OS and architecture. It is a standalone libc executable, independent of the Electron Node ABI. The future desktop build must smoke-test PTY spawning under Electron itself. See [Electron rebuild's CLI documentation](https://github.com/electron/rebuild#cli-arguments). No Electron dependency or wiring is added here.
-
-## Verification
-
-```sh
-bun run fmt
-bun run lint
-bun run typecheck
-bun run check:size
-```
-
-Tests use real PTYs, isolated shell and Readline startup files and shell/output barriers. There are no elapsed-time assertions or sleeps for synchronization. The 20 MiB cases check retained bytes, resync and successful shell completion. An isolated Node process with `--expose-gc` samples live heap and buffer allocations at every 64 KiB output/read barrier, avoiding dependence on automatic GC timing. Its maximum live allocation growth must stay below 8 MiB while 20 MiB passes through a 64 KiB ring. Test-runner timeouts only prevent hangs. Real PTY suites use the shared process-test project with 120-second test and cleanup guards, including the isolated memory probe. These do not assert throughput or elapsed-time performance. The current repository-owner policy reserves test execution for merge. Run only static checks during development; do not run tests, mutation audits, benchmarks or probes. Final behavior and timing validation needs run at merge.
-
-[Verification notes](VERIFICATION.md) map the verifier behavior tests to mutation cases. Every case is marked "not executed (tests run at merge)". The historical mutation auditor remains available in `scripts/mutations.ts`; it is not invoked under the current policy.
-
-The benchmark is optional and non-gating. It reports throughput, retained bytes, allocation changes, sampled peak RSS/heap/buffer growth and the stalled reader's outcome. Historical benchmark results are recorded in the PR description. No benchmark is run under the current policy; final performance validation needs run at merge.
-
-Kernel group pinning uses POSIX `setpgid` session restrictions, described in [Apple's setpgid manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/setpgid.2.html). Each keeper caps simultaneous guardian slots at 4096 and handles one bounded command at a time; the daemon rejects overlapping keeper requests. Guardian replies are parsed with a protocol schema. Process discovery and pinning stay outside the output hot path. This is supervision against ordinary exit/reuse, not isolation from a program deliberately SIGKILLing its keeper or guardians. Native keeper compilation, packaging and all runtime behavior need run at merge under the current policy.
+node-pty is a development dependency only. Tests that run on Node (where Bun's terminal does not exist) open terminals through it, loaded on first use; the daemon never loads it. Root `trustedDependencies` allows node-pty's install hooks, which use its prebuilds or `node-gyp` (C/C++ toolchain and Python; see the [node-pty build instructions](https://github.com/microsoft/node-pty#dependencies)). node-pty 1.1.0's macOS tarball has a non-executable prebuilt spawn helper; the root postinstall runs this package's `prepare-native` script to set its executable mode.

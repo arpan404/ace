@@ -1,11 +1,13 @@
 /*
- * The agent computer-use tools: screen_apps, screen_state and screen_act. They drive the
- * helper's background engine; each caller gets its own diff baseline per app.
+ * The agent computer-use tools: screen_apps, screen_state and screen_act, and on macOS
+ * screen_display. They drive the helper's background engine; each caller gets its own diff
+ * baseline per app.
  */
 import type { Toolkit, ToolContext } from "@ace/mcp-server";
 import { actLog, ranSteps, sentInput } from "./act-log.ts";
 import { expandConditions, type WireAction } from "./conditions.ts";
 import { appNote } from "./app-notes.ts";
+import { lookAtDisplays } from "./displays.ts";
 import { ComputerError, type ComputerClient } from "./client.ts";
 import { ComputerMemory, type ResolvedApp } from "./memory.ts";
 import {
@@ -23,6 +25,7 @@ import { blockedReason } from "./policy.ts";
 import {
   computerSchemasFor,
   computerToolMetadataFor,
+  computerToolNamesFor,
   type ComputerPlatform,
   type ComputerToolName,
 } from "./schemas.ts";
@@ -238,6 +241,21 @@ export function computerToolkit(
         }),
       };
     },
+    async screen_display(args, context) {
+      const { display } = computerSchemas.screen_display.parse(args);
+      const done = options.using?.(context.caller.threadId, "Screen");
+      try {
+        const content = await lookAtDisplays(localClient(), {
+          display,
+          personBlocked: await personBlocked(),
+          host,
+          signal: context.signal,
+        });
+        return { content };
+      } finally {
+        done?.();
+      }
+    },
     async screen_act(args, context) {
       const { app, actions, window, screenshot, observe } = computerSchemas.screen_act.parse(args);
       const resolved = await target(app, context);
@@ -294,7 +312,7 @@ export function computerToolkit(
   const route = options.route;
   return {
     register(registry) {
-      for (const name of Object.keys(computerSchemas) as ComputerToolName[]) {
+      for (const name of computerToolNamesFor(platform)) {
         const metadata = computerToolMetadata[name];
         registry.registerContent({
           name,

@@ -241,6 +241,13 @@ export const computerSpecs: Readonly<Record<string, AceToolSpec>> = {
     family: "screen",
     words: ({ subject }) => say(looked, ` ${subject ?? "an app"}`),
   },
+  screen_display: {
+    family: "screen",
+    words: ({ args }) => {
+      const display = args["display"];
+      return say(looked, typeof display === "number" ? ` display ${display}` : " the displays");
+    },
+  },
   screen_act: {
     family: "screen",
     input: batchInput,
