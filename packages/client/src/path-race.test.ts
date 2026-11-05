@@ -99,16 +99,36 @@ test("when every path fails the attempt closes as a drop, once", () => {
   expect(outcome).toMatchObject({ opened: false, closed: 1006, failed: ["lan", "relay"] });
 });
 
-test("when every path fails and one was refused, the attempt closes with that refusal", () => {
+test("one path dropping and another refused closes as a drop that says why, so it retries", () => {
+  const lan = fakePath("lan");
+  const relay = fakePath("relay");
+  const { scheduler, outcome } = race(lan, relay);
+  scheduler.advance(150);
+  // Away from home: the direct path is out and the relay finds the machine on another account.
+  relay.refuse(4403, "Not your machine");
+  expect(outcome.closed).toBeUndefined();
+  lan.fail();
+  expect(outcome).toMatchObject({ opened: false, closed: 1006, reason: "Not your machine" });
+});
+
+test("when every path is refused the attempt closes with the refusal, a final one over a later passing one", () => {
   const lan = fakePath("lan");
   const relay = fakePath("relay");
   const { scheduler, outcome } = race(lan, relay);
   scheduler.advance(150);
   relay.refuse(4403, "Not your machine");
-  expect(outcome.closed).toBeUndefined();
-  // The refusal is what the attempt ends with, though a plain drop came after it.
-  lan.fail();
+  lan.refuse(4013, "Device state subscriber capacity reached");
   expect(outcome).toMatchObject({ opened: false, closed: 4403, reason: "Not your machine" });
+});
+
+test("the owner's revocation heard on one path ends the attempt even when another path dropped", () => {
+  const lan = fakePath("lan");
+  const relay = fakePath("relay");
+  const { scheduler, outcome } = race(lan, relay);
+  scheduler.advance(150);
+  lan.refuse(4003, "Device revoked");
+  relay.fail();
+  expect(outcome).toMatchObject({ opened: false, closed: 4003, reason: "Device revoked" });
 });
 
 test("a refused path does not end the attempt while another path can still win", () => {
