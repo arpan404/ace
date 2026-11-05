@@ -46,6 +46,9 @@ export interface Verdict {
 export function metricsOf(result: BenchResult): Record<string, number> {
   const out: Record<string, number> = {
     "idle.cpuPerMinute": result.idle.cpuPerMinute,
+    // Raw percent of one core: steadier than the normalized figure, whose calibration loop runs
+    // at a different speed on each runtime.
+    "idle.cpuPercent": result.idle.cpuPercent,
     "startup.heapUsed": result.startup.heapUsed,
     "startup.rss": result.startup.rss,
   };

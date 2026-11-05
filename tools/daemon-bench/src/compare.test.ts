@@ -230,3 +230,37 @@ test("memory measured on Bun is held only to a Bun baseline of the same minor ve
       ?.status,
   ).toBe("unbaselined");
 });
+
+test("raw idle CPU is held to its own platform's baseline in percent of one core", () => {
+  const withRaw = Baseline.parse({
+    ...baseline,
+    tolerances: [
+      ...baseline.tolerances,
+      { metric: "idle.cpuPercent", relative: 0.35, absolute: 0.2 },
+    ],
+    platforms: {
+      "darwin-arm64": {
+        ...baseline.platforms["darwin-arm64"],
+        metrics: { ...baseline.platforms["darwin-arm64"]?.metrics, "idle.cpuPercent": 0.8 },
+      },
+    },
+  });
+  const raw = (percent: number) =>
+    compare(measured({ "idle.cpuPercent": percent }), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    )?.status;
+  expect(raw(1.05)).toBe("pass");
+  expect(raw(1.2)).toBe("regressed");
+  // A whole run's raw idle CPU (1% here) is gated with the rest of its metrics.
+  expect(
+    compare(combine([result(standard, 100)]), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    ),
+  ).toMatchObject({ actual: 1, status: "pass" });
+  // Another platform's raw CPU says nothing about this one's.
+  expect(
+    compare(measured({ "idle.cpuPercent": 5 }, "linux-x64"), withRaw).find(
+      (verdict) => verdict.metric === "idle.cpuPercent",
+    )?.status,
+  ).toBe("unbaselined");
+});

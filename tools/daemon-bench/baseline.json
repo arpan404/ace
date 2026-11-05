@@ -26,6 +26,12 @@
       "portable": false
     },
     {
+      "metric": "idle.cpuPercent",
+      "relative": 0.35,
+      "absolute": 0.2,
+      "portable": false
+    },
+    {
       "metric": "startup.heapUsed",
       "relative": 0.1,
       "absolute": 4194304,

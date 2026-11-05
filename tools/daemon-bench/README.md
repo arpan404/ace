@@ -54,8 +54,8 @@ protocol file beside `claude.ts`.
 | `calibrationMs`                | On-thread CPU for a fixed JSON/Map/allocation loop run inside the daemon through the inspector, fastest of 14 runs. A machine-speed yardstick measured in the same process and runtime. |
 | `phases.*.cpuMsPerTurn`        | Daemon CPU (all threads, from `process.cpuUsage`) per turn, in ms. Not gated: it depends on the machine.                                                                                |
 | `phases.*.cpuPerTurn`          | `cpuMsPerTurn / calibrationMs`. Gated; comparable across machines.                                                                                                                      |
-| `idle.cpuPercent`              | Idle daemon CPU as a percentage of one core. Informational.                                                                                                                             |
-| `idle.cpuPerMinute`            | Idle CPU per minute divided by `calibrationMs`. Gated.                                                                                                                                  |
+| `idle.cpuPercent`              | Idle daemon CPU as a percentage of one core. Gated on its own platform: steadier than the normalized figure.                                                                            |
+| `idle.cpuPerMinute`            | Idle CPU per minute divided by `calibrationMs`. Gated. Bun runs the calibration loop about 25% faster than Node, so the same raw CPU reads about 25% higher here on Bun.                |
 | `phases.*.transactionsPerTurn` | SQLite write transactions per turn, from daemon health counters. Deterministic, so gated tightly.                                                                                       |
 | `*.heapUsed`                   | Main-isolate heap after two forced full GCs.                                                                                                                                            |
 | `*.rss`                        | Resident set size at the same moment.                                                                                                                                                   |
@@ -93,13 +93,19 @@ under 4%, and RSS by up to 30% at startup and 25% after the turns.
 Why the tolerances in `baseline.json` are what they are, from twelve full runs on Node on a
 loaded M-series Mac (load average 30–125) in four sets of three:
 
-- **Transactions per turn**, 10% (+3): new-thread and same-thread turns varied by under 1%
-  (≈139 and ≈100). Long-text turns, 20%: buffered deltas share 75 ms flushes, so they
-  varied by about 11% (≈2,100 for 1,000 deltas).
+- **Transactions per turn**, 10% (+3): new-thread and same-thread turns varied by under 1%.
+  Long-text turns, 20%: buffered deltas share 75 ms flushes, so they varied by about 11%.
+  These Node runs measured ≈139, ≈100 and ≈2,100 (for 1,000 deltas). They predate #1417's
+  write batching (the transport-signal live write buffer and lock-free queue reads), which
+  brought them to ≈117, ≈79 and ≈310 on Node and Bun alike, with the stored transcript
+  byte-identical.
 - **Normalized CPU per turn**, 35%: single runs varied by up to 2× under load, but medians
   of three stayed within about 20% of each other while the calibration itself moved by
   30%. Gate on `--runs=3`; one run is a smoke test, not a verdict.
 - **Idle CPU per minute**, 50% (+2): small and noisy (about 1% of one core).
+- **Raw idle CPU**, 35% (+0.2 points of a core): six Bun runs measured 0.77–0.81%, while the
+  normalized figure moved 17.4–19.8 with the calibration. Raw daemon idle on this Mac is
+  0.50–0.57% on Node and 0.72–0.81% on Bun.
 - **Heap after GC**, 10% (+4 MiB): varied by under 0.5%; a leak of a few MiB fails.
 - **RSS and footprint**, 15% (+16 MiB): varied by up to 10% (allocator and page reuse).
 
