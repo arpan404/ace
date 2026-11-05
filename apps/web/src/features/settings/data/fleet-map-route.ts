@@ -254,8 +254,8 @@ function build(
 }
 
 /**
- * Where a wire's ✕ and label go: a point on its own line, as near the node it brings in as
- * possible, clear of every other wire and away from its own bends.
+ * Where a broken wire's cross and its label go: a point on its own line, as near the node it
+ * brings in as possible, clear of every other wire and away from its own bends.
  */
 export function markOf(
   path: readonly Point[],

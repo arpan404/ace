@@ -308,7 +308,8 @@ test("a closed tab comes back where it was with Reopen closed tab", async () => 
   await userEvent.keyboard("{Delete}");
   expect(tabNames(panel)).toEqual(["Summary", "Devices"]);
 
-  await userEvent.keyboard("{Control>}{Alt>}{Shift>}t{/Shift}{/Alt}{/Control}");
+  // Off Apple platforms, as here, Reopen is Ctrl+Alt+Shift+Z: with T it is New tab.
+  await userEvent.keyboard("{Control>}{Alt>}{Shift>}z{/Shift}{/Alt}{/Control}");
   expect(tabNames(panel)).toEqual(["Summary", web, "Devices"]);
   expect(selected(panel).textContent).toBe(web);
 });

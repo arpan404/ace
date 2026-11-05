@@ -3,11 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("thread defaults explain worktree isolation and still allow changing it", async () => {
+test("the worktree settings explain worktree isolation and still allow changing it", async () => {
   await harness().open("/settings/agents");
   const toggle = await screen.findByRole("switch", { name: "New threads use a worktree" });
-  const defaults = screen.getByRole("region", { name: "New threads" });
-  await within(defaults).findByText(
+  const worktrees = screen.getByRole("region", { name: "Worktrees" });
+  expect(within(worktrees).getByRole("switch", { name: "New threads use a worktree" })).toBe(
+    toggle,
+  );
+  await within(worktrees).findByText(
     "Start new threads in separate Git worktrees so their changes stay isolated.",
   );
   const before = toggle.getAttribute("aria-checked");

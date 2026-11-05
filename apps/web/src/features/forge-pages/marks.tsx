@@ -101,7 +101,7 @@ export function InboxTypeIcon(props: { row: ForgeInboxRow }) {
   );
 }
 
-/** The checks' outcome after a title: ✓ green, ✗ red, • amber while running. */
+/** The checks' outcome after a title: a green check, a red cross, an amber clock while running. */
 export function ChecksMark(props: { ci: ForgePrRow["ci"]; local?: LocalCheckResult }) {
   const state = checksState(props.ci, props.local);
   const mark = checksMark(props.ci, props.local);
