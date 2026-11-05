@@ -794,7 +794,7 @@ private struct TapPutsKeyboardAway: ViewModifier {
 }
 
 /// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
-/// page's own bar sets the system's scroll-edge effect (`PageHeaderClearance`). Before, the bar is
+/// thread's header bar sets the system's scroll-edge effect (`ThreadHeaderBar`). Before, the bar is
 /// opaque in the page colour.
 private struct TranscriptTopEdge: ViewModifier {
     func body(content: Content) -> some View {
