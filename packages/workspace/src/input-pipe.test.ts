@@ -20,7 +20,8 @@ function writer(fd: number): Sink | undefined {
   const file: unknown = Reflect.get(bun, "file");
   if (typeof file !== "function") return undefined;
   const made: unknown = Reflect.apply(file, bun, [fd]);
-  const create: unknown = typeof made === "object" && made ? Reflect.get(made, "writer") : undefined;
+  const create: unknown =
+    typeof made === "object" && made ? Reflect.get(made, "writer") : undefined;
   if (typeof create !== "function") return undefined;
   const sink: unknown = Reflect.apply(create, made, []);
   return isSink(sink) ? sink : undefined;

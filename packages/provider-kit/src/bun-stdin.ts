@@ -45,7 +45,8 @@ export function reportBunStdinFailures(stdin: Writable): void {
           await sink.flush();
         } while (again && !stdin.destroyed);
       } catch (error) {
-        if (!stdin.destroyed) stdin.destroy(error instanceof Error ? error : new Error(String(error)));
+        if (!stdin.destroyed)
+          stdin.destroy(error instanceof Error ? error : new Error(String(error)));
       } finally {
         flushing = false;
       }
