@@ -53,14 +53,3 @@ struct LiveLineParts: Equatable {
         return LiveLineParts(status: pill.status, extras: extras, action: action, opens: opens)
     }
 }
-
-/// Words spoken into the composer: they follow what was typed before dictation began.
-enum DictationText {
-    static func merged(base: String, spoken: String) -> String {
-        let words = spoken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty else { return base }
-        if base.isEmpty { return words }
-        let gap = base.last.map { $0.isWhitespace } == true ? "" : " "
-        return base + gap + words
-    }
-}

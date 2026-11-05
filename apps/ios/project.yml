@@ -47,6 +47,8 @@ targets:
       - path: Handoff
       - path: Resources
         buildPhase: resources
+    # One app group for the widgets' lock-screen snapshot (`LockSnapshotStore`) and the
+    # share extension and intents' handoff queue.
     entitlements:
       path: .build/Ace.entitlements
       properties:
@@ -81,8 +83,6 @@ targets:
           - CFBundleURLName: app.ace.link
             CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
-        NSMicrophoneUsageDescription: Dictate a new thread's first message.
-        NSSpeechRecognitionUsageDescription: Turn what you say into a new thread's first message, on this phone.
         # Long-press the app icon: New thread and New chat (`QuickActions`).
         UIApplicationShortcutItems:
           - UIApplicationShortcutItemType: app.ace.new-thread
@@ -102,11 +102,6 @@ targets:
           # Do not add NSAllowsLocalNetworking: its presence overrides this key on iOS.
           # The native transports still require HTTPS/WSS, TLS 1.2+, an exact pin and no redirects.
           NSAllowsArbitraryLoads: true
-    # The app group the widgets read the lock-screen snapshot from (`LockSnapshotStore`).
-    entitlements:
-      path: .build/Ace.entitlements
-      properties:
-        com.apple.security.application-groups: [group.app.ace.ios]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios

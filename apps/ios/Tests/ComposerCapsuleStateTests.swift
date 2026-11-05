@@ -59,11 +59,4 @@ import Testing
         #expect(parts.extras.map(\.label) == ["3 queued"])
         #expect(parts.opens == "queue")
     }
-
-    @Test func spokenWordsFollowWhatWasTyped() {
-        #expect(DictationText.merged(base: "", spoken: "run the tests") == "run the tests")
-        #expect(DictationText.merged(base: "Then", spoken: "run the tests") == "Then run the tests")
-        #expect(DictationText.merged(base: "Then ", spoken: " run the tests ") == "Then run the tests")
-        #expect(DictationText.merged(base: "Kept", spoken: "  ") == "Kept")
-    }
 }

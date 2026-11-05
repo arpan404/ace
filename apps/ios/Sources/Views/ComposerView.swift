@@ -205,7 +205,7 @@ struct ComposerView<Top: View, Leading: View>: View {
     private func startDictation() {
         spokenAfter = draft.text
         Task {
-            await dictation.start { spoken in draft.text = DictationText.merged(base: spokenAfter, spoken: spoken) }
+            await dictation.start { spoken in draft.text = DictationText.join(spokenAfter, heard: spoken) }
         }
     }
     private var disabled: Bool {
