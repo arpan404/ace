@@ -270,10 +270,12 @@
  * Focus rings (one recipe app-wide). `focus-ring` for controls: a 2px gap in the surface colour,
  * then 2px of the focus colour. `focus-ring-inset` for rows inside scrollers, where an outer
  * ring would be clipped. `--focus` is the full-strength focus token; it falls back to the accent.
+ * A control a settings link lands on (`data-flash`) shows the same ring for that moment.
  */
 @utility focus-ring {
   outline: none;
-  &:focus-visible:not([data-auto-focused]) {
+  &:focus-visible:not([data-auto-focused]),
+  &[data-flash] {
     box-shadow:
       0 0 0 2px var(--background),
       0 0 0 4px var(--focus, var(--ring));
