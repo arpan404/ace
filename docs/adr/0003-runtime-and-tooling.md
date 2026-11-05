@@ -47,6 +47,15 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
   reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
   `Bun.spawn({ terminal })`. On Node they keep node-pty.
+- **Hot spawns use `Bun.spawn` directly** (added the same day). On macOS and Linux, Git
+  commands (`spawnGitProcess` in `@ace/git`) and CLI probes (the probe worker in
+  `@ace/provider-kit`) skip `node:child_process`, whose Node stream wrappers cost the daemon
+  about a third more CPU per spawn. Ownership is unchanged: each process leads its own group,
+  which is registered and killed whole. Git has no Node fallback, so Git code runs only on Bun.
+  Probes also run in the desktop app's Electron main process and keep `node:child_process`
+  there, and Windows keeps `node:child_process` for both. Probes stay on their worker thread:
+  a `Bun.spawn` on the main thread still held it for up to 9-18 ms (p99) with 20 probes in
+  flight on a busy machine.
 - **Release builds still run on Node 26.12.1** (`nodeVersion`), which native addons are built
   against. They are Node-API, so the same binaries load in Bun.
 - **Known Bun differences** that ace code has to respect:
