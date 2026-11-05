@@ -58,9 +58,10 @@ describe("socket message decoding", () => {
   });
 
   it("answers a known request type with bad fields as invalid, keeping its request id", () => {
-    expect(
-      decodeDeviceFrame({ type: "browser.tabs.list", requestId: "r2", threadId: 4 }),
-    ).toEqual({ kind: "invalid", requestId: "r2" });
+    expect(decodeDeviceFrame({ type: "browser.tabs.list", requestId: "r2", threadId: 4 })).toEqual({
+      kind: "invalid",
+      requestId: "r2",
+    });
     expect(decodeDeviceFrame({ type: "browser.backend.drawable" })).toEqual({ kind: "invalid" });
   });
 

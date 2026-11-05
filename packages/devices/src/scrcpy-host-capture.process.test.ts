@@ -336,10 +336,11 @@ it("stopping removes the shared picture file", async () => {
   const { capture, emulator, frames } = await fixture();
   await until(() => (frames.length ? true : undefined));
   const file = emulator.requests[0]?.file ?? "";
-  const exists = () => access(file).then(
-    () => true,
-    () => false,
-  );
+  const exists = () =>
+    access(file).then(
+      () => true,
+      () => false,
+    );
   expect(await exists()).toBe(true);
   await capture.stop();
   expect(await exists()).toBe(false);
