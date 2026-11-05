@@ -181,8 +181,8 @@ test("a pinned thread the person settles rests in Settled, not among the pinned"
 });
 
 test("a Settled section whose threads are all on older pages still names its tab", () => {
-  const layout = inboxLayout([], [], now, true, { settledTotal: 12 });
-  const settled = layout.sections.find((section) => section.key === "settled");
+  const built = inboxLayout([], [], now, true, { settledTotal: 12 });
+  const settled = built.sections.find((section) => section.key === "settled");
   // No row to read its tab from: the phone would otherwise file it, and every other machine's
   // settled rows merged into it, under the Inbox.
   expect(settled).toMatchObject({ ids: [], total: 12, tab: "settled" });
