@@ -1,3 +1,6 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { createProbeThread } from "./probe-thread.ts";
 import { observeProcessGroups, probeOutput, stopOwnedGroups } from "./process.ts";
@@ -73,6 +76,30 @@ test("a probe past its timeout is stopped with its descendants and no longer own
 test("a reply the main thread can't read fails its probe instead of leaving it waiting", async () => {
   const thread = createProbeThread(new URL("./testing/malformed-probe-worker.ts", import.meta.url));
   await expect(probeOutput("anything", [], { thread })).rejects.toThrow("invalid reply");
+});
+
+test("an unreadable spawn reply stops the probe's process and keeps owning it until it ends", async () => {
+  const thread = createProbeThread(new URL("./testing/pidless-probe-worker.ts", import.meta.url));
+  const pidFile = join(await mkdtemp(join(tmpdir(), "ace-probe-pid-")), "pid");
+  const recorded = new Set<number>();
+  const stopObserving = observeProcessGroups({
+    add: (pid) => recorded.add(pid),
+    remove: (pid) => recorded.delete(pid),
+  });
+  try {
+    const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"], {
+      thread,
+      env: { ACE_PROBE_PID_FILE: pidFile },
+    });
+    await expect(running).rejects.toThrow("invalid reply");
+    // The probe gives up its ownership only once its process group is gone.
+    const pid = Number(await readFile(pidFile, "utf8"));
+    expect(groupAlive(pid)).toBe(false);
+    // The main thread never learned the pid, so it never recorded the group.
+    expect(recorded.size).toBe(0);
+  } finally {
+    stopObserving();
+  }
 });
 
 test("a spawn that blocks its thread leaves the main thread answering", async () => {

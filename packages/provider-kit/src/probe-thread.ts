@@ -35,12 +35,17 @@ function stopGroup(pid: number): void {
   }
 }
 
-const ProbeAddress = z.object({ id: z.number().int().nonnegative() });
+const ProbeAddress = z.object({
+  id: z.number().int().nonnegative(),
+  type: z.unknown().optional(),
+});
 
 type Flight = {
   id: number;
   pid?: number;
   stopping: boolean;
+  /** Set when the worker sent a reply this thread can't read; the probe fails with it. */
+  failure?: Error;
   done: PromiseWithResolvers<ProbeExit>;
   /** Settles once the worker confirms the process ended, or the worker itself is gone. */
   settled: Promise<void>;
@@ -84,14 +89,22 @@ export function createProbeThread(
   worker.on("message", (input: unknown) => {
     const message = ProbeReply.safeParse(input);
     if (!message.success) {
-      // A probe waiting on a reply it can't read would wait forever; fail it instead.
       const addressed = ProbeAddress.safeParse(input);
       const flight = addressed.success ? flights.get(addressed.data.id) : undefined;
       if (!flight) return;
-      if (flight.pid !== undefined) stopGroup(flight.pid);
-      end(flight);
-      flight.done.reject(new Error("Probe worker sent an invalid reply"));
-      if (!flights.size) worker.idle();
+      // A probe waiting on a reply it can't read would wait forever; it fails instead.
+      flight.failure ??= new Error("Probe worker sent an invalid reply");
+      if (addressed.data?.type === "exit") {
+        // The worker has seen this process close and will send nothing more. Its group may be
+        // reaped and its pid reused, so it is not signalled.
+        end(flight);
+        flight.done.reject(flight.failure);
+        if (!flights.size) worker.idle();
+        return;
+      }
+      // Still running, perhaps unrecorded: stop it and stay its owner until the worker confirms
+      // the exit (or dies), so a global stop keeps waiting for it.
+      void stop(flight);
       return;
     }
     const flight = flights.get(message.data.id);
@@ -112,7 +125,8 @@ export function createProbeThread(
     }
     const { type: _type, id: _id, ...exit } = message.data;
     end(flight);
-    flight.done.resolve(exit);
+    if (flight.failure) flight.done.reject(flight.failure);
+    else flight.done.resolve(exit);
     if (!flights.size) worker.idle();
   });
   worker.on("error", (error: Error) => fail(error));
