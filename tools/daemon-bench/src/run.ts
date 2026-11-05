@@ -181,8 +181,8 @@ try {
   const result = BenchResult.parse({
     version: 2,
     platform: `${process.platform}-${process.arch}`,
-    // Bun reports a Node version too; its numbers must never be compared with Node's.
-    node: process.versions.bun ? `bun ${process.versions.bun}` : process.version,
+    // The daemon's runtime, asked of the daemon itself rather than of this script's.
+    node: await inspector.runtime(),
     workload: {
       version: workloadVersion,
       options,

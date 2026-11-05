@@ -4,8 +4,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 
-/** Source entry keeps dependency names visible; bundled RSS is checked separately. */
+/**
+ * Source entry keeps dependency names visible; bundled RSS is checked separately. The daemon
+ * runs on Bun, and its first start in a fresh HOME transpiles every source file, so startup
+ * gets more room than a warm start needs.
+ */
 export async function checkIdleImports(): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), "ace-idle-imports-"));
   // The daemon may rename an unversioned data home on startup. Keep the guard's
@@ -14,9 +19,12 @@ export async function checkIdleImports(): Promise<void> {
   const output = join(directory, "imports.log");
   await writeFile(output, "");
   const child = fork(join(import.meta.dirname, "entry.ts"), [], {
-    execArgv: ["--import", join(import.meta.dirname, "idle-import-hook.ts")],
+    // The hook is a Bun preload: the guard watches the daemon on its own runtime.
+    execPath: bunBinary(),
+    execArgv: ["--preload", join(import.meta.dirname, "idle-import-hook.ts")],
     env: {
       ...process.env,
+      BUN_OPTIONS: undefined,
       HOME: directory,
       USERPROFILE: directory,
       ACE_HOME: home,
@@ -36,7 +44,7 @@ export async function checkIdleImports(): Promise<void> {
     stderr = (stderr + chunk.toString()).slice(-16000);
   });
   const exited = once(child, "exit");
-  const deadline = setTimeout(() => child.kill("SIGKILL"), 20000);
+  const deadline = setTimeout(() => child.kill("SIGKILL"), 60000);
   try {
     const started = performance.now();
     for (;;) {
@@ -48,7 +56,8 @@ export async function checkIdleImports(): Promise<void> {
       } catch (error) {
         if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
       }
-      if (performance.now() - started > 10000) throw new Error("Idle import startup timed out");
+      if (performance.now() - started > 30000)
+        throw new Error(`Idle import startup timed out: ${stderr}`);
       await pause(25);
     }
     // Include background feature initialization and the idle worker retirement interval.
@@ -61,7 +70,7 @@ export async function checkIdleImports(): Promise<void> {
       Boolean,
     );
     if (violations.length) throw new Error(`Modules loaded at idle:\n${violations.join("\n")}`);
-    process.stdout.write("Idle import guard passed in the main isolate and startup workers\n");
+    process.stdout.write("Idle import guard passed in the main isolate\n");
   } finally {
     clearTimeout(deadline);
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");

@@ -12,6 +12,7 @@ import { ServerMessage } from "@ace/protocol";
 import { readWorkerSnapshot, measureWithCleanup, TimingFailure } from "@ace/perf-kit";
 import { Telemetry, Response } from "./telemetry-schema.ts";
 import { writeMeasurement } from "./output.ts";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
@@ -45,7 +46,8 @@ const child = fork(
   resolve(argument("entry", join(import.meta.dirname, "entry.ts"))),
   idleOnly ? ["start"] : [],
   {
-    execPath: resolve(argument("node", process.execPath)),
+    // Bun, the daemon's runtime, unless --node names another (a release's bin/node is Bun too).
+    execPath: resolve(argument("node", bunBinary())),
     execArgv: [
       ...(collect ? ["--expose-gc"] : []),
       "--import",
@@ -53,6 +55,7 @@ const child = fork(
     ],
     env: {
       ...process.env,
+      BUN_OPTIONS: undefined,
       HOME: home,
       USERPROFILE: home,
       PATH: "",

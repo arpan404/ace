@@ -12,10 +12,13 @@ import {
   readFreshMeasurement,
   checkBudgets,
 } from "@ace/perf-kit";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 
 const run = promisify(execFile);
+// Every phase runs on Bun, the daemon's runtime, whichever runtime started the gate.
+const bun = bunBinary();
 const runTimed = (args: string[], options: { cwd: string; timeout: number; maxBuffer?: number }) =>
-  runSubprocess(run, process.execPath, args, options, (stdout) => {
+  runSubprocess(run, bun, args, options, (stdout) => {
     process.stdout.write(stdout);
   });
 function phase<T>(name: string, measure: () => Promise<T>): Promise<T> {
@@ -49,13 +52,16 @@ const Measurement = z.object({
   soak: z.array(z.object({ elapsedMs: bytes, rss: bytes })),
 });
 const MiB = 1024 * 1024;
-// Headroom above the measured Node 24/26 values. The 150 MiB goal remains open.
+// Headroom above the values measured on Bun 1.4.4 (Apple M-series, 16 cores). The 150 MiB goal
+// remains open. Bun's runtime alone holds about 27 threads at idle there (its thread pool, GC
+// heap helpers and collectors, JIT helpers); the daemon adds its two idle workers. Measured
+// idle 31-36, active 38. Under Node 24/26 the same daemon held under 18 and 20.
 const limits = {
   idleRss: 256 * MiB,
   startupMs: 5000,
-  idleThreads: 18,
+  idleThreads: 42,
   idleWorkers: 1,
-  activeThreads: 20,
+  activeThreads: 46,
   eventsPerSecond: 300,
   p99Ms: 50,
   retainedHeapGrowth: 8 * MiB,

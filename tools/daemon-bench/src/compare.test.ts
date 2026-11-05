@@ -212,3 +212,20 @@ test("memory measured on another Node major isn't held to that baseline, while p
     compare({ ...measured({ "startup.rss": 400_000_000 }), node: "v24.13.0" }, baseline)[0]?.status,
   ).toBe("regressed");
 });
+
+test("memory measured on Bun is held only to a Bun baseline of the same major", () => {
+  const onBun = Baseline.parse({
+    ...baseline,
+    platforms: { "darwin-arm64": { ...baseline.platforms["darwin-arm64"], node: "bun 1.4.4" } },
+  });
+  const rss = (node: string) =>
+    compare({ ...measured({ "startup.rss": 400_000_000 }), node }, onBun)[0]?.status;
+  expect(rss("bun 1.4.5")).toBe("regressed");
+  expect(rss("bun 2.0.0")).toBe("unbaselined");
+  expect(rss("v1.4.4")).toBe("unbaselined");
+  // A Node baseline doesn't hold a Bun run's memory either.
+  expect(
+    compare({ ...measured({ "startup.rss": 400_000_000 }), node: "bun 24.0.0" }, baseline)[0]
+      ?.status,
+  ).toBe("unbaselined");
+});

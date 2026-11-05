@@ -140,7 +140,11 @@ export function staleBaselines(baseline: Baseline, standard: Workload): string[]
     .map(([name]) => name);
 }
 
-const nodeMajor = (version: string) => /^v?(\d+)/.exec(version)?.[1];
+/** `node 26` for `v26.8.1`, `bun 1` for `bun 1.4.4`: the runtime and its major version. */
+function runtimeMajor(version: string): string | undefined {
+  const match = /^(bun )?v?(\d+)/.exec(version);
+  return match ? `${match[1] ? "bun" : "node"} ${match[2]}` : undefined;
+}
 
 function matches(pattern: string, metric: string) {
   const parts = pattern.split(".");
@@ -157,8 +161,12 @@ function matches(pattern: string, metric: string) {
 export function compare(measured: Measured, baseline: Baseline): Verdict[] {
   const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
-  // Memory and idle costs depend on the runtime: another Node major's (or Bun's) numbers don't hold.
-  const sameRuntime = own !== undefined && nodeMajor(own.node) === nodeMajor(measured.node);
+  // Memory and idle costs depend on the runtime: another major's, or the other runtime's,
+  // numbers don't hold.
+  const sameRuntime =
+    own !== undefined &&
+    runtimeMajor(own.node) !== undefined &&
+    runtimeMajor(own.node) === runtimeMajor(measured.node);
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
   if (own)
     requireSameWorkload(
