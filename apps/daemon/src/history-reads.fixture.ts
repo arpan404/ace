@@ -4,9 +4,12 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 /**
- * Process-only test gate: every file-system call on a path under one of ACE_TEST_WATCH_ROOTS (JSON), from
- * the main thread or any worker (workers inherit --import), is appended to
- * ACE_TEST_READ_LOG. It records accesses; it never changes what they return.
+ * Process-only test gate: every file-system call on a path under one of ACE_TEST_WATCH_ROOTS
+ * (JSON) is appended to ACE_TEST_READ_LOG. It records accesses; it never changes what they
+ * return. Preloaded into each Bun process (BUN_OPTIONS reaches the processes the daemon
+ * starts), it sees node:fs/promises however it is imported and node:fs through its module
+ * object. Bun keeps named node:fs imports bound to the originals and gives worker threads no
+ * preload, so those reads go unrecorded here.
  */
 const pathOf = (value: unknown): string | undefined =>
   typeof value === "string"

@@ -1,13 +1,14 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { DeviceId, type ServerMessage } from "@ace/protocol";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 import { Client } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -56,7 +57,21 @@ async function providerHome() {
     CREATE TABLE part(id TEXT PRIMARY KEY,message_id TEXT,data TEXT);`);
   db.prepare("INSERT INTO session VALUES(?,?,?,?,NULL)").run("oc-session", cwd, "OpenCode", 1);
   db.close();
-  return { root, home, claude, codex, opencode };
+  const transcripts = [
+    join(claude, "projects/p/claude-session.jsonl"),
+    join(codex, "sessions/2026/01/01/rollout-codex.jsonl"),
+    join(opencode, "opencode.db"),
+  ];
+  // An access time well in the past: reading a file's bytes moves it to now (macOS and
+  // Linux's default relatime both update an access time older than the file's change time).
+  for (const file of transcripts) await utimes(file, untouched, new Date());
+  return { root, home, claude, codex, opencode, transcripts };
+}
+const untouched = new Date("2001-01-01T00:00:00Z");
+/** The transcripts whose bytes something read since the fixture was written. */
+async function opened(files: readonly string[]) {
+  const times = await Promise.all(files.map((file) => stat(file)));
+  return files.filter((_file, index) => times[index]?.atimeMs !== untouched.getTime());
 }
 async function bounded<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
@@ -79,17 +94,17 @@ async function next(client: Client, predicate: (message: ServerMessage) => boole
 }
 async function launch(fixture: Awaited<ReturnType<typeof providerHome>>, readLog: string) {
   const aceHome = join(fixture.root, "ace");
+  // The daemon runs on Bun. BUN_OPTIONS preloads the recorder there and in every Bun process it
+  // starts, the history reader among them. Bun doesn't parse quotes in it, so the path is
+  // relative to the daemon's working directory, the recorder's own.
   const child = spawn(
-    process.execPath,
-    [
-      "--import",
-      new URL("./history-reads.fixture.ts", import.meta.url).href,
-      fileURLToPath(new URL("./cli.ts", import.meta.url)),
-      "start",
-    ],
+    bunBinary(),
+    [fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"],
     {
+      cwd: fileURLToPath(new URL(".", import.meta.url)),
       env: {
         ...process.env,
+        BUN_OPTIONS: "--preload ./history-reads.fixture.ts",
         HOME: fixture.home,
         ACE_HOME: aceHome,
         // Where saved sessions live; locating a provider's CLI in HOME is not reading history.
@@ -176,6 +191,9 @@ it("daemon startup reads no provider history files and creates no history index"
     2000,
   );
   expect(await reads(log)).toEqual([]);
+  // What the recorder can't see on Bun (worker threads, named node:fs imports, SQLite) still
+  // moves a file's access time when it reads the bytes.
+  expect(await opened(fixture.transcripts)).toEqual([]);
   expect(existsSync(join(daemon.aceHome, "history"))).toBe(false);
   expect(await workingFiles(daemon.aceHome)).toEqual([]);
 
@@ -188,6 +206,7 @@ it("daemon startup reads no provider history files and creates no history index"
   if (found.type !== "history.list") throw new Error("Missing past sessions");
   expect(found.sessions.map((session) => session.nativeId)).toContain("claude-session");
   expect((await reads(log)).length).toBeGreaterThan(0);
+  expect(await opened(fixture.transcripts)).toContain(fixture.transcripts[0]);
 
   // Leaving the page ends the session: nothing it read is kept in ACE_HOME.
   daemon.client.send({ type: "history.release", requestId: "leave" });
