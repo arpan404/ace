@@ -17,7 +17,7 @@ import {
 } from "./posix.ts";
 import { commandEntryIsLink } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
-import { commandEntryExists } from "./posix.ts";
+import { commandEntryExists, commandRootSettled } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
@@ -282,6 +282,23 @@ export class SkillDisk {
       } else if (!(await removeCommandEntry(directory, name, false)))
         throw new SkillError("unavailable", "Couldn't remove this skill's files.");
     }
+  }
+  /**
+   * In the background, once nothing abandoned under `rootReal` can still land, remove `name`
+   * from it, reopening the root by path since an abandoned thread's handles are gone.
+   */
+  removeWhenSettled(rootReal: string, name: string): void {
+    void commandRootSettled(rootReal)
+      .then(async () => {
+        const root = await this.openPath(rootReal);
+        if (root === undefined) return;
+        try {
+          await this.remove(root, name);
+        } finally {
+          await closeFd(root);
+        }
+      })
+      .catch(() => {});
   }
   /** Remove `name` from a pinned parent: a directory's contents first, a link only as itself. */
   async remove(parent: number, name: string): Promise<void> {

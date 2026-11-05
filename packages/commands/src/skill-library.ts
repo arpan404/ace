@@ -319,7 +319,10 @@ export class SkillLibrary {
               "This skill changed elsewhere. Reload it before saving.",
             );
           const next = editSkill(current.text, op);
-          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id());
+          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id(), {
+            rootReal: canonical.rootReal,
+            name: canonical.name,
+          });
         });
         this.notify();
         return this.skill(op.id, op.workspaceId);

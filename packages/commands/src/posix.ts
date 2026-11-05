@@ -21,12 +21,8 @@ import {
 } from "@ace/workspace/descriptor";
 import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
-import { CommandFilesystemUnavailable } from "./posix-ops.ts";
-import type { PosixOperation } from "./posix-wire.ts";
 import {
-  assignRoot,
   closeCommandFd,
-  commandLanes,
   commandRootSettled,
   posix,
   posixInteger,
@@ -34,6 +30,7 @@ import {
   rootOf,
   type CommandCalls,
 } from "./posix-calls.ts";
+import { directoryFlags } from "./posix-flags.ts";
 export {
   closeCommandFd,
   commandCallOwner,
@@ -51,35 +48,49 @@ export interface DirectoryReader {
   read(): Promise<string | undefined>;
   close(): Promise<void>;
 }
-const integer = z.number().int();
 export class EntryUnavailable extends Error {}
-const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0x80000;
-export const directoryFlags =
-  constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | closeOnExec;
-export const fileFlags =
-  constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec;
+export { directoryFlags, fileFlags } from "./posix-flags.ts";
 export const openCommandChild: OpenCommandChild = async (directory, name, flags, owner) => {
   if (process.platform === "win32") return windowsOpenChild(directory, name);
-  const fd = await posixOpen({ op: "open", directory, name, flags }, directory, owner);
-  if (fd < 0) throw new EntryUnavailable("Cannot open command entry without following symlinks");
-  return fd;
+  const root = rootOf(directory, owner);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "open", directory, name, flags, handle: result }),
+    owner,
+  );
+  if (handle < 0)
+    throw new EntryUnavailable("Cannot open command entry without following symlinks");
+  return handle;
 };
+/**
+ * An absolute directory path opened from `/` in one call on `root`'s thread, with O_NOFOLLOW at
+ * every component: a component swapped for a symlink fails closed.
+ */
+export async function openCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<number> {
+  if (process.platform === "win32") return windowsOpenResolved(openCommandChild, path);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "openPath", path, handle: result }),
+    owner,
+  );
+  if (handle < 0) throw new EntryUnavailable("Cannot open command folder without following links");
+  return handle;
+}
+/** Takes `fd` over in every case: it belongs to the stream, or is closed if listing fails. */
 export async function directoryReader(fd: number, owner?: CommandCalls): Promise<DirectoryReader> {
   if (process.platform === "win32") return windowsDirectoryReader(fd);
-  // The stream lives in the worker that opened it; it dies with that worker, and its fd with it.
-  const root = rootOf(fd);
-  const opened = await (owner ?? commandLanes()).run(root, { op: "openDirectory", fd });
-  const reader = integer.parse(opened.value);
-  if (reader === 0) throw new Error("Cannot enumerate command directory");
-  // Reads stop with their owner; the close never does, so a cancelled owner can't strand a stream.
-  const calls = owner ?? commandLanes();
-  const stream = (operation: PosixOperation, through = calls) =>
-    through.run(root, operation, { executor: opened.executor });
+  const root = rootOf(fd, owner);
+  const reader = await posixOpen(root, (stream) => ({ op: "openDirectory", fd, stream }), owner);
+  if (reader < 0) throw new Error("Cannot enumerate command directory");
   let closed = false;
   return {
     async read() {
       if (closed) return undefined;
-      const { value } = await stream({ op: "readDirectory", reader });
+      const value = await posix({ op: "readDirectory", reader }, reader, owner);
       if (value === null) return undefined;
       return z
         .string()
@@ -89,14 +100,10 @@ export async function directoryReader(fd: number, owner?: CommandCalls): Promise
         .parse(value);
     },
     async close() {
+      // Done at once: the owning thread closes the stream after its queued calls.
       if (closed) return;
       closed = true;
-      try {
-        integer.parse((await stream({ op: "closeDirectory", reader }, calls.cleanup())).value);
-      } catch (error) {
-        // An abandoned worker keeps the stream; closing it from here could race its stuck call.
-        if (!(error instanceof CommandFilesystemUnavailable)) throw error;
-      }
+      await closeCommandFd(reader, owner);
     },
   };
 }
@@ -125,9 +132,14 @@ export async function createCommandFile(
     }
   }
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL;
-  const fd = await posixOpen({ op: "create", directory, name, flags }, directory, owner);
-  if (fd < 0) throw new EntryUnavailable("Cannot create prompt file");
-  return fd;
+  const root = rootOf(directory, owner);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "create", directory, name, flags, handle: result }),
+    owner,
+  );
+  if (handle < 0) throw new EntryUnavailable("Cannot create prompt file");
+  return handle;
 }
 export async function replaceCommandFile(
   directory: number,
@@ -148,25 +160,21 @@ export async function replaceCommandFile(
   if (renamed < 0) throw new Error("Cannot replace prompt file");
 }
 /**
- * Removes `name` from the pinned `directory` in the background, then closes `directory`. A
- * change left running under the root (a cancelled or timed-out save) finishes first: the removal
- * waits for it, so the file it may still create or rename is the one removed.
+ * Removes `name` from the directory at `path` in the background, once nothing abandoned under
+ * `root` can still land: a change left running there (a cancelled or timed-out save) finishes
+ * first, so the file it may still create or rename is the one removed. The folder is reopened by
+ * path, never followed through a link, since the handles of an abandoned thread are gone.
  */
-export function removeCommandFileLater(directory: number, name: string): void {
-  if (process.platform === "win32") {
-    windowsQuiet(() => unlinkAt(directory, name));
-    void windowsCloseQuietly(directory);
-    return;
-  }
-  // Not an owner's call: a cancelled owner's leftovers are still cleaned up.
-  const remove = () => posix({ op: "unlink", directory, name, flags: 0 }, directory);
-  void remove()
-    .catch(async () => {
-      await commandRootSettled(rootOf(directory));
-      await remove();
-    })
-    .catch(() => {})
-    .finally(() => closeCommandFd(directory));
+export function removeCommandEntryLater(root: string, path: string, name: string): void {
+  void (async () => {
+    await commandRootSettled(root);
+    const parent = await openCommandPath(root, path);
+    try {
+      await removeCommandEntry(parent, name, false);
+    } finally {
+      await closeCommandFd(parent);
+    }
+  })().catch(() => {});
 }
 export async function linkCommandFile(
   directory: number,
@@ -248,9 +256,13 @@ export async function openResolvedDirectory(
   owner?: CommandCalls,
 ): Promise<number> {
   if (process.platform === "win32") return windowsOpenResolved(openChild, path);
-  let fd = await openChild(-100, "/", directoryFlags, owner);
-  // Everything opened beneath this root runs on the root's own worker.
-  assignRoot(fd, path);
+  // `/` opens on this root's own thread; everything opened beneath it stays there.
+  let fd = await posixOpen(
+    path,
+    (handle) => ({ op: "open", directory: -100, name: "/", flags: directoryFlags, handle }),
+    owner,
+  );
+  if (fd < 0) throw new EntryUnavailable("Cannot open /");
   try {
     const parts = path.split("/").filter(Boolean);
     if (parts.length > 128) throw new Error("Trusted root depth limit");

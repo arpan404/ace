@@ -1,17 +1,15 @@
 // MessagePort.postMessage has no browser targetOrigin argument.
 /* eslint-disable unicorn/require-post-message-target-origin */
 import { parentPort } from "node:worker_threads";
-import { releasePosixState, runPosixOperation, type PosixValue } from "./posix-native.ts";
-import { PosixDrain, PosixRequest, type PosixOperation, type PosixReply } from "./posix-wire.ts";
+import { PosixThread } from "./posix-thread.ts";
+import { PosixDrain, PosixRequest, type PosixReply } from "./posix-wire.ts";
 
 // Requests run one at a time, in order: a reader's reads follow its open.
-let last: { id: number; operation: PosixOperation; value: PosixValue } | undefined;
+const thread = new PosixThread();
 parentPort?.on("message", (raw: unknown) => {
-  const drain = PosixDrain.safeParse(raw);
-  if (drain.success) {
-    // Everything this thread still owns closes here, on the thread that opened it.
-    const abandoned = last && last.id === drain.data.abandoned ? last : undefined;
-    releasePosixState(abandoned);
+  if (PosixDrain.safeParse(raw).success) {
+    // Everything this thread owns, late results of an abandoned call included, closes here.
+    thread.release();
     parentPort?.close();
     return;
   }
@@ -20,15 +18,14 @@ parentPort?.on("message", (raw: unknown) => {
   const { id, operation } = request.data;
   let reply: PosixReply;
   try {
-    const value = runPosixOperation(operation);
-    last = { id, operation, value };
-    reply = { id, ok: true, value };
+    reply = { id, ok: true, value: thread.run(operation) };
   } catch (error) {
-    last = undefined;
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
     reply = {
       id,
       ok: false,
       message: error instanceof Error ? error.message : "Native call failed",
+      ...(typeof code === "string" ? { code } : {}),
     };
   }
   parentPort?.postMessage(reply);

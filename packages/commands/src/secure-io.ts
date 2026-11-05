@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { dirname, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { isAbsolute } from "node:path";
 import type { DiscoveryRoot } from "./roots.ts";
 import { writeOutcomeUnknown } from "./posix-ops.ts";
@@ -15,7 +15,9 @@ import {
   createCommandDirectory,
   createCommandFile,
   replaceCommandFile,
-  removeCommandFileLater,
+  removeCommandEntryLater,
+  removeCommandEntry,
+  openCommandPath,
   linkCommandFile,
   openCommandChild,
   readCommandLink,
@@ -39,9 +41,16 @@ export interface CommandFileIo {
   cancel(): void;
   close(): Promise<void>;
 }
-/** Roots and every descendant are opened relative to pinned descriptors with O_NOFOLLOW. */
+/** The lane a root's calls run on: its trusted anchor. */
+export const commandLaneOf = (root: DiscoveryRoot) =>
+  resolve(root.trustedRoot ?? dirname(root.path));
+
+/**
+ * Roots and every descendant are opened relative to pinned handles with O_NOFOLLOW. Each call
+ * opens its anchor afresh from `/` (one call on the anchor's thread), so no handle outlives the
+ * call that needed it and an idle root holds no thread.
+ */
 export class SecureCommandIo implements CommandFileIo {
-  private readonly anchors = new Map<string, Promise<number>>();
   private closed = false;
   private readonly openChild: OpenCommandChild;
   // Every call this instance makes; cancelling it never touches another instance's calls.
@@ -49,31 +58,22 @@ export class SecureCommandIo implements CommandFileIo {
   constructor(openChild: OpenCommandChild = openCommandChild) {
     this.openChild = (directory, name, flags) => openChild(directory, name, flags, this.owner);
   }
+  /** A fresh handle on the anchor; starting at / avoids following a replaced ancestor. */
   private async anchor(path: string): Promise<number> {
     if (this.closed) throw new Error("Command filesystem closed");
-    const cached = this.anchors.get(path);
-    if (cached !== undefined) return cached;
-    if (this.anchors.size >= 32) throw new Error("Trusted root descriptor limit");
-    const opening = this.openAnchor(path).catch((error: unknown) => {
-      this.anchors.delete(path);
-      throw error;
-    });
-    this.anchors.set(path, opening);
-    return opening;
-  }
-  private async openAnchor(path: string): Promise<number> {
-    // Starting at / avoids following even a replaced ancestor of the registered root.
-    return openResolvedDirectory(this.openChild, resolve(path), this.owner);
+    if (process.platform === "win32")
+      return openResolvedDirectory(this.openChild, resolve(path), this.owner);
+    return openCommandPath(resolve(path), resolve(path), this.owner);
   }
   private async open(root: DiscoveryRoot, path: string, flags: number): Promise<number> {
-    const anchor = resolve(root.trustedRoot ?? dirname(root.path));
+    const anchor = commandLaneOf(root);
     const tail = relative(anchor, resolve(path));
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("Command escaped its trusted root");
     // A different drive is an absolute path on Windows, never a `..` one.
     if (process.platform === "win32" && isAbsolute(tail))
       throw new Error("Command escaped its trusted root");
-    let parent = await this.openChild(await this.anchor(anchor), ".", directoryFlags);
+    let parent = await this.anchor(anchor);
     try {
       const parts = tail.split(sep).filter(Boolean);
       if (parts.length > 128) throw new Error("Command path depth limit");
@@ -84,7 +84,7 @@ export class SecureCommandIo implements CommandFileIo {
           name,
           resolve(anchor, ...parts.slice(0, index + 1)),
         );
-        await closeFd(parent);
+        await closeFd(parent, this.owner);
         parent = child;
       }
       const name = parts.at(-1) ?? ".";
@@ -95,7 +95,7 @@ export class SecureCommandIo implements CommandFileIo {
         return await this.openSkillLink(root, parent, name, path, flags);
       }
     } finally {
-      await closeFd(parent);
+      await closeFd(parent, this.owner);
     }
   }
   private async openDirectory(
@@ -142,7 +142,7 @@ export class SecureCommandIo implements CommandFileIo {
     try {
       return await statCommandFd(fd, this.owner);
     } finally {
-      await closeFd(fd);
+      await closeFd(fd, this.owner);
     }
   }
   async directory(root: DiscoveryRoot, path: string): Promise<DirectoryReader> {
@@ -168,7 +168,7 @@ export class SecureCommandIo implements CommandFileIo {
       if (offset > 65536) throw new Error("Command exceeds 64 KiB");
       return { text: buffer.subarray(0, offset).toString("utf8"), bytes: offset, stat };
     } finally {
-      await closeFd(fd);
+      await closeFd(fd, this.owner);
     }
   }
   /** Atomic prompt replacement beneath the same pinned root used by discovery. */
@@ -188,7 +188,7 @@ export class SecureCommandIo implements CommandFileIo {
     const parts = tail.split(sep).filter(Boolean);
     if (parts.length > 128 || !/^[a-zA-Z0-9.-]+$/.test(temporary))
       throw new Error("prompt_unavailable");
-    let parent = await this.openChild(await this.anchor(anchor), ".", directoryFlags);
+    let parent = await this.anchor(anchor);
     let temp: number | undefined;
     // Whether the temporary file may exist: created, or its create may still land.
     let made = false;
@@ -196,7 +196,7 @@ export class SecureCommandIo implements CommandFileIo {
       for (const name of parts.slice(0, -1)) {
         await createCommandDirectory(parent, name, this.owner);
         const next = await this.openChild(parent, name, directoryFlags);
-        await closeFd(parent);
+        await closeFd(parent, this.owner);
         parent = next;
       }
       const name = parts.at(-1);
@@ -222,7 +222,7 @@ export class SecureCommandIo implements CommandFileIo {
         at += count;
       }
       await syncCommandFd(temp, this.owner);
-      await closeFd(temp);
+      await closeFd(temp, this.owner);
       temp = undefined;
       if (expected === null) await linkCommandFile(parent, temporary, name, this.owner);
       else {
@@ -236,21 +236,26 @@ export class SecureCommandIo implements CommandFileIo {
       // Closes wait for any call still using the descriptor. The temporary file goes once no
       // earlier change on the root can still land, and the folder closes after that; neither
       // can hide the save's own error.
-      if (temp !== undefined) await closeFd(temp);
-      if (made) removeCommandFileLater(parent, temporary);
-      else await closeFd(parent);
+      if (temp !== undefined) await closeFd(temp, this.owner);
+      // The temporary file goes now. If that is refused (an earlier change may still land) or
+      // its folder's thread is gone, it goes once the root has settled, reopened by path.
+      if (
+        made &&
+        !(await removeCommandEntry(parent, temporary, false).then(
+          () => true,
+          () => false,
+        ))
+      )
+        removeCommandEntryLater(anchor, join(anchor, ...parts.slice(0, -1)), temporary);
+      await closeFd(parent, this.owner);
     }
   }
   cancel(): void {
     this.closed = true;
     this.owner.cancel();
   }
+  /** Holds no handles between calls, so there is nothing to wait for. */
   async close(): Promise<void> {
     this.cancel();
-    // Safe right away: an anchor a running call still names stays open until that call returns.
-    const descriptors = await Promise.allSettled(this.anchors.values());
-    for (const descriptor of descriptors)
-      if (descriptor.status === "fulfilled") await closeFd(descriptor.value);
-    this.anchors.clear();
   }
 }

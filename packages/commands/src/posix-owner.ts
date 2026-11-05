@@ -5,8 +5,8 @@ import type { PosixOperation, PosixValue } from "./posix-wire.ts";
 /**
  * The calls of one user of command folders (one discovery, one prompt edit). Cancelling stops
  * only this owner: its queued calls fail at once and a running one is released when it returns,
- * while other owners' calls on the same roots carry on in order. Its descriptors stay pinned by
- * any call still running, so closing them right after cancelling is safe.
+ * while other owners' calls on the same roots carry on in order. Its handles can be closed
+ * right after cancelling: a close goes to the owning thread, after the call still running there.
  */
 export class PosixCallOwner {
   private readonly lanes: PosixLanes;
@@ -14,12 +14,8 @@ export class PosixCallOwner {
   constructor(lanes: PosixLanes) {
     this.lanes = lanes;
   }
-  run(
-    root: string,
-    operation: PosixOperation,
-    options: { executor?: number } = {},
-  ): Promise<{ value: PosixValue; executor: number }> {
-    return this.lanes.run(root, operation, { ...options, signal: this.controller.signal });
+  run(root: string, operation: PosixOperation): Promise<{ value: PosixValue }> {
+    return this.lanes.run(root, operation, { signal: this.controller.signal });
   }
   cleanup(): PosixLanes {
     return this.lanes;

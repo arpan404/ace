@@ -55,10 +55,14 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     runtimes that are not Bun; the daemon never loads koffi, and the desktop bundle refuses a
     static `bun:ffi` import. bun:ffi has no variadic calls, so the one `openat` with `O_CREAT`
     goes through `@ace/workspace`'s add-on. bun:ffi calls run on the calling thread, so command
-    discovery's filesystem calls, its descriptor reads, writes and closes included, run on
-    worker threads, one lane per root (`packages/commands/src/posix-lanes.ts`). A stuck mount
-    blocks only that root's thread; a call past its deadline drains the thread, which closes
-    what it owns and exits once the call returns.
+    discovery's filesystem calls (descriptor reads, writes and closes, and path lstat, realpath
+    and readdir on command roots, included) run on worker threads, one lane per root
+    (`packages/commands/src/posix-lanes.ts`). A stuck mount blocks only that root's thread.
+    Descriptor numbers never leave a worker: the daemon names never-reused handles, each owned
+    by the worker that opened it and closed only there, because the OS hands a freed number out
+    again at once and replies from different workers arrive in no fixed order. A call past its
+    deadline drains its worker: the worker's handles stop working at once, and the worker closes
+    everything it owns and exits once the stuck call returns.
 - **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
   screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
   `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms

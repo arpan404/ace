@@ -1,59 +1,69 @@
-import { close, fchmod, fstat, fsync, read, write } from "node:fs";
+import { close, constants, fchmod, fstat, fsync, read, write } from "node:fs";
+import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { z } from "zod";
 import type { PosixLanes, PosixLimits } from "./posix-lanes.ts";
 import { PosixCallOwner } from "./posix-owner.ts";
+import { created } from "./posix-ops.ts";
 import { posixWorkerLanes } from "./posix-worker-client.ts";
 import { PosixStat, posixChunkLimit, type PosixOperation, type PosixValue } from "./posix-wire.ts";
 
 /** Runs calls for whoever is asking; an owner's calls stop when it is cancelled. */
 export interface CommandCalls {
-  run(
-    root: string,
-    operation: PosixOperation,
-    options?: { executor?: number },
-  ): Promise<{ value: PosixValue; executor: number }>;
-  /** The same lanes without cancellation, for releasing what these calls opened. */
-  cleanup(): CommandCalls;
+  run(root: string, operation: PosixOperation): Promise<{ value: PosixValue }>;
+  /** The lanes themselves, without cancellation. */
+  cleanup(): PosixLanes;
 }
 
-// Every POSIX call runs on a worker thread of the root its descriptor was opened under: a stalled
-// network, FUSE or cloud mount blocks that root's thread, never the daemon's event loop, its
-// file thread pool, or another root. Descriptors opened outside a resolved root share one lane.
+// Every POSIX call runs on a worker thread of its root: a stalled network, FUSE or cloud mount
+// blocks that root's thread, never the daemon's event loop, its file thread pool, or another
+// root. On POSIX the numbers these functions take and return are handles (posix-lanes.ts), never
+// descriptor numbers; on Windows they are the add-on's descriptors.
 let lanes: PosixLanes | undefined;
-const descriptorRoots = new Map<number, string>();
-const sharedRoot = "";
-export const rootOf = (fd: number) => descriptorRoots.get(fd) ?? sharedRoot;
 export const commandLanes = () => (lanes ??= posixWorkerLanes());
-/** Everything later opened beneath `fd` runs on `root`'s own thread. */
-export function assignRoot(fd: number, root: string): void {
-  descriptorRoots.set(fd, root);
+/** Tests only: later calls use `replacement`. Returns the restore. */
+export function useCommandLanes(replacement: PosixLanes): () => void {
+  const previous = lanes;
+  lanes = replacement;
+  return () => {
+    lanes = previous;
+  };
 }
 const integer = z.number().int();
+const bytesValue = z.instanceof(Uint8Array);
+const textValue = z.string();
+const namesValue = z.array(z.string());
+const lanesOf = (owner: CommandCalls | undefined) => owner?.cleanup() ?? commandLanes();
+/** The root an open handle belongs to; unknown handles are refused when used. */
+export const rootOf = (handle: number, owner?: CommandCalls) => lanesOf(owner).rootOf(handle) ?? "";
 
 export async function posix(
   operation: PosixOperation,
-  fd: number,
+  handle: number,
   owner?: CommandCalls,
 ): Promise<PosixValue> {
-  return (await (owner ?? commandLanes()).run(rootOf(fd), operation)).value;
+  return (await (owner ?? commandLanes()).run(rootOf(handle, owner), operation)).value;
 }
 export async function posixInteger(
   operation: PosixOperation,
-  fd: number,
+  handle: number,
   owner?: CommandCalls,
 ): Promise<number> {
-  return integer.parse(await posix(operation, fd, owner));
+  return integer.parse(await posix(operation, handle, owner));
 }
-/** Opens a descriptor under `parent`'s root; the new descriptor stays on that root. */
+/**
+ * Runs a call that opens something under `root` and returns its new handle, or -1 when the
+ * open failed. `build` receives the handle id the result is stored under.
+ */
 export async function posixOpen(
-  operation: PosixOperation,
-  parent: number,
+  root: string,
+  build: (handle: number) => PosixOperation,
   owner?: CommandCalls,
 ): Promise<number> {
-  const fd = await posixInteger(operation, parent, owner);
-  if (fd >= 0) descriptorRoots.set(fd, rootOf(parent));
-  return fd;
+  const handle = lanesOf(owner).allocate();
+  const operation = build(handle);
+  const { value } = await (owner ?? commandLanes()).run(root, operation);
+  return created(operation, value) ? handle : -1;
 }
 /** A new owner for one user's calls, cancelled together. */
 export function commandCallOwner(): PosixCallOwner {
@@ -125,7 +135,7 @@ export async function readCommandFd(
   const size = Math.min(length, posixChunkLimit);
   if (size <= 0) return 0;
   const value = await posix({ op: "read", fd, length: size, position }, fd, owner);
-  const bytes = z.instanceof(Uint8Array).parse(value);
+  const bytes = bytesValue.parse(value);
   buffer.set(bytes.subarray(0, size), offset);
   return bytes.length;
 }
@@ -160,11 +170,61 @@ export async function chmodCommandFd(
   await posix({ op: "chmod", fd, mode }, fd, owner);
 }
 /**
- * Hands `fd` back. The close runs on its root's thread once no call that names it is still
- * running natively, so a cancelled or abandoned call can never act on a reused number. It is
- * never refused; callers don't wait for it.
+ * Gives a handle back at once. Its owning thread closes the descriptor, after any call of its
+ * still running there; a thread that was abandoned closes everything it owns as it drains.
  */
-export async function closeCommandFd(fd: number): Promise<void> {
-  if (process.platform === "win32") return windows.close(fd).catch(() => {});
-  commandLanes().close(rootOf(fd), fd);
+export async function closeCommandFd(handle: number, owner?: CommandCalls): Promise<void> {
+  if (process.platform === "win32") return windows.close(handle).catch(() => {});
+  lanesOf(owner).close(handle);
+}
+
+// Path calls on a command root run on that root's thread too. `root` names the lane.
+const nodePaths = { lstat, stat, realpath, readdir, mkdir, open };
+export async function lstatCommandPath(root: string, path: string): Promise<CommandStat> {
+  if (process.platform === "win32") return nodePaths.lstat(path);
+  return commandStat(
+    PosixStat.parse((await commandLanes().run(root, { op: "lstatPath", path })).value),
+  );
+}
+export async function statCommandPath(root: string, path: string): Promise<CommandStat> {
+  if (process.platform === "win32") return nodePaths.stat(path);
+  return commandStat(
+    PosixStat.parse((await commandLanes().run(root, { op: "statPath", path })).value),
+  );
+}
+export async function realCommandPath(root: string, path: string): Promise<string> {
+  if (process.platform === "win32") return nodePaths.realpath(path);
+  return textValue.parse((await commandLanes().run(root, { op: "realpath", path })).value);
+}
+export async function listCommandPath(
+  root: string,
+  path: string,
+  limit: number,
+): Promise<string[]> {
+  if (process.platform === "win32") return (await nodePaths.readdir(path)).slice(0, limit);
+  const { value } = await commandLanes().run(root, { op: "readdirPath", path, limit });
+  return namesValue.parse(value);
+}
+export async function makeCommandPath(root: string, path: string): Promise<void> {
+  if (process.platform === "win32") return void (await nodePaths.mkdir(path, { recursive: true }));
+  await commandLanes().run(root, { op: "mkdirPath", path });
+}
+/** A whole regular file at `path`, never through a final link; `EFBIG` over `limit` bytes. */
+export async function readCommandPath(root: string, path: string, limit: number): Promise<Buffer> {
+  if (process.platform === "win32") {
+    const handle = await nodePaths.open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const info = await handle.stat();
+      if (!info.isFile() || info.size > limit)
+        throw Object.assign(new Error("Not a file within its size limit"), { code: "EFBIG" });
+      const bytes = await handle.readFile();
+      if (bytes.length > limit)
+        throw Object.assign(new Error("Not a file within its size limit"), { code: "EFBIG" });
+      return bytes;
+    } finally {
+      await handle.close();
+    }
+  }
+  const { value } = await commandLanes().run(root, { op: "readPathNoFollow", path, limit });
+  return Buffer.from(bytesValue.parse(value));
 }

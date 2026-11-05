@@ -31,43 +31,59 @@ const changes = new Set<PosixOperation["op"]>([
   "write",
   "fsync",
   "chmod",
+  "mkdirPath",
 ]);
 /** Calls that change a folder; they wait while an earlier change on the root may still land. */
 export const isChange = (operation: PosixOperation) => changes.has(operation.op);
-/** Calls that end ownership. They are never refused, cancelled or dropped. */
-export const isRelease = (operation: PosixOperation) =>
-  operation.op === "closeFd" || operation.op === "closeDirectory";
+/** Closing a handle. Never refused or cancelled; a no-op once its worker is gone. */
+export const isRelease = (operation: PosixOperation) => operation.op === "close";
 
-/**
- * The descriptors a call reads through. Each belongs to the call until it has returned natively,
- * answered or abandoned and then returned, so no one may close it before then.
- */
-export function inputsOf(operation: PosixOperation): number[] {
+/** The existing handles a call names; all must belong to one live worker. */
+export function handlesOf(operation: PosixOperation): number[] {
   switch (operation.op) {
     case "open":
+      return operation.directory > 0 ? [operation.directory] : [];
     case "create":
     case "readLink":
     case "mkdir":
     case "unlink":
     case "symlink":
-      return operation.directory >= 0 ? [operation.directory] : [];
+      return [operation.directory];
     case "rename":
     case "link":
     case "renameFlags":
       return operation.from === operation.to ? [operation.from] : [operation.from, operation.to];
+    case "openDirectory":
     case "fstat":
     case "read":
     case "write":
     case "fsync":
     case "chmod":
       return [operation.fd];
+    case "readDirectory":
+      return [operation.reader];
+    case "close":
+      return [operation.handle];
     default:
       return [];
   }
 }
-/**
- * The descriptor a call takes over once sent: fdopendir's stream owns it, and the worker closes
- * it if fdopendir fails. A call that never reaches a thread leaves it to the lanes to close.
- */
+/** The handle a call creates, owned by the worker that runs it if the call succeeds. */
+export function createdBy(operation: PosixOperation): number | undefined {
+  switch (operation.op) {
+    case "open":
+    case "create":
+    case "openPath":
+      return operation.handle;
+    case "openDirectory":
+      return operation.stream;
+    default:
+      return undefined;
+  }
+}
+/** Whether a call that answered `value` created its handle. */
+export const created = (operation: PosixOperation, value: unknown) =>
+  operation.op === "openDirectory" ? value === 1 : value === 0;
+/** openDirectory takes its descriptor over once sent; it is gone whatever the outcome. */
 export const consumedBy = (operation: PosixOperation): number | undefined =>
   operation.op === "openDirectory" ? operation.fd : undefined;

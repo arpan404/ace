@@ -1,5 +1,6 @@
 import { Worker } from "node:worker_threads";
-import { PosixLanes, type PosixExecutor, type PosixExecutorEvents } from "./posix-lanes.ts";
+import { PosixLanes } from "./posix-lanes.ts";
+import type { PosixExecutor, PosixExecutorEvents } from "./posix-executor.ts";
 import { PosixReply } from "./posix-wire.ts";
 
 /**
@@ -24,9 +25,9 @@ export function spawnPosixWorker(events: PosixExecutorEvents): PosixExecutor {
     hold: (busy) => (busy ? worker.ref() : worker.unref()),
     // Never terminate(): a terminated thread closes nothing it owns, and Bun re-refs it, so a
     // thread stuck in a call would keep the daemon alive. The thread exits by itself instead.
-    drain: (abandoned) => {
+    drain: () => {
       // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker RPC.
-      worker.postMessage(abandoned === undefined ? { drain: true } : { drain: true, abandoned });
+      worker.postMessage({ drain: true });
       worker.unref();
     },
   };

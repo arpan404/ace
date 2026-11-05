@@ -1,5 +1,5 @@
-import { lstat } from "node:fs/promises";
-import type { CommandStat as Stats } from "./posix-calls.ts";
+import { dirname } from "node:path";
+import { lstatCommandPath, type CommandStat as Stats } from "./posix-calls.ts";
 interface Tracked {
   path: string;
   version: string | undefined;
@@ -13,6 +13,11 @@ export class FileRecovery {
   private readonly free: number[] = [];
   private cursor = 0;
   private inspected = 0;
+  /** The command root lane a tracked path is checked on, so a dead mount stalls only its own. */
+  private readonly laneOf: (path: string) => string;
+  constructor(laneOf: (path: string) => string = dirname) {
+    this.laneOf = laneOf;
+  }
   get checks(): number {
     return this.inspected;
   }
@@ -46,7 +51,7 @@ export class FileRecovery {
       let current: string | undefined;
       this.inspected++;
       try {
-        current = statVersion(await lstat(entry.path));
+        current = statVersion(await lstatCommandPath(this.laneOf(entry.path), entry.path));
       } catch {
         current = undefined;
       }
