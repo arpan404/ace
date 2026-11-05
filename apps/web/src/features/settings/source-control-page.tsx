@@ -32,7 +32,6 @@ import { useSettingsMachine } from "./machine-scope.tsx";
 import { ToolchainSection } from "./toolchain-section.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
-import { settingRow } from "./settings-index.ts";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
