@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import type { Readable, Writable } from "node:stream";
 import { z } from "zod";
+import { mergeDisabledFeatures } from "@ace/browser/chrome-features";
 
 const Reply = z.object({
   id: z.number(),
@@ -22,7 +23,8 @@ export async function launchTestChrome(
 ) {
   const child: ChildProcess = spawn(
     executable,
-    [
+    // A caller's own --disable-features joins this one instead of replacing it.
+    mergeDisabledFeatures([
       "--headless=new",
       "--remote-debugging-pipe",
       "--enable-unsafe-extension-debugging",
@@ -44,7 +46,7 @@ export async function launchTestChrome(
       ...(process.platform === "win32" ? ["--do-not-de-elevate"] : []),
       ...extraArgs,
       "about:blank",
-    ],
+    ]),
     { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
   );
   const stderr: string[] = [];
