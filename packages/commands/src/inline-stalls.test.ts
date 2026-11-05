@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SkillResult } from "@ace/protocol";
-import { SkillLibrary } from "./index.ts";
+import { CommandCatalog, CommandFiles, SkillLibrary } from "./index.ts";
 import { useCommandLanes } from "./posix-calls.ts";
 import { inlineLanes } from "./posix-inline.ts";
 
@@ -98,5 +98,44 @@ test.skipIf(process.platform === "win32")(
     expect(passes()).toBe(2);
     expect(await readFile(join(folder, "SKILL.md"), "utf8")).toContain("Changed");
     expect((await readdir(folder)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "closing command files during a recovery pass over stalled roots returns at once",
+  async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "ace-recovery-close-")));
+    cleanups.push(() => rm(base, { recursive: true, force: true }));
+    const roots = [];
+    for (let i = 0; i < 3; i++) {
+      const path = join(base, `anchor-${i}`, "commands");
+      await mkdir(path, { recursive: true });
+      await writeFile(join(path, `item-${i}.md`), "Item");
+      roots.push({ path, format: "claude" as const, scope: "user" as const, instance: "personal" });
+    }
+    // Discovery runs normally; then every recovery check blocks, as on a dead mount.
+    let stall = false;
+    const { lanes, release } = inlineLanes((operation) => stall && operation.op === "lstatPath", {
+      deadlineMs: 5000,
+    });
+    const restore = useCommandLanes(lanes);
+    cleanups.push(async () => {
+      stall = false;
+      release();
+      restore();
+    });
+    const files = new CommandFiles(new CommandCatalog(() => 0), roots, {
+      schedule: () => () => {},
+      watch: () => () => {},
+    });
+    await files.start();
+    stall = true;
+    const pass = files.reconcile();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const closing = performance.now();
+    await files.close();
+    await pass;
+    // Without cancelling recovery's own calls, close waits a deadline for each stalled check.
+    expect(performance.now() - closing).toBeLessThan(300);
   },
 );

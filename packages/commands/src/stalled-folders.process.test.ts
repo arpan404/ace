@@ -8,7 +8,8 @@ import {
   statSync,
   writeSync,
 } from "node:fs";
-import { mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -117,7 +118,7 @@ it.skipIf(process.platform === "win32")(
 );
 
 it.skipIf(process.platform === "win32")(
-  "timed-out and cancelled calls leave no descriptor or directory stream open once they return",
+  "timed-out and cancelled calls leave no descriptor open once they return",
   async () => {
     shortDeadline(250);
     const a = await folder();
@@ -130,12 +131,14 @@ it.skipIf(process.platform === "win32")(
     const baseline = openFds();
     for (let cycle = 0; cycle < 4; cycle++) {
       const root = await openResolvedDirectory(openCommandChild, a);
-      // A directory stream open on the thread that will be abandoned.
+      // A listing taken just before the thread is abandoned.
       const reader = await directoryReader(await openCommandChild(root, ".", directoryFlags));
       await reader.read();
       const timedOut = await stuckOpen(root);
       expect(timedOut.error).toBeInstanceOf(CommandFilesystemUnavailable);
-      await expect(reader.read()).rejects.toBeInstanceOf(CommandFilesystemUnavailable);
+      // A listing is read in one call and kept in memory: it holds nothing on the abandoned
+      // thread and goes on reading.
+      expect(await reader.read()).toBeDefined();
       await reader.close();
       // The blocked open now returns a descriptor nobody will receive; the draining thread
       // closes it, and the stream, before it exits.
@@ -442,5 +445,107 @@ it.skipIf(process.platform === "win32")(
     expect(performance.now() - started).toBeLessThan(300);
     // The other reader's calls are untouched by this close; they end at their own deadline.
     await Promise.all(queued);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "more roots than there are threads are all discovered at once, promptly",
+  async () => {
+    // Two serving threads, five roots: no root may hold a thread while it waits on another.
+    shortDeadline(3000);
+    const restoreCaps = useCommandCallDeadline(3000, { maxWorkers: 2, maxThreads: 4 });
+    cleanups.push(async () => restoreCaps());
+    const catalog = new CommandCatalog(() => 0);
+    const roots = [];
+    for (let i = 0; i < 5; i++) {
+      const path = await commandRoot();
+      for (const sub of ["a", "b"]) {
+        await mkdir(join(path, sub));
+        for (let n = 0; n < 4; n++)
+          await writeFile(join(path, sub, `root${i}${sub}${n}.md`), `Root ${i}`);
+      }
+      roots.push({ path, format: "claude" as const, scope: "user" as const, instance: "personal" });
+    }
+    const files = new CommandFiles(catalog, roots);
+    cleanups.push(() => files.close());
+    const started = performance.now();
+    await files.start();
+    expect(performance.now() - started).toBeLessThan(1500);
+    for (let i = 0; i < 5; i++)
+      expect(catalog.list(target, `root${i}b3`).commands.map((c) => c.name)).toContain(
+        `b:root${i}b3`,
+      );
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "skills linked from another root are read with a single thread, without a deadlock",
+  async () => {
+    shortDeadline(3000);
+    const restoreCaps = useCommandCallDeadline(3000, { maxWorkers: 1, maxThreads: 2 });
+    cleanups.push(async () => restoreCaps());
+    const home = await folder();
+    const skills = join(home, ".claude", "skills");
+    await mkdir(skills, { recursive: true });
+    for (const name of ["one", "two", "three"]) {
+      await mkdir(join(home, "library", name), { recursive: true });
+      await writeFile(join(home, "library", name, "SKILL.md"), `Skill ${name}`);
+      execFileSync("ln", ["-s", join(home, "library", name), join(skills, name)]);
+    }
+    const root = {
+      path: skills,
+      format: "claude" as const,
+      scope: "user" as const,
+      skill: true,
+      skillLinkHome: home,
+    };
+    const io = new SecureCommandIo();
+    cleanups.push(() => io.close());
+    const started = performance.now();
+    // Each read pins the skills root, finds a link, and opens its target under the home root.
+    const texts = await Promise.all(
+      ["one", "two", "three"].map(
+        async (name) => (await io.read(root, join(skills, name, "SKILL.md"))).text,
+      ),
+    );
+    expect(texts).toEqual(["Skill one", "Skill two", "Skill three"]);
+    expect(performance.now() - started).toBeLessThan(1500);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "a save checks the prompt in the same folder it writes, even when the folder is swapped mid-save",
+  async () => {
+    const base = await folder();
+    const anchor = join(base, "workspace");
+    await mkdir(join(anchor, "prompts"), { recursive: true });
+    await writeFile(join(anchor, "prompts", "x.md"), "Original");
+    const expected = createHash("sha256").update("Original").digest("hex");
+    let armed = true;
+    const io = new SecureCommandIo(async (directory, name, flags, owner) => {
+      if (armed && name === "prompts") {
+        armed = false;
+        // Right after the save pins the old folder, it moves away and someone edits the prompt
+        // there, while a new folder at the same path holds the original text.
+        await rename(anchor, join(base, "moved"));
+        await writeFile(join(base, "moved", "prompts", "x.md"), "Theirs");
+        await mkdir(join(anchor, "prompts"), { recursive: true });
+        await writeFile(join(anchor, "prompts", "x.md"), "Original");
+      }
+      return openCommandChild(directory, name, flags, owner);
+    });
+    cleanups.push(() => io.close());
+    const root = {
+      path: join(anchor, "prompts"),
+      trustedRoot: anchor,
+      format: "library" as const,
+      scope: "user" as const,
+    };
+    await expect(
+      io.writePrompt(root, join(anchor, "prompts", "x.md"), "Mine", expected, "prompt-1"),
+    ).rejects.toThrow("prompt_conflict");
+    // Neither copy was overwritten: the edit in the pinned folder is kept.
+    expect(await readFile(join(base, "moved", "prompts", "x.md"), "utf8")).toBe("Theirs");
+    expect(await readFile(join(anchor, "prompts", "x.md"), "utf8")).toBe("Original");
   },
 );
