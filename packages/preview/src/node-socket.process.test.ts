@@ -77,22 +77,26 @@ test("a socket read larger than a window reaches the relay in order, one window 
   expect(read.endedAfter()).toBe(read.pieces.length);
 });
 
-test("the end of a socket whose last read was larger than a window waits for every byte", { timeout: 10_000 }, async () => {
-  const { raw, client } = await connectedPair();
-  const last = pattern(512 * 1024);
-  raw.unshift(last);
-  client.end();
+test(
+  "the end of a socket whose last read was larger than a window waits for every byte",
+  { timeout: 10_000 },
+  async () => {
+    const { raw, client } = await connectedPair();
+    const last = pattern(512 * 1024);
+    raw.unshift(last);
+    client.end();
 
-  const read = readLikeTheMux(raw);
-  await read.ended;
+    const read = readLikeTheMux(raw);
+    await read.ended;
 
-  expect(Buffer.concat(read.pieces)).toEqual(last);
-  expect(read.endedAfter()).toBe(read.pieces.length);
-  // The close that follows reaches the relay after the end, not before it.
-  raw.end();
-  await read.closed;
-  expect(read.closedAfterEnd()).toBe(true);
-});
+    expect(Buffer.concat(read.pieces)).toEqual(last);
+    expect(read.endedAfter()).toBe(read.pieces.length);
+    // The close that follows reaches the relay after the end, not before it.
+    raw.end();
+    await read.closed;
+    expect(read.closedAfterEnd()).toBe(true);
+  },
+);
 
 test("data that arrives while bytes are held queues behind them", { timeout: 10_000 }, async () => {
   const { raw, client } = await connectedPair();
