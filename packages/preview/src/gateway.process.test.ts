@@ -2,7 +2,15 @@ import { afterEach, expect, test } from "vitest";
 import { request } from "node:http";
 import { once } from "node:events";
 import { Readable } from "node:stream";
-import { http, serve, gateway, echoWebsocket, websocket, echo } from "./test-support.ts";
+import {
+  http,
+  serve,
+  gateway,
+  echoWebsocket,
+  websocket,
+  echo,
+  extraSocketReadBytes,
+} from "./test-support.ts";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -133,7 +141,7 @@ test(
       await new Promise<void>((done) => setImmediate(done));
     }
     expect(received).toBe(size);
-    expect(maxQueue).toBeLessThan(262_144);
+    expect(maxQueue).toBeLessThan(262_144 + extraSocketReadBytes);
     expect(maxGatewayQueue).toBeLessThan(524_288);
   },
 );

@@ -106,6 +106,18 @@ export const Reply = z.object({
   value: z.unknown().optional(),
   error: z.string().optional(),
 });
+/**
+ * The worker refusing its index as incompatible data. Sent as a message, not left to the
+ * worker's uncaught error: Bun keeps only an error's `code` across a worker boundary, not its
+ * `path` or name.
+ */
+export const Refusal = z.object({
+  refused: z.object({
+    code: z.literal("incompatible-data"),
+    path: z.string(),
+    message: z.string(),
+  }),
+});
 export const SessionOrNull = HistorySession.nullable();
 
 export const ImportResult = z.object({

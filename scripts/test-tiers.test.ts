@@ -2,10 +2,12 @@ import { expect, test } from "vitest";
 import {
   budgetFailures,
   budgetTable,
+  combinedExit,
   failsOnFastBudget,
   overBudget,
   parseRunArgs,
   projectsFor,
+  splitByRuntime,
 } from "./test-tiers.ts";
 
 const allowlist = {
@@ -54,9 +56,28 @@ test("a budget scale loosens every budget for slower machines", () => {
 test("affected-only runs cover the fast tier unless asked to include process or slow tests", () => {
   const fast = projectsFor(parseRunArgs(["changed"]));
   expect(fast).toEqual(["unit", "web", "client-react"]);
-  expect(projectsFor(parseRunArgs(["changed", "--with-process"]))).toEqual([...fast, "process"]);
+  expect(projectsFor(parseRunArgs(["changed", "--with-process"]))).toEqual([
+    ...fast,
+    "process",
+    "node-process",
+  ]);
   expect(projectsFor(parseRunArgs(["changed", "--with-slow"]))).toContain("browser-process");
   expect(projectsFor(parseRunArgs(["full"]))).toEqual([]);
+});
+
+test("on Bun, Node-only suites run in a Node pass of their own and nowhere else", () => {
+  const process = projectsFor(parseRunArgs(["process"]));
+  expect(splitByRuntime(process)).toEqual({ bun: ["process"], node: ["node-process"] });
+  // Every project: Bun's config leaves the Node-only project out, Node runs it.
+  expect(splitByRuntime(projectsFor(parseRunArgs(["full"])))).toEqual({
+    bun: [],
+    node: ["node-process"],
+  });
+  expect(splitByRuntime(projectsFor(parseRunArgs(["fast"])))).toEqual({
+    bun: ["unit", "web", "client-react"],
+    node: undefined,
+  });
+  expect(splitByRuntime(["node-process"])).toEqual({ bun: undefined, node: ["node-process"] });
 });
 
 test("runner arguments pass through to Vitest without the npm-style separator", () => {
@@ -65,4 +86,22 @@ test("runner arguments pass through to Vitest without the npm-style separator", 
   expect(options.vitestArgs).toEqual(["packages/git", "-t", "x"]);
   expect(parseRunArgs(["fast", "--with-process"]).vitestArgs).toEqual(["--with-process"]);
   expect(() => parseRunArgs(["everything"])).toThrow();
+});
+
+test("a filter that matches no file in either pass fails the run", () => {
+  const empty = { exitCode: 0, files: 0 };
+  expect(combinedExit([empty, empty], true)).toBe(1);
+  expect(combinedExit([empty], true)).toBe(1);
+  // Without a filter an empty selection (nothing changed) passes.
+  expect(combinedExit([empty, empty], false)).toBe(0);
+});
+
+test("a filter that selects only one runtime's files passes with the other pass empty", () => {
+  const empty = { exitCode: 0, files: 0 };
+  const ran = { exitCode: 0, files: 2 };
+  expect(combinedExit([empty, ran], true)).toBe(0);
+  expect(combinedExit([ran, empty], true)).toBe(0);
+  // A failing pass still fails the run, whatever the other did.
+  expect(combinedExit([ran, { exitCode: 1, files: 1 }], true)).toBe(1);
+  expect(combinedExit([{ exitCode: 130, files: 1 }, empty], true)).toBe(130);
 });

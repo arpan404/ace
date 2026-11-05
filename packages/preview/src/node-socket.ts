@@ -1,0 +1,91 @@
+import type { Socket } from "node:net";
+import type { PreviewSocket } from "./relay-mux.ts";
+import { windowSize } from "./relay-wire.ts";
+
+/**
+ * A Node socket as a relay stream's socket. The mux takes chunks of at most one window and
+ * resets a stream that hands it more. Node reads sockets 64 KiB at a time, but Bun reads up to
+ * 512 KiB whatever the high-water mark, so a larger read is split here: the mux gets one window
+ * at a time, and the socket stays paused (reading nothing more) until the rest has gone.
+ *
+ * Bytes held here always go first: a chunk that arrives while some are held queues behind them,
+ * and the socket's end (and the close after it) waits until every held byte has been delivered.
+ */
+export function previewSocket(socket: Socket): PreviewSocket {
+  let deliver: ((bytes: Uint8Array) => void) | undefined;
+  const held: Buffer[] = [];
+  let heldBytes = 0;
+  let paused = false;
+  let ended = false;
+  let endDelivered = false;
+  let closed = false;
+  const endListeners: (() => void)[] = [];
+  const closeListeners: (() => void)[] = [];
+  const emitEnd = () => {
+    endDelivered = true;
+    for (const listener of endListeners) listener();
+    if (closed) for (const listener of closeListeners) listener();
+  };
+  const next = () => {
+    if (paused || !deliver) return;
+    const head = held[0];
+    if (!head) {
+      if (ended && !endDelivered) emitEnd();
+      else if (!ended) socket.resume();
+      return;
+    }
+    const piece = head.subarray(0, windowSize);
+    if (head.byteLength > windowSize) held[0] = head.subarray(windowSize);
+    else held.shift();
+    heldBytes -= piece.byteLength;
+    deliver(piece);
+    // The mux pauses while it sends a piece; if it didn't, keep going.
+    next();
+  };
+  socket.on("end", () => {
+    ended = true;
+    if (held.length === 0) emitEnd();
+  });
+  socket.on("close", () => {
+    closed = true;
+    // A close after the end waits for it; one without an end (a reset) goes through at once.
+    if (endDelivered || !ended) for (const listener of closeListeners) listener();
+  });
+  return {
+    get readableLength() {
+      return socket.readableLength + heldBytes;
+    },
+    get writableLength() {
+      return socket.writableLength;
+    },
+    pause: () => {
+      paused = true;
+      socket.pause();
+    },
+    resume: () => {
+      paused = false;
+      next();
+    },
+    destroy: () => {
+      held.length = 0;
+      heldBytes = 0;
+      socket.destroy();
+    },
+    end: () => socket.end(),
+    write: (bytes, callback) => socket.write(bytes, callback),
+    on(event: "data" | "end" | "close" | "error", listener: (bytes: Uint8Array) => void) {
+      if (event === "end") return endListeners.push(() => listener(Buffer.alloc(0)));
+      if (event === "close") return closeListeners.push(() => listener(Buffer.alloc(0)));
+      if (event !== "data") return socket.on(event, listener);
+      deliver = listener;
+      return socket.on("data", (chunk: Buffer) => {
+        if (held.length === 0 && chunk.byteLength <= windowSize) return listener(chunk);
+        socket.pause();
+        held.push(chunk);
+        heldBytes += chunk.byteLength;
+        next();
+      });
+    },
+    once: (event, listener) => socket.once(event, listener),
+  };
+}
