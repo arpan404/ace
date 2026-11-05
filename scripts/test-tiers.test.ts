@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import {
   budgetFailures,
   budgetTable,
+  combinedExit,
   failsOnFastBudget,
   overBudget,
   parseRunArgs,
@@ -85,4 +86,22 @@ test("runner arguments pass through to Vitest without the npm-style separator", 
   expect(options.vitestArgs).toEqual(["packages/git", "-t", "x"]);
   expect(parseRunArgs(["fast", "--with-process"]).vitestArgs).toEqual(["--with-process"]);
   expect(() => parseRunArgs(["everything"])).toThrow();
+});
+
+test("a filter that matches no file in either pass fails the run", () => {
+  const empty = { exitCode: 0, files: 0 };
+  expect(combinedExit([empty, empty], true)).toBe(1);
+  expect(combinedExit([empty], true)).toBe(1);
+  // Without a filter an empty selection (nothing changed) passes.
+  expect(combinedExit([empty, empty], false)).toBe(0);
+});
+
+test("a filter that selects only one runtime's files passes with the other pass empty", () => {
+  const empty = { exitCode: 0, files: 0 };
+  const ran = { exitCode: 0, files: 2 };
+  expect(combinedExit([empty, ran], true)).toBe(0);
+  expect(combinedExit([ran, empty], true)).toBe(0);
+  // A failing pass still fails the run, whatever the other did.
+  expect(combinedExit([ran, { exitCode: 1, files: 1 }], true)).toBe(1);
+  expect(combinedExit([{ exitCode: 130, files: 1 }, empty], true)).toBe(130);
 });
