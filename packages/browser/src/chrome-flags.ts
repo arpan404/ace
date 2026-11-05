@@ -1,3 +1,4 @@
+import { mergeDisabledFeatures } from "./chrome-features.ts";
 import { videoExtensionId } from "./video-extension.ts";
 
 /**
@@ -15,7 +16,8 @@ import { videoExtensionId } from "./video-extension.ts";
  *   video encoder and the page's screencast then stall for seconds. The switches stop the old
  *   backgrounding; the performance manager's priority policy backgrounds them again unless it is
  *   off too.
- * - Chrome reads only the last `--disable-features`, so features `extra` disables join ace's own.
+ * - Chrome reads only the last `--disable-features`, so features `extra` disables (or a bare
+ *   `--disable-features`) join ace's own in one flag instead of replacing them.
  */
 export function chromeArgs(options: {
   profileDir: string;
@@ -25,16 +27,7 @@ export function chromeArgs(options: {
 }): string[] {
   if (!Number.isFinite(options.deviceScaleFactor) || options.deviceScaleFactor < 1)
     throw new Error("Invalid browser device scale factor");
-  const disablePrefix = "--disable-features=";
-  const extra = options.extra ?? [];
-  const disabled = [
-    "PMProcessPriorityPolicy",
-    ...extra
-      .filter((arg) => arg.startsWith(disablePrefix))
-      .flatMap((arg) => arg.slice(disablePrefix.length).split(","))
-      .filter((feature) => feature !== ""),
-  ];
-  return [
+  return mergeDisabledFeatures([
     "--headless=new",
     "--remote-debugging-pipe",
     "--enable-unsafe-extension-debugging",
@@ -45,7 +38,7 @@ export function chromeArgs(options: {
     "--disable-background-timer-throttling",
     "--disable-renderer-backgrounding",
     "--disable-backgrounding-occluded-windows",
-    `${disablePrefix}${[...new Set(disabled)].join(",")}`,
+    "--disable-features=PMProcessPriorityPolicy",
     "--disable-audio-output",
     // ace's video extension may capture tabs without a click on it (ADR 0088).
     `--allowlisted-extension-id=${videoExtensionId}`,
@@ -54,6 +47,6 @@ export function chromeArgs(options: {
     ...(options.deviceScaleFactor === 1
       ? []
       : [`--force-device-scale-factor=${options.deviceScaleFactor}`]),
-    ...extra.filter((arg) => !arg.startsWith(disablePrefix)),
-  ];
+    ...(options.extra ?? []),
+  ]);
 }

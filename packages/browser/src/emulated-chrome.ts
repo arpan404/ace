@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync } from "node:fs";
+import { mergeDisabledFeatures } from "./chrome-features.ts";
 
 /*
  * Windows ARM64 runs an x64 Chrome (ace's last-resort Chrome for Testing) under Windows' x64
@@ -34,13 +35,16 @@ export function executableMachine(path: string): "x64" | "arm64" | "x86" | undef
   }
 }
 
-/** A Chrome launch's flags: an x64 Chrome on an ARM64 machine gets `emulatedChromeFlag`, once. */
+/**
+ * A Chrome launch's flags: an x64 Chrome on an ARM64 machine also disables renderer code
+ * integrity, once, in the launch's single `--disable-features` (Chrome reads only the last one).
+ */
 export function emulatedChromeArgs(
   executable: string,
   args: readonly string[],
   hostArch: string,
   machine: (path: string) => string | undefined = executableMachine,
 ): readonly string[] {
-  if (hostArch !== "arm64" || args.includes(emulatedChromeFlag)) return args;
-  return machine(executable) === "x64" ? [...args, emulatedChromeFlag] : args;
+  if (hostArch !== "arm64" || machine(executable) !== "x64") return args;
+  return mergeDisabledFeatures([...args, emulatedChromeFlag]);
 }
