@@ -119,3 +119,30 @@ test("data that arrives while bytes are held queues behind them", { timeout: 10_
   expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([first, small, second]));
   expect(read.endedAfter()).toBe(read.pieces.length);
 });
+
+test(
+  "a paused socket never holds more than one read while a long upload is relayed",
+  { timeout: 20_000 },
+  async () => {
+    const { raw, client } = await connectedPair();
+    const upload = pattern(4 * 1024 * 1024, 5);
+    client.end(upload);
+    // Let the upload fill the kernel buffer, so every resume of the socket can read at once.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Chunks already wait in the paused socket, as after a send that waited for credit.
+    const first = pattern(100_000);
+    const second = pattern(100_000, 3);
+    raw.unshift(second);
+    raw.unshift(first);
+
+    let maxPaused = 0;
+    const read = readLikeTheMux(raw, () => {
+      maxPaused = Math.max(maxPaused, raw.readableLength);
+    });
+    await read.ended;
+
+    expect(Buffer.concat(read.pieces)).toEqual(Buffer.concat([first, second, upload]));
+    // Bun reads up to 512 KiB at a time and a paused socket may hold one such read, never two.
+    expect(maxPaused).toBeLessThanOrEqual(524_288);
+  },
+);
