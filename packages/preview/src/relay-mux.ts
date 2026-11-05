@@ -12,7 +12,12 @@ export type PreviewChannel = {
   readonly bufferedBytes?: number;
   readonly bufferedReceiveBytes?: number;
 };
-/** Native bridges expose bounded socket queues and Node-like stream events. */
+/**
+ * Native bridges expose bounded socket queues and Node-like stream events. A close that follows
+ * an end is graceful: the mux still sends every byte it holds and the END before it drops the
+ * stream, however soon after the end the close comes. A close without an end, or an error, is
+ * abortive and resets the stream at once.
+ */
 export type PreviewSocket = {
   readonly readableLength: number;
   readonly writableLength: number;
@@ -37,13 +42,30 @@ type Stream = {
   wake: (() => void) | undefined;
   cancelSend: (() => void) | undefined;
   payloadBytes: number;
+  /** Set while a closed stream drains; restarts its deadline whenever a frame is admitted. */
+  progress: (() => void) | undefined;
+  cancelDeadline: (() => void) | undefined;
 };
+/** Runs `run` after `ms` unless the returned cancel is called first. */
+export type MuxTimer = (run: () => void, ms: number) => () => void;
+export const systemTimer: MuxTimer = (run, ms) => {
+  const handle = setTimeout(run, ms);
+  return () => clearTimeout(handle);
+};
+/**
+ * How long a gracefully closed stream may go without the peer admitting a frame before it is
+ * reset. It matches the relay's other wait-for-the-peer bounds (bridge authentication and
+ * request headers, 15 s). It restarts on progress, so a slow drain that is moving finishes, and
+ * the total stays bounded: after the close at most one socket read is left to send.
+ */
+export const gracefulDrainMs = 15_000;
 type MuxOptions = {
   channel: PreviewChannel;
   maxStreams: number;
   allowPort?: (port: number) => Promise<boolean>;
   socketFactory?: (port: number) => { socket: PreviewSocket; connect: () => void };
   onClosed?: () => void;
+  timer: MuxTimer;
 };
 
 /** Socket I/O is paused while one bounded chunk waits for remote credit. */
@@ -65,6 +87,7 @@ export function createMux(options: MuxOptions) {
     unsubscribe?.();
     options.channel.close();
     for (const stream of streams.values()) {
+      stream.cancelDeadline?.();
       stream.socket.destroy();
       stream.wake?.();
       stream.cancelSend?.();
@@ -102,6 +125,7 @@ export function createMux(options: MuxOptions) {
   const remove = (stream: Stream) => {
     if (streams.get(stream.id) !== stream) return;
     streams.delete(stream.id);
+    stream.cancelDeadline?.();
     stream.wake?.();
     stream.cancelSend?.();
     stream.socket.destroy();
@@ -137,6 +161,7 @@ export function createMux(options: MuxOptions) {
           });
         });
         offset += length;
+        stream.progress?.();
       }
     } finally {
       releasePayload(stream);
@@ -156,6 +181,8 @@ export function createMux(options: MuxOptions) {
       wake: undefined,
       cancelSend: undefined,
       payloadBytes: 0,
+      progress: undefined,
+      cancelDeadline: undefined,
     };
     streams.set(id, stream);
     socket.pause();
@@ -169,7 +196,9 @@ export function createMux(options: MuxOptions) {
       socket.pause();
       stream.pending = transmit(stream, chunk).catch(close);
     });
+    let socketEnded = false;
     socket.on("end", () => {
+      socketEnded = true;
       stream.pending = stream.pending.then(async () => {
         if (alive(stream)) {
           stream.outgoingEnded = true;
@@ -181,10 +210,32 @@ export function createMux(options: MuxOptions) {
       void send(kinds.reset, id);
       remove(stream);
     });
-    socket.on("close", () => {
+    const finish = () => {
       if (!alive(stream)) return;
       remove(stream);
       if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id);
+    };
+    const expire = () => {
+      if (!alive(stream)) return;
+      void send(kinds.reset, id);
+      remove(stream);
+    };
+    socket.on("close", () => {
+      if (!socketEnded) return finish();
+      // After an end, the END is queued behind any bytes still waiting for credit, within a
+      // deadline so a peer that stops returning credit cannot hold the stream's slot.
+      const arm = () => {
+        stream.cancelDeadline?.();
+        stream.cancelDeadline = options.timer(expire, gracefulDrainMs);
+      };
+      arm();
+      stream.progress = arm;
+      stream.pending = stream.pending.then(() => {
+        stream.progress = undefined;
+        stream.cancelDeadline?.();
+        stream.cancelDeadline = undefined;
+        finish();
+      });
     });
     return stream;
   };

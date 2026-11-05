@@ -1,5 +1,5 @@
 import type { Socket } from "node:net";
-import type { PreviewSocket } from "./relay-mux.ts";
+import { gracefulDrainMs, type MuxTimer, type PreviewSocket } from "./relay-mux.ts";
 import { windowSize } from "./relay-wire.ts";
 
 /**
@@ -10,8 +10,21 @@ import { windowSize } from "./relay-wire.ts";
  *
  * Bytes held here always go first: a chunk that arrives while some are held queues behind them,
  * and the socket's end (and the close after it) waits until every held byte has been delivered.
+ *
+ * Only a real end reaches the mux, because the mux treats a close after an end as graceful and
+ * sends END. Bun emits `end` on a socket destroyed locally too; that end is an abort, so it is
+ * dropped and the close goes through at once. The filter holds because `destroy()` marks the
+ * socket destroyed synchronously and every event it causes comes later. If it ever missed, the
+ * failure would not be safe: the mux would send END for an aborted socket, so the destroy tests
+ * in relay-close.process.test.ts assert that no END is sent. Probes on Bun 1.4.4 and Node 26
+ * confirmed the order: on a local destroy Bun emits `end` with `destroyed` already true and Node
+ * emits no `end`; a real end arrives on both with `destroyed` still false.
+ *
+ * Once the raw socket has closed, held bytes can only wait for the peer's credit, so that wait
+ * has the mux's drain deadline: no piece delivered within `gracefulDrainMs` drops the held bytes
+ * and reports a close with no end, which the mux resets.
  */
-export function previewSocket(socket: Socket): PreviewSocket {
+export function previewSocket(socket: Socket, timer: MuxTimer): PreviewSocket {
   let deliver: ((bytes: Uint8Array) => void) | undefined;
   const held: Buffer[] = [];
   let heldBytes = 0;
@@ -21,13 +34,31 @@ export function previewSocket(socket: Socket): PreviewSocket {
   let closed = false;
   const endListeners: (() => void)[] = [];
   const closeListeners: (() => void)[] = [];
+  let cancelDeadline: (() => void) | undefined;
+  let aborted = false;
+  const stopDeadline = () => {
+    cancelDeadline?.();
+    cancelDeadline = undefined;
+  };
+  const abort = () => {
+    aborted = true;
+    cancelDeadline = undefined;
+    held.length = 0;
+    heldBytes = 0;
+    for (const listener of closeListeners) listener();
+  };
+  const armDeadline = () => {
+    stopDeadline();
+    cancelDeadline = timer(abort, gracefulDrainMs);
+  };
   const emitEnd = () => {
+    stopDeadline();
     endDelivered = true;
     for (const listener of endListeners) listener();
     if (closed) for (const listener of closeListeners) listener();
   };
   const next = () => {
-    if (paused || !deliver) return;
+    if (paused || !deliver || aborted) return;
     const head = held[0];
     if (!head) {
       if (ended && !endDelivered) emitEnd();
@@ -38,11 +69,13 @@ export function previewSocket(socket: Socket): PreviewSocket {
     if (head.byteLength > windowSize) held[0] = head.subarray(windowSize);
     else held.shift();
     heldBytes -= piece.byteLength;
+    if (closed) armDeadline();
     deliver(piece);
     // The mux pauses while it sends a piece; if it didn't, keep going.
     next();
   };
   socket.on("end", () => {
+    if (socket.destroyed) return;
     ended = true;
     if (held.length === 0) emitEnd();
   });
@@ -50,6 +83,7 @@ export function previewSocket(socket: Socket): PreviewSocket {
     closed = true;
     // A close after the end waits for it; one without an end (a reset) goes through at once.
     if (endDelivered || !ended) for (const listener of closeListeners) listener();
+    else armDeadline();
   });
   return {
     get readableLength() {
@@ -67,6 +101,7 @@ export function previewSocket(socket: Socket): PreviewSocket {
       next();
     },
     destroy: () => {
+      stopDeadline();
       held.length = 0;
       heldBytes = 0;
       socket.destroy();

@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { previewSocket } from "./node-socket.ts";
+import { systemTimer } from "./relay-mux.ts";
 import { windowSize } from "./relay-wire.ts";
 
 // A real socket: how a read larger than a window is held back depends on the runtime's streams.
@@ -27,7 +28,7 @@ async function connectedPair() {
 
 /** Reads the adapter as the mux does: pause while one chunk is sent, resume once it has gone. */
 function readLikeTheMux(raw: Socket, onPiece: (count: number) => void = () => {}) {
-  const socket = previewSocket(raw);
+  const socket = previewSocket(raw, systemTimer);
   const pieces: Uint8Array[] = [];
   let endedAfter = -1;
   let closedAfterEnd = false;
