@@ -34,7 +34,9 @@ test("account lifetime replacement retains the approved ACP artifact, environmen
   // An installed agent runs on node; releases ship Bun under that name. Bun's own name is refused
   // (`bun` is also a package runner), so the test runtime is started through a `node` script.
   const node = join(root, "node");
-  await writeFile(node, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`, { mode: 0o755 });
+  await writeFile(node, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} "$@"\n`, {
+    mode: 0o755,
+  });
   try {
     await agents.bind({
       ...identity,

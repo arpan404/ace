@@ -6,9 +6,9 @@ import { canonicalPath } from "./realpath.ts";
 
 const roots: string[] = [];
 afterEach(async () => {
-  for (const root of roots.splice(0)) {
-    await chmod(join(root, "locked"), 0o700).catch(() => undefined);
-    await rm(root, { recursive: true, force: true });
+  for (const dir of roots.splice(0)) {
+    await chmod(join(dir, "locked"), 0o700).catch(() => undefined);
+    await rm(dir, { recursive: true, force: true });
   }
 });
 async function root() {

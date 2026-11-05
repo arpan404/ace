@@ -74,7 +74,9 @@ it("replacements retain the process byte bound while old stdin writes are blocke
   await once(proc.stdout, "line");
   const limits = { maxQueuedBytes: 4_800_000, maxMessageBytes: 4_800_000, timeoutMs: null };
   const old = new JsonRpcPeer(proc, limits);
-  const active = old.notify("blocked", "x".repeat(4_000_000)).catch((error: unknown) => String(error));
+  const active = old
+    .notify("blocked", "x".repeat(4_000_000))
+    .catch((error: unknown) => String(error));
   old.close();
   expect(await active).toContain("peer closed");
   for (let i = 0; i < 20; i++) {

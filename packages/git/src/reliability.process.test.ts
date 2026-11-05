@@ -89,10 +89,10 @@ test("background change counts report tracked and untracked edits without writin
   await writeFile(join(repo, "untracked"), "new\n");
   const index = await readFile(join(repo, ".git", "index"));
   // Bun's recursive readdir lists entries in no fixed order.
-  const objects = (await readdir(join(repo, ".git", "objects"), { recursive: true })).sort();
+  const objects = (await readdir(join(repo, ".git", "objects"), { recursive: true })).toSorted();
   expect(await own().changeSummary(repo)).toEqual({ files: 2, additions: 2, deletions: 1 });
   expect(await readFile(join(repo, ".git", "index"))).toEqual(index);
-  expect((await readdir(join(repo, ".git", "objects"), { recursive: true })).sort()).toEqual(
+  expect((await readdir(join(repo, ".git", "objects"), { recursive: true })).toSorted()).toEqual(
     objects,
   );
 });
