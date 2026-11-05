@@ -104,12 +104,16 @@ export function startSimulatorTranscode(options: {
       );
   });
   // Bytes handed to the pipe and not yet flushed, counted from write callbacks: Bun reports
-  // `writableLength` as 0 however full the pipe is.
+  // `writableLength` as 0 however full the pipe is. Owed requests go out from the callback, not
+  // on `drain`: Bun emits `drain` before the callback of the chunk that drained, so the last
+  // packet would still count against the room and the requests could wait for a push that a
+  // still screen never makes.
   let unflushed = 0;
   const write = (bytes: Buffer) => {
     unflushed += bytes.length;
     child.stdin.write(bytes, () => {
       unflushed -= bytes.length;
+      if (owedSettings || owedKeyframe) sendControl();
     });
   };
   const room = () => !stopped && child.stdin.writable && unflushed < simulatorTranscodeInputLimit;
@@ -119,12 +123,14 @@ export function startSimulatorTranscode(options: {
   /** Settings and keyframe requests owed since the pipe filled, sent once it has room. */
   const sendControl = () => {
     if (!room()) return;
-    if (owedSettings) write(packet({ op: "settings", ...owedSettings }));
-    if (owedKeyframe) write(packet({ op: "keyframe" }));
+    // Cleared before writing: on Bun a write's callback can run inside the write itself.
+    const settings = owedSettings;
+    const keyframe = owedKeyframe;
     owedSettings = undefined;
     owedKeyframe = false;
+    if (settings) write(packet({ op: "settings", ...settings }));
+    if (keyframe) write(packet({ op: "keyframe" }));
   };
-  child.stdin.on("drain", sendControl);
   return {
     push: (payload, keyframe, seq, ts) => {
       sendControl();

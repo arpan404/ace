@@ -6,7 +6,11 @@ import { nodeBinary } from "@ace/provider-kit/testing";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import type { Frame } from "@ace/screen";
 import { DevicePlatform, startCapture, type DeviceRuntime } from "./index.ts";
-import { simulatorNeedsTranscode, startSimulatorTranscode } from "./simulator-transcode.ts";
+import {
+  simulatorNeedsTranscode,
+  simulatorTranscodeInputLimit,
+  startSimulatorTranscode,
+} from "./simulator-transcode.ts";
 import { fakeServeSim } from "./testing/fake-serve-sim.ts";
 
 const udid = "11111111-1111-4111-8111-111111111111";
@@ -256,6 +260,38 @@ it("a transcoder that falls behind skips to serve-sim's next IDR and still gets 
     [afterDrop + 2, false],
   ]);
   expect(keyframesAsked).toBe(1);
+});
+
+it("settings asked for behind one oversized picture still arrive once it is read, with nothing more pushed", async () => {
+  const home = await mkdtemp(join(tmpdir(), "sim-transcode-big-"));
+  onTestFinished(() => rm(home, { recursive: true, force: true }));
+  await mkdir(join(home, "bin"));
+  const log = join(home, "received.log");
+  const go = join(home, "go");
+  const helper = await nodeBinary(join(home, "bin"), "transcode", stalledTranscoder(log, go));
+  const transcode = startSimulatorTranscode({
+    helper,
+    runtime: { spawn: spawnRawSupervised },
+    env: { PATH: process.env["PATH"] ?? "" },
+    frame: () => {},
+    failed: () => {},
+    needKeyframe: () => {},
+  });
+  onTestFinished(() => transcode.stop());
+  // One IDR larger than the pipe's whole allowance, while the transcoder reads nothing.
+  transcode.push(Buffer.alloc(simulatorTranscodeInputLimit + 512 * 1024, 1), true, 0, 0);
+  transcode.settings({ bitrate: 2_000_000, maxWidth: 600, maxHeight: 1304 });
+  transcode.keyframe();
+  await writeFile(go, "");
+  // A still screen: serve-sim sends nothing more, yet the owed requests must go out.
+  await expect
+    .poll(async () =>
+      (await readFile(log, "utf8").catch(() => ""))
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => (JSON.parse(line) as { op: string }).op),
+    )
+    .toEqual(["frame", "settings", "keyframe"]);
 });
 
 it("a viewer watching serve-sim pass through moves to the transcoder once the screen gets busier than its link", async () => {
