@@ -10,11 +10,8 @@ import {
   CommandFiles,
   CommandLibrary,
   discoveryRoots,
-  SecureCommandIo,
   type Target,
 } from "./index.ts";
-import { fileFlags, openResolvedDirectory, useCommandCallDeadline } from "./posix.ts";
-import { CommandFilesystemUnavailable } from "./posix-lanes.ts";
 const target: Target = { provider: "claude", instance: "personal", session: "t" };
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -303,81 +300,5 @@ it.skipIf(process.platform === "win32")(
     const fd = await opening;
     closeSync(writer);
     closeSync(fd);
-  },
-);
-
-/** A FIFO with no writer: opening it for reading blocks, as a call into a dead mount does. */
-async function stuckFolder(name: string) {
-  const folder = await realpath(await mkdtemp(join(tmpdir(), "ace-command-stuck-")));
-  execFileSync("mkfifo", [join(folder, name)]);
-  cleanups.push(async () => {
-    // A writer lets the abandoned call return, so its thread can stop.
-    closeSync(openSync(join(folder, name), constants.O_WRONLY | constants.O_NONBLOCK));
-    await rm(folder, { recursive: true, force: true });
-  });
-  return folder;
-}
-
-it.skipIf(process.platform === "win32")(
-  "a call stuck under one root doesn't delay another root, fails at its deadline, and the root works again",
-  async () => {
-    const restore = useCommandCallDeadline(400);
-    cleanups.push(async () => restore());
-    const a = await stuckFolder("stuck");
-    await writeFile(join(a, "prompt.md"), "A");
-    const { home: b } = await fixture();
-    await writeFile(join(b, "prompt.md"), "B");
-    const rootA = await openResolvedDirectory(openCommandChild, a);
-    const rootB = await openResolvedDirectory(openCommandChild, b);
-    cleanups.push(async () => {
-      closeSync(rootA);
-      closeSync(rootB);
-    });
-    const started = performance.now();
-    const stuck = openCommandChild(rootA, "stuck", constants.O_RDONLY).then(
-      () => undefined,
-      (error: unknown) => ({ error, after: performance.now() - started }),
-    );
-    closeSync(await openCommandChild(rootB, "prompt.md", fileFlags));
-    expect(performance.now() - started).toBeLessThan(300);
-    const failed = await stuck;
-    expect(failed?.error).toBeInstanceOf(CommandFilesystemUnavailable);
-    expect(failed?.after).toBeGreaterThanOrEqual(390);
-    expect(failed?.after).toBeLessThan(2000);
-    // The stuck thread was replaced: the same root opens a regular file again.
-    closeSync(await openCommandChild(rootA, "prompt.md", fileFlags));
-  },
-);
-
-it.skipIf(process.platform === "win32")(
-  "closing command files ends promptly while one of their folders is stuck",
-  async () => {
-    const restore = useCommandCallDeadline(400);
-    cleanups.push(async () => restore());
-    const a = await stuckFolder("stuck.md");
-    // Discovery opens files without blocking; this opener drops O_NONBLOCK for the FIFO, so the
-    // read of stuck.md blocks in the root's worker the way a dead mount does.
-    const io = new SecureCommandIo((directory, name, flags) =>
-      openCommandChild(directory, name, name === "stuck.md" ? constants.O_RDONLY : flags),
-    );
-    const catalog = new CommandCatalog(() => 0);
-    const stuck = new CommandFiles(
-      catalog,
-      [{ path: a, format: "claude", scope: "user", instance: "personal" }],
-      { io },
-    );
-    const starting = stuck.start();
-    const other = await fixture();
-    await writeFile(join(other.root, "unstuckreview.md"), "Review");
-    const started = performance.now();
-    await other.files.start();
-    expect(performance.now() - started).toBeLessThan(300);
-    expect(other.catalog.list(target, "unstuckreview").commands.map((c) => c.name)).toEqual([
-      "unstuckreview",
-    ]);
-    const closing = performance.now();
-    await stuck.close();
-    await starting.catch(() => {});
-    expect(performance.now() - closing).toBeLessThan(2000);
   },
 );

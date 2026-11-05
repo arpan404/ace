@@ -23,6 +23,7 @@ function bindings() {
     [`fdopendir${suffix}`]: { args: ["i32"], returns: "ptr" },
     [`readdir${suffix}`]: { args: ["ptr"], returns: "ptr" },
     closedir: { args: ["ptr"], returns: "i32" },
+    close: { args: ["i32"], returns: "i32" },
   });
   const bound = (name: string): NativeFunction => {
     const fn = library.symbols[name];
@@ -38,6 +39,7 @@ function bindings() {
     linkat: bound("linkat"),
     symlinkat: bound("symlinkat"),
     closedir: bound("closedir"),
+    close: bound("close"),
     renameFlags: bound(renameFlags),
     fdopendir: bound(`fdopendir${suffix}`),
     readdir: bound(`readdir${suffix}`),
@@ -93,6 +95,8 @@ export function runPosixOperation(operation: PosixOperation): number | string | 
       readers.delete(operation.reader);
       return integerResult(c.closedir(handle));
     }
+    case "closeFd":
+      return integerResult(c.close(operation.fd));
     case "readLink": {
       const bytes = Buffer.alloc(4096);
       const count = integerResult(
@@ -141,4 +145,22 @@ export function runPosixOperation(operation: PosixOperation): number | string | 
         ),
       );
   }
+}
+
+/**
+ * Releases what this thread owns before it exits: the result of its abandoned last call (never
+ * delivered, so no one else holds that number) and every directory stream, each of which owns
+ * the descriptor it was opened on.
+ */
+export function releasePosixState(
+  abandoned: { operation: PosixOperation; value: number | string | null } | undefined,
+): void {
+  const c = native;
+  if (!c) return;
+  if (abandoned && typeof abandoned.value === "number") {
+    const { operation, value } = abandoned;
+    if ((operation.op === "open" || operation.op === "create") && value >= 0) c.close(value);
+  }
+  for (const handle of readers.values()) c.closedir(handle);
+  readers.clear();
 }

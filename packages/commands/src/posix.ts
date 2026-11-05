@@ -21,10 +21,26 @@ import {
 } from "@ace/workspace/descriptor";
 import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
-import { CommandFilesystemUnavailable, type PosixLanes } from "./posix-lanes.ts";
+import { CommandFilesystemUnavailable, PosixCallOwner, type PosixLanes } from "./posix-lanes.ts";
+import type { PosixValue } from "./posix-lanes.ts";
 import { posixWorkerLanes } from "./posix-worker-client.ts";
 import type { PosixOperation } from "./posix-wire.ts";
-export type OpenCommandChild = (directory: number, name: string, flags: number) => Promise<number>;
+/** Runs calls for whoever is asking; an owner's calls stop when it is cancelled. */
+export interface CommandCalls {
+  run(
+    root: string,
+    operation: PosixOperation,
+    options?: { executor?: number },
+  ): Promise<{ value: PosixValue; executor: number }>;
+  /** The same lanes without cancellation, for releasing what these calls opened. */
+  cleanup(): CommandCalls;
+}
+export type OpenCommandChild = (
+  directory: number,
+  name: string,
+  flags: number,
+  owner?: CommandCalls,
+) => Promise<number>;
 export interface DirectoryReader {
   read(): Promise<string | undefined>;
   close(): Promise<void>;
@@ -39,22 +55,41 @@ const descriptorRoots = new Map<number, string>();
 const sharedRoot = "";
 const rootOf = (fd: number) => descriptorRoots.get(fd) ?? sharedRoot;
 const commandLanes = () => (lanes ??= posixWorkerLanes());
-async function posix(operation: PosixOperation, fd: number): Promise<number | string | null> {
-  return (await commandLanes().run(rootOf(fd), operation)).value;
+async function posix(
+  operation: PosixOperation,
+  fd: number,
+  owner?: CommandCalls,
+): Promise<PosixValue> {
+  return (await (owner ?? commandLanes()).run(rootOf(fd), operation)).value;
 }
-async function posixInteger(operation: PosixOperation, fd: number): Promise<number> {
-  return integer.parse(await posix(operation, fd));
+async function posixInteger(
+  operation: PosixOperation,
+  fd: number,
+  owner?: CommandCalls,
+): Promise<number> {
+  return integer.parse(await posix(operation, fd, owner));
 }
 /** Opens a descriptor under `parent`'s root; the new descriptor stays on that root. */
-async function posixOpen(operation: PosixOperation, parent: number): Promise<number> {
-  const fd = await posixInteger(operation, parent);
+async function posixOpen(
+  operation: PosixOperation,
+  parent: number,
+  owner?: CommandCalls,
+): Promise<number> {
+  const fd = await posixInteger(operation, parent, owner);
   if (fd >= 0) descriptorRoots.set(fd, rootOf(parent));
   return fd;
 }
+/** A new owner for one user's calls, cancelled together. */
+export function commandCallOwner(): PosixCallOwner {
+  return new PosixCallOwner(commandLanes());
+}
 /** Tests only: later calls use lanes with a short deadline. Returns the restore. */
-export function useCommandCallDeadline(deadlineMs: number): () => void {
+export function useCommandCallDeadline(
+  deadlineMs: number,
+  limits: { maxWorkers?: number; maxThreads?: number } = {},
+): () => void {
   const previous = lanes;
-  lanes = posixWorkerLanes(deadlineMs);
+  lanes = posixWorkerLanes(deadlineMs, limits);
   return () => {
     lanes = previous;
   };
@@ -64,21 +99,23 @@ export const directoryFlags =
   constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | closeOnExec;
 export const fileFlags =
   constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec;
-export const openCommandChild: OpenCommandChild = async (directory, name, flags) => {
+export const openCommandChild: OpenCommandChild = async (directory, name, flags, owner) => {
   if (process.platform === "win32") return windowsOpenChild(directory, name);
-  const fd = await posixOpen({ op: "open", directory, name, flags }, directory);
+  const fd = await posixOpen({ op: "open", directory, name, flags }, directory, owner);
   if (fd < 0) throw new EntryUnavailable("Cannot open command entry without following symlinks");
   return fd;
 };
-export async function directoryReader(fd: number): Promise<DirectoryReader> {
+export async function directoryReader(fd: number, owner?: CommandCalls): Promise<DirectoryReader> {
   if (process.platform === "win32") return windowsDirectoryReader(fd);
   // The stream lives in the worker that opened it; it dies with that worker, and its fd with it.
   const root = rootOf(fd);
-  const opened = await commandLanes().run(root, { op: "openDirectory", fd });
+  const opened = await (owner ?? commandLanes()).run(root, { op: "openDirectory", fd });
   const reader = integer.parse(opened.value);
   if (reader === 0) throw new Error("Cannot enumerate command directory");
-  const stream = (operation: PosixOperation) =>
-    commandLanes().run(root, operation, { executor: opened.executor });
+  // Reads stop with their owner; the close never does, so a cancelled owner can't strand a stream.
+  const calls = owner ?? commandLanes();
+  const stream = (operation: PosixOperation, through = calls) =>
+    through.run(root, operation, { executor: opened.executor });
   let closed = false;
   return {
     async read() {
@@ -96,7 +133,7 @@ export async function directoryReader(fd: number): Promise<DirectoryReader> {
       if (closed) return;
       closed = true;
       try {
-        integer.parse((await stream({ op: "closeDirectory", reader })).value);
+        integer.parse((await stream({ op: "closeDirectory", reader }, calls.cleanup())).value);
       } catch (error) {
         // An abandoned worker keeps the stream; closing it from here could race its stuck call.
         if (!(error instanceof CommandFilesystemUnavailable)) throw error;
@@ -106,12 +143,20 @@ export async function directoryReader(fd: number): Promise<DirectoryReader> {
 }
 
 /** Small descriptor-relative mutation primitives, shared by prompt file editing. */
-export async function createCommandDirectory(directory: number, name: string): Promise<void> {
+export async function createCommandDirectory(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<void> {
   if (process.platform === "win32") return void windowsQuiet(() => mkdirAt(directory, name));
-  await posix({ op: "mkdir", directory, name, mode: 0o700 }, directory);
+  await posix({ op: "mkdir", directory, name, mode: 0o700 }, directory, owner);
   // The caller opens the result with O_NOFOLLOW, including when mkdir found an existing entry.
 }
-export async function createCommandFile(directory: number, name: string): Promise<number> {
+export async function createCommandFile(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<number> {
   if (process.platform === "win32") {
     const parent = windowsKnownPath(directory) ?? "";
     try {
@@ -121,7 +166,7 @@ export async function createCommandFile(directory: number, name: string): Promis
     }
   }
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL;
-  const fd = await posixOpen({ op: "create", directory, name, flags }, directory);
+  const fd = await posixOpen({ op: "create", directory, name, flags }, directory, owner);
   if (fd < 0) throw new EntryUnavailable("Cannot create prompt file");
   return fd;
 }
@@ -129,6 +174,7 @@ export async function replaceCommandFile(
   directory: number,
   source: string,
   target: string,
+  owner?: CommandCalls,
 ): Promise<void> {
   if (process.platform === "win32") {
     if (!windowsQuiet(() => renameAt(directory, source, target)))
@@ -138,17 +184,23 @@ export async function replaceCommandFile(
   const renamed = await posixInteger(
     { op: "rename", from: directory, fromName: source, to: directory, toName: target, flags: 0 },
     directory,
+    owner,
   );
   if (renamed < 0) throw new Error("Cannot replace prompt file");
 }
-export async function removeCommandFile(directory: number, name: string): Promise<void> {
+export async function removeCommandFile(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<void> {
   if (process.platform === "win32") return void windowsQuiet(() => unlinkAt(directory, name));
-  await posix({ op: "unlink", directory, name, flags: 0 }, directory);
+  await posix({ op: "unlink", directory, name, flags: 0 }, directory, owner);
 }
 export async function linkCommandFile(
   directory: number,
   source: string,
   target: string,
+  owner?: CommandCalls,
 ): Promise<void> {
   if (process.platform === "win32") {
     // No hard links: claim the name exclusively, then replace the claim with the written file.
@@ -163,14 +215,19 @@ export async function linkCommandFile(
   const linked = await posixInteger(
     { op: "link", from: directory, fromName: source, to: directory, toName: target, flags: 0 },
     directory,
+    owner,
   );
   if (linked < 0) throw new Error("prompt_conflict");
 }
 
 /** Read the link itself relative to the pinned skill directory, never its target. */
-export async function readCommandLink(directory: number, name: string): Promise<string> {
+export async function readCommandLink(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<string> {
   if (process.platform === "win32") return windowsReadLink(directory, name);
-  const text = await posix({ op: "readLink", directory, name }, directory);
+  const text = await posix({ op: "readLink", directory, name }, directory, owner);
   if (typeof text !== "string") throw new EntryUnavailable("Unavailable skill link");
   return text;
 }
@@ -216,16 +273,17 @@ const closeQuietly = (fd: number) =>
 export async function openResolvedDirectory(
   openChild: OpenCommandChild,
   path: string,
+  owner?: CommandCalls,
 ): Promise<number> {
   if (process.platform === "win32") return windowsOpenResolved(openChild, path);
-  let fd = await openChild(-100, "/", directoryFlags);
+  let fd = await openChild(-100, "/", directoryFlags, owner);
   // Everything opened beneath this root runs on the root's own worker.
   descriptorRoots.set(fd, path);
   try {
     const parts = path.split("/").filter(Boolean);
     if (parts.length > 128) throw new Error("Trusted root depth limit");
     for (const name of parts) {
-      const child = await openChild(fd, name, directoryFlags);
+      const child = await openChild(fd, name, directoryFlags, owner);
       await closeQuietly(fd);
       fd = child;
     }
