@@ -43,6 +43,15 @@ import XCTest
         let stop = app.buttons["composer.send"]
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         XCTAssertEqual(stop.label, "Stop whole agent tree")
+        // Mid-transcript, the words run under the header's fade rather than through the title.
+        let transcript = app.scrollViews["transcript"]
+        transcript.swipeDown(velocity: .fast)
+        sleep(1)
+        // Then the first message partly under the header.
+        let from = transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        from.press(forDuration: 0.1, thenDragTo: transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48)))
+        sleep(2)
+        XCTAssertTrue(app.buttons["thread.title"].isHittable)
         shot("working")
     }
 

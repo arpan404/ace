@@ -157,6 +157,11 @@ struct ThreadView: View {
             // The header's lower part (the status at accessibility sizes, the page pills) is drawn
             // once over the pages, so it stays put while they swipe, over a soft fade
             // (`ThreadHeaderFade`); each page starts below it (`PageHeaderClearance`).
+            // The page colour under the whole header (title, model line, page pills), fading out
+            // below it, so the transcript never prints through the title as it scrolls.
+            .overlay(alignment: .top) {
+                ThreadHeaderFade(reachesTop: true).frame(height: headerHeight)
+            }
             .overlay(alignment: .top) {
                 VStack(spacing: AceTheme.Spacing.none) {
                     if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
@@ -169,7 +174,6 @@ struct ThreadView: View {
                         ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
                     }
                 }
-                .background { if headerHeight > 0 { ThreadHeaderFade() } }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
                 // Read before the page under it.
                 .accessibilitySortPriority(1)
