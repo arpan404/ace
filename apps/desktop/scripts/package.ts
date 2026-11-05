@@ -13,6 +13,7 @@ import {
   desktop,
   dist,
   electronVersion,
+  repo,
   installedElectronDist,
   packagedAppVersion,
   targetArch,
@@ -20,7 +21,8 @@ import {
 import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
-import { copyBesideApp } from "./beside-app.ts";
+import { checkAppArchive } from "../src/packaging/app-archive.ts";
+import { copyBesideApp, packagedResources } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
@@ -145,7 +147,11 @@ const config: Configuration = {
   // the Windows main process (beside-app.ts). They are copied here rather than through
   // extraResources, which always drops node_modules: the daemon needs its staged runtime
   // packages (playwright-core, the Claude SDK).
-  afterPack: copyBesideApp(dist, arch),
+  afterPack: async (packed) => {
+    // A run that packed a dependency tree into app.asar fails here, before anything is signed.
+    await checkAppArchive(join(packagedResources(packed), "app.asar"));
+    await copyBesideApp(dist, arch)(packed);
+  },
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
     // The daemon runs on the bundled Node runtime, so nothing needs Electron as Node: with
@@ -279,7 +285,16 @@ const targets =
     : process.platform === "win32"
       ? Platform.WINDOWS
       : Platform.LINUX;
-const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
+// electron-builder packs the dependencies of the first of the app folder, the project folder and
+// the workspace root that declares any. dist/app declares none, and neither does the repo root,
+// so the project folder is pinned there: left to default to the working directory, a run from
+// apps/desktop packed the desktop package's whole dependency tree into app.asar.
+const outputs = await build({
+  targets: targets.createTarget(),
+  config,
+  projectDir: repo,
+  publish: "never",
+});
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({
