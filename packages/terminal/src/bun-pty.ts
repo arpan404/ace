@@ -114,11 +114,9 @@ export function spawnBunPty(
     const exit = exitEvent(child, exitCode);
     for (const listener of exitListeners) listener(exit);
   };
-  // A string is a Windows command line, passed on as written (node-pty does the same). The
-  // program path leads it unquoted, so it must contain no spaces.
+  // A string is a Windows command line, passed on as written (node-pty does the same). Bun
+  // still quotes the program path itself, so one with spaces runs (checked on Windows 11).
   const verbatim = typeof args === "string";
-  if (verbatim && /\s/.test(file))
-    throw new Error(`A Windows terminal program path cannot contain spaces: ${file}`);
   const child = runtime.spawn(verbatim ? [file, args] : [file, ...args], {
     cwd: options.cwd,
     env,
