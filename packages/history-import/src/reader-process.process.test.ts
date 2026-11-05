@@ -35,9 +35,9 @@ async function transcript(path: string, prompt: string) {
 }
 
 /** A home where reading one transcript leaves the reader stuck until something kills it. */
-async function stuckHome(root: string) {
+async function stuckHome(root: string, healthy = true) {
   const home = join(root, "claude");
-  await transcript(join(home, "projects/p/healthy.jsonl"), "healthy prompt");
+  if (healthy) await transcript(join(home, "projects/p/healthy.jsonl"), "healthy prompt");
   await transcript(join(home, "projects/p/stuck.jsonl"), "stuck prompt");
   const signal = join(root, "stuck");
   const env = {
@@ -180,4 +180,102 @@ test("the reader exits when the daemon that owns it is killed outright, even whi
   // close; it must still go.
   daemon.kill("SIGKILL");
   await vi.waitFor(() => expect(alive(reader)).toBe(false), { timeout: 5_000 });
+});
+
+/** A service whose reader gets stuck on one transcript, and a sampler the test can arm. */
+async function stuckService(root: string, extraEnv: Record<string, string> = {}, healthy = true) {
+  const { home, signal, env: readerEnv } = await stuckHome(root, healthy);
+  const state = { armed: false };
+  // Against the real limit, the sampler reports the stuck reader as over it once armed.
+  const resident = (pid: number) =>
+    state.armed && existsSync(signal) && readFileSync(signal, "utf8") === String(pid)
+      ? readerMemoryLimitBytes + 1
+      : 64 * 1024 * 1024;
+  const readers: ReaderProcess[] = [];
+  const service = await openHistory(
+    {
+      indexPath: join(root, "ace/index.sqlite"),
+      instances: [{ id: "claude", provider: "claude", homeDir: home }],
+    },
+    (url, options) => {
+      const reader = new ReaderProcess(
+        url,
+        { ...options, execArgv: ["--import", poison], env: { ...readerEnv, ...extraEnv } },
+        { ...systemReaderRuntime(), intervalMs: 20, sample: async (pid) => resident(pid) },
+      );
+      readers.push(reader);
+      return reader;
+    },
+    {
+      delay: (run, milliseconds) => {
+        if (milliseconds === 5000) return () => {};
+        const timer = setTimeout(run, 0);
+        return () => clearTimeout(timer);
+      },
+    },
+  );
+  cleanup.push(() => service.close());
+  let recovered = Promise.withResolvers<void>();
+  service.subscribeRecovery((retrying) => {
+    if (!retrying) recovered.resolve();
+  });
+  return {
+    service,
+    signal,
+    state,
+    readers,
+    async recovered() {
+      await recovered.promise;
+      recovered = Promise.withResolvers<void>();
+    },
+  };
+}
+
+test("a reader killed with many requests outstanding settles every one, and the daemon goes on", async () => {
+  const env = await environment();
+  cleanup.push(env.close);
+  const { service, signal, readers, recovered } = await stuckService(env.root);
+  const scanning = service.scan();
+  void scanning.catch(() => {});
+  await vi.waitFor(() => expect(existsSync(signal)).toBe(true), { timeout: 10_000 });
+  // Within the service's eight reads in flight, so each late one is really sent.
+  const reads = Array.from({ length: 2 }, () => service.list({ type: "history.list", cwd }));
+  const pid = readers[0]?.processId;
+  if (pid === undefined) throw new Error("The reader never started");
+  process.kill(pid, "SIGKILL");
+  // Let the pipe close before this process hears of it, so the next sends fail one by one.
+  const until = performance.now() + 20;
+  while (performance.now() < until);
+  const late = Array.from({ length: 5 }, () => service.get("missing"));
+
+  const outcomes = await Promise.allSettled([scanning, ...reads, ...late]);
+  expect(outcomes[0]?.status).toBe("rejected");
+  expect(outcomes).toHaveLength(8);
+  await recovered();
+  const page = await service.list({ type: "history.list", cwd });
+  expect(page.type).toBe("history.list");
+});
+
+test("a read in flight when the reader goes over its memory limit is re-checked alone, not set aside", async () => {
+  const env = await environment();
+  cleanup.push(env.close);
+  // The stuck transcript is healthy: only the first reader stops on it, as if it was being
+  // read when memory another read had used (and freed) pushed the reader over. It is the only
+  // read marked then, the case a crash would strike.
+  const { service, signal, state, recovered } = await stuckService(
+    env.root,
+    { ACE_TEST_POISON_ONCE: "1" },
+    false,
+  );
+  const scanning = service.scan();
+  void scanning.catch(() => {});
+  await vi.waitFor(() => expect(existsSync(signal)).toBe(true), { timeout: 10_000 });
+  state.armed = true;
+  await expect(scanning).rejects.toThrow(readerMemoryError(readerMemoryLimitBytes).message);
+  await recovered();
+
+  const scan = await service.scan();
+  expect(scan.unsupported).toEqual([]);
+  const page = await service.list({ type: "history.list", cwd });
+  expect(page.sessions.map((session) => session.title)).toEqual(["stuck prompt"]);
 });

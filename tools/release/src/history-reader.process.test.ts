@@ -6,8 +6,9 @@ import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { bundleDaemon } from "@ace/release";
 
-// The package runs on Bun, as releases do: off Linux the reader's memory sampler is bun:ffi.
-test.skipIf(!("bun" in process.versions))(
+// The package runs on Bun, as releases do: off Linux the reader's memory sampler is bun:ffi. The
+// reader is found with pgrep and ps, which Windows doesn't have.
+test.skipIf(!("bun" in process.versions) || process.platform === "win32")(
   "the packaged daemon reads saved conversations through a reader process of its own",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "ace-history-reader-bundle-"));
