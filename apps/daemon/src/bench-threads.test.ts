@@ -74,6 +74,12 @@ test("a worker alive in one reading but retired in another doesn't count against
   ).toEqual([]);
 });
 
+const withRuntime = (runtime: number) => ({
+  census: { total: runtime + 4, runtime, workers: 1, own: 3 },
+  workers: [{}],
+  workerFloor: 1,
+});
+
 test("a runaway Bun thread pool fails the gate, while the pool's usual size passes", () => {
   const limits = {
     idleWorkers: 1,
@@ -81,11 +87,6 @@ test("a runaway Bun thread pool fails the gate, while the pool's usual size pass
     activeOwnThreads: 6,
     runtimeThreads: runtimeThreadCeiling(16),
   };
-  const withRuntime = (runtime: number) => ({
-    census: { total: runtime + 4, runtime, workers: 1, own: 3 },
-    workers: [{}],
-    workerFloor: 1,
-  });
   expect(threadViolations(withRuntime(32), withRuntime(48), limits)).toEqual([]);
   expect(threadViolations(withRuntime(32), withRuntime(49), limits)).toEqual([
     "active Bun runtime threads: 49 exceeds 48",

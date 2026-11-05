@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { bunBinary } from "../../../scripts/runtimes.ts";
 import { workerPreloadVariable } from "@ace/provider-kit/worker";
-import { threadCensus } from "./threads.ts";
+import { workerCoverageGaps } from "./worker-coverage.ts";
 
 /**
  * Source entry keeps dependency names visible; bundled RSS is checked separately. The daemon
@@ -80,9 +80,6 @@ export async function checkIdleImports(
     // Include background feature initialization and the idle worker retirement interval.
     await pause(settleMs);
     if (!child.connected) throw new Error(`Idle import daemon disconnected: ${stderr}`);
-    const pid = child.pid;
-    if (pid === undefined) throw new Error("Idle import daemon has no process");
-    const running = (await threadCensus(pid)).workers;
     child.send({ id: 1, op: "close" });
     const [code, signal] = await exited;
     if (code !== 0 || signal) throw new Error(`Idle import shutdown failed: ${stderr}`);
@@ -90,17 +87,11 @@ export async function checkIdleImports(
       Boolean,
     );
     if (violations.length) throw new Error(`Modules loaded at idle:\n${violations.join("\n")}`);
-    // The main isolate is thread 0; any other id is a worker the hook ran in.
-    const watched = new Set(
-      (await readFile(isolates, "utf8")).split("\n").filter((id) => id && id !== "0"),
-    );
-    if (running > 0 && watched.size === 0)
-      throw new Error(
-        `Idle imports in workers: not measured (${running} running, the hook ran in none)`,
-      );
-    process.stdout.write(
-      `Idle import guard passed in the main isolate and ${watched.size} worker(s)\n`,
-    );
+    const coverage = await readFile(isolates, "utf8");
+    const gaps = workerCoverageGaps(coverage);
+    if (gaps.length) throw new Error(`Idle imports in workers: not measured (${gaps.join("; ")})`);
+    const workers = coverage.split("\n").filter((line) => line.startsWith("start ")).length;
+    process.stdout.write(`Idle import guard passed in the main isolate and ${workers} worker(s)\n`);
   } finally {
     clearTimeout(deadline);
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");

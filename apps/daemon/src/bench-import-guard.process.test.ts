@@ -10,10 +10,28 @@ import { checkIdleImports } from "../bench/idle-imports.ts";
 const entry = join(import.meta.dirname, "../bench/fixtures/worker-daemon.ts");
 const guard = (...kinds: string[]) => checkIdleImports({ entry, args: kinds, settleMs: 300 });
 
+test("workers ace's factory started, live or retired, pass the guard", async () => {
+  await expect(guard("clean", "retired", "clean")).resolves.toBeUndefined();
+});
+
 test("a forbidden package loaded in a worker at idle fails the import guard", async () => {
   await expect(guard("clean", "import")).rejects.toThrow(/Modules loaded at idle:\nsharp: /);
 });
 
-test("a worker the guard's hook never ran in fails it as not measured, never as a pass", async () => {
-  await expect(guard("unwatched")).rejects.toThrow(/Idle imports in workers: not measured/);
+test("an unwatched worker beside a watched one fails the guard as not measured", async () => {
+  await expect(guard("clean", "unwatched")).rejects.toThrow(
+    /not measured \(worker 2 started past ace's worker factory\)/,
+  );
+});
+
+test("a live unwatched worker after a watched one retired fails the guard as not measured", async () => {
+  await expect(guard("retired", "unwatched")).rejects.toThrow(
+    /not measured \(worker 2 started past ace's worker factory\)/,
+  );
+});
+
+test("an unwatched worker that already retired still fails the guard as not measured", async () => {
+  await expect(guard("clean", "unwatched-retired")).rejects.toThrow(
+    /not measured \(worker 2 started past ace's worker factory\)/,
+  );
 });

@@ -1,5 +1,6 @@
+import { channel } from "node:diagnostics_channel";
 import { appendFileSync, readFileSync } from "node:fs";
-import { threadId } from "node:worker_threads";
+import { isMainThread, threadId, Worker } from "node:worker_threads";
 
 /**
  * Records, in ACE_IDLE_IMPORT_LOG, every provider session and heavy package the daemon loads.
@@ -7,8 +8,9 @@ import { threadId } from "node:worker_threads";
  * forbidden files logs each one and loads its source as written. Any such load already fails
  * the guard, so how it then loads can't hide a violation. Bun gives worker threads no preload
  * of their parent's: ace's workers take this one through ACE_BENCH_WORKER_PRELOAD (startWorker
- * in @ace/provider-kit/worker), and each isolate it runs in is listed in ACE_IDLE_IMPORT_ISOLATES
- * so the guard can tell a watched worker from an unwatched one.
+ * in @ace/provider-kit/worker). ACE_IDLE_IMPORT_ISOLATES records, by worker id, each worker
+ * the factory announced, each isolate the hook ran in, and at shutdown the next worker id, so
+ * the guard can name any worker that ran unwatched (worker-coverage.ts).
  */
 const forbidden = [
   "sharp",
@@ -42,7 +44,26 @@ const watched = new RegExp(
 );
 const output = process.env.ACE_IDLE_IMPORT_LOG;
 const isolates = process.env.ACE_IDLE_IMPORT_ISOLATES;
-if (isolates) appendFileSync(isolates, `${threadId}\n`);
+if (isolates) {
+  const record = (line: string) => appendFileSync(isolates, `${line}\n`);
+  record(`ack ${threadId}`);
+  // Held for the process's life: Bun drops a channel nothing references.
+  const created = channel("worker_threads");
+  Reflect.set(globalThis, "aceIdleImportWorkerChannel", created);
+  created.subscribe((message) => {
+    const worker: unknown = Reflect.get(Object(message), "worker");
+    if (worker instanceof Worker) record(`start ${worker.threadId}`);
+  });
+  // The guard's close request: the id the next worker gets bounds every id that ran. Listening
+  // from the preload, this runs before the daemon's own handler exits.
+  if (isMainThread)
+    process.on("message", (request: unknown) => {
+      if (Reflect.get(Object(request), "op") !== "close") return;
+      const probe = new Worker("", { eval: true });
+      record(`next ${probe.threadId}`);
+      void probe.terminate();
+    });
+}
 
 /** What the file is: the session sources are TypeScript, the packages JavaScript. */
 const loaderOf = (path: string) => (/\.[cm]?ts$/.test(path) ? "ts" : "js");
