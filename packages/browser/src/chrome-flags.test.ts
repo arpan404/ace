@@ -16,8 +16,9 @@ const backgroundSwitches = [
   "--disable-background-timer-throttling",
   "--disable-backgrounding-occluded-windows",
 ];
-const launch = (extra?: readonly string[]) =>
+const launch = (extra: readonly string[] = []) =>
   chromeArgs({ profileDir: "/profile", deviceScaleFactor: 1, platform: "win32", extra });
+const x64 = () => "x64";
 
 test("ace's Chrome keeps its processes at normal priority with no extra flags", () => {
   const args = launch();
@@ -41,7 +42,6 @@ test("a bare --disable-features from a launch cannot clear the features ace's Ch
 });
 
 test("an x64 Chrome on ARM64 Windows keeps every disabled feature in its one flag, restart after restart", () => {
-  const x64 = () => "x64";
   const args = emulatedChromeArgs(
     "chrome.exe",
     launch(["--disable-features=Translate"]),
