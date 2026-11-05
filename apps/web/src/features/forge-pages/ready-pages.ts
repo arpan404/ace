@@ -84,6 +84,15 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
   const failed = results.find((result) => result.isError);
   const next =
     active && !exhaustive && first ? nextReadyRead(steps, answers, queries.length) : undefined;
+  // Ranking is optional: when it has nothing to show because a search failed, or the
+  // connection is down, the ordinary newest-first list stands in, with its own paging. Ranked
+  // rows already read stay on show when a later page fails.
+  const unranked = active && !exhaustive && unique.length === 0 && (failed !== undefined || !ready);
+  if (!unranked && fallbackPaging.pages !== 1) setFallbackPaging({ key: fallbackKey, pages: 1 });
+  const retry = () => {
+    if (head.error || head.failed.length > 0) head.retry();
+    void Promise.all(results.filter((result) => result.isError).map((result) => result.refetch()));
+  };
   const pages: ListPages<ForgePrList> = {
     rows: unique,
     first,
@@ -92,19 +101,17 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
     failed: [],
     stale: head.stale,
     loading: head.loading || (!exhaustive && unique.length === 0 && !settled),
-    error: head.error ?? failed?.error ?? undefined,
+    error: head.error,
     more: next !== undefined && settled,
-    retry: () => {
-      head.retry();
-      void Promise.all(results.map((result) => result.refetch()));
-    },
+    retry,
   };
   return {
-    // A ranking query is optional: its failure must not hide a successful ordinary list.
-    ...(failed ? { ...head, retry: pages.retry } : pages),
+    ...(unranked ? { ...head, retry } : pages),
+    /** A ranking search failed: the list is unranked, or ranked only as far as it got. */
     rankingError: failed?.error,
+    unranked,
     loadMore: () => {
-      if (failed) {
+      if (unranked) {
         setFallbackPaging((current) => ({
           key: fallbackKey,
           pages: (current.key === fallbackKey ? current.pages : 1) + 1,

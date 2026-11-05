@@ -257,7 +257,11 @@ export function PullRequestsPage(props: {
                 aria-label="Pull request ranking"
                 className="flex flex-wrap items-center gap-2 py-2 text-ui text-muted-foreground"
               >
-                <span>Couldn't rank pull requests. Showing recently updated results.</span>
+                <span>
+                  {ranked.unranked
+                    ? "Couldn't rank pull requests. Showing the most recently updated ones."
+                    : "Couldn't rank more pull requests."}
+                </span>
                 <Button size="xs" variant="ghost" onClick={ranked.retry}>
                   Try again
                 </Button>

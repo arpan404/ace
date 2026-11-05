@@ -109,3 +109,31 @@ test("the open count does not become an empty search result while ranking is pen
   release();
   await waitFor(async () => expect(await titles()).toContain("Old but ready"));
 });
+
+test("ranked pull requests stay listed when a later ranking page fails, and retry reads on", async () => {
+  const app = withBusyRepository(56);
+  // The ready one, then the first page of those waiting on review, fill the first screen; the
+  // second page of that search is what Load more asks for next.
+  const waitingOnReview = readinessQueries({})[2];
+  if (!waitingOnReview) throw new Error("Missing ranking query");
+  const recover = app.daemon.workspace.failForgeRead(
+    {
+      op: "forge.pr.list",
+      workspaceId: WorkspaceId.parse("ace"),
+      query: { ...waitingOnReview, page: 2 },
+    },
+    "forge_rate_limit",
+  );
+  await app.open("/pulls?project=ace");
+  await waitFor(async () => expect(await titles()).toHaveLength(26));
+  expect(await titles()).toContain("Old but ready");
+  await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+  const notice = await screen.findByRole("status", { name: "Pull request ranking" });
+  expect(await titles()).toContain("Old but ready");
+  expect(await titles()).toHaveLength(26);
+  expect(notice.textContent).toContain("Couldn't rank more pull requests");
+  recover();
+  await userEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+  await waitFor(async () => expect(await titles()).toHaveLength(51));
+  expect(screen.queryByRole("status", { name: "Pull request ranking" })).toBeNull();
+});
