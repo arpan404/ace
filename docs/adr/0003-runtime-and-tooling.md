@@ -89,6 +89,25 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - A pending top-level await keeps a Bun process alive, so `beforeExit` never fires.
   - Replacing a function on a builtin module's object does not reach named imports
     (`syncBuiltinESMExports` does nothing), and plugins cannot replace builtin modules.
+  - `net.Socket({ fd })` on a pipe descriptor writes without polling it: on a blocking
+    descriptor a full pipe freezes the whole process, on a non-blocking one the write fails with
+    `EAGAIN`. Pipes ace feeds itself are non-blocking on its side and written through Bun's
+    `FileSink` (`Bun.file(fd).writer()`) on Bun, which does not close a descriptor it was given.
+  - `fs.realpath` opens the final component, so it fails with `EACCES` on a file or folder the
+    process can't read (mode 000, write- or execute-only) where `realpath(3)` resolves it. The
+    workspace resolves such a leaf itself (`packages/workspace/src/realpath.ts`).
+  - A child's stdin takes about 500 KB in one write before holding it back (Node: one 64 KB pipe
+    buffer), reports `writableLength` 0, and has no `ref()` or `unref()`. Small writes to a child
+    that has closed its stdin report success and are lost; only one too large for that buffer
+    fails with `EPIPE`, so a JSON-RPC request to such a peer waits for its timeout rather than
+    failing at once.
+  - `node:sqlite`'s `backup()` copies the whole database in one synchronous step, so the event
+    loop does not run until it finishes. Only the updater, a separate process from the daemon,
+    takes such copies.
+  - `process.getActiveResourcesInfo()` is always empty. Daemon health counts open file
+    descriptors instead (`packages/diagnostics/src/open-resources.ts`).
+  - An Error's `stack` is a data property formatted on first access, so even reading its
+    descriptor runs `Error.prepareStackTrace` and can throw.
 - **Tests on Bun.** `bun run test` and every tier run Vitest on Bun, then run the projects in
   `nodeProjects` (`scripts/test-tiers.ts`) in a second pass on Node and merge the timings: the
   `web` and `client-react` jsdom projects, whose code runs in browsers, and the suites in
