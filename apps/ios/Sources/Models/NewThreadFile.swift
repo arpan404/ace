@@ -21,6 +21,7 @@ struct NewThreadFile: Codable, Equatable, Sendable {
 extension NewThreadDraft {
     private enum Key: String, CodingKey {
         case machineId, projectId, provider, model, account, effort, speed, access, worktree, base, text, commandId, files, issue
+        case handoff, autoSend
     }
     /// Lenient: a draft saved by an older build (before files) or with one unreadable field still
     /// loads with everything else the person chose.
@@ -41,5 +42,7 @@ extension NewThreadDraft {
         commandId = try? box.decodeIfPresent(String.self, forKey: .commandId)
         files = (try? box.decodeIfPresent([NewThreadFile].self, forKey: .files)) ?? []
         issue = try? box.decodeIfPresent(NewThreadIssue.self, forKey: .issue)
+        handoff = try? box.decodeIfPresent(String.self, forKey: .handoff)
+        autoSend = (try? box.decodeIfPresent(Bool.self, forKey: .autoSend)) ?? false
     }
 }

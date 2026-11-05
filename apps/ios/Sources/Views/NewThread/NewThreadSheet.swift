@@ -3,9 +3,11 @@ import SwiftUI
 /// Where the New thread sheet pushes; choosing a mention pops back to the start.
 enum NewThreadRoute: Hashable { case mention, instructions }
 
-/// New thread (issue #560): "What should we build in <project>?", then, above the keyboard, the
-/// worktree and base chips and the first message with its files and model. The bridge judges
-/// readiness and builds `thread.create`; the draft survives the app being killed.
+/// New thread: a system sheet with the keyboard up at once. Cancel and its name; the choices as
+/// pills (project, machine when there's more than one, model and effort, where it runs, access);
+/// the words, taking the sheet's height; suggestions; then + · mic · Send. The bridge judges
+/// readiness and builds `thread.create`; the draft survives the app being killed, and Send closes
+/// the sheet only once the start is saved on this phone.
 struct NewThreadSheet: View {
     @Bindable var inbox: MachineInbox
     /// The start was saved on this phone under this command id on this machine.
@@ -13,7 +15,8 @@ struct NewThreadSheet: View {
     var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var drafts = NewThreadDraftModel(store: .standard())
-    /// The machine started on last and each machine's last project and model.
+    /// The machine started on last, each machine's last project and model, and each project's
+    /// last picks and skills.
     private let memory = NewThreadMemoryStore.standard()
     @State private var path: [NewThreadRoute] = []
     @State private var sending = false
@@ -24,6 +27,10 @@ struct NewThreadSheet: View {
     @State private var choosingProject = false
     @State private var attachProblem: String?
     @State private var profiles: [TaskProfile] = []
+    @State private var screenshot: LatestScreenshot?
+    @State private var place: CaretPlacement?
+    /// Bumped when the remembered picks or skills change, so the suggestions read them again.
+    @State private var remembered = 0
     /// The first message's `@`, `/` and + lists, in the chosen project with the chosen agent.
     @State private var suggester = ComposerSuggester()
     private var draft: NewThreadDraft { drafts.draft }
@@ -55,22 +62,33 @@ struct NewThreadSheet: View {
         NewThreadGate.blocker(draft, canOperate: client?.canOperate ?? false, agent: compose?.agentsState == "ready" ? choice.agent : nil, files: files.count,
                               waits: [compose?.attachments?.blocked, compose?.access?.provider == choice.agent?.provider ? compose?.access?.problem : nil])
     }
+    /// A handoff asked to start and nothing holds it back.
+    private var autoSendReady: Bool { draft.autoSend && blocker == nil && !sending && files.count == draft.files.count }
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: AceTheme.Spacing.none) {
-                ScrollView { hero }
-                    .scrollDismissesKeyboard(.interactively)
-                    .defaultScrollAnchor(.top)
-                bottom
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                pills
+                notes
+                NewThreadComposer(drafts: drafts, client: client, files: files, sending: sending, blocker: blocker,
+                                  attachProblem: $attachProblem, send: send, suggester: suggester, run: runComposerAction,
+                                  suggestions: suggestions, pickedSkill: { skill in memory.used(skill, in: draft); remembered += 1 },
+                                  place: $place)
+                    .task(id: suggestKey) {
+                        suggester.attach(client)
+                        suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
+                        suggester.readAhead()
+                    }
             }
             .background(AceTheme.Colours.background)
-            .onAppear { profiles = TaskProfileStore(defaults: .standard).load() }
-            .navigationTitle("New thread").navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                profiles = TaskProfileStore(defaults: .standard).load()
+                screenshot = LatestScreenshot.read(now: Date())
+            }
+            .navigationTitle(draft.isChat ? "New chat" : "New thread").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel("Close").accessibilityIdentifier("newThread.close")
+                    Button("Cancel") { dismiss() }.accessibilityIdentifier("newThread.close")
                 }
                 ToolbarItem(placement: .topBarTrailing) { moreOptions }
             }
@@ -78,7 +96,10 @@ struct NewThreadSheet: View {
         }
         .escapeCloses { dismiss() }
         .tint(AceTheme.Colours.foreground)
+        .sensoryFeedback(AceDesign.Haptic.send, trigger: sending) { _, now in now }
         .task(id: machineId) {
+            // A start handed over from a share or a shortcut takes the sheet first.
+            if NewThreadHandoffIntake.take(inbox: inbox, into: drafts.file) { drafts.reload() }
             guard let client, let machineId else { return }
             // The draft holds the machine it opens on, so a later connection doesn't move it. A
             // draft already written on a project before machines were named keeps that project.
@@ -86,8 +107,10 @@ struct NewThreadSheet: View {
                 if draft.machineId == nil, draft.projectId != nil { drafts.edit { $0.machineId = machineId } }
                 else { drafts.edit { $0 = memory.load().open($0, on: machineId) } }
             }
-            // New chat always starts a chat, whatever the last draft was in.
-            if let initialProject, draft.projectId == nil || initialProject == NewThreadDraft.chat { drafts.edit { $0.projectId = initialProject } }
+            // New chat always starts a chat, whatever the last draft was in. A handoff keeps its own.
+            if let initialProject, draft.handoff == nil, draft.projectId == nil || initialProject == NewThreadDraft.chat {
+                drafts.edit { $0 = memory.load().chose(project: initialProject, in: $0) }
+            }
             client.composeAction(["kind": "open"])
             client.composeChoice(draft)
             if let project = draft.projectId {
@@ -110,11 +133,18 @@ struct NewThreadSheet: View {
             client?.composeChoice(draft)
             memory.record(draft)
         }
-        .onDisappear { client?.composeAction(["kind": "close"]) }
+        .onChange(of: autoSendReady, initial: true) { _, ready in if ready { send() } }
+        .onDisappear {
+            client?.composeAction(["kind": "close"])
+            // Closed before it could start: what was handed over stays as a draft to send by hand.
+            if draft.autoSend { drafts.edit { $0.autoSend = false } }
+        }
         .sheet(isPresented: $browsing) { projectFiles }
         .sheet(isPresented: $choosingProject) {
             if let client {
-                ProjectPickerSheet(client: client, selected: draft.projectId) { id in drafts.edit { $0.projectId = id; $0.base = nil } }
+                ProjectPickerSheet(client: client, selected: draft.projectId) { id in
+                    drafts.edit { $0 = memory.load().chose(project: id, in: $0) }
+                }
             }
         }
         .sheet(isPresented: $choosingModel) {
@@ -126,107 +156,122 @@ struct NewThreadSheet: View {
         .sheet(isPresented: $choosingTune) { NewThreadTunePanel(drafts: drafts, choice: choice) }
     }
 
-    /// "What should we build in ace-next? ⌄": the question opens the project picker; the
-    /// machine beneath when there's more than one.
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-            Button { choosingProject = true } label: {
-                Group {
-                    if draft.isChat {
-                        // A chat names no project: a plain question, "No project" opens the picker.
-                        Text("What should we work on? ")
-                            + Text("No project").foregroundStyle(AceTheme.Colours.mutedForeground) + NewThreadStyle.disclosure
-                    } else if let name = project?.name {
-                        Text("What should we build in \(name)?") + NewThreadStyle.disclosure
-                    } else {
-                        Text("What should we build?\n")
-                            + Text("Choose a project").foregroundStyle(AceTheme.Colours.mutedForeground) + NewThreadStyle.disclosure
-                    }
-                }
-                .aceFont(NewThreadStyle.hero, relativeTo: .title)
-                .foregroundStyle(AceTheme.Colours.foreground)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(draft.isChat ? "Project, none" : project.map { "Project, \($0.name)" } ?? "Choose a project")
-            .accessibilityIdentifier("newThread.project")
-            if inbox.sessions.count > 1 {
-                Menu {
-                    Picker("Machine", selection: Binding(get: { machineId ?? "" }, set: { id in
-                        // That machine's last project and model come back, as the web's do.
-                        guard id != machineId else { return }
-                        drafts.edit { $0 = memory.load().open($0, on: id) }
-                        memory.remember(draft)
-                    })) {
-                        ForEach(inbox.sessions) { session in
-                            Text(session.client.canOperate ? inbox.name(session.hostId) : "\(inbox.name(session.hostId)) · View only").tag(session.hostId)
-                        }
-                    }
-                } label: {
-                    (machineLine + Text(" \(Image(systemName: "chevron.down"))").font(.caption.weight(.semibold)))
-                        .aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-                .accessibilityLabel("Machine").accessibilityValue(machineId.map(inbox.name) ?? "")
-                .accessibilityIdentifier("newThread.machine")
-            } else if machineId != nil {
-                machineLine.aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.mutedForeground)
-            }
-        }
-        .padding(.horizontal, AceTheme.Spacing.xxl).padding(.top, AceTheme.Spacing.xxl)
+    /// The start's choices, under the title.
+    private var pills: some View {
+        NewThreadPills(model: pillsModel, chooseProject: { choosingProject = true }, chooseMachine: chooseMachine,
+                       chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true },
+                       chooseWorktree: { on in drafts.edit { $0.worktree = on } },
+                       chooseBase: { base in drafts.edit { $0.base = base } },
+                       chooseAccess: { mode in drafts.edit { $0.access = mode } })
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.tight)
     }
-    private var machineLine: Text { Text("on \(machineId.map(inbox.name) ?? "")") }
-
-    /// Above the keyboard: what holds Send back, the worktree chips, then the first message.
-    private var bottom: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.sm + AceTheme.Spacing.xxs) {
-            if let note = failure ?? attachProblem ?? (draft.text.isEmpty ? nil : blocker) {
-                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle((failure ?? attachProblem) == nil ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed)
-                    .padding(.horizontal, AceTheme.Spacing.sm)
-                    .accessibilityIdentifier("newThread.note")
-            }
-            if let issue = draft.issue {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(verbatim: "From issue #\(issue.number) \(issue.title)").lineLimit(1)
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    Button("Unlink") { drafts.edit { $0.issue = nil } }
-                        .accessibilityIdentifier("newThread.unlinkIssue")
-                }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .padding(.horizontal, AceTheme.Spacing.sm)
-                .accessibilityIdentifier("newThread.issue")
-            }
-            if let pull = draft.pullRequest {
-                HStack(spacing: AceTheme.Spacing.sm) {
-                    Text(verbatim: "On pull request #\(pull.number) \(pull.title)").lineLimit(1)
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    Button("Unlink") { drafts.edit { $0.pullRequest = nil } }
-                        .accessibilityIdentifier("newThread.unlinkPull")
-                }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.mutedForeground)
-                .padding(.horizontal, AceTheme.Spacing.sm)
-                .transition(.opacity)
-                .accessibilityIdentifier("newThread.pull")
-            }
-            if draft.projectId != nil, !draft.isChat, draft.pullRequest == nil {
-                NewThreadWorktreeChips(drafts: drafts, branches: branches)
-            }
-            NewThreadComposer(drafts: drafts, client: client, files: files, choice: choice, agentsState: compose?.agentsState,
-                              sending: sending, blocker: blocker, attachProblem: $attachProblem,
-                              chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true }, send: send,
-                              suggester: suggester, run: runComposerAction)
-                .task(id: suggestKey) {
-                    suggester.attach(client)
-                    suggester.scope = draft.projectId.flatMap { $0 == NewThreadDraft.chat ? nil : .draft(workspaceId: $0, provider: choice.agent?.provider) }
-                    suggester.readAhead()
-                }
+    private var pillsModel: NewThreadPillsModel {
+        let projectName = draft.isChat ? "No project" : project?.name ?? (draft.projectId == nil ? "Choose a project" : "Project")
+        let loading = compose?.agentsState != "ready" && compose?.agentsState != "failed"
+        let modelName = choice.model?.label ?? (compose?.agentsState == "failed" ? "Couldn't read agents" : loading ? "Model" : "Choose model")
+        var place: NewThreadPillsModel.Place?
+        if draft.projectId != nil, !draft.isChat, draft.pullRequest == nil {
+            place = .init(worktree: draft.worktree, noWorktree: branches?.noWorktree, reading: branches?.state != "ready",
+                          bases: branches?.bases ?? [], base: draft.base ?? branches?.start)
         }
-        .padding(.horizontal, AceTheme.Spacing.sm + AceTheme.Spacing.xxs)
-        .padding(.bottom, AceTheme.Spacing.sm)
+        let access = compose?.access.flatMap { $0.provider == choice.agent?.provider ? $0 : nil }
+        return NewThreadPillsModel(
+            project: projectName,
+            machines: inbox.sessions.map { .init(id: $0.hostId, name: inbox.name($0.hostId), canOperate: $0.client.canOperate) },
+            machineId: machineId, provider: choice.agent?.provider, model: modelName, loadingModel: loading,
+            tune: tune, tunable: (choice.model?.efforts.count ?? 0) > 1 || (choice.model?.speeds ?? []).count > 1,
+            place: place, access: access)
+    }
+    /// That machine's last project and model come back, as the web's do.
+    private func chooseMachine(_ id: String) {
+        guard id != machineId else { return }
+        drafts.edit { $0 = memory.load().open($0, on: id) }
+        memory.remember(draft)
+    }
+    /// The effort part of the model pill: the level in brief and a speed other than standard.
+    /// Nothing at all rather than a word that says nothing ("Default") when no level is known.
+    private var tune: String? {
+        guard let model = choice.model else { return nil }
+        let effort = model.efforts.count > 1 ? model.efforts.first { $0.id == choice.effort }.map { $0.label == "Medium" ? "Med" : $0.label } : nil
+        let speedID = draft.speed ?? model.defaultSpeed ?? "standard"
+        let speed = (model.speeds ?? []).first { $0.speed == speedID && $0.speed != "standard" }?.label
+        let parts = [effort, speed].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// What holds Send back, why the last start didn't save, and the issue or pull request the
+    /// thread works on: quiet lines under the pills.
+    @ViewBuilder private var notes: some View {
+        // A blocker a pill already says ("Choose a project") isn't said twice.
+        let said = blocker == "Choose a project" || blocker == "Choose a coding agent" || blocker == "Write the first message"
+        let note = failure ?? attachProblem ?? (draft.text.isEmpty && !draft.autoSend || said ? nil : blocker)
+        if note != nil || draft.issue != nil || draft.pullRequest != nil {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                if let note {
+                    Text(note)
+                        .foregroundStyle((failure ?? attachProblem) == nil ? AceTheme.Colours.mutedForeground : AceTheme.StatusText.failed)
+                        .accessibilityIdentifier("newThread.note")
+                }
+                if let issue = draft.issue {
+                    linked(Text(verbatim: "From issue #\(issue.number) \(issue.title)"), id: "newThread.issue") { drafts.edit { $0.issue = nil } }
+                }
+                if let pull = draft.pullRequest {
+                    linked(Text(verbatim: "On pull request #\(pull.number) \(pull.title)"), id: "newThread.pull") { drafts.edit { $0.pullRequest = nil } }
+                }
+            }
+            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.top, AceDesign.Space.tight)
+        }
+    }
+    private func linked(_ text: Text, id: String, unlink: @escaping () -> Void) -> some View {
+        HStack(spacing: AceDesign.Space.related) {
+            text.lineLimit(1)
+            Spacer(minLength: AceDesign.Space.related)
+            Button("Unlink", action: unlink).accessibilityIdentifier(id == "newThread.issue" ? "newThread.unlinkIssue" : "newThread.unlinkPull")
+        }
+        .accessibilityIdentifier(id)
+    }
+
+    /// The suggestions row, or nil when nothing in it would do anything.
+    private var suggestions: NewThreadSuggestions? {
+        _ = remembered
+        let kept = memory.load()
+        let skills = draft.isChat ? [] : kept.skills(for: draft)
+        let offersSkills = !draft.isChat && draft.projectId != nil && choice.agent != nil
+        let last = kept.picks(for: draft)
+        let sameAsLast = last.map { !$0.matches(draft) } ?? false
+        let shot = files.isEmpty && draft.projectId != nil ? screenshot : nil
+        guard NewThreadSuggestions.shows(screenshot: shot, skills: skills, offersSkills: offersSkills, sameAsLast: sameAsLast) else { return nil }
+        return NewThreadSuggestions(
+            screenshot: shot, skills: skills, offersSkills: offersSkills, sameAsLast: sameAsLast,
+            attachScreenshot: attach, pickSkill: { skill in
+                memory.used(skill, in: draft); remembered += 1
+                suggester.choose(skill.row, text: Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }),
+                                 place: $place, keep: { drafts.add($0) }, notice: { failure = $0 }, run: runComposerAction)
+            },
+            openSkills: {
+                let lead = draft.text.isEmpty || draft.text.hasSuffix(" ") || draft.text.hasSuffix("\n") ? draft.text : draft.text + " "
+                drafts.edit { $0.text = lead + "/" }
+                place = CaretPlacement(offset: (draft.text as NSString).length, focus: true)
+            },
+            restoreLast: { if let last { drafts.edit { $0 = last.applied(to: $0) } } })
+    }
+    /// The screenshot goes on the message like a photo picked with +.
+    private func attach(_ shot: LatestScreenshot) {
+        guard let client, let project = draft.projectId else { return }
+        screenshot = nil
+        Task<Void, Never> {
+            guard let picture = await shot.data(),
+                  let staged = try? drafts.staging.stage(data: picture.data, name: picture.name, mimeType: picture.mimeType) else {
+                attachProblem = "Couldn't read that screenshot."
+                return
+            }
+            drafts.picked(staged, workspaceId: project)
+            client.composeAttach(staged, workspaceId: project)
+        }
     }
 
     /// Mentions, the project's files, and instructions or a profile, out of the main path.
@@ -298,7 +343,7 @@ struct NewThreadSheet: View {
         if draft.isChat { drafts.edit { $0.worktree = false; $0.base = nil } }
         if draft.worktree, draft.base == nil, let start = branches?.start { drafts.edit { $0.base = start } }
         drafts.edit { $0.machineId = machineId }
-        memory.remember(draft)
+        memory.started(draft)
         let commandId = drafts.reserveCommand { UUID().uuidString.lowercased() }
         let sending = draft
         self.sending = true
@@ -311,6 +356,8 @@ struct NewThreadSheet: View {
                 saved(machineId, commandId)
                 dismiss()
             } else {
+                // A refused handoff waits for the person: it no longer starts by itself.
+                if draft.autoSend { drafts.edit { $0.autoSend = false } }
                 failure = client.error ?? "Couldn't save the new thread on this phone. Your draft is still here."
                 client.error = nil
             }
