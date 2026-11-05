@@ -113,7 +113,7 @@ struct ThreadTitleMenu: View, Equatable {
         // Where the thread runs and what can move it, under the checkout's own header.
         if let openWork {
             Section {
-                Button(action: openWork) { Text("Work"); Text("Branch, worktree and pull request"); Image(ace: .gitBranch) }
+                Button(action: openWork) { Text("Work"); Image(ace: .gitBranch) }
                     .accessibilityIdentifier("thread.title.work")
             }
         }

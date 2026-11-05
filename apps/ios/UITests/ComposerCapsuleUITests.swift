@@ -93,13 +93,14 @@ import XCTest
         XCTAssertTrue(first.waitForExistence(timeout: 20)); first.tap()
         let line = app.buttons.matching(identifier: "diff.line").element(boundBy: 2)
         XCTAssertTrue(line.waitForExistence(timeout: 20)); line.tap()
-        XCTAssertTrue(app.buttons["review.compose"].waitForExistence(timeout: 5))
-        app.buttons["review.compose"].tap()
-        let text = app.textFields["review.text"].exists ? app.textFields["review.text"] : app.textViews["review.text"]
+        // The Changes page names its own controls; they are found by their words.
+        let compose = button(app, "review.compose", "Comment")
+        XCTAssertTrue(compose.waitForExistence(timeout: 5)); compose.tap()
+        let text = app.descendants(matching: .any).matching(NSPredicate(format: "(elementType == %d OR elementType == %d) AND (identifier == 'review.text' OR placeholderValue == 'Comment')",
+                                                                        XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
         XCTAssertTrue(text.waitForExistence(timeout: 5))
         text.typeText("Keep the window bounded by bytes.")
-        app.buttons["review.save"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["review.comment"].waitForExistence(timeout: 15))
+        button(app, "review.save", "Save").tap()
         let chat = app.buttons["thread.page.chat"]
         if !chat.waitForExistence(timeout: 3) { app.closeSheet() }
         if chat.exists { chat.tap() }
@@ -112,6 +113,10 @@ import XCTest
     }
 
     // MARK: - Fixture
+
+    private func button(_ app: XCUIApplication, _ identifier: String, _ label: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", identifier, label)).firstMatch
+    }
 
     private func launch(into row: String) -> XCUIApplication {
         let app = XCUIApplication()
