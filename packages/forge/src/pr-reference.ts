@@ -79,6 +79,18 @@ export function prFromUrl(
 
 export function prRepository(value: string, fallback: ForgeRepository): ForgeRepository {
   const parts = value.split("/");
+  if (
+    fallback.forge === "gitlab" &&
+    parts.length >= 2 &&
+    !parts[0]?.includes(".") &&
+    parts[0] !== fallback.host
+  ) {
+    return ForgeRepository.parse({
+      ...fallback,
+      owner: parts.slice(0, -1).join("/"),
+      name: parts.at(-1),
+    });
+  }
   if (parts.length !== 2 && parts.length !== 3) throw new ForgeError("invalid_data");
   const host = parts.length === 3 ? (parts[0] ?? "") : fallback.host;
   const owner = parts.at(-2) ?? "";

@@ -3753,7 +3753,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | readOnly | no | boolean |  |
-| unavailableResources | no | array | {"items":{"type":"string","enum":["comments","checks","reviews","commits","files"]}} |
+| unavailableResources | no | array | {"maxItems":5,"items":{"type":"string","enum":["comments","checks","reviews","commits","files"]}} |
 | status | yes | [ForgePrStatus.json](schema/ForgePrStatus.json) |  |
 | writeState | no | ["pending","uncertain"] |  |
 | updatedAt | no | string | {"maxLength":65536} |

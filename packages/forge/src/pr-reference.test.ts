@@ -42,3 +42,20 @@ test("Cursor Origin review links use the codebase URL rather than the Git transp
   expect(prUrl(ref)).toBe("https://cursor.com/codebase/team/repo/pull/7");
   expect(prFromUrl(prUrl(ref))).toEqual(ref);
 });
+
+test("GitLab subgroup links keep their namespace and use the configured host", async () => {
+  const { prFromUrl, prRepository } = await import("./pr-reference.ts");
+  const fallback = {
+    forge: "gitlab" as const,
+    host: "git.example.com",
+    owner: "team",
+    name: "repo",
+  };
+  expect(prRepository("team/subgroup/repo", fallback)).toEqual({
+    ...fallback,
+    owner: "team/subgroup",
+  });
+  expect(
+    prFromUrl("https://git.example.com/team/subgroup/repo/-/merge_requests/17", [fallback.host]),
+  ).toEqual({ repository: { ...fallback, owner: "team/subgroup" }, number: 17 });
+});

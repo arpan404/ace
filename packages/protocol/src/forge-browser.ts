@@ -160,6 +160,7 @@ export const ForgePrDetail = z.object({
   /** Resources this adapter cannot read; never present empty arrays as complete results. */
   unavailableResources: z
     .array(z.enum(["comments", "checks", "reviews", "commits", "files"]))
+    .max(5)
     .optional(),
   status: ForgePrStatus,
   writeState: z.enum(["pending", "uncertain"]).optional(),

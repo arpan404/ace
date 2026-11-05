@@ -134,6 +134,7 @@
         ],
         "type": "string"
       },
+      "maxItems": 5,
       "type": "array"
     },
     "updatedAt": {

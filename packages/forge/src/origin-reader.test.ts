@@ -82,6 +82,28 @@ const search: ForgePrSearch = {
 };
 const query = (over: Partial<ForgePrSearch> = {}): ForgePrSearch => ({ ...search, ...over });
 
+const failedCli: (request: CommandRequest) => Promise<CommandResult> = async () => ({
+  code: 1,
+  stdout: "secret-token abc",
+  truncated: false,
+});
+const overflow: (request: CommandRequest) => Promise<CommandResult> = async () => ({
+  code: 0,
+  stdout: "x",
+  truncated: true,
+});
+const offline: (request: CommandRequest) => Promise<CommandResult> = async () => ({
+  code: 1,
+  stdout: "",
+  truncated: false,
+  unreachable: true,
+});
+const wide: (request: CommandRequest) => Promise<CommandResult> = async () => ({
+  code: 0,
+  stdout: "é".repeat(5_000_000),
+  truncated: false,
+});
+
 describe("origin reader", () => {
   it("reads status through origin api with a pinned head sha", async () => {
     const f = runner({ [detailEndpoint]: { body: pr() } });
@@ -343,12 +365,7 @@ describe("origin reader", () => {
   });
 
   it("sanitizes CLI failures without leaking output", async () => {
-    const bad: (request: CommandRequest) => Promise<CommandResult> = async () => ({
-      code: 1,
-      stdout: "secret-token abc",
-      truncated: false,
-    });
-    const failure = await new OriginReader({ repository, runner: bad })
+    const failure = await new OriginReader({ repository, runner: failedCli })
       .status(17, signal())
       .catch((error) => error);
     expect(failure).toBeInstanceOf(ForgeError);
@@ -357,20 +374,11 @@ describe("origin reader", () => {
     await expect(
       new OriginReader({ repository, runner: missing.runner }).status(99, signal()),
     ).rejects.toMatchObject({ kind: "not_found" });
-    const overflow: (request: CommandRequest) => Promise<CommandResult> = async () => ({
-      code: 0,
-      stdout: "x",
-      truncated: true,
-    });
+
     await expect(
       new OriginReader({ repository, runner: overflow }).status(17, signal()),
     ).rejects.toMatchObject({ kind: "limit" });
-    const offline: (request: CommandRequest) => Promise<CommandResult> = async () => ({
-      code: 1,
-      stdout: "",
-      truncated: false,
-      unreachable: true,
-    });
+
     await expect(
       new OriginReader({ repository, runner: offline }).status(17, signal()),
     ).rejects.toMatchObject({ kind: "offline" });
@@ -471,11 +479,6 @@ describe("origin reader", () => {
   });
 
   it("counts the read budget in UTF-8 bytes, not JS characters", async () => {
-    const wide: (request: CommandRequest) => Promise<CommandResult> = async () => ({
-      code: 0,
-      stdout: "é".repeat(5_000_000),
-      truncated: false,
-    });
     await expect(
       new OriginReader({ repository, runner: wide }).status(17, signal()),
     ).rejects.toMatchObject({ kind: "limit" });

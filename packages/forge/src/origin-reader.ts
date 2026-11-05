@@ -256,22 +256,24 @@ export class OriginReader implements ForgeReader {
         const number = safeNumber(pr.number);
         if (number === null) throw new ForgeError("invalid_data");
         const headSha = lowerSha(pr.head.sha);
-        return {
-          raw: redactData(pr),
-          ref: this.#ref(number),
-          title: pr.title,
-          url: this.#webUrl(pr, number),
-          author: authorOf(pr),
-          state,
-          labels: (pr.labels ?? []).slice(0, 100).map((label) => label.name),
-          updatedAt: pr.updatedAt,
-          createdAt: pr.createdAt,
-          headBranch: pr.head.ref,
-          baseBranch: pr.base.ref,
-          ...(headSha === null ? {} : { headSha }),
-          ...(pr.additions !== undefined ? { additions: pr.additions } : {}),
-          ...(pr.deletions !== undefined ? { deletions: pr.deletions } : {}),
-        };
+        return Object.assign(
+          {
+            raw: redactData(pr),
+            ref: this.#ref(number),
+            title: pr.title,
+            url: this.#webUrl(pr, number),
+            author: authorOf(pr),
+            state,
+            labels: (pr.labels ?? []).slice(0, 100).map((label) => label.name),
+            updatedAt: pr.updatedAt,
+            createdAt: pr.createdAt,
+            headBranch: pr.head.ref,
+            baseBranch: pr.base.ref,
+          },
+          headSha === null ? {} : { headSha },
+          pr.additions !== undefined ? { additions: pr.additions } : {},
+          pr.deletions !== undefined ? { deletions: pr.deletions } : {},
+        );
       });
     const total = filtered.length;
     return checked(() =>
@@ -376,18 +378,20 @@ export class OriginReader implements ForgeReader {
         const patch = file.patch ?? null;
         const kept = patch === null ? null : patch.slice(0, 262_144);
         const patchTruncated = patch !== null && patch.length > 262_144;
-        return {
-          raw: redactData({ ...file, patch: kept }),
-          path: file.filename,
-          ...(file.previousFilename !== undefined && file.previousFilename !== file.filename
+        return Object.assign(
+          {
+            raw: redactData(Object.assign({}, file, { patch: kept })),
+            path: file.filename,
+            status: file.status,
+            additions: file.additions,
+            deletions: file.deletions,
+            patch: kept,
+            truncated: patchTruncated || truncated,
+          },
+          file.previousFilename !== undefined && file.previousFilename !== file.filename
             ? { previousPath: file.previousFilename }
-            : {}),
-          status: file.status,
-          additions: file.additions,
-          deletions: file.deletions,
-          patch: kept,
-          truncated: patchTruncated || truncated,
-        };
+            : {},
+        );
       });
     return checked(() =>
       ForgePrFiles.parse({
