@@ -18,7 +18,8 @@ struct InboxThreadRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Old payloads without a look read quietly with the shared word.
-    private var look: RowLook {
+    private var look: RowLook { Self.look(of: row) }
+    static func look(of row: ThreadRow) -> RowLook {
         row.look ?? RowLook(level: "quiet", word: row.status.label, tone: row.status.token, muted: true,
                             glyph: nil, since: nil, settled: false, subagents: max(0, row.agents - 1))
     }
@@ -56,10 +57,12 @@ struct InboxThreadRow: View {
         .accessibilityElement(children: .combine)
         // What the icon means ("Needs approval"), the title, then the rest, as the desktop row
         // names itself.
-        .accessibilityLabel(spoken(look))
+        .accessibilityLabel(Self.spoken(row, look, snoozed: snoozed, need: need))
     }
 
-    private func spoken(_ look: RowLook) -> String {
+    /// The row's spoken name, the same for its three lines and its one: the title, what the icon
+    /// means ("Needs approval"), when a snoozed row wakes, then the rest.
+    static func spoken(_ row: ThreadRow, _ look: RowLook, snoozed: Bool, need: InboxNeedLine?) -> String {
         let meaning = look.meaning ?? look.word
         let branch = row.branch.isEmpty ? nil : "Branch \(row.branch)"
         let pr = row.pr.map { "\($0.state) pull request #\($0.number)" }
@@ -89,12 +92,10 @@ struct InboxRowHead: View {
             if row.pinned == true {
                 AceIcon(.pushPin, size: AceDesign.Size.rowPin, relativeTo: .footnote)
             }
-            if row.browsing != nil {
-                AceIcon(.globe, size: AceDesign.Size.rowStatus, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
-            }
-            if row.computerUse != nil {
-                AceIcon(.cursor, size: AceDesign.Size.rowStatus, relativeTo: .footnote).foregroundStyle(AceDesign.Status.working)
-            }
+            // The web's marks: the globe with the agent's pointer in the working colour, and the
+            // agent cursor itself, the Pebble, in the person's accent.
+            if row.browsing != nil { BrowserUseMark().foregroundStyle(AceDesign.Status.working) }
+            if row.computerUse != nil { PebbleMark() }
             Spacer(minLength: AceDesign.Space.related)
             if let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil {
                 HStack(spacing: AceDesign.Space.tight) {

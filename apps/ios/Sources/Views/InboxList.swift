@@ -299,8 +299,19 @@ private struct InboxThreadCell: View {
         let need = model.flatMap { model in
             asks.isEmpty ? nil : InboxNeedLine(requests: asks, total: model.needsCount(row.id), model: model, threadId: row.id) { actions.open(key) }
         }
-        let label = InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
-                                   project: inbox.projectLook(key, workspace: row.workspaceId), need: need)
+        // Snoozed and Settled draw each thread as one line, as the web's do; Inbox in three.
+        let label = Group {
+            if section.tab == "inbox" {
+                InboxThreadRow(row: row, snoozed: snoozed, machine: inbox.mark(key.machineId),
+                               project: inbox.projectLook(key, workspace: row.workspaceId), need: need)
+            } else {
+                let look = InboxThreadRow.look(of: row)
+                InboxLineRow(row: row, end: .work,
+                             wake: snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(InboxThreadRow.spoken(row, look, snoozed: snoozed, need: need))
+            }
+        }
         // One view in both modes, so entering Select mode only slides the check circles in: in
         // it the list picks the row, and the button underneath takes no taps.
         return Button { actions.open(key) } label: { label }
