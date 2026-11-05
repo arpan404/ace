@@ -209,7 +209,7 @@ struct ThreadMenuPanel: View {
         MenuRow(title: "Devices", icon: .deviceMobile, identifier: "thread.devices") {
             open(.devices); dismiss()
         }
-        MenuRow(title: "Computer use", icon: .appWindow, identifier: "thread.computer") {
+        MenuRow(title: "Computer use", icon: .aceComputerUse, identifier: "thread.computer") {
             open(.computer); dismiss()
         }
         MenuRow(title: "Skills and tools", icon: .wrench, identifier: "thread.tools") {

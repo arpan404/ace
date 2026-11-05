@@ -130,7 +130,11 @@ private struct LogGroupView: View {
                     LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)
                 } else {
                     LogRowBox(open: open) {
-                        AceIcon(Self.icon(row.icon ?? ""), size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        if row.icon == "browser" {
+                            BrowserUseMark(size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        } else {
+                            AceIcon(Self.icon(row.icon ?? ""), size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        }
                     } title: {
                         (Text(row.sentence ?? "") + failedText)
                     }
@@ -164,8 +168,8 @@ private struct LogGroupView: View {
         case "mixed": .hammer
         case "edit": .notePencil
         case "command", "background": .terminal
-        case "computer": .monitor
-        case "browser": .compass
+        case "computer": .aceComputerUse
+        case "browser": .globe
         case "fetch", "websearch": .globe
         case "read": .fileText
         case "list": .folderSimple

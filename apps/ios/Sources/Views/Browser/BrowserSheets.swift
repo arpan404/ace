@@ -101,9 +101,16 @@ struct BrowserTabsSheet: View {
     }
     private func row(_ tab: BrowserViewInfo.Tab) -> some View {
         HStack(spacing: AceDesign.Space.row) {
-            AceIcon(tab.agent != nil ? .cursor : tab.private == true ? .hand : .globe, size: AceDesign.Size.icon, relativeTo: .subheadline)
-                .foregroundStyle(AceDesign.Ink.muted)
-                .frame(width: AceDesign.Size.icon + AceDesign.Space.related)
+            Group {
+                // A tab an agent is using shows the agent cursor, as the web's tab mark does.
+                if tab.agent != nil {
+                    PebbleMark(size: AceDesign.Size.icon, relativeTo: .subheadline)
+                } else {
+                    AceIcon(tab.private == true ? .hand : .globe, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                }
+            }
+            .frame(width: AceDesign.Size.icon + AceDesign.Space.related)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
                 Text(tab.title).font(AceDesign.Typeface.body)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)

@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
+import { aceGlyphSvgs } from "./generate-glyphs.ts";
 
 /**
  * Writes ace's Phosphor icons (DESIGN.md "Icons": Phosphor only, regular weight, bold only at
@@ -326,6 +327,8 @@ const names = [
     ...Object.values(machineIconGlyphs),
   ]),
 ].toSorted();
+/** ace's own glyphs (`generate-glyphs.ts`), named beside Phosphor's and drawn the same way. */
+const aceNames = Object.keys(aceGlyphSvgs);
 
 await rm(folder, { recursive: true, force: true });
 await mkdir(folder, { recursive: true });
@@ -333,24 +336,31 @@ await writeFile(
   join(folder, "Contents.json"),
   `${JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2)}\n`,
 );
+const writeAsset = async (asset: string, svg: string) => {
+  const set = join(folder, `${asset}.imageset`);
+  await mkdir(set, { recursive: true });
+  await writeFile(join(set, `${asset}.svg`), svg);
+  const contents = {
+    images: [{ filename: `${asset}.svg`, idiom: "universal" }],
+    info: { author: "xcode", version: 1 },
+    properties: {
+      "preserves-vector-representation": true,
+      "template-rendering-intent": "template",
+    },
+  };
+  await writeFile(join(set, "Contents.json"), `${JSON.stringify(contents, null, 2)}\n`);
+};
+// One drawing for both weights: ace's glyphs carry their own stroke.
+for (const [name, svg] of Object.entries(aceGlyphSvgs)) {
+  await writeAsset(`ph-${name}`, svg);
+  await writeAsset(`ph-${name}-bold`, svg);
+}
 for (const name of names) {
   const weights = await weightsOf(defs, name);
   for (const weight of ["regular", "bold"] as const) {
     const fragment = weights.get(weight);
     if (!fragment) throw new Error(`Phosphor has no ${weight} ${name}.`);
-    const asset = weight === "regular" ? `ph-${name}` : `ph-${name}-bold`;
-    const set = join(folder, `${asset}.imageset`);
-    await mkdir(set, { recursive: true });
-    await writeFile(join(set, `${asset}.svg`), svgOf(fragment));
-    const contents = {
-      images: [{ filename: `${asset}.svg`, idiom: "universal" }],
-      info: { author: "xcode", version: 1 },
-      properties: {
-        "preserves-vector-representation": true,
-        "template-rendering-intent": "template",
-      },
-    };
-    await writeFile(join(set, "Contents.json"), `${JSON.stringify(contents, null, 2)}\n`);
+    await writeAsset(weight === "regular" ? `ph-${name}` : `ph-${name}-bold`, svgOf(fragment));
   }
 }
 
@@ -360,7 +370,7 @@ const swift = [
   "extension AceIcon {",
   "    /// Every Phosphor icon in `Icons.xcassets`; the raw value is its Phosphor name.",
   "    enum Name: String, CaseIterable, Sendable {",
-  ...names.map((name) => `        case ${swiftCase(name)} = "${name}"`),
+  ...[...names, ...aceNames].map((name) => `        case ${swiftCase(name)} = "${name}"`),
   "    }",
   "}",
   "",
@@ -370,4 +380,4 @@ await writeFile(
   join(root, "Resources", "Licences", "phosphor-icons-license.txt"),
   await readFile(join(defs, "..", "..", "LICENSE"), "utf8"),
 );
-console.log(`Wrote ${names.length} Phosphor icons to ${folder}`);
+console.log(`Wrote ${names.length} Phosphor icons and ${aceNames.length} ace glyphs to ${folder}`);

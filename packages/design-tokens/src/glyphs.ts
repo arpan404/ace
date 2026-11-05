@@ -13,3 +13,35 @@ export const agentCursorPath =
 export const agentCursorOutline = 1.6;
 export const agentCursorTip = { x: 4.6, y: 4.9 } as const;
 export const glyphBox = 24;
+
+/** The stroke every outlined ace glyph shares, Phosphor regular's on the 24 box. */
+export const glyphStroke = 1.5;
+
+/** Where a glyph sets the agent cursor: scaled by `scale`, its tip at `tip`. */
+export interface PointerPlacement {
+  scale: number;
+  tip: { x: number; y: number };
+}
+
+/**
+ * Computer use: the agent's pointer with three short rays at its tip, an agent acting in apps.
+ * No window or monitor box: the pointer is the whole idea.
+ */
+export const computerUseGlyph = {
+  pointer: { scale: 0.8, tip: { x: 9, y: 9 } } satisfies PointerPlacement,
+  rays: "M9 2.75v2M2.75 9h2M4.6 4.6l1.4 1.4",
+} as const;
+
+/**
+ * Browser use: a globe with the agent's pointer resting on its lower right. The globe is cut
+ * away around the pointer by `knockout` strokes, so the two read apart at 14px.
+ */
+export const browserUseGlyph = {
+  pointer: { scale: 0.62, tip: { x: 12.6, y: 12.6 } } satisfies PointerPlacement,
+  globe: { cx: 10.5, cy: 10.5, r: 7.5, rx: 3.25 },
+  equator: "M3 10.5h15",
+  knockout: 3,
+} as const;
+
+/** ace's own tools: the ace mark at this share of the 24 box, so its solid wings sit level with outlined glyphs. */
+export const aceToolScale = 0.82;
