@@ -5,7 +5,6 @@ import UIKit
 /// thread"), gone after a few seconds or a tap.
 struct BrowserDoneNote: View {
     @Bindable var model: ClientModel
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
             if let done = model.browser.done {
@@ -32,7 +31,7 @@ struct BrowserDoneNote: View {
                 }
             }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: model.browser.done)
+        .animation(.default, value: model.browser.done)
         .sensoryFeedback(.success, trigger: model.browser.done?.at) { _, new in new != nil }
     }
 }
@@ -62,7 +61,7 @@ struct BrowserSourceSheet: View {
                     SkeletonLines().transition(.opacity)
                 }
             }
-            .animation(AceTheme.Motion.standardCurve, value: model.browser.source == nil)
+            .animation(.default, value: model.browser.source == nil)
             .background(AceDesign.Surface.background)
             .navigationTitle("Page source").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -170,8 +169,8 @@ struct BrowserSizesSheet: View {
                     .transition(.opacity)
                 }
             }
-            .animation(AceTheme.Motion.standardCurve, value: asked)
-            .animation(AceTheme.Motion.standardCurve, value: model.browser.sizes)
+            .animation(.default, value: asked)
+            .animation(.default, value: model.browser.sizes)
             .background(AceDesign.Surface.background)
             .navigationTitle("Screenshots").navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -227,7 +226,7 @@ private struct SizedShot: View {
             }
             .aspectRatio(CGFloat(max(image.width, 1)) / CGFloat(max(image.height, 1)), contentMode: .fit)
             .frame(maxWidth: .infinity)
-            .animation(AceTheme.Motion.standardCurve, value: picture != nil)
+            .animation(.default, value: picture != nil)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.sizes.shot.\(image.size)")
@@ -283,7 +282,7 @@ struct BrowserExtensionsSheet: View {
                 }
             }
             .insetGroupedList()
-            .animation(AceTheme.Motion.standardCurve, value: items)
+            .animation(.default, value: items)
             .navigationTitle("Extensions").navigationBarTitleDisplayMode(.inline)
             .toolbar { SheetClose() }
         }

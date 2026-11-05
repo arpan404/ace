@@ -131,7 +131,6 @@ struct ReviewComposer: View {
     let current: String
     var editing: ChangesReview.Draft?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var text = ""
     @State private var suggesting = false
     @State private var suggestion = ""
@@ -151,7 +150,7 @@ struct ReviewComposer: View {
                 } header: { Text("\((path as NSString).lastPathComponent) · \(start == end ? "line \(start)" : "lines \(start)–\(end)")") }
                 if side == "new" {
                     Section {
-                        Toggle("Suggest a change", isOn: $suggesting.animation(AceDesign.Motion.arriving(reduceMotion)))
+                        Toggle("Suggest a change", isOn: $suggesting.animation())
                             .accessibilityIdentifier("review.suggest")
                         if suggesting {
                             TextField("Replacement", text: $suggestion, axis: .vertical)
@@ -254,7 +253,6 @@ struct ReviewBar: View {
     @Binding var selection: LineSelection?
     let comment: () -> Void
     let list: () -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     private var review: ChangesReview? { model.sheets.review }
     @Environment(\.threadPage) private var inPage
@@ -313,7 +311,7 @@ struct ReviewBar: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
         .opacity(selection == nil && note == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: selection)
+        .animation(.default, value: selection)
     }
 
     private func summary(_ review: ChangesReview) -> String {

@@ -5,17 +5,12 @@ import SwiftUI
 struct ComposerFloaters: View {
     let behind: Bool
     let scrollToEnd: () -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack {
-            if behind { ScrollToEndButton(action: scrollToEnd).transition(arrival) }
+            if behind { ScrollToEndButton(action: scrollToEnd).transition(.opacity) }
         }
         .frame(maxWidth: .infinity)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: behind)
-    }
-    /// Things arrive; they don't fly: a fade, with a slight scale unless motion is reduced.
-    private var arrival: AnyTransition {
-        reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: AceDesign.Motion.arrivalScale))
+        .animation(.default, value: behind)
     }
 }
 

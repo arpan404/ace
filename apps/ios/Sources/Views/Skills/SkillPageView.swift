@@ -4,7 +4,6 @@ import SwiftUI
 /// it was used and its instructions. The person's own skills can be edited, re-linked to other
 /// agents and deleted from here.
 struct SkillPageView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let route: SkillRoute
     let workspaceId: String?
@@ -73,8 +72,8 @@ struct SkillPageView: View {
             }
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: page)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: notice)
+        .animation(.default, value: page)
+        .animation(.default, value: notice)
         .sensoryFeedback(.success, trigger: changed)
         .sensoryFeedback(.success, trigger: deleted)
         .navigationTitle(page?.title ?? route.title).navigationBarTitleDisplayMode(.inline)

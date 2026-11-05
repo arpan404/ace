@@ -72,7 +72,7 @@ struct FileScreen: View {
                 Button("Keep editing", role: .cancel) {}
             }
             .overlay(alignment: .bottom) { mentionLines }
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: selectedLines)
+            .animation(.default, value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }

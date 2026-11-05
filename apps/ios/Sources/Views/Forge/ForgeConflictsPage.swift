@@ -34,7 +34,7 @@ struct ForgeConflictsPageView: View {
                 SkeletonPage()
             }
         }
-        .animation(AceMotion.smooth, value: page)
+        .animation(.default, value: page)
         .background(AceTheme.Colours.background)
         .refreshable { await load() }
         .navigationTitle("Merge conflicts")

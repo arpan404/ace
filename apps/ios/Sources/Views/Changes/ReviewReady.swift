@@ -37,7 +37,6 @@ extension ClientModel {
 struct ReviewReadyLine: View {
     @Bindable var model: ClientModel
     @State private var reviewing = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
@@ -61,7 +60,7 @@ struct ReviewReadyLine: View {
                 .transition(.opacity)
             }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: model.sheets.ready)
+        .animation(.default, value: model.sheets.ready)
         .sheet(isPresented: $reviewing) { ReviewReadySheet(model: model) }
     }
 }
@@ -93,7 +92,6 @@ struct ReviewReadySheet: View {
     @Environment(\.openChanges) private var openChanges
     @Environment(\.focusComposer) private var focusComposer
     @Environment(\.openPullRequest) private var openPull
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @AppStorage("ace.git.mergeMethod") private var savedMethod = ""
     @State private var opened = false
     @State private var writingPR = false
@@ -203,7 +201,7 @@ struct ReviewReadySheet: View {
             if more > 0 {
                 Button(more == 1 ? "1 more file" : "\(more.formatted()) more files") {
                     if summary.hidden > 0, let openChanges { dismiss(); openChanges(nil) }
-                    else { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { allFiles = true } }
+                    else { withAnimation { allFiles = true } }
                 }
                 .buttonStyle(.plain)
                 .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)

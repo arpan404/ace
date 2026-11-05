@@ -55,9 +55,6 @@ struct ThreadView: View {
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
     @State private var barHeight: CGFloat = 0
-    /// The height of the header drawn over the pages: the page pills, and the status line at
-    /// accessibility sizes.
-    @State private var headerHeight: CGFloat = 0
     /// A file picked in Files, inserted into the composer as `@path`.
     @State private var mention: ComposerMention?
     /// The composer's `@`, `/` and + lists.
@@ -118,23 +115,29 @@ struct ThreadView: View {
     @ViewBuilder private var pager: some View {
         let pages = pages
         if pages.kinds.count < 2 {
-            feed.modifier(PageHeaderClearance(height: headerHeight))
+            feed
         } else {
             ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) }), holdsSwipe: shownPage == .browser) { kind in
                 if kind == .chat {
-                    feed.modifier(PageHeaderClearance(height: headerHeight))
+                    feed
                 } else {
                     ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, changesFile: changesFile,
                                    barHeight: barHeight, openThread: openThread, openAgent: { agentRoute = $0 },
                                    openChat: { select(.chat) }, mention: model.canOperate ? { mention = $0 } : nil)
-                        .modifier(PageHeaderClearance(height: headerHeight))
                 }
             }
         }
     }
 
+    /// The pages under the header's lower part (the status at accessibility sizes, the page
+    /// pills), drawn once so it stays put while they swipe, as the navigation bar's own accessory
+    /// (`ThreadHeaderBar`).
+    private var headed: some View {
+        pager.modifier(ThreadHeaderBar(pinned: pages.kinds.count > 1 || headerStatus != nil) { header })
+    }
+
     private func content(pageWidth: CGFloat) -> some View {
-        pager
+        headed
             .modifier(FloatingBar(height: $barHeight) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
@@ -154,30 +157,6 @@ struct ThreadView: View {
             // The thread's own keyboard commands, in the iPad menu bar and ⌘-hold overlay. Its
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
-            // The header's lower part (the status at accessibility sizes, the page pills) is drawn
-            // once over the pages, so it stays put while they swipe, over a soft fade
-            // (`ThreadHeaderFade`); each page starts below it (`PageHeaderClearance`).
-            // The page colour under the whole header (title, model line, page pills), fading out
-            // below it, so the transcript never prints through the title as it scrolls.
-            .overlay(alignment: .top) {
-                ThreadHeaderFade(reachesTop: true).frame(height: headerHeight)
-            }
-            .overlay(alignment: .top) {
-                VStack(spacing: AceTheme.Spacing.none) {
-                    if typeSize.isAccessibilitySize, let status = model.headerStatus(of: thread) {
-                        StateLabel(status: status)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
-                    }
-                    let pages = pages
-                    if pages.kinds.count > 1 {
-                        ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
-                    }
-                }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
-                // Read before the page under it.
-                .accessibilitySortPriority(1)
-            }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
@@ -296,6 +275,26 @@ struct ThreadView: View {
             #endif
     }
 
+    /// The status at accessibility sizes, then the page pills.
+    @ViewBuilder private var header: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            if let status = headerStatus {
+                StateLabel(status: status)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+            }
+            let pages = pages
+            if pages.kinds.count > 1 {
+                ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
+            }
+        }
+        // Read before the page under it.
+        .accessibilitySortPriority(1)
+    }
+    private var headerStatus: StatusDisplay? {
+        typeSize.isAccessibilitySize ? model.headerStatus(of: thread) : nil
+    }
+
     /// The title and the model under it, one menu: model, effort and access first, then the
     /// thread's own actions, with "project · branch" heading it.
     private var heading: ThreadTitleMenu {
@@ -346,14 +345,15 @@ struct ThreadView: View {
             }
             // The transcript fades out under the foot, as under the system's own bars, so the
             // live line's plain words never sit on the transcript's.
-            .background { ThreadHeaderFade() }
+            .background { ComposerFade() }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.queue?.strip)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.pill)
-        // The fork strip rises out of the composer as it opens, or fades under Reduce Motion.
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.fork?.key)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen.work)
+        // Only a strip, the live line or the fork strip arriving or leaving animates, with the
+        // system's spring; the live line's words and a strip's counts change in place, so a
+        // streaming turn never moves the foot.
+        .animation(.default, value: request?.id)
+        .animation(.default, value: hasStrip)
+        .animation(.default, value: screen.pill == nil)
+        .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
 
@@ -520,7 +520,7 @@ struct ThreadView: View {
     private func select(_ next: ThreadPageKind) {
         requestedPage = next == .chat ? nil : next
         guard page != next else { return }
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { page = next }
+        withAnimation { page = next }
     }
     /// The panel's keys while it has room beside this thread.
     private var panelCommands: PanelCommands? {
@@ -531,7 +531,7 @@ struct ThreadView: View {
                              closable: shown.flatMap { $0.pinned ? nil : $0.key })
     }
     private func panel(_ op: [String: Any]) {
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { model.panel(thread.id, op) }
+        withAnimation { model.panel(thread.id, op) }
     }
     /// Restarts the browser follow on a new visit, a new turn or a return to the foreground.
     private var browserFollow: Int? {
@@ -563,6 +563,26 @@ private struct FloatingBar<Bar: View>: ViewModifier {
                 .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
+    }
+}
+
+/// The transcript's soft edge under the composer's foot: rows fade into the page colour above the
+/// strip or live line and stay under the capsule, so the live line's plain words never sit on the
+/// transcript's. The composer floats in its own layer that follows the keyboard, outside the
+/// pages' scroll views, so the system's bottom edge effect can't reach it. Never a box.
+private struct ComposerFade: View {
+    private let fade = AceDesign.Space.fade
+    var body: some View {
+        VStack(spacing: AceTheme.Spacing.none) {
+            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+            AceTheme.Colours.background
+            LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: fade)
+        }
+        .padding(.vertical, -fade)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

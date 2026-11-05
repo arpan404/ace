@@ -14,7 +14,6 @@ struct ForgeImageDiffView: View {
     @State private var failure: String?
     @State private var layout = Layout.side
     @State private var reveal = 0.5
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     enum Layout: String, CaseIterable { case side = "Side by side", swipe = "Swipe" }
     struct Side: Sendable { let image: UIImage?; let size: Int?; let note: String? }
@@ -35,7 +34,7 @@ struct ForgeImageDiffView: View {
             }
         }
         .padding(AceTheme.Spacing.lg)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: sides == nil)
+        .animation(.default, value: sides == nil)
         .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 
@@ -58,7 +57,7 @@ struct ForgeImageDiffView: View {
                 }
             }
             .transition(.opacity)
-            .animation(AceMotion.smooth, value: layout)
+            .animation(.default, value: layout)
         } else {
             let added = sides.after.image != nil
             if let only = sides.after.image ?? sides.before.image {

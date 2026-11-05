@@ -21,7 +21,6 @@ struct UsageView: View {
     @State private var limitsLoading = false
     @State private var refreshing = false
     @State private var refreshed = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// Opens on every machine when there are several, else on `machine`, drawing the last
     /// answers this run saw while it reads again behind them.
@@ -122,7 +121,7 @@ struct UsageView: View {
             .lineLimit(2)
             .frame(maxWidth: .infinity, minHeight: AceDesign.Size.slimControl, alignment: .leading)
             .contentTransition(.opacity)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: words)
+            .animation(.default, value: words)
             .accessibilityIdentifier("usage.coverage")
     }
 

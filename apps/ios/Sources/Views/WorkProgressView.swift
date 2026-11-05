@@ -108,7 +108,6 @@ private struct LogStepContent: View {
 /// its steps on a rail, and stays open while it holds a step the reader opened. A long group lays
 /// out its first rows in the frame it opens and the rest just after, so the tap answers at once.
 private struct LogGroupView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow.LogRow
     let source: LogSource
     let live: Bool
@@ -125,7 +124,7 @@ private struct LogGroupView: View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             Button {
                 if !open { DisclosureTrace.shared.asked("group", key: key) }
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { disclosures.set(key, open: !open) }
+                withAnimation { disclosures.set(key, open: !open) }
             } label: {
                 if live && running, let active = row.active, let item = source.thread.items[active] {
                     LiveGroupTitle(item: item, step: source.ace[active], count: row.count ?? "", open: open)

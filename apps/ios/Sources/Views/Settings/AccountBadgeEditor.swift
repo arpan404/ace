@@ -36,12 +36,11 @@ struct BadgeFields: View {
     /// The bridge's word on the typed letters; nil when they can be saved.
     @Binding var problem: String?
     @State private var look = AccountBadgeLook(text: "?", icon: nil, color: "neutral")
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         Section {
             HStack(spacing: AceDesign.Space.row) {
                 AccountBadgeMark(look: look, size: AceDesign.Size.tap)
-                    .animation(AceDesign.Motion.arriving(reduceMotion), value: look)
+                    .animation(.default, value: look)
                 TextField("Letters", text: $draft.letters)
                     .textInputAutocapitalization(.characters).autocorrectionDisabled()
                     .accessibilityLabel("Badge letters")
@@ -105,7 +104,7 @@ struct BadgeFields: View {
         var payload = draft.payload
         payload["type"] = "accounts.screen.badge"; payload["label"] = name
         guard let answer = try? await model.manage(payload, as: BadgeAnswer.self), let badge = answer.badge else { return }
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { look = badge.look; problem = badge.problem }
+        withAnimation { look = badge.look; problem = badge.problem }
     }
 }
 

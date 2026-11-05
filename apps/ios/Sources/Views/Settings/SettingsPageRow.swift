@@ -5,7 +5,6 @@ import SwiftUI
 /// link to another page. Under the title, one quiet line says where a value that isn't the
 /// default comes from and, with All machines, which machines hold another value. A change shows at once while it saves.
 struct SettingsPageRowView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let row: SettingsPageData.Row
     /// The change being saved, drawn in place of the value until the machine answers.
@@ -185,7 +184,7 @@ struct SettingsPageRowView: View {
                 .transition(.opacity)
             }
             HStack {
-                Button(add) { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { entries.append("") } }.disabled(entries.count >= 200)
+                Button(add) { withAnimation { entries.append("") } }.disabled(entries.count >= 200)
                 Spacer()
                 if entries != row.value.list { Button("Save") { change(.list(entries)) } }
             }

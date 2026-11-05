@@ -33,7 +33,7 @@ struct ForgeStackPageView: View {
                 SkeletonPage()
             }
         }
-        .animation(AceMotion.smooth, value: page)
+        .animation(.default, value: page)
         .background(AceTheme.Colours.background)
         .refreshable { await load(fresh: true) }
         .navigationTitle(page?.stack.map { "Stack #\($0.number)" } ?? "Stack")

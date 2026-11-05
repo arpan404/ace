@@ -13,7 +13,6 @@ struct ThreadsTabsBar: View {
     /// Each tab's thread count in the list's scope: after the word where the tab counts, and for
     /// VoiceOver.
     let count: (String) -> Int
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
 
     var body: some View {
@@ -22,6 +21,9 @@ struct ThreadsTabsBar: View {
         HStack(spacing: AceDesign.Size.segmentInset - 1) {
             ForEach(tabs) { tab in item(tab) }
         }
+        // Only the chosen fill slides, as a segmented control's thumb does; the list it
+        // switches changes at once.
+        .animation(.default, value: selection)
         .padding(AceDesign.Size.segmentInset)
         .frame(height: AceDesign.Size.segment)
         .background(AceDesign.Surface.fill, in: AceShape.capsule)
@@ -38,7 +40,7 @@ struct ThreadsTabsBar: View {
         let lit = !chosen && (tab.id == "inbox" ? dot : tab.chats && tab.needsYou > 0)
         let total = count(tab.id)
         return Button {
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { selection = tab.id }
+            selection = tab.id
         } label: {
             HStack(spacing: AceDesign.Space.tight + 1) {
                 Text(tab.label).lineLimit(1)

@@ -63,7 +63,7 @@ struct ForgeRangeSheet: View {
                     SkeletonRows(count: 3, label: "Loading commits")
                 }
             }
-            .animation(AceMotion.smooth, value: list == nil)
+            .animation(.default, value: list == nil)
             .background(AceTheme.Colours.background)
             .navigationTitle("Show changes from")
             .navigationBarTitleDisplayMode(.inline)

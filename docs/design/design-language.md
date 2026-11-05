@@ -81,7 +81,7 @@ Phosphor on desktop and web; SF Symbols matched to the same glyphs on iPhone. On
 
 ### Motion
 
-Confirm, don't entertain. Things arrive with one spring and leave faster than they came. Only transform and opacity animate. A haptic on send, approve and tab change (iPhone). Respect Reduce Motion. Nothing loops except a startup breath and an indeterminate progress bar while they last.
+Confirm, don't entertain. Only transform and opacity animate. A haptic on send, approve and tab change (iPhone). Respect Reduce Motion. Nothing loops except a startup breath and an indeterminate progress bar while they last. On iPhone, motion is the system's own: navigation, sheets, lists and scroll-edge bars move as they do in Apple's apps, and anything else uses the system's default spring. ace adds motion only where the system has none. Desktop and web arrive with one spring and leave faster than they came.
 
 ### Voice
 
@@ -117,6 +117,7 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 - **Tab bar:** Threads · Chats · Search, plus the round compose button. Spade's tab is hidden until it launches; it comes back in its slot between Chats and Search (`HomeTabs.showsSpade`), never as a "coming soon" screen.
 - **Compose:** on iOS 27 the tab bar's prominent detached button. On iOS 26, where the detached button belongs to the search tab, Search takes it and compose is a round glass button in the Threads and Chats headers.
 - **Header:** large title that collapses on scroll; the scope or a connection problem shows under it only while it applies. On the right, one glass capsule: the scope menu (machine, project, sort, Select) and compose. The system's title menu is not used: it draws no chevron beside a large title. Threads has Inbox · Snoozed · Settled under the title; Chats is its own tab.
+- **Pinned controls:** a control that stays under a title (Inbox · Snoozed · Settled, a thread's page pills, Search's filters, the pull request chips) is a system bar in the navigation bar's own region, never an overlay or a painted fade. Rows pass under it behind the system's hard scroll edge, which shows once they have scrolled, so a large title at rest stays sharp. The needs-you line scrolls with the list.
 - **Search:** replaces More and the web's command palette. Empty, it shows Places as capsules (Pull requests with its open count, Issues, Automations, Skills, Usage, Machines, Settings), recent searches and the latest threads. Typed, it lists actions (each saying where it goes), threads, pull requests, projects and messages. Places open in a sheet; Settings holds every machine tool.
 - **iPad and wide windows:** the list sits beside the thread; the sidebar's foot carries the places in the web rail's order (Threads, Chats, Search, then Pull requests, Automations, Skills, Settings) as bare glyphs on one glass capsule, in place of the tab bar.
 - **Thread:** the title and, under it, the model and its effort ("Opus 5.5 · Med", provider mark at 80%); the two are one tap that opens one system menu: Model, Effort and Access first, then the thread's own actions, with project · branch as the menu's quiet header. The page pills sit under it, then the transcript, then the composer capsule.
@@ -125,7 +126,10 @@ The iPhone app speaks the same language with native iOS 26 grammar.
 
 - 44-point tap targets, always.
 - Long-press for secondary actions (copy, fork, time), swipe for row actions (pin, snooze, settle).
-- Haptics on send, approve, tab change and pull to refresh. Springs from the system.
+- Haptics on send, approve, tab change and pull to refresh.
+- Motion is the system's. Push and pop, sheets and their detents, menus, list inserts, removals and moves, swipe actions and tab switches are the system's own, with nothing added. Where ace animates, it uses the default spring: a strip or the live line arriving, a disclosure opening, the scroll to the end. A segmented control slides its thumb; what it switches changes at once. A page pill shows its page at once; a swipe between pages follows the finger. Rows highlight on press and never shrink. Changing counts use the system's numeric text transition.
+- Nothing animates as a turn streams: streaming text, timers and counts change in place.
+- Under Reduce Motion, things that would travel fade in place instead.
 - Dynamic Type and VoiceOver: every status icon has its meaning as its accessibility label.
 
 ### Tokens

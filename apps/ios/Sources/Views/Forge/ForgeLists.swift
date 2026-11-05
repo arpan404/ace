@@ -122,7 +122,7 @@ struct ForgeListFrame<Rows: View>: View {
         .environment(\.defaultMinListRowHeight, 0)
         .contentMargins(.vertical, AceTheme.Spacing.xs, for: .scrollContent)
         .opacity(stale ? AceDesign.Ink.settledOpacity : 1)
-        .animation(AceMotion.smooth, value: stale)
+        .animation(.default, value: stale)
         .refreshable { await refresh() }
     }
 }

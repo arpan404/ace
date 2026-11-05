@@ -10,7 +10,6 @@ struct AutomationEditor: View {
     let editing: AutomationListRow?
     let saved: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var form: AutomationFormValues?
     @State private var view: AutomationFormView?
     @State private var choices: AutomationFormView.Choices?
@@ -30,7 +29,7 @@ struct AutomationEditor: View {
     /// reply names the same automation, which the bridge counts as saved instead of a second.
     @State private var newId = "auto-\(UUID().uuidString.lowercased())"
     private var zone: String { TimeZone.current.identifier }
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
 
     init(model: ClientModel, editing: AutomationListRow?, saved: @escaping (String) -> Void) {
         self.model = model

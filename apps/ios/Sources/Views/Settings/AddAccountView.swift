@@ -41,7 +41,6 @@ struct AddAccountView: View {
     @State private var problem: String?
     @State private var busy = false
     @State private var started: StartedSignIn?
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         Group {
             if let started {
@@ -49,7 +48,7 @@ struct AddAccountView: View {
                     .transition(.opacity)
             } else { form.transition(.opacity) }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: started)
+        .animation(.default, value: started)
         .navigationTitle(started == nil ? "Add \(name) account" : label).navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if started == nil {
@@ -72,7 +71,7 @@ struct AddAccountView: View {
                 BadgeFields(model: model, name: label.isEmpty ? "Work" : label, draft: $draft, problem: $badgeProblem)
                 Section {
                     ForEach(ways) { option in
-                        Button { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { way = option } } label: {
+                        Button { withAnimation { way = option } } label: {
                             HStack {
                                 Text(option.label).foregroundStyle(AceDesign.Ink.primary)
                                 Spacer()

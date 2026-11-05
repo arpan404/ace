@@ -55,7 +55,6 @@ struct ComposerView<Top: View, Leading: View>: View {
     @State private var place: CaretPlacement?
     /// Why the last pick couldn't be made, until the words change.
     @State private var notice: String?
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -91,8 +90,8 @@ struct ComposerView<Top: View, Leading: View>: View {
             .composerGlassGroup()
         }
         .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: wraps)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: trailing)
+        .animation(.default, value: wraps)
+        .animation(.default, value: trailing)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: feedback)
         .sensoryFeedback(AceDesign.Haptic.stop, trigger: stopped)
         .onChange(of: mention) { _, picked in
@@ -143,7 +142,7 @@ struct ComposerView<Top: View, Leading: View>: View {
             feedback += 1
             return true
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: dropping)
+        .animation(.default, value: dropping)
     }
 
     private func pick(_ row: SuggestionRow) {
@@ -169,7 +168,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                         wraps: wraps, onWrap: { wraps = $0 }, card: wraps, focused: focused, holdsOneLine: true,
                         onFocus: { focus, duration in
                             if !focus { suggester?.close() } else { suggester?.readAhead() }
-                            withAnimation(reduceMotion ? nil : AceDesign.Motion.keyboard(duration)) { focused = focus }
+                            withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
                         place: place, pasteFiles: intake)

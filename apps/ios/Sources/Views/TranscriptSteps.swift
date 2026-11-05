@@ -23,7 +23,6 @@ struct QuietRow<Content: View>: View {
 /// approval steps aside: the request is the composer's.
 struct StepRow: View {
     @Environment(\.openStep) private var openStep
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let step: StepLine
     /// The item it reads, which keeps its open state through regrouping.
     var id = ""
@@ -54,7 +53,7 @@ struct StepRow: View {
         } else if expandable {
             Button {
                 if !open { DisclosureTrace.shared.asked("step", key: key) }
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) {
+                withAnimation {
                     if let thread { thread.disclosures.toggle(key) } else { localOpen.toggle() }
                 }
             } label: { line(open: open) }
@@ -240,7 +239,6 @@ private struct StepDiff: View {
 /// turn's steps ahead of a tap, and lets them go when it scrolls away; the bridge bounds how many
 /// turns stay read.
 struct WorkBlockView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let row: BlockRow
     let blockId: String
     let thread: ThreadModel
@@ -266,7 +264,7 @@ struct WorkBlockView: View {
                     DisclosureTrace.shared.asked("steps", key: blockId)
                     holdSteps()
                 }
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { thread.disclosures.toggle(blockId) }
+                withAnimation { thread.disclosures.toggle(blockId) }
             } label: {
                 LogRowBox(open: expanded) {
                     Text(row.work?.label ?? "Worked")

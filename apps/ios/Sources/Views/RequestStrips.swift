@@ -7,7 +7,6 @@ import SwiftUI
 /// open in a native sheet; the strip stays a line or two. Answering one brings the next up.
 struct RequestStrip: View {
     let requests: [ApprovalRow]
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     @Binding var questionDraft: QuestionDraftState
     let openBrowser: () -> Void
@@ -20,7 +19,7 @@ struct RequestStrip: View {
             let request = requests[shown]
             DockStrip(line: request.strip ?? StripLineRow(lead: StripLeadRow(), sentence: request.heading ?? request.title),
                       pager: DockPager(index: shown, total: requests.count) { step in
-                          withAnimation(AceDesign.Motion.arriving(reduceMotion)) { index = min(max(0, shown + step), requests.count - 1) }
+                          withAnimation { index = min(max(0, shown + step), requests.count - 1) }
                       },
                       actions: actions(for: request),
                       openPayload: request.kind == "approval" ? nil : { sheet = RequestSheetItem(id: request.id) },

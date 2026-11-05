@@ -32,7 +32,6 @@ struct ProviderMcpView: View {
     @State private var working: String?
     @State private var adding = false
     @State private var changed = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         List {
             Group {
@@ -58,7 +57,7 @@ struct ProviderMcpView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
+        .animation(.default, value: screen)
         .navigationTitle("MCP servers").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model, id: provider) { await read() }.refreshable { await read() }
         .sensoryFeedback(.success, trigger: changed)
@@ -103,7 +102,7 @@ struct ProviderMcpView: View {
                 _ = try await model.manage(["type": "mcp.screen.control", "provider": provider, "name": server.name, "action": action], as: PlainAnswer.self)
                 changed += 1
                 await read()
-            } catch { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { note = error.localizedDescription } }
+            } catch { withAnimation { note = error.localizedDescription } }
         }
     }
     private func read() async {

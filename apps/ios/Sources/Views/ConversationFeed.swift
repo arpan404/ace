@@ -179,7 +179,7 @@ struct ConversationFeed: View {
             .modifier(TranscriptTextSize())
             .padding(.top, AceDesign.Space.related)
             // A message that wasn't sent fades in and out where it was written.
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: thread.screen.queue?.notSent?.id)
+            .animation(.default, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
@@ -436,7 +436,7 @@ struct ConversationFeed: View {
         }
         .onChange(of: barHeight) { old, new in
             // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : AceDesign.Motion.arrive
+            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
             roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
@@ -793,13 +793,13 @@ private struct TapPutsKeyboardAway: ViewModifier {
     }
 }
 
-/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own, and rows
-/// fade softly under its buttons as the system's bars do (no band, no hairline). Before, the bar
-/// is opaque in the page colour.
+/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
+/// thread's header bar sets the system's scroll-edge effect (`ThreadHeaderBar`). Before, the bar is
+/// opaque in the page colour.
 private struct TranscriptTopEdge: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            content.scrollEdgeEffectStyle(.soft, for: .top)
+            content
         } else {
             content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)

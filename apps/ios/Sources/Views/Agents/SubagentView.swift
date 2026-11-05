@@ -23,7 +23,6 @@ struct SubagentView: View {
     let openThread: (String) -> Void
     @State private var questionDraft = QuestionDraftState()
     @State private var showLog = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var lane: LaneModel? { thread.screen.lane?.agentId == route.agentId ? thread.screen.lane : nil }
     private var info: SubagentInfo? { lane?.info }
     /// The oldest request waiting on the person from this subagent or anything under it.
@@ -68,8 +67,8 @@ struct SubagentView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { bottom }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: info)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: lane?.order.count)
+        .animation(.default, value: info)
+        .animation(.default, value: lane?.order.count)
         .accessibilityIdentifier("lane.transcript")
         .navigationTitle(info?.name ?? route.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -107,7 +106,7 @@ struct SubagentView: View {
                 SubagentStatusBar(info: info, model: model)
             }
             .composerGlassGroup()
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: request?.id)
+            .animation(.default, value: request?.id)
             .transition(.opacity)
         }
     }

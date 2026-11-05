@@ -37,7 +37,7 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View>: View {
 
     private var layout: ThreadDrawer.Layout { ThreadDrawer.layout(sizeClass, path: path) }
     /// The drawer settles with the system's spring; Reduce Motion fades it instead.
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
     private var listWidth: CGFloat { ThreadDrawer.listWidth(window: width) }
     private var tabBar: Bool { !selecting && ThreadColumns.showsTabBar(sizeClass, path: path) }
 
@@ -305,7 +305,7 @@ private struct SidebarButton: View {
     var body: some View {
         let hidden = visibility == .detailOnly
         Button {
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { visibility = hidden ? .all : .detailOnly }
+            withAnimation { visibility = hidden ? .all : .detailOnly }
         } label: { Image(systemName: "sidebar.left") }
             .accessibilityLabel(hidden ? "Show Sidebar" : "Hide Sidebar")
             .accessibilityIdentifier("split.sidebar")

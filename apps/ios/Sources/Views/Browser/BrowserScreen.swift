@@ -13,7 +13,6 @@ enum BrowserSheet: String, Identifiable {
 struct BrowserScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: ClientModel
     /// The thread's open browser request, if the agent asked the person for help.
@@ -65,10 +64,10 @@ struct BrowserScreen: View {
             }
         }
         .overlay(alignment: .top) { BrowserDoneNote(model: model) }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: editingAddress)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: annotating)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: splitTab)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: state?.recording)
+        .animation(.default, value: editingAddress)
+        .animation(.default, value: annotating)
+        .animation(.default, value: splitTab)
+        .animation(.default, value: state?.recording)
         .background(AceDesign.Surface.background)
         .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
@@ -365,7 +364,6 @@ struct BrowserStrip<Actions: View>: View {
 
 /// Where the agent last pointed: a cursor that glides there and never takes a touch.
 private struct AgentCursor: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let name: String
     let at: CGPoint
     var body: some View {
@@ -376,7 +374,7 @@ private struct AgentCursor: View {
             .shadow(color: AceDesign.Surface.background, radius: 1)
             .offset(x: 7, y: 9)
             .position(at)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: at)
+            .animation(.default, value: at)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name) is pointing here")

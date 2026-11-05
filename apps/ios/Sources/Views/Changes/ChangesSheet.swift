@@ -12,7 +12,6 @@ struct ChangesSheet: View {
     var initial: String?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.panelHost) private var panelHost
     @State private var open: String?
     @State private var reviewed: Set<String> = []
@@ -58,7 +57,7 @@ struct ChangesSheet: View {
                     LazyVStack(alignment: .leading, spacing: AceTheme.Spacing.none, pinnedViews: [.sectionHeaders]) {
                         content
                     }
-                    .animation(AceDesign.Motion.arriving(reduceMotion), value: summary?.open ?? [])
+                    .animation(.default, value: summary?.open ?? [])
                     .environment(\.changesCommentable, commentable)
                     .environment(\.changesToUncommitted) { path in
                         // Scrolled to once Uncommitted's list is in.
@@ -74,7 +73,7 @@ struct ChangesSheet: View {
                 }
                 .onChange(of: target) { _, path in
                     guard let path else { return }
-                    withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo(path, anchor: .top) }
+                    withAnimation { proxy.scrollTo(path, anchor: .top) }
                     target = nil
                 }
             }
@@ -94,9 +93,9 @@ struct ChangesSheet: View {
                 }
             }
             .changesActions(model: model, summary: summary, title: title, wrap: $wrap) { header }
-            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+            .pinnedTopBar {
                 // Pinned, so Collapse all and Files stay in reach deep inside a long diff.
-                if let summary, summary.state != "error" { toolbarRow(summary).background(AceTheme.Colours.background) }
+                if let summary, summary.state != "error" { toolbarRow(summary) }
             }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
                 ReviewBar(model: model, selection: $selection, comment: compose, list: { presented = .review })
@@ -314,7 +313,6 @@ struct ChangedFileHeader: View {
     let reviewed: Bool
     let toggle: () -> Void
     let review: () -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var drag: CGFloat = 0
     /// How far a swipe travels before it marks the file.
     private static let reach = AceDesign.Size.tap * 2
@@ -324,7 +322,7 @@ struct ChangedFileHeader: View {
             HStack(spacing: AceDesign.Space.related) {
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold))
                     .rotationEffect(.degrees(open ? 90 : 0))
-                    .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
+                    .animation(.default, value: open)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
                 path
                 Spacer(minLength: AceTheme.Spacing.xs)
@@ -372,7 +370,7 @@ struct ChangedFileHeader: View {
             }
             .onEnded { _ in
                 let marks = abs(drag) >= Self.reach * 0.8
-                withAnimation(AceDesign.Motion.leaving(reduceMotion)) { drag = 0 }
+                withAnimation { drag = 0 }
                 if marks { review() }
             }
     }

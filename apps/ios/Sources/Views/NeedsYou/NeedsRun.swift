@@ -63,7 +63,7 @@ struct NeedsRun: View {
         .onAppear { queue.skipClosed(open: isOpen) }
         .onChange(of: live) { _, now in
             queue.merge(now)
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { queue.skipClosed(open: isOpen) }
+            withAnimation { queue.skipClosed(open: isOpen) }
         }
     }
 
@@ -88,11 +88,10 @@ struct NeedsRun: View {
     }
     private func move(forward: Bool = true, _ change: (inout NeedsRunQueue) -> Void) {
         self.forward = forward
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { change(&queue) }
+        withAnimation { change(&queue) }
     }
     private var pageTransition: AnyTransition {
-        reduceMotion ? .opacity : .asymmetric(insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
-                                              removal: .move(edge: forward ? .leading : .trailing).combined(with: .opacity))
+        reduceMotion ? .opacity : .push(from: forward ? .trailing : .leading)
     }
     /// Left for the next page, right for the one before.
     private var swipe: some Gesture {

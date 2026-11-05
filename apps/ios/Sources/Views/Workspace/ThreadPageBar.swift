@@ -7,7 +7,6 @@ struct ThreadPageBar: View {
     let pages: ThreadPages
     let shown: ThreadPageKind
     let select: (ThreadPageKind) -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Namespace private var fill
 
     var body: some View {
@@ -16,13 +15,15 @@ struct ThreadPageBar: View {
                 HStack(spacing: AceTheme.Spacing.none) {
                     ForEach(pages.kinds) { kind in pill(kind).id(kind) }
                 }
+                // The chosen fill slides to the page showing, a tap's or a swipe's.
+                .animation(.default, value: shown)
             }
             // The first capsule's edge sits on the page margin; past it the row scrolls to the
             // screen's edges when there are more pages than fit.
             .contentMargins(.horizontal, AceDesign.Space.margin, for: .scrollContent)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .onChange(of: shown, initial: true) { _, page in
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo(page, anchor: .center) }
+                withAnimation { proxy.scrollTo(page, anchor: .center) }
             }
         }
         .frame(height: AceDesign.Size.tap)

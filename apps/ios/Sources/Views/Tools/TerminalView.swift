@@ -43,7 +43,6 @@ struct TerminalView: View {
     @State private var selecting = false
     @State private var namesVersion = 0
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var output: TerminalScreenModel { model.terminal }
 
     var body: some View {
@@ -79,8 +78,8 @@ struct TerminalView: View {
             }
             keys
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: finding)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: output.exited)
+        .animation(.default, value: finding)
+        .animation(.default, value: output.exited)
         .background(AceTheme.Colours.background)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }

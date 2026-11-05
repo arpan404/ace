@@ -34,7 +34,7 @@ struct RemoteScreenView: View {
         .onAppear { model.followComputerAccess(mac: !screen.dialogPicks) }
         .onDisappear { model.unfollowComputerAccess() }
         .onChange(of: screen.dialogPicks) { _, dialog in model.computerAccessMac(!dialog) }
-        .animation(AceTheme.Motion.standardCurve, value: model.computerAccess.state)
+        .animation(.default, value: model.computerAccess.state)
         .task(id: model.connection) {
             if model.connection == "ready" { await screen.refresh(model); await screen.targets(model) } else { screen.disconnected() }
         }

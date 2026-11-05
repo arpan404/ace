@@ -68,7 +68,6 @@ struct InboxList: View {
     var pair: (() -> Void)?
     /// The threads picked while the list is in its Select mode (nil outside it).
     var selection: Binding<Set<InboxKey>>? = nil
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.onSidebarGlass) private var onGlass
     /// The needs-you run is open.
     @State private var running = false
@@ -129,10 +128,9 @@ struct InboxList: View {
             .environment(\.editMode, .constant(selection == nil ? .inactive : .active))
             .contentMargins(.vertical, AceDesign.Space.tight, for: .scrollContent)
             // Rows joining, leaving or moving between groups take the list's own insert, remove
-            // and move animations, keyed on membership alone, so a row's own text changing never
-            // animates the list. Reduce Motion crossfades instead.
-            .animation(AceDesign.Motion.arriving(reduceMotion),
-                       value: Membership(sections: shown, tab: tab))
+            // and move animations on the system's spring, keyed on membership alone, so a row's
+            // own text changing never animates the list.
+            .animation(.default, value: Membership(sections: shown, tab: tab))
             .onAppear { if !sections.isEmpty { InboxList.traceRows(sections) } }
             .onChange(of: sections.isEmpty) { _, empty in if !empty { InboxList.traceRows(sections) } }
             // Each tab opens at its top.
@@ -142,7 +140,7 @@ struct InboxList: View {
             .onChange(of: revealable(shown), initial: true) { _, key in
                 guard let key else { return }
                 reveal = nil
-                withAnimation(reduceMotion ? nil : AceDesign.Motion.arrive) { proxy.scrollTo(key, anchor: .center) }
+                withAnimation { proxy.scrollTo(key, anchor: .center) }
             }
             .fullScreenCover(isPresented: $running) {
                 NeedsRun(inbox: inbox, live: { needs(sections.filter { $0.tab == "inbox" }) }, queue: $run) { key in

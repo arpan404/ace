@@ -16,7 +16,6 @@ struct AutomationWhenSection: View {
     @State private var pendingTime: Date?
     @State private var pendingAt: Date?
     @State private var pendingStart: Date?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var zone: TimeZone { TimeZone(identifier: form.timezone) ?? .current }
     private var timed: Bool { ["daily", "weekdays", "weekly"].contains(form.cadence) }
@@ -37,8 +36,8 @@ struct AutomationWhenSection: View {
             }
         } header: { InsetHeader("When it runs") }
         .insetRowBackground()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: form.trigger)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: form.cadence)
+        .animation(.default, value: form.trigger)
+        .animation(.default, value: form.cadence)
         .onChange(of: view.instants?.time) { _, _ in pendingTime = nil }
         .onChange(of: view.instants?.at) { _, _ in pendingAt = nil }
         .onChange(of: view.instants?.startsAt) { _, _ in pendingStart = nil }

@@ -51,7 +51,6 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// The connection problem once it has lasted a moment, so a blip never flashes in the title.
     @State private var problem: InboxConnectionProblem?
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     /// The scope: a row shows when its machine and project match.
     private func includes(_ key: InboxKey) -> Bool {
@@ -111,11 +110,9 @@ struct InboxStack<Destination: View, Side: View>: View {
             InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
                       pair: header.pair, selection: selecting ? $selection : nil)
                 .refreshable { await refresh() }
-                // Inbox, Snoozed and Settled under the title, pinned on the page colour: a glass
-                // bar under a large title blurs the title.
-                .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-                    tabsBar.background(AceTheme.Colours.background, ignoresSafeAreaEdges: [])
-                }
+                // Inbox, Snoozed and Settled pinned under the title, in the navigation bar's own
+                // region: rows blur and fade under both as they do under Mail's.
+                .pinnedTopBar { tabsBar }
         }
     }
 
@@ -194,7 +191,7 @@ struct InboxStack<Destination: View, Side: View>: View {
             .modifier(HeaderLead())
         }
     }
-    private var listMotion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var listMotion: Animation { .default }
 
     private var filters: InboxFilters { InboxFilters(inbox: inbox, machine: $machine, project: $project) }
 

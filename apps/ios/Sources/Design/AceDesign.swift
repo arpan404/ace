@@ -12,7 +12,8 @@ import UIKit
 /// - Type: SF Pro with Dynamic Type, five roles on the system's own text styles, two weights.
 /// - Surfaces: background, glass (only what floats), raised (sheets).
 /// - Colour: grey ink in four tiers; status hues only on status icons; one accent.
-/// - Motion: the system's spring; things leave faster than they came; nothing loops.
+/// - Motion: the system's own: navigation, sheets, lists, scroll-edge bars and its default
+///   spring; ace adds motion only where the system has none, and nothing loops.
 @MainActor enum AceDesign {
 
     // MARK: Shape
@@ -205,16 +206,9 @@ import UIKit
 
     // MARK: Motion
 
-    enum Motion {
-        /// Things arrive with the system's spring.
-        static let arrive = Animation.spring
-        /// …and leave faster than they came.
-        static let leave = Animation.spring(duration: 0.25)
-        /// Under Reduce Motion: a short fade only.
-        static let reduced = Animation.easeInOut(duration: 0.15)
-        static func arriving(_ reduce: Bool) -> Animation { reduce ? reduced : arrive }
-        static func leaving(_ reduce: Bool) -> Animation { reduce ? reduced : leave }
-    }
+    /// Motion is the system's: views animate with `.default` (its spring) or not at all. These are
+    /// the few places the system has no motion of its own to lend.
+    enum Motion {}
 
     /// Haptics confirm what the person did: send, stop, approve, tab change, pull to refresh.
     enum Haptic {
@@ -482,10 +476,6 @@ extension AceDesign.Ink {
 }
 
 extension AceDesign.Motion {
-    /// A pressed control shrinks this little, so the press reads without moving the layout.
-    static let pressScale: CGFloat = 0.98
-    /// A pill grows into place from this scale as it fades in.
-    static let arrivalScale: CGFloat = 0.94
     /// Follows the keyboard: the system hands its own duration, ace adds no bounce.
     static func keyboard(_ duration: Double) -> Animation { .spring(duration: duration, bounce: 0) }
 }
@@ -611,11 +601,6 @@ extension AceDesign.Size {
     static let readable: CGFloat = 720
     /// A slim capsule at the system segmented control's height, inside a 44pt tap area.
     static let slimControl: CGFloat = 32
-}
-
-extension AceDesign.Motion {
-    /// A press answers at once.
-    static let press = Animation.easeOut(duration: 0.1)
 }
 
 /// Drawing on the live page: the finger's accent ink, how long it stays once the finger lifts
