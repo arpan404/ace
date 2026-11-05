@@ -33,6 +33,10 @@ export const Options = z.object({
       minFreeRatio: z.number().min(0).max(1).optional(),
     })
     .optional(),
+  /** Set by the daemon on a restart: how the reader before this one ended (crash-ledger.ts). */
+  lastExit: z.enum(["crash", "memory-limit"]).optional(),
+  /** The reader process's memory limit; past three quarters of it the reader collects garbage. */
+  memoryLimitBytes: z.number().int().positive().optional(),
 });
 export type HistoryOptions = z.input<typeof Options>;
 export const ImportInit = z.object({

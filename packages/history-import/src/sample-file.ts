@@ -49,14 +49,21 @@ export function unsupported(result: ScanTally, instanceId: string, reason: strin
   if (result.unsupported.length < 256) result.unsupported.push({ instanceId, reason });
 }
 
+/**
+ * How a content read is marked in the crash ledger: `reading` for one among others, `verifying`
+ * for a suspect re-checked on its own.
+ */
+export type CrashMark = "reading" | "verifying";
+
 /** Sample one inventory file. Failures are recorded on the tally, never thrown, except abort. */
 export async function sampleFile(
   context: SampleContext,
   path: string,
+  mark: CrashMark = "reading",
 ): Promise<CatalogWrite | undefined> {
   const { catalog, instance, epoch, signal, result } = context;
   try {
-    return await processFile(context, path);
+    return await processFile(context, path, mark);
   } catch (error) {
     signal.throwIfAborted();
     const sourceChanged =
@@ -81,6 +88,7 @@ export async function sampleFile(
 async function processFile(
   context: SampleContext,
   path: string,
+  mark: CrashMark,
 ): Promise<CatalogWrite | undefined> {
   const { catalog, instance, epoch, signal, result } = context;
   const isStorage = instance.provider === "opencode";
@@ -118,7 +126,7 @@ async function processFile(
     !isStorage && info.size <= SAMPLE_BYTES ? info.size : SAMPLE_BYTES + PREVIEW_RECORD_LIMIT;
   return context.budget.use(reserve, async () => {
     signal.throwIfAborted();
-    catalog.crashes.reading(instance.id, path);
+    catalog.crashes[mark](instance.id, path);
     try {
       return await readContent(context, path, info, fp);
     } finally {

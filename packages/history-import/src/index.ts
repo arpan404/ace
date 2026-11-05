@@ -60,7 +60,7 @@ export async function openHistory(
   const worker = new RecoveringWorker(
     new URL("./worker.ts", import.meta.url),
     {
-      workerData: parsed,
+      workerData: { ...parsed, memoryLimitBytes: reader.limitBytes },
       // Applies to an injected worker thread; the reader process has its watchdog instead.
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
     },

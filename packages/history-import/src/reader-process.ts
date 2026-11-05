@@ -10,7 +10,11 @@ import {
   stopRetainedWindowsTree,
   unregisterGroup,
 } from "@ace/provider-kit/process-owner";
-import { residentSampler, type ResidentSampler } from "@ace/provider-kit/resident-memory";
+import {
+  residentSampler,
+  residentSamplingAvailable,
+  type ResidentSampler,
+} from "@ace/provider-kit/resident-memory";
 import { ReaderFault } from "./reader-host.ts";
 
 /**
@@ -31,25 +35,46 @@ export interface ReaderProcessRuntime {
   sample: ResidentSampler;
   schedule: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
+  /** Whether `sample` can read memory here. Without it the reader gets a heap flag instead. */
+  sampling: boolean;
+  /** Says that the limit isn't enforced; once is enough. */
+  warn: (message: string) => void;
 }
 
-export const systemReaderRuntime = (): ReaderProcessRuntime => ({
-  limitBytes: readerMemoryLimitBytes,
-  intervalMs: 100,
-  sample: residentSampler(),
-  schedule(callback, milliseconds) {
-    const timer = setTimeout(callback, milliseconds);
-    timer.unref();
-    return () => clearTimeout(timer);
-  },
-  platform: process.platform,
-});
+export function systemReaderRuntime(): ReaderProcessRuntime {
+  let warned = false;
+  return {
+    limitBytes: readerMemoryLimitBytes,
+    intervalMs: 100,
+    sample: residentSampler(),
+    schedule(callback, milliseconds) {
+      const timer = setTimeout(callback, milliseconds);
+      timer.unref();
+      return () => clearTimeout(timer);
+    },
+    platform: process.platform,
+    sampling: residentSamplingAvailable(),
+    warn(message) {
+      if (warned) return;
+      warned = true;
+      process.emitWarning(message);
+    },
+  };
+}
+
+/** The `code` of the error a watchdog kill reports: the reader's own cause is uncertain. */
+export const readerMemoryLimitCode = "history-reader-memory-limit";
+/** The environment variable that names the daemon a reader process belongs to. */
+export const readerParentVariable = "ACE_HISTORY_READER_PARENT";
 
 /** The memory error in-flight history requests fail with when the watchdog stops the reader. */
 export function readerMemoryError(limitBytes: number): Error {
   const mb = Math.round(limitBytes / (1024 * 1024));
-  return new Error(
-    `Saved conversations stopped: their reader went over its ${mb} MB memory limit and is restarting`,
+  return Object.assign(
+    new Error(
+      `Saved conversations stopped: their reader went over its ${mb} MB memory limit and is restarting`,
+    ),
+    { code: readerMemoryLimitCode },
   );
 }
 
@@ -66,6 +91,7 @@ export class ReaderProcess extends EventEmitter {
   private pid: number | undefined;
   private stopWatching: (() => void) | undefined;
   private exitCode: number | undefined;
+  private failed = false;
   private readonly exited = Promise.withResolvers<number>();
   private readonly runtime: ReaderProcessRuntime;
   constructor(entry: URL, options: WorkerOptions, runtime: ReaderProcessRuntime) {
@@ -79,49 +105,69 @@ export class ReaderProcess extends EventEmitter {
       detached: !windows,
       windowsHide: true,
       stdio: ["ignore", "ignore", "inherit", "ipc"],
-      // Never the daemon's own flags (watch mode, inspector). The watchdog is the one memory
-      // limit on every runtime, so a worker's resourceLimits are not passed on as heap flags.
-      execArgv: [...(options.execArgv ?? [])],
-      env: typeof options.env === "object" ? options.env : process.env,
+      // Never the daemon's own flags (watch mode, inspector). Where the watchdog can read
+      // memory it is the one limit; where it can't (Node off Linux), Node's heap cap stands in.
+      execArgv: [...(runtime.sampling ? [] : heapFlags(options)), ...(options.execArgv ?? [])],
+      env: {
+        ...(typeof options.env === "object" ? options.env : process.env),
+        // The daemon to watch: the reader's own parent can change if the daemon dies first.
+        [readerParentVariable]: String(process.pid),
+      },
     });
     this.child.on("message", (value: unknown) => {
       const fault = ReaderFault.safeParse(value).data;
       if (fault) {
         const { message, code } = fault.fault;
-        this.emit("error", Object.assign(new Error(message), code ? { code } : {}));
+        this.fail(Object.assign(new Error(message), code ? { code } : {}));
         return;
       }
       this.emit("message", value);
     });
-    this.child.once("error", (error) => {
-      // The process never started; nothing else will report its end.
-      this.emit("error", error);
-      if (this.pid === undefined) this.finish(1);
+    // For the child's whole life: every failed send or spawn reports here, never unhandled.
+    this.child.on("error", (error) => {
+      this.fail(error);
+      // A process that never started reports no exit of its own.
+      if (this.child.pid === undefined) this.finish(1);
     });
     this.child.once("exit", (code) => this.finish(code ?? 1));
     this.pid = this.child.pid;
     const pid = this.pid;
     if (pid === undefined) return;
-    registerGroup(
-      pid,
-      (graceMs) => this.stopGroup(pid, graceMs),
-      { name: "history-reader" },
-      () => killGroup(pid, "SIGKILL"),
-    );
+    try {
+      registerGroup(
+        pid,
+        (graceMs) => this.stopGroup(pid, graceMs),
+        { name: "history-reader" },
+        () => killGroup(pid, "SIGKILL"),
+      );
+    } catch (error) {
+      // Unowned, it must not run at all.
+      this.child.kill("SIGKILL");
+      throw error;
+    }
+    if (!runtime.sampling)
+      runtime.warn(
+        "The history reader's memory limit is not enforced: this runtime can't read process memory here",
+      );
     this.stopWatching = watchMemory({
       pid,
       limitBytes: runtime.limitBytes,
       intervalMs: runtime.intervalMs,
       sample: runtime.sample,
       schedule: runtime.schedule,
-      onSampleError: warnUnenforced,
+      onSampleError: (error) =>
+        runtime.warn(
+          `The history reader's memory limit is not enforced: ${error instanceof Error ? error.message : String(error)}`,
+        ),
       onExceeded: () => {
         this.stopWatching = undefined;
         killGroup(pid, "SIGKILL");
-        this.emit("error", readerMemoryError(runtime.limitBytes));
+        // At once on Windows too, where the group stop is an asynchronous taskkill.
+        this.child.kill("SIGKILL");
+        this.fail(readerMemoryError(runtime.limitBytes));
       },
     });
-    this.child.send({ init: options.workerData });
+    this.send({ init: options.workerData });
   }
   /** The reader's process id, once it has started. */
   get processId(): number | undefined {
@@ -130,13 +176,25 @@ export class ReaderProcess extends EventEmitter {
   /** Sends in order; dropped once the reader has gone, as a terminated worker's port would. */
   postMessage(message: unknown): void {
     // Reader requests are built from the protocol's schemas, all structured-cloneable.
-    if (this.child.connected) this.child.send(message as Serializable);
+    this.send(message as Serializable);
   }
-  /** Stops the reader (and anything in its group) and resolves with its exit code. */
+  /** Stops the reader (and anything in its group) and resolves once its process has exited. */
   async terminate(): Promise<number> {
     if (this.exitCode !== undefined) return this.exitCode;
     if (this.pid !== undefined) await this.stopGroup(this.pid, 1000);
     return this.exited.promise;
+  }
+  private send(message: Serializable): void {
+    if (!this.child.connected) return;
+    this.child.send(message, (error) => {
+      if (error) this.fail(error);
+    });
+  }
+  /** The reader's one terminal error; later ones (each failed send of a dying reader) add nothing. */
+  private fail(error: Error): void {
+    if (this.failed) return;
+    this.failed = true;
+    this.emit("error", error);
   }
   private async stopGroup(pid: number, graceMs: number): Promise<void> {
     if (this.runtime.platform === "win32") {
@@ -155,12 +213,8 @@ export class ReaderProcess extends EventEmitter {
   }
 }
 
-let warned = false;
-/** Says once per daemon that the limit isn't enforced, rather than failing silently. */
-function warnUnenforced(error: unknown): void {
-  if (warned) return;
-  warned = true;
-  process.emitWarning(
-    `The history reader's memory limit is not enforced: ${error instanceof Error ? error.message : String(error)}`,
-  );
+/** Node's stand-in limit: the worker's old-generation heap size, as a flag. */
+function heapFlags(options: WorkerOptions): string[] {
+  const old = options.resourceLimits?.maxOldGenerationSizeMb;
+  return old === undefined ? [] : [`--max-old-space-size=${old}`];
 }

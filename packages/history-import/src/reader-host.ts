@@ -40,9 +40,11 @@ export async function readerHost(): Promise<{ port: ReaderPort; data: unknown }>
 function processHost(): Promise<{ port: ReaderPort; data: unknown }> {
   const send = process.send?.bind(process);
   if (!send) throw new Error("The history reader needs a channel to the daemon");
-  // The daemon is gone (exited or killed outright): nothing can use this reader any more.
+  // The daemon is gone (exited or killed outright): nothing can use this reader any more. It
+  // may have gone while this process was still loading, before a listener could hear it.
   process.on("disconnect", () => process.exit(0));
-  watchParent();
+  if (!process.connected) process.exit(0);
+  watchParent(ReaderParent.parse(process.env.ACE_HISTORY_READER_PARENT));
   const fail = (error: unknown) => {
     const fault = {
       message: error instanceof Error ? error.message : String(error),
@@ -91,20 +93,29 @@ function processHost(): Promise<{ port: ReaderPort; data: unknown }> {
   return promise;
 }
 
+/** The daemon's pid, which it passes in: the reader's own parent may change if it dies first. */
+const ReaderParent = z.coerce.number().int().positive();
+
 /**
  * Ends the reader if the daemon dies while the reader's own thread is busy, in a long parse or
  * a runaway one, and can't see its channel close. A thread of its own (about 5 MB) checks the
- * parent every 250 ms. Inline, so the release bundle needs no extra entry for it.
+ * daemon every 250 ms. Inline, so the release bundle needs no extra entry for it. A thread that
+ * can't start leaves the channel's close as the safeguard, so the reader carries on without it.
  */
-function watchParent(): void {
+function watchParent(daemon: number): void {
   const sentinel = new Worker(
-    `const { workerData: parent } = require("node:worker_threads");
+    `const { workerData: daemon } = require("node:worker_threads");
     setInterval(() => {
-      let gone = process.ppid !== parent;
-      if (!gone) try { process.kill(parent, 0); } catch { gone = true; }
+      let gone = false;
+      try { process.kill(daemon, 0); } catch { gone = true; }
       if (gone) process.kill(process.pid, "SIGKILL");
     }, 250);`,
-    { eval: true, workerData: process.ppid },
+    { eval: true, workerData: daemon },
+  );
+  sentinel.on("error", (error: unknown) =>
+    process.emitWarning(
+      `The history reader can't watch its daemon: ${error instanceof Error ? error.message : String(error)}`,
+    ),
   );
   sentinel.unref();
 }

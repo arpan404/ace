@@ -21,10 +21,14 @@ export function residentSamplingAvailable(platform: NodeJS.Platform = process.pl
 }
 
 /**
- * Reads another process's resident set size, the memory it holds in RAM. Each read is a single
- * system call (Linux: one small procfs file), cheap enough to poll several times a second.
- * macOS's physical footprint would leave out Bun's JavaScript heap, so this is RSS everywhere.
- * A reading that can't be taken throws, so the caller can say the limit isn't enforced.
+ * Reads how much memory another process holds, resident or pushed out of RAM. Each read is a
+ * single system call (Linux: one small procfs file), cheap enough to poll several times a
+ * second. Resident size alone misses pages the system compressed or swapped under pressure, so
+ * each platform adds or takes the larger of those: macOS the larger of resident size and
+ * physical footprint (the footprint alone leaves out Bun's JavaScript heap, 5 MB reported for a
+ * child holding 120 MB), Linux VmRSS plus VmSwap, Windows the larger of working set and
+ * pagefile (private committed) usage. A reading that can't be taken throws, so the caller can
+ * say the limit isn't enforced.
  */
 export function residentSampler(platform: NodeJS.Platform = process.platform): ResidentSampler {
   if (platform === "linux") return linuxResident;
@@ -43,9 +47,11 @@ async function linuxResident(pid: number): Promise<number | undefined> {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
     throw error;
   }
-  const kib = /^VmRSS:\s+(\d+)\s+kB$/m.exec(status)?.[1];
+  const field = (name: string) => new RegExp(`^${name}:\\s+(\\d+)\\s+kB$`, "m").exec(status)?.[1];
+  const resident = field("VmRSS");
   // A process that has exited but not been reaped (a zombie) has no VmRSS line.
-  return kib === undefined ? undefined : Number(kib) * 1024;
+  if (resident === undefined) return undefined;
+  return (Number(resident) + Number(field("VmSwap") ?? 0)) * 1024;
 }
 
 const nativeInt = z.number().int();
@@ -54,7 +60,8 @@ const ERROR_INVALID_PARAMETER = 87;
 
 // Bound once and kept for the process: the watchdog reads every 100 ms.
 let libproc: NativeLibrary<"proc_pid_rusage" | "__error"> | undefined;
-// rusage_info_v2 is 160 bytes; ri_resident_size is the uint64 at offset 64.
+// rusage_info_v2 is 160 bytes; ri_resident_size and ri_phys_footprint are the uint64s at
+// offsets 64 and 72.
 const rusage = new Uint8Array(256);
 const rusageView = new DataView(rusage.buffer);
 
@@ -68,7 +75,8 @@ async function darwinResident(pid: number): Promise<number | undefined> {
   const result = proc_pid_rusage(pid, 2, rusage);
   // errno is read right after the call that failed, before any other work.
   const errno = result === 0 ? 0 : readErrno(__error());
-  if (nativeInt.parse(result) === 0) return Number(rusageView.getBigUint64(64, true));
+  if (nativeInt.parse(result) === 0)
+    return Number(bigMax(rusageView.getBigUint64(64, true), rusageView.getBigUint64(72, true)));
   if (errno === ESRCH) return undefined;
   throw new Error(`proc_pid_rusage failed for process ${pid} (errno ${errno})`);
 }
@@ -83,10 +91,13 @@ function readErrno(location: unknown): number {
 let kernel32:
   | NativeLibrary<"OpenProcess" | "K32GetProcessMemoryInfo" | "CloseHandle" | "GetLastError">
   | undefined;
-// PROCESS_MEMORY_COUNTERS on 64-bit Windows: 72 bytes, WorkingSetSize at offset 16.
+// PROCESS_MEMORY_COUNTERS on 64-bit Windows: 72 bytes, WorkingSetSize at offset 16 and
+// PagefileUsage at offset 56.
 const counters = new Uint8Array(72);
 const countersView = new DataView(counters.buffer);
+// K32GetProcessMemoryInfo needs PROCESS_VM_READ besides query access.
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+const PROCESS_VM_READ = 0x0010;
 
 async function windowsResident(pid: number): Promise<number | undefined> {
   kernel32 ??= openLibrary("kernel32.dll", {
@@ -96,7 +107,7 @@ async function windowsResident(pid: number): Promise<number | undefined> {
     GetLastError: { args: [], returns: "u32" },
   });
   const k = kernel32.symbols;
-  const opened = k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+  const opened = k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, 0, pid);
   // GetLastError is read right after the call that failed, before any other work.
   const openError = opened === 0 ? k.GetLastError() : 0;
   const handle = nativeHandle(opened);
@@ -113,8 +124,10 @@ async function windowsResident(pid: number): Promise<number | undefined> {
       const error = nativeInt.parse(readError);
       throw new Error(`K32GetProcessMemoryInfo failed for process ${pid} (Windows error ${error})`);
     }
-    return Number(countersView.getBigUint64(16, true));
+    return Number(bigMax(countersView.getBigUint64(16, true), countersView.getBigUint64(56, true)));
   } finally {
     k.CloseHandle(handle);
   }
 }
+
+const bigMax = (a: bigint, b: bigint) => (a > b ? a : b);

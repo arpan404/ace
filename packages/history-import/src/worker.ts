@@ -13,10 +13,12 @@ import { Envelope, Options, type Packet, type ImportInit } from "./contracts.ts"
 import { scan } from "./scan.ts";
 import { importHistory } from "./import-history.ts";
 import { readerHost } from "./reader-host.ts";
+import { readerMemory } from "./reader-memory.ts";
 
 // The history reader: a process of its own under the daemon (reader-process.ts).
 const { port, data } = await readerHost();
 const options = Options.parse(data);
+const memory = readerMemory(options.memoryLimitBytes);
 await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
@@ -28,6 +30,7 @@ async function openCatalog(): Promise<Catalog> {
     return new Catalog(options.indexPath, {
       now: Date.now,
       snapshots: options.snapshot ? { policy: options.snapshot } : {},
+      ...(options.lastExit ? { lastExit: options.lastExit } : {}),
     });
   } catch (error) {
     const refused = incompatibleData(error);
@@ -110,6 +113,7 @@ port.on("message", async (value: unknown) => {
         options.instances,
         controller.signal,
         (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
+        memory,
       );
       result = inventory;
       progress.finish({ progress: inventory.files, result: inventory });
