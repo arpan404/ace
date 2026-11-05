@@ -3,6 +3,8 @@ import { Worker, type WorkerOptions } from "node:worker_threads";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { openHistory, type HistoryOptions } from "./index.ts";
 import { cwd, environment, init, memorySink, roomySnapshots, text } from "./test-support.ts";
 
@@ -79,32 +81,41 @@ test("an unchanged live OpenCode database is not snapshotted again on the next s
   expect(await f.stages()).toEqual([]);
 });
 
-test("a crashed daemon's leftover snapshot directories are removed at startup", async () => {
+/** The pid of a process that has exited, as a crashed earlier reader's would be. */
+async function exitedPid(): Promise<number> {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await once(child, "exit");
+  if (child.pid === undefined) throw new Error("The child did not start");
+  return child.pid;
+}
+
+test("a crashed reader's leftover snapshot directories are removed at startup", async () => {
   const f = await liveOpenCode();
   const ace = join(f.env.root, "ace");
   await mkdir(join(ace, "sqlite-read-Ab12Cd"), { recursive: true });
   await writeFile(join(ace, "sqlite-read-Ab12Cd/snapshot.sqlite"), "partial copy");
-  await mkdir(join(ace, `sqlite-read-${process.pid}-Zz9Yy8`));
+  await mkdir(join(ace, `sqlite-read-${await exitedPid()}-Zz9Yy8`));
   const service = await openHistory(f.options);
   cleanup.unshift(() => service.close());
   expect(await f.stages()).toEqual([]);
 });
 
-test("a crashed worker's history-plan and storage-order directories are removed at startup", async () => {
+test("a crashed reader's history-plan and storage-order directories are removed at startup", async () => {
   const f = await liveOpenCode();
   const ace = join(f.env.root, "ace");
+  const crashed = await exitedPid();
   const leftovers = [
     "history-plan-Ab12Cd",
-    `history-plan-${process.pid}-Qw3Er4`,
+    `history-plan-${crashed}-Qw3Er4`,
     "storage-order-Ab12Cd",
-    `storage-order-${process.pid}-Ty5Ui6`,
+    `storage-order-${crashed}-Ty5Ui6`,
   ];
   for (const name of leftovers) {
     await mkdir(join(ace, name), { recursive: true });
     await writeFile(join(ace, name, "scratch.sqlite"), "partial");
   }
-  // Another live process (the test runner's parent) still owns its directory.
-  const live = `storage-order-${process.ppid}-Op7As8`;
+  // A live process (this one, the daemon, which the reader is not) still owns its directory.
+  const live = `storage-order-${process.pid}-Op7As8`;
   await mkdir(join(ace, live));
   const service = await openHistory(f.options);
   cleanup.unshift(() => service.close());

@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
 import { parentPort, Worker, workerData } from "node:worker_threads";
 import { z } from "zod";
 
@@ -25,7 +26,6 @@ export async function readerHost(): Promise<{ port: ReaderPort; data: unknown }>
     const worker = parentPort;
     return {
       port: {
-        // oxlint-disable-next-line unicorn/require-post-message-target-origin
         postMessage: (value, transfer) =>
           transfer ? worker.postMessage(value, transfer) : worker.postMessage(value),
         on: (_event, listener) => void worker.on("message", listener),

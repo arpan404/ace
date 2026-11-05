@@ -106,9 +106,8 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     `maxBufferedChunks`; `maxPayload` still caps a message's size.
   - An error thrown in a worker reaches the parent with its `code` but without its name or other
     fields. A worker reports a failure the parent must recognise as a message.
-  - Bun ignores a Worker's `resourceLimits`. The history reader's 128 MB heap limit holds only
-    on Node, so on Bun a transcript that exhausts the reader grows the daemon instead. Not yet
-    fixed.
+  - Bun ignores a Worker's `resourceLimits`. Work that needs a memory limit runs in a process
+    of its own with a watchdog, as the history reader does (ADR 0033, 2026-11-04).
   - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing
     `-shm` but not the `-wal`, where Node creates both. `@ace/provider-kit/sqlite`'s
     `DatabaseSync` probes a read-only open and, only after that failure, creates the empty `-wal`

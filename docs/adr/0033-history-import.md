@@ -74,6 +74,15 @@ Amends Context, Decision and Protocol above. A new installation no longer shows 
 - `history.scan` and the `history.scan.updated` push are removed. The list reply's `scan` reports the last scan of the session, including unreadable sources.
 - Import is the one deliberate copy: it publishes the transcript into the event store as a thread, as before. Continue imports the transcript so ace can show it, then resumes the provider's native session; the page says so. Import and continue need an open session; after it ends they answer `unsupported` and the person finds past sessions again. Sending in an already imported thread does not need a session.
 
+## The reader runs as a process (2026-11-04)
+
+The daemon runs on Bun, which ignores a worker's `resourceLimits`, so the reader's heap limit no longer held: a transcript that exhausted the reader grew the daemon. The reader now runs as a process of its own (`reader-process.ts`), launched with the daemon's runtime and the bundled `history-import-worker.mjs`, behind the same port a worker offered. Requests, ordering, cancellation (the `cancel` message), restart backoff and the incompatible-index refusal are unchanged; messages use structured-clone IPC, so blob chunks stay bytes.
+
+- **Memory.** A watchdog in the daemon reads the reader's resident memory every 100 ms (macOS `proc_pid_rusage`, Linux `/proc/<pid>/status`, Windows `K32GetProcessMemoryInfo`) and kills its process group past 512 MB. Requests in flight fail with "Saved conversations stopped: their reader went over its 512 MB memory limit and is restarting", and the reader restarts with backoff. The crash ledger then sets aside the transcript it was reading, as for any crash. 512 MB is 60% over the largest real peak measured (about 315 MB on Bun, 250 MB on Node, for the scale suite's 6,000 sessions and gigabyte transcripts; the old 128 + 16 MB heap limits on Node). It is the one limit on every runtime: Node gets no heap flags either.
+- **Ownership.** The reader is a detached process group registered with the process owner, so it is stopped with the daemon and journaled for the next start's sweep. It also exits by itself when its channel to the daemon closes, and a small thread in it ends it if the daemon dies while the reader's own thread is busy.
+- **Scratch.** Snapshot, plan and storage-order directories carry the reader's own pid, so a killed or crashed reader's leftovers belong to a dead process and the next reader removes them.
+- **Cost.** Alive, the reader process holds about 120 MB on Bun where a worker added about 65 MB to the daemon. It retires after five idle seconds as before; then it leaves 2 to 3 MB in the daemon, where a retired worker left 16 to 18 MB (`bench/reader-footprint.ts`).
+
 ## References
 
 - [Codex app-server history APIs](https://learn.chatgpt.com/docs/app-server) and [local research](../research/providers/codex.md).

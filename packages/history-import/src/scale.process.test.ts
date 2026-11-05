@@ -7,7 +7,7 @@ import { roomySnapshots } from "./test-support.ts";
 import { databaseFixture } from "../bench/database-fixture.ts";
 import { scaleFixture } from "../bench/scale-fixture.ts";
 
-test("six thousand OpenCode sessions and gigabyte transcripts stay pageable under the production worker limit", async () => {
+test("six thousand OpenCode sessions and gigabyte transcripts stay pageable under the reader's memory limit", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-scale-behaviour-"));
   let service;
   try {
