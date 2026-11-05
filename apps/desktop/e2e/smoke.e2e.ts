@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   appEnvironment,
   desktop,
+  e2eSwitches,
   electronBinary,
   electronBundles,
   mainEntry,
@@ -48,7 +49,7 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     userData = await mkdtemp(join(tmpdir(), "ace-e2e-"));
     app = await electron.launch({
       executablePath: await electronBinary(),
-      args: [join(out, mainEntry)],
+      args: [...e2eSwitches(process.platform), join(out, mainEntry)],
       env: {
         ...appEnvironment(process.env),
         ACE_DESKTOP_DAEMON: "fake",
@@ -86,20 +87,20 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   });
 
   it.runIf(process.platform === "darwin")(
-    "keeps the sidebar's title and, with the sidebar hidden, the header clear of the traffic lights",
+    "keeps the top bar's controls and the rail clear of the traffic lights, with the sidebar shown or hidden",
     async () => {
       // The traffic lights end 68 px from the window's left edge and 28 px from its top.
-      const title = page.getByRole("navigation", { name: "App" }).getByText("ace", { exact: true });
-      expect((await title.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      const back = page.getByRole("button", { name: "Back", exact: true });
+      expect((await back.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       await page.getByRole("button", { name: "Hide sidebar" }).click();
       const show = page.getByRole("button", { name: "Show sidebar" });
       await show.waitFor();
       expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
       await show.click();
-      await title.waitFor();
-      // The sidebar's places sit below the lights.
-      const newThread = page.getByRole("link", { name: "New thread", exact: true });
-      expect((await newThread.boundingBox())?.y).toBeGreaterThanOrEqual(28);
+      // The rail's places sit below the lights.
+      const threads = page.getByRole("navigation", { name: "App" }).getByRole("link").first();
+      await threads.waitFor();
+      expect((await threads.boundingBox())?.y).toBeGreaterThanOrEqual(28);
     },
   );
 
