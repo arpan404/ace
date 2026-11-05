@@ -39,9 +39,9 @@ OpenAI's brand kit (https://cdn.openai.com/brand/openai-logos.zip, linked from
 https://openai.com/brand/) into scripts/brand-marks/openai-blossom.svg. It is used only to identify
 OpenAI's own products and is not licensed under ace's license.
 
-Attachment previews use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and contributors,
-Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
-These dependencies and their bundled notices/licenses are accepted for bounded previews.
+Icons, device art and browser filmstrips use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and
+contributors, Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
+These dependencies and their bundled notices/licenses are accepted for those bounded images.
 Original uploads and provider images are never re-encoded.
 
 Editor menu marks identify installed editors, never ace itself. Visual Studio Code's blue icon

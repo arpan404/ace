@@ -593,8 +593,10 @@
         "@ace/provider-kit": "workspace:*",
         "@ace/workspace": "workspace:*",
         "image-size": "^2.0.2",
-        "sharp": "0.34.5",
         "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "sharp": "0.34.5",
       },
     },
     "packages/core": {
