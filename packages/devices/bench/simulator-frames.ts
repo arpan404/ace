@@ -53,11 +53,14 @@ const one = async () => {
 };
 for (let index = 0; index < 10; index++) await one();
 const start = performance.now();
+const cpu = process.cpuUsage();
 for (let index = 0; index < count; index++) await one();
 const elapsed = performance.now() - start;
+const used = process.cpuUsage(cpu);
 await frames.stop();
 process.stdout.write(
   `${width}x${height} (${(source.length / 1024).toFixed(0)} KiB) -> ${outSize} (${(outBytes / 1024).toFixed(0)} KiB): ` +
-    `${(elapsed / count).toFixed(2)} ms/frame over ${published - 10} frames, ` +
+    `${(elapsed / count).toFixed(2)} ms/frame, ` +
+    `${((used.user + used.system) / 1000 / count).toFixed(2)} ms CPU/frame over ${published - 10} frames, ` +
     `peak RSS ${(process.resourceUsage().maxRSS / 1024).toFixed(1)} MiB\n`,
 );
