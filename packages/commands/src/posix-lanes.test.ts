@@ -66,7 +66,7 @@ function harness(options: Partial<PosixLaneOptions> = {}) {
 }
 
 const open = (name: string): PosixOperation => ({ op: "open", directory: 3, name, flags: 0 });
-const settle = <T>(promise: Promise<T>) =>
+const settle = <T>(promise: Promise<T>): Promise<{ value?: T; error?: unknown }> =>
   promise.then(
     (value) => ({ value }),
     (error: unknown) => ({ error }),

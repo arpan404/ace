@@ -13,11 +13,7 @@ import {
   SecureCommandIo,
   type Target,
 } from "./index.ts";
-import {
-  fileFlags,
-  openResolvedDirectory,
-  useCommandCallDeadline,
-} from "./posix.ts";
+import { fileFlags, openResolvedDirectory, useCommandCallDeadline } from "./posix.ts";
 import { CommandFilesystemUnavailable } from "./posix-lanes.ts";
 const target: Target = { provider: "claude", instance: "personal", session: "t" };
 const cleanups: (() => Promise<void>)[] = [];
@@ -376,7 +372,9 @@ it.skipIf(process.platform === "win32")(
     const started = performance.now();
     await other.files.start();
     expect(performance.now() - started).toBeLessThan(300);
-    expect(other.catalog.list(target, "unstuckreview").commands.map((c) => c.name)).toEqual(["unstuckreview"]);
+    expect(other.catalog.list(target, "unstuckreview").commands.map((c) => c.name)).toEqual([
+      "unstuckreview",
+    ]);
     const closing = performance.now();
     await stuck.close();
     await starting.catch(() => {});
