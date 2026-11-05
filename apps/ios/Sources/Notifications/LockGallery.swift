@@ -9,12 +9,15 @@ import WidgetKit
 /// raised surface the activity sets as its tint.
 struct LockGallery: View {
     static var requested: Bool { ProcessInfo.processInfo.arguments.contains("--lock-gallery") }
-    /// Which part to show, so each fits one screenshot: `--lock-gallery-page 1…3`.
+    /// Which part to show, so each fits one screenshot: `--lock-gallery-page 1…4`.
     private var page: Int {
         let args = ProcessInfo.processInfo.arguments
         guard let at = args.firstIndex(of: "--lock-gallery-page"), args.indices.contains(at + 1) else { return 1 }
         return Int(args[at + 1]) ?? 1
     }
+
+    /// Page 4 draws what the hub built from the attached machines' real rows.
+    @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
 
     var body: some View {
         ScrollView {
@@ -22,6 +25,7 @@ struct LockGallery: View {
                 switch page {
                 case 2: widgets
                 case 3: accessories
+                case 4: live
                 default: activity
                 }
             }
@@ -88,6 +92,19 @@ struct LockGallery: View {
             SummaryGlyph(summary: current, size: LockType.islandGlyph).frame(width: 37, height: 37).background(.black, in: Circle())
         }
         .environment(\.colorScheme, .dark)
+    }
+
+    /// The summary the Live Activity is sent now, re-read every second (the hub isn't observed).
+    @ViewBuilder private var live: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let summary = notifications?.lockScreen.summary ?? .empty
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.lg) {
+                caption("Lock Screen, live from the attached machines")
+                LockActivityView(summary: summary.limited(3), stale: false).background(AceTheme.Colours.card, in: lockShape)
+                caption("Large widget, the same summary")
+                widget(width: 364, height: 382) { ListInbox(summary: summary.limited(6), stale: false) }
+            }
+        }
     }
 
     @ViewBuilder private var widgets: some View {
