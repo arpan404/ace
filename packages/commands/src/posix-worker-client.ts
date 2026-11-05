@@ -1,4 +1,4 @@
-import { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { PosixLanes } from "./posix-lanes.ts";
 import type { PosixExecutor, PosixExecutorEvents } from "./posix-executor.ts";
 import { PosixReply } from "./posix-wire.ts";
@@ -8,7 +8,7 @@ import { PosixReply } from "./posix-wire.ts";
  * are per process, so the fds it opens are the caller's.
  */
 export function spawnPosixWorker(events: PosixExecutorEvents): PosixExecutor {
-  const worker = new Worker(new URL("./posix-worker.ts", import.meta.url), { execArgv: [] });
+  const worker = startWorker(new URL("./posix-worker.ts", import.meta.url), { execArgv: [] });
   worker.unref();
   // An error means the thread can't serve; only "exit" says it has stopped and frees its slot.
   worker.on("error", (error: unknown) =>

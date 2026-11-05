@@ -1,5 +1,6 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
-import { parentPort, Worker, workerData } from "node:worker_threads";
+import { parentPort, workerData } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { z } from "zod";
 
 /** The reader's side of its channel to the daemon. */
@@ -103,7 +104,7 @@ const ReaderParent = z.coerce.number().int().positive();
  * can't start leaves the channel's close as the safeguard, so the reader carries on without it.
  */
 function watchParent(daemon: number): void {
-  const sentinel = new Worker(
+  const sentinel = startWorker(
     `const { workerData: daemon } = require("node:worker_threads");
     setInterval(() => {
       let gone = false;

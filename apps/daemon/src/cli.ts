@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { parseArgs } from "./cli/args.ts";
 import { rescueCommands, rescueMain } from "./cli/rescue.ts";
+import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
+
+// A person's daemon runs this entry; a benchmark's worker preload must never reach it.
+withoutBenchWorkerPreload(process.env);
 
 const input = process.argv.slice(2);
 // Triage and doctor must work when the rest of ace is broken, so they never load the

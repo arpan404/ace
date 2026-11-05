@@ -26,7 +26,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await address.fill(s.url);
       await address.press("Enter");
       await expect
-        .poll(() => s.daemon.browser.state(s.thread.id)?.backend, { timeout: 30000 })
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.backend, { timeout: 30000 })
         .toBe("embedded");
       const view = nativePage(s.app, p, s.url);
       await expect.poll(view.placed, { timeout: 30000 }).toBe(true);
@@ -53,7 +53,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       expect(native.bounds.x).toBeGreaterThanOrEqual(box.x - 1);
       expect(native.bounds.x + native.bounds.width).toBeLessThanOrEqual(box.x + box.width + 1);
       expect(native.bounds.height).toBeLessThanOrEqual(box.height + 1);
-      const tabs = s.daemon.browser.state(s.thread.id)?.tabs;
+      const tabs = (await s.daemon.browser.state(s.thread.id))?.tabs;
       expect(tabs?.[0]).toMatchObject({ tabId: expect.any(String) });
 
       // A tap in the phone page's CSS pixels lands on the button there.
@@ -78,7 +78,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await expect.poll(() => view.read("window.clicks"), { timeout: 10000 }).toBe(1);
 
       // The phone leaves: the panel's own layout comes back.
-      s.daemon.browser.disconnect("phone");
+      await s.daemon.browser.disconnect("phone");
       await expect.poll(layout, { timeout: 10000 }).toEqual([panelWidth, false, false]);
       await expect.poll(view.placed, { timeout: 10000 }).toBe(true);
     } finally {

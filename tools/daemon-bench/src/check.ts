@@ -72,6 +72,7 @@ async function measure(): Promise<BenchResult[]> {
 const format = (metric: string, value: number | undefined) => {
   if (value === undefined) return "-";
   if (/heapUsed|rss|footprint/.test(metric)) return `${(value / 1024 / 1024).toFixed(1)} MiB`;
+  if (metric.endsWith("cpuPercent")) return `${value.toFixed(2)}%`;
   return value >= 100 ? value.toFixed(0) : value.toFixed(2);
 };
 function report(verdicts: Verdict[], platform: string) {

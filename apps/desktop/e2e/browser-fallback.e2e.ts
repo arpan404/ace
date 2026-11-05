@@ -33,7 +33,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await address.fill(s.url);
       await address.press("Enter");
       await expect
-        .poll(() => s.daemon.browser.state(s.thread.id)?.backend, { timeout: 30000 })
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.backend, { timeout: 30000 })
         .toBe("headless");
       const pane = p.getByRole("application", { name: `Control ${s.url}` });
       await pane.waitFor();
@@ -119,15 +119,17 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       // The new tab's own page is shown (the panel tab became its browser tab) before closing.
       const second = new URL("/second", s.url).href;
       await expect
-        .poll(() => {
-          const state = s.daemon.browser.state(s.thread.id);
+        .poll(async () => {
+          const state = await s.daemon.browser.state(s.thread.id);
           return state?.tabs?.find((tab) => tab.tabId === state.activeTabId)?.url;
         })
         .toBe(second);
       await expect.poll(() => address.inputValue()).toContain("/second");
-      expect(s.daemon.browser.state(s.thread.id)?.tabs).toHaveLength(2);
+      expect((await s.daemon.browser.state(s.thread.id))?.tabs).toHaveLength(2);
       await p.keyboard.press("ControlOrMeta+Alt+w");
-      await expect.poll(() => s.daemon.browser.state(s.thread.id)?.tabs?.length).toBe(1);
+      await expect
+        .poll(async () => (await s.daemon.browser.state(s.thread.id))?.tabs?.length)
+        .toBe(1);
       await pane.waitFor();
       await p.getByRole("button", { name: "Browser options" }).click();
       await p.getByRole("menuitem", { name: "Find in page" }).click();

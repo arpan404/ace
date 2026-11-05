@@ -16,6 +16,8 @@ export const Telemetry = z.object({
   isMainThread: z.boolean(),
   workerIds: z.array(z.number().int().positive()),
   pendingWorkerIds: z.array(z.number().int().positive()),
+  /** The module each worker this isolate started runs, by worker id. */
+  workerEntries: z.record(z.string(), z.string()).default({}),
   generation: z.number().int().nonnegative(),
   memory: Memory,
   cpu: z.object({ user: z.number(), system: z.number() }),

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { z } from "zod";
 import { TimingFailure } from "@ace/perf-kit";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 
 const Sample = z.object({
   id: z.number(),
@@ -24,6 +25,7 @@ export async function measureIdleCpu(entry: string) {
   void failed.promise.catch(() => {});
   const launch = () => {
     const child = fork(entry, [], {
+      execPath: bunBinary(),
       execArgv: [],
       env: {
         ...process.env,
@@ -42,6 +44,7 @@ export async function measureIdleCpu(entry: string) {
         ACE_SCREEN_HELPER_MANIFEST: undefined,
         ACE_PERF_TELEMETRY: undefined,
         NODE_OPTIONS: undefined,
+        BUN_OPTIONS: undefined,
         ACE_WORKSPACE_ROOT: home,
         ACE_MODEL_INSTANCES: "[]",
         ACE_HISTORY_INSTANCES: "[]",
