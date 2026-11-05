@@ -9,6 +9,7 @@ import { setImmediate } from "node:timers/promises";
 import { validateIndexPath } from "./index-path.ts";
 import { Archive } from "./archive.ts";
 import { Catalog } from "./catalog.ts";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Envelope, Options, type Packet, type ImportInit } from "./contracts.ts";
 import { scan } from "./scan.ts";
 import { importHistory } from "./import-history.ts";
@@ -19,10 +20,22 @@ await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
 await file.close();
 await chmod(options.indexPath, 0o600);
-const catalog = new Catalog(options.indexPath, {
-  now: Date.now,
-  snapshots: options.snapshot ? { policy: options.snapshot } : {},
-});
+const catalog = await openCatalog();
+async function openCatalog(): Promise<Catalog> {
+  try {
+    return new Catalog(options.indexPath, {
+      now: Date.now,
+      snapshots: options.snapshot ? { policy: options.snapshot } : {},
+    });
+  } catch (error) {
+    const refused = incompatibleData(error);
+    if (!refused || !parentPort) throw error;
+    // Report the refusal with its fields, then wait for the parent to stop this worker.
+    parentPort.postMessage({ refused: { code: "incompatible-data", ...refused } });
+    parentPort.on("message", () => {});
+    return new Promise<never>(() => {});
+  }
+}
 // Nothing can own a snapshot before this worker starts: remove crash and restart leftovers.
 await catalog.snapshots.sweep();
 catalog.reconcile(options.instances);
