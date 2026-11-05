@@ -34,6 +34,7 @@ test.each(["credit", "writer"])(
       replacementOpened = resolve;
     });
     const resets: number[] = [];
+    const ends: number[] = [];
     let releaseWriter: (() => void) | undefined;
     const writer = new Promise<void>((resolve) => {
       releaseWriter = resolve;
@@ -52,6 +53,7 @@ test.each(["credit", "writer"])(
           receive?.(control(2, id));
           if (id === 2) replacementOpened?.();
         }
+        if (bytes[1] === 5) ends.push(id);
         if (bytes[1] === 6) resets.push(id);
         if (mode === "writer" && bytes[1] === 3) {
           transportBytes = bytes.length;
@@ -141,6 +143,8 @@ test.each(["credit", "writer"])(
     await once(next, "connect");
     await reopened;
     expect(proxy.stats().streams).toBe(1);
+    // An aborted transfer is never reported to the peer as complete.
+    expect(ends).toEqual([]);
   },
 );
 
