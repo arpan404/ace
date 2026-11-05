@@ -8,7 +8,7 @@ Built-in definitions come from `@ace/mcp-server`. The local /mcp endpoint uses s
 
 ## html_render
 
-Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every safety or layout problem; nothing is published.
+Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. The page is laid out at 360 px before publishing; invalid_html lists what is unsafe, overflows the phone width or is unreadable, and nothing is published.
 
 Required capability: none beyond session authentication. Timeout: 30000 ms.
 
@@ -50,7 +50,7 @@ Example:
 
 ## html_preview
 
-See a page as html_render would show it, at 360 px and 760 px, with layout problems listed. Publishes nothing.
+See a page as html_render would show it, at 360 px and 760 px (or the widths you pick), with what html_render would refuse listed. Publishes nothing.
 
 Required capability: none beyond session authentication. Timeout: 45000 ms.
 
@@ -65,6 +65,7 @@ Returns MCP content: text and images, no structured result.
 | html | yes | string | {"minLength":1,"maxLength":16777216,"description":"A self-contained HTML document: inline CSS, JS, SVG and data: images; no network."} |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) | {"description":"interactive runs scripts in a sandbox; static strips them. Default: inferred."} |
 | scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) | {"description":"The app theme to draw it in. Default: dark."} |
+| widths | no | array | {"description":"Phone 360, chat column 760, full-screen side panel 1200. Default: 360 and 760.","minItems":1,"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/HtmlPreviewWidth.json"}} |
 
 Example:
 

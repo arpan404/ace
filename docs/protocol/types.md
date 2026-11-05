@@ -15101,6 +15101,7 @@ Example:
 | html | yes | [HtmlDocument.json](schema/HtmlDocument.json) |  |
 | mode | no | [HtmlMode.json](schema/HtmlMode.json) |  |
 | scheme | no | [HtmlColorScheme.json](schema/HtmlColorScheme.json) |  |
+| widths | no | array | {"minItems":1,"maxItems":3,"items":{"$ref":"https://ace.local/protocol/v1/HtmlPreviewWidth.json"}} |
 
 Example:
 
@@ -15108,6 +15109,18 @@ Example:
 {
   "html": "example"
 }
+```
+
+## HtmlPreviewWidth
+
+[JSON Schema](schema/HtmlPreviewWidth.json), input validation.
+
+Type: [360,760,1200]. See JSON Schema for constraints.
+
+Example:
+
+```json
+360
 ```
 
 ## HtmlRenderInput

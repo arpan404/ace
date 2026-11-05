@@ -85,6 +85,7 @@ export {
   htmlToolCatalog,
   type HtmlPublicationPort,
   type HtmlPreviewPort,
+  type HtmlLayoutPort,
   type HtmlPreviewResult,
 } from "./html-tools.ts";
 export { imageToolkit, imageToolCatalog, type ImagePublicationPort } from "./image-tools.ts";
