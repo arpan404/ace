@@ -78,7 +78,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
             await p.keyboard.press("Shift+Tab");
             return false;
           },
-          { timeout: 60000, intervals: [50] },
+          { timeout: 60000, interval: 50 },
         )
         .toBe(true);
       await expect.poll(() => close.isVisible()).toBe(true);
