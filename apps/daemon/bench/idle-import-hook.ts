@@ -1,5 +1,4 @@
 import { appendFileSync, readFileSync } from "node:fs";
-import { plugin } from "bun";
 
 /**
  * Records, in ACE_IDLE_IMPORT_LOG, every provider session and heavy package the daemon loads.
@@ -43,15 +42,28 @@ const output = process.env.ACE_IDLE_IMPORT_LOG;
 /** What the file is: the session sources are TypeScript, the packages JavaScript. */
 const loaderOf = (path: string) => (/\.[cm]?ts$/.test(path) ? "ts" : "js");
 
+/** The part of Bun's plugin builder this hook uses. */
+interface LoadHooks {
+  onLoad(
+    options: { filter: RegExp },
+    load: (args: { path: string }) => { contents: string; loader: "ts" | "js" },
+  ): void;
+}
+const bun: unknown = Reflect.get(globalThis, "Bun");
+const plugin: unknown = typeof bun === "object" && bun ? Reflect.get(bun, "plugin") : undefined;
+if (typeof plugin !== "function") throw new Error("The idle import guard runs on Bun");
+
 if (output)
-  plugin({
-    name: "idle-imports",
-    setup(build) {
-      build.onLoad({ filter: watched }, ({ path }) => {
-        const session = sessions.find((file) => path.endsWith(file));
-        const name = forbidden.find((name) => path.includes(`/node_modules/${name}/`));
-        appendFileSync(output, `${session ?? name}: ${path}\n`);
-        return { contents: readFileSync(path, "utf8"), loader: loaderOf(path) };
-      });
+  Reflect.apply(plugin, bun, [
+    {
+      name: "idle-imports",
+      setup(build: LoadHooks) {
+        build.onLoad({ filter: watched }, ({ path }) => {
+          const session = sessions.find((file) => path.endsWith(file));
+          const name = forbidden.find((each) => path.includes(`/node_modules/${each}/`));
+          appendFileSync(output, `${session ?? name}: ${path}\n`);
+          return { contents: readFileSync(path, "utf8"), loader: loaderOf(path) };
+        });
+      },
     },
-  });
+  ]);

@@ -17,9 +17,9 @@ bun run bench:daemon --runs=3 --update-baseline
    `HOME`, its own `ACE_HOME`, `ACE_PORT=0` and a `PATH` holding only two programs: the fake
    provider CLI and a link to `git` (the daemon needs git to register a project). Nothing
    from your shell, your `~/.ace` or port 4242 is touched.
-3. Starts `ace serve` once to lay out the home, stops it, writes `--seed-threads` finished
-   threads (default 400) into its store, and starts it again with the V8 inspector on a free
-   port.
+3. Starts `ace serve` on Bun, the daemon's runtime, once to lay out the home, stops it, writes `--seed-threads` finished
+   threads (default 400) into its store, and starts it again with the inspector on a free
+   port. Bun's inspector speaks WebKit's protocol; the benchmark reads it and V8's alike.
 4. Connects one client that holds the thread list open, like a sidebar, and watches each
    thread it drives.
 5. Waits `--settle-ms` (10 s), then measures:
@@ -82,7 +82,15 @@ run does without changing an option, bump `workloadVersion`; when it changes the
 edit `standardOptions`. Either way, re-measure every platform's baseline in the same change;
 `--update-baseline` names the entries that are left stale.
 
-Why the tolerances in `baseline.json` are what they are, from twelve full runs on a
+Every result records the runtime the daemon reported (`bun 1.4.4`, or a Node version), and
+heap, RSS, footprint and idle CPU are compared only with a baseline of the same runtime and
+major version. The macOS baseline is Bun 1.4.4's: the median of three standard runs on a
+16-core M-series Mac at load average 300–480. Across those runs new-thread and same-thread
+transactions varied by under 1% (≈117 and ≈79), long-text transactions by about 8%
+(296–319), normalized CPU per turn by up to 18%, idle CPU per minute by 4%, heap after GC by
+under 4%, and RSS by up to 30% at startup and 25% after the turns.
+
+Why the tolerances in `baseline.json` are what they are, from twelve full runs on Node on a
 loaded M-series Mac (load average 30–125) in four sets of three:
 
 - **Transactions per turn**, 10% (+3): new-thread and same-thread turns varied by under 1%
@@ -114,6 +122,6 @@ bun run bench:daemon --results=run-1.json,run-2.json,run-3.json --update-baselin
 
 ## CI
 
-The `daemon-bench` job in `.github/workflows/check.yml` runs three times on Linux with Node 24
-and uploads the results. It is `continue-on-error` until it has proven stable on shared
+The `daemon-bench` job in `.github/workflows/check.yml` runs three times on Linux, the daemon
+on Bun, and uploads the results. It is `continue-on-error` until it has proven stable on shared
 runners; remove that line to make it blocking.
