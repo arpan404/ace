@@ -61,10 +61,14 @@ test("the real e2e launcher ignores inherited account and provider paths and ser
     ACE_E2E_LONG_TURNS: "0",
   };
   delete env.ACE_TEST_REAL_HOME;
-  const child = spawn(process.execPath, [new URL("./real-daemon-launcher.ts", import.meta.url).pathname], {
-    env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child = spawn(
+    process.execPath,
+    [new URL("./real-daemon-launcher.ts", import.meta.url).pathname],
+    {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   const exited = once(child, "exit");
   const ready = Promise.withResolvers<void>();
   let output = "";

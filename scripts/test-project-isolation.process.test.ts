@@ -12,7 +12,7 @@ import { splitByRuntime } from "./test-tiers.ts";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const execute = promisify(execFile);
-const project = (name: string) => ["--project", name];
+const projectArg = (name: string) => ["--project", name];
 function observation(line: string) {
   const { project, home, data, xdg, tmp } = parseTestEnvironment(JSON.parse(line));
   if (!project || !home || !data || !xdg || !tmp)
@@ -92,10 +92,10 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
   // projects (scripts/test-run.ts).
   const run = async (result: string) => {
     const passes = splitByRuntime([]);
-    if (passes.bun) await vitest(bunBinary(), passes.bun.flatMap(project), result);
+    if (passes.bun) await vitest(bunBinary(), passes.bun.flatMap(projectArg), result);
     const node = realNode();
     if (!node) throw new Error("The Node pass needs Node on PATH (a `node` that is not Bun)");
-    if (passes.node) await vitest(node, passes.node.flatMap(project), result);
+    if (passes.node) await vitest(node, passes.node.flatMap(projectArg), result);
   };
   const single = (result: string) => vitest(process.execPath, [], result);
   return { root, protectedHome, config, fixture, setup, run, single };

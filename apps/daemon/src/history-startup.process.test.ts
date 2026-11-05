@@ -97,45 +97,41 @@ async function launch(fixture: Awaited<ReturnType<typeof providerHome>>, readLog
   // The daemon runs on Bun. BUN_OPTIONS preloads the recorder there and in every Bun process it
   // starts, the history reader among them. Bun doesn't parse quotes in it, so the path is
   // relative to the daemon's working directory, the recorder's own.
-  const child = spawn(
-    bunBinary(),
-    [fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"],
-    {
-      cwd: fileURLToPath(new URL(".", import.meta.url)),
-      env: {
-        ...process.env,
-        BUN_OPTIONS: "--preload ./history-reads.fixture.ts",
-        HOME: fixture.home,
-        ACE_HOME: aceHome,
-        // Where saved sessions live; locating a provider's CLI in HOME is not reading history.
-        ACE_TEST_WATCH_ROOTS: JSON.stringify([
-          join(fixture.claude, "projects"),
-          join(fixture.codex, "sessions"),
-          join(fixture.opencode, "opencode.db"),
-        ]),
-        ACE_TEST_READ_LOG: readLog,
-        ACE_PORT: "0",
-        ACE_LISTEN: "local",
-        ACE_ACCOUNTS_DB: join(aceHome, "accounts.sqlite"),
-        ACE_DEV: "0",
-        ACE_LOG_LEVEL: "silent",
-        ACE_MAINTENANCE: "0",
-        ACE_MODEL_INSTANCES: "[]",
-        ACE_RELAY_URL: undefined,
-        ACE_SCREEN_HELPER: undefined,
-        ACE_APNS_KEY_FILE: "",
-        ACE_VAPID_KEY_FILE: "",
-        ACE_WORKSPACE_ROOT: "",
-        PATH: "",
-        ACE_HISTORY_INSTANCES: JSON.stringify([
-          { id: "claude-default", provider: "claude", homeDir: fixture.claude },
-          { id: "codex-default", provider: "codex", homeDir: fixture.codex },
-          { id: "opencode-default", provider: "opencode", homeDir: fixture.opencode },
-        ]),
-      },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
+  const child = spawn(bunBinary(), [fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"], {
+    cwd: fileURLToPath(new URL(".", import.meta.url)),
+    env: {
+      ...process.env,
+      BUN_OPTIONS: "--preload ./history-reads.fixture.ts",
+      HOME: fixture.home,
+      ACE_HOME: aceHome,
+      // Where saved sessions live; locating a provider's CLI in HOME is not reading history.
+      ACE_TEST_WATCH_ROOTS: JSON.stringify([
+        join(fixture.claude, "projects"),
+        join(fixture.codex, "sessions"),
+        join(fixture.opencode, "opencode.db"),
+      ]),
+      ACE_TEST_READ_LOG: readLog,
+      ACE_PORT: "0",
+      ACE_LISTEN: "local",
+      ACE_ACCOUNTS_DB: join(aceHome, "accounts.sqlite"),
+      ACE_DEV: "0",
+      ACE_LOG_LEVEL: "silent",
+      ACE_MAINTENANCE: "0",
+      ACE_MODEL_INSTANCES: "[]",
+      ACE_RELAY_URL: undefined,
+      ACE_SCREEN_HELPER: undefined,
+      ACE_APNS_KEY_FILE: "",
+      ACE_VAPID_KEY_FILE: "",
+      ACE_WORKSPACE_ROOT: "",
+      PATH: "",
+      ACE_HISTORY_INSTANCES: JSON.stringify([
+        { id: "claude-default", provider: "claude", homeDir: fixture.claude },
+        { id: "codex-default", provider: "codex", homeDir: fixture.codex },
+        { id: "opencode-default", provider: "opencode", homeDir: fixture.opencode },
+      ]),
     },
-  );
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+  });
   const exited = once(child, "close");
   let errors = "";
   child.stderr?.on("data", (chunk: Buffer) => {
