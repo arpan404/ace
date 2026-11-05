@@ -1,7 +1,7 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/** Shared by the launcher (src/real-daemon.ts) and the smoke test. */
+/** Shared by the launcher (src/real-daemon-launcher.ts), the daemon it starts and the specs. */
 /** `ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` let two checkouts run their e2e side by side. */
 export const daemonPort = Number(process.env.ACE_E2E_DAEMON_PORT ?? 4391);
 /**
@@ -12,7 +12,13 @@ export const webPort = Number(process.env.ACE_E2E_WEB_PORT ?? 5191);
 export const webOrigin = `http://127.0.0.1:${webPort}`;
 /** A phone paired before the run, so the remote settings journey can list and revoke it. */
 export const pairedDeviceName = "E2E phone";
-export const daemonHome = join(tmpdir(), process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon");
+const daemonName = process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon";
+/**
+ * The daemon's home. The launcher passes it, and the projects root below, to the daemon process
+ * it starts (`ACE_E2E_DAEMON_PATH`, `ACE_E2E_PROJECTS_PATH`): that process's own temporary
+ * directory is inside the home, so it can't work them out again.
+ */
+export const daemonHome = process.env.ACE_E2E_DAEMON_PATH ?? join(tmpdir(), daemonName);
 export const daemonTokenPath = join(daemonHome, "daemon-token");
 export const workspaceName = "e2e-project";
 export const seededTitle = "Smoke test on a real daemon";
@@ -56,10 +62,9 @@ export const longAsk = (n: number) => `Checkpoint ${n}: audit migration shard al
  * Outside the system temp directory on macOS, whose real path sits under /private/var, a
  * folder the daemon never opens.
  */
-export const projectsRoot = join(
-  process.platform === "win32" ? tmpdir() : "/tmp",
-  `${process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon"}-projects`,
-);
+export const projectsRoot =
+  process.env.ACE_E2E_PROJECTS_PATH ??
+  join(process.platform === "win32" ? tmpdir() : "/tmp", `${daemonName}-projects`);
 /** A folder already in the root, for Open folder. */
 export const existingFolder = "proj-existing";
 /** A folder for the deep link journey. */

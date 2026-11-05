@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { realDaemonEnvironment, assertRealDaemonEnvironment } from "./real-daemon-environment.ts";
+import { assertRealDaemonEnvironment } from "./real-daemon-environment.ts";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -42,22 +42,18 @@ import {
   clonedFile,
 } from "./real-daemon-config.ts";
 
-// Strip inherited storage/provider selectors before configuration or service startup.
-// Mutate the live environment rather than replace it: os.homedir() reads the process
-// environment, which a replacement object never reaches.
-const isolated = realDaemonEnvironment(
-  process.env,
-  daemonHome,
-  process.env.ACE_TEST_REAL_HOME ?? homedir(),
-);
-for (const key of Object.keys(process.env)) if (!(key in isolated)) delete process.env[key];
-Object.assign(process.env, isolated);
+// The launcher (real-daemon-launcher.ts) starts this process on Bun with every inherited
+// storage and provider selector already replaced. Refuse any other start: Bun's os.homedir()
+// keeps the HOME a process started with, so isolation can't be applied from in here.
+if (homedir() !== daemonHome || process.env.ACE_HOME !== daemonHome)
+  throw new Error("Start the e2e daemon with src/real-daemon-launcher.ts, which isolates it");
 await assertRealDaemonEnvironment(process.env, daemonHome);
 
 /**
  * A real ace daemon (apps/daemon) for the e2e smoke test, with scripted providers from
  * @ace/adapter-testkit registered in place of discovery, so no provider CLI is ever started.
  * Each message a thread receives is answered with `scriptedReply` and the turn ends.
+ * Runs on Bun, as the daemon does, started by real-daemon-launcher.ts.
  */
 const scriptedConfig = ScriptedTurnConfig.parse({
   delayMs: Number(process.env.ACE_E2E_TURN_DELAY_MS ?? 0),
