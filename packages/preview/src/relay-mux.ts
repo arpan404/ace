@@ -12,7 +12,12 @@ export type PreviewChannel = {
   readonly bufferedBytes?: number;
   readonly bufferedReceiveBytes?: number;
 };
-/** Native bridges expose bounded socket queues and Node-like stream events. */
+/**
+ * Native bridges expose bounded socket queues and Node-like stream events. A close that follows
+ * an end is graceful: the mux still sends every byte it holds and the END before it drops the
+ * stream, however soon after the end the close comes. A close without an end, or an error, is
+ * abortive and resets the stream at once.
+ */
 export type PreviewSocket = {
   readonly readableLength: number;
   readonly writableLength: number;
@@ -169,7 +174,9 @@ export function createMux(options: MuxOptions) {
       socket.pause();
       stream.pending = transmit(stream, chunk).catch(close);
     });
+    let socketEnded = false;
     socket.on("end", () => {
+      socketEnded = true;
       stream.pending = stream.pending.then(async () => {
         if (alive(stream)) {
           stream.outgoingEnded = true;
@@ -181,10 +188,15 @@ export function createMux(options: MuxOptions) {
       void send(kinds.reset, id);
       remove(stream);
     });
-    socket.on("close", () => {
+    const finish = () => {
       if (!alive(stream)) return;
       remove(stream);
       if (!stream.incomingEnded || !stream.outgoingEnded) void send(kinds.reset, id);
+    };
+    socket.on("close", () => {
+      // After an end, the END is queued behind any bytes still waiting for credit.
+      if (socketEnded) stream.pending = stream.pending.then(finish);
+      else finish();
     });
     return stream;
   };

@@ -2,6 +2,8 @@ import { once } from "node:events";
 import { createServer, connect, type Socket } from "node:net";
 import { afterEach, expect, test } from "vitest";
 import { previewSocket } from "./node-socket.ts";
+import { createMux } from "./relay-mux.ts";
+import { decodeFrame, encodeFrame, kinds } from "./relay-wire.ts";
 import { openPreviewProxy, type PreviewChannel } from "./transport.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
@@ -141,3 +143,76 @@ test.each(["credit", "writer"])(
     expect(proxy.stats().streams).toBe(1);
   },
 );
+
+test("a socket that closes while its last oversized read waits for credit still ends cleanly", async () => {
+  // The peer half-closes first, so the socket closes as soon as its own end is read, while the
+  // adapter still holds most of the final read behind credit the peer hasn't returned yet.
+  let receive: ((frame: Uint8Array) => void) | undefined;
+  let creditOpen = false;
+  let owedCredit = 0;
+  const delivered: Uint8Array[] = [];
+  const after: string[] = [];
+  let settle: (() => void) | undefined;
+  const settled = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  const credit = (id: number, value: number) => receive?.(encodeFrame(kinds.credit, id, value));
+  const mux = createMux({
+    maxStreams: 1,
+    channel: {
+      async send(bytes) {
+        const frame = decodeFrame(bytes);
+        if (frame.kind === kinds.open) {
+          receive?.(encodeFrame(kinds.ready, frame.id));
+          receive?.(encodeFrame(kinds.end, frame.id));
+        } else if (frame.kind === kinds.data) {
+          delivered.push(Buffer.from(frame.data));
+          if (creditOpen) credit(frame.id, frame.value);
+          else owedCredit += frame.value;
+        } else if (frame.kind === kinds.end || frame.kind === kinds.reset) {
+          after.push(frame.kind === kinds.end ? "end" : "reset");
+          settle?.();
+        }
+      },
+      close() {},
+      subscribe(onFrame) {
+        receive = onFrame;
+        return () => {
+          receive = undefined;
+        };
+      },
+    },
+  });
+  cleanup.push(mux.close);
+  const server = createServer({ allowHalfOpen: true });
+  cleanup.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing loopback address");
+  const accepted = once(server, "connection") as Promise<[Socket]>;
+  const client = connect(address.port, "127.0.0.1");
+  client.on("error", () => {});
+  cleanup.push(() => {
+    client.destroy();
+  });
+  const [raw] = await accepted;
+  raw.pause();
+  // Bun reads up to 512 KiB at once: put such a read back as the socket's last.
+  const last = Buffer.from(Array.from({ length: 600_000 }, (_, i) => i % 251));
+  raw.unshift(last);
+  client.end();
+  const rawClosed = once(raw, "close");
+  mux.open(previewSocket(raw), 3000);
+
+  await rawClosed;
+  expect(Buffer.concat(delivered).byteLength).toBeLessThan(last.byteLength);
+  creditOpen = true;
+  credit(1, owedCredit);
+  await settled;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  expect(Buffer.concat(delivered)).toEqual(last);
+  expect(after).toEqual(["end"]);
+  expect(mux.stats().streams).toBe(0);
+});
