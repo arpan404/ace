@@ -53,14 +53,25 @@ export function installFatalLogFlush(
  * Last resort for a rejection nobody caught. A transient store failure (busy, or a live batch
  * still retrying) heals on its own, so it is logged and the daemon keeps every agent running.
  * Anything else is rethrown and stays fatal, through the same uncaught-error path as before.
+ *
+ * The rethrow happens in a timer: Bun reports an error thrown inside an `unhandledRejection`
+ * listener but keeps running, while a timer's uncaught error ends the process on Bun and Node.
  */
 export function installRejectionGuard(
   events: RejectionEvents,
   log: { log(level: "error", message: string, data?: unknown): void },
   transient: (reason: unknown) => boolean,
+  rethrow: (reason: unknown) => void = (reason) => {
+    setTimeout(() => {
+      throw reason;
+    }, 0);
+  },
 ): () => void {
   const rejected = (reason: unknown) => {
-    if (!transient(reason)) throw reason;
+    if (!transient(reason)) {
+      rethrow(reason);
+      return;
+    }
     log.log("error", "Unhandled store failure; continuing", logError(reason));
   };
   events.on("unhandledRejection", rejected);
