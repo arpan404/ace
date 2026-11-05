@@ -3,11 +3,20 @@ import {
   HtmlPreviewInput,
   HtmlRenderInput,
   ItemId,
+  type HtmlDiagnostics,
   type HtmlMode,
   type HtmlColorScheme,
+  type HtmlPreviewWidth,
   type McpAttribution,
 } from "@ace/protocol";
-import { checkHtmlForPublish, lintHtmlLayout, resolveHtmlMode, validateHtml } from "@ace/html";
+import {
+  checkHtmlForPublish,
+  estimateHtmlLayout,
+  lintHtmlLayout,
+  previewWidths,
+  resolveHtmlMode,
+  validateHtml,
+} from "@ace/html";
 import { PublicToolError } from "./public-error.ts";
 import { maxHtmlInputBytes } from "./result-budgets.ts";
 import type { Toolkit } from "./toolkits.ts";
@@ -19,15 +28,31 @@ export interface HtmlPublicationPort {
     signal: AbortSignal,
   ): Promise<{ itemId: string }>;
 }
-/** A preview: one image per width, narrowest first, and the measured layout facts. */
+type Diagnostic = HtmlDiagnostics["diagnostics"][number];
+/** Lays a page out at the phone width before it is published. */
+export interface HtmlLayoutPort {
+  /** What breaks at the phone width; `undefined` when the page could not be laid out. */
+  measure(
+    page: { html: string; mode: HtmlMode },
+    signal: AbortSignal,
+  ): Promise<Diagnostic[] | undefined>;
+}
+/** A preview: one image per width, in the order asked, and the measured layout facts. */
 export interface HtmlPreviewResult {
   /** One terse line per width. */
   report: string;
+  /** What html_render refuses, measured at the phone width; absent when 360 was not shown. */
+  problems?: Diagnostic[];
   images: { width: number; mimeType: "image/png" | "image/jpeg"; data: Buffer }[];
 }
 export interface HtmlPreviewPort {
   preview(
-    page: { html: string; mode: HtmlMode; scheme: HtmlColorScheme },
+    page: {
+      html: string;
+      mode: HtmlMode;
+      scheme: HtmlColorScheme;
+      widths: readonly HtmlPreviewWidth[];
+    },
     signal: AbortSignal,
   ): Promise<HtmlPreviewResult>;
 }
@@ -48,13 +73,16 @@ const PreviewInput = HtmlPreviewInput.extend({
   html: pageHtml,
   mode: pageMode,
   scheme: HtmlPreviewInput.shape.scheme.describe("The app theme to draw it in. Default: dark."),
+  widths: HtmlPreviewInput.shape.widths.describe(
+    "Phone 360, chat column 760, full-screen side panel 1200. Default: 360 and 760.",
+  ),
 });
 export const htmlToolCatalog = [
   {
     name: "html_render",
     title: "Show an HTML visual inline",
     description:
-      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first and follow it. invalid_html lists every safety or layout problem; nothing is published.",
+      "Show a chart, diagram, mockup or interactive page inline in your reply. Read guide visualize first. The page is laid out at 360 px before publishing; invalid_html lists what is unsafe, overflows the phone width or is unreadable, and nothing is published.",
     input: RenderInput,
     output: z.object({ itemId: ItemId }),
     capability: null,
@@ -67,7 +95,7 @@ export const htmlToolCatalog = [
     name: "html_preview",
     title: "Preview an HTML visual",
     description:
-      "See a page as html_render would show it, at 360 px and 760 px, with layout problems listed. Publishes nothing.",
+      "See a page as html_render would show it, at 360 px and 760 px (or the widths you pick), with what html_render would refuse listed. Publishes nothing.",
     input: PreviewInput,
     capability: null,
     riskClass: "read-only",
@@ -78,31 +106,38 @@ export const htmlToolCatalog = [
   },
 ] as const;
 
-type Diagnostics = ReturnType<typeof validateHtml>;
 /** Every problem at once, so one call fixes the page. */
-function refuseInvalid(diagnostics: Diagnostics): void {
-  if (diagnostics.valid) return;
+function refuse(diagnostics: readonly Diagnostic[]): void {
+  if (diagnostics.length === 0) return;
   throw new PublicToolError(
     "invalid_html",
     undefined,
     undefined,
     undefined,
     undefined,
-    diagnostics.diagnostics.slice(0, 16).map((entry) => ({
+    diagnostics.slice(0, 16).map((entry) => ({
       path: "html",
       expected: `${entry.code}: ${entry.message}`.slice(0, 240),
     })),
   );
 }
-export function htmlToolkit(port: HtmlPublicationPort): Toolkit {
+/**
+ * html_render. The markup is checked first (safety and what breaks the frame at any width); a
+ * page that passes is laid out at the phone width, and what overflows or can't be read there is
+ * refused. Without a layout engine, a guess from the markup stands in.
+ */
+export function htmlToolkit(port: HtmlPublicationPort, layout?: HtmlLayoutPort): Toolkit {
   return {
     register(registry) {
       registry.register({
         ...htmlToolCatalog[0],
         async run(input, { caller, signal }) {
-          // One call: a page that is unsafe or breaks in the chat column comes back with every
-          // problem, and nothing is published.
-          refuseInvalid(checkHtmlForPublish(input.html));
+          refuse(checkHtmlForPublish(input.html).diagnostics);
+          const measured = await layout?.measure(
+            { html: input.html, mode: resolveHtmlMode(input.html, input.mode) },
+            signal,
+          );
+          refuse(measured ?? estimateHtmlLayout(input.html));
           return port.publish(caller, input, signal);
         },
       });
@@ -117,26 +152,19 @@ export function htmlPreviewToolkit(port: HtmlPreviewPort): Toolkit {
         async run(input, { signal }) {
           // Only safety problems stop a preview; layout problems are what it is for, so they are
           // listed beside the pictures that show them (html_render refuses them).
-          refuseInvalid(validateHtml(input.html));
-          const layout = lintHtmlLayout(input.html).map((entry) =>
-            `- ${entry.code}: ${entry.message}`.slice(0, 240),
-          );
+          refuse(validateHtml(input.html).diagnostics);
           const result = await port.preview(
             {
               html: input.html,
               mode: resolveHtmlMode(input.html, input.mode),
               scheme: input.scheme ?? "dark",
+              widths: input.widths ?? previewWidths,
             },
             signal,
           );
           return {
             content: [
-              {
-                type: "text",
-                text: layout.length
-                  ? `${result.report}\nhtml_render would refuse this page:\n${layout.join("\n")}`
-                  : result.report,
-              },
+              { type: "text", text: previewText(result, lintHtmlLayout(input.html)) },
               ...result.images.map((image) => ({
                 type: "image",
                 mimeType: image.mimeType,
@@ -148,4 +176,16 @@ export function htmlPreviewToolkit(port: HtmlPreviewPort): Toolkit {
       });
     },
   };
+}
+
+/** The report, then what html_render would refuse: the frame rules, then the phone check. */
+function previewText(result: HtmlPreviewResult, frame: readonly Diagnostic[]): string {
+  const refusals = [...frame, ...(result.problems ?? [])].map((entry) =>
+    `- ${entry.code}: ${entry.message}`.slice(0, 240),
+  );
+  const lines = [result.report];
+  if (refusals.length) lines.push("html_render would refuse this page:", ...refusals);
+  else if (!result.problems)
+    lines.push("Include 360 in widths to see the phone check html_render runs.");
+  return lines.join("\n");
 }

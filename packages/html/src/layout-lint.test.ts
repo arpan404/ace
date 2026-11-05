@@ -1,15 +1,22 @@
 import { expect, test } from "vitest";
-import { checkHtmlForPublish, lintHtmlLayout } from "./index.ts";
+import { checkHtmlForPublish, estimateHtmlLayout, lintHtmlLayout } from "./index.ts";
 
 const page = (head: string, body = "<p>Hi</p>") =>
   `<!doctype html><html><head>${head}</head><body>${body}</body></html>`;
 const codes = (html: string) => lintHtmlLayout(html).map((entry) => entry.code);
+const guesses = (html: string) => estimateHtmlLayout(html).map((entry) => entry.code);
 
 test.each([
   ["viewport units on an app mockup", page("<style>.app{height:100vh}</style>"), "viewport-height"],
   ["dynamic viewport units", page("<style>.app{min-height:100dvh}</style>"), "viewport-height"],
   ["a full-height body", page("<style>html,body{height:100%}</style>"), "root-height"],
   ["a fixed overlay", page("<style>.sheet{position:fixed;inset:0}</style>"), "fixed-position"],
+])("publishing refuses %s at any width", (_name, html, code) => {
+  expect(codes(html)).toContain(code);
+  expect(checkHtmlForPublish(html).valid).toBe(false);
+});
+
+test.each([
   ["a card wider than a phone", page("<style>.card{width:480px}</style>"), "fixed-width"],
   ["an inline wide width", page("", '<div style="width:900px">wide</div>'), "fixed-width"],
   ["tiny labels", page("<style>.meta{font-size:8px}</style>"), "text-too-small"],
@@ -18,9 +25,13 @@ test.each([
     page("", '<svg viewBox="0 0 900 400"><text x="10" y="20" font-size="11">Checks</text></svg>'),
     "svg-text-too-small",
   ],
-])("publishing refuses %s", (_name, html, code) => {
-  expect(codes(html)).toContain(code);
-  expect(checkHtmlForPublish(html).valid).toBe(false);
+])("without a layout engine, the markup guess refuses %s", (_name, html, code) => {
+  expect(guesses(html)).toContain(code);
+});
+
+test("width and text size are left to the phone layout when one can run", () => {
+  const html = page("<style>.card{width:480px}.meta{font-size:8px}</style>");
+  expect(checkHtmlForPublish(html)).toMatchObject({ valid: true, diagnostics: [] });
 });
 
 test.each([
@@ -56,11 +67,18 @@ test.each([
     ),
   ],
   [
+    "deliberately wide content in a box of the page's own that scrolls sideways",
+    page(
+      "",
+      '<div style="overflow-x:auto"><table style="width:900px"><tr><td>a</td></tr></table></div>',
+    ),
+  ],
+  [
     "fixed pixel heights for a mockup frame",
     page("<style>.ace-frame{--h:560px}.panel{height:420px}</style>"),
   ],
 ])("publishing accepts %s", (_name, html) => {
-  expect(codes(html)).toEqual([]);
+  expect([...codes(html), ...guesses(html)]).toEqual([]);
   expect(checkHtmlForPublish(html)).toMatchObject({ valid: true, diagnostics: [] });
 });
 
