@@ -1,6 +1,5 @@
-import { createRequire } from "node:module";
-import type koffiModule from "koffi";
 import { z } from "zod";
+import { openLibrary, wideString } from "@ace/provider-kit/bun-ffi";
 import { GitError } from "./types.ts";
 
 /**
@@ -86,58 +85,69 @@ function unsupported(): GitError {
   );
 }
 
-// koffi loads lazily and only on Windows. uv_get_osfhandle comes from the running executable
-// (node.exe, or electron.exe as Node), so the descriptor table is the one the daemon's fd is in.
+// FILE_FLAG_BACKUP_SEMANTICS opens directories; FILE_FLAG_OPEN_REPARSE_POINT never follows.
+const backupSemantics = 0x02000000;
+const leaseFlags = backupSemantics | 0x00200000;
+const nativeHandle = z.union([z.number(), z.bigint()]);
+const nativeInteger = z.number().int();
+
+function kernelLibrary() {
+  return openLibrary("kernel32.dll", {
+    GetFileInformationByHandleEx: { args: ["i64_fast", "i32", "ptr", "u32"], returns: "i32" },
+    OpenFileById: {
+      args: ["i64_fast", "ptr", "u32", "u32", "ptr", "u32"],
+      returns: "i64_fast",
+    },
+    CreateFileW: {
+      args: ["ptr", "u32", "u32", "ptr", "u32", "u32", "i64_fast"],
+      returns: "i64_fast",
+    },
+    CreateDirectoryW: { args: ["ptr", "ptr"], returns: "i32" },
+    GetFinalPathNameByHandleW: { args: ["i64_fast", "ptr", "u32", "u32"], returns: "u32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+  });
+}
+
+// bun:ffi binds only on Windows. uv_get_osfhandle comes from the running executable (the Bun
+// runtime, which exports libuv's API to native add-ons), so the descriptor table is the one the
+// daemon's fd is in.
 function loadDirectoryLeaseApi(): DirectoryLeaseApi {
-  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-  const node = koffi.load(process.execPath);
-  const kernel = koffi.load("kernel32.dll");
+  const node = openLibrary(process.execPath, {
+    uv_get_osfhandle: { args: ["i32"], returns: "i64_fast" },
+  });
+  let kernel: ReturnType<typeof kernelLibrary>;
   try {
-    const osHandle = node.func("intptr_t uv_get_osfhandle(int fd)");
-    const info = kernel.func(
-      "int __stdcall GetFileInformationByHandleEx(intptr_t file, int infoClass, _Out_ void* info, uint32 size)",
-    );
-    const byId = kernel.func(
-      "intptr_t __stdcall OpenFileById(intptr_t hint, void* id, uint32 access, uint32 share, void* security, uint32 flags)",
-    );
-    const byPath = kernel.func(
-      "intptr_t __stdcall CreateFileW(str16 path, uint32 access, uint32 share, void* security, uint32 disposition, uint32 flags, intptr_t template)",
-    );
-    const mkdir = kernel.func("int __stdcall CreateDirectoryW(str16 path, void* security)");
-    const final = kernel.func(
-      "uint32 __stdcall GetFinalPathNameByHandleW(intptr_t file, _Out_ void* path, uint32 characters, uint32 flags)",
-    );
-    const close = kernel.func("int __stdcall CloseHandle(intptr_t handle)");
-    // FILE_FLAG_BACKUP_SEMANTICS opens directories; FILE_FLAG_OPEN_REPARSE_POINT never follows.
-    const backup = 0x02000000;
-    const flags = backup | 0x00200000;
-    const integer = z.number().int();
-    return {
-      osHandle: (fd) => osHandle(fd),
-      fileInfo: (handle, infoClass, buffer) =>
-        integer.parse(info(handle, infoClass, buffer, buffer.length)) !== 0,
-      openById: (hint, descriptor, access, share) =>
-        byId(hint, descriptor, access, share, null, flags),
-      // OPEN_EXISTING
-      openPath: (path, access, share) => byPath(path, access, share, null, 3, flags, 0),
-      // Attributes only, sharing everything: an observer that blocks nothing.
-      openTarget: (path) => byPath(path, FILE_READ_ATTRIBUTES, 0x7, null, 3, backup, 0),
-      makeDirectory: (path) => integer.parse(mkdir(path, null)) !== 0,
-      finalPath: (handle, buffer, pathFlags) =>
-        integer.parse(final(handle, buffer, buffer.length / 2, pathFlags)),
-      close: (handle) => {
-        close(handle);
-      },
-      unload: () => {
-        kernel.unload();
-        node.unload();
-      },
-    };
+    kernel = kernelLibrary();
   } catch (error) {
-    kernel.unload();
-    node.unload();
+    node.close();
     throw error;
   }
+  const k = kernel.symbols;
+  const open = (path: string, access: number, share: number, flags: number) =>
+    nativeHandle.parse(k.CreateFileW(wideString(path), access, share, null, 3, flags, 0));
+  return {
+    osHandle: (fd) => nativeHandle.parse(node.symbols.uv_get_osfhandle(fd)),
+    fileInfo: (file, infoClass, buffer) =>
+      nativeInteger.parse(
+        k.GetFileInformationByHandleEx(file, infoClass, buffer, buffer.length),
+      ) !== 0,
+    openById: (hint, descriptor, access, share) =>
+      nativeHandle.parse(k.OpenFileById(hint, descriptor, access, share, null, leaseFlags)),
+    // OPEN_EXISTING
+    openPath: (path, access, share) => open(path, access, share, leaseFlags),
+    // Attributes only, sharing everything: an observer that blocks nothing.
+    openTarget: (path) => open(path, FILE_READ_ATTRIBUTES, 0x7, backupSemantics),
+    makeDirectory: (path) => nativeInteger.parse(k.CreateDirectoryW(wideString(path), null)) !== 0,
+    finalPath: (file, buffer, pathFlags) =>
+      nativeInteger.parse(k.GetFinalPathNameByHandleW(file, buffer, buffer.length / 2, pathFlags)),
+    close: (file) => {
+      k.CloseHandle(file);
+    },
+    unload: () => {
+      kernel.close();
+      node.close();
+    },
+  };
 }
 
 /** FILE_ID_INFO: the 8-byte volume serial number, then the 16-byte file ID. */

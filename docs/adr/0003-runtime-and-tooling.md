@@ -44,9 +44,18 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   desktop app) and `node.exe`. Launchers and updaters from earlier releases run
   `<release>/bin/node ace.mjs`, and Bun runs scripts the same way under that name.
 - **Node code stays as it is.** The daemon keeps using `node:` modules; Bun-native APIs are
-  later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
-  reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
-  `Bun.spawn({ terminal })`. On Node they keep node-pty.
+  later work. Two exceptions:
+  - Terminals: node-pty's addon needs Node's libuv loop and reports neither output nor exit
+    under Bun, so the terminal backends (POSIX and Windows ConPTY) spawn through
+    `Bun.spawn({ terminal })`. node-pty is a development dependency, loaded only when a test
+    opens a terminal on Node; releases and the desktop app ship none of it.
+  - Native calls: C and Win32 functions are bound with `bun:ffi` through
+    `@ace/provider-kit/bun-ffi`, not koffi. Two provider-kit files the desktop main process
+    also bundles (`process-owner.ts`, `process-containment.ts`) keep a lazy koffi path for
+    runtimes that are not Bun; the daemon never loads koffi, and the desktop bundle refuses a
+    static `bun:ffi` import. bun:ffi has no variadic calls, so the one `openat` with `O_CREAT`
+    goes through `@ace/workspace`'s add-on, and its calls run on the calling thread where koffi
+    ran some on a worker thread.
 - **Release builds still run on Node 26.12.1** (`nodeVersion`), which native addons are built
   against. They are Node-API, so the same binaries load in Bun.
 - **Known Bun differences** that ace code has to respect:
@@ -119,6 +128,6 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   footprint just after start (209–228 vs 222–254 MB). `ace version` starts in 232 ms against
   Node's 323 ms.
 - **Not compiled yet.** `bun build --compile` (with or without `--bytecode`) builds, but the
-  binary cannot run: native addons (koffi, node-pty) are not found inside its embedded file
+  binary cannot run: native addons (`descriptor.node`) are not found inside its embedded file
   system, and helpers launched through `process.execPath` and the worker files would need
   Bun-specific handling. That is part of the Bun-native follow-up.

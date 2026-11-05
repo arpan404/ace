@@ -115,7 +115,7 @@ const config: Configuration = {
   npmRebuild: false,
   // Native addons and helper binaries cannot run from inside an asar archive.
   // A worker thread's module loader cannot read the archive either (the freeze watchdog).
-  asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe", "stall-watchdog-worker.mjs"],
+  asarUnpack: ["**/*.node", "**/rg", "**/rg.exe", "stall-watchdog-worker.mjs"],
   extraResources: [
     ...(signed && process.platform === "darwin" && existsSync(join(dist, "locked-use"))
       ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
@@ -127,7 +127,7 @@ const config: Configuration = {
       to: "icons",
       filter: ["trayTemplate*.png", "trayColor*.png"],
     },
-    // The daemon's own Node runtime.
+    // The daemon's own runtime (Bun).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     // Windows: what the installer runs on that runtime (build/installer.nsh).
     ...(existsSync(join(dist, "setup")) ? [{ from: join(dist, "setup"), to: "setup" }] : []),
@@ -141,9 +141,9 @@ const config: Configuration = {
       ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
       : []),
   ],
-  // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
+  // The daemon runs as a separate process, so it ships as plain files. It is copied here
   // rather than through extraResources, which always drops node_modules, and the daemon needs
-  // its staged runtime packages (node-pty, koffi, playwright-core, the Claude SDK).
+  // its staged runtime packages (playwright-core, the Claude SDK).
   afterPack: async (context) => {
     const resources =
       context.electronPlatformName === "darwin"

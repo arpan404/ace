@@ -12,6 +12,8 @@ export const hostChecks: Record<string, { label: string; fix: string }> = {
   },
   node: { label: "App runtime", fix: "Update ace and restart it." },
   git: { label: "Git", fix: "Install Git. On a Mac, install the Xcode Command Line Tools." },
+  terminal: { label: "Terminal", fix: "Reinstall ace, then try opening a terminal again." },
+  // Reported by daemons from before the terminal check.
   "node-pty": { label: "Terminal", fix: "Reinstall ace, then try opening a terminal again." },
   chromium: { label: "Browser", fix: "Install Chrome or Chromium to use the browser tools." },
   disk: {

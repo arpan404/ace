@@ -45,6 +45,12 @@ it("fails a bundle that imports node-pty", async () => {
   );
 });
 
+it("fails a bundle that imports Bun's FFI, which Electron does not have", async () => {
+  await expect(
+    bundle({ "entry.ts": 'import { dlopen } from "bun:ffi"; console.log(dlopen);' }),
+  ).rejects.toThrow(/bun:ffi is native code/);
+});
+
 it("lets a bundle of plain JavaScript through", async () => {
   await expect(
     bundle({
