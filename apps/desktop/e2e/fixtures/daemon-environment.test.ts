@@ -1,6 +1,7 @@
 import { isAbsolute, join, relative } from "node:path";
 import { expect, test } from "vitest";
 import {
+  desktopAppEnvironment,
   desktopDaemonEnvironment,
   desktopDaemonLayout,
   environmentFolders,
@@ -49,4 +50,23 @@ test("no runtime flag or Git checkout of the caller's reaches the desktop daemon
     expect(env[key], key).toBeUndefined();
   // The tools a person's PATH reaches (git, a browser) stay reachable.
   expect(env.PATH).toBe(ambient.PATH);
+});
+
+test("the Electron app beside it reads only the spec's root and runs managed on its ACE_HOME", () => {
+  const layout = desktopDaemonLayout("/tmp/ace-panel-e2e-2");
+  const env = desktopAppEnvironment(
+    { ...ambient, ACE_DAEMON_URL: "ws://127.0.0.1:4242", ACE_DAEMON_TOKEN: "f".repeat(64) },
+    layout,
+    realHome,
+  );
+  expect(env).toMatchObject({
+    HOME: layout.root,
+    ACE_HOME: layout.home,
+    ACE_DESKTOP_DAEMON: "managed",
+    ACE_DESKTOP_USER_DATA: join(layout.root, "userData"),
+  });
+  for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+    expect(inside(layout.root, env[key] ?? "/"), `${key}=${env[key]}`).toBe(true);
+  for (const key of ["ACE_DAEMON_URL", "ACE_DAEMON_TOKEN", "ELECTRON_RUN_AS_NODE", "BUN_OPTIONS"])
+    expect(env[key], key).toBeUndefined();
 });

@@ -47,3 +47,29 @@ export function desktopDaemonEnvironment(
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }
+
+/**
+ * The Electron app's whole environment, beside that daemon: the same test policy, so the app
+ * reads no storage or provider folder of the person's either, in managed mode on the layout's
+ * ACE_HOME (where it adopts the running daemon), with its user data in the root. No
+ * ELECTRON_RUN_AS_NODE survives: it would start Electron as plain Node.
+ */
+export function desktopAppEnvironment(
+  ambient: NodeJS.ProcessEnv,
+  layout: DesktopDaemonLayout,
+  realHome: string,
+): Record<string, string> {
+  const env: NodeJS.ProcessEnv = {
+    ...isolatedTestEnvironment(ambient, layout.root, realHome),
+    ACE_HOME: layout.home,
+    ACE_DESKTOP_USER_DATA: join(layout.root, "userData"),
+    ACE_DESKTOP_DAEMON: "managed",
+    ACE_DESKTOP_RENDERER_URL: "",
+  };
+  delete env.BUN_OPTIONS;
+  delete env.ELECTRON_RUN_AS_NODE;
+  // Playwright takes set values only.
+  const set: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) set[key] = value;
+  return set;
+}

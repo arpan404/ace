@@ -1,7 +1,7 @@
 import { staticRenderer } from "./static-renderer.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, cp, realpath, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -10,8 +10,8 @@ import { _electron as electron, type ElectronApplication } from "playwright-core
 import type { BrowserProfileScope } from "@ace/protocol";
 import { detectChromium } from "@ace/browser";
 import { startDesktopDaemon, type DesktopDaemon } from "./daemon-client.ts";
+import { desktopAppEnvironment, desktopDaemonLayout } from "./daemon-environment.ts";
 import {
-  appEnvironment,
   appVersion,
   electronBinary,
   electronBundles,
@@ -114,21 +114,17 @@ await import('./app/${mainEntry}');`,
     const workspaceId = await daemon.createWorkspace(home, "Browser sandbox");
     const thread = await daemon.prepareThread(workspaceId, "Browser fixture");
     const other = await daemon.prepareThread(workspaceId, "Other fixture");
-    const env = appEnvironment(process.env);
-    delete env.ACE_DAEMON_URL;
-    delete env.ACE_DAEMON_TOKEN;
-    delete env.ACE_DAEMON_TOKEN_FILE;
+    // Isolated as the daemon is (fixtures/daemon-environment.ts): no daemon address, storage or
+    // provider folder of the caller's reaches the app.
+    const env = desktopAppEnvironment(
+      process.env,
+      desktopDaemonLayout(root),
+      process.env.ACE_TEST_REAL_HOME ?? homedir(),
+    );
     app = await electron.launch({
       executablePath: await electronBinary(),
       args: [join(root, "Resources"), "--force-device-scale-factor=2"],
-      env: {
-        ...env,
-        HOME: root,
-        ACE_HOME: home,
-        ACE_DESKTOP_USER_DATA: join(root, "userData"),
-        ACE_DESKTOP_DAEMON: "managed",
-        ACE_DESKTOP_RENDERER_URL: "",
-      },
+      env,
     });
     // Playwright otherwise auto-dismisses dialogs on attached native targets.
     app.context().on("page", (target) => target.on("dialog", () => {}));

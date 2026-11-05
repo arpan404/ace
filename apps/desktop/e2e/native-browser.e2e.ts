@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, cp, realpath, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
@@ -9,14 +9,8 @@ import { _electron as electron } from "playwright-core";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { startDesktopDaemon } from "./fixtures/daemon-client.ts";
-import {
-  appEnvironment,
-  appVersion,
-  electronBinary,
-  electronBundles,
-  mainEntry,
-  repo,
-} from "../scripts/common.ts";
+import { desktopAppEnvironment, desktopDaemonLayout } from "./fixtures/daemon-environment.ts";
+import { appVersion, electronBinary, electronBundles, mainEntry, repo } from "../scripts/common.ts";
 
 it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
   "bundled desktop registers from an isolated home and places a sharp native page with native input",
@@ -80,21 +74,17 @@ await import('./app/${mainEntry}');`,
       );
       const workspaceId = await daemon.createWorkspace(home, "Native test");
       const thread = await daemon.devThread(workspaceId);
-      const env = appEnvironment(process.env);
-      delete env.ACE_DAEMON_URL;
-      delete env.ACE_DAEMON_TOKEN;
-      delete env.ACE_DAEMON_TOKEN_FILE;
+      // Isolated as the daemon is (fixtures/daemon-environment.ts): no daemon address, storage or
+      // provider folder of the caller's reaches the app.
+      const env = desktopAppEnvironment(
+        process.env,
+        desktopDaemonLayout(root),
+        process.env.ACE_TEST_REAL_HOME ?? homedir(),
+      );
       app = await electron.launch({
         executablePath: await electronBinary(),
         args: [join(root, "Resources"), "--force-device-scale-factor=2"],
-        env: {
-          ...env,
-          HOME: root,
-          ACE_HOME: home,
-          ACE_DESKTOP_USER_DATA: join(root, "userData"),
-          ACE_DESKTOP_DAEMON: "managed",
-          ACE_DESKTOP_RENDERER_URL: "",
-        },
+        env,
       });
       app.process().stdout?.on("data", (chunk: Buffer) => {
         const message = chunk.toString().replace(/[a-f0-9]{64}/gi, "<REDACTED>");
