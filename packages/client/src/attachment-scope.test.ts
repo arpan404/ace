@@ -45,3 +45,13 @@ test("a caller's own signal still binds the read to the socket it started on", (
   expect(scope.signal.aborted).toBe(true);
   scope.close();
 });
+
+test("a read started from a closed scope's signal binds to the socket itself", () => {
+  const c = client(2);
+  const outer = attachmentReadScope(c);
+  outer.close();
+  const later = attachmentReadScope(c, outer.signal);
+  c.move();
+  expect(later.signal.aborted).toBe(true);
+  later.close();
+});

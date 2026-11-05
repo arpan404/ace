@@ -26,6 +26,8 @@ export function attachmentReadScope(client: ScopedClient, signal?: AbortSignal) 
   const close = () => {
     if (closed) return;
     closed = true;
+    // A read started from this signal after now is bound by its own scope.
+    bound.delete(controller.signal);
     stop?.();
     signal?.removeEventListener("abort", abort);
   };
