@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { Worker } from "node:worker_threads";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openHistory } from "./index.ts";
@@ -24,7 +25,11 @@ test("an index in an older format is refused once, untouched, instead of restart
   const older = new DatabaseSync(indexPath);
   older.prepare("UPDATE catalog_settings SET value='4' WHERE key='format'").run();
   older.close();
+  // The catalog uses WAL, so a write may sit in the -wal file rather than the index itself.
+  const walPath = `${indexPath}-wal`;
+  const wal = async () => (existsSync(walPath) ? readFile(walPath) : Buffer.alloc(0));
   const before = await readFile(indexPath);
+  const walBefore = await wal();
   let launches = 0;
   await expect(
     openHistory(
@@ -49,4 +54,5 @@ test("an index in an older format is refused once, untouched, instead of restart
   expect(launches).toBe(1);
   // Byte for byte: the refusal neither migrated nor rewrote the index.
   expect((await readFile(indexPath)).equals(before)).toBe(true);
+  expect((await wal()).equals(walBefore)).toBe(true);
 });
