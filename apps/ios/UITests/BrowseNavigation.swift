@@ -92,6 +92,15 @@ extension XCUIApplication {
         XCTAssertTrue(row.isHittable, "\(identifier) never showed in the inbox")
         return row
     }
+    /// Taps one of Inbox, Snoozed and Settled. They are the Threads list's first row, so a list
+    /// scrolled down has them out of view: it is dragged back to its top first, as a person would.
+    @MainActor func tapThreadsTab(_ tab: XCUIElement) {
+        for _ in 0..<12 where !(tab.exists && tab.isHittable) {
+            let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            upper.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        }
+        tab.tap()
+    }
     /// Drags the list without letting it coast until `element` sits clear of the floating header
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row
     /// slid under the finger.

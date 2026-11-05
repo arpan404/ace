@@ -59,7 +59,7 @@ import XCTest
         // A snooze that starts now, however long the fixture has been running.
         try post("/review/nap", #"{"ms":45000}"#)
         let app = launch()
-        app.buttons["threads.tab.snoozed"].firstMatch.tap()
+        app.tapThreadsTab(app.buttons["threads.tab.snoozed"].firstMatch)
         let nap = app.buttons["thread.ios-nap"]
         for _ in 0..<6 where !nap.exists { app.swipeUp() }
         XCTAssertTrue(nap.waitForExistence(timeout: 10))
@@ -70,7 +70,7 @@ import XCTest
         // the row leaving the Snoozed tab for the tab its state puts it in, with no "Until".
         XCTAssertTrue(nap.waitForNonExistence(timeout: 200), "the snooze ends on the phone's clock")
         for tab in ["inbox", "settled"] where !nap.exists {
-            app.buttons["threads.tab.\(tab)"].firstMatch.tap()
+            app.tapThreadsTab(app.buttons["threads.tab.\(tab)"].firstMatch)
             for _ in 0..<6 where !nap.exists { app.swipeUp() }
         }
         XCTAssertTrue(nap.exists)

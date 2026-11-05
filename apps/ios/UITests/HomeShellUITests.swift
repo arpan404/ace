@@ -95,7 +95,7 @@ import XCTest
     func testTheInboxLinkClosesTheOpenThreadAndShowsThreadsInbox() {
         let app = launch()
         XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
-        app.buttons["threads.tab.snoozed"].tap()
+        app.tapThreadsTab(app.buttons["threads.tab.snoozed"])
         app.tabBars.firstMatch.buttons["Chats"].tap()
         let chat = app.buttons["chat.row"].firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))

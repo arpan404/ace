@@ -111,11 +111,8 @@ struct InboxStack<Destination: View, Side: View>: View {
                       actions: ChatsActions(open: { key in picking.open(key) }, newChat: header.compose, rename: actions.rename))
         } else {
             InboxList(inbox: inbox, includes: includes, whole: whole, tab: threadsTab, reveal: $reveal, actions: picking, compose: nil,
-                      pair: header.pair, selection: selecting ? $selection : nil)
+                      pair: header.pair, selection: selecting ? $selection : nil, header: AnyView(tabsBar))
                 .refreshable { await refresh() }
-                // Inbox, Snoozed and Settled pinned under the title, in the navigation bar's own
-                // region: rows blur and fade under both as they do under Mail's.
-                .pinnedTopBar { tabsBar }
         }
     }
 
