@@ -1,5 +1,17 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { SkillDisk } from "./skill-disk.ts";
+import { createSkill, replacePinnedSkill, withSkillFolder } from "./skill-files.ts";
+import { skillRootLane } from "./skill-roots.ts";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SkillResult } from "@ace/protocol";
@@ -197,5 +209,67 @@ test.skipIf(process.platform === "win32")(
     expect(await readFile(file, "utf8")).toBe("Global");
     await project.writePrompt(projectRoot, file, "Project", hash("Global"), "prompt-project-2");
     expect(await readFile(file, "utf8")).toBe("Project");
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a skill root reached through a symlink and through its real path shares one lane",
+  async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-lane-")));
+    cleanups.push(() => rm(base, { recursive: true, force: true }));
+    const real = join(base, "real", "skills");
+    await mkdir(join(real, "notes"), { recursive: true });
+    await writeFile(join(real, "notes", "SKILL.md"), "Notes");
+    await mkdir(join(base, ".claude"));
+    await symlink(real, join(base, ".claude", "skills"));
+    const root = {
+      path: join(base, ".claude", "skills"),
+      scope: "personal" as const,
+      readers: ["claude" as const],
+      linkFor: [],
+      trustedRoot: join(base, ".claude"),
+    };
+    const canonical = {
+      root,
+      name: "notes",
+      path: join(root.path, "notes"),
+      real: join(real, "notes"),
+      link: false,
+      rootReal: real,
+    };
+    let stall = true;
+    const { lanes, release } = inlineLanes(
+      (operation) => stall && operation.op === "rename" && operation.toName === "SKILL.md",
+      { deadlineMs: 200 },
+    );
+    const restore = useCommandLanes(lanes);
+    cleanups.push(async () => {
+      stall = false;
+      release();
+      restore();
+    });
+    const disk = new SkillDisk();
+    // An edit, which reaches the folder by its real path, times out mid-rename.
+    const edit = await withSkillFolder(disk, canonical, (_root, folder) =>
+      replacePinnedSkill(disk, folder, "Changed", hash("Notes"), "t1", {
+        rootReal: real,
+        name: "notes",
+        lane: skillRootLane(root),
+      }),
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(writeOutcomeUnknown(edit)).toBeDefined();
+    // Creating a skill reaches the same root by its symlinked path: the same lane, so it waits
+    // for the stuck rename rather than racing it.
+    await expect(createSkill(disk, root, "other", "Other", "t2")).rejects.toThrow(
+      "hasn't finished",
+    );
+    stall = false;
+    release();
+    await commandRootSettled(skillRootLane(root));
+    await createSkill(disk, root, "other", "Other", "t3");
+    expect(await readFile(join(real, "other", "SKILL.md"), "utf8")).toBe("Other");
   },
 );

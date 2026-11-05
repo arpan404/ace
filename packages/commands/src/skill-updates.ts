@@ -1,5 +1,5 @@
 import { mkdir, readFile, realpath, rename, rm, open } from "node:fs/promises";
-import { skillLane } from "./posix-calls.ts";
+import { skillRootLane } from "./skill-roots.ts";
 import { basename, dirname, join } from "node:path";
 import type { SkillUpdateReview } from "@ace/protocol";
 import {
@@ -201,7 +201,7 @@ export class SkillUpdates {
         await this.settleJournals();
         this.owed = false;
       }
-      const root = await this.disk.openPath(canonical.rootReal);
+      const root = await this.disk.openPath(canonical.rootReal, skillRootLane(canonical.root));
       if (root === undefined)
         throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
       try {
@@ -219,7 +219,7 @@ export class SkillUpdates {
             this.withStaged(
               pending.staged,
               (staged) => this.disk.copy(staged, next),
-              skillLane(canonical.rootReal),
+              skillRootLane(canonical.root),
             ),
           commit: () => this.writeLock(name, folderHash, lockTemporary),
         });

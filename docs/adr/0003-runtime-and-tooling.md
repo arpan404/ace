@@ -62,11 +62,11 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     by the worker that opened it and closed only there, because the OS hands a freed number out
     again at once and replies from different workers arrive in no fixed order. A call past its
     deadline drains its worker: the worker's handles stop working at once, and the worker closes
-    everything it owns and exits once the stuck call returns. Lanes are keyed by anchor path
-    (`commandLane`, `skillLane`), so a folder reached through two anchors, or a symlinked skill
-    root under its two names, runs on two lanes: a stalled mount can cost up to two draining
-    threads per name, and the reserve (no new thread once stuck ones fill the room beyond the
-    serving threads) bounds the total. Changes are fenced by what they change, not by lane: a
+    everything it owns and exits once the stuck call returns. Each root has one lane key, its
+    anchor (discovery's trusted root; a skill root's `trustedRoot`), used by every call on it
+    whatever spelling the call addresses, so a symlinked root and its real path share a lane.
+    The reserve (no new thread once stuck ones fill the room beyond the serving threads) bounds
+    stuck threads overall. Changes are fenced by what they change, not by lane: a
     change that may still land keeps the identity (dev and inode) of each handle it names off
     limits to changes naming that folder through any lane until it returns; queued changes are
     checked again when they start. Path calls that name no handle (`mkdirPath`, which skill

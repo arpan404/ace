@@ -18,7 +18,13 @@ import { SkillDisk, sameDirectory } from "./skill-disk.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
-import { canonicalRoot, skillRoots, type SkillHomes } from "./skill-roots.ts";
+import {
+  canonicalRoot,
+  skillRootLane,
+  skillRoots,
+  type SkillHomes,
+  type SkillRoot,
+} from "./skill-roots.ts";
 import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
 export type { PluginSkill } from "./skill-listing.ts";
@@ -46,8 +52,14 @@ export interface SkillLibraryOptions {
   openChild?: OpenCommandChild | undefined;
   id(): string;
 }
-const watchedRoot = (path: string, scope: "user" | "workspace", home: string): DiscoveryRoot => ({
-  path,
+const watchedRoot = (
+  root: SkillRoot,
+  scope: "user" | "workspace",
+  home: string,
+): DiscoveryRoot => ({
+  path: root.path,
+  // Discovery anchors the root where every skill call on it does, so both share one lane.
+  trustedRoot: root.trustedRoot,
   format: "claude",
   scope,
   skill: true,
@@ -200,7 +212,7 @@ export class SkillLibrary {
     const home = this.options.homes.home;
     const roots = skillRoots(this.options.homes, workspace || undefined)
       .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
-      .map((root) => watchedRoot(root.path, workspace ? "workspace" : "user", home));
+      .map((root) => watchedRoot(root, workspace ? "workspace" : "user", home));
     const files = new CommandFiles(new CommandCatalog(() => 0), roots, {
       ...(this.options.watch ? { watch: this.options.watch } : {}),
       ...(this.options.schedule ? { schedule: this.options.schedule } : {}),
@@ -322,6 +334,7 @@ export class SkillLibrary {
           await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id(), {
             rootReal: canonical.rootReal,
             name: canonical.name,
+            lane: skillRootLane(canonical.root),
           });
         });
         this.notify();

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { skillRootLane } from "./skill-roots.ts";
 import type { SkillEntry } from "@ace/protocol";
 import { parseSkill } from "./skill-markdown.ts";
 import { inspectRoots, readSkillFile } from "./skill-files.ts";
@@ -42,7 +43,8 @@ export async function listSkills(input: ListInput): Promise<Listed[]> {
   const listed: Listed[] = [];
   for (const place of groupSkills(await inspectRoots(roots))) {
     const directory = place.canonical?.real ?? place.real;
-    const file = await readSkillFile(directory).catch(() => undefined);
+    const lane = place.canonical ? skillRootLane(place.canonical.root) : undefined;
+    const file = await readSkillFile(directory, lane).catch(() => undefined);
     if (!file) continue;
     const source = place.canonical?.root === agentsRoot ? locked.get(place.name) : undefined;
     listed.push({
@@ -78,7 +80,9 @@ export async function listSkills(input: ListInput): Promise<Listed[]> {
       linkFor: [],
     };
     for (const folder of await inspectRoots([builtin])) {
-      const file = await readSkillFile(folder.real).catch(() => undefined);
+      const file = await readSkillFile(folder.real, skillRootLane(folder.root)).catch(
+        () => undefined,
+      );
       if (!file) continue;
       const place: SkillPlace = {
         id: skillId(folder.real),

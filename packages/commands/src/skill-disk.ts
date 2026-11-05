@@ -293,10 +293,10 @@ export class SkillDisk {
    * In the background, once nothing abandoned under `rootReal` can still land, remove `name`
    * from it, reopening the root by path since an abandoned thread's handles are gone.
    */
-  removeWhenSettled(rootReal: string, name: string): void {
-    void commandRootSettled(skillLane(rootReal))
+  removeWhenSettled(rootReal: string, name: string, lane = skillLane(rootReal)): void {
+    void commandRootSettled(lane)
       .then(async () => {
-        const root = await this.openPath(rootReal);
+        const root = await this.openPath(rootReal, lane);
         if (root === undefined) return;
         try {
           await this.remove(root, name);
