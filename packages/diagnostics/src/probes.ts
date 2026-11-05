@@ -28,7 +28,9 @@ export function portAvailable(port: number, signal: AbortSignal): Promise<boolea
 /**
  * Runs in a child on the daemon's runtime: opens a terminal with `Bun.spawn({ terminal })`,
  * runs a command that prints a marker, and passes only when the marker comes back through the
- * terminal and the command exits cleanly. Not Bun, no terminal.
+ * terminal and the command exits cleanly. It decides once both the command has exited and the
+ * terminal's output has ended (or 2 s after the exit), since the two arrive separately. Not
+ * Bun, no terminal.
  */
 const terminalCheck = `
 const marker = "ace-terminal-" + "check";
@@ -36,14 +38,21 @@ if (typeof Bun !== "object") process.exit(2);
 const command = process.platform === "win32"
   ? [process.env.ComSpec ?? "cmd.exe", "/d", "/c", "echo " + marker]
   : ["/bin/sh", "-c", "printf " + marker];
-let output = "";
-const child = Bun.spawn(command, { terminal: { cols: 80, rows: 24, data(_terminal, bytes) {
-  output += new TextDecoder().decode(bytes);
-} } });
-child.exited.then((code) => setImmediate(() => {
+let output = "", ended, code;
+const decide = () => {
+  if (code === undefined || !ended) return;
   const ok = code === 0 && output.includes(marker);
   process.stdout.write(ok ? "terminal ok\\n" : "terminal failed\\n", () => process.exit(ok ? 0 : 1));
-}));
+};
+const child = Bun.spawn(command, { terminal: { cols: 80, rows: 24,
+  data(_terminal, bytes) { output += new TextDecoder().decode(bytes); },
+  exit() { setImmediate(() => { ended = true; decide(); }); },
+} });
+child.exited.then((exitCode) => {
+  code = exitCode;
+  decide();
+  setTimeout(() => { ended = true; decide(); }, 2000);
+});
 `;
 export interface SystemProbeRuntime {
   probe: typeof probeOutput;

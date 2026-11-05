@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nativePointer, openLibrary, type NativeLibrary } from "@ace/provider-kit/bun-ffi";
+import { nativeHandle, openLibrary, type NativeLibrary } from "@ace/provider-kit/bun-ffi";
 
 /**
  * What Windows tells about a running Git process beyond its name: its command line and its
@@ -41,15 +41,19 @@ const integer = z.number().int();
 
 function loadProcessFactsApi(): ProcessFactsApi {
   const kernel = openLibrary("kernel32.dll", {
-    OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
-    CloseHandle: { args: ["ptr"], returns: "i32" },
-    ReadProcessMemory: { args: ["ptr", "u64", "ptr", "u64", "ptr"], returns: "i32" },
-    IsWow64Process: { args: ["ptr", "ptr"], returns: "i32" },
+    // HANDLEs are 64-bit integers (`i64_fast`); `ptr` is only for buffers.
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "i64_fast" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    ReadProcessMemory: { args: ["i64_fast", "u64", "ptr", "u64", "ptr"], returns: "i32" },
+    IsWow64Process: { args: ["i64_fast", "ptr"], returns: "i32" },
   });
   let ntdll: NativeLibrary<"NtQueryInformationProcess">;
   try {
     ntdll = openLibrary("ntdll.dll", {
-      NtQueryInformationProcess: { args: ["ptr", "i32", "ptr", "u32", "ptr"], returns: "i32" },
+      NtQueryInformationProcess: {
+        args: ["i64_fast", "i32", "ptr", "u32", "ptr"],
+        returns: "i32",
+      },
     });
   } catch (error) {
     kernel.close();
@@ -58,12 +62,12 @@ function loadProcessFactsApi(): ProcessFactsApi {
   const k = kernel.symbols;
   return {
     open: (pid, access) => k.OpenProcess(access, 0, pid),
-    close: (handle) => void k.CloseHandle(nativePointer(handle)),
+    close: (handle) => void k.CloseHandle(nativeHandle(handle)),
     query(handle, infoClass, info, returned) {
       const written = new Uint32Array(1);
       const status = integer.parse(
         ntdll.symbols.NtQueryInformationProcess(
-          nativePointer(handle),
+          nativeHandle(handle),
           infoClass,
           info,
           info.length,
@@ -75,11 +79,11 @@ function loadProcessFactsApi(): ProcessFactsApi {
     },
     read: (handle, address, into) =>
       integer.parse(
-        k.ReadProcessMemory(nativePointer(handle), address, into, BigInt(into.length), null),
+        k.ReadProcessMemory(nativeHandle(handle), address, into, BigInt(into.length), null),
       ) !== 0,
     wow64(handle) {
       const out = new Int32Array(1);
-      if (integer.parse(k.IsWow64Process(nativePointer(handle), out)) === 0) return undefined;
+      if (integer.parse(k.IsWow64Process(nativeHandle(handle), out)) === 0) return undefined;
       return out[0] !== 0;
     },
     unload: () => {

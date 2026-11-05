@@ -19,7 +19,16 @@ export interface PtySpawnOptions {
   cols?: number | undefined;
   rows?: number | undefined;
   env?: Record<string, string | undefined> | undefined;
+  /**
+   * How long exit waits, after the shell exits, for the terminal's end of output. A background
+   * process can hold the terminal open forever; its output after that is not the shell's.
+   */
+  outputGraceMs?: number | undefined;
 }
+
+/** Output held before the first listener subscribes, at most (the newest bytes are kept). */
+const pendingLimit = 4 * 1024 * 1024;
+const defaultOutputGraceMs = 2_000;
 
 interface BunTerminal {
   write(data: string): number;
@@ -33,7 +42,7 @@ interface BunSubprocess {
   readonly signalCode: string | null;
   kill(signal?: string): void;
 }
-interface BunRuntime {
+export interface BunRuntime {
   spawn(
     command: string[],
     options: {
@@ -44,6 +53,8 @@ interface BunRuntime {
         cols: number;
         rows: number;
         data(terminal: unknown, bytes: Uint8Array): void;
+        /** The terminal's output ended (EOF or a read error), apart from the process exit. */
+        exit(terminal: unknown): void;
       };
     },
   ): BunSubprocess;
@@ -79,11 +90,35 @@ export function spawnBunPty(
   const exitListeners = new Set<(input: unknown) => void>();
   // Output that arrives before the first listener subscribes is held, not dropped.
   let pending: Uint8Array[] | undefined = [];
+  let pendingBytes = 0;
+  const hold = (bytes: Uint8Array) => {
+    if (!pending) return;
+    pending.push(bytes);
+    pendingBytes += bytes.byteLength;
+    while (pendingBytes > pendingLimit && pending.length > 1)
+      pendingBytes -= pending.shift()?.byteLength ?? 0;
+  };
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(options.env ?? process.env))
     if (value !== undefined) env[key] = value;
-  // A string is a Windows command line, passed on as written (node-pty does the same).
+  // Exit is reported once the shell has exited and the terminal's output has ended, so the
+  // last bytes the shell wrote reach listeners first; the two arrive separately.
+  let outputEnded = false;
+  let exitCode: number | undefined;
+  let reported = false;
+  let grace: ReturnType<typeof setTimeout> | undefined;
+  const report = () => {
+    if (reported || exitCode === undefined) return;
+    reported = true;
+    if (grace) clearTimeout(grace);
+    const exit = exitEvent(child, exitCode);
+    for (const listener of exitListeners) listener(exit);
+  };
+  // A string is a Windows command line, passed on as written (node-pty does the same). The
+  // program path leads it unquoted, so it must contain no spaces.
   const verbatim = typeof args === "string";
+  if (verbatim && /\s/.test(file))
+    throw new Error(`A Windows terminal program path cannot contain spaces: ${file}`);
   const child = runtime.spawn(verbatim ? [file, args] : [file, ...args], {
     cwd: options.cwd,
     env,
@@ -92,8 +127,13 @@ export function spawnBunPty(
       cols: options.cols ?? 80,
       rows: options.rows ?? 24,
       data(_terminal, bytes) {
-        if (pending) pending.push(bytes);
+        if (pending) hold(bytes);
         else for (const listener of dataListeners) listener(bytes);
+      },
+      exit() {
+        outputEnded = true;
+        // Data callbacks already queued run before the exit does.
+        setImmediate(report);
       },
     },
   });
@@ -103,11 +143,9 @@ export function spawnBunPty(
     throw new Error("Bun did not attach a terminal to the shell");
   }
   void child.exited.then((code) => {
-    // Let output already read from the terminal reach its listeners before the exit does.
-    setImmediate(() => {
-      const exit = exitEvent(child, code);
-      for (const listener of exitListeners) listener(exit);
-    });
+    exitCode = code;
+    if (outputEnded) setImmediate(report);
+    else grace = setTimeout(report, options.outputGraceMs ?? defaultOutputGraceMs);
   });
   return {
     pid: child.pid,
@@ -121,6 +159,7 @@ export function spawnBunPty(
       if (pending) {
         const held = pending;
         pending = undefined;
+        pendingBytes = 0;
         for (const bytes of held) listener(bytes);
       }
       return { dispose: () => dataListeners.delete(listener) };

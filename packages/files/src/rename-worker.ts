@@ -12,11 +12,12 @@ const Request = z.object({
 });
 type Reply = { ok: true } | { ok: false; code: string; message: string };
 const integer = z.number().int();
-/** The calling thread's errno, read right after the call that set it. */
-function posixResult(result: unknown, errno: () => number): Reply {
-  const code = integer.parse(result);
-  if (code === 0) return { ok: true };
-  const error = errno();
+/**
+ * The reply for a POSIX rename's result. `errno` must be read right after the call, before any
+ * other work: anything in between may make a call of its own that sets it.
+ */
+function posixResult(result: unknown, error: number): Reply {
+  if (integer.parse(result) === 0) return { ok: true };
   const codes = constants.errno;
   return {
     ok: false,
@@ -45,9 +46,13 @@ function systemMover(): (source: string, destination: string) => Reply {
       __error: { args: [], returns: "ptr" },
     });
     const { renamex_np: rename, __error: location } = library.symbols;
-    const errno = () => readInt32(z.number().parse(location()));
-    return (source, destination) =>
-      posixResult(rename(cString(source), cString(destination), 4), errno); // RENAME_EXCL
+    return (source, destination) => {
+      const from = cString(source);
+      const to = cString(destination);
+      const result = rename(from, to, 4); // RENAME_EXCL
+      const error = result === 0 ? 0 : readInt32(Number(location()));
+      return posixResult(result, error);
+    };
   }
   if (process.platform === "linux") {
     const library = openLibrary("libc.so.6", {
@@ -55,10 +60,13 @@ function systemMover(): (source: string, destination: string) => Reply {
       __errno_location: { args: [], returns: "ptr" },
     });
     const { renameat2: rename, __errno_location: location } = library.symbols;
-    const errno = () => readInt32(z.number().parse(location()));
-    // AT_FDCWD, RENAME_NOREPLACE
-    return (source, destination) =>
-      posixResult(rename(-100, cString(source), -100, cString(destination), 1), errno);
+    return (source, destination) => {
+      const from = cString(source);
+      const to = cString(destination);
+      const result = rename(-100, from, -100, to, 1); // AT_FDCWD, RENAME_NOREPLACE
+      const error = result === 0 ? 0 : readInt32(Number(location()));
+      return posixResult(result, error);
+    };
   }
   if (process.platform === "win32") {
     const library = openLibrary("kernel32.dll", {
@@ -70,11 +78,12 @@ function systemMover(): (source: string, destination: string) => Reply {
     // Flags 0: never replace and never copy across volumes.
     return (source, destination) => {
       for (let attempt = 0; ; attempt++) {
-        const result = integer.parse(
-          rename(wideString(windowsLongPath(source)), wideString(windowsLongPath(destination)), 0),
-        );
-        const error = integer.parse(lastError());
-        if (result !== 0) return { ok: true };
+        const from = wideString(windowsLongPath(source));
+        const to = wideString(windowsLongPath(destination));
+        const raw = rename(from, to, 0);
+        // GetLastError right after the failed call, before any other work.
+        const error = raw === 0 ? Number(lastError()) : 0;
+        if (integer.parse(raw) !== 0) return { ok: true };
         // Access denied (5) and sharing violations (32) clear once another program lets go.
         if ([5, 32].includes(error) && attempt < 5) {
           Atomics.wait(pause, 0, 0, 25 * 2 ** attempt);

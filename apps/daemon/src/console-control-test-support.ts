@@ -34,11 +34,11 @@ const step = (text) => process.stderr.write(text + "\\n");
 const kernel = dlopen("kernel32.dll", {
   AllocConsole: { args: [], returns: "i32" },
   FreeConsole: { args: [], returns: "i32" },
-  GetConsoleWindow: { args: [], returns: "ptr" },
+  GetConsoleWindow: { args: [], returns: "i64_fast" },
   SetConsoleCtrlHandler: { args: ["ptr", "i32"], returns: "i32" },
   GetLastError: { args: [], returns: "u32" },
 }).symbols;
-const user = dlopen("user32.dll", { ShowWindow: { args: ["ptr", "i32"], returns: "i32" } }).symbols;
+const user = dlopen("user32.dll", { ShowWindow: { args: ["i64_fast", "i32"], returns: "i32" } }).symbols;
 const alloc = kernel.AllocConsole;
 const free = kernel.FreeConsole;
 const consoleWindow = kernel.GetConsoleWindow;

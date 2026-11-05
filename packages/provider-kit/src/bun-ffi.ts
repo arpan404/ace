@@ -20,7 +20,11 @@ export type FfiType =
   | "u32"
   | "i64"
   | "u64"
-  /** 64-bit integers returned as numbers while they fit, for handles such as Win32's -1. */
+  /**
+   * 64-bit integers returned as numbers while they fit. Win32 HANDLEs (and HWNDs) use this,
+   * never `ptr`: Bun's docs say Windows handles are not pointers it can pass correctly, and
+   * INVALID_HANDLE_VALUE (-1) stays -1. See `nativeHandle` and `handleSlot`.
+   */
   | "i64_fast"
   | "u64_fast"
   /** A pointer: returned as a number, or null for NULL. Typed arrays and null may be passed. */
@@ -153,7 +157,24 @@ export function pointerSlot(): { readonly slot: BigUint64Array; value(): number 
 }
 
 /**
- * A handle or pointer held in JS, as bun:ffi takes it: a number, or null for NULL. Bigints
+ * A Win32 HANDLE held in JS, as an `i64_fast` argument takes it: a number, 0 for NULL. Handles
+ * are small kernel table values (or -1), so a number holds them exactly.
+ */
+export function nativeHandle(value: unknown): number {
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (typeof value === "bigint") return Number(BigInt.asIntN(64, value));
+  if (value === null || value === undefined) return 0;
+  throw new Error("Not a native handle");
+}
+
+/** A HANDLE out-parameter (`HANDLE *`): pass `slot`, then read `value()` (0 for NULL). */
+export function handleSlot(): { readonly slot: BigInt64Array; value(): number } {
+  const slot = new BigInt64Array(1);
+  return { slot, value: () => Number(slot[0] ?? 0n) };
+}
+
+/**
+ * A memory address held in JS, as bun:ffi takes it: a number, or null for NULL. Bigints
  * (pointers read out of a struct) become numbers; user-space addresses fit in 53 bits.
  */
 export function nativePointer(value: unknown): number | null {

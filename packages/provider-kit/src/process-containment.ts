@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import type koffiModule from "koffi";
 import { z } from "zod";
-import { nativePointer, openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { nativeHandle, openLibrary, runsOnBun } from "./bun-ffi.ts";
 
 /**
  * Windows Job Object containment for a tree where process groups do not exist. The kernel kills
@@ -53,27 +53,31 @@ type JobKernel = {
 // The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes bundle this file too
 // (the desktop main process reaches it through process.ts) and keep koffi, required lazily so
 // their bundles build; a failed load leaves the tree stop in charge.
+// HANDLEs are 64-bit integers (`i64_fast`), never `ptr`; `ptr` is only for the info buffers.
 function bunJobKernel(): JobKernel {
   const library = openLibrary("kernel32.dll", {
-    CreateJobObjectW: { args: ["ptr", "ptr"], returns: "ptr" },
-    SetInformationJobObject: { args: ["ptr", "i32", "ptr", "u32"], returns: "i32" },
-    OpenProcess: { args: ["u32", "i32", "u32"], returns: "ptr" },
-    AssignProcessToJobObject: { args: ["ptr", "ptr"], returns: "i32" },
-    CloseHandle: { args: ["ptr"], returns: "i32" },
-    QueryInformationJobObject: { args: ["ptr", "i32", "ptr", "u32", "ptr"], returns: "i32" },
-    TerminateJobObject: { args: ["ptr", "u32"], returns: "i32" },
+    CreateJobObjectW: { args: ["ptr", "ptr"], returns: "i64_fast" },
+    SetInformationJobObject: { args: ["i64_fast", "i32", "ptr", "u32"], returns: "i32" },
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "i64_fast" },
+    AssignProcessToJobObject: { args: ["i64_fast", "i64_fast"], returns: "i32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    QueryInformationJobObject: {
+      args: ["i64_fast", "i32", "ptr", "u32", "ptr"],
+      returns: "i32",
+    },
+    TerminateJobObject: { args: ["i64_fast", "u32"], returns: "i32" },
   });
   const k = library.symbols;
   return {
     create: () => k.CreateJobObjectW(null, null),
     setInfo: (job, infoClass, info, length) =>
-      k.SetInformationJobObject(nativePointer(job), infoClass, info, length),
+      k.SetInformationJobObject(nativeHandle(job), infoClass, info, length),
     openProcess: (access, inherit, pid) => k.OpenProcess(access, inherit, pid),
-    assign: (job, target) => k.AssignProcessToJobObject(nativePointer(job), nativePointer(target)),
-    closeHandle: (handle) => k.CloseHandle(nativePointer(handle)),
+    assign: (job, target) => k.AssignProcessToJobObject(nativeHandle(job), nativeHandle(target)),
+    closeHandle: (handle) => k.CloseHandle(nativeHandle(handle)),
     query: (job, infoClass, info, length) =>
-      k.QueryInformationJobObject(nativePointer(job), infoClass, info, length, null),
-    terminate: (job, exitCode) => k.TerminateJobObject(nativePointer(job), exitCode),
+      k.QueryInformationJobObject(nativeHandle(job), infoClass, info, length, null),
+    terminate: (job, exitCode) => k.TerminateJobObject(nativeHandle(job), exitCode),
     unload: () => library.close(),
   };
 }
