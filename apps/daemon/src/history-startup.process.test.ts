@@ -130,7 +130,7 @@ async function accessTimeControls(root: string): Promise<string[]> {
     ],
     ["a folder listing", file("folder"), () => readdirSync(file("folder"))],
   ];
-  for (const path of [file("probe"), ...controls.map(([, path]) => path)]) await untouch(path);
+  for (const target of [file("probe"), ...controls.map(([, path]) => path)]) await untouch(target);
   await readFile(file("probe"));
   if ((await accessed([file("probe")])).length === 0)
     throw new Error(
