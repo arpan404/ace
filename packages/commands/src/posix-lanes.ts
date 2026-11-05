@@ -1,5 +1,21 @@
 import type { PosixOperation, PosixReply, PosixValue } from "./posix-wire.ts";
-import type { PosixExecutor, PosixLaneOptions, PosixLimits } from "./posix-executor.ts";
+import type { PosixLaneOptions, PosixLimits } from "./posix-executor.ts";
+import { LaneCapacity } from "./posix-capacity.ts";
+import { ChangeFence } from "./posix-fence.ts";
+import { HandleTable } from "./posix-handle-table.ts";
+import {
+  CommandCallError,
+  cancelled,
+  closedHandle,
+  stopped,
+  unfinished,
+  admissionRefusal,
+  newJob,
+  type Executor,
+  type Job,
+  type Lane,
+} from "./posix-lane-types.ts";
+import { SparePool } from "./posix-spares.ts";
 import {
   CommandFilesystemUnavailable,
   CommandWriteOutcomeUnknown,
@@ -12,6 +28,7 @@ import {
 } from "./posix-ops.ts";
 
 export type { PosixValue };
+export { CommandCallError } from "./posix-lane-types.ts";
 export type {
   PosixExecutor,
   PosixExecutorEvents,
@@ -20,61 +37,6 @@ export type {
   SpawnPosixExecutor,
   StartTimer,
 } from "./posix-executor.ts";
-
-/** A call that failed with the error a worker reported, code included. */
-export class CommandCallError extends Error {
-  readonly code: string | undefined;
-  constructor(message: string, code: string | undefined) {
-    super(message);
-    this.code = code;
-  }
-}
-
-interface Executor {
-  id: number;
-  native: PosixExecutor;
-  lane?: Lane | undefined;
-  /** Set once it serves no one: draining after a deadline, retired when idle, or failed. */
-  gone?: "draining" | "retired" | "failed" | undefined;
-  /** The root a draining thread counts against. */
-  root?: string | undefined;
-  /** The call sent and not yet answered. */
-  inflight?: Job | undefined;
-  exited: boolean;
-  stopIdle?: (() => void) | undefined;
-  /** Handles this thread owns, closed or not yet reported closed; they keep it on its root. */
-  handles: Set<number>;
-}
-interface Job {
-  id: number;
-  root: string;
-  operation: PosixOperation;
-  /** The thread that owns the handles the call names; it must run there. */
-  owner?: Executor | undefined;
-  resolve(result: { value: PosixValue }): void;
-  reject(error: Error): void;
-  /** The caller gave up while it ran; what it opened is closed, not delivered. */
-  detached: boolean;
-  /** The identities of the handles it names. */
-  identities: string[];
-  /** A change holding its identities as landing until it returns natively. */
-  holding: boolean;
-  unlisten(): void;
-}
-interface Lane {
-  root: string;
-  executor?: Executor | undefined;
-  queue: Job[];
-  running?: { job: Job; stop: () => void } | undefined;
-  stopWaiting?: (() => void) | undefined;
-}
-
-const quiet = () => {};
-const stopped = () => new CommandFilesystemUnavailable("Command folder stopped responding");
-const unfinished = () =>
-  new CommandFilesystemUnavailable("An earlier change to this folder hasn't finished");
-const closedHandle = () =>
-  new CommandFilesystemUnavailable("This command folder handle is no longer open");
 
 /**
  * Native calls, one lane per root. A lane owns one thread while it has work or open handles, so a
@@ -92,29 +54,17 @@ export class PosixLanes {
   private limits: PosixLimits;
   private readonly lanes = new Map<string, Lane>();
   private readonly waiting: Lane[] = [];
-  private readonly spare: Executor[] = [];
-  private readonly draining = new Map<string, number>();
-  private readonly settles = new Map<string, (() => void)[]>();
-  /** Open handles, each with its root and the thread that owns it. */
-  private readonly handles = new Map<
-    number,
-    { root: string; executor: Executor; identity: string | undefined }
-  >();
-  /**
-   * Files and folders, by identity (dev and ino), that a change may still be landing in: one
-   * that timed out, or was given up while running. Different anchors (lanes) can reach the same
-   * folder, so this is shared by every lane, not kept per root.
-   */
-  private readonly landing = new Map<string, number>();
-  private drainingTotal = 0;
-  private live = 0;
-  private allocated = 0;
+  private readonly spares: SparePool;
+  private readonly capacity = new LaneCapacity();
+  private readonly fence = new ChangeFence();
+  private readonly table = new HandleTable();
   private executors = 0;
-  private jobs = 0;
-  private nextHandle = 0;
   constructor(options: PosixLaneOptions) {
     this.options = options;
     this.limits = { ...options };
+    this.spares = new SparePool(options.spares, options.idleMs, options.timer, (executor) =>
+      this.retire(executor),
+    );
   }
 
   /** Changes deadline and caps for later decisions; returns the restore. */
@@ -130,24 +80,19 @@ export class PosixLanes {
   }
   /** Threads started and not yet confirmed stopped, draining ones included. */
   threads(): number {
-    return this.allocated;
+    return this.capacity.threads();
   }
   /** A fresh handle id for a call that opens something. Never reused. */
   allocate(): number {
-    return ++this.nextHandle;
+    return this.table.allocate();
   }
   /** The root an open handle belongs to. */
   rootOf(handle: number): string | undefined {
-    return this.handles.get(handle)?.root;
+    return this.table.get(handle)?.root;
   }
   /** Resolves once `root` has no draining thread, so nothing abandoned there can still land. */
   settled(root: string): Promise<void> {
-    if (!this.draining.has(root)) return Promise.resolve();
-    return new Promise((resolve) => {
-      const list = this.settles.get(root) ?? [];
-      list.push(resolve);
-      this.settles.set(root, list);
-    });
+    return this.capacity.settled(root);
   }
 
   /**
@@ -172,7 +117,7 @@ export class PosixLanes {
     let owner: Executor | undefined;
     const identities: string[] = [];
     for (const handle of handlesOf(operation)) {
-      const entry = this.handles.get(handle);
+      const entry = this.table.get(handle);
       if (!entry) return refuse(closedHandle());
       if (owner && owner !== entry.executor)
         return refuse(
@@ -183,24 +128,21 @@ export class PosixLanes {
       if (entry.identity !== undefined) identities.push(entry.identity);
     }
     if (signal?.aborted) return refuse(cancelled(signal));
-    const stuck = this.draining.get(root) ?? 0;
-    if (isChange(operation) && this.fenced(root, identities)) return refuse(unfinished());
-    if (!owner && !this.lanes.has(root)) {
-      if (stuck >= this.options.stuckPerRoot)
-        return refuse(new CommandFilesystemUnavailable("Command folder is still not responding"));
-      // Stuck threads may fill only the room beyond the serving threads. Once they do, no new
-      // thread starts for any root, however its path is spelled; a new root takes a spare or
-      // fails at once.
-      if (!this.mayStart() && this.spare.length === 0)
-        return refuse(
-          new CommandFilesystemUnavailable("Too many command folders stopped responding"),
-        );
-    }
+    const refusal = admissionRefusal({
+      change: isChange(operation),
+      fenced: this.fenced(root, identities),
+      newLane: !owner && !this.lanes.has(root),
+      stuck: this.capacity.stuck(root),
+      stuckPerRoot: this.options.stuckPerRoot,
+      mayStart: this.capacity.mayStart(this.limits),
+      spares: this.spares.size,
+    });
+    if (refusal) return refuse(refusal);
     // From here on the caller can't use a handle this call takes over.
     const consumed = consumedBy(operation);
-    if (consumed !== undefined) this.handles.delete(consumed);
+    if (consumed !== undefined) this.table.delete(consumed);
     return new Promise((resolve, reject) => {
-      const job = this.job(root, operation, owner, resolve, reject);
+      const job = newJob(root, operation, owner, resolve, reject);
       job.identities = identities;
       if (signal) {
         const abort = () => this.cancel(job, cancelled(signal));
@@ -217,61 +159,22 @@ export class PosixLanes {
    * the handle itself as it drains.
    */
   close(handle: number): void {
-    const entry = this.handles.get(handle);
+    const entry = this.table.get(handle);
     if (!entry) return;
-    this.handles.delete(handle);
+    this.table.delete(handle);
     this.closeOn(entry.executor, handle);
   }
 
   private closeOn(executor: Executor, handle: number): void {
     const lane = executor.lane;
     if (executor.gone || !lane) return;
-    lane.queue.push(this.job(lane.root, { op: "close", handle }, executor, quiet, quiet));
+    lane.queue.push(newJob(lane.root, { op: "close", handle }, executor));
     this.pump(lane);
-  }
-
-  private job(
-    root: string,
-    operation: PosixOperation,
-    owner: Executor | undefined,
-    resolve: Job["resolve"],
-    reject: Job["reject"],
-  ): Job {
-    return {
-      id: ++this.jobs,
-      root,
-      operation,
-      owner,
-      resolve,
-      reject,
-      detached: false,
-      identities: [],
-      holding: false,
-      unlisten: quiet,
-    };
   }
 
   /** Whether a change to `identities` under `root` could race one that may still land. */
   private fenced(root: string, identities: readonly string[]): boolean {
-    if ((this.draining.get(root) ?? 0) > 0) return true;
-    return identities.some((identity) => this.landing.has(identity));
-  }
-  /** A change that may still land keeps what it changes off limits to other changes. */
-  private hold(job: Job): void {
-    if (job.holding || !isChange(job.operation)) return;
-    job.holding = true;
-    for (const identity of job.identities)
-      this.landing.set(identity, (this.landing.get(identity) ?? 0) + 1);
-  }
-  /** The change has returned natively, or its thread has exited: it can't land any more. */
-  private landed(job: Job): void {
-    if (!job.holding) return;
-    job.holding = false;
-    for (const identity of job.identities) {
-      const left = (this.landing.get(identity) ?? 1) - 1;
-      if (left > 0) this.landing.set(identity, left);
-      else this.landing.delete(identity);
-    }
+    return this.capacity.stuck(root) > 0 || this.fence.blocks(identities);
   }
 
   private enqueue(job: Job): void {
@@ -295,15 +198,9 @@ export class PosixLanes {
   }
 
   private take(): Executor | undefined {
-    const reused = this.spare.pop();
-    if (reused) {
-      reused.stopIdle?.();
-      reused.stopIdle = undefined;
-      return reused;
-    }
-    if (this.live >= this.limits.maxWorkers || this.allocated >= this.limits.maxThreads)
-      return undefined;
-    if (!this.mayStart()) return undefined;
+    const reused = this.spares.take();
+    if (reused) return reused;
+    if (!this.capacity.canStart(this.limits)) return undefined;
     let executor: Executor | undefined;
     const native = this.options.spawn({
       reply: (reply) => executor && this.replied(executor, reply),
@@ -311,16 +208,9 @@ export class PosixLanes {
       exit: () => executor && this.exited(executor),
     });
     executor = { id: ++this.executors, native, exited: false, handles: new Set() };
-    this.live++;
-    this.allocated++;
+    this.capacity.started();
     native.hold(false);
     return executor;
-  }
-
-  /** Whether stuck threads leave room to start one: they may fill only the reserve. */
-  private mayStart(): boolean {
-    const reserve = Math.max(1, this.limits.maxThreads - this.limits.maxWorkers);
-    return this.drainingTotal < reserve;
   }
 
   private bind(lane: Lane, executor: Executor): void {
@@ -371,7 +261,7 @@ export class PosixLanes {
     const job = executor.inflight;
     if (!job || job.id !== reply.id) return;
     executor.inflight = undefined;
-    this.landed(job);
+    this.fence.landed(job);
     // A draining thread closes everything it owns, late results included, before it exits.
     if (executor.gone) return;
     const lane = executor.lane;
@@ -389,10 +279,8 @@ export class PosixLanes {
     if (handle !== undefined && reply.ok && created(operation, reply.value)) {
       executor.handles.add(handle);
       // Nobody will close what a caller who gave up opened: close it here, first.
-      if (job.detached)
-        lane.queue.unshift(this.job(lane.root, { op: "close", handle }, executor, quiet, quiet));
-      else
-        this.handles.set(handle, { root: lane.root, executor, identity: identityOf(reply.value) });
+      if (job.detached) lane.queue.unshift(newJob(lane.root, { op: "close", handle }, executor));
+      else this.table.set(handle, { root: lane.root, executor, identity: identityOf(reply.value) });
     }
     if (!job.detached) {
       if (reply.ok) job.resolve({ value: reply.value });
@@ -405,13 +293,9 @@ export class PosixLanes {
   private failed(executor: Executor, error: Error): void {
     if (executor.gone || executor.exited) return;
     executor.gone = "failed";
-    this.live--;
-    this.forgetHandles(executor);
-    const spare = this.spare.indexOf(executor);
-    if (spare >= 0) {
-      this.spare.splice(spare, 1);
-      executor.stopIdle?.();
-    } else if (executor.lane) this.fail(executor.lane, error);
+    this.capacity.stoppedServing();
+    this.table.forget(executor);
+    if (!this.spares.remove(executor) && executor.lane) this.fail(executor.lane, error);
     this.wake();
   }
 
@@ -421,27 +305,10 @@ export class PosixLanes {
     if (!executor.gone) this.failed(executor, new Error("Command discovery worker exited"));
     executor.exited = true;
     // A thread that has exited is in no call: whatever it was changing can't land any more.
-    if (executor.inflight) this.landed(executor.inflight);
+    if (executor.inflight) this.fence.landed(executor.inflight);
     executor.inflight = undefined;
-    this.allocated--;
-    if (executor.gone === "draining") {
-      const root = executor.root ?? "";
-      const left = (this.draining.get(root) ?? 1) - 1;
-      this.drainingTotal--;
-      if (left > 0) this.draining.set(root, left);
-      else {
-        this.draining.delete(root);
-        for (const resolve of this.settles.get(root) ?? []) resolve();
-        this.settles.delete(root);
-      }
-    }
+    this.capacity.exited(executor.gone === "draining" ? (executor.root ?? "") : undefined);
     this.wake();
-  }
-
-  /** Handles of a thread that serves no more are dead here; only that thread could close them. */
-  private forgetHandles(executor: Executor): void {
-    for (const handle of executor.handles) this.handles.delete(handle);
-    executor.handles.clear();
   }
 
   /**
@@ -455,7 +322,7 @@ export class PosixLanes {
     if (lane.running?.job === job) {
       job.detached = true;
       job.unlisten();
-      this.hold(job);
+      this.fence.hold(job);
       return job.reject(
         isChange(job.operation)
           ? new CommandWriteOutcomeUnknown("A change to a command folder was cancelled", job.root)
@@ -484,13 +351,11 @@ export class PosixLanes {
     if (!executor || !running) return;
     executor.gone = "draining";
     executor.root = lane.root;
-    this.live--;
-    this.drainingTotal++;
-    this.draining.set(lane.root, (this.draining.get(lane.root) ?? 0) + 1);
-    this.forgetHandles(executor);
+    this.capacity.drained(lane.root);
+    this.table.forget(executor);
     executor.native.hold(false);
     executor.native.drain();
-    this.hold(running.job);
+    this.fence.hold(running.job);
     const change = isChange(running.job.operation);
     this.fail(
       lane,
@@ -528,20 +393,13 @@ export class PosixLanes {
     if (!executor || executor.gone) return;
     const next = this.waiting.shift();
     if (next) return this.bind(next, executor);
-    if (this.spare.length >= this.options.spares) return this.retire(executor);
-    this.spare.push(executor);
-    executor.stopIdle = this.options.timer(() => {
-      const at = this.spare.indexOf(executor);
-      if (at < 0) return;
-      this.spare.splice(at, 1);
-      this.retire(executor);
-    }, this.options.idleMs);
+    if (!this.spares.offer(executor)) this.retire(executor);
   }
 
   /** Stops serving now; the thread still counts against the cap until it has exited. */
   private retire(executor: Executor): void {
     executor.gone = "retired";
-    this.live--;
+    this.capacity.stoppedServing();
     executor.native.drain();
     this.wake();
   }
@@ -555,10 +413,4 @@ export class PosixLanes {
     const at = this.waiting.indexOf(lane);
     if (at >= 0) this.waiting.splice(at, 1);
   }
-}
-
-function cancelled(signal: AbortSignal): Error {
-  const reason: unknown = signal.reason;
-  if (reason instanceof Error) return reason;
-  return new CommandFilesystemUnavailable("Command filesystem call cancelled");
 }
