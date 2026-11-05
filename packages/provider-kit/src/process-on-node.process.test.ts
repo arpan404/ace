@@ -7,12 +7,7 @@ import { z } from "zod";
 import { runsOnBun } from "./bun-ffi.ts";
 import { createKillOnCloseJob, createRetainedJob } from "./process-containment.ts";
 import { windowsSystemExecutable } from "./process-owner.ts";
-import {
-  observeProcessGroups,
-  probeOutput,
-  spawnSupervised,
-  stopOwnedGroups,
-} from "./process.ts";
+import { observeProcessGroups, probeOutput, spawnSupervised, stopOwnedGroups } from "./process.ts";
 
 /*
  * The Electron main process bundles this code and runs it on Node, where it takes paths the
@@ -64,20 +59,17 @@ test("on Node a probe of a command that is not installed fails to start", async 
   ).rejects.toThrow("Probe failed to start");
 });
 
-test.runIf(posix)(
-  "on Node a probe past its timeout is stopped with its descendants",
-  async () => {
-    await recordingGroups(async (recorded) => {
-      const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"], { timeoutMs: 300 });
-      await expect.poll(() => recorded.size).toBe(1);
-      const [pid] = recorded;
-      if (pid === undefined) throw new Error("Probe was never recorded");
-      await expect(running).rejects.toThrow("Probe timed out");
-      expect(recorded.size).toBe(0);
-      await expect.poll(() => groupAlive(pid), { timeout: 5000 }).toBe(false);
-    });
-  },
-);
+test.runIf(posix)("on Node a probe past its timeout is stopped with its descendants", async () => {
+  await recordingGroups(async (recorded) => {
+    const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"], { timeoutMs: 300 });
+    await expect.poll(() => recorded.size).toBe(1);
+    const [pid] = recorded;
+    if (pid === undefined) throw new Error("Probe was never recorded");
+    await expect(running).rejects.toThrow("Probe timed out");
+    expect(recorded.size).toBe(0);
+    await expect.poll(() => groupAlive(pid), { timeout: 5000 }).toBe(false);
+  });
+});
 
 test.runIf(posix)("on Node an aborted probe stops its descendants and rejects", async () => {
   await recordingGroups(async (recorded) => {
