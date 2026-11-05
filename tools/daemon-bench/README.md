@@ -85,10 +85,12 @@ edit `standardOptions`. Either way, re-measure every platform's baseline in the 
 Every result records the runtime the daemon reported (`bun 1.4.4`, or a Node version), and
 heap, RSS, footprint and idle CPU are compared only with a baseline of the same runtime line:
 the same Node major, or the same Bun minor (`bun 1.4`). The macOS baseline is Bun 1.4.4's: the median of three standard runs on a
-16-core M-series Mac at load average 300–480. Across those runs new-thread and same-thread
-transactions varied by under 1% (≈117 and ≈79), long-text transactions by about 8%
-(296–319), normalized CPU per turn by up to 18%, idle CPU per minute by 4%, heap after GC by
-under 4%, and RSS by up to 30% at startup and 25% after the turns.
+16-core M-series Mac at one-minute load average 36–101, each run's daemon reporting
+`bun 1.4.4`. Across those runs new-thread and same-thread transactions varied by under 1%
+(≈117 and ≈79), long-text transactions by about 4% (327–340); normalized CPU per turn by
+5–7% for new-thread and same-thread turns and 33% for long-text turns; raw idle CPU by 31%
+(0.87–1.14% of a core) and normalized idle CPU by 38%; heap after GC by under 1%; and RSS
+by up to 21% at startup and 10% after the turns.
 
 Why the tolerances in `baseline.json` are what they are, from twelve full runs on Node on a
 loaded M-series Mac (load average 30–125) in four sets of three:
@@ -103,9 +105,9 @@ loaded M-series Mac (load average 30–125) in four sets of three:
   of three stayed within about 20% of each other while the calibration itself moved by
   30%. Gate on `--runs=3`; one run is a smoke test, not a verdict.
 - **Idle CPU per minute**, 50% (+2): small and noisy (about 1% of one core).
-- **Raw idle CPU**, 35% (+0.2 points of a core): six Bun runs measured 0.77–0.81%, while the
-  normalized figure moved 17.4–19.8 with the calibration. Raw daemon idle on this Mac is
-  0.50–0.57% on Node and 0.72–0.81% on Bun.
+- **Raw idle CPU**, 35% (+0.2 points of a core): nine Bun 1.4.4 runs on this Mac measured
+  0.77–1.14% of a core, while the normalized figure moved 17.4–24.9 with the calibration. Raw
+  daemon idle on this Mac is 0.50–0.57% on Node and 0.72–1.14% on Bun.
 - **Heap after GC**, 10% (+4 MiB): varied by under 0.5%; a leak of a few MiB fails.
 - **RSS and footprint**, 15% (+16 MiB): varied by up to 10% (allocator and page reuse).
 
