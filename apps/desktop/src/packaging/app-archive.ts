@@ -56,6 +56,6 @@ export async function checkAppArchive(file: string, limit = appArchiveLimitBytes
   const { size } = await stat(file);
   if (size > limit)
     throw new Error(
-      `${file} is ${Math.round(size / 1024 / 1024)} MB, over the ${Math.round(limit / 1024 / 1024)} MB limit for app.asar`,
+      `${file} is ${size} bytes (${(size / 1024 / 1024).toFixed(1)} MB), over the ${limit}-byte (${(limit / 1024 / 1024).toFixed(1)} MB) limit for app.asar`,
     );
 }

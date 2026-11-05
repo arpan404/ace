@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -88,7 +88,7 @@ test("a node_modules folder nested under the renderer is refused too", async ({
   await expect(checkAppArchive(file)).rejects.toThrow("renderer/node_modules");
 });
 
-test("an archive over the size limit is refused, and one at it passes", async ({
+test("an archive one byte over the limit is refused, and one exactly at it passes", async ({
   onTestFinished,
 }) => {
   const file = await archive(
@@ -96,6 +96,9 @@ test("an archive over the size limit is refused, and one at it passes", async ({
     bundledApp,
     2 * 1024 * 1024,
   );
-  await expect(checkAppArchive(file, 1024 * 1024)).rejects.toThrow("over the 1 MB limit");
-  await expect(checkAppArchive(file, 4 * 1024 * 1024)).resolves.toBeUndefined();
+  const { size } = await stat(file);
+  await expect(checkAppArchive(file, size)).resolves.toBeUndefined();
+  await expect(checkAppArchive(file, size - 1)).rejects.toThrow(
+    `is ${size} bytes (2.0 MB), over the ${size - 1}-byte (2.0 MB) limit`,
+  );
 });
