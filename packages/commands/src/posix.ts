@@ -1,4 +1,3 @@
-import * as koffi from "koffi";
 import { z } from "zod";
 import { close as closeDescriptor, constants } from "node:fs";
 import { closeSync, fstatSync, readlinkSync } from "node:fs";
@@ -22,62 +21,23 @@ import {
 } from "@ace/workspace/descriptor";
 import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
+import { PosixWorkerClient } from "./posix-worker-client.ts";
+import type { PosixOperation } from "./posix-wire.ts";
 export type OpenCommandChild = (directory: number, name: string, flags: number) => Promise<number>;
 export interface DirectoryReader {
   read(): Promise<string | undefined>;
   close(): Promise<void>;
 }
 const integer = z.number().int();
-const pointer = z.bigint().nullable();
 export class EntryUnavailable extends Error {}
-// OS interface declarations only. No provider or third-party implementation code.
-function bindings() {
-  if (!["darwin", "linux"].includes(process.platform) || !["arm64", "x64"].includes(process.arch))
-    throw new Error("Secure command discovery requires 64-bit macOS or Linux");
-  const library = koffi.load(null);
-  const suffix = process.platform === "darwin" && process.arch === "x64" ? "$INODE64" : "";
-  return {
-    open: library.func("int openat(int directory, const char *name, int flags)"),
-    create: library.func("int openat(int directory, const char *name, int flags, ...)"),
-    readlink: library.func(
-      "int readlinkat(int directory, const char *name, void *buffer, unsigned long size)",
-    ),
-    mkdir: library.func("int mkdirat(int directory, const char *name, unsigned int mode)"),
-    rename: library.func(
-      "int renameat(int olddir, const char *oldname, int newdir, const char *newname)",
-    ),
-    unlink: library.func("int unlinkat(int directory, const char *name, int flags)"),
-    link: library.func(
-      "int linkat(int olddir, const char *oldname, int newdir, const char *newname, int flags)",
-    ),
-    symlink: library.func("int symlinkat(const char *target, int directory, const char *name)"),
-    // renameatx_np (macOS) and renameat2 (Linux) take the same arguments; only flag values differ.
-    renameFlags:
-      process.platform === "darwin"
-        ? library.func(
-            "int renameatx_np(int olddir, const char *oldname, int newdir, const char *newname, unsigned int flags)",
-          )
-        : library.func(
-            "int renameat2(int olddir, const char *oldname, int newdir, const char *newname, unsigned int flags)",
-          ),
-    directory: library.func(`fdopendir${suffix}`, "void *", ["int"]),
-    next: library.func(`readdir${suffix}`, "void *", ["void *"]),
-    close: library.func("int closedir(void *directory)"),
-  };
+// Every POSIX call runs in the discovery worker: a stalled network, FUSE or cloud mount blocks
+// that thread, never the daemon's event loop.
+let client: PosixWorkerClient | undefined;
+function posix(operation: PosixOperation): Promise<number | string | null> {
+  return (client ??= new PosixWorkerClient()).call(operation);
 }
-let native: ReturnType<typeof bindings> | undefined;
-function api() {
-  return (native ??= bindings());
-}
-async function call(
-  fn: { async(...input: unknown[]): unknown },
-  ...args: unknown[]
-): Promise<unknown> {
-  return new Promise((resolve, reject) =>
-    fn.async(...args, (error: unknown, result: unknown) =>
-      error ? reject(error) : resolve(result),
-    ),
-  );
+async function posixInteger(operation: PosixOperation): Promise<number> {
+  return integer.parse(await posix(operation));
 }
 const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0x80000;
 export const directoryFlags =
@@ -86,23 +46,20 @@ export const fileFlags =
   constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec;
 export const openCommandChild: OpenCommandChild = async (directory, name, flags) => {
   if (process.platform === "win32") return windowsOpenChild(directory, name);
-  const fd = integer.parse(await call(api().open, directory, name, flags));
+  const fd = await posixInteger({ op: "open", directory, name, flags });
   if (fd < 0) throw new EntryUnavailable("Cannot open command entry without following symlinks");
   return fd;
 };
 export async function directoryReader(fd: number): Promise<DirectoryReader> {
   if (process.platform === "win32") return windowsDirectoryReader(fd);
-  const handle = pointer.parse(await call(api().directory, fd));
-  if (handle === null) throw new Error("Cannot enumerate command directory");
+  const reader = await posixInteger({ op: "openDirectory", fd });
+  if (reader === 0) throw new Error("Cannot enumerate command directory");
   let closed = false;
   return {
     async read() {
       if (closed) return undefined;
-      const entry = pointer.parse(await call(api().next, handle));
-      if (entry === null) return undefined;
-      // Public dirent ABIs: Linux 64-bit d_name at 19; Darwin inode64 at 21.
-      const offset = process.platform === "darwin" ? 21 : 19;
-      const value: unknown = koffi.decode(entry, offset, "char", -1);
+      const value = await posix({ op: "readDirectory", reader });
+      if (value === null) return undefined;
       return z
         .string()
         .min(1)
@@ -113,7 +70,7 @@ export async function directoryReader(fd: number): Promise<DirectoryReader> {
     async close() {
       if (!closed) {
         closed = true;
-        integer.parse(await call(api().close, handle));
+        await posixInteger({ op: "closeDirectory", reader });
       }
     },
   };
@@ -122,7 +79,7 @@ export async function directoryReader(fd: number): Promise<DirectoryReader> {
 /** Small descriptor-relative mutation primitives, shared by prompt file editing. */
 export async function createCommandDirectory(directory: number, name: string): Promise<void> {
   if (process.platform === "win32") return void windowsQuiet(() => mkdirAt(directory, name));
-  await call(api().mkdir, directory, name, 0o700);
+  await posix({ op: "mkdir", directory, name, mode: 0o700 });
   // The caller opens the result with O_NOFOLLOW, including when mkdir found an existing entry.
 }
 export async function createCommandFile(directory: number, name: string): Promise<number> {
@@ -134,20 +91,8 @@ export async function createCommandFile(directory: number, name: string): Promis
       throw new EntryUnavailable("Cannot create prompt file");
     }
   }
-  // Koffi variadic calls are synchronous; openat is one bounded descriptor operation.
-  const fd = integer.parse(
-    api().create(
-      directory,
-      name,
-      constants.O_WRONLY |
-        constants.O_CREAT |
-        constants.O_EXCL |
-        constants.O_NOFOLLOW |
-        closeOnExec,
-      "unsigned int",
-      0o600,
-    ),
-  );
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL;
+  const fd = await posixInteger({ op: "create", directory, name, flags });
   if (fd < 0) throw new EntryUnavailable("Cannot create prompt file");
   return fd;
 }
@@ -161,12 +106,19 @@ export async function replaceCommandFile(
       throw new Error("Cannot replace prompt file");
     return;
   }
-  if (integer.parse(await call(api().rename, directory, source, directory, target)) < 0)
-    throw new Error("Cannot replace prompt file");
+  const renamed = await posixInteger({
+    op: "rename",
+    from: directory,
+    fromName: source,
+    to: directory,
+    toName: target,
+    flags: 0,
+  });
+  if (renamed < 0) throw new Error("Cannot replace prompt file");
 }
 export async function removeCommandFile(directory: number, name: string): Promise<void> {
   if (process.platform === "win32") return void windowsQuiet(() => unlinkAt(directory, name));
-  await call(api().unlink, directory, name, 0);
+  await posix({ op: "unlink", directory, name, flags: 0 });
 }
 export async function linkCommandFile(
   directory: number,
@@ -183,17 +135,23 @@ export async function linkCommandFile(
     }
     return;
   }
-  if (integer.parse(await call(api().link, directory, source, directory, target, 0)) < 0)
-    throw new Error("prompt_conflict");
+  const linked = await posixInteger({
+    op: "link",
+    from: directory,
+    fromName: source,
+    to: directory,
+    toName: target,
+    flags: 0,
+  });
+  if (linked < 0) throw new Error("prompt_conflict");
 }
 
 /** Read the link itself relative to the pinned skill directory, never its target. */
 export async function readCommandLink(directory: number, name: string): Promise<string> {
   if (process.platform === "win32") return windowsReadLink(directory, name);
-  const bytes = Buffer.alloc(4096);
-  const count = integer.parse(await call(api().readlink, directory, name, bytes, bytes.length));
-  if (count < 1 || count >= bytes.length) throw new EntryUnavailable("Unavailable skill link");
-  return bytes.subarray(0, count).toString("utf8");
+  const text = await posix({ op: "readLink", directory, name });
+  if (typeof text !== "string") throw new EntryUnavailable("Unavailable skill link");
+  return text;
 }
 
 // unlinkat's AT_REMOVEDIR, from <fcntl.h>.
@@ -205,7 +163,7 @@ export async function makeCommandDirectory(
   mode: number,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsQuiet(() => mkdirAt(directory, name));
-  return integer.parse(await call(api().mkdir, directory, name, mode)) === 0;
+  return (await posixInteger({ op: "mkdir", directory, name, mode })) === 0;
 }
 /** unlinkat of a file, symlink (never its target) or, with `folder`, an empty directory. */
 export async function removeCommandEntry(
@@ -214,9 +172,8 @@ export async function removeCommandEntry(
   folder: boolean,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRemove(directory, name, folder);
-  return (
-    integer.parse(await call(api().unlink, directory, name, folder ? removeDirectoryFlag : 0)) === 0
-  );
+  const flags = folder ? removeDirectoryFlag : 0;
+  return (await posixInteger({ op: "unlink", directory, name, flags })) === 0;
 }
 /** renameat between two pinned directories; neither name is followed. */
 export async function renameCommandEntry(
@@ -226,7 +183,8 @@ export async function renameCommandEntry(
   to: string,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRename(fromDirectory, from, toDirectory, to);
-  return integer.parse(await call(api().rename, fromDirectory, from, toDirectory, to)) === 0;
+  const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
+  return (await posixInteger({ op: "rename", ...operation, flags: 0 })) === 0;
 }
 const closeQuietly = (fd: number) =>
   new Promise<void>((accept) => closeDescriptor(fd, () => accept()));
@@ -275,9 +233,8 @@ export async function renameCommandEntryAs(
     return windowsRename(fromDirectory, from, toDirectory, to, false);
   }
   const flags = renameModes[mode];
-  return (
-    integer.parse(await call(api().renameFlags, fromDirectory, from, toDirectory, to, flags)) === 0
-  );
+  const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
+  return (await posixInteger({ op: "renameFlags", ...operation, flags })) === 0;
 }
 /** symlinkat: `name` in the pinned directory, storing `target` as text; fails if `name` exists. */
 export async function linkCommandEntry(
@@ -286,7 +243,7 @@ export async function linkCommandEntry(
   name: string,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsJunction(target, directory, name);
-  return integer.parse(await call(api().symlink, target, directory, name)) === 0;
+  return (await posixInteger({ op: "symlink", target, directory, name })) === 0;
 }
 
 // Windows: the same primitives over @ace/workspace's handle-relative add-on. Handles are Node fds,

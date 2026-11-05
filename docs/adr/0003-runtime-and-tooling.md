@@ -44,9 +44,33 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   desktop app) and `node.exe`. Launchers and updaters from earlier releases run
   `<release>/bin/node ace.mjs`, and Bun runs scripts the same way under that name.
 - **Node code stays as it is.** The daemon keeps using `node:` modules; Bun-native APIs are
-  later work. The one exception is terminals: node-pty's addon needs Node's libuv loop and
-  reports neither output nor exit under Bun, so on Bun the terminal backends spawn through
-  `Bun.spawn({ terminal })`. On Node they keep node-pty.
+  later work. Two exceptions:
+  - Terminals: node-pty's addon needs Node's libuv loop and reports neither output nor exit
+    under Bun, so the terminal backends (POSIX and Windows ConPTY) spawn through
+    `Bun.spawn({ terminal })`. node-pty is a development dependency, loaded only when a test
+    opens a terminal on Node; releases and the desktop app ship none of it.
+  - Native calls: C and Win32 functions are bound with `bun:ffi` through
+    `@ace/provider-kit/bun-ffi`, not koffi. Two provider-kit files the desktop main process
+    also bundles (`process-owner.ts`, `process-containment.ts`) keep a lazy koffi path for
+    runtimes that are not Bun; the daemon never loads koffi, and the desktop bundle refuses a
+    static `bun:ffi` import. bun:ffi has no variadic calls, so the one `openat` with `O_CREAT`
+    goes through `@ace/workspace`'s add-on. bun:ffi calls run on the calling thread, so command
+    discovery's filesystem calls run in their own worker (`packages/commands/src/posix-worker.ts`),
+    where a stuck mount blocks only that worker.
+- **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
+  screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
+  `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms
+  of CPU against sharp's 17.9–18.1 ms, with about 50 MiB less peak memory. sharp stays for what
+  `Bun.Image` can't do: drawing SVG (icons, device art), raw pixel input and output (app icons,
+  skin alpha masks) and compositing (device bodies, browser filmstrips).
+  `Bun.Image` has no strict mode, so a JPEG cut short decodes to a partly grey picture. Device
+  frames and screenshots an agent acts on are refused unless a marker walk finds every segment
+  whole and the last scan running to the end-of-image marker that closes the bytes. That walk
+  does not read coded data: a scan damaged inside whose end marker survives (cut, then closed
+  with a fresh end marker) would still pass, and only a strict decoder could catch it.
+  serve-sim's frames are cut at their advertised length and its encoder writes whole JPEGs, so
+  that case needs a broken encoder, not a broken link. Attachment previews may show a partial
+  picture.
 - **Release builds still run on Node 26.12.1** (`nodeVersion`), which native addons are built
   against. They are Node-API, so the same binaries load in Bun.
 - **Known Bun differences** that ace code has to respect:
@@ -60,6 +84,11 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
   - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
     errno; code waits on the `error` or `close` event, never on `exitCode`.
+  - A child's stdin reports `writableLength` as 0 however full its pipe is, emits `drain`
+    before the callback of the write that drained, and may run a write's callback inside the
+    write. Code counts unflushed bytes from write callbacks.
+  - `Bun.Image` handles a JPEG cut short differently by version: 1.4.0 refuses it, 1.4.4 fills
+    the missing data with grey and succeeds. Releases pin 1.4.4.
   - Bun's `node:https` server ignores `SNICallback`, `addContext` and `setSecureContext`, and
     serves only its default certificate. Its `node:tls` server honours `SNICallback`. The remote
     listener therefore ends TLS in a `node:tls` server and hands each socket to a plain
@@ -141,6 +170,6 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   footprint just after start (209–228 vs 222–254 MB). `ace version` starts in 232 ms against
   Node's 323 ms.
 - **Not compiled yet.** `bun build --compile` (with or without `--bytecode`) builds, but the
-  binary cannot run: native addons (koffi, node-pty) are not found inside its embedded file
+  binary cannot run: native addons (`descriptor.node`) are not found inside its embedded file
   system, and helpers launched through `process.execPath` and the worker files would need
   Bun-specific handling. That is part of the Bun-native follow-up.

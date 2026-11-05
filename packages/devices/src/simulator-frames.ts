@@ -1,8 +1,12 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
-import { jpegDimensions } from "./jpeg.ts";
+import { fitImage } from "@ace/provider-kit/image";
+import { jpegComplete } from "./jpeg.ts";
+import { DeviceError } from "./sdk.ts";
 import { deviceImageStream } from "./stream-control.ts";
 
 type Image = { bytes: Buffer; width: number; height: number };
+/** sharp's default bound, which frames were decoded under before (about 268 MP). */
+const frameMaxPixels = 0x3fff * 0x3fff;
 /** Retain only the latest native frame while one JPEG transform is outstanding. */
 export class SimulatorFrames {
   private settings: ScreenStreamSettings;
@@ -71,21 +75,25 @@ export class SimulatorFrames {
       const heightLimit = Math.min(2160, settings.maxHeight);
       const resize = source.width > settings.maxWidth || source.height > heightLimit;
       const budget = Math.max(16384, settings.bitrate / 8 / settings.fps);
+      // A cut-short frame would show an agent a screen that isn't there: refused, whether
+      // passed through or re-encoded (Bun's decoder fills missing data with grey).
+      if (!jpegComplete(source.bytes))
+        throw new DeviceError(
+          "invalid_data",
+          "The Simulator sent an incomplete picture",
+          "Retry; if it persists, restart the device view.",
+        );
       let image = source;
       if (resize || source.bytes.length > budget) {
-        const { default: sharp } = await import("sharp");
-        const bytes = await sharp(source.bytes)
-          .resize({
-            width: settings.maxWidth,
-            height: heightLimit,
-            fit: "inside",
-            withoutEnlargement: true,
-          })
-          .jpeg({
+        const { bytes, width, height } = await fitImage(
+          { input: source.bytes, maxPixels: frameMaxPixels, autoOrient: false },
+          { width: settings.maxWidth, height: heightLimit },
+          {
+            format: "jpeg",
             quality: Math.max(35, Math.min(85, Math.round((85 * budget) / source.bytes.length))),
-          })
-          .toBuffer();
-        image = { bytes, ...jpegDimensions(bytes) };
+          },
+        );
+        image = { bytes, width, height };
       }
       if (!this.stopped && revision === this.revision) {
         this.options.publish(image, image.width / source.width);

@@ -7,8 +7,7 @@
     ".": "./src/bundle.ts",
     "./daemon-runtime": "./src/daemon-runtime.ts",
     "./native-arch": "./src/native-arch.ts",
-    "./glibc": "./src/glibc.ts",
-    "./pty-assets": "./src/pty-assets.ts"
+    "./glibc": "./src/glibc.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
@@ -16,7 +15,6 @@
     "sign": "node src/sign.ts",
     "bench": "node bench/hash.ts",
     "publication": "node src/publication.ts",
-    "native": "node src/native.ts",
     "smoke": "node src/smoke.ts"
   },
   "dependencies": {
@@ -27,12 +25,10 @@
     "@ace/provider-kit": "workspace:*",
     "@ace/service": "workspace:*",
     "esbuild": "0.25.12",
-    "node-pty": "1.1.0",
     "tar": "7.5.7",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/browser": "workspace:*",
-    "node-gyp": "11.5.0"
+    "@ace/browser": "workspace:*"
   }
 }

@@ -1,8 +1,11 @@
 import { mkdtemp, mkdir, writeFile, rm, rename, symlink, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { closeSync, constants, openSync } from "node:fs";
 import { afterEach, it, expect } from "vitest";
 import {
+  openCommandChild,
   CommandCatalog,
   CommandFiles,
   CommandLibrary,
@@ -272,3 +275,30 @@ it("removes overlapping user and workspace roots together when their shared file
   await rm(join(f.root, "shared.md"));
   await event;
 });
+
+it.skipIf(process.platform === "win32")(
+  "a command entry that never opens leaves the daemon's event loop running",
+  async () => {
+    const { home } = await fixture();
+    // Opening a FIFO with no writer blocks, as a call into a dead network mount does.
+    execFileSync("mkfifo", [join(home, "stuck")]);
+    const root = openSync(home, constants.O_RDONLY | constants.O_DIRECTORY);
+    cleanups.push(async () => closeSync(root));
+    const opening = openCommandChild(root, "stuck", constants.O_RDONLY);
+    let ticks = 0;
+    await new Promise<void>((resolve) => {
+      const timer = setInterval(() => {
+        if (++ticks === 5) {
+          clearInterval(timer);
+          resolve();
+        }
+      }, 10);
+    });
+    expect(ticks).toBe(5);
+    // A writer lets the open finish; the descriptor it returns belongs to this process.
+    const writer = openSync(join(home, "stuck"), constants.O_WRONLY | constants.O_NONBLOCK);
+    const fd = await opening;
+    closeSync(writer);
+    closeSync(fd);
+  },
+);

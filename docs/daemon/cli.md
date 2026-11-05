@@ -336,7 +336,7 @@ ace doctor --fix --json
 
 What it checks:
 
-- **Setup**: Node, provider CLIs and their logins, git, node-pty, Chromium, disk, port,
+- **Setup**: Node, provider CLIs and their logins, git, a terminal, Chromium, disk, port,
   ace folder access.
 - **Install**: the ace CLI, running daemon and desktop app are the same version; the data
   folder's format is one this build reads; which `ace` commands are on PATH; Xcode and
