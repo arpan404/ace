@@ -70,9 +70,13 @@ import XCTest
         inboxTab.tap()
         XCTAssertTrue(done.waitForExistence(timeout: 10))
 
-        // Leading swipe archives, with its own Undo.
+        // The leading swipe pins; Archive lives in the long-press menu, with its own Undo.
         app.bringToMiddle(done)
         done.swipeRight()
+        XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Archive"].exists, "the leading swipe only pins")
+        done.swipeLeft()
+        done.press(forDuration: 1.0)
         XCTAssertTrue(app.buttons["Archive"].waitForExistence(timeout: 5))
         app.buttons["Archive"].tap()
         XCTAssertTrue(app.buttons["inbox.undoArchive"].waitForExistence(timeout: 10))
