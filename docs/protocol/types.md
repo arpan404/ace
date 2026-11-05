@@ -14053,7 +14053,7 @@ Example:
   "pr": {
     "number": 10,
     "repository": {
-      "forge": "forgejo",
+      "forge": "origin",
       "host": "Y29nHxo36",
       "name": "AWte90it",
       "owner": "fgAGLE/aPkvxd0u.af/iVsLu/FWEkIZLZSZ/e/53ROmsY/IdN9JiuZy/_YPK"
@@ -14813,7 +14813,7 @@ Example:
   "fork": true,
   "id": 7,
   "repository": {
-    "forge": "forgejo",
+    "forge": "origin",
     "host": "h8G4g",
     "name": "QfWyo_wB-3",
     "owner": "80lsqJtnU0/MqprOZ/N02ZVnL/ZhdANDEOyLl/rXd0K/ygX6EOWED/_R/InS/lmvZ"
@@ -16781,7 +16781,7 @@ Example:
   "head": "example",
   "number": 10,
   "repo": {
-    "forge": "forgejo",
+    "forge": "origin",
     "host": "QN5u",
     "name": "5yXQMgikJF",
     "owner": "n7d2/Ihm/fqkc0GsKDb/smZCuqz/c8ADgOa-6/y/Nn/__.ek/5I8Hj9hSX/k"
@@ -31412,7 +31412,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | host | yes | [GitHubHost.json](schema/GitHubHost.json) |  |
-| forge | no | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo"] |  |
+| forge | no | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo","origin"] |  |
 | account | no | [ForgeAccount.json](schema/ForgeAccount.json) |  |
 
 Example:
@@ -33627,7 +33627,7 @@ Example:
         "ref": {
           "number": 9,
           "repository": {
-            "forge": "gitea",
+            "forge": "forgejo",
             "host": "kHVGbG",
             "name": "u",
             "owner": "3Y-loYV.P/2HSpFh/jIVTv0ddif/4uMm/cKfGz.nO/gzGsBZ6/s/SXiqafkan9"
@@ -33635,7 +33635,7 @@ Example:
         }
       },
       "repository": {
-        "forge": "gitbucket",
+        "forge": "bitbucket",
         "host": "4XUE",
         "name": "RPqSBrL8VHC",
         "owner": "KN3uoKM/nGpRZpSL7MW/Z"
@@ -36084,7 +36084,7 @@ Example:
           "pr": {
             "number": 3,
             "repository": {
-              "forge": "forgejo",
+              "forge": "origin",
               "host": "Shz",
               "name": "9BTyLg",
               "owner": "P/xp/7lfMJ/zx"

@@ -12,7 +12,8 @@
         "gitbucket",
         "bitbucket",
         "gitea",
-        "forgejo"
+        "forgejo",
+        "origin"
       ],
       "type": "string"
     },

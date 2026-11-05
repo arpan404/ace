@@ -10,12 +10,24 @@ See [ADR 0016](../adr/0016-forge.md). These contracts come from the public @ace/
 
 [JSON Schema](schema/ForgeAccount.json), input validation.
 
+### Variant 1
+
 Type: string. See JSON Schema for constraints.
 
 Example:
 
 ```json
 "vSeU"
+```
+
+### Variant 2
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"NkroRW.r-mlcbC4.dmNN9+oQK.ABlz.uc.7REV2QsEf.nGUmQt_@Y2erp8i5.a8C.H.FlL"
 ```
 
 ## ForgeActivity
@@ -98,7 +110,7 @@ Example:
     "pr": {
       "number": 5,
       "repository": {
-        "forge": "gitlab",
+        "forge": "gitbucket",
         "host": "9mzRqu6",
         "name": "6hPF",
         "owner": "RXPa1e-GM2/YWh/ON3n/RhCzgw"
@@ -273,7 +285,7 @@ Example:
     "ref": {
       "number": 7,
       "repository": {
-        "forge": "gitea",
+        "forge": "forgejo",
         "host": "B4rpz",
         "name": "pkl4Xk",
         "owner": "rIp6i"
@@ -688,35 +700,65 @@ Example:
 {
   "resource": "prDetail",
   "value": {
-    "additions": 4,
     "author": "example",
     "baseBranch": "example",
-    "baseSha": "3b10e9ACe92f8Ba2659AFB8D2c78592F0dCdacdAF413ebA9e18",
+    "baseSha": "Bf9ebA2733bFEacd0b58077e5d19854DE9b7fF7ed81b192F95",
     "body": "example",
-    "changedFiles": 0,
-    "commits": 7,
-    "files": [],
+    "changedFiles": 4,
+    "commits": 0,
+    "deletions": 1,
     "headBranch": "example",
-    "headRepository": null,
+    "headRepository": {
+      "forge": "origin",
+      "host": "vBraLFDBdx",
+      "name": "EH72v",
+      "owner": "x6ktFFw_/G2dIiPy/6zB9hIfcv/cKU0qb/HA/v3e/LH3X/MZ7YGPvxh/ow/7/HR"
+    },
     "labels": [],
     "relatedThreads": [],
-    "relatedThreadsTruncated": true,
+    "relatedThreadsTruncated": false,
     "reviewDecision": null,
+    "reviewerAvatars": {},
     "reviewers": [],
     "status": {
       "checks": [],
-      "ci": "none",
+      "ci": "unknown",
       "comments": [],
       "headSha": "example",
+      "mergeState": {
+        "autoMerge": {
+          "actor": "example",
+          "enabledAt": "example",
+          "method": "example"
+        },
+        "blockers": [],
+        "canDequeue": true,
+        "canDisable": true,
+        "canEnable": true,
+        "checksState": "example",
+        "commitMessages": {},
+        "headSha": "c8cD5D9eE21FD3b10e9ACe92f8Ba2659AFB8D2c78592F0",
+        "mergeState": "example",
+        "queue": {
+          "enqueuedAt": "example",
+          "estimatedTimeToMerge": null,
+          "id": "example",
+          "position": 1,
+          "state": "example"
+        },
+        "raw": null,
+        "reviewDecision": "example",
+        "state": "example"
+      },
       "mergeability": "unknown",
       "raw": null,
       "ref": {
-        "number": 3,
+        "number": 7,
         "repository": {
-          "forge": "forgejo",
-          "host": "Pq.xon",
-          "name": "md4Rc.1u",
-          "owner": "5myRNJ/h7/TC8O/qSI/1vKU1O8/lWuP0dH6"
+          "forge": "gitea",
+          "host": ".xo",
+          "name": "4",
+          "owner": "D5m/NJDgh7wT/8OoqS/K1vKU1O/TlWuP0dH6Rm"
         }
       },
       "reviewThreads": [],
@@ -840,7 +882,7 @@ Example:
       "branches": [],
       "defaultBranch": "example",
       "repository": {
-        "forge": "gitbucket",
+        "forge": "bitbucket",
         "host": "3",
         "name": "NwlTb",
         "owner": "A39S7/6maq-3niae./K"
@@ -1215,7 +1257,7 @@ Example:
     "pr": {
       "number": 2,
       "repository": {
-        "forge": "forgejo",
+        "forge": "origin",
         "host": "Qhi0",
         "name": "xZrxnwOevmd",
         "owner": "eKyZCMr/MN.pf9/buWYPGcP/3LS7.z5CB/a_B4bE/.U91.Lbxivj/10UrOarLFGQ/NJnSJU/0RJSMc/mOnJTjRyU3"
@@ -1286,7 +1328,7 @@ Example:
     "pr": {
       "number": 2,
       "repository": {
-        "forge": "bitbucket",
+        "forge": "gitea",
         "host": "NkoTzAmHSh",
         "name": "XitBx5p",
         "owner": "AXwK/32xmE2LZ/ssFSuG/c3B/fR2LbS6a9sX/t/bv5Ldlr-uOG"
@@ -1325,7 +1367,7 @@ Example:
     "title": "example"
   },
   "repository": {
-    "forge": "gitea",
+    "forge": "forgejo",
     "host": "jP",
     "name": "D.fqTCeogAS",
     "owner": "WF/CVX820CLL1/-/9W/Q/K6kKTfcD./67XdQZHJ5HT/44/yG"
@@ -1409,7 +1451,7 @@ Example:
     "pr": {
       "number": 7,
       "repository": {
-        "forge": "gitea",
+        "forge": "forgejo",
         "host": "I",
         "name": "XCAOT",
         "owner": "AG."
@@ -1437,7 +1479,7 @@ Example:
     "pr": {
       "number": 1,
       "repository": {
-        "forge": "forgejo",
+        "forge": "origin",
         "host": "eTy",
         "name": "iu2rDQrO",
         "owner": "eyhSGfs/eFClsE.9"
@@ -1751,7 +1793,7 @@ Example:
     "ref": {
       "number": 5,
       "repository": {
-        "forge": "gitea",
+        "forge": "forgejo",
         "host": "dohUMgAX",
         "name": "-OF7Y6b",
         "owner": "OxQnfmj/xvIqb/eu33Jj/K27hcPcviB/_W1/Awn1WhF/hmztfNWnt/C5l0t4HQ/B5h9W7ca24m/ul-OM1o"
@@ -2132,7 +2174,7 @@ Example:
   "pr": {
     "number": 7,
     "repository": {
-      "forge": "forgejo",
+      "forge": "origin",
       "host": "r9RReqeCVr",
       "name": "7U4",
       "owner": "RmwI0nOI_gh/S4F/T8stOGuo/8/T1_9./21.lM21yv/jg/LWPaBe2MPJ"
@@ -2390,7 +2432,7 @@ Example:
   "lastReadAt": "example",
   "reason": "example",
   "repository": {
-    "forge": "forgejo",
+    "forge": "origin",
     "host": ".EbukUFr",
     "name": "EFOHjsl",
     "owner": "E/Q9RB0mQ/I/5Jq8/e4/3FCb_nkNWGZ/2.o15ZAQEWB"
@@ -2657,7 +2699,7 @@ Example:
   "items": [],
   "nextPage": 2,
   "repository": {
-    "forge": "gitbucket",
+    "forge": "bitbucket",
     "host": "Lt6G",
     "name": "V",
     "owner": "lCMZeUZx5c/U7/3msbCsMx3k/bJje/_7gW/z3LxbkcvG/-C_EDHzX/Fuxf4VVINK/pzHkVt"
@@ -2683,7 +2725,7 @@ Example:
 {
   "number": 2,
   "repository": {
-    "forge": "forgejo",
+    "forge": "origin",
     "host": "GXU714-Azi",
     "name": "oz",
     "owner": "ssqOU/6XRiKJwOt/lyNQrv_a_pS"
@@ -2727,7 +2769,7 @@ Example:
   "ref": {
     "number": 2,
     "repository": {
-      "forge": "gitea",
+      "forge": "forgejo",
       "host": "9pA8",
       "name": "mDIGH-wnvf",
       "owner": "uI-FdP7_/KzJFU/majrnemAKqe/jH_RX/VhBEfF4qD/epKlDXZZcJ/1NDcl3UtB1/l0oNQnOKcQ/7F.l/2C"
@@ -3296,7 +3338,7 @@ Example:
     "pr": {
       "number": 8,
       "repository": {
-        "forge": "gitea",
+        "forge": "forgejo",
         "host": "ZU",
         "name": "t1_LMQs6",
         "owner": "T-T"
@@ -3327,7 +3369,7 @@ Example:
     "pr": {
       "number": 8,
       "repository": {
-        "forge": "gitea",
+        "forge": "forgejo",
         "host": "I5Oa",
         "name": "NlU-1KBLpG",
         "owner": "VG/Mw4aP1mVxm/eJ/pRkrp/3xOLVVXW/86s44g7vm/dJJ/Wcisd5CB"
@@ -3574,7 +3616,7 @@ Example:
     "branches": [],
     "defaultBranch": "example",
     "repository": {
-      "forge": "gitbucket",
+      "forge": "bitbucket",
       "host": "0EJl",
       "name": "3BA5",
       "owner": "M/J2/z/pAFSNZ/GDlo/C8sAsiSO/Njo7_DmC/sV3r8oLnfdE/4Mx/_25_F"
@@ -3584,7 +3626,7 @@ Example:
   "head": {
     "branches": [],
     "repository": {
-      "forge": "gitea",
+      "forge": "forgejo",
       "host": "zCHCGBfM",
       "name": "y46zUIYR2nH",
       "owner": "V2upB01SX"
@@ -3686,7 +3728,7 @@ Example:
   "baseSha": "95ab696e98918ced52560a3cef2b6adf71a88b8c23e4",
   "headBranch": "example",
   "headRepository": {
-    "forge": "gitbucket",
+    "forge": "bitbucket",
     "host": "s9dRSBht",
     "name": "_xG-H",
     "owner": "Ne/WpTn.q8ceWA/YXK9/pzDE4N/.nd0/Bip/C3-6AUURs1d/K/LAc56bj"
@@ -3710,6 +3752,8 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| readOnly | no | boolean |  |
+| unavailableResources | no | array | {"items":{"type":"string","enum":["comments","checks","reviews","commits","files"]}} |
 | status | yes | [ForgePrStatus.json](schema/ForgePrStatus.json) |  |
 | writeState | no | ["pending","uncertain"] |  |
 | updatedAt | no | string | {"maxLength":65536} |
@@ -3754,6 +3798,7 @@ Example:
   },
   "labelColors": {},
   "labels": [],
+  "readOnly": true,
   "relatedThreads": [],
   "relatedThreadsTruncated": false,
   "reviewDecision": null,
@@ -3795,9 +3840,9 @@ Example:
       "number": 5,
       "repository": {
         "forge": "gitlab",
-        "host": "sqiz",
+        "host": "zO",
         "name": "x",
-        "owner": "I3begJG/ocC25ZtC_3g/4fXfe30/Im1XD/KS2Kh-r"
+        "owner": "3begJG/ocC25ZtC_3g/4fXfe30/Im1XD/KS2Kh-r"
       }
     },
     "reviewThreads": [],
@@ -3805,6 +3850,7 @@ Example:
     "title": "example",
     "url": "example"
   },
+  "unavailableResources": [],
   "writeState": "pending"
 }
 ```
@@ -4136,7 +4182,7 @@ Example:
   "contextTruncated": false,
   "headBranch": "example",
   "headRepository": {
-    "forge": "bitbucket",
+    "forge": "gitea",
     "host": "aJ",
     "name": "8qoQnU",
     "owner": "Fum2FOJbDC/5P96b/H9a3I2/nbcq5d/ByXYfy_/PHN7uZzoi.p/gQqFCoVwX/h_RYOAB"
@@ -4145,7 +4191,7 @@ Example:
   "ref": {
     "number": 6,
     "repository": {
-      "forge": "gitlab",
+      "forge": "gitbucket",
       "host": "vx9u8RzFcsP",
       "name": "iJz.2dQN2",
       "owner": "g-0xjd/WS/g9umTPvw/F-0OO7/7QNb/UTScQv"
@@ -4171,7 +4217,7 @@ Example:
   "ref": {
     "number": 10,
     "repository": {
-      "forge": "gitea",
+      "forge": "forgejo",
       "host": "ka5ZMF6Rtsh",
       "name": "DvL0",
       "owner": "fJgfRPmPc4/KrtO9/vdLsTZc7ty4"
@@ -4333,7 +4379,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| forge | yes | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo"] |  |
+| forge | yes | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo","origin"] |  |
 | host | yes | string | {"maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"} |
 | owner | yes | string | {"maxLength":512,"pattern":"^[\\w.-]+(?:\\/[\\w.-]+)*$","x-ace-constraint":"Every owner path segment must differ from . and ..","not":{"pattern":"(?:^\|/)\\.{1,2}(?:/\|$)"}} |
 | name | yes | string | {"maxLength":100,"pattern":"^[\\w.-]+$"} |
@@ -5218,7 +5264,7 @@ Example:
   "pr": {
     "number": 2,
     "repository": {
-      "forge": "gitea",
+      "forge": "forgejo",
       "host": "xPMvGr",
       "name": "uG",
       "owner": "ajXlM6F3/uKJ/O42V"

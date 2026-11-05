@@ -3,7 +3,9 @@ import { ForgeAccount, SourceControlReadiness, type SourceControlPreferences } f
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
 
-const gitlabUser = z.object({ username: ForgeAccount });
+const gitlabUser = z.object({
+  username: ForgeAccount.refine((value) => !value.includes("@"), "Expected a GitLab username"),
+});
 
 /**
  * Ask glab for the effective API identity without touching credentials.
@@ -13,7 +15,7 @@ const gitlabUser = z.object({ username: ForgeAccount });
  * truncation and the HTTP status line/headers/body on stdout are read.
  * Stderr never escapes the command boundary and no body text is matched.
  */
-async function gitlabIdentity(
+export async function gitlabIdentity(
   runner: CommandRunner,
   host: string,
   signal: AbortSignal,

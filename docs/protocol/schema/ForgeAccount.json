@@ -1,7 +1,17 @@
 {
   "$id": "https://ace.local/protocol/v1/ForgeAccount.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "maxLength": 100,
-  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
-  "type": "string"
+  "anyOf": [
+    {
+      "maxLength": 100,
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]*$",
+      "type": "string"
+    },
+    {
+      "format": "email",
+      "maxLength": 254,
+      "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+      "type": "string"
+    }
+  ]
 }

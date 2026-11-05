@@ -1279,7 +1279,7 @@ Example:
         "pr": {
           "number": 8,
           "repository": {
-            "forge": "forgejo",
+            "forge": "origin",
             "host": "M4r6s",
             "name": "N.hPXs",
             "owner": "XBP1/-h/c/VO_"
@@ -3677,7 +3677,7 @@ Example:
   "pr": {
     "number": 8,
     "repository": {
-      "forge": "forgejo",
+      "forge": "origin",
       "host": "ueb",
       "name": "rwi7MeEWPo",
       "owner": "hf-naCim.RD/r6wcBWPcN9/JcQn5zArB/OR/oG/bIq/ZOD/Qi_/P6Ny"
@@ -3702,7 +3702,7 @@ Example:
       "fork": true,
       "id": 9,
       "repository": {
-        "forge": "forgejo",
+        "forge": "origin",
         "host": "ObU1h8aWz",
         "name": "kK",
         "owner": "GuThyiWGE/.mSm4Wym/v/EMIrcilN5g/Z8Pf/Xfua3.Vxqr/h/djGIfqFZZW"

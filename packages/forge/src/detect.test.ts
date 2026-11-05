@@ -39,3 +39,16 @@ describe("forge remote recognition", () => {
     expect(() => repositoryFromRemote("git@gitbucket.example:owner/repo.git")).toThrow();
   });
 });
+
+it.each([
+  "https://origin.cursor.com/team/repo.git",
+  "git@origin.cursor.com:team/repo.git",
+  "https://origin.cursor.com/git/team/repo.git",
+])("recognizes Cursor Origin remote %s", (remote) => {
+  expect(repositoryFromRemote(remote)).toEqual({
+    forge: "origin",
+    host: "origin.cursor.com",
+    owner: "team",
+    name: "repo",
+  });
+});

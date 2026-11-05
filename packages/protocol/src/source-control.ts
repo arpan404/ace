@@ -10,10 +10,13 @@ export const GitHubAccount = z
   .string()
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/)
   .max(100);
-export const ForgeAccount = z
-  .string()
-  .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
-  .max(100);
+export const ForgeAccount = z.union([
+  z
+    .string()
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
+    .max(100),
+  z.email().max(254),
+]);
 export const SourceControlHost = z.object({
   host: GitHubHost,
   /** Absent in existing settings means GitHub. */
@@ -39,9 +42,11 @@ export const SourceControlPreferences = z
           "gitlab.com": "gitlab",
           "bitbucket.org": "bitbucket",
           "codeberg.org": "forgejo",
+          "origin.cursor.com": "origin",
         };
         return (
           (!known[entry.host] || (entry.forge ?? "github") === known[entry.host]) &&
+          (entry.forge !== "origin" || entry.host === "origin.cursor.com") &&
           ((entry.forge ?? "github") !== "github" ||
             !entry.account ||
             GitHubAccount.safeParse(entry.account).success)

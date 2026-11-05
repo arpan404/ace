@@ -27,3 +27,18 @@ test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
     ).toThrow("unsupported");
   },
 );
+
+test("Cursor Origin review links use the codebase URL rather than the Git transport host", async () => {
+  const { prFromUrl } = await import("./pr-reference.ts");
+  const ref = {
+    repository: {
+      forge: "origin" as const,
+      host: "origin.cursor.com",
+      owner: "team",
+      name: "repo",
+    },
+    number: 7,
+  };
+  expect(prUrl(ref)).toBe("https://cursor.com/codebase/team/repo/pull/7");
+  expect(prFromUrl(prUrl(ref))).toEqual(ref);
+});
