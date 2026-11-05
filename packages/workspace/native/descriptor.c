@@ -301,6 +301,11 @@ static napi_value init(napi_env env, napi_value exports) {
     {"symlinkAt", NULL, symlink_at, NULL, NULL, NULL, napi_default, NULL}
   };
   napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
+  // Builds from before the write end of `pipe` became non-blocking lack this flag; the
+  // JavaScript side refuses to feed their pipes.
+  napi_value capable;
+  napi_get_boolean(env, true, &capable);
+  napi_set_named_property(env, exports, "pipeWriterNonBlocking", capable);
   return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, init)
