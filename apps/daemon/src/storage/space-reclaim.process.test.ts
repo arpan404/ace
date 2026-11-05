@@ -1,7 +1,7 @@
 import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setImmediate, setTimeout as delay } from "node:timers/promises";
+import { setImmediate, setTimeout as sleep } from "node:timers/promises";
 import { afterEach, expect, test, vi } from "vitest";
 import type { StorageSchedule } from "./schedule.ts";
 import { SpaceReclaim } from "./space-reclaim.ts";
@@ -38,7 +38,7 @@ function manualTimers(advance: (ms: number) => void) {
     for (let turn = 0; !queue.length; turn++) {
       if (performance.now() > deadline) throw new Error("No timer was armed");
       // Mostly immediates; every so often a timer turn lets pending I/O complete.
-      if (turn % 100 === 99) await delay(1);
+      if (turn % 100 === 99) await sleep(1);
       else await setImmediate();
     }
     return queue.map((timer) => timer.delay);
