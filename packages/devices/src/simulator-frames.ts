@@ -1,5 +1,7 @@
 import type { ScreenStreamSettings } from "@ace/protocol";
 import { fitImage } from "@ace/provider-kit/image";
+import { jpegComplete } from "./jpeg.ts";
+import { DeviceError } from "./sdk.ts";
 import { deviceImageStream } from "./stream-control.ts";
 
 type Image = { bytes: Buffer; width: number; height: number };
@@ -73,6 +75,14 @@ export class SimulatorFrames {
       const heightLimit = Math.min(2160, settings.maxHeight);
       const resize = source.width > settings.maxWidth || source.height > heightLimit;
       const budget = Math.max(16384, settings.bitrate / 8 / settings.fps);
+      // A cut-short frame would show an agent a screen that isn't there: refused, whether
+      // passed through or re-encoded (Bun's decoder fills missing data with grey).
+      if (!jpegComplete(source.bytes))
+        throw new DeviceError(
+          "invalid_data",
+          "The Simulator sent an incomplete picture",
+          "Retry; if it persists, restart the device view.",
+        );
       let image = source;
       if (resize || source.bytes.length > budget) {
         const { bytes, width, height } = await fitImage(

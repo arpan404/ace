@@ -86,3 +86,59 @@ it("a frame that is not a picture is reported as a failure, never published", as
   expect(capture.published).toEqual([]);
   expect(capture.failures).toHaveLength(1);
 });
+
+/** `jpeg` cut inside its coded picture data, keeping its header (and so its dimensions). */
+function cutInScan(jpeg: Buffer, keep: number) {
+  let scan = jpeg.indexOf(Buffer.from([0xff, 0xda]));
+  scan += 2 + jpeg.readUInt16BE(scan + 2);
+  return jpeg.subarray(0, scan + Math.floor((jpeg.length - scan) * keep));
+}
+
+it("a frame cut short inside its picture data is refused, though its header and size are valid", async () => {
+  const whole = await busyScreen(1206, 2622);
+  // Over budget and over the box (re-encoded), then small enough to pass through as it came.
+  for (const settings of [{ maxWidth: 603 }, { bitrate: 1_000_000_000 }]) {
+    const capture = frames(settings);
+    await expect(capture.still(cutInScan(whole, 0.6), 1206, 2622)).rejects.toThrow(
+      "incomplete picture",
+    );
+    expect(capture.published).toEqual([]);
+  }
+});
+
+it("a frame cut short and followed by stray bytes or a new frame header is refused", async () => {
+  const whole = await busyScreen(400, 800);
+  const cut = cutInScan(whole, 0.5);
+  for (const damaged of [
+    Buffer.concat([cut, Buffer.from([0xff, 0xd8])]),
+    Buffer.concat([cut, Buffer.from([0xff, 0xd9, 0x00, 0x00])]),
+    Buffer.concat([whole.subarray(0, 40), Buffer.from([0xff, 0xd9])]),
+  ]) {
+    const capture = frames({ bitrate: 1_000_000_000 });
+    await expect(capture.still(damaged, 400, 800)).rejects.toThrow("incomplete picture");
+  }
+});
+
+it("whole baseline and progressive frames from different encoders are published", async () => {
+  const pixels = sharp({
+    create: {
+      width: 300,
+      height: 600,
+      channels: 3,
+      background: "grey",
+      noise: { type: "gaussian", mean: 128, sigma: 40 },
+    },
+  });
+  const encoded = [
+    await pixels.clone().jpeg({ quality: 90 }).toBuffer(),
+    await pixels.clone().jpeg({ quality: 90, progressive: true }).toBuffer(),
+    await pixels.clone().jpeg({ quality: 90, mozjpeg: true }).toBuffer(),
+  ];
+  for (const jpeg of encoded) {
+    const image = await frames({ bitrate: 1_000_000_000 }).still(jpeg, 300, 600);
+    expect(image?.bytes.equals(jpeg)).toBe(true);
+    // Re-encoded by Bun's pipeline, the frame is whole too.
+    const fitted = await frames({ maxWidth: 150 }).still(jpeg, 300, 600);
+    expect(fitted).toMatchObject({ width: 150, height: 300 });
+  }
+});

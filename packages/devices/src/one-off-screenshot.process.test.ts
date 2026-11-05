@@ -71,6 +71,27 @@ it("a screenshot that is not an image fails as invalid data", async () => {
   await expect(platform.screenshot(device)).rejects.toMatchObject({ code: "invalid_data" });
 });
 
+it("a screenshot cut short, PNG or JPEG, fails as invalid data rather than showing a partial screen", async () => {
+  const screen = sharp({
+    create: {
+      width: 1080,
+      height: 2400,
+      channels: 3,
+      background: "grey",
+      noise: { type: "gaussian", mean: 128, sigma: 40 },
+    },
+  });
+  for (const whole of [
+    await screen.clone().png().toBuffer(),
+    await screen.clone().jpeg().toBuffer(),
+  ]) {
+    const { platform } = await androidPlatform(whole.subarray(0, Math.floor(whole.length * 0.6)));
+    const [device] = await platform.list();
+    if (!device) throw new Error("No emulator");
+    await expect(platform.screenshot(device)).rejects.toMatchObject({ code: "invalid_data" });
+  }
+});
+
 // Read-only against whatever is already booted: set ACE_DEVICE_LIVE=1 to run.
 const live = process.env["ACE_DEVICE_LIVE"] === "1";
 it.skipIf(!live)("booted real simulators and emulators give a one-off JPEG", async () => {
