@@ -367,12 +367,12 @@ private struct AgentCursor: View {
     let name: String
     let at: CGPoint
     var body: some View {
-        // The cursor is drawn on the page: its halo keeps it legible on any content, and the
-        // offset puts its tip, not its centre, on the point.
-        AceIcon(.cursor, size: AceDesign.Size.barIcon, relativeTo: .title3)
-            .foregroundStyle(AceDesign.Ink.primary)
-            .shadow(color: AceDesign.Surface.background, radius: 1)
-            .offset(x: 7, y: 9)
+        // The Pebble, as the web draws it over pages: its outline and shadow keep it legible on
+        // any content, and the offset puts its tip, not its centre, on the point.
+        let size = AceDesign.Size.pageCursor
+        PebbleMark(size: size, relativeTo: .title3)
+            .offset(x: size / 2 - AceGlyphs.cursorTip.x * size / AceGlyphs.box,
+                    y: size / 2 - AceGlyphs.cursorTip.y * size / AceGlyphs.box)
             .position(at)
             .animation(.default, value: at)
             .allowsHitTesting(false)

@@ -220,5 +220,6 @@ extension AceIcon {
         case x = "x"
         case xCircle = "x-circle"
         case xSquare = "x-square"
+        case aceComputerUse = "ace-computer-use"
     }
 }

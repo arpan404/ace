@@ -275,7 +275,8 @@ struct InboxView: View {
                                               pair: pair,
                                               search: { tab = .search },
                                               place: { open($0) },
-                                              compose: { compose(chat: list == .chats) }),
+                                              compose: { compose(chat: list == .chats) },
+                                              page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.

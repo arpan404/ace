@@ -7,6 +7,8 @@ import QuartzCore
     @State private var spikeInbox = MachineInbox(now: { Date().timeIntervalSince1970 * 1000 })
     @State private var started = false
     @State private var production = ProductionApp.make()
+    /// The person's ace account, for the header's avatar and Settings › Profile alike.
+    @State private var account = AceAccountModel()
     /// Unsent thread words, kept across navigation and relaunch (`ThreadDrafts`).
     @State private var drafts = (try? ProductionApp.storageDirectory()).map { directory in
         let drafts = ThreadDrafts(url: SpikeConfiguration.enabled ? SpikeConfiguration.threadDrafts(in: directory) : directory.appendingPathComponent("thread-drafts.json"))
@@ -30,6 +32,8 @@ import QuartzCore
                 } else { storageUnavailable }
             }
             .environment(\.threadDrafts, drafts)
+            .environment(account)
+            .task { await account.restore() }
             .modifier(PhoneAppearance())
             .overlay(alignment: .topLeading) { PerfProbeView() }
         }

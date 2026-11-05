@@ -12,6 +12,9 @@ struct InboxHeaderActions {
     var place: (SearchPlace) -> Void = { _ in }
     /// New thread on Threads, New chat on Chats.
     var compose: () -> Void = {}
+    /// A page inside Settings, so Back lands on its list: the avatar menu's Profile and
+    /// Archived threads.
+    var page: (SettingsRoute) -> Void = { _ in }
 }
 
 /// One home list and the page it opens (`InboxSplit`): Threads (Inbox, Snoozed and Settled under
@@ -253,7 +256,7 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The scope menu and the round compose button on one glass capsule. Compose shows where the
+    /// The scope menu and the round compose button on one glass capsule, then the avatar. Compose shows where the
     /// tab bar doesn't hold it: before iOS 27, and beside a page in a regular window, which has no
     /// tab bar. (The system's title menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
@@ -271,6 +274,8 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityIdentifier("inbox.compose")
             }
         }
+        // The person's avatar at the end, as Apple's own apps put the account top right.
+        AccountToolbarItem(open: header.page, settings: header.settings)
     }
 
     /// The list is live; a pull asks every machine that isn't ready to reconnect now.

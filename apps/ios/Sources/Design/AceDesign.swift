@@ -315,6 +315,16 @@ extension AceDesign.Size {
     static let rowGlyph11: CGFloat = 11
     /// The mockup's 13pt mark frame draws its glyph inset; ours fill their box, so 11 matches.
     static let rowMark: CGFloat = 11
+    /// A one-line row's lead: the provider's mark in a box this wide, bubble or not, as the
+    /// web's 18px lead, so every title starts in line.
+    static let rowLineLead: CGFloat = 18
+    /// The agent cursor marking computer use on a row. The web's is 13px on a 12px line; the
+    /// phone's line is larger, so the cursor is too, or it reads as a stray arrow.
+    static let rowPebble: CGFloat = 16
+    /// The agent cursor over a page, as the web's 22px.
+    static let pageCursor: CGFloat = 22
+    /// The person's avatar at the end of a home list's bar: a bar button's size.
+    static let barAvatar: CGFloat = 36
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.
     static let settingsRow: CGFloat = 48
     static let groupGlyph: CGFloat = 18
@@ -441,6 +451,10 @@ enum AceShadow {
     static let tabRadius: CGFloat = 1
     static let tabY: CGFloat = 1
     static let tabOpacity: Double = 0.25
+    /// Under the agent cursor (the web's `drop-shadow-sm`): soft, a point below.
+    static let pebbleRadius: CGFloat = 1
+    static let pebbleY: CGFloat = 1
+    static let pebbleOpacity: Double = 0.15
 }
 
 extension AceDesign.Surface {

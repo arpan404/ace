@@ -124,7 +124,9 @@ struct StepGlyph: View {
     var body: some View {
         Group {
             if step.glyph == "ace" {
-                AceMark().frame(width: AceDesign.Size.glyphMeta, height: AceDesign.Size.glyphMeta)
+                AceToolMark(size: AceDesign.Size.glyphMeta)
+            } else if step.glyph == "browser" {
+                BrowserUseMark(size: AceDesign.Size.stepGlyph)
             } else {
                 AceIcon(Self.icon(step.glyph ?? step.icon), size: AceDesign.Size.stepGlyph, relativeTo: .footnote)
             }
@@ -134,8 +136,8 @@ struct StepGlyph: View {
     static func icon(_ glyph: String) -> AceIcon.Name {
         switch glyph {
         case "device": .deviceMobile
-        case "computer": .monitor
-        case "browser": .compass
+        case "computer": .aceComputerUse
+        case "browser": .globe
         case "think": .brain
         case "note": .note
         case "read": .fileText

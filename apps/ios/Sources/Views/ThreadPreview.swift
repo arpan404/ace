@@ -24,8 +24,11 @@ struct ThreadPreview: View {
                 status(look)
                 ForEach([row.browsing, row.computerUse].compactMap { $0 }, id: \.self) { use in
                     HStack(spacing: AceDesign.Space.tight) {
-                        AceIcon(use == row.browsing ? .globe : .cursor, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
-                            .foregroundStyle(AceDesign.Status.working)
+                        if use == row.browsing {
+                            BrowserUseMark(size: AceDesign.Size.glyphMeta).foregroundStyle(AceDesign.Status.working)
+                        } else {
+                            PebbleMark(size: AceDesign.Size.glyphMeta)
+                        }
                         Text(use).foregroundStyle(AceTheme.Colours.mutedForeground)
                     }
                     .aceFont(InboxRowType.line, relativeTo: .footnote)

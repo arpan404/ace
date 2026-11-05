@@ -15,7 +15,7 @@
     "marks": "bun scripts/generate-provider-marks.ts",
     "theme:check": "bun scripts/generate-theme.ts --check",
     "bundle:tests": "bun build bridge-tests/delivery.ts --target browser --format iife --outfile .build/bridge-tests.js",
-    "icons": "bun scripts/generate-icons.ts",
+    "icons": "bun scripts/generate-icons.ts && bun scripts/generate-glyphs.ts",
     "mermaid": "bun scripts/copy-mermaid.ts",
     "relay:fixture": "node scripts/relay-fixture.ts"
   },
