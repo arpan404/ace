@@ -1,18 +1,24 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { cp, mkdir, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { dirname, join, matchesGlob } from "node:path";
 import { expect } from "vitest";
-import { asarUnpacked, packagedBesideApp } from "../../../../scripts/common.ts";
+import { copyBesideApp, packagedResources } from "../../../../scripts/beside-app.ts";
+import { asarUnpacked } from "../../../../scripts/common.ts";
 
 /**
- * A built `dist/` laid out as electron-builder packages it. `app/` goes into `app.asar` (a plain
- * folder here, which Node can read and a worker loading from it must not need), except what
- * `asarUnpacked` moves to `app.asar.unpacked`; the `packagedBesideApp` folders are copied
- * beside it, as afterPack does. Returns the packaged main entry.
+ * A built `dist/` packed as electron-builder packs it, into `outDir`. `app/` goes into
+ * `app.asar` (a plain folder here, which Node can read and a worker loading from it must not
+ * need), except what `asarUnpacked` moves to `app.asar.unpacked`; then the package's own
+ * afterPack hook (`copyBesideApp`) runs. Returns the packaged main entry.
  */
-export async function packagedLayout(dist: string, resources: string): Promise<string> {
+export async function packagedLayout(dist: string, outDir: string): Promise<string> {
+  const packed = {
+    electronPlatformName: process.platform,
+    appOutDir: outDir,
+    packager: { appInfo: { productFilename: "ace" } },
+  };
+  const resources = packagedResources(packed);
   const app = join(dist, "app");
   for (const file of await readdir(app, { recursive: true, withFileTypes: true })) {
     if (!file.isFile()) continue;
@@ -22,9 +28,7 @@ export async function packagedLayout(dist: string, resources: string): Promise<s
     await mkdir(dirname(target), { recursive: true });
     await cp(join(app, relative), target);
   }
-  for (const folder of packagedBesideApp)
-    if (existsSync(join(dist, folder)))
-      await cp(join(dist, folder), join(resources, folder), { recursive: true });
+  await copyBesideApp(dist, process.arch)(packed);
   return join(resources, "app.asar", "main.mjs");
 }
 

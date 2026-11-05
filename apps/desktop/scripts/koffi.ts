@@ -5,15 +5,16 @@ import { copyRuntimePackage } from "@ace/release/runtime-package";
 import { desktop } from "./common.ts";
 
 /**
- * koffi ships with the desktop app, never with the standalone daemon (which binds native code
- * with bun:ffi). The main process and its probe worker run on Electron's Node and bind kernel32
- * through it on Windows: the System32 lookup behind the taskkill tree stop and Job Object
- * containment (`@ace/provider-kit/koffi`).
+ * koffi ships with the Windows desktop app, never with the standalone daemon (which binds
+ * native code with bun:ffi) and never on macOS or Linux, where nothing calls it. The main
+ * process and its probe worker run on Electron's Node and bind kernel32 through it: the
+ * System32 lookup behind the taskkill tree stop and Job Object containment
+ * (`@ace/provider-kit/koffi`).
  *
  * It is staged as plain packages in a `node_modules` folder that the package places beside
- * app.asar (`packagedBesideApp` in common.ts). Native code cannot load from inside the archive,
- * and Node finds that folder by walking up from both main's chunks in app.asar and the worker
- * bundles in app.asar.unpacked.
+ * app.asar (`copyBesideApp` in beside-app.ts). Native code cannot load from inside the
+ * archive, and Node finds that folder by walking up from both main's chunks in app.asar and
+ * the worker bundles in app.asar.unpacked.
  */
 
 /** koffi's prebuilt package for one OS and architecture. */
@@ -39,17 +40,35 @@ export function koffiLicense(nodeModules: string): string {
   return join(nodeModules, "koffi", "LICENSE.txt");
 }
 
+/** Only Windows binds kernel32 through koffi; macOS and Linux packages carry none. */
+export function mainProcessNeedsKoffi(platform: string): boolean {
+  return platform === "win32";
+}
+
+/** The build's koffi step: stages it into `dist/node_modules` for a Windows package only. */
+export async function stageMainProcessNatives(
+  dist: string,
+  platform: NodeJS.Platform,
+  arch: string,
+  from = desktop,
+): Promise<void> {
+  if (mainProcessNeedsKoffi(platform))
+    await stageKoffi(join(dist, "node_modules"), platform, arch, from);
+}
+
 /**
- * Copies koffi and its prebuilt binary for this target into `nodeModules`, from the desktop
- * package's own dependency. Only the host's prebuilt package is installed, so a target other
- * than the host fails here, like the rest of the build's native code.
+ * Copies koffi and its prebuilt binary for a target into `nodeModules`, resolved from the
+ * package in `from` (the desktop package's own dependency by default). Only the host's
+ * prebuilt package is installed, so a target other than the host fails here, like the rest
+ * of the build's native code.
  */
 export async function stageKoffi(
   nodeModules: string,
   platform: NodeJS.Platform,
   arch: string,
+  from = desktop,
 ): Promise<void> {
-  const entry = createRequire(join(desktop, "package.json")).resolve("koffi");
+  const entry = createRequire(join(from, "package.json")).resolve("koffi");
   const root = packageRoot(entry);
   const prebuilt = koffiPlatformPackage(platform, arch);
   let prebuiltEntry: string;

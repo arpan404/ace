@@ -31,7 +31,7 @@ test.runIf(process.platform !== "win32")(
       logLevel: "silent",
     });
     await build({ ...workers, logLevel: "silent" });
-    const entry = await packagedLayout(built, join(root, "Resources"));
+    const entry = await packagedLayout(built, join(root, "out"));
     const bin = join(root, "bin");
     await mkdir(bin);
     await writeFile(join(bin, "git"), "#!/bin/sh\necho 'git version 9.9.9'\n");

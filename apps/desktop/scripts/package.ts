@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
@@ -15,12 +15,12 @@ import {
   electronVersion,
   installedElectronDist,
   packagedAppVersion,
-  packagedBesideApp,
   targetArch,
 } from "./common.ts";
 import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
+import { copyBesideApp } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
@@ -82,11 +82,11 @@ if (signed && process.platform === "darwin") {
 await verifyNatives(arch);
 // Linux release packages run on Ubuntu 24.04+ and Debian 12+ (ADR 0093; natives are built on
 // Debian 12's glibc 2.36): what ace builds itself (the daemon's natives, its Node runtime,
-// koffi, ripgrep, the screen helper) must not need a newer glibc. Electron's own floor is Chromium's.
+// ripgrep, the screen helper) must not need a newer glibc. Electron's own floor is Chromium's.
 // Local packages may use the host's toolchain.
 if (full && process.platform === "linux")
   for (const known of await assertLinuxRuntimeFloor(
-    ["daemon", "node_modules", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
+    ["daemon", "bin", "helpers", "runtime"].map((d) => join(dist, d)),
   ))
     console.warn(`[package] above the glibc floor (reviewed): ${known.path}: ${known.reason}`);
 const linuxResources = join(dist, "linux");
@@ -142,25 +142,10 @@ const config: Configuration = {
       : []),
   ],
   // The daemon runs as a separate process, so it ships as plain files, and so does koffi for
-  // the main process (`packagedBesideApp`). They are copied here rather than through
+  // the Windows main process (beside-app.ts). They are copied here rather than through
   // extraResources, which always drops node_modules: the daemon needs its staged runtime
-  // packages (playwright-core, the Claude SDK). afterPack runs before signing, so on macOS
-  // their native code is signed with the app.
-  afterPack: async (context) => {
-    const resources =
-      context.electronPlatformName === "darwin"
-        ? join(
-            context.appOutDir,
-            `${context.packager.appInfo.productFilename}.app`,
-            "Contents/Resources",
-          )
-        : join(context.appOutDir, "resources");
-    for (const folder of packagedBesideApp)
-      await cp(join(dist, folder), join(resources, folder), {
-        recursive: true,
-        verbatimSymlinks: true,
-      });
-  },
+  // packages (playwright-core, the Claude SDK).
+  afterPack: copyBesideApp(dist, arch),
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
     // The daemon runs on the bundled Node runtime, so nothing needs Electron as Node: with
