@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
+import type { Server as NetServer } from "node:net";
 
-export const bindListener = (listener: Server, host: string, port: number) =>
+export const bindListener = (listener: NetServer, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
     listener.once("error", reject);
     listener.listen(port, host, () => {
