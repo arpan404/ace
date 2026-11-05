@@ -55,7 +55,7 @@ const unhealthy: readonly (readonly [
   ["node", { node: async () => "v25.9.0" }, "fail", "Node v25.9.0", "Node 26"],
   ["node", { node: async () => "not a version" }, "fail", "not a version", "Node 26"],
   ["git", { git: async () => undefined }, "fail", "git not found", "Install git"],
-  ["node-pty", { pty: async () => false }, "fail", "cannot load", "Reinstall/rebuild node-pty"],
+  ["terminal", { pty: async () => false }, "fail", "could not open", "Reinstall ace"],
   [
     "disk",
     { disk: async () => ({ writable: false, freeBytes: 2 * 1024 ** 3 }) },
@@ -176,7 +176,7 @@ it("a failing probe cannot leak its exception or stop other checks", async () =>
       throw new Error("token=private");
     },
   });
-  expect(result(value.checks, "node-pty").status).toBe("fail");
+  expect(result(value.checks, "terminal").status).toBe("fail");
   expect(result(value.checks, "git").status).toBe("ok");
   expect(JSON.stringify(value)).not.toContain("private");
 });

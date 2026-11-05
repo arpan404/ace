@@ -1,7 +1,6 @@
 import { createWriteStream, unlinkSync } from "node:fs";
 import { mkdir, writeFile, readFile, stat } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
-import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
@@ -100,24 +99,17 @@ it("rotation deleting an enumerated log does not abort a valid support archive",
   expect(entries.get("logs/ace.jsonl")).toBe('"rotate-now"\n');
   expect(entries.has("logs/ace.1.jsonl")).toBe(false);
 });
-it("PTY discovery cannot load an unrelated module from the caller working directory", async () => {
-  const root = await temporary(),
-    module = join(root, "node_modules/node-pty");
+it("the terminal check passes when the runtime opens a real terminal, whatever the cwd holds", async () => {
+  const root = await temporary();
+  // A node-pty that would fail to load: the check never reaches for it.
+  const module = join(root, "node_modules/node-pty");
   await mkdir(module, { recursive: true });
-  await writeFile(join(module, "index.js"), "module.exports = { spawn() {} };");
-  const installation = join(root, "daemon-install/node_modules/node-pty");
-  await mkdir(installation, { recursive: true });
-  await writeFile(join(installation, "index.js"), 'module.exports = require("./binding.node");');
-  await writeFile(join(installation, "binding.node"), "invalid native ABI fixture");
-  const moduleOrigin = pathToFileURL(join(root, "daemon-install/entry.ts"));
+  await writeFile(join(module, "index.js"), 'throw new Error("wrong installation");');
   const cwd = process.cwd();
   try {
     process.chdir(root);
-    const probes = createSystemProbes(
-      { dataDir: root, port: 0, env: {}, moduleOrigin },
-      systemProbeRuntime,
-    );
-    expect(await probes.pty(new AbortController().signal)).toBe(false);
+    const probes = createSystemProbes({ dataDir: root, port: 0, env: {} }, systemProbeRuntime);
+    expect(await probes.pty(new AbortController().signal)).toBe(true);
   } finally {
     process.chdir(cwd);
   }
@@ -170,31 +162,6 @@ it("a first-run data directory under a writable ancestor reports usable disk wit
   await expect(stat(join(root, "new"))).rejects.toThrow();
 });
 
-it("PTY discovery accepts the daemon installation even when cwd contains a broken module", async () => {
-  const root = await temporary();
-  const installation = join(root, "installed/node_modules/node-pty");
-  const unrelated = join(root, "unrelated/node_modules/node-pty");
-  await mkdir(installation, { recursive: true });
-  await mkdir(unrelated, { recursive: true });
-  await writeFile(join(installation, "index.js"), "module.exports = { spawn() {} };");
-  await writeFile(join(unrelated, "index.js"), 'throw new Error("wrong installation");');
-  const cwd = process.cwd();
-  try {
-    process.chdir(join(root, "unrelated"));
-    const probes = createSystemProbes(
-      {
-        dataDir: root,
-        port: 0,
-        env: {},
-        moduleOrigin: pathToFileURL(join(root, "installed/entry.ts")),
-      },
-      systemProbeRuntime,
-    );
-    expect(await probes.pty(new AbortController().signal)).toBe(true);
-  } finally {
-    process.chdir(cwd);
-  }
-});
 it("a throwing normalization boundary emits an omission and leaves subsequent logging usable", async () => {
   const stored: unknown[] = [];
   const logger = createLogger({

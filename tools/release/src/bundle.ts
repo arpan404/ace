@@ -1,6 +1,5 @@
 import { build, type PluginBuild } from "esbuild";
 import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
-import { stagePtyRuntime } from "./pty-assets.ts";
 import {
   guardianBundlePath,
   guardianSourcePath,
@@ -9,7 +8,6 @@ import {
 import { readFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
-export { stageNativeFiles } from "./native-assets.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
 export {
@@ -33,7 +31,7 @@ export async function bundleDaemon(
     target: "node26",
     mainFields: ["module", "main"],
     format: "esm" as const,
-    external: ["node-pty", ...runtimePackages.map((pkg) => pkg.name)],
+    external: runtimePackages.map((pkg) => pkg.name),
     legalComments: "eof" as const,
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
@@ -208,7 +206,6 @@ export async function bundleDaemon(
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
-  inputs.add(await stagePtyRuntime(repo, root, target));
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
   );

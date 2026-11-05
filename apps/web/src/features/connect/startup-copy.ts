@@ -30,6 +30,8 @@ const checks: Record<string, { label: string; fix: string }> = {
     fix: "Close ace and preserve its data before restoring a backup.",
   },
   git: { label: "Git", fix: "Install Git and check that it works in a terminal." },
+  terminal: { label: "Terminal support", fix: "Reinstall ace, then try opening a terminal." },
+  // Reported by daemons from before the terminal check.
   "node-pty": { label: "Terminal support", fix: "Reinstall ace, then try opening a terminal." },
   chromium: { label: "Browser support", fix: "Install Chrome or Chromium, then restart ace." },
   port: { label: "Local connection", fix: "Quit the app using ace's port, then try again." },
