@@ -8,7 +8,10 @@ export const EVENT_LOOP_P99_WARN_MS = 250;
 export const EVENT_LOOP_MAX_WARN_MS = 15_000;
 /** The daemon normally stays well under 1 GB; past 2 GB something is holding on to memory. */
 export const RSS_WARN_BYTES = 2 * 1024 ** 3;
-/** Sockets, timers, files and child processes; tens of thousands means something leaks them. */
+/**
+ * Tens of thousands means something leaks them. On Node these are handles (sockets, timers, files,
+ * child processes); on Bun, open file descriptors, which normally also number in the hundreds.
+ */
 export const OPEN_HANDLES_WARN = 10_000;
 /** A failed log write means the log folder is full or unwritable, so evidence is being lost. */
 export const LOG_FAILED_WARN = 1;

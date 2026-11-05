@@ -146,7 +146,9 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     loop does not run until it finishes. Only the updater, a separate process from the daemon,
     takes such copies.
   - `process.getActiveResourcesInfo()` is always empty. Daemon health counts open file
-    descriptors instead (`packages/diagnostics/src/open-resources.ts`).
+    descriptors instead (`packages/diagnostics/src/open-resources.ts`): stdio and SQLite files
+    count, timers don't, and on Windows nothing is measured (0). The doctor's 10,000 leak
+    threshold holds for both counts.
   - An Error's `stack` is a data property formatted on first access, so even reading its
     descriptor runs `Error.prepareStackTrace` and can throw.
   - `fs.readdir` with `recursive: true` lists entries in no fixed order.
