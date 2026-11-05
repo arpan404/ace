@@ -54,9 +54,14 @@ describe("socket message decoding", () => {
       kind: "unsupported",
       requestId: "r9",
     });
-    expect(decodeDeviceFrame({ type: "browser.backend.drawable" })).toEqual({
-      kind: "unsupported",
-    });
+    expect(decodeDeviceFrame({ type: "nothing.here" })).toEqual({ kind: "unsupported" });
+  });
+
+  it("answers a known request type with bad fields as invalid, keeping its request id", () => {
+    expect(
+      decodeDeviceFrame({ type: "browser.tabs.list", requestId: "r2", threadId: 4 }),
+    ).toEqual({ kind: "invalid", requestId: "r2" });
+    expect(decodeDeviceFrame({ type: "browser.backend.drawable" })).toEqual({ kind: "invalid" });
   });
 
   it("treats a frame without a request shape as invalid", () => {
