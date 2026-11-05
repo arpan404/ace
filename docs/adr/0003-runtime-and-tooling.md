@@ -72,7 +72,9 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     fixed.
   - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing
     `-shm` but not the `-wal`, where Node creates both. `@ace/provider-kit/sqlite`'s
-    `DatabaseSync` creates the empty `-wal` first, so read-only opens go through it.
+    `DatabaseSync` probes a read-only open and, only after that failure, creates the empty `-wal`
+    with the database's mode and retries; read-only opens go through it. It never opens the
+    database file itself: closing any descriptor of it drops this process's POSIX locks on it.
   - After a failed spawn, the `close` event's signal is `undefined` rather than `null`; the
     spawn wrappers report `null`, so a probe of a missing command settles.
   - An error thrown inside an `unhandledRejection` listener, a `setImmediate` or a
