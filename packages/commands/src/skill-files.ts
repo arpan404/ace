@@ -1,8 +1,8 @@
 import { dirname, join, relative, resolve } from "node:path";
-import { writeOutcomeUnknown } from "./posix-ops.ts";
+import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
 import { removeCommandEntryLater } from "./posix.ts";
 import {
-  skillLane,
+  rootLane,
   type CommandCalls,
   listCommandPath,
   lstatCommandPath,
@@ -22,6 +22,16 @@ const missing = (error: unknown) =>
   "code" in error &&
   (error.code === "ENOENT" || error.code === "ENOTDIR");
 
+/**
+ * For a lookup whose failure means "not there": `fallback` for that, but a folder that didn't
+ * answer, or a cancelled call, is rethrown rather than mistaken for absence.
+ */
+export const absent =
+  <T>(fallback: T) =>
+  (error: unknown): T => {
+    if (error instanceof CommandFilesystemUnavailable) throw error;
+    return fallback;
+  };
 // Path calls run on the skill root's own thread (posix-calls), never on the shared file pool.
 /** Every `<root>/<name>` that is, or links to, a directory with a SKILL.md. Bounded per root. */
 export async function inspectRoots(
@@ -35,22 +45,22 @@ export async function inspectRoots(
     if (seen.has(path)) continue;
     seen.add(path);
     const lane = skillRootLane(root);
-    const rootReal = await realCommandPath(lane, path, calls).catch(() => undefined);
+    const rootReal = await realCommandPath(lane, path, calls).catch(absent(undefined));
     if (!rootReal) continue;
-    const names = await listCommandPath(lane, path, 1024, calls).catch(() => [] as string[]);
+    const names = await listCommandPath(lane, path, 1024, calls).catch(absent([] as string[]));
     for (const name of names) {
       if (name.startsWith(".")) continue;
       const entry = join(path, name);
-      const info = await lstatCommandPath(lane, entry, calls).catch(() => undefined);
+      const info = await lstatCommandPath(lane, entry, calls).catch(absent(undefined));
       if (!info || !(info.isDirectory() || info.isSymbolicLink())) continue;
-      const real = await realCommandPath(lane, entry, calls).catch(() => undefined);
+      const real = await realCommandPath(lane, entry, calls).catch(absent(undefined));
       if (
         !real ||
-        !(await statCommandPath(lane, real, calls).catch(() => undefined))?.isDirectory()
+        !(await statCommandPath(lane, real, calls).catch(absent(undefined)))?.isDirectory()
       )
         continue;
       const skill = await lstatCommandPath(lane, join(real, "SKILL.md"), calls).catch(
-        () => undefined,
+        absent(undefined),
       );
       if (!skill?.isFile()) continue;
       folders.push({ root, name, path: entry, real, link: info.isSymbolicLink(), rootReal });
@@ -62,7 +72,7 @@ export async function inspectRoots(
 export async function readSkillFile(
   directory: string,
   /** The lane of the skill's root; otherwise keyed by the folder's own parent. */
-  lane = skillLane(dirname(directory)),
+  lane = rootLane(dirname(directory)),
   calls?: CommandCalls,
 ): Promise<{ text: string; hash: string }> {
   const bytes = await readCommandPath(
@@ -71,6 +81,8 @@ export async function readSkillFile(
     skillFileLimit,
     calls,
   ).catch((error: unknown) => {
+    // A folder that didn't answer, or a cancelled call, isn't a missing skill.
+    if (error instanceof CommandFilesystemUnavailable) throw error;
     if (error instanceof Error && "code" in error && error.code === "EFBIG")
       throw new SkillError("limit", "SKILL.md can be up to 256 KB.");
     throw missing(error)
@@ -221,7 +233,7 @@ export async function linkSkill(
     if (!(await disk.symlink(pinned, target, name)))
       throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
     if (
-      (await realCommandPath(lane, join(rootReal, name), disk.calls).catch(() => undefined)) !==
+      (await realCommandPath(lane, join(rootReal, name), disk.calls).catch(absent(undefined))) !==
       canonical.real
     ) {
       // Windows reads link text by path, which a moved root no longer has; the junction just made
@@ -249,7 +261,7 @@ export async function unlinkSkill(disk: SkillDisk, link: SkillFolder): Promise<v
       return;
     }
     if (
-      (await realCommandPath(lane, resolve(rootReal, target), disk.calls).catch(() => "")) !==
+      (await realCommandPath(lane, resolve(rootReal, target), disk.calls).catch(absent(""))) !==
       link.real
     )
       throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");

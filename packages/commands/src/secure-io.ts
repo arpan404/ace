@@ -5,7 +5,7 @@ import type { DiscoveryRoot } from "./roots.ts";
 import { writeOutcomeUnknown } from "./posix-ops.ts";
 import {
   closeCommandFd as closeFd,
-  commandLane,
+  rootLane,
   readCommandFd,
   statCommandFd,
   syncCommandFd,
@@ -42,9 +42,10 @@ export interface CommandFileIo {
   cancel(): void;
   close(): Promise<void>;
 }
-/** The lane a root's calls run on: its trusted anchor. */
-export const commandLaneOf = (root: DiscoveryRoot) =>
-  commandLane(root.trustedRoot ?? dirname(root.path));
+/** The lane a root's calls run on: the root folder itself (`rootLane`), for every caller. */
+export const commandLaneOf = (root: DiscoveryRoot) => rootLane(root.path);
+/** The folder a root's paths must stay inside, and are opened from. */
+const containmentOf = (root: DiscoveryRoot) => resolve(root.trustedRoot ?? dirname(root.path));
 
 /**
  * Roots and every descendant are opened relative to pinned handles with O_NOFOLLOW. Each call
@@ -60,21 +61,21 @@ export class SecureCommandIo implements CommandFileIo {
     this.openChild = (directory, name, flags) => openChild(directory, name, flags, this.owner);
   }
   /** A fresh handle on the anchor; starting at / avoids following a replaced ancestor. */
-  private async anchor(path: string): Promise<number> {
+  private async anchor(path: string, lane: string): Promise<number> {
     if (this.closed) throw new Error("Command filesystem closed");
     if (process.platform === "win32")
       return openResolvedDirectory(this.openChild, resolve(path), this.owner);
-    return openCommandPath(resolve(path), resolve(path), this.owner);
+    return openCommandPath(lane, resolve(path), this.owner);
   }
   private async open(root: DiscoveryRoot, path: string, flags: number): Promise<number> {
-    const anchor = commandLaneOf(root);
+    const anchor = containmentOf(root);
     const tail = relative(anchor, resolve(path));
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("Command escaped its trusted root");
     // A different drive is an absolute path on Windows, never a `..` one.
     if (process.platform === "win32" && isAbsolute(tail))
       throw new Error("Command escaped its trusted root");
-    let parent = await this.anchor(anchor);
+    let parent = await this.anchor(anchor, commandLaneOf(root));
     try {
       const parts = tail.split(sep).filter(Boolean);
       if (parts.length > 128) throw new Error("Command path depth limit");
@@ -202,7 +203,8 @@ export class SecureCommandIo implements CommandFileIo {
     temporary: string,
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) throw new Error("prompt_limit");
-    const anchor = commandLaneOf(root);
+    const anchor = containmentOf(root);
+    const lane = commandLaneOf(root);
     const tail = relative(anchor, resolve(path));
     if (tail.startsWith("..") || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("prompt_unavailable");
@@ -210,7 +212,7 @@ export class SecureCommandIo implements CommandFileIo {
     const parts = tail.split(sep).filter(Boolean);
     if (parts.length > 128 || !/^[a-zA-Z0-9.-]+$/.test(temporary))
       throw new Error("prompt_unavailable");
-    let parent = await this.anchor(anchor);
+    let parent = await this.anchor(anchor, lane);
     let temp: number | undefined;
     // Whether the temporary file may exist: created, or its create may still land.
     let made = false;
@@ -260,7 +262,7 @@ export class SecureCommandIo implements CommandFileIo {
           () => false,
         ))
       )
-        removeCommandEntryLater(anchor, join(anchor, ...parts.slice(0, -1)), temporary);
+        removeCommandEntryLater(lane, join(anchor, ...parts.slice(0, -1)), temporary);
       await closeFd(parent, this.owner);
     }
   }

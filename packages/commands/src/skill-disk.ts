@@ -22,7 +22,7 @@ import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
 import {
-  skillLane,
+  rootLane,
   chmodCommandFd,
   closeCommandFd,
   readCommandFd,
@@ -82,7 +82,7 @@ export class SkillDisk {
   }
   /** A resolved directory, or `undefined` when any component is missing or is a link. */
   /** `lane` defaults to the folder's skill root's, the one every skill call on it shares. */
-  async openPath(real: string, lane = skillLane(real)): Promise<number | undefined> {
+  async openPath(real: string, lane = rootLane(real)): Promise<number | undefined> {
     return openResolvedDirectory(this.openChild, real, this.calls, lane).catch(() => undefined);
   }
   /**
@@ -110,7 +110,7 @@ export class SkillDisk {
     rootReal: string,
     name: string,
     work: (root: number, folder: number) => Promise<T>,
-    lane = skillLane(rootReal),
+    lane = rootLane(rootReal),
   ): Promise<T> {
     const root = await this.openPath(rootReal, lane);
     if (root === undefined)
@@ -303,7 +303,7 @@ export class SkillDisk {
    * In the background, once nothing abandoned under `rootReal` can still land, remove `name`
    * from it, reopening the root by path since an abandoned thread's handles are gone.
    */
-  removeWhenSettled(rootReal: string, name: string, lane = skillLane(rootReal)): void {
+  removeWhenSettled(rootReal: string, name: string, lane = rootLane(rootReal)): void {
     // Cleanup, not the owner's work: it runs even after the owner is cancelled.
     const disk = new SkillDisk(this.rawOpenChild);
     void commandRootSettled(lane)

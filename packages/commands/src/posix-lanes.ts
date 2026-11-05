@@ -90,9 +90,16 @@ export class PosixLanes {
   rootOf(handle: number): string | undefined {
     return this.table.get(handle)?.root;
   }
-  /** Resolves once `root` has no draining thread, so nothing abandoned there can still land. */
-  settled(root: string): Promise<void> {
-    return this.capacity.settled(root);
+  /**
+   * Resolves once nothing under `root` can still land: no draining thread, and no change that
+   * was given up (cancelled mid-call) still running there.
+   */
+  async settled(root: string): Promise<void> {
+    for (;;) {
+      if (this.capacity.stuck(root) > 0) await this.capacity.settled(root);
+      else if (this.fence.holds(root)) await this.fence.clear(root);
+      else return;
+    }
   }
 
   /**

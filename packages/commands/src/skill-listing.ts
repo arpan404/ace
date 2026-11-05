@@ -3,7 +3,7 @@ import type { CommandCalls } from "./posix-calls.ts";
 import { skillRootLane } from "./skill-roots.ts";
 import type { SkillEntry } from "@ace/protocol";
 import { parseSkill } from "./skill-markdown.ts";
-import { inspectRoots, readSkillFile } from "./skill-files.ts";
+import { inspectRoots, readSkillFile, absent } from "./skill-files.ts";
 import { displayPath, groupSkills, presence, skillId, type SkillPlace } from "./skill-model.ts";
 import {
   canonicalRoot,
@@ -47,8 +47,13 @@ export async function listSkills(input: ListInput): Promise<Listed[]> {
   const listed: Listed[] = [];
   for (const place of groupSkills(await inspectRoots(roots, calls))) {
     const directory = place.canonical?.real ?? place.real;
-    const lane = place.canonical ? skillRootLane(place.canonical.root) : undefined;
-    const file = await readSkillFile(directory, lane, calls).catch(() => undefined);
+    // The lane of the root that supplies this listing, even for a skill only linked in.
+    const supplier =
+      place.canonical ??
+      place.members.find((member) => member.real === place.real) ??
+      place.members[0];
+    const lane = supplier ? skillRootLane(supplier.root) : undefined;
+    const file = await readSkillFile(directory, lane, calls).catch(absent(undefined));
     if (!file) continue;
     const source = place.canonical?.root === agentsRoot ? locked.get(place.name) : undefined;
     listed.push({
@@ -85,7 +90,7 @@ export async function listSkills(input: ListInput): Promise<Listed[]> {
     };
     for (const folder of await inspectRoots([builtin], calls)) {
       const file = await readSkillFile(folder.real, skillRootLane(folder.root), calls).catch(
-        () => undefined,
+        absent(undefined),
       );
       if (!file) continue;
       const place: SkillPlace = {

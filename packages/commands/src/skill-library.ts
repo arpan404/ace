@@ -1,5 +1,5 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
-import { writeOutcomeUnknown } from "./posix-ops.ts";
+import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
 import { commandCallOwner, commandRootSettled } from "./posix.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
@@ -58,8 +58,6 @@ const watchedRoot = (
   home: string,
 ): DiscoveryRoot => ({
   path: root.path,
-  // Discovery anchors the root where every skill call on it does, so both share one lane.
-  trustedRoot: root.trustedRoot,
   format: "claude",
   scope,
   skill: true,
@@ -152,6 +150,19 @@ export class SkillLibrary {
               "This change took too long, so the skill may or may not have changed. Reload the list to check.",
           };
         }
+        // Closing cancels the library's calls: whatever they found so far isn't an answer.
+        if (this.closed)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "Skills are closing. Try again in a moment.",
+          };
+        if (error instanceof CommandFilesystemUnavailable)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "A skill folder isn't responding. Try again in a moment.",
+          };
         if (error instanceof SkillError)
           return { kind: "error", code: error.code, message: error.message };
         if (error instanceof Error && error.message === "invalid_frontmatter")

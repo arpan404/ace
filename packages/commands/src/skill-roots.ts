@@ -1,6 +1,5 @@
 import { join } from "node:path";
-import { dirname } from "node:path";
-import { commandLane } from "./posix-calls.ts";
+import { rootLane } from "./posix-calls.ts";
 import type { SkillAgent } from "@ace/protocol";
 
 /** Agents in display order. ACP and Antigravity have no skill folder (ADR 0103). */
@@ -22,16 +21,9 @@ export interface SkillRoot {
   readers: readonly SkillAgent[];
   /** Agents for which ace adds links here. */
   linkFor: readonly SkillAgent[];
-  /**
-   * The folder every call on this root is keyed by (its lane), whatever spelling a call uses:
-   * the root as written, its resolved path, or a skill folder's real path. Discovery anchors the
-   * root at the same folder. Defaults to the root's parent.
-   */
-  trustedRoot?: string | undefined;
 }
-/** The one lane every call on `root` runs on. */
-export const skillRootLane = (root: SkillRoot) =>
-  commandLane(root.trustedRoot ?? dirname(root.path));
+/** The one lane every call on `root` runs on, the same one discovery uses for that folder. */
+export const skillRootLane = (root: SkillRoot) => rootLane(root.path);
 /** Personal agent homes, from the same defaults the catalog uses (`defaultCommandInstances`). */
 export interface SkillHomes {
   /** The person's home directory. */
@@ -48,11 +40,6 @@ export interface SkillHomes {
  * cross-agent compatibility each agent documents.
  */
 export function skillRoots(homes: SkillHomes, workspace?: string): SkillRoot[] {
-  const roots = listedRoots(homes, workspace);
-  for (const root of roots) root.trustedRoot = dirname(root.path);
-  return roots;
-}
-function listedRoots(homes: SkillHomes, workspace?: string): SkillRoot[] {
   const literalClaude = join(homes.home, ".claude/skills");
   const literalCodex = join(homes.home, ".codex/skills");
   const personal: SkillRoot[] = [
