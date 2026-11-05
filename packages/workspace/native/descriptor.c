@@ -139,7 +139,12 @@ static napi_value make_pipe(napi_env env, napi_callback_info info) {
   (void)info;
   int descriptors[2];
   if (pipe(descriptors) < 0) return fail(env, errno);
-  if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) < 0 || fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) < 0) {
+  // The write end stays in this process and is fed from its event loop, so it must never block:
+  // Bun writes a wrapped descriptor as it finds it, and a full pipe would freeze the whole process.
+  // The read end goes to a child and stays blocking.
+  int flags = fcntl(descriptors[1], F_GETFL);
+  if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) < 0 || fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) < 0 ||
+      flags < 0 || fcntl(descriptors[1], F_SETFL, flags | O_NONBLOCK) < 0) {
     int number = errno; close(descriptors[0]); close(descriptors[1]); return fail(env, number);
   }
   napi_value result, value;

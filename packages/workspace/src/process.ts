@@ -1,6 +1,4 @@
 import { inputPipe, type InputPipe } from "./input-pipe.ts";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import { workspaceRuntime, type WorkspaceRuntime } from "./runtime.ts";
 import { aborted, errorCode, WorkspaceError } from "./types.ts";
 
@@ -134,7 +132,7 @@ export async function command(
         stop();
         return Promise.resolve();
       }
-      return pipeline(Readable.from(input), pipe.stream).catch((error: unknown) => {
+      return pipe.feed(input).catch((error: unknown) => {
         if (!stopped && errorCode(error) !== "EPIPE") {
           problem = error;
           stop();
