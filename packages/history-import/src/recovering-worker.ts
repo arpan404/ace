@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import type { Transferable, WorkerOptions } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
-import { incompatibleData } from "@ace/provider-kit/incompatible-data";
+import { incompatibleData, revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Reply, Envelope, Refusal } from "./contracts.ts";
 
 /** A crashed isolate releases its heap; retries keep the durable catalog and bounded RPC queue. */
@@ -35,8 +35,7 @@ export class RecoveringWorker extends EventEmitter {
       if (this.worker !== worker) return;
       const refusal = Refusal.safeParse(input).data;
       if (refusal) {
-        const { code, path, message } = refusal.refused;
-        failed(Object.assign(new Error(message), { name: "IncompatibleDataError", code, path }));
+        failed(revivedIncompatibleData(refusal.refused));
         return;
       }
       const reply = Reply.safeParse(input).data;
