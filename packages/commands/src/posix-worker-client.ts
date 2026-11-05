@@ -1,57 +1,44 @@
 import { Worker } from "node:worker_threads";
-import { PosixReply, type PosixOperation } from "./posix-wire.ts";
-
-type Pending = { resolve(value: number | string | null): void; reject(error: Error): void };
+import { PosixLanes, type PosixExecutor, type PosixExecutorEvents } from "./posix-lanes.ts";
+import { PosixReply } from "./posix-wire.ts";
 
 /**
- * The daemon's side of the POSIX worker. The worker starts on first use and holds the process
- * open only while a call is in flight; if it dies, its pending calls fail and the next call
- * starts a fresh one. Descriptors are per process, so the fds it opens are the caller's.
+ * One POSIX worker thread. It holds the process open only while a call is running. Descriptors
+ * are per process, so the fds it opens are the caller's.
  */
-export class PosixWorkerClient {
-  private worker: Worker | undefined;
-  private sequence = 0;
-  private pending = new Map<number, Pending>();
-  private readonly spawn: () => Worker;
-  constructor(
-    spawn: () => Worker = () =>
-      new Worker(new URL("./posix-worker.ts", import.meta.url), { execArgv: [] }),
-  ) {
-    this.spawn = spawn;
-  }
-  call(operation: PosixOperation): Promise<number | string | null> {
-    const worker = this.start();
-    const id = ++this.sequence;
-    return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      worker.ref();
-      // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker RPC.
-      worker.postMessage({ id, operation });
-    });
-  }
-  private start(): Worker {
-    if (this.worker) return this.worker;
-    const worker = this.spawn();
-    this.worker = worker;
-    worker.unref();
-    const fail = (error: Error) => {
-      if (this.worker !== worker) return;
-      this.worker = undefined;
-      for (const request of this.pending.values()) request.reject(error);
-      this.pending.clear();
-    };
-    worker.on("error", fail);
-    worker.on("exit", () => fail(new Error("Command discovery worker exited")));
-    worker.on("message", (input: unknown) => {
-      const reply = PosixReply.safeParse(input);
-      if (!reply.success) return;
-      const request = this.pending.get(reply.data.id);
-      if (!request) return;
-      this.pending.delete(reply.data.id);
-      if (this.pending.size === 0) worker.unref();
-      if (reply.data.ok) request.resolve(reply.data.value);
-      else request.reject(new Error(reply.data.message));
-    });
-    return worker;
-  }
+export function spawnPosixWorker(events: PosixExecutorEvents): PosixExecutor {
+  const worker = new Worker(new URL("./posix-worker.ts", import.meta.url), { execArgv: [] });
+  worker.unref();
+  worker.on("error", (error: unknown) =>
+    events.exit(error instanceof Error ? error : new Error("Command discovery worker failed")),
+  );
+  worker.on("exit", () => events.exit(new Error("Command discovery worker exited")));
+  worker.on("message", (input: unknown) => {
+    const reply = PosixReply.safeParse(input);
+    if (reply.success) events.reply(reply.data);
+  });
+  return {
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker RPC.
+    send: (id, operation) => worker.postMessage({ id, operation }),
+    hold: (busy) => (busy ? worker.ref() : worker.unref()),
+    terminate: () => void worker.terminate().catch(() => {}),
+  };
+}
+
+const unrefTimer = (run: () => void, ms: number) => {
+  const timer = setTimeout(run, ms);
+  timer.unref();
+  return () => clearTimeout(timer);
+};
+
+/** Lanes on real worker threads. */
+export function posixWorkerLanes(deadlineMs = 10_000): PosixLanes {
+  return new PosixLanes({
+    spawn: spawnPosixWorker,
+    timer: unrefTimer,
+    deadlineMs,
+    idleMs: 30_000,
+    spares: 2,
+    stuckPerRoot: 2,
+  });
 }
