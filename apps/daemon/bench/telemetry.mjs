@@ -12,6 +12,8 @@ Reflect.set(globalThis, "acePerfWorkerChannel", created);
 const directory = process.env.ACE_PERF_TELEMETRY;
 if (directory) {
   const workers = new Set();
+  /** Worker id to the module it runs, for the workers this isolate started. */
+  const entries = new Map();
   const pending = new Set();
   let generation = 0;
   const channel = new BroadcastChannel(`ace-perf:${directory}`);
@@ -48,6 +50,7 @@ if (directory) {
         isMainThread,
         workerIds: [...workers],
         pendingWorkerIds: [...pending],
+        workerEntries: Object.fromEntries(entries),
         generation,
         runtime: process.version,
         entry: process.argv[1] ?? "unknown",
@@ -85,12 +88,15 @@ if (directory) {
     if (!(message?.worker instanceof Worker)) throw new Error("Invalid worker lifecycle event");
     const worker = message.worker;
     const id = worker.threadId;
+    // The module it runs, when ace's factory announced it (Node's own announcements don't say).
+    if (typeof message.entry === "string") entries.set(id, message.entry);
     pending.add(id);
     generation++;
     sample();
     worker.once("exit", () => {
       workers.delete(id);
       pending.delete(id);
+      entries.delete(id);
       generation++;
       sample();
       prune(id);

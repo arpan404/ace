@@ -51,6 +51,8 @@ const Request = z.discriminatedUnion("op", [
     count: z.number().int().positive().max(64),
     fresh: z.boolean().default(false),
   }),
+  /** Ends these threads' scripted sessions, as their turns finishing would. */
+  z.object({ id: z.number(), op: z.literal("finish"), threads: z.array(ThreadId) }),
   z.object({ id: z.number(), op: z.literal("idle-store") }),
   z.object({ id: z.number(), op: z.literal("idle-sample") }),
   z.object({ id: z.number(), op: z.literal("close") }),
@@ -86,6 +88,15 @@ process.on("message", (input: unknown) => {
         await engine.close();
         await daemon.close();
         process.disconnect?.();
+        return;
+      }
+      if (request.op === "finish") {
+        for (const id of request.threads) {
+          await provider.finish(id);
+          await engine.flush();
+        }
+        if (errors.length) throw new Error(String(errors[0]));
+        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
         return;
       }
       if (request.op === "idle-store") {

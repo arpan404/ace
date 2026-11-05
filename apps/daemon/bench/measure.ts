@@ -15,6 +15,7 @@ import { writeMeasurement } from "./output.ts";
 import { bunBinary } from "../../../scripts/runtimes.ts";
 import { workerPreloadVariable } from "@ace/provider-kit/worker";
 import { threadCensus } from "./threads.ts";
+import { observedWorkers, settledWorkerViolations } from "./budgets.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
@@ -38,6 +39,8 @@ function mark(next: string) {
   phase = next;
   if (progress) process.stderr.write(`${phase}\n`);
 }
+/** The kinds of worker that may stay, one each, once the workload ended (the gate's own). */
+const settleKinds = argument("settle-workers", "").split(",").filter(Boolean);
 const warmupCycles = z.coerce.number().int().min(0).max(128).parse(argument("warmup-cycles", "0"));
 const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 // Beside the home, not in it: a non-empty unversioned ACE_HOME is backed up to `<home>-v0` at
@@ -111,6 +114,7 @@ function request(
     | { op: "sessions"; count: number }
     | { op: "cycle"; count: number; fresh?: boolean }
     | { op: "emit"; thread: string; count: number }
+    | { op: "finish"; threads: string[] }
     | { op: "memory" | "plans" },
 ) {
   const id = ++nextId;
@@ -131,9 +135,9 @@ async function sample() {
     runtime: main.runtime,
     memory: main.memory,
     cpu: main.cpu,
-    workers: workers.map(({ threadId, entry, memory, collection }) => ({
+    workers: observedWorkers(main, workers).map(({ threadId, kind, memory, collection }) => ({
       threadId,
-      entry,
+      kind,
       memory,
       collection,
     })),
@@ -196,7 +200,9 @@ async function collectMemory() {
 const deadline = setTimeout(
   () =>
     aborted.reject(new TimingFailure(`Daemon measurement timed out during ${phase}: ${stderr}`)),
-  idleMs + soakMs + 55000,
+  // The thread censuses (seconds each on macOS), idle floors and up to 130 s of waiting for the
+  // workload's workers to retire.
+  idleMs + soakMs + 320000,
 );
 const interrupt = () => aborted.reject(new TimingFailure("Daemon measurement interrupted"));
 process.on("SIGTERM", interrupt);
@@ -354,6 +360,22 @@ async function measure() {
       clearTimeout(timeout);
     }
   }
+  // The workload's sessions end; the workers it started must retire with them, down to the
+  // kinds --settle-workers allows, one each. A busy idle worker stays longer: its idle window
+  // doubles while it is reused, up to two minutes. Anything else is waited for that long.
+  mark("settle");
+  await request({ op: "finish", threads: active.threads });
+  const settling = performance.now();
+  const unsettled = async () =>
+    settledWorkerViolations(
+      (await sample()).workers.map((worker) => worker.kind),
+      settleKinds,
+    ).length > 0;
+  while ((await unsettled()) && performance.now() - settling < 130_000) await delay(1000);
+  const settledThreads = {
+    ...(await censusSample()),
+    settleMs: Math.round(performance.now() - settling),
+  };
   const queryPlans = (await request({ op: "plans" })).queryPlans;
   mark("shutdown");
   const shuttingDown = performance.now();
@@ -374,6 +396,7 @@ async function measure() {
     idleCpuPercent,
     activeSessions: count,
     active: activeSample,
+    settledThreads,
     events,
     eventsPerSecond: throughput,
     p99Ms: latencies[Math.ceil(latencies.length * 0.99) - 1],

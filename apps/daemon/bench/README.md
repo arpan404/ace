@@ -58,7 +58,15 @@ Defaults sample idle memory 10 and 60 seconds after endpoint publication, then o
 
 The measurement preload samples each JavaScript isolate every 500 ms and atomically publishes a small JSON file. RSS and CPU are process-wide; worker heaps are per-isolate and must not be added to RSS. OS threads also include libuv, V8 and filesystem-watcher threads. The preload subscribes to Node’s `worker_threads` diagnostic channel. Creation first publishes a pending identity; the worker acknowledges initialization through a measurement-only BroadcastChannel after atomically writing its first file. Only then does its parent publish it as live. Samples read the root and its acknowledged descendants directly, then reread their lifecycle generations to verify a coherent tree. Initialization and retirement transitions may resample for at most four seconds inside the unchanged outer deadline. A stable missing live file, malformed file, duplicate identity or cyclic ownership is fatal. On exit, the parent publishes its new generation before pruning the retired subtree’s files. Work and disk usage therefore follow live isolates rather than historical churn; churn latency still needs measurement at merge. See the [Node channel documentation](https://nodejs.org/api/diagnostics_channel.html#event-worker_threads). CPU numbers include this observer's overhead. On Bun a preload doesn't reach workers and nothing announces them on that channel, so every worker ace runs starts through `startWorker` (`@ace/provider-kit/worker`): with `ACE_BENCH_WORKER_PRELOAD` set it gives the worker those preloads and announces it on the channel as Node does. The preload holds that channel for the process's life; Bun drops a channel nothing references, and later announcements would reach nobody.
 
-Threads are counted by owner from their names (`threads.ts`: `sample` on macOS, `/proc` on Linux). Bun's runtime threads (its pool, GC helpers and collectors, JIT helpers, the allocator's scavenger) grow with the machine's cores, so they get only a loose ceiling of twice the cores plus 16, which a runaway pool reaches; each JS worker is one thread named `Worker`; the rest are the daemon's own. The gate (`budgets.ts`) fails when the OS runs more workers than telemetry saw (worker telemetry isn't attached: "not measured", never a zero), when more than one worker stays alive across five idle seconds (idle workers retire after five; the stall watchdog stays), and when the daemon's own threads pass 4 idle or 6 active (measured 2–3 and 3–4 on Bun 1.4.4). The scripts measure Darwin/Linux threads only.
+Threads are counted by owner from their names (`threads.ts`: `sample` on macOS, `/proc` on Linux). Bun's runtime threads (its pool, GC helpers and collectors, JIT helpers, the allocator's scavenger) grow with the machine's cores, so they get only a loose ceiling of twice the cores plus 16, which a runaway pool reaches; each JS worker is one thread named `Worker`; the rest are the daemon's own. The gate (`budgets.ts`) fails when:
+
+- the OS runs more workers than telemetry saw ("not measured", never a zero);
+- more than one worker stays alive across five idle seconds (idle workers retire after five; the stall watchdog stays);
+- more than four workers run under the workload;
+- once the workload's sessions end, a worker stays whose kind (its module's name, which `startWorker` reports) isn't on the gate's list, or two of one kind. The list holds the watchdog, the notification worker the workload's first notification starts for good, and the usage and WAL-checkpoint workers, whose idle windows double while they are reused, up to two minutes. The measurement waits up to 130 s for anything else to retire;
+- the daemon's own threads pass 4 idle or 6 active (measured 2–3 and 3–4 on Bun 1.4.4), or Bun's runtime threads pass twice the cores plus 16.
+
+The scripts measure Darwin/Linux threads only.
 
 `--collect` enables GC only in the measurement process. It measures retained main-isolate heap and process RSS before and after the soak, after warm-up. Main-isolate GC is followed by event-loop turns so weak native wrappers can finalize. With `--collect-workers`, the measurement preload also collects live worker heaps through an acknowledged file marker. Production never enables this marker. Without that flag, worker heaps are sampled without forced GC. Production does not expose or force GC. Without `--fresh-cycles`, the soak reopens the same 16 threads; with it, each cycle creates 16 new durable threads, finishes their turns and closes their sessions. The database deliberately retains the historical rows. The fixed-size engine caches must not retain every closed session. Soak samples also record each worker heap and identity. Compare RSS as well as heap: allocator/native growth can be invisible to `heapUsed`.
 
@@ -106,8 +114,12 @@ observes actual module loads in the main isolate and every worker ace starts, an
 includes background initialization before shutdown. Bun has no load hooks like Node's
 `registerHooks`, and its resolve hook never sees package imports, so a Bun preload
 hooks the loads of exactly the forbidden files. Workers get it through
-`ACE_BENCH_WORKER_PRELOAD`; when the OS shows workers the hook never ran in, the guard
-fails as not measured. It reports each forbidden dependency
+`ACE_BENCH_WORKER_PRELOAD`. Bun numbers workers from 1 across the process, so the hook
+logs each worker the factory announces and each isolate it ran in, and at the guard's
+close request the next worker id: every id below it must have been announced and must
+have run the hook, or the guard fails as not measured. A lint rule keeps `Worker` from
+being imported past the factory, and the CLI entry and the desktop drop the variable so
+it never reaches a person's daemon. It reports each forbidden dependency
 by name, including sharp, Cursor/Claude/OpenCode SDKs, browser/CDP clients, the ACP
 SDK and MCP SDKs. Source execution preserves names that a production bundle would
 otherwise hide. The separate bundled measurement still enforces the unchanged RSS,

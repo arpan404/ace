@@ -28,7 +28,7 @@ const created = channel("worker_threads");
  * on Node a preload passed with `--import` reaches workers by itself, but Bun gives a worker no
  * preload unless its options name one, and announces no new worker. With the benchmark's
  * variable set, the worker gets those preloads and is announced on the `worker_threads` channel
- * as Node announces it.
+ * as Node announces it, with the module it runs (`entry`), so a benchmark can tell its kinds apart.
  */
 export function startWorker(
   url: URL | string,
@@ -41,6 +41,6 @@ export function startWorker(
   // Bun's own WorkerOptions add `preload`; Node's types don't know it.
   const measured: WorkerOptions & { preload: string[] } = { ...options, preload };
   const worker = new Worker(url, measured);
-  created.publish({ worker });
+  created.publish({ worker, entry: String(url) });
   return worker;
 }

@@ -50,6 +50,7 @@ const Measurement = z.object({
   startupMs: bytes,
   idle10: Sample,
   idleThreads: IdleThreadSample,
+  settledThreads: ThreadSample,
   active: Sample.extend(ThreadSample.shape),
   eventsPerSecond: bytes,
   p99Ms: bytes,
@@ -60,15 +61,28 @@ const Measurement = z.object({
 });
 const MiB = 1024 * 1024;
 // The 150 MiB goal remains open. Threads are budgeted by owner (threads.ts): Bun's runtime
-// threads grow with the machine's cores and are not counted. On Bun 1.4.4 the daemon kept one
-// worker alive at idle (the stall watchdog; idle workers retire after five idle seconds), and
-// 2-3 threads of its own at idle and 3-4 when active (the main thread, the file watcher's run
-// loop, native helpers). One leaked worker fails; the daemon's own threads get one thread of
-// headroom at idle and two when active over the most measured.
+// threads grow with the machine's cores and get only a loose core-scaled ceiling. Measured on
+// Bun 1.4.4:
+// - one worker alive at idle, the stall watchdog (idle workers retire after five idle seconds);
+// - 2-3 workers under the workload;
+// - after its sessions ended, the watchdog, the notification worker the workload's first
+//   notification starts for good, and its usage and WAL-checkpoint workers, which are reused
+//   periodically and so keep their grown idle windows (up to two minutes);
+// - 2-3 threads of the daemon's own at idle and 3-4 when active (the main thread, the file
+//   watcher's run loop, native helpers).
+// One leaked worker fails, idle or after the workload; the daemon's own threads get one thread
+// of headroom at idle and two when active over the most measured.
 const limits = {
   idleRss: 256 * MiB,
   startupMs: 5000,
   idleWorkers: 1,
+  activeWorkers: 4,
+  settledWorkers: [
+    "stall-watchdog-worker",
+    "notification-worker",
+    "usage-worker",
+    "wal-checkpoint-worker",
+  ],
   idleOwnThreads: 4,
   activeOwnThreads: 6,
   runtimeThreads: runtimeThreadCeiling(availableParallelism()),
@@ -154,9 +168,10 @@ try {
             "--collect-workers",
             "--progress",
             "--fresh-cycles",
+            `--settle-workers=${limits.settledWorkers.join(",")}`,
             `--output=${output}`,
           ],
-          { cwd: root, timeout: long ? 420000 : 120000, maxBuffer: 4 * 1024 * 1024 },
+          { cwd: root, timeout: long ? 720000 : 420000, maxBuffer: 4 * 1024 * 1024 },
         ),
       );
       const data = Measurement.parse(JSON.parse(raw));
@@ -170,7 +185,12 @@ try {
       }
       maximum("idle RSS", data.idle10.memory.rss, limits.idleRss);
       maximumTiming("startup ms", data.startupMs, limits.startupMs);
-      violations.push(...threadViolations(data.idleThreads, data.active, limits));
+      violations.push(
+        ...threadViolations(
+          { idle: data.idleThreads, active: data.active, settled: data.settledThreads },
+          limits,
+        ),
+      );
       maximumTiming("p99 ms", data.p99Ms, limits.p99Ms);
       maximum(
         "retained heap growth",
