@@ -25,6 +25,12 @@ export interface RaceOptions {
   failed(route: MachineRoute): void;
 }
 
+/** A refusal another attempt can't change, on that path at least. */
+const final = (code: number) => disconnectDecision(true, true, code) === "fatal";
+/** The owner revoked this device: true on every path. */
+const isRevocation = ([code, reason]: [number, string]) =>
+  DeviceRevokedClose.safeParse({ code, reason }).success;
+
 /**
  * One connection attempt over every path at once, happy-eyeballs style (ADR 0114): the first
  * path starts at once and each next one 150 ms after, or as soon as the one before it fails.
@@ -73,9 +79,6 @@ export function racingTransport(options: RaceOptions): Transport {
       let refusal: [number, string] | undefined;
       /** A path ended without a refusal: unreachable, dropped, or not dialable. */
       let dropped = false;
-      const final = (code: number) => disconnectDecision(true, true, code) === "fatal";
-      const isRevocation = ([code, reason]: [number, string]) =>
-        DeviceRevokedClose.safeParse({ code, reason }).success;
       const refused = (code: number, reason: string) => {
         if (refusal && (isRevocation(refusal) || (final(refusal[0]) && !final(code)))) return;
         refusal = [code, reason];
