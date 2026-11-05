@@ -8,6 +8,18 @@ import { Worker, type WorkerOptions } from "node:worker_threads";
  */
 export const workerPreloadVariable = "ACE_BENCH_WORKER_PRELOAD";
 
+/**
+ * Removes the benchmark's worker preload from an environment a real daemon starts with, in
+ * place, and returns it. A variable exported for a benchmark must never reach a person's daemon
+ * by inheritance: its workers would load measurement code. Every production launch (the CLI's
+ * entry, which the service, the release launcher and the desktop's bundle all run, and the
+ * desktop's own daemon environment) strips it.
+ */
+export function withoutBenchWorkerPreload<T extends NodeJS.ProcessEnv>(env: T): T {
+  delete env[workerPreloadVariable];
+  return env;
+}
+
 /** Node publishes every new worker here; Bun publishes nothing, so its observers hear it from us. */
 const created = channel("worker_threads");
 
