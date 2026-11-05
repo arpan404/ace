@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
@@ -20,6 +20,7 @@ import {
 import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
+import { copyBesideApp } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
@@ -140,23 +141,11 @@ const config: Configuration = {
       ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
       : []),
   ],
-  // The daemon runs as a separate process, so it ships as plain files. It is copied here
-  // rather than through extraResources, which always drops node_modules, and the daemon needs
-  // its staged runtime packages (playwright-core, the Claude SDK).
-  afterPack: async (context) => {
-    const resources =
-      context.electronPlatformName === "darwin"
-        ? join(
-            context.appOutDir,
-            `${context.packager.appInfo.productFilename}.app`,
-            "Contents/Resources",
-          )
-        : join(context.appOutDir, "resources");
-    await cp(join(dist, "daemon"), join(resources, "daemon"), {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
-  },
+  // The daemon runs as a separate process, so it ships as plain files, and so does koffi for
+  // the Windows main process (beside-app.ts). They are copied here rather than through
+  // extraResources, which always drops node_modules: the daemon needs its staged runtime
+  // packages (playwright-core, the Claude SDK).
+  afterPack: copyBesideApp(dist, arch),
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
     // The daemon runs on the bundled Node runtime, so nothing needs Electron as Node: with

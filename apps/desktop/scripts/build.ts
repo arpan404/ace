@@ -23,12 +23,15 @@ import {
   repo,
   targetArch,
 } from "./common.ts";
+import { mainProcessNeedsKoffi, stageMainProcessNatives } from "./koffi.ts";
 import { stageLockedUse } from "./locked-use.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * Builds everything the packaged app ships, into `apps/desktop/dist`:
  * - `app/`: main, preload, the web renderer and the app's package.json (becomes app.asar);
+ * - `node_modules/` (Windows only): koffi with this target's prebuilt binary, for the main
+ *   process (scripts/koffi.ts; the standalone daemon ships none);
  * - `daemon/`: the daemon bundle from `@ace/release`, its worker bundles, staged runtime
  *   packages (playwright-core, the Claude SDK), `descriptor.node` and `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
@@ -53,6 +56,9 @@ await mkdir(app, { recursive: true });
 
 log("main and preload");
 await Promise.all(electronBundles(app, process.env).map((options) => build(options)));
+
+if (mainProcessNeedsKoffi(process.platform)) log("koffi");
+await stageMainProcessNatives(dist, process.platform, arch);
 
 log("renderer (apps/web)");
 run(

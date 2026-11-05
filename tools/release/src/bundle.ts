@@ -8,6 +8,7 @@ import {
 import { readFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
+import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
 export {
@@ -37,6 +38,7 @@ export async function bundleDaemon(
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },
     plugins: [
+      daemonWithoutKoffi,
       {
         name: "release-paths",
         setup(ctx: PluginBuild) {
@@ -272,5 +274,6 @@ export async function bundleDaemon(
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
+  await assertNoKoffi(scripts.map((path) => resolve(path)));
   return [...inputs];
 }
