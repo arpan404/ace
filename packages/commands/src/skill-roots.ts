@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { rootLane } from "./posix-calls.ts";
 import type { SkillAgent } from "@ace/protocol";
 
 /** Agents in display order. ACP and Antigravity have no skill folder (ADR 0103). */
@@ -21,6 +22,8 @@ export interface SkillRoot {
   /** Agents for which ace adds links here. */
   linkFor: readonly SkillAgent[];
 }
+/** The one lane every call on `root` runs on, the same one discovery uses for that folder. */
+export const skillRootLane = (root: SkillRoot) => rootLane(root.path);
 /** Personal agent homes, from the same defaults the catalog uses (`defaultCommandInstances`). */
 export interface SkillHomes {
   /** The person's home directory. */

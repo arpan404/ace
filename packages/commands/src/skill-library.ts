@@ -1,6 +1,6 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
-import { writeOutcomeUnknown } from "./posix-ops.ts";
-import { commandRootSettled } from "./posix.ts";
+import { CommandFilesystemUnavailable, writeOutcomeUnknown } from "./posix-ops.ts";
+import { commandCallOwner, commandRootSettled } from "./posix.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
@@ -18,7 +18,13 @@ import { SkillDisk, sameDirectory } from "./skill-disk.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
-import { canonicalRoot, skillRoots, type SkillHomes } from "./skill-roots.ts";
+import {
+  canonicalRoot,
+  skillRootLane,
+  skillRoots,
+  type SkillHomes,
+  type SkillRoot,
+} from "./skill-roots.ts";
 import { SkillUpdates, type SkillUpdateOptions } from "./skill-updates.ts";
 import { listSkills, type Listed, type PluginSkill } from "./skill-listing.ts";
 export type { PluginSkill } from "./skill-listing.ts";
@@ -46,8 +52,12 @@ export interface SkillLibraryOptions {
   openChild?: OpenCommandChild | undefined;
   id(): string;
 }
-const watchedRoot = (path: string, scope: "user" | "workspace", home: string): DiscoveryRoot => ({
-  path,
+const watchedRoot = (
+  root: SkillRoot,
+  scope: "user" | "workspace",
+  home: string,
+): DiscoveryRoot => ({
+  path: root.path,
   format: "claude",
   scope,
   skill: true,
@@ -64,9 +74,11 @@ export class SkillLibrary {
   private pending = 0;
   private closed = false;
   private stopRetry: (() => void) | undefined;
+  /** Every file call the library makes; closing cancels it, so no stuck folder holds it open. */
+  private readonly calls = commandCallOwner();
   constructor(options: SkillLibraryOptions) {
     this.options = options;
-    this.disk = new SkillDisk(options.openChild);
+    this.disk = new SkillDisk(options.openChild, this.calls);
     this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
   }
   /**
@@ -117,7 +129,16 @@ export class SkillLibrary {
       });
     this.pending++;
     const result = this.tail
-      .then(() => this.perform(parsed.data))
+      // A request still waiting when the library closes never runs: its calls would be refused.
+      .then(() =>
+        this.closed
+          ? ({
+              kind: "error",
+              code: "unavailable",
+              message: "Skills are closing. Try again in a moment.",
+            } satisfies SkillResult)
+          : this.perform(parsed.data),
+      )
       .catch((error: unknown): SkillResult => {
         const unknown = writeOutcomeUnknown(error);
         if (unknown) {
@@ -129,6 +150,19 @@ export class SkillLibrary {
               "This change took too long, so the skill may or may not have changed. Reload the list to check.",
           };
         }
+        // Closing cancels the library's calls: whatever they found so far isn't an answer.
+        if (this.closed)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "Skills are closing. Try again in a moment.",
+          };
+        if (error instanceof CommandFilesystemUnavailable)
+          return {
+            kind: "error",
+            code: "unavailable",
+            message: "A skill folder isn't responding. Try again in a moment.",
+          };
         if (error instanceof SkillError)
           return { kind: "error", code: error.code, message: error.message };
         if (error instanceof Error && error.message === "invalid_frontmatter")
@@ -163,6 +197,8 @@ export class SkillLibrary {
   }
   async close(): Promise<void> {
     this.closed = true;
+    // Queued file calls fail now and a running one is let go, so the wait below is short.
+    this.calls.cancel();
     this.stopRetry?.();
     this.stopRetry = undefined;
     this.listeners.clear();
@@ -200,7 +236,7 @@ export class SkillLibrary {
     const home = this.options.homes.home;
     const roots = skillRoots(this.options.homes, workspace || undefined)
       .filter((root) => (workspace ? root.scope === "project" : root.scope === "personal"))
-      .map((root) => watchedRoot(root.path, workspace ? "workspace" : "user", home));
+      .map((root) => watchedRoot(root, workspace ? "workspace" : "user", home));
     const files = new CommandFiles(new CommandCatalog(() => 0), roots, {
       ...(this.options.watch ? { watch: this.options.watch } : {}),
       ...(this.options.schedule ? { schedule: this.options.schedule } : {}),
@@ -222,6 +258,7 @@ export class SkillLibrary {
   }
   private listAll(workspaceId: string | undefined): Promise<Listed[]> {
     return listSkills({
+      calls: this.calls,
       ...this.options,
       workspace: workspaceId ? this.workspace(workspaceId) : undefined,
       locked: this.updates?.locked(),
@@ -322,6 +359,7 @@ export class SkillLibrary {
           await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id(), {
             rootReal: canonical.rootReal,
             name: canonical.name,
+            lane: skillRootLane(canonical.root),
           });
         });
         this.notify();

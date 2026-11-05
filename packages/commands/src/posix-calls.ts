@@ -1,5 +1,5 @@
 import { close, constants, fchmod, fstat, fsync, read, write } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { z } from "zod";
@@ -30,14 +30,15 @@ export function useCommandLanes(replacement: PosixLanes): () => void {
     lanes = previous;
   };
 }
+/** A lane key: an absolute folder path, normalised. */
+export const commandLane = (folder: string) => resolve(folder);
 /**
- * The one lane key for a folder: its absolute path, normalised once. Every caller names a root
- * by its anchor (discovery's trusted root or a skill root's parent), so one folder reached by
- * different callers shares one lane.
+ * The one lane of a command or skill root: the root folder itself. Command discovery, the skill
+ * library, shared roots and shipped skills all key a root this way, so one folder is one lane
+ * whichever of them reaches it. (Containment anchors, the folders paths must stay inside, are
+ * a separate thing and may differ between them.)
  */
-export const commandLane = (anchor: string) => resolve(anchor);
-/** The lane of a skill root, named the way discovery names it: by the root's parent. */
-export const skillLane = (skillRoot: string) => commandLane(dirname(skillRoot));
+export const rootLane = (root: string) => commandLane(root);
 const integer = z.number().int();
 const bytesValue = z.instanceof(Uint8Array);
 const textValue = z.string();
@@ -198,31 +199,51 @@ export async function lstatCommandPath(
   const { value } = await (owner ?? commandLanes()).run(root, { op: "lstatPath", path });
   return commandStat(PosixStat.parse(value));
 }
-export async function statCommandPath(root: string, path: string): Promise<CommandStat> {
+export async function statCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<CommandStat> {
   if (process.platform === "win32") return nodePaths.stat(path);
   return commandStat(
-    PosixStat.parse((await commandLanes().run(root, { op: "statPath", path })).value),
+    PosixStat.parse((await (owner ?? commandLanes()).run(root, { op: "statPath", path })).value),
   );
 }
-export async function realCommandPath(root: string, path: string): Promise<string> {
+export async function realCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<string> {
   if (process.platform === "win32") return nodePaths.realpath(path);
-  return textValue.parse((await commandLanes().run(root, { op: "realpath", path })).value);
+  return textValue.parse(
+    (await (owner ?? commandLanes()).run(root, { op: "realpath", path })).value,
+  );
 }
 export async function listCommandPath(
   root: string,
   path: string,
   limit: number,
+  owner?: CommandCalls,
 ): Promise<string[]> {
   if (process.platform === "win32") return (await nodePaths.readdir(path)).slice(0, limit);
-  const { value } = await commandLanes().run(root, { op: "readdirPath", path, limit });
+  const { value } = await (owner ?? commandLanes()).run(root, { op: "readdirPath", path, limit });
   return namesValue.parse(value);
 }
-export async function makeCommandPath(root: string, path: string): Promise<void> {
+export async function makeCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<void> {
   if (process.platform === "win32") return void (await nodePaths.mkdir(path, { recursive: true }));
-  await commandLanes().run(root, { op: "mkdirPath", path });
+  await (owner ?? commandLanes()).run(root, { op: "mkdirPath", path });
 }
 /** A whole regular file at `path`, never through a final link; `EFBIG` over `limit` bytes. */
-export async function readCommandPath(root: string, path: string, limit: number): Promise<Buffer> {
+export async function readCommandPath(
+  root: string,
+  path: string,
+  limit: number,
+  owner?: CommandCalls,
+): Promise<Buffer> {
   if (process.platform === "win32") {
     const handle = await nodePaths.open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
@@ -237,6 +258,10 @@ export async function readCommandPath(root: string, path: string, limit: number)
       await handle.close();
     }
   }
-  const { value } = await commandLanes().run(root, { op: "readPathNoFollow", path, limit });
+  const { value } = await (owner ?? commandLanes()).run(root, {
+    op: "readPathNoFollow",
+    path,
+    limit,
+  });
   return Buffer.from(bytesValue.parse(value));
 }

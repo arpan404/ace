@@ -552,3 +552,20 @@ it("a change queued behind a read is refused when a change to its folder times o
   });
   expect(ops(threads[1]).map((op) => op.op)).toEqual(["openPath", "fstat"]);
 });
+
+it("a root settles only once a change given up while running there has returned", async () => {
+  const { lanes, threads, open } = harness();
+  const a = await open("/a", () => threads[0]);
+  const owner = new PosixCallOwner(lanes);
+  const change = settle(owner.run("/a", { op: "unlink", directory: a, name: "x.md", flags: 0 }));
+  owner.cancel();
+  expect((await change).error).toBeInstanceOf(CommandWriteOutcomeUnknown);
+  // Not draining, but the change may still land: cleanup waiting on the root must wait too.
+  let settled = false;
+  void lanes.settled("/a").then(() => (settled = true));
+  await flush();
+  expect(settled).toBe(false);
+  threads[0]?.answer(0);
+  await flush();
+  expect(settled).toBe(true);
+});
