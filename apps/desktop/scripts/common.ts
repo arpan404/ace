@@ -181,6 +181,17 @@ export function installedElectronDist(): string {
 }
 
 /**
+ * Chromium switches every e2e launch of the app passes. macOS: a mock keychain, never the login
+ * keychain. The app's first `safeStorage` call creates its encryption key there; under a spec's
+ * temporary HOME there is no login keychain, so macOS asks to create one in a dialog nobody
+ * answers and the main process blocks in `SecItemAdd` until the spec times out. With the real
+ * HOME it would write to the person's own keychain.
+ */
+export function e2eSwitches(platform: NodeJS.Platform): string[] {
+  return platform === "darwin" ? ["--use-mock-keychain"] : [];
+}
+
+/**
  * The environment for launching the Electron app. An inherited ELECTRON_RUN_AS_NODE (set by
  * Electron-based tools and terminals) would start Electron as plain Node instead.
  */

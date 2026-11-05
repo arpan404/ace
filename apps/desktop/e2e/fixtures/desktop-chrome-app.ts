@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
 import {
   appEnvironment,
+  e2eSwitches,
   desktop,
   electronBinary,
   electronBundles,
@@ -62,6 +63,7 @@ export async function buildApp(): Promise<void> {
 export async function launch(scale: number): Promise<Launched> {
   const userData = await mkdtemp(join(tmpdir(), "ace-e2e-chrome-"));
   const args = [
+    ...e2eSwitches(process.platform),
     // Before ace's own main script: records what ace hands Electron (`main-probes.cjs`).
     "-r",
     join(import.meta.dirname, "main-probes.cjs"),

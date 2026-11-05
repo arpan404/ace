@@ -13,6 +13,7 @@ import { readConfig } from "../../daemon/src/config.ts";
 import { createDevThread } from "../../daemon/src/commands.ts";
 import {
   appEnvironment,
+  e2eSwitches,
   appVersion,
   electronBinary,
   electronBundles,
@@ -90,7 +91,11 @@ await import('./app/${mainEntry}');`,
       delete env.ACE_DAEMON_TOKEN_FILE;
       app = await electron.launch({
         executablePath: await electronBinary(),
-        args: [join(root, "Resources"), "--force-device-scale-factor=2"],
+        args: [
+          ...e2eSwitches(process.platform),
+          join(root, "Resources"),
+          "--force-device-scale-factor=2",
+        ],
         env: {
           ...env,
           HOME: root,
