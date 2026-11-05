@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -30,6 +30,19 @@ test("a cleanly closed WAL database opens read-only and still refuses writes", (
   } finally {
     reader.close();
   }
+});
+
+test("the -wal a read-only open leaves keeps a private database private", () => {
+  const { path, db } = walDatabase();
+  db.close();
+  chmodSync(path, 0o600);
+  const reader = new DatabaseSync(path, { readOnly: true });
+  try {
+    expect(count(reader)).toBe(1);
+  } finally {
+    reader.close();
+  }
+  expect(statSync(`${path}-wal`).mode & 0o777).toBe(0o600);
 });
 
 test("a read-only open beside a live writer sees its rows that are only in the WAL", () => {

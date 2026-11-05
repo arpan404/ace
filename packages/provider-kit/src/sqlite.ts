@@ -17,15 +17,33 @@ if (defaultWarning) {
   });
 }
 import { DatabaseSync as NodeDatabaseSync, type DatabaseSyncOptions } from "node:sqlite";
-import { prepareReadOnlyOpen } from "./sqlite-read-only.ts";
+import { createMissingWal } from "./sqlite-read-only.ts";
 
 /** node:sqlite's database, opening read-only WAL databases the same way on Node and Bun. */
 export class DatabaseSync extends NodeDatabaseSync {
   constructor(path: string | Buffer | URL, options?: DatabaseSyncOptions) {
-    if (options?.readOnly === true && typeof path === "string") prepareReadOnlyOpen(path);
     // Node rejects an explicit undefined options argument.
     if (options === undefined) super(path);
     else super(path, options);
+    if (options?.readOnly === true && typeof path === "string") this.openReadOnly(path);
+  }
+  /**
+   * Bun opens the file at the first statement, and fails there for a closed WAL database. A
+   * probe surfaces that now; with the missing -wal created, the same connection opens. Any
+   * other failure is left for the caller's own statements, as before.
+   */
+  private openReadOnly(path: string): void {
+    const probe = () => this.prepare("SELECT 1 FROM sqlite_master LIMIT 0").all();
+    try {
+      probe();
+    } catch (error) {
+      if (!createMissingWal(path, error)) return;
+      try {
+        probe();
+      } catch {
+        // The caller's statements report it.
+      }
+    }
   }
 }
 export { StatementSync } from "node:sqlite";

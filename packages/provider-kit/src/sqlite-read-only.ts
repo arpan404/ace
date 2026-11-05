@@ -1,29 +1,37 @@
-import { closeSync, openSync, readSync } from "node:fs";
+import { closeSync, fchmodSync, fchownSync, openSync, statSync } from "node:fs";
 
-// Bytes 18 and 19 of a SQLite header are the write and read format versions; 2 means WAL.
-const walFormat = 2;
+// SQLITE_CANTOPEN: "unable to open database file".
+const cantOpen = 14;
 
 /**
- * A read-only connection to a WAL database needs its `-wal` file. Node's SQLite creates the
- * missing file itself; Bun's can create `-shm` but not `-wal`, so a database that was closed
- * cleanly (its `-wal` removed) fails to open with "unable to open database file". Create the
- * same empty `-wal` Node would, without ever truncating one that exists. Anything unusual
- * (no file, a URI, a read-only folder) is left for SQLite to report.
+ * A read-only connection to a WAL database needs its `-wal` file. Node's SQLite creates a missing
+ * one itself; Bun's creates `-shm` but not `-wal`, so a database closed cleanly (its `-wal`
+ * removed) fails to open read-only with SQLITE_CANTOPEN. After such a failure, this creates the
+ * empty `-wal` Node would, and says whether trying again can help.
+ *
+ * It never opens the database file: closing any descriptor of that file drops every POSIX lock
+ * this process holds on it, live SQLite connections' included (sqlite.org/howtocorrupt.html).
+ * `stat` takes no descriptor. The `-wal` is created exclusively, so an existing one is never
+ * touched, with the database's mode and, when run as root, its owner, so `sudo ace doctor`
+ * leaves a file the person's daemon can open. SQLite keeps no POSIX locks on the `-wal`.
  */
-export function prepareReadOnlyOpen(path: string): void {
-  if (path === ":memory:" || path === "" || path.startsWith("file:")) return;
+export function createMissingWal(path: string, error: unknown): boolean {
+  if (path === ":memory:" || path === "" || path.startsWith("file:")) return false;
+  if (!(error instanceof Error) || Reflect.get(error, "errcode") !== cantOpen) return false;
   try {
-    const header = Buffer.alloc(20);
-    const handle = openSync(path, "r");
-    let read: number;
+    const database = statSync(path);
+    if (!database.isFile()) return false;
+    const wal = openSync(`${path}-wal`, "wx", database.mode & 0o777);
     try {
-      read = readSync(handle, header, 0, header.length, 0);
+      // The open's mode passes through the umask; the database's own mode is what SQLite uses.
+      fchmodSync(wal, database.mode & 0o777);
+      if (process.getuid?.() === 0) fchownSync(wal, database.uid, database.gid);
     } finally {
-      closeSync(handle);
+      closeSync(wal);
     }
-    if (read < header.length || header[18] !== walFormat || header[19] !== walFormat) return;
-    closeSync(openSync(`${path}-wal`, "a"));
+    return true;
   } catch {
-    // SQLite gives the real error when it opens the path.
+    // An existing -wal, a missing database or a read-only folder: the open's error stands.
+    return false;
   }
 }
