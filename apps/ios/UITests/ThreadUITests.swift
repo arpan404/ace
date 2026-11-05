@@ -179,8 +179,9 @@ import XCTest
         XCTAssertTrue(status.label.hasPrefix("Waiting on"), "the main agent only waits: \(status.label)")
         XCTAssertFalse(app.descendants(matching: .any)["thread.live"].exists, "no live line in the transcript")
         app.buttons["pill.status"].tap()
-        XCTAssertTrue(app.buttons["agents.close"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
-        app.buttons["agents.close"].tap()
+        // On a phone the agent tree is the thread's Agents page.
+        XCTAssertTrue(app.descendants(matching: .any)["agents.summary"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
+        app.buttons["thread.page.chat"].tap()
         app.navigationBars.buttons.firstMatch.tap()
 
         app.revealRow("thread.ios-goal").tap()

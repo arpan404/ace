@@ -30,8 +30,7 @@ import XCTest
         XCTAssertTrue(high.waitForExistence(timeout: 10))
         screenshot("tune-effort")
         high.tap()
-        let subtitle = app.descendants(matching: .any)["thread.subtitle"].firstMatch
-        expectation(for: NSPredicate(format: "label CONTAINS 'High'"), evaluatedWith: subtitle)
+        expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
         waitForExpectations(timeout: 10)
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()

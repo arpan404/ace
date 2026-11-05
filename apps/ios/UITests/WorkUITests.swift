@@ -9,7 +9,7 @@ import XCTest
 
     override func setUp() { continueAfterFailure = false }
 
-    func testWorkOpensFromTheThreadMenuAndSwitchesTheBranch() throws {
+    func testWorkOpensFromTheTitleMenuAndSwitchesTheBranch() throws {
         let app = try open("clean")
         app.openWork()
         let branch = app.buttons["work.branch"]

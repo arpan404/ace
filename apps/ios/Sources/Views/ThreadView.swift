@@ -308,7 +308,8 @@ struct ThreadView: View {
                                setSpeed: { speed in Task { _ = await model.setSpeed(speed) } },
                                setAccess: { mode in Task { _ = await model.setAccess(mode) } },
                                rename: { renaming = true },
-                               retitle: { [thread] in Task { _ = await model.retitle(thread.id) } })
+                               retitle: { [thread] in Task { _ = await model.retitle(thread.id) } },
+                               openWork: metadata == nil ? nil : { showWork = true })
     }
 
     /// Whether a strip shows above the composer, by the same order the strip's own chain reads.

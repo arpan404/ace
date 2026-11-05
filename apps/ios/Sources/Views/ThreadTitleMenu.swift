@@ -36,8 +36,10 @@ struct ThreadTitleMenu: View, Equatable {
     var setAccess: (String) -> Void = { _ in }
     var rename: () -> Void = {}
     var retitle: () -> Void = {}
+    /// The checkout's sheet: branch, worktree, pull request. Nil where there is none to open.
+    var openWork: (() -> Void)? = nil
 
-    private var hasMenu: Bool { model != nil || canRename || canRetitle || !actions.isEmpty }
+    private var hasMenu: Bool { model != nil || canRename || canRetitle || openWork != nil || !actions.isEmpty }
 
     var body: some View {
         Group {
@@ -92,20 +94,27 @@ struct ThreadTitleMenu: View, Equatable {
         }
         .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
         .foregroundStyle(model == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.mutedForeground)
-        .accessibilityIdentifier("thread.subtitle")
     }
 
     @ViewBuilder private var items: some View {
         if let model {
             Section {
+                // A menu row's title, subtitle and icon: the model in effect under "Model".
                 Button(action: openModel) {
-                    Label { Text("Model"); Text(model.note ?? model.name) } icon: { Image(ace: .cpu) }
+                    Text("Model"); Text(model.note ?? model.name); Image(ace: .cpu)
                 }
                 .accessibilityIdentifier("thread.title.model")
                 if let tune, !tune.efforts.isEmpty || tune.speeds.count > 1 { effortMenu(tune) }
                 if let access, access.state != "none", !access.choices.isEmpty { accessMenu(access) }
             } header: {
                 if !place.isEmpty { Text(place) }
+            }
+        }
+        // Where the thread runs and what can move it, under the checkout's own header.
+        if let openWork {
+            Section {
+                Button(action: openWork) { Text("Work"); Text("Branch, worktree and pull request"); Image(ace: .gitBranch) }
+                    .accessibilityIdentifier("thread.title.work")
             }
         }
         if canRename || canRetitle {
@@ -152,7 +161,7 @@ struct ThreadTitleMenu: View, Equatable {
                 Button("Use the model's default") { setEffort(nil) }
             }
         } label: {
-            Label { Text("Effort"); Text(effortSubtitle(tune)) } icon: { Image(ace: .gauge) }
+            Text("Effort"); Text(effortSubtitle(tune)); Image(ace: .gauge)
         }
         .accessibilityIdentifier("thread.title.effort")
     }
@@ -173,7 +182,8 @@ struct ThreadTitleMenu: View, Equatable {
             .pickerStyle(.inline)
         } label: {
             let note = access.pending == true ? "Applies at the agent's next turn" : access.stricter
-            Label { Text("Access"); Text(note ?? access.label ?? "") } icon: { Image(ace: .shield) }
+            let current = access.choices.first { $0.mode == access.selected }?.label ?? access.label ?? ""
+            Text("Access"); Text(note ?? current); Image(ace: .shield)
         }
         .accessibilityIdentifier("thread.title.access")
     }
@@ -186,5 +196,6 @@ struct ThreadTitleMenu: View, Equatable {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.status == rhs.status && lhs.width == rhs.width
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
+            && (lhs.openWork == nil) == (rhs.openWork == nil)
     }
 }

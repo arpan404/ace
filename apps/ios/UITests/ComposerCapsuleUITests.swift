@@ -60,8 +60,7 @@ import XCTest
     func testTheTitleOpensOneMenuWithModelEffortAndAccessFirst() {
         let app = launch(into: "thread.ios-done")
         let title = app.threadTitle(timeout: 25)
-        let subtitle = app.descendants(matching: .any)["thread.subtitle"].firstMatch
-        XCTAssertTrue(subtitle.waitForExistence(timeout: 10))
+        XCTAssertTrue(title.label.contains("· Med") || (title.value as? String)?.contains("Med") == true, "the title's line reads the model and effort")
         // The page pills still sit right under the title.
         let pages = app.descendants(matching: .any)["thread.pages"].firstMatch
         if pages.exists { XCTAssertGreaterThanOrEqual(pages.frame.minY, title.frame.maxY - 1) }
@@ -80,7 +79,17 @@ import XCTest
         app.buttons["thread.menu"].tap()
         let changes = app.threadMenuItem("thread.changes")
         XCTAssertTrue(changes.waitForExistence(timeout: 10)); changes.tap()
-        let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.'")).firstMatch
+        // A turn's line numbers aren't the checkout's: comments go on the uncommitted changes.
+        let lastTurn = app.buttons.matching(NSPredicate(format: "identifier == 'changes.scope' OR label BEGINSWITH 'Last turn'")).firstMatch
+        XCTAssertTrue(lastTurn.waitForExistence(timeout: 20))
+        lastTurn.tap()
+        XCTAssertTrue(app.buttons["Uncommitted"].waitForExistence(timeout: 5))
+        app.buttons["Uncommitted"].tap()
+        let uncommitted = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Uncommitted'")).firstMatch
+        XCTAssertTrue(uncommitted.waitForExistence(timeout: 20))
+        let expand = app.buttons.matching(NSPredicate(format: "identifier == 'changes.expand' OR label == 'Expand all' OR label == 'Collapse all'")).firstMatch
+        if expand.waitForExistence(timeout: 5), expand.label == "Collapse all" { expand.tap() }
+        let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'changes.file.apps/server/src/replay/window.ts'")).firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 20)); first.tap()
         let line = app.buttons.matching(identifier: "diff.line").element(boundBy: 2)
         XCTAssertTrue(line.waitForExistence(timeout: 20)); line.tap()

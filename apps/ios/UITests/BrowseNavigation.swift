@@ -19,11 +19,10 @@ extension XCUIApplication {
     @MainActor func titleMenuItem(_ identifier: String, label: String) -> XCUIElement {
         buttons.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", identifier, label)).firstMatch
     }
-    /// The thread's Work sheet, from ⋯.
+    /// The thread's Work sheet, from the title's menu, under the checkout's header.
     @MainActor func openWork() {
-        XCTAssertTrue(buttons["thread.menu"].waitForExistence(timeout: 15))
-        buttons["thread.menu"].tap()
-        let work = threadMenuItem("thread.work")
+        threadTitle().tap()
+        let work = titleMenuItem("thread.title.work", label: "Work")
         XCTAssertTrue(work.waitForExistence(timeout: 10))
         work.tap()
     }
