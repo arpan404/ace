@@ -20,7 +20,7 @@ export interface TargetScreenDeps {
 }
 
 /** The tools that only look (ADR 0105); every other tool acts. */
-const reads = new Set(["screen_apps", "screen_state"]);
+const reads = new Set(["screen_apps", "screen_state", "screen_display"]);
 /** Base64 characters of pictures in one reply, well inside the 8 MB a reply may carry. */
 const pictureBudget = 6 * 1024 * 1024;
 /** Calling agents whose looks this machine remembers at once; the oldest is forgotten first. */

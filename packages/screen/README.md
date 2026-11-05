@@ -9,7 +9,7 @@ tools below. It registers `screen_apps`, `screen_state` and `screen_act` over a 
 `ace-screen-helper --computer` processes owned by `ComputerClient`
 ([ADR 0087](../../docs/adr/0087-background-computer-use-engine.md)): one per target app
 (at most six, least recently used idle one evicted, idle ones exit after five minutes) and
-one shared helper for `hello`, `apps` and `resolve`. Different apps run in parallel; a hung
+one shared helper for `hello`, `apps`, `resolve` and the display ops. Different apps run in parallel; a hung
 app stalls only its own helper.
 
 - Apps launch without activation. Windows on other Spaces are reached through AX remote
@@ -25,6 +25,11 @@ app stalls only its own helper.
 - Screenshots are window-only, at most 1568 px on the long edge and about 1.15 MP, so the
   model sees them unscaled and its pixel coordinates are the ones the helper uses.
   Actionable elements are tagged with their outline ids on the image.
+- `screen_display` pictures whole displays, view only, at the same size limits
+  (`src/computer/displays.ts`). The shared helper lists the displays and the apps with
+  windows on screen (`displays`); apps computer use refuses are dropped, and
+  `capture_displays` pictures only windows of the rest, so an app that appears in between
+  stays out. Agents' own `screencapture` fails, since Screen Recording belongs to the helper.
 - Background apps ignore ⌘ shortcuts and have no key window for first-responder commands.
   Before keyboard and menu steps the helper makes the target window the app's key window
   through SkyLight focus records, without activating it (`ComputerFocus.swift`); ⌘

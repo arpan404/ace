@@ -241,3 +241,53 @@ it("a thread is reported as using an app for exactly as long as each call runs",
   await call("screen_act", { app: "Terminal", actions: [{ type: "key", key: "Escape" }] });
   expect(events).toEqual(["+thread Calculator", "-thread Calculator"]);
 });
+
+const pictures = (result: { content: { type: string; data?: string }[] }) =>
+  result.content.flatMap((part) =>
+    part.type === "image" && part.data ? [Buffer.from(part.data, "base64").toString()] : [],
+  );
+
+it("a look at the displays pictures each one, leaving out apps computer use refuses", async () => {
+  const { call, ops } = await world();
+  const { result, text } = await call("screen_display", {});
+  expect(result.isError).toBeFalsy();
+  expect(text).toContain(
+    "1. Built-in Retina Display, 1512×982, main\n2. PHL 241V8LB, 1080×1920, rotated 270°",
+  );
+  expect(text).toContain("Left out of the pictures, as apps computer use refuses: Ghostty, ace.");
+  expect(pictures(result)).toEqual(["display 1", "display 2"]);
+  // The helper pictures only the windows of apps that are allowed.
+  expect(await ops()).toContain("included com.apple.calculator,com.apple.TextEdit");
+});
+
+it("apps the person listed stay out of display pictures too", async () => {
+  const { call, ops } = await world({ toolkit: { blockedApps: async () => ["textedit"] } });
+  const { text } = await call("screen_display", { display: 2 });
+  expect(text).toContain("refuses: Ghostty, ace, TextEdit.");
+  expect(await ops()).toContain("included com.apple.calculator");
+});
+
+it("one display can be pictured alone, and a missing one names those there are", async () => {
+  const { call, ops } = await world();
+  const one = await call("screen_display", { display: 2 });
+  expect(pictures(one.result)).toEqual(["display 2"]);
+  expect(one.text).not.toContain("Built-in");
+
+  const missing = await call("screen_display", { display: 3 });
+  expect(missing.result.isError).toBe(true);
+  expect(missing.text).toContain("There is no display 3. Displays:\n1. Built-in Retina Display");
+  expect((await ops()).filter((op) => op.startsWith("capture_displays"))).toHaveLength(1);
+});
+
+it("a helper from before display pictures says ace needs updating", async () => {
+  const { call } = await world({ env: { FAKE_NO_DISPLAYS: "1" } });
+  const { result, text } = await call("screen_display", {});
+  expect(result.isError).toBe(true);
+  expect(text).toContain("too old to picture displays");
+});
+
+it("Linux agents are not offered display pictures", async () => {
+  const { call, ops } = await world({ toolkit: { platform: "linux" } });
+  expect((await call("screen_display", {})).result.isError).toBe(true);
+  expect(await ops()).toEqual([]);
+});
