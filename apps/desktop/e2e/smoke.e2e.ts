@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,6 +70,14 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     expect(new URL(page.url()).protocol).toBe("app:");
     // The page may render its heading a frame after the sidebar; wait for it to be visible.
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
+  });
+
+  it("keeps its logs inside its own data folder, never the installed app's", async () => {
+    const logs = join(userData, "logs");
+    expect(await app.evaluate(({ app: electronApp }) => electronApp.getPath("logs"))).toBe(logs);
+    await expect
+      .poll(() => existsSync(join(logs, "desktop.jsonl")), { timeout: 15_000 })
+      .toBe(true);
   });
 
   it("shows its window on screen", async () => {
