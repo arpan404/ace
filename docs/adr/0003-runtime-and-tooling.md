@@ -70,16 +70,34 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - Bun ignores a Worker's `resourceLimits`. The history reader's 128 MB heap limit holds only
     on Node, so on Bun a transcript that exhausts the reader grows the daemon instead. Not yet
     fixed.
-  - Bun's `node:sqlite` cannot open a closed WAL database `readOnly` (no `-wal` or `-shm` files
-    yet); Node can.
+  - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing
+    `-shm` but not the `-wal`, where Node creates both. `@ace/provider-kit/sqlite`'s
+    `DatabaseSync` creates the empty `-wal` first, so read-only opens go through it.
+  - After a failed spawn, the `close` event's signal is `undefined` rather than `null`; the
+    spawn wrappers report `null`, so a probe of a missing command settles.
+  - An error thrown inside an `unhandledRejection` listener, a `setImmediate` or a
+    `process.nextTick` callback is reported but does not end the process; one thrown from a
+    timer does. The daemon's rejection guard rethrows from a timer.
+  - `realpath` of a Unix socket fails with `EOPNOTSUPP`.
+  - `fs.promises.access` resolves `null`, not `undefined`.
+  - A listen error keeps `code: "EADDRINUSE"` but has a different message.
+  - There is no `gc` global behind `--expose-gc`; `Bun.gc(true)` collects.
+  - `node:v8` has no `queryObjects`, and there is no `worker_threads` diagnostics channel.
+    Workers don't inherit `--import` or `execArgv` preloads; Bun's Worker takes `preload`.
+  - A `--` right after the script path is dropped from `process.argv`.
+  - Stack frames of Bun's built-in code are named `native`.
   - A pending top-level await keeps a Bun process alive, so `beforeExit` never fires.
   - Replacing a function on a builtin module's object does not reach named imports
     (`syncBuiltinESMExports` does nothing), and plugins cannot replace builtin modules.
-- **Tests on Bun.** `bun scripts/test-run.ts` runs Vitest on Bun, then runs the suites in
-  `nodeOnlySuites` (`scripts/test-tiers.ts`) in a second pass on Node. They cover code that
-  doesn't run on Bun in production (the Cloudflare Worker, whose wrangler test harness refuses
-  Bun, and the self-hosted relay server, which ships on Node), or rely on hooks and limits only
-  Node has.
+- **Tests on Bun.** `bun run test` and every tier run Vitest on Bun, then run the projects in
+  `nodeProjects` (`scripts/test-tiers.ts`) in a second pass on Node and merge the timings: the
+  `web` and `client-react` jsdom projects, whose code runs in browsers, and the suites in
+  `nodeOnlySuites`. Those cover code that doesn't run on Bun in production (the Cloudflare
+  Worker, whose wrangler test harness refuses Bun; the self-hosted relay server and the e2e
+  launcher, which run on Node), or rely on hooks and limits only Node has. A single test that
+  needs a Node-only API skips on Bun with a comment saying why. Under Bun, test isolates drop
+  `native` stack frames: Vitest looks them up as files and would read the repository's
+  `native/` folder.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
   each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
   vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).

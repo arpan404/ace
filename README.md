@@ -138,7 +138,9 @@ Use `bun run typecheck:clean` to remove the caches. See
 CI also runs `bun run typecheck:full`, checking every original program from source
 with fresh build info as an independent safety net for declaration inference.
 
-Tests run in separate unit and process projects with bounded concurrency. See
+Tests run in separate unit and process projects with bounded concurrency. They run on Bun,
+the daemon's runtime; the web and client-react jsdom projects and a few Node-only suites follow
+in a second pass on Node (`node` on PATH). See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite
 inventory, shared fixtures and validation record. The owner requires tests to
 run only at merge; development verification uses the permitted static checks.
