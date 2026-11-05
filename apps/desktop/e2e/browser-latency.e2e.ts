@@ -129,7 +129,7 @@ async function measure(backend: "auto" | "headless") {
     const fps = painted / 2;
 
     return {
-      backend: s.daemon.browser.state(threadId).backend,
+      backend: (await s.daemon.browser.state(threadId)).backend,
       load: stats(load),
       visible: stats(visible),
       fps,

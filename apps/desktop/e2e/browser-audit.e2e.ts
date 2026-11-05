@@ -112,7 +112,7 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
         );
       }, s.url + "popup");
       await expect.poll(() => read("window.received")).toBe("auth-complete");
-      expect(browser.state(thread).tabs).toHaveLength(1);
+      expect((await browser.state(thread)).tabs).toHaveLength(1);
 
       // Zoom belongs to the page and survives panel movement.
       await s.app.evaluate(
@@ -153,40 +153,29 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
       await prompt.getByLabel("Username").fill("fixture");
       await prompt.getByLabel("Password").fill("fixture");
       await prompt.getByRole("button", { name: "Sign in", exact: true }).click();
-      await expect.poll(() => browser.state(thread).url).toBe(s.url + "auth");
+      await expect.poll(async () => (await browser.state(thread)).url).toBe(s.url + "auth");
       await expect
         .poll(() => read("document.querySelector('h1')?.textContent"))
         .toBe("Fixture needle");
       await read("history.pushState({},'', '/spa');void 0");
-      await expect.poll(() => browser.state(thread).url).toBe(s.url + "spa");
+      await expect.poll(async () => (await browser.state(thread)).url).toBe(s.url + "spa");
       await expect.poll(() => address.inputValue()).toBe(s.url.replace(/^http:\/\//, "") + "spa");
 
       // A web connection gets live video of the page while the desktop holds it natively.
       await p.getByRole("button", { name: "Right panel" }).click();
-      let chunks = 0;
-      let keyframes = 0;
-      const stop = browser.subscribe(
-        thread,
-        "remote",
-        {
-          video: {
-            send(chunk) {
-              chunks++;
-              if (chunk.key) keyframes++;
-              queueMicrotask(() => browser.acknowledgeVideo(thread, "remote", chunk.sequence));
-              return true;
-            },
-          },
-        },
-        () => {},
-      );
-      browser.configureCapture(thread, "remote", {
-        viewport: { width: 800, height: 600, devicePixelRatio: 1 },
-        video: { codecs: ["avc1.42E033", "vp8"] },
+      const viewer = await s.daemon.watchVideo({
+        threadId: thread,
+        connectionId: "remote",
+        viewport: { width: 800, height: 600 },
+        codecs: ["avc1.42E033", "vp8"],
       });
-      await expect.poll(() => keyframes, { timeout: 15000 }).toBeGreaterThan(0);
-      await expect.poll(() => chunks, { timeout: 15000 }).toBeGreaterThan(5);
-      stop();
+      await expect
+        .poll(async () => (await viewer.seen()).keyframes, { timeout: 15000 })
+        .toBeGreaterThan(0);
+      await expect
+        .poll(async () => (await viewer.seen()).chunks, { timeout: 15000 })
+        .toBeGreaterThan(5);
+      await viewer.stop();
     } catch (error) {
       console.error("Audit scenario failed", error);
       throw error;

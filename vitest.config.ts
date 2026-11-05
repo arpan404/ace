@@ -62,6 +62,7 @@ export default defineConfig({
             "packages/*/src/**/*.test.ts",
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
+            "apps/desktop/e2e/fixtures/*.test.ts",
             "apps/ios/bridge/**/*.test.ts",
             "scripts/*.test.ts",
           ],

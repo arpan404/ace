@@ -8,9 +8,7 @@ import { build } from "esbuild";
 import { _electron as electron } from "playwright-core";
 import { expect, it } from "vitest";
 import { z } from "zod";
-import { startDaemon } from "../../daemon/src/index.ts";
-import { readConfig } from "../../daemon/src/config.ts";
-import { createDevThread } from "../../daemon/src/commands.ts";
+import { startDesktopDaemon } from "./fixtures/daemon-client.ts";
 import {
   appEnvironment,
   appVersion,
@@ -28,10 +26,8 @@ it.runIf(process.env.ACE_E2E_ELECTRON === "1")(
     const out = join(root, "Resources", "app");
     const home = join(root, "home");
     await mkdir(home, { mode: 0o700 });
-    const daemon = await startDaemon({
-      config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      browser: { executablePath: "/unavailable/headless" },
-    });
+    // On Bun, the daemon's runtime, in a process of its own (fixtures/daemon-process.ts).
+    const daemon = await startDesktopDaemon(root, { kind: "native" });
     const server = createServer((_req, res) =>
       res.end(
         `<!doctype html><style>body{margin:0;height:4000px}button{width:150px;height:100px}#motion{height:100px;width:100px;background:blue;animation:move .8s infinite alternate}@keyframes move{to{transform:translateX(300px)}}</style><button onclick="this.textContent='Clicked'">Native input</button><div id=motion></div>`,
@@ -82,8 +78,8 @@ await import('./app/${mainEntry}');`,
         ],
         { cwd: join(repo, "apps/web"), stdio: "inherit" },
       );
-      const workspaceId = daemon.store.createWorkspace(home, "Native test");
-      const thread = createDevThread(daemon.store, workspaceId);
+      const workspaceId = await daemon.createWorkspace(home, "Native test");
+      const thread = await daemon.devThread(workspaceId);
       const env = appEnvironment(process.env);
       delete env.ACE_DAEMON_URL;
       delete env.ACE_DAEMON_TOKEN;

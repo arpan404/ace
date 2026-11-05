@@ -7,11 +7,9 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { build } from "esbuild";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
-import { startDaemon } from "../../../daemon/src/index.ts";
-import { readConfig } from "../../../daemon/src/config.ts";
-import { Command, ThreadId, type BrowserProfileScope } from "@ace/protocol";
-import { randomUUID } from "node:crypto";
+import type { BrowserProfileScope } from "@ace/protocol";
 import { detectChromium } from "@ace/browser";
+import { startDesktopDaemon, type DesktopDaemon } from "./daemon-client.ts";
 import {
   appEnvironment,
   appVersion,
@@ -28,7 +26,7 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
   await mkdir(home, { mode: 0o700 });
   const executablePath = await detectChromium();
   if (!executablePath) throw new Error("Sandbox Chromium unavailable");
-  let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined;
+  let daemon: DesktopDaemon | undefined;
   let app: ElectronApplication | undefined;
   const web = await staticRenderer(join(out, "renderer"));
   const cleanup = async () => {
@@ -41,38 +39,14 @@ export async function browserSandbox(backend: "auto" | "headless" = "auto") {
   };
   let server = createServer();
   let fixturePort = 0;
-  // `browser.profileScope` for browsers opened from now on (the setting's default to start).
-  let profileScope: BrowserProfileScope = "global";
   try {
-    daemon = await startDaemon({
-      config: readConfig({
-        ACE_HOME: home,
-        ACE_PORT: "0",
-        ACE_LOG_LEVEL: "silent",
-        ACE_WEB_ORIGINS: web.origin,
-      }),
-      // Threads name Codex but no scenario starts a session; probing the machine's real CLIs
-      // can outlast the engine's startup deadline and leave the sandbox without an engine.
-      modelInstances: [],
-      engine: {
-        adapterDiscovery: async () => ({
-          claude: { installed: false, auth: "unknown", loginHint: "" },
-          codex: {
-            installed: true,
-            path: process.execPath,
-            version: "0.0.0",
-            auth: "unknown",
-            loginHint: "",
-          },
-          cursor: { installed: false, auth: "unknown", loginHint: "" },
-          opencode: { installed: false, auth: "unknown", loginHint: "" },
-        }),
-      },
-      browser: {
-        executablePath,
-        backendPreference: () => backend,
-        profileScope: () => profileScope,
-      },
+    // The daemon runs on Bun, its runtime, in a process of its own (daemon-process.ts). Its
+    // `browser.profileScope` starts at the setting's default, "global".
+    daemon = await startDesktopDaemon(root, {
+      kind: "sandbox",
+      webOrigin: web.origin,
+      chromium: executablePath,
+      backend,
     });
     server = createServer((req, res) => {
       if (req.url === "/auth" && req.headers.authorization !== "Basic Zml4dHVyZTpmaXh0dXJl") {
@@ -137,37 +111,9 @@ await import('./app/${mainEntry}');`,
       ],
       { cwd: join(repo, "apps/web"), stdio: "inherit", env: { ...process.env, GOMAXPROCS: "1" } },
     );
-    const workspaceId = daemon.store.createWorkspace(home, "Browser sandbox");
-    const current = daemon;
-    const engine = current.engine;
-    if (!engine) throw new Error("Sandbox engine unavailable");
-    const prepare = (title: string) => {
-      const id = ThreadId.parse(randomUUID());
-      const result = engine.handler.handle(
-        Command.parse({
-          id: randomUUID(),
-          deviceId: "sandbox",
-          payload: {
-            type: "thread.prepare",
-            threadId: id,
-            workspaceId,
-            provider: "codex",
-            title,
-          },
-        }),
-        current.store,
-      );
-      if (!result.ok) throw new Error(`Sandbox thread preparation failed: ${result.error}`);
-      // Home leaves empty drafts out of its list; the scenarios switch threads from it.
-      current.store.appendEvents(id, [
-        { type: "thread.client.updated", changes: { hasSentMessage: true } },
-      ]);
-      const thread = current.store.getThread(id);
-      if (!thread) throw new Error("Sandbox thread unavailable");
-      return thread;
-    };
-    const thread = prepare("Browser fixture");
-    const other = prepare("Other fixture");
+    const workspaceId = await daemon.createWorkspace(home, "Browser sandbox");
+    const thread = await daemon.prepareThread(workspaceId, "Browser fixture");
+    const other = await daemon.prepareThread(workspaceId, "Other fixture");
     const env = appEnvironment(process.env);
     delete env.ACE_DAEMON_URL;
     delete env.ACE_DAEMON_TOKEN;
@@ -189,9 +135,8 @@ await import('./app/${mainEntry}');`,
     for (const target of app.context().pages()) target.on("dialog", () => {});
     const page = await app.firstWindow();
     await page.goto(`app://ace/t/${thread.id}`);
-    const useProfileScope = (scope: BrowserProfileScope) => {
-      profileScope = scope;
-    };
+    const current = daemon;
+    const useProfileScope = (scope: BrowserProfileScope) => current.setProfileScope(scope);
     return {
       app,
       page,
