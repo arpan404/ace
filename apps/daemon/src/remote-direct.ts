@@ -120,16 +120,16 @@ export function remoteDirect(deps: {
       if (!listener) {
         // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
         // client (and every client until it arrives) gets ace's own, pinned certificate.
-        const server = sniListener(
-          {
+        const server = sniListener({
+          tls: {
             ...target.identity,
             minVersion: "TLSv1.2",
             SNICallback: (servername, done) => done(null, trusted?.select(servername)),
           },
-          deps.http,
-        );
-        server.http.requestTimeout = 0;
-        server.http.headersTimeout = 10_000;
+          requests: deps.http,
+          delay: options.runtime?.delay ?? systemDeliveryRuntime.delay,
+          log: (error) => options.log?.(error),
+        });
         deps.attach(server.http);
         try {
           port = await server.listen(target.host, target.port);
