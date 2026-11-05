@@ -41,21 +41,27 @@ export const nodeOnlySuites = [
   // switches HOME in-process, which Bun's os.homedir() does not follow.
   "tools/web-e2e/src/real-daemon-isolation.process.test.ts",
 ];
-const nodeProjects: readonly string[] = ["node-process"];
+/**
+ * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
+ * jsdom projects, whose code runs in browsers (Vite builds it; Node is what its tooling runs on).
+ */
+export const nodeProjects: readonly string[] = ["node-process", "web", "client-react"];
 
 /**
- * A run on Bun in two passes: Bun runs every selected project but the Node-only ones, then Node
- * runs those. `undefined` skips a pass; an empty list means every project, as in projectsFor.
+ * A run on Bun in two passes: Bun runs every selected project but the Node ones, then Node runs
+ * the selected Node ones. `undefined` skips a pass; an empty list means every project, as in
+ * projectsFor (Bun's config leaves the Node projects out).
  */
 export function splitByRuntime(projects: readonly string[]): {
   bun: string[] | undefined;
   node: string[] | undefined;
 } {
-  const selectsNode = projects.length === 0 || projects.some((name) => nodeProjects.includes(name));
+  if (projects.length === 0) return { bun: [], node: [...nodeProjects] };
   const bun = projects.filter((name) => !nodeProjects.includes(name));
+  const node = projects.filter((name) => nodeProjects.includes(name));
   return {
-    bun: projects.length > 0 && bun.length === 0 ? undefined : bun,
-    node: selectsNode ? [...nodeProjects] : undefined,
+    bun: bun.length ? bun : undefined,
+    node: node.length ? node : undefined,
   };
 }
 

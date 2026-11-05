@@ -164,11 +164,16 @@ export default defineConfig({
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },
-      isolateTestProject(webProject, fileURLToPath(new URL("./apps/web", import.meta.url))),
-      isolateTestProject(
-        clientReactProject,
-        fileURLToPath(new URL("./packages/client-react", import.meta.url)),
-      ),
+      // Browser code: under Bun, scripts/test-run.ts runs these jsdom projects on Node.
+      ...(onBun
+        ? []
+        : [
+            isolateTestProject(webProject, fileURLToPath(new URL("./apps/web", import.meta.url))),
+            isolateTestProject(
+              clientReactProject,
+              fileURLToPath(new URL("./packages/client-react", import.meta.url)),
+            ),
+          ]),
     ],
   },
 });

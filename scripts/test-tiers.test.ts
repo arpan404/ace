@@ -64,16 +64,22 @@ test("affected-only runs cover the fast tier unless asked to include process or 
   expect(projectsFor(parseRunArgs(["full"]))).toEqual([]);
 });
 
-test("on Bun, Node-only suites run in a Node pass of their own and nowhere else", () => {
-  const process = projectsFor(parseRunArgs(["process"]));
-  expect(splitByRuntime(process)).toEqual({ bun: ["process"], node: ["node-process"] });
-  // Every project: Bun's config leaves the Node-only project out, Node runs it.
-  expect(splitByRuntime(projectsFor(parseRunArgs(["full"])))).toEqual({
-    bun: [],
+test("on Bun, Node-only suites and the jsdom projects run in a Node pass and nowhere else", () => {
+  expect(splitByRuntime(projectsFor(parseRunArgs(["process"])))).toEqual({
+    bun: ["process"],
     node: ["node-process"],
   });
+  // Every project: Bun's config leaves the Node projects out, Node runs them.
+  expect(splitByRuntime(projectsFor(parseRunArgs(["full"])))).toEqual({
+    bun: [],
+    node: ["node-process", "web", "client-react"],
+  });
   expect(splitByRuntime(projectsFor(parseRunArgs(["fast"])))).toEqual({
-    bun: ["unit", "web", "client-react"],
+    bun: ["unit"],
+    node: ["web", "client-react"],
+  });
+  expect(splitByRuntime(projectsFor(parseRunArgs(["slow"])))).toEqual({
+    bun: ["slow-process", "browser-process", "history-scale"],
     node: undefined,
   });
   expect(splitByRuntime(["node-process"])).toEqual({ bun: undefined, node: ["node-process"] });

@@ -1,10 +1,12 @@
 // Runs one test tier through Vitest, records per-file timings and checks the time budgets.
 //
-//   node scripts/test-run.ts full|fast|process|slow [vitest args]
-//   node scripts/test-run.ts changed [--with-process] [--with-slow] [--base <ref>] [vitest args]
+//   bun scripts/test-run.ts full|fast|process|slow [vitest args]
+//   bun scripts/test-run.ts changed [--with-process] [--with-slow] [--base <ref>] [vitest args]
 //
-// Run with bun, Vitest runs on Bun, except the suites in nodeOnlySuites (scripts/test-tiers.ts),
-// which follow in a second pass on Node.
+// Run with bun (the package scripts do), Vitest runs on Bun, the daemon's runtime, except the
+// projects in nodeProjects (scripts/test-tiers.ts): the Node-only suites and the web and
+// client-react jsdom projects follow in a second pass on Node, and the timings are merged.
+// Run with node, every project runs on Node.
 //
 // Every run writes test-timings/last.json. A run with no extra arguments also writes
 // test-timings/<tier>.json, so the latest unfiltered run of each tier is kept.
@@ -87,7 +89,7 @@ if ("bun" in process.versions) {
       lastRun,
     );
   if (passes.node) {
-    console.log("\nRunning the Node-only suites on Node");
+    console.log(`\nRunning ${passes.node.join(", ")} on Node`);
     const nodeExit = await vitest(
       "node",
       [...projectArgs(passes.node), "--passWithNoTests", ...shared],
