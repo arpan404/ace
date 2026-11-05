@@ -240,8 +240,12 @@ export class BackendConnection {
         return;
       }
       if (reply.data.type === "error") {
-        // An older daemon does not parse the frame at all; a newer one refuses the credential.
-        outcome = reply.data.code === "invalid_message" ? "unsupported" : "rejected";
+        // A daemon without the browser backend answers that it doesn't know the request
+        // (`unsupported`, or `invalid_message` from older ones); any other error refuses it.
+        outcome =
+          reply.data.code === "unsupported" || reply.data.code === "invalid_message"
+            ? "unsupported"
+            : "rejected";
         this.ports.log(`The daemon refused the browser backend: ${reply.data.message ?? ""}`);
         socket.close();
         return;

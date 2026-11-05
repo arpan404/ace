@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { EmbeddedBackend } from "@ace/browser";
 import { BrowserOpen } from "@ace/protocol";
 import { fakeViews, screencastFrame } from "./test-support.ts";
-import { connectDesktop, eventually, relayDaemon, type RelayClock } from "./relay-test-support.ts";
+import {
+  connectDesktop,
+  eventually,
+  relayDaemon,
+  startDesktop,
+  type RelayClock,
+} from "./relay-test-support.ts";
 
 /**
  * The desktop backend against the daemon's own relay, `EmbeddedBackend` from `@ace/browser`,
@@ -213,5 +219,19 @@ it.runIf(process.platform === "win32")(
     });
     expect(lost).toEqual([]);
     expect(page.closed).toBe(false);
+  },
+);
+
+it.each(["unsupported", "invalid_message"])(
+  "a daemon that answers %s to the browser backend leaves it unsupported, without dialling again",
+  async (code) => {
+    const daemon = await relayDaemon(cleanups, { refuseRegister: code });
+    const { connection } = await startDesktop(cleanups, daemon, fakeViews().host);
+    await eventually(() => expect(connection.state()).toBe("unsupported"));
+    const dialled = daemon.connections();
+    // Longer than the first retry backoff: a retrying connection would have dialled again.
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(daemon.connections()).toBe(dialled);
+    expect(connection.state()).toBe("unsupported");
   },
 );
