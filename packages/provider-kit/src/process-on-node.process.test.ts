@@ -30,18 +30,29 @@ function groupAlive(pid: number): boolean {
   }
 }
 
-/** Records the groups the kit owns while `run` runs. */
-async function recordingGroups<T>(run: (recorded: Set<number>) => Promise<T>): Promise<T> {
-  const recorded = new Set<number>();
+/** Groups the kit owns now (`owned`) and every group it has owned (`seen`) while `run` runs. */
+async function recordingGroups<T>(
+  run: (groups: { owned: Set<number>; seen: number[] }) => Promise<T>,
+): Promise<T> {
+  const owned = new Set<number>();
+  const seen: number[] = [];
   const stop = observeProcessGroups({
-    add: (pid) => recorded.add(pid),
-    remove: (pid) => recorded.delete(pid),
+    add: (pid) => {
+      owned.add(pid);
+      seen.push(pid);
+    },
+    remove: (pid) => owned.delete(pid),
   });
   try {
-    return await run(recorded);
+    return await run({ owned, seen });
   } finally {
     stop();
   }
+}
+
+/** Each group ends; Linux can briefly report a group whose last members aren't reaped yet. */
+async function expectGroupsGone(pids: readonly number[]): Promise<void> {
+  await expect.poll(() => pids.filter(groupAlive), { timeout: 5000 }).toEqual([]);
 }
 
 test.runIf(posix)("on Node a probe returns its output and exit code", async () => {
@@ -60,50 +71,46 @@ test("on Node a probe of a command that is not installed fails to start", async 
 });
 
 test.runIf(posix)("on Node a probe past its timeout is stopped with its descendants", async () => {
-  await recordingGroups(async (recorded) => {
+  await recordingGroups(async ({ owned, seen }) => {
     const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"], { timeoutMs: 300 });
-    await expect.poll(() => recorded.size).toBe(1);
-    const [pid] = recorded;
-    if (pid === undefined) throw new Error("Probe was never recorded");
-    await expect(running).rejects.toThrow("Probe timed out");
-    expect(recorded.size).toBe(0);
-    await expect.poll(() => groupAlive(pid), { timeout: 5000 }).toBe(false);
+    const rejected = expect(running).rejects.toThrow("Probe timed out");
+    await rejected;
+    expect(seen).toHaveLength(1);
+    expect(owned.size).toBe(0);
+    await expectGroupsGone(seen);
   });
 });
 
 test.runIf(posix)("on Node an aborted probe stops its descendants and rejects", async () => {
-  await recordingGroups(async (recorded) => {
+  await recordingGroups(async ({ owned, seen }) => {
     const controller = new AbortController();
     const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"], {
       signal: controller.signal,
     });
-    await expect.poll(() => recorded.size).toBe(1);
-    const [pid] = recorded;
-    if (pid === undefined) throw new Error("Probe was never recorded");
+    const rejected = expect(running).rejects.toThrow("Probe aborted");
+    // Without a timeout the probe stays owned until the abort, so waiting for it is safe.
+    await expect.poll(() => owned.size).toBe(1);
     controller.abort();
-    await expect(running).rejects.toThrow("Probe aborted");
-    await expect.poll(() => groupAlive(pid), { timeout: 5000 }).toBe(false);
+    await rejected;
+    expect(owned.size).toBe(0);
+    await expectGroupsGone(seen);
   });
 });
 
+// Every test in this file runs serially: a global stop ends every group this worker owns, so
+// running it beside another test would stop that test's processes too.
 test.runIf(posix)(
   "on Node a global stop waits for a probe whose pid has not arrived yet and ends it",
   async () => {
-    const seen: number[] = [];
-    await recordingGroups(async (recorded) => {
-      const stop = observeProcessGroups({ add: (pid) => seen.push(pid), remove: () => {} });
-      try {
-        const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
-        void running.catch(() => {});
-        // Straight away: the worker has not reported the pid, so only the admission owns it.
-        await stopOwnedGroups(0);
-        expect(seen).toHaveLength(1);
-        expect(recorded.size).toBe(0);
-        expect(seen.map(groupAlive)).toEqual([false]);
-        await running;
-      } finally {
-        stop();
-      }
+    await recordingGroups(async ({ owned, seen }) => {
+      const running = probeOutput("/bin/sh", ["-c", "sleep 30 & sleep 30"]);
+      void running.catch(() => {});
+      // Straight away: the worker has not reported the pid, so only the admission owns it.
+      await stopOwnedGroups(0);
+      expect(seen).toHaveLength(1);
+      expect(owned.size).toBe(0);
+      await expectGroupsGone(seen);
+      await running;
     });
   },
 );
@@ -111,7 +118,7 @@ test.runIf(posix)(
 test.runIf(posix)(
   "on Node a stop of every owned group ends each group with its grandchildren",
   async () => {
-    await recordingGroups(async (recorded) => {
+    await recordingGroups(async ({ owned, seen }) => {
       const proc = spawnSupervised({
         command: "/bin/sh",
         args: ["-c", "sleep 30 & echo ready; sleep 30"],
@@ -121,11 +128,11 @@ test.runIf(posix)(
       await once(proc.stdout, "line");
       const pid = proc.pid;
       if (pid === undefined) throw new Error("Owned tree did not start");
-      expect([...recorded]).toEqual([pid]);
+      expect([...owned]).toEqual([pid]);
       await stopOwnedGroups(100);
       expect(await proc.exited).toMatchObject({ reason: "stopped" });
-      expect(recorded.size).toBe(0);
-      await expect.poll(() => groupAlive(pid), { timeout: 5000 }).toBe(false);
+      expect(owned.size).toBe(0);
+      await expectGroupsGone(seen);
     });
   },
 );
@@ -152,7 +159,7 @@ test.runIf(posix)("on Node an owner that exits takes its owned group with it", a
   ]);
   const { pgid } = z.object({ pgid: z.number().int().positive() }).parse(JSON.parse(String(line)));
   expect(await closed).toEqual([0, null]);
-  await expect.poll(() => groupAlive(pgid), { timeout: 5000 }).toBe(false);
+  await expectGroupsGone([pgid]);
 });
 
 test.runIf(posix)(
