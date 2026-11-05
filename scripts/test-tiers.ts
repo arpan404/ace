@@ -28,6 +28,15 @@ export const nodeOnlySuites = [
   // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
   // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
   "apps/relay/src/abuse.process.test.ts",
+  // Their test preloads patch node:fs/promises inside the history worker. Bun's named imports of
+  // builtins don't see such patches, and Bun lets nothing replace a builtin module.
+  "packages/history-import/src/audit-scan.process.test.ts",
+  "packages/history-import/src/observed-reads.process.test.ts",
+  "packages/history-import/src/snapshot-bounds.process.test.ts",
+  "packages/history-import/src/snapshot-race.process.test.ts",
+  // The reader's heap limit (Worker resourceLimits) exists only on Node: Bun ignores it, so on
+  // Bun these checks would pass without any limit at all.
+  "packages/history-import/src/memory-bounds.process.test.ts",
 ];
 const nodeProjects: readonly string[] = ["node-process"];
 
