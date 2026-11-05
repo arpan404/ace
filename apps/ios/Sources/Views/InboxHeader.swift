@@ -110,23 +110,35 @@ extension View {
     }
 }
 
-/// `pinnedTopBar`. The edge shows once rows have moved under the bar: at rest it would blur a
-/// large title sitting over it, so the bar reads as part of the page there, as a navigation bar's
-/// scroll-edge appearance does.
+/// `pinnedTopBar`. The edge shows once rows pass under the bar: at rest it would blur the large
+/// title above it. It turns on only after the large title has handed over to the small one and
+/// off only back near the top, so the wobble of the scroll position during that hand-over can't
+/// flip it every frame (`ScrollEdgeHold`).
 private struct PinnedTopBar<Bar: View>: ViewModifier {
     let bar: Bar
-    @State private var scrolled = false
+    @State private var hold = ScrollEdgeHold()
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
             content
-                .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 0 } action: { _, now in
-                    scrolled = now
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+                    hold.update(offset)
                 }
                 .scrollEdgeEffectStyle(.hard, for: .top)
-                .scrollEdgeEffectHidden(!scrolled, for: .top)
+                .scrollEdgeEffectHidden(!hold.shown, for: .top)
                 .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
         } else {
             content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar.background(AceTheme.Colours.background) }
         }
+    }
+}
+
+/// Whether a pinned bar's scroll edge shows, from how far the list has scrolled: on past `on`
+/// (about a large title's height, so the title has collapsed), off again only under `off`. Pure.
+struct ScrollEdgeHold: Equatable {
+    static let on: CGFloat = 52
+    static let off: CGFloat = 8
+    private(set) var shown = false
+    mutating func update(_ offset: CGFloat) {
+        if shown { if offset < Self.off { shown = false } } else if offset > Self.on { shown = true }
     }
 }
