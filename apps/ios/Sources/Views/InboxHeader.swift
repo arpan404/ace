@@ -105,12 +105,28 @@ extension View {
     /// system bar with the hard scroll-edge effect Apple uses under a pinned control, so rows blur
     /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
     /// page colour.
-    @ViewBuilder func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar()))
+    }
+}
+
+/// `pinnedTopBar`. The edge shows once rows have moved under the bar: at rest it would blur a
+/// large title sitting over it, so the bar reads as part of the page there, as a navigation bar's
+/// scroll-edge appearance does.
+private struct PinnedTopBar<Bar: View>: ViewModifier {
+    let bar: Bar
+    @State private var scrolled = false
+    func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            scrollEdgeEffectStyle(.hard, for: .top)
-                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
+            content
+                .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 0 } action: { _, now in
+                    scrolled = now
+                }
+                .scrollEdgeEffectStyle(.hard, for: .top)
+                .scrollEdgeEffectHidden(!scrolled, for: .top)
+                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
         } else {
-            safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
+            content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar.background(AceTheme.Colours.background) }
         }
     }
 }
