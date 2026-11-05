@@ -1,373 +1,1793 @@
 <!doctype html>
-<html><head><meta charset="utf-8">
-<style>
-:root{--need:var(--warning);--fail:var(--destructive);--work:var(--info);--done:var(--success);--wait:#9d8bd0;--claude:#D97757}
-.lead{font-size:16px;margin:0 0 4px}
-.idea-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 16px}
-.idea-tabs button{font-size:13px}.idea-tabs button[aria-selected=true]{background:var(--accent);color:var(--accent-foreground);border-color:transparent}
-.panel{display:none}.panel.on{display:block}
-.layout{display:grid;grid-template-columns:minmax(0,390px) minmax(0,1fr);gap:24px;align-items:start}
-@media (max-width:759px){.layout{grid-template-columns:minmax(0,1fr)}}
-.phone{margin:0 auto;width:min(100%,390px)}
-.notes h3{margin:0 0 4px;font-size:18px}
-.notes .tag{margin:0 0 12px}
-.notes dl{margin:0}
-.notes dt{font-size:12px;color:var(--subtle-foreground);margin-top:12px}
-.notes dd{margin:2px 0 0}
-/* screen */
-.scr{position:absolute;inset:0;display:flex;flex-direction:column;font-size:14px;color:var(--foreground);background:var(--background)}
-.sb{height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 28px;font-size:13px;font-weight:600;flex:none}
-.nav{display:flex;justify-content:space-between;align-items:center;padding:4px 16px;flex:none}
-.lt{font-size:30px;font-weight:600;padding:2px 16px 8px;flex:none}
-.gb{width:36px;height:36px;border-radius:999px;display:grid;place-items:center;background:color-mix(in srgb,var(--foreground) 9%,transparent);border:1px solid color-mix(in srgb,var(--foreground) 10%,transparent);color:var(--foreground);flex:none}
-.gb svg{width:17px;height:17px}
-.seg{display:flex;margin:0 16px 8px;padding:3px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 7%,transparent);flex:none}
-.seg span{flex:1;text-align:center;font-size:13px;padding:6px 0;border-radius:999px;color:var(--muted-foreground)}
-.seg span.sel{background:var(--surface-2);color:var(--foreground);font-weight:500}
-.body{flex:1;min-height:0;overflow:hidden;position:relative}
-.row{padding:10px 16px;display:flex;flex-direction:column;gap:2px;position:relative;background:var(--background)}
-.meta{font-size:12px;color:var(--subtle-foreground);display:flex;gap:6px;align-items:center;min-width:0}
-.meta .sp{flex:1}
-.ttl{font-size:15px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ttl.hot{color:var(--foreground)}
-.mono{font-family:var(--font-mono);font-size:12px}
-.si{width:14px;height:14px;flex:none}
-.pm{width:17px;height:17px;border-radius:999px;display:inline-grid;place-items:center;font-size:10px;font-weight:700;color:#fff;flex:none}
-.pm.cl{background:var(--claude)}.pm.cx{background:#2b2b2b;outline:1px solid color-mix(in srgb,var(--foreground) 25%,transparent)}.pm.cu{background:#555}
-.req{display:flex;align-items:center;gap:8px;margin-top:6px}
-.req .mono{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted-foreground);padding:5px 10px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 6%,transparent)}
-.ta{font-size:14px;font-weight:500;color:var(--accent-text);padding:4px 2px}
-.ta.m{color:var(--muted-foreground)}
-.tabbar{position:absolute;left:16px;right:16px;bottom:18px;display:flex;gap:10px;align-items:center}
-.tabs{flex:1;display:flex;justify-content:space-around;padding:6px;border-radius:999px;background:color-mix(in srgb,var(--surface-2) 85%,transparent);backdrop-filter:blur(12px);border:1px solid color-mix(in srgb,var(--foreground) 10%,transparent)}
-.tabs span{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10px;color:var(--muted-foreground);padding:4px 12px;border-radius:999px}
-.tabs span.sel{color:var(--accent-text);background:color-mix(in srgb,var(--foreground) 8%,transparent)}
-.tabs svg{width:20px;height:20px}
-.fab{width:54px;height:54px;border-radius:999px;display:grid;place-items:center;background:color-mix(in srgb,var(--surface-2) 85%,transparent);border:1px solid color-mix(in srgb,var(--foreground) 10%,transparent);color:var(--foreground)}
-.fab svg{width:22px;height:22px}
-.cap{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:999px;padding:0 16px;height:44px;font-size:15px;font-weight:500;background:color-mix(in srgb,var(--foreground) 9%,transparent);color:var(--foreground)}
-.cap.pri{background:var(--accent);color:var(--accent-foreground)}
-.pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:5px 10px;font-size:12px;background:color-mix(in srgb,var(--foreground) 8%,transparent);color:var(--muted-foreground);white-space:nowrap}
-.composer{position:absolute;left:10px;right:10px;bottom:14px;border-radius:30px;padding:8px;background:color-mix(in srgb,var(--surface-2) 90%,transparent);backdrop-filter:blur(12px);border:1px solid color-mix(in srgb,var(--foreground) 10%,transparent);display:flex;flex-direction:column;gap:8px}
-.cf{display:flex;align-items:center;gap:8px}
-.cf .field{flex:1;min-width:0;height:38px;border-radius:999px;padding:0 14px;display:flex;align-items:center;color:var(--subtle-foreground);font-size:15px;background:color-mix(in srgb,var(--foreground) 6%,transparent)}
-.rb{width:38px;height:38px;border-radius:999px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--foreground) 9%,transparent)}
-.rb.send{background:var(--accent);color:var(--accent-foreground)}
-.rb svg{width:18px;height:18px}
-.bub{align-self:flex-end;max-width:78%;padding:9px 14px;border-radius:20px;background:var(--surface-2);font-size:14px}
-.worked{font-size:13px;color:var(--subtle-foreground);display:flex;align-items:center;gap:6px}
-.sheet{position:absolute;left:0;right:0;bottom:0;border-radius:34px 34px 0 0;background:var(--card);border-top:1px solid var(--border);padding:8px 16px 20px;display:flex;flex-direction:column;gap:10px}
-.grab{width:36px;height:5px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 22%,transparent);margin:0 auto 4px}
-.hl{height:1px;background:var(--border);margin:0 16px}
-.dim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
-.add{color:var(--success)}.del{color:var(--destructive)}
-.dl{font-family:var(--font-mono);font-size:11.5px;padding:1px 16px;white-space:pre;overflow:hidden;text-overflow:ellipsis}
-.dl.a{background:color-mix(in srgb,var(--success) 12%,transparent)}
-.dl.d{background:color-mix(in srgb,var(--destructive) 12%,transparent)}
-.dl.sel{outline:2px solid var(--accent);outline-offset:-2px}
-.tree{padding:4px 16px;display:flex;flex-direction:column}
-.node{display:flex;gap:10px;align-items:flex-start;padding:8px 0}
-.node .ln{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.kids{margin-left:7px;padding-left:16px;border-left:1.5px solid var(--border)}
-.ls{position:absolute;inset:0;background:linear-gradient(#1d2433,#0e1118);color:#fff}
-.gl{border-radius:24px;background:rgba(40,44,54,.72);backdrop-filter:blur(16px);padding:12px 14px;margin:0 10px;display:flex;flex-direction:column;gap:6px}
-</style></head><body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-<defs>
-<symbol id="s-work" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--work)" stroke-width="2" stroke-dasharray="3 2.4"/></symbol>
-<symbol id="s-wait" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="none" stroke="var(--wait)" stroke-width="1.6" stroke-dasharray="3 2.4"/><circle cx="8" cy="8" r="2" fill="var(--wait)"/></symbol>
-<symbol id="s-need" viewBox="0 0 16 16"><path d="M8 1.5l1.7 4.8 4.8 1.7-4.8 1.7L8 14.5l-1.7-4.8L1.5 8l4.8-1.7z" fill="var(--need)"/></symbol>
-<symbol id="s-ask" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="var(--need)"/><text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="700" fill="#1a1a1a">?</text></symbol>
-<symbol id="s-done" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="var(--done)"/><path d="M4.8 8.2l2.2 2.2 4.2-4.6" fill="none" stroke="#10301c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-<symbol id="s-fail" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="var(--fail)"/><path d="M8 4.5v4.2" stroke="#3a0d0b" stroke-width="1.9" stroke-linecap="round"/><circle cx="8" cy="11.2" r="1.1" fill="#3a0d0b"/></symbol>
-<symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
-<symbol id="i-list" viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
-<symbol id="i-spade" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="9.5" cy="11" rx="1.3" ry="1.8" fill="currentColor"/><ellipse cx="14.5" cy="11" rx="1.3" ry="1.8" fill="currentColor"/></symbol>
-<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
-<symbol id="i-pen" viewBox="0 0 24 24"><path d="M5 19l1-4L16 5l3 3L9 18z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
-<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
-<symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/></symbol>
-<symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-<symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-<symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 11a6 6 0 0012 0M12 17v3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
-<symbol id="i-side" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5v14" stroke="currentColor" stroke-width="1.6"/></symbol>
-<symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-</defs></svg>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --need: var(--warning);
+        --fail: var(--destructive);
+        --work: var(--info);
+        --done: var(--success);
+        --wait: #9d8bd0;
+        --claude: #d97757;
+      }
+      .lead {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      .idea-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 12px 0 16px;
+      }
+      .idea-tabs button {
+        font-size: 13px;
+      }
+      .idea-tabs button[aria-selected="true"] {
+        background: var(--accent);
+        color: var(--accent-foreground);
+        border-color: transparent;
+      }
+      .panel {
+        display: none;
+      }
+      .panel.on {
+        display: block;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 390px) minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+      }
+      @media (max-width: 759px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      .phone {
+        margin: 0 auto;
+        width: min(100%, 390px);
+      }
+      .notes h3 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .notes .tag {
+        margin: 0 0 12px;
+      }
+      .notes dl {
+        margin: 0;
+      }
+      .notes dt {
+        font-size: 12px;
+        color: var(--subtle-foreground);
+        margin-top: 12px;
+      }
+      .notes dd {
+        margin: 2px 0 0;
+      }
+      /* screen */
+      .scr {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        font-size: 14px;
+        color: var(--foreground);
+        background: var(--background);
+      }
+      .sb {
+        height: 44px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0 28px;
+        font-size: 13px;
+        font-weight: 600;
+        flex: none;
+      }
+      .nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 16px;
+        flex: none;
+      }
+      .lt {
+        font-size: 30px;
+        font-weight: 600;
+        padding: 2px 16px 8px;
+        flex: none;
+      }
+      .gb {
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--foreground) 9%, transparent);
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        color: var(--foreground);
+        flex: none;
+      }
+      .gb svg {
+        width: 17px;
+        height: 17px;
+      }
+      .seg {
+        display: flex;
+        margin: 0 16px 8px;
+        padding: 3px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--foreground) 7%, transparent);
+        flex: none;
+      }
+      .seg span {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+        padding: 6px 0;
+        border-radius: 999px;
+        color: var(--muted-foreground);
+      }
+      .seg span.sel {
+        background: var(--surface-2);
+        color: var(--foreground);
+        font-weight: 500;
+      }
+      .body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        position: relative;
+      }
+      .row {
+        padding: 10px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        position: relative;
+        background: var(--background);
+      }
+      .meta {
+        font-size: 12px;
+        color: var(--subtle-foreground);
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        min-width: 0;
+      }
+      .meta .sp {
+        flex: 1;
+      }
+      .ttl {
+        font-size: 15px;
+        color: var(--muted-foreground);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ttl.hot {
+        color: var(--foreground);
+      }
+      .mono {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .si {
+        width: 14px;
+        height: 14px;
+        flex: none;
+      }
+      .pm {
+        width: 17px;
+        height: 17px;
+        border-radius: 999px;
+        display: inline-grid;
+        place-items: center;
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+        flex: none;
+      }
+      .pm.cl {
+        background: var(--claude);
+      }
+      .pm.cx {
+        background: #2b2b2b;
+        outline: 1px solid color-mix(in srgb, var(--foreground) 25%, transparent);
+      }
+      .pm.cu {
+        background: #555;
+      }
+      .req {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .req .mono {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--muted-foreground);
+        padding: 5px 10px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      }
+      .ta {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--accent-text);
+        padding: 4px 2px;
+      }
+      .ta.m {
+        color: var(--muted-foreground);
+      }
+      .tabbar {
+        position: absolute;
+        left: 16px;
+        right: 16px;
+        bottom: 18px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .tabs {
+        flex: 1;
+        display: flex;
+        justify-content: space-around;
+        padding: 6px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+        backdrop-filter: blur(12px);
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+      }
+      .tabs span {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        font-size: 10px;
+        color: var(--muted-foreground);
+        padding: 4px 12px;
+        border-radius: 999px;
+      }
+      .tabs span.sel {
+        color: var(--accent-text);
+        background: color-mix(in srgb, var(--foreground) 8%, transparent);
+      }
+      .tabs svg {
+        width: 20px;
+        height: 20px;
+      }
+      .fab {
+        width: 54px;
+        height: 54px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        color: var(--foreground);
+      }
+      .fab svg {
+        width: 22px;
+        height: 22px;
+      }
+      .cap {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 0 16px;
+        height: 44px;
+        font-size: 15px;
+        font-weight: 500;
+        background: color-mix(in srgb, var(--foreground) 9%, transparent);
+        color: var(--foreground);
+      }
+      .cap.pri {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 12px;
+        background: color-mix(in srgb, var(--foreground) 8%, transparent);
+        color: var(--muted-foreground);
+        white-space: nowrap;
+      }
+      .composer {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 14px;
+        border-radius: 30px;
+        padding: 8px;
+        background: color-mix(in srgb, var(--surface-2) 90%, transparent);
+        backdrop-filter: blur(12px);
+        border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .cf {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .cf .field {
+        flex: 1;
+        min-width: 0;
+        height: 38px;
+        border-radius: 999px;
+        padding: 0 14px;
+        display: flex;
+        align-items: center;
+        color: var(--subtle-foreground);
+        font-size: 15px;
+        background: color-mix(in srgb, var(--foreground) 6%, transparent);
+      }
+      .rb {
+        width: 38px;
+        height: 38px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        background: color-mix(in srgb, var(--foreground) 9%, transparent);
+      }
+      .rb.send {
+        background: var(--accent);
+        color: var(--accent-foreground);
+      }
+      .rb svg {
+        width: 18px;
+        height: 18px;
+      }
+      .bub {
+        align-self: flex-end;
+        max-width: 78%;
+        padding: 9px 14px;
+        border-radius: 20px;
+        background: var(--surface-2);
+        font-size: 14px;
+      }
+      .worked {
+        font-size: 13px;
+        color: var(--subtle-foreground);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sheet {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 34px 34px 0 0;
+        background: var(--card);
+        border-top: 1px solid var(--border);
+        padding: 8px 16px 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .grab {
+        width: 36px;
+        height: 5px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--foreground) 22%, transparent);
+        margin: 0 auto 4px;
+      }
+      .hl {
+        height: 1px;
+        background: var(--border);
+        margin: 0 16px;
+      }
+      .dim {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+      }
+      .add {
+        color: var(--success);
+      }
+      .del {
+        color: var(--destructive);
+      }
+      .dl {
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        padding: 1px 16px;
+        white-space: pre;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dl.a {
+        background: color-mix(in srgb, var(--success) 12%, transparent);
+      }
+      .dl.d {
+        background: color-mix(in srgb, var(--destructive) 12%, transparent);
+      }
+      .dl.sel {
+        outline: 2px solid var(--accent);
+        outline-offset: -2px;
+      }
+      .tree {
+        padding: 4px 16px;
+        display: flex;
+        flex-direction: column;
+      }
+      .node {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        padding: 8px 0;
+      }
+      .node .ln {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
+      }
+      .kids {
+        margin-left: 7px;
+        padding-left: 16px;
+        border-left: 1.5px solid var(--border);
+      }
+      .ls {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(#1d2433, #0e1118);
+        color: #fff;
+      }
+      .gl {
+        border-radius: 24px;
+        background: rgba(40, 44, 54, 0.72);
+        backdrop-filter: blur(16px);
+        padding: 12px 14px;
+        margin: 0 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="s-work" viewBox="0 0 16 16">
+          <circle
+            cx="8"
+            cy="8"
+            r="6"
+            fill="none"
+            stroke="var(--work)"
+            stroke-width="2"
+            stroke-dasharray="3 2.4"
+          />
+        </symbol>
+        <symbol id="s-wait" viewBox="0 0 16 16">
+          <circle
+            cx="8"
+            cy="8"
+            r="6.5"
+            fill="none"
+            stroke="var(--wait)"
+            stroke-width="1.6"
+            stroke-dasharray="3 2.4"
+          />
+          <circle cx="8" cy="8" r="2" fill="var(--wait)" />
+        </symbol>
+        <symbol id="s-need" viewBox="0 0 16 16">
+          <path
+            d="M8 1.5l1.7 4.8 4.8 1.7-4.8 1.7L8 14.5l-1.7-4.8L1.5 8l4.8-1.7z"
+            fill="var(--need)"
+          />
+        </symbol>
+        <symbol id="s-ask" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="7" fill="var(--need)" />
+          <text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="700" fill="#1a1a1a">
+            ?
+          </text>
+        </symbol>
+        <symbol id="s-done" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="7" fill="var(--done)" />
+          <path
+            d="M4.8 8.2l2.2 2.2 4.2-4.6"
+            fill="none"
+            stroke="#10301c"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="s-fail" viewBox="0 0 16 16">
+          <circle cx="8" cy="8" r="7" fill="var(--fail)" />
+          <path d="M8 4.5v4.2" stroke="#3a0d0b" stroke-width="1.9" stroke-linecap="round" />
+          <circle cx="8" cy="11.2" r="1.1" fill="#3a0d0b" />
+        </symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24">
+          <path
+            d="M4 5h16v11H9l-5 4z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-list" viewBox="0 0 24 24">
+          <path
+            d="M5 7h14M5 12h14M5 17h9"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-spade" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6" />
+          <ellipse cx="9.5" cy="11" rx="1.3" ry="1.8" fill="currentColor" />
+          <ellipse cx="14.5" cy="11" rx="1.3" ry="1.8" fill="currentColor" />
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+          <path
+            d="M12 5v14M5 12h14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-pen" viewBox="0 0 24 24">
+          <path
+            d="M5 19l1-4L16 5l3 3L9 18z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="1.7" />
+          <path d="M16 16l4 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-more" viewBox="0 0 24 24">
+          <circle cx="6" cy="12" r="1.6" fill="currentColor" />
+          <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+          <circle cx="18" cy="12" r="1.6" fill="currentColor" />
+        </symbol>
+        <symbol id="i-up" viewBox="0 0 24 24">
+          <path
+            d="M12 19V6M6 11l6-6 6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-back" viewBox="0 0 24 24">
+          <path
+            d="M15 5l-7 7 7 7"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-mic" viewBox="0 0 24 24">
+          <rect
+            x="9"
+            y="3"
+            width="6"
+            height="11"
+            rx="3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          />
+          <path
+            d="M6 11a6 6 0 0012 0M12 17v3"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-side" viewBox="0 0 24 24">
+          <rect
+            x="4"
+            y="5"
+            width="16"
+            height="14"
+            rx="4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.6"
+          />
+          <path d="M10 5v14" stroke="currentColor" stroke-width="1.6" />
+        </symbol>
+        <symbol id="i-chev" viewBox="0 0 24 24">
+          <path
+            d="M9 6l6 6-6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </symbol>
+      </defs>
+    </svg>
 
-<p class="lead">Ten directions for the iPhone app. Each fixes one thing the phone has to do better than a shrunken desktop: decide fast, from anywhere, with one thumb.</p>
-<p class="ace-muted" style="margin:0">My pick is at the end: 1, 4, 5, 6, 8 and 10 together make one app. 2, 3, 7 and 9 fit inside it.</p>
+    <p class="lead">
+      Ten directions for the iPhone app. Each fixes one thing the phone has to do better than a
+      shrunken desktop: decide fast, from anywhere, with one thumb.
+    </p>
+    <p class="ace-muted" style="margin: 0">
+      My pick is at the end: 1, 4, 5, 6, 8 and 10 together make one app. 2, 3, 7 and 9 fit inside
+      it.
+    </p>
 
-<div class="idea-tabs" role="tablist" id="tl"></div>
-<div id="panels">
+    <div class="idea-tabs" role="tablist" id="tl"></div>
+    <div id="panels">
+      <!-- 1 -->
+      <section class="panel" data-t="1 · Act from the inbox">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span></span
+                ><span style="display: flex; gap: 8px"
+                  ><span class="gb"
+                    ><svg><use href="#i-search" /></svg></span
+                  ><span class="gb"
+                    ><svg><use href="#i-more" /></svg></span
+                ></span>
+              </div>
+              <div class="lt">Inbox</div>
+              <div class="seg">
+                <span class="sel">Inbox</span><span>Snoozed</span><span>Settled</span>
+              </div>
+              <div class="body">
+                <div class="row">
+                  <div class="meta">
+                    ace <svg class="si"><use href="#s-need" /></svg
+                    ><span class="sp"></span>ace/fleet-map-tab <span class="pm cl">C</span>
+                  </div>
+                  <div class="ttl hot">Give every Fleet map wire its own path</div>
+                  <div class="req">
+                    <span class="mono">bun run test:changed</span><span class="ta m">Deny</span
+                    ><span class="ta">Allow</span>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="meta">
+                    ace <svg class="si"><use href="#s-ask" /></svg
+                    ><span class="sp"></span>ace/remote-update <span class="pm cx">X</span>
+                  </div>
+                  <div class="ttl hot">Update remote machines from Settings</div>
+                  <div class="req">
+                    <span class="ace-muted" style="flex: 1; font-size: 13px"
+                      >Which machines should update first?</span
+                    ><span class="ta">Answer</span>
+                  </div>
+                </div>
+                <div style="position: relative; overflow: hidden">
+                  <div
+                    style="position: absolute; inset: 0; display: flex; justify-content: flex-end"
+                  >
+                    <span
+                      style="
+                        width: 96px;
+                        display: grid;
+                        place-items: center;
+                        background: var(--wait);
+                        color: #fff;
+                        font-size: 13px;
+                        font-weight: 600;
+                      "
+                      >Snooze</span
+                    >
+                  </div>
+                  <div class="row" style="transform: translateX(-96px)">
+                    <div class="meta">
+                      ace <svg class="si"><use href="#s-work" /></svg> 4m<span class="sp"></span
+                      >ace/ios-composer <span class="pm cl">C</span>
+                    </div>
+                    <div class="ttl">Keep the composer above the keyboard</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="meta">
+                    marketing <svg class="si"><use href="#s-done" /></svg><span class="sp"></span>PR
+                    #1682 <span class="pm cu">U</span>
+                  </div>
+                  <div class="ttl hot">Give Fleet's Overview and Map one frame</div>
+                </div>
+                <div class="row">
+                  <div class="meta">ace<span class="sp"></span>2h <span class="pm cx">X</span></div>
+                  <div class="ttl">Show each remote network in Settings</div>
+                </div>
+              </div>
+              <div class="tabbar">
+                <div class="tabs">
+                  <span class="sel"
+                    ><svg><use href="#i-list" /></svg>Threads</span
+                  ><span
+                    ><svg><use href="#i-chat" /></svg>Chats</span
+                  ><span
+                    ><svg><use href="#i-spade" /></svg>Spade</span
+                  >
+                </div>
+                <span class="fab"
+                  ><svg><use href="#i-pen" /></svg
+                ></span>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Act from the inbox</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                A row that needs you grows one line: the command or question and its text actions.
+                Allow, deny or answer without opening the thread. Swipe left to snooze or settle,
+                right to pin.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>
+                Inbox · Snoozed · Settled, row actions, multi-select, project filter in the title
+                menu.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 1 -->
-<section class="panel" data-t="1 · Act from the inbox">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span></span><span style="display:flex;gap:8px"><span class="gb"><svg><use href="#i-search"/></svg></span><span class="gb"><svg><use href="#i-more"/></svg></span></span></div>
- <div class="lt">Inbox</div>
- <div class="seg"><span class="sel">Inbox</span><span>Snoozed</span><span>Settled</span></div>
- <div class="body">
-  <div class="row"><div class="meta">ace <svg class="si"><use href="#s-need"/></svg><span class="sp"></span>ace/fleet-map-tab <span class="pm cl">C</span></div>
-   <div class="ttl hot">Give every Fleet map wire its own path</div>
-   <div class="req"><span class="mono">bun run test:changed</span><span class="ta m">Deny</span><span class="ta">Allow</span></div></div>
-  <div class="row"><div class="meta">ace <svg class="si"><use href="#s-ask"/></svg><span class="sp"></span>ace/remote-update <span class="pm cx">X</span></div>
-   <div class="ttl hot">Update remote machines from Settings</div>
-   <div class="req"><span class="ace-muted" style="flex:1;font-size:13px">Which machines should update first?</span><span class="ta">Answer</span></div></div>
-  <div style="position:relative;overflow:hidden">
-   <div style="position:absolute;inset:0;display:flex;justify-content:flex-end"><span style="width:96px;display:grid;place-items:center;background:var(--wait);color:#fff;font-size:13px;font-weight:600">Snooze</span></div>
-   <div class="row" style="transform:translateX(-96px)"><div class="meta">ace <svg class="si"><use href="#s-work"/></svg> 4m<span class="sp"></span>ace/ios-composer <span class="pm cl">C</span></div><div class="ttl">Keep the composer above the keyboard</div></div>
-  </div>
-  <div class="row"><div class="meta">marketing <svg class="si"><use href="#s-done"/></svg><span class="sp"></span>PR #1682 <span class="pm cu">U</span></div><div class="ttl hot">Give Fleet's Overview and Map one frame</div></div>
-  <div class="row"><div class="meta">ace<span class="sp"></span>2h <span class="pm cx">X</span></div><div class="ttl">Show each remote network in Settings</div></div>
- </div>
- <div class="tabbar"><div class="tabs"><span class="sel"><svg><use href="#i-list"/></svg>Threads</span><span><svg><use href="#i-chat"/></svg>Chats</span><span><svg><use href="#i-spade"/></svg>Spade</span></div><span class="fab"><svg><use href="#i-pen"/></svg></span></div>
-</div></div>
-<div class="notes"><h3>Act from the inbox</h3>
-<dl><dt>What it is</dt><dd>A row that needs you grows one line: the command or question and its text actions. Allow, deny or answer without opening the thread. Swipe left to snooze or settle, right to pin.</dd>
-<dt>Web parity</dt><dd>Inbox · Snoozed · Settled, row actions, multi-select, project filter in the title menu.</dd></dl></div></div>
-</section>
+      <!-- 2 -->
+      <section class="panel" data-t="2 · Needs-you run">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-back" /></svg></span
+                ><span style="font-size: 15px; font-weight: 500">1 of 3</span
+                ><span class="gb" style="font-size: 13px; width: auto; padding: 0 12px">Skip</span>
+              </div>
+              <div style="display: flex; gap: 4px; padding: 6px 16px 0">
+                <span
+                  style="flex: 1; height: 3px; border-radius: 9px; background: var(--accent)"
+                ></span
+                ><span
+                  style="flex: 1; height: 3px; border-radius: 9px; background: var(--border)"
+                ></span
+                ><span
+                  style="flex: 1; height: 3px; border-radius: 9px; background: var(--border)"
+                ></span>
+              </div>
+              <div
+                class="body"
+                style="padding: 24px 16px; display: flex; flex-direction: column; gap: 14px"
+              >
+                <div class="meta"><span class="pm cl">C</span> ace · ace/fleet-map-tab · 4m</div>
+                <div style="font-size: 22px; font-weight: 600; line-height: 1.25">
+                  Claude Code wants to run a command
+                </div>
+                <div
+                  class="mono"
+                  style="
+                    padding: 12px 16px;
+                    border-radius: 22px;
+                    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+                    line-height: 1.6;
+                  "
+                >
+                  bun run test:changed --with-process
+                </div>
+                <div class="ace-muted" style="font-size: 14px; line-height: 1.5">
+                  Last from the agent: “Wires now route around each other. Running the changed tests
+                  before I commit.”
+                </div>
+                <div class="ace-subtle" style="font-size: 13px">
+                  Give every Fleet map wire its own path
+                </div>
+              </div>
+              <div style="padding: 0 16px 28px; display: flex; flex-direction: column; gap: 10px">
+                <span
+                  class="cap"
+                  style="font-size: 14px; color: var(--muted-foreground); background: none"
+                  >Always allow test commands in ace</span
+                >
+                <div style="display: flex; gap: 10px">
+                  <span class="cap" style="flex: 1">Deny</span
+                  ><span class="cap pri" style="flex: 1">Allow</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Needs-you run</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                “3 need you” in the inbox header starts a run through every waiting approval,
+                question and plan, one full screen each, with enough context to decide. Swipe for
+                next. Ends on “Nothing needs you.”
+              </dd>
+              <dt>Web parity</dt>
+              <dd>The request strip, plan review, question forms, “1 of 3” counting.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 2 -->
-<section class="panel" data-t="2 · Needs-you run">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-back"/></svg></span><span style="font-size:15px;font-weight:500">1 of 3</span><span class="gb" style="font-size:13px;width:auto;padding:0 12px">Skip</span></div>
- <div style="display:flex;gap:4px;padding:6px 16px 0"><span style="flex:1;height:3px;border-radius:9px;background:var(--accent)"></span><span style="flex:1;height:3px;border-radius:9px;background:var(--border)"></span><span style="flex:1;height:3px;border-radius:9px;background:var(--border)"></span></div>
- <div class="body" style="padding:24px 16px;display:flex;flex-direction:column;gap:14px">
-  <div class="meta"><span class="pm cl">C</span> ace · ace/fleet-map-tab · 4m</div>
-  <div style="font-size:22px;font-weight:600;line-height:1.25">Claude Code wants to run a command</div>
-  <div class="mono" style="padding:12px 16px;border-radius:22px;background:color-mix(in srgb,var(--foreground) 6%,transparent);line-height:1.6">bun run test:changed --with-process</div>
-  <div class="ace-muted" style="font-size:14px;line-height:1.5">Last from the agent: “Wires now route around each other. Running the changed tests before I commit.”</div>
-  <div class="ace-subtle" style="font-size:13px">Give every Fleet map wire its own path</div>
- </div>
- <div style="padding:0 16px 28px;display:flex;flex-direction:column;gap:10px">
-  <span class="cap" style="font-size:14px;color:var(--muted-foreground);background:none">Always allow test commands in ace</span>
-  <div style="display:flex;gap:10px"><span class="cap" style="flex:1">Deny</span><span class="cap pri" style="flex:1">Allow</span></div>
- </div>
-</div></div>
-<div class="notes"><h3>Needs-you run</h3>
-<dl><dt>What it is</dt><dd>“3 need you” in the inbox header starts a run through every waiting approval, question and plan, one full screen each, with enough context to decide. Swipe for next. Ends on “Nothing needs you.”</dd>
-<dt>Web parity</dt><dd>The request strip, plan review, question forms, “1 of 3” counting.</dd></dl></div></div>
-</section>
+      <!-- 3 -->
+      <section class="panel" data-t="3 · Drawer + thread">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-side" /></svg></span
+                ><span style="font-size: 14px; font-weight: 500">Keep the composer above…</span
+                ><span class="gb"
+                  ><svg><use href="#i-more" /></svg
+                ></span>
+              </div>
+              <div
+                class="body"
+                style="padding: 12px 16px; display: flex; flex-direction: column; gap: 10px"
+              >
+                <div class="bub">The composer jumps under the keyboard on iOS 26</div>
+                <div class="worked">
+                  Worked for 3m 12s <svg class="si"><use href="#i-chev" /></svg>
+                </div>
+              </div>
+              <div class="dim"></div>
+              <div
+                style="
+                  position: absolute;
+                  top: 0;
+                  bottom: 0;
+                  left: 0;
+                  width: 82%;
+                  background: var(--card);
+                  border-right: 1px solid var(--border);
+                  display: flex;
+                  flex-direction: column;
+                  border-radius: 0 34px 34px 0;
+                "
+              >
+                <div style="height: 44px"></div>
+                <div style="padding: 6px 14px">
+                  <div
+                    style="
+                      height: 38px;
+                      border-radius: 999px;
+                      background: color-mix(in srgb, var(--foreground) 7%, transparent);
+                      display: flex;
+                      align-items: center;
+                      gap: 8px;
+                      padding: 0 12px;
+                      color: var(--subtle-foreground);
+                      font-size: 14px;
+                    "
+                  >
+                    <svg class="si"><use href="#i-search" /></svg>Search
+                  </div>
+                </div>
+                <div style="padding: 4px 8px; display: flex; flex-direction: column">
+                  <span
+                    style="
+                      padding: 9px 10px;
+                      font-size: 15px;
+                      display: flex;
+                      gap: 10px;
+                      align-items: center;
+                    "
+                    ><svg style="width: 18px; height: 18px"><use href="#i-list" /></svg
+                    >Threads</span
+                  >
+                  <span
+                    style="
+                      padding: 9px 10px;
+                      font-size: 15px;
+                      display: flex;
+                      gap: 10px;
+                      align-items: center;
+                    "
+                    ><svg style="width: 18px; height: 18px"><use href="#i-chat" /></svg>Chats</span
+                  >
+                  <span
+                    style="
+                      padding: 9px 10px;
+                      font-size: 15px;
+                      display: flex;
+                      gap: 10px;
+                      align-items: center;
+                    "
+                    ><svg style="width: 18px; height: 18px"><use href="#i-up" /></svg>Pull
+                    requests</span
+                  >
+                </div>
+                <div class="hl" style="margin: 6px 18px"></div>
+                <div style="padding: 6px 18px; font-size: 12px; color: var(--subtle-foreground)">
+                  ace
+                </div>
+                <div style="padding: 0 8px; display: flex; flex-direction: column">
+                  <span
+                    style="
+                      padding: 8px 10px;
+                      border-radius: 999px;
+                      background: color-mix(in srgb, var(--foreground) 8%, transparent);
+                      font-size: 14px;
+                      display: flex;
+                      gap: 8px;
+                      align-items: center;
+                    "
+                    ><svg class="si"><use href="#s-work" /></svg>Keep the composer above…</span
+                  >
+                  <span
+                    style="
+                      padding: 8px 10px;
+                      font-size: 14px;
+                      display: flex;
+                      gap: 8px;
+                      align-items: center;
+                    "
+                    ><svg class="si"><use href="#s-need" /></svg>Fleet map wire paths</span
+                  >
+                  <span
+                    style="
+                      padding: 8px 10px;
+                      font-size: 14px;
+                      display: flex;
+                      gap: 8px;
+                      align-items: center;
+                      color: var(--muted-foreground);
+                    "
+                    ><span class="si"></span>Remote network toggles</span
+                  >
+                </div>
+                <div
+                  style="padding: 10px 18px 4px; font-size: 12px; color: var(--subtle-foreground)"
+                >
+                  marketing
+                </div>
+                <div style="padding: 0 8px">
+                  <span
+                    style="
+                      padding: 8px 10px;
+                      font-size: 14px;
+                      display: flex;
+                      gap: 8px;
+                      align-items: center;
+                    "
+                    ><svg class="si"><use href="#s-done" /></svg>Pages deploy fix</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Drawer + thread</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                The app opens on your last thread. Swipe from the left edge for the drawer: places
+                on top, then threads by project, each with its live status icon.
+              </dd>
+              <dt>Trade-off</dt>
+              <dd>
+                Great for one long conversation, weaker for many agents at once. I'd use it on iPad
+                and in landscape, not as the iPhone home.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 3 -->
-<section class="panel" data-t="3 · Drawer + thread">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-side"/></svg></span><span style="font-size:14px;font-weight:500">Keep the composer above…</span><span class="gb"><svg><use href="#i-more"/></svg></span></div>
- <div class="body" style="padding:12px 16px;display:flex;flex-direction:column;gap:10px"><div class="bub">The composer jumps under the keyboard on iOS 26</div><div class="worked">Worked for 3m 12s <svg class="si"><use href="#i-chev"/></svg></div></div>
- <div class="dim"></div>
- <div style="position:absolute;top:0;bottom:0;left:0;width:82%;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;border-radius:0 34px 34px 0">
-  <div style="height:44px"></div>
-  <div style="padding:6px 14px"><div style="height:38px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 7%,transparent);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--subtle-foreground);font-size:14px"><svg class="si"><use href="#i-search"/></svg>Search</div></div>
-  <div style="padding:4px 8px;display:flex;flex-direction:column">
-   <span style="padding:9px 10px;font-size:15px;display:flex;gap:10px;align-items:center"><svg style="width:18px;height:18px"><use href="#i-list"/></svg>Threads</span>
-   <span style="padding:9px 10px;font-size:15px;display:flex;gap:10px;align-items:center"><svg style="width:18px;height:18px"><use href="#i-chat"/></svg>Chats</span>
-   <span style="padding:9px 10px;font-size:15px;display:flex;gap:10px;align-items:center"><svg style="width:18px;height:18px"><use href="#i-up"/></svg>Pull requests</span>
-  </div>
-  <div class="hl" style="margin:6px 18px"></div>
-  <div style="padding:6px 18px;font-size:12px;color:var(--subtle-foreground)">ace</div>
-  <div style="padding:0 8px;display:flex;flex-direction:column">
-   <span style="padding:8px 10px;border-radius:999px;background:color-mix(in srgb,var(--foreground) 8%,transparent);font-size:14px;display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-work"/></svg>Keep the composer above…</span>
-   <span style="padding:8px 10px;font-size:14px;display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-need"/></svg>Fleet map wire paths</span>
-   <span style="padding:8px 10px;font-size:14px;display:flex;gap:8px;align-items:center;color:var(--muted-foreground)"><span class="si"></span>Remote network toggles</span>
-  </div>
-  <div style="padding:10px 18px 4px;font-size:12px;color:var(--subtle-foreground)">marketing</div>
-  <div style="padding:0 8px"><span style="padding:8px 10px;font-size:14px;display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-done"/></svg>Pages deploy fix</span></div>
- </div>
-</div></div>
-<div class="notes"><h3>Drawer + thread</h3>
-<dl><dt>What it is</dt><dd>The app opens on your last thread. Swipe from the left edge for the drawer: places on top, then threads by project, each with its live status icon.</dd>
-<dt>Trade-off</dt><dd>Great for one long conversation, weaker for many agents at once. I'd use it on iPad and in landscape, not as the iPhone home.</dd></dl></div></div>
-</section>
+      <!-- 4 -->
+      <section class="panel" data-t="4 · Thread as pages">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-back" /></svg></span
+                ><span style="display: flex; flex-direction: column; align-items: center"
+                  ><span style="font-size: 14px; font-weight: 500">Fleet map wire paths</span
+                  ><span class="meta">ace · ace/fleet-map-tab</span></span
+                ><span class="gb"
+                  ><svg><use href="#i-more" /></svg
+                ></span>
+              </div>
+              <div style="display: flex; gap: 6px; padding: 8px 16px; overflow: hidden; flex: none">
+                <span class="pill">Chat</span
+                ><span class="pill" style="background: var(--surface-2); color: var(--foreground)"
+                  >Changes 6</span
+                ><span class="pill">Files</span><span class="pill">Terminal</span
+                ><span class="pill">Browser</span><span class="pill">Agents</span>
+              </div>
+              <div class="body">
+                <div class="row" style="padding: 8px 16px">
+                  <div class="meta" style="font-size: 13px">
+                    <span class="mono" style="color: var(--foreground)">fleet-map/wires.ts</span
+                    ><span class="sp"></span><span class="add">+48</span
+                    ><span class="del">−12</span>
+                  </div>
+                </div>
+                <div class="dl">@@ -40,7 +40,12 @@ export function routeWires(</div>
+                <div class="dl">const lanes = laneIndex(edges);</div>
+                <div class="dl d">- return edges.map((e) =&gt; straight(e));</div>
+                <div class="dl a">+ return edges.map((e, i) =&gt;</div>
+                <div class="dl a sel">+ bend(e, lanes.get(e.id) ?? i),</div>
+                <div class="dl a">+ );</div>
+                <div
+                  style="
+                    margin: 8px 16px;
+                    padding: 8px 12px;
+                    border-radius: 20px;
+                    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+                    font-size: 13px;
+                  "
+                >
+                  <span class="ace-subtle">Line 44</span> · Why fall back to the index here?
+                </div>
+                <div class="row" style="padding: 8px 16px">
+                  <div class="meta" style="font-size: 13px">
+                    <span class="mono" style="color: var(--foreground)">fleet-map/zones.ts</span
+                    ><span class="sp"></span><span class="add">+31</span><span class="del">−4</span>
+                  </div>
+                </div>
+                <div class="row" style="padding: 8px 16px">
+                  <div class="meta" style="font-size: 13px">
+                    <span class="mono" style="color: var(--foreground)">fleet-map.test.ts</span
+                    ><span class="sp"></span><span class="add">+66</span>
+                  </div>
+                </div>
+              </div>
+              <div class="composer">
+                <div class="cf">
+                  <span class="rb"
+                    ><svg><use href="#i-plus" /></svg></span
+                  ><span class="field" style="color: var(--foreground)">1 comment on wires.ts</span
+                  ><span class="rb send"
+                    ><svg><use href="#i-up" /></svg
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Thread as pages</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                One thread, several pages: Chat, Changes, Files, Terminal, Browser, Agents. Swipe
+                sideways or tap the pill row. The composer stays put on every page.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>
+                Every web side panel, without a cramped split view. Pages only appear when the
+                thread has something for them.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 4 -->
-<section class="panel" data-t="4 · Thread as pages">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-back"/></svg></span><span style="display:flex;flex-direction:column;align-items:center"><span style="font-size:14px;font-weight:500">Fleet map wire paths</span><span class="meta">ace · ace/fleet-map-tab</span></span><span class="gb"><svg><use href="#i-more"/></svg></span></div>
- <div style="display:flex;gap:6px;padding:8px 16px;overflow:hidden;flex:none"><span class="pill">Chat</span><span class="pill" style="background:var(--surface-2);color:var(--foreground)">Changes 6</span><span class="pill">Files</span><span class="pill">Terminal</span><span class="pill">Browser</span><span class="pill">Agents</span></div>
- <div class="body">
-  <div class="row" style="padding:8px 16px"><div class="meta" style="font-size:13px"><span class="mono" style="color:var(--foreground)">fleet-map/wires.ts</span><span class="sp"></span><span class="add">+48</span><span class="del">−12</span></div></div>
-  <div class="dl">@@ -40,7 +40,12 @@ export function routeWires(</div>
-  <div class="dl">  const lanes = laneIndex(edges);</div>
-  <div class="dl d">- return edges.map((e) =&gt; straight(e));</div>
-  <div class="dl a">+ return edges.map((e, i) =&gt;</div>
-  <div class="dl a sel">+   bend(e, lanes.get(e.id) ?? i),</div>
-  <div class="dl a">+ );</div>
-  <div style="margin:8px 16px;padding:8px 12px;border-radius:20px;background:color-mix(in srgb,var(--foreground) 6%,transparent);font-size:13px"><span class="ace-subtle">Line 44</span> · Why fall back to the index here?</div>
-  <div class="row" style="padding:8px 16px"><div class="meta" style="font-size:13px"><span class="mono" style="color:var(--foreground)">fleet-map/zones.ts</span><span class="sp"></span><span class="add">+31</span><span class="del">−4</span></div></div>
-  <div class="row" style="padding:8px 16px"><div class="meta" style="font-size:13px"><span class="mono" style="color:var(--foreground)">fleet-map.test.ts</span><span class="sp"></span><span class="add">+66</span></div></div>
- </div>
- <div class="composer"><div class="cf"><span class="rb"><svg><use href="#i-plus"/></svg></span><span class="field" style="color:var(--foreground)">1 comment on wires.ts</span><span class="rb send"><svg><use href="#i-up"/></svg></span></div></div>
-</div></div>
-<div class="notes"><h3>Thread as pages</h3>
-<dl><dt>What it is</dt><dd>One thread, several pages: Chat, Changes, Files, Terminal, Browser, Agents. Swipe sideways or tap the pill row. The composer stays put on every page.</dd>
-<dt>Web parity</dt><dd>Every web side panel, without a cramped split view. Pages only appear when the thread has something for them.</dd></dl></div></div>
-</section>
+      <!-- 5 -->
+      <section class="panel" data-t="5 · Agent tree">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-back" /></svg></span
+                ><span style="font-size: 14px; font-weight: 500">Agents</span
+                ><span class="gb"
+                  ><svg><use href="#i-more" /></svg
+                ></span>
+              </div>
+              <div style="padding: 6px 16px 10px; font-size: 15px; flex: none">
+                Waiting on 2 agents. One needs you.
+              </div>
+              <div class="body">
+                <div class="tree">
+                  <div class="node">
+                    <svg class="si" style="margin-top: 3px"><use href="#s-wait" /></svg>
+                    <div class="ln">
+                      <span style="font-size: 15px">Ship the iOS composer fix</span
+                      ><span class="meta"><span class="pm cl">C</span> Lead · Opus 5.5 · 18m</span>
+                    </div>
+                  </div>
+                  <div class="kids">
+                    <div class="node">
+                      <svg class="si" style="margin-top: 3px"><use href="#s-need" /></svg>
+                      <div class="ln">
+                        <span style="font-size: 15px">Review keyboard insets</span
+                        ><span class="meta"
+                          ><span class="pm cx">X</span> GPT-6.1 · wants to run a command</span
+                        >
+                        <div class="req" style="margin-top: 4px">
+                          <span class="ta m">Deny</span><span class="ta">Allow</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <svg class="si" style="margin-top: 3px"><use href="#s-work" /></svg>
+                      <div class="ln">
+                        <span style="font-size: 15px">Write the UI test</span
+                        ><span class="meta"
+                          ><span class="pm cl">C</span> Sonnet 5.5 · 6m · Rijan's Mac</span
+                        >
+                      </div>
+                    </div>
+                    <div class="kids">
+                      <div class="node">
+                        <svg class="si" style="margin-top: 3px"><use href="#s-done" /></svg>
+                        <div class="ln">
+                          <span style="font-size: 15px; color: var(--muted-foreground)"
+                            >Boot iOS 26 simulator</span
+                          ><span class="meta"><span class="pm cl">C</span> Haiku 5.5 · 1m</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="node">
+                      <svg class="si" style="margin-top: 3px"><use href="#s-fail" /></svg>
+                      <div class="ln">
+                        <span style="font-size: 15px">Check Android parity</span
+                        ><span class="meta"
+                          ><span class="pm cu">U</span> Cursor · ran out of usage</span
+                        >
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="composer">
+                <div class="cf">
+                  <span class="rb"
+                    ><svg><use href="#i-plus" /></svg></span
+                  ><span class="field">Message the lead</span
+                  ><span class="rb"
+                    ><svg><use href="#i-mic" /></svg
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Agent tree</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                A thread's agents as an indented tree: who's working, on which machine, who's
+                blocked and why. Tap a node for its transcript. Approve straight from the tree.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>Agents panel, subagent lanes, machines, usage limits.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 5 -->
-<section class="panel" data-t="5 · Agent tree">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-back"/></svg></span><span style="font-size:14px;font-weight:500">Agents</span><span class="gb"><svg><use href="#i-more"/></svg></span></div>
- <div style="padding:6px 16px 10px;font-size:15px;flex:none">Waiting on 2 agents. One needs you.</div>
- <div class="body"><div class="tree">
-  <div class="node"><svg class="si" style="margin-top:3px"><use href="#s-wait"/></svg><div class="ln"><span style="font-size:15px">Ship the iOS composer fix</span><span class="meta"><span class="pm cl">C</span> Lead · Opus 5.5 · 18m</span></div></div>
-  <div class="kids">
-   <div class="node"><svg class="si" style="margin-top:3px"><use href="#s-need"/></svg><div class="ln"><span style="font-size:15px">Review keyboard insets</span><span class="meta"><span class="pm cx">X</span> GPT-6.1 · wants to run a command</span><div class="req" style="margin-top:4px"><span class="ta m">Deny</span><span class="ta">Allow</span></div></div></div>
-   <div class="node"><svg class="si" style="margin-top:3px"><use href="#s-work"/></svg><div class="ln"><span style="font-size:15px">Write the UI test</span><span class="meta"><span class="pm cl">C</span> Sonnet 5.5 · 6m · Rijan's Mac</span></div></div>
-   <div class="kids">
-    <div class="node"><svg class="si" style="margin-top:3px"><use href="#s-done"/></svg><div class="ln"><span style="font-size:15px;color:var(--muted-foreground)">Boot iOS 26 simulator</span><span class="meta"><span class="pm cl">C</span> Haiku 5.5 · 1m</span></div></div>
-   </div>
-   <div class="node"><svg class="si" style="margin-top:3px"><use href="#s-fail"/></svg><div class="ln"><span style="font-size:15px">Check Android parity</span><span class="meta"><span class="pm cu">U</span> Cursor · ran out of usage</span></div></div>
-  </div>
- </div></div>
- <div class="composer"><div class="cf"><span class="rb"><svg><use href="#i-plus"/></svg></span><span class="field">Message the lead</span><span class="rb"><svg><use href="#i-mic"/></svg></span></div></div>
-</div></div>
-<div class="notes"><h3>Agent tree</h3>
-<dl><dt>What it is</dt><dd>A thread's agents as an indented tree: who's working, on which machine, who's blocked and why. Tap a node for its transcript. Approve straight from the tree.</dd>
-<dt>Web parity</dt><dd>Agents panel, subagent lanes, machines, usage limits.</dd></dl></div></div>
-</section>
+      <!-- 6 -->
+      <section class="panel" data-t="6 · Review when it finishes">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-back" /></svg></span
+                ><span style="font-size: 14px; font-weight: 500">Remote network toggles</span
+                ><span class="gb"
+                  ><svg><use href="#i-more" /></svg
+                ></span>
+              </div>
+              <div
+                class="body"
+                style="padding: 10px 16px; display: flex; flex-direction: column; gap: 10px"
+              >
+                <div class="bub">Let me turn each remote network on or off in Settings</div>
+                <div class="worked">
+                  Worked for 12m 40s <svg class="si"><use href="#i-chev" /></svg>
+                </div>
+                <div style="font-size: 14px; line-height: 1.5">
+                  Each network now has its own row under Remote with a switch. Turning one off
+                  closes its listener; the others keep running.
+                </div>
+              </div>
+              <div class="dim"></div>
+              <div class="sheet">
+                <div class="grab"></div>
+                <div style="font-size: 18px; font-weight: 600">Ready to review</div>
+                <div class="meta" style="font-size: 13px">
+                  9 files · <span class="add">+214</span> <span class="del">−61</span> · tests
+                  passed · ace/remote-networks
+                </div>
+                <div style="display: flex; flex-direction: column">
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 9px 0;
+                      font-size: 14px;
+                    "
+                  >
+                    <span class="mono" style="font-size: 13px">settings.remote.index.tsx</span
+                    ><span class="ace-subtle" style="font-size: 12px">Viewed</span>
+                  </div>
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 9px 0;
+                      font-size: 14px;
+                    "
+                  >
+                    <span class="mono" style="font-size: 13px">daemon/remote/listeners.ts</span
+                    ><span class="add" style="font-size: 12px">+88</span>
+                  </div>
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 9px 0;
+                      font-size: 14px;
+                    "
+                  >
+                    <span class="mono" style="font-size: 13px">RemoteNetworksView.swift</span
+                    ><span class="add" style="font-size: 12px">+52</span>
+                  </div>
+                  <div class="ace-subtle" style="font-size: 13px; padding: 4px 0">6 more files</div>
+                </div>
+                <div style="display: flex; gap: 10px">
+                  <span class="cap" style="flex: 1">Ask for changes</span
+                  ><span class="cap pri" style="flex: 1">Open pull request</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Review when it finishes</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                A finished thread offers one review sheet: what changed, whether tests passed, files
+                to swipe through as viewed, then open a PR, ask for changes, merge or fork.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>
+                Code review redesign, Pull requests and Issues pages, thread ↔ PR links, merge.
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 6 -->
-<section class="panel" data-t="6 · Review when it finishes">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-back"/></svg></span><span style="font-size:14px;font-weight:500">Remote network toggles</span><span class="gb"><svg><use href="#i-more"/></svg></span></div>
- <div class="body" style="padding:10px 16px;display:flex;flex-direction:column;gap:10px">
-  <div class="bub">Let me turn each remote network on or off in Settings</div>
-  <div class="worked">Worked for 12m 40s <svg class="si"><use href="#i-chev"/></svg></div>
-  <div style="font-size:14px;line-height:1.5">Each network now has its own row under Remote with a switch. Turning one off closes its listener; the others keep running.</div>
- </div>
- <div class="dim"></div>
- <div class="sheet">
-  <div class="grab"></div>
-  <div style="font-size:18px;font-weight:600">Ready to review</div>
-  <div class="meta" style="font-size:13px">9 files · <span class="add">+214</span> <span class="del">−61</span> · tests passed · ace/remote-networks</div>
-  <div style="display:flex;flex-direction:column">
-   <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:14px"><span class="mono" style="font-size:13px">settings.remote.index.tsx</span><span class="ace-subtle" style="font-size:12px">Viewed</span></div>
-   <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:14px"><span class="mono" style="font-size:13px">daemon/remote/listeners.ts</span><span class="add" style="font-size:12px">+88</span></div>
-   <div style="display:flex;justify-content:space-between;padding:9px 0;font-size:14px"><span class="mono" style="font-size:13px">RemoteNetworksView.swift</span><span class="add" style="font-size:12px">+52</span></div>
-   <div class="ace-subtle" style="font-size:13px;padding:4px 0">6 more files</div>
-  </div>
-  <div style="display:flex;gap:10px"><span class="cap" style="flex:1">Ask for changes</span><span class="cap pri" style="flex:1">Open pull request</span></div>
- </div>
-</div></div>
-<div class="notes"><h3>Review when it finishes</h3>
-<dl><dt>What it is</dt><dd>A finished thread offers one review sheet: what changed, whether tests passed, files to swipe through as viewed, then open a PR, ask for changes, merge or fork.</dd>
-<dt>Web parity</dt><dd>Code review redesign, Pull requests and Issues pages, thread ↔ PR links, merge.</dd></dl></div></div>
-</section>
+      <!-- 7 -->
+      <section class="panel" data-t="7 · Start anything, anywhere">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="lt" style="opacity: 0.35">Inbox</div>
+              <div class="dim"></div>
+              <div class="sheet" style="top: 70px">
+                <div class="grab"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <span class="ace-muted" style="font-size: 15px">Cancel</span
+                  ><span style="font-size: 16px; font-weight: 600">New thread</span
+                  ><span style="width: 48px"></span>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap">
+                  <span class="pill" style="color: var(--foreground)">ace ⌄</span
+                  ><span class="pill">MacBook Pro ⌄</span
+                  ><span class="pill"><span class="pm cl">C</span>Opus 5.5 ⌄</span
+                  ><span class="pill">New worktree</span>
+                </div>
+                <div style="flex: 1; font-size: 17px; line-height: 1.45; padding: 6px 2px">
+                  The Fleet map wires overlap when two machines share a network. Give each one its
+                  own lane<span
+                    style="
+                      display: inline-block;
+                      width: 2px;
+                      height: 19px;
+                      background: var(--accent);
+                      vertical-align: -3px;
+                      margin-left: 1px;
+                    "
+                  ></span>
+                </div>
+                <div style="display: flex; gap: 8px; overflow: hidden">
+                  <span class="pill">Screenshot 9:38</span
+                  ><span class="pill">/fix-failing-tests</span
+                  ><span class="pill">Same as last time</span>
+                </div>
+                <div class="cf">
+                  <span class="rb"
+                    ><svg><use href="#i-plus" /></svg></span
+                  ><span style="flex: 1"></span
+                  ><span class="rb"
+                    ><svg><use href="#i-mic" /></svg></span
+                  ><span class="rb send"
+                    ><svg><use href="#i-up" /></svg
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Start anything, anywhere</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                The round compose button opens one sheet: project, machine, model and worktree as
+                pills, a big field, voice, your latest screenshot ready to attach, skills as chips.
+                The same sheet opens from the Share sheet, Siri and Shortcuts, and from a long-press
+                on the app icon.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>New thread, model picker, machines, skills, prompts, attachments, fork.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 7 -->
-<section class="panel" data-t="7 · Start anything, anywhere">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="lt" style="opacity:.35">Inbox</div>
- <div class="dim"></div>
- <div class="sheet" style="top:70px">
-  <div class="grab"></div>
-  <div style="display:flex;justify-content:space-between;align-items:center"><span class="ace-muted" style="font-size:15px">Cancel</span><span style="font-size:16px;font-weight:600">New thread</span><span style="width:48px"></span></div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill" style="color:var(--foreground)">ace ⌄</span><span class="pill">MacBook Pro ⌄</span><span class="pill"><span class="pm cl">C</span>Opus 5.5 ⌄</span><span class="pill">New worktree</span></div>
-  <div style="flex:1;font-size:17px;line-height:1.45;padding:6px 2px">The Fleet map wires overlap when two machines share a network. Give each one its own lane<span style="display:inline-block;width:2px;height:19px;background:var(--accent);vertical-align:-3px;margin-left:1px"></span></div>
-  <div style="display:flex;gap:8px;overflow:hidden"><span class="pill">Screenshot 9:38</span><span class="pill">/fix-failing-tests</span><span class="pill">Same as last time</span></div>
-  <div class="cf"><span class="rb"><svg><use href="#i-plus"/></svg></span><span style="flex:1"></span><span class="rb"><svg><use href="#i-mic"/></svg></span><span class="rb send"><svg><use href="#i-up"/></svg></span></div>
- </div>
-</div></div>
-<div class="notes"><h3>Start anything, anywhere</h3>
-<dl><dt>What it is</dt><dd>The round compose button opens one sheet: project, machine, model and worktree as pills, a big field, voice, your latest screenshot ready to attach, skills as chips. The same sheet opens from the Share sheet, Siri and Shortcuts, and from a long-press on the app icon.</dd>
-<dt>Web parity</dt><dd>New thread, model picker, machines, skills, prompts, attachments, fork.</dd></dl></div></div>
-</section>
+      <!-- 8 -->
+      <section class="panel" data-t="8 · Lock screen first">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="ls">
+              <div style="display: flex; justify-content: center; padding-top: 14px">
+                <span
+                  style="
+                    width: 126px;
+                    height: 36px;
+                    border-radius: 999px;
+                    background: #000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 0 12px;
+                    font-size: 12px;
+                  "
+                  ><svg class="si"><use href="#s-need" /></svg
+                  ><span style="color: #edb250">2</span></span
+                >
+              </div>
+              <div style="text-align: center; margin-top: 18px; font-size: 15px; opacity: 0.8">
+                Wednesday, November 4
+              </div>
+              <div style="text-align: center; font-size: 76px; font-weight: 600; line-height: 1">
+                9:41
+              </div>
+              <div style="margin-top: 22px; display: flex; flex-direction: column; gap: 8px">
+                <div class="gl">
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      font-size: 12px;
+                      opacity: 0.7;
+                    "
+                  >
+                    <span>ace</span><span>now</span>
+                  </div>
+                  <div style="font-size: 14px; font-weight: 600">
+                    Claude Code wants to run a command
+                  </div>
+                  <div style="font-size: 13px; opacity: 0.8">
+                    Fleet map wire paths ·
+                    <span style="font-family: var(--font-mono)">bun run test:changed</span>
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-top: 4px">
+                    <span
+                      style="
+                        flex: 1;
+                        text-align: center;
+                        padding: 8px;
+                        border-radius: 999px;
+                        background: rgba(255, 255, 255, 0.12);
+                        font-size: 13px;
+                      "
+                      >Deny</span
+                    ><span
+                      style="
+                        flex: 1;
+                        text-align: center;
+                        padding: 8px;
+                        border-radius: 999px;
+                        background: rgba(255, 255, 255, 0.22);
+                        font-size: 13px;
+                        font-weight: 600;
+                      "
+                      >Allow</span
+                    >
+                  </div>
+                </div>
+                <div class="gl">
+                  <div style="display: flex; justify-content: space-between; align-items: center">
+                    <span style="font-size: 14px; font-weight: 600">2 need you · 4 working</span
+                    ><span style="font-size: 12px; opacity: 0.7">ace</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; gap: 5px; font-size: 13px">
+                    <span style="display: flex; gap: 8px; align-items: center"
+                      ><svg class="si"><use href="#s-work" /></svg
+                      ><span style="flex: 1; opacity: 0.9"
+                        >Keep the composer above the keyboard</span
+                      ><span style="opacity: 0.6">4m</span></span
+                    >
+                    <span style="display: flex; gap: 8px; align-items: center"
+                      ><svg class="si"><use href="#s-wait" /></svg
+                      ><span style="flex: 1; opacity: 0.9">Ship the iOS composer fix</span
+                      ><span style="opacity: 0.6">18m</span></span
+                    >
+                    <span style="display: flex; gap: 8px; align-items: center"
+                      ><svg class="si"><use href="#s-done" /></svg
+                      ><span style="flex: 1; opacity: 0.9">Remote network toggles</span
+                      ><span style="opacity: 0.6">done</span></span
+                    >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Lock screen first</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                One Live Activity for all your agents (Dynamic Island shows how many need you),
+                notifications with Allow, Deny and Reply that work without unlocking into the app,
+                and a Home Screen widget of the inbox.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>
+                Notifications settings, snooze wake-ups, usage limits (“Codex is out of usage until
+                9:23 PM” as a quiet line).
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 8 -->
-<section class="panel" data-t="8 · Lock screen first">
-<div class="layout"><div class="ace-frame phone"><div class="ls">
- <div style="display:flex;justify-content:center;padding-top:14px"><span style="width:126px;height:36px;border-radius:999px;background:#000;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px"><svg class="si"><use href="#s-need"/></svg><span style="color:#EDB250">2</span></span></div>
- <div style="text-align:center;margin-top:18px;font-size:15px;opacity:.8">Wednesday, November 4</div>
- <div style="text-align:center;font-size:76px;font-weight:600;line-height:1">9:41</div>
- <div style="margin-top:22px;display:flex;flex-direction:column;gap:8px">
-  <div class="gl"><div style="display:flex;justify-content:space-between;font-size:12px;opacity:.7"><span>ace</span><span>now</span></div>
-   <div style="font-size:14px;font-weight:600">Claude Code wants to run a command</div>
-   <div style="font-size:13px;opacity:.8">Fleet map wire paths · <span style="font-family:var(--font-mono)">bun run test:changed</span></div>
-   <div style="display:flex;gap:8px;margin-top:4px"><span style="flex:1;text-align:center;padding:8px;border-radius:999px;background:rgba(255,255,255,.12);font-size:13px">Deny</span><span style="flex:1;text-align:center;padding:8px;border-radius:999px;background:rgba(255,255,255,.22);font-size:13px;font-weight:600">Allow</span></div></div>
-  <div class="gl"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px;font-weight:600">2 need you · 4 working</span><span style="font-size:12px;opacity:.7">ace</span></div>
-   <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
-    <span style="display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-work"/></svg><span style="flex:1;opacity:.9">Keep the composer above the keyboard</span><span style="opacity:.6">4m</span></span>
-    <span style="display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-wait"/></svg><span style="flex:1;opacity:.9">Ship the iOS composer fix</span><span style="opacity:.6">18m</span></span>
-    <span style="display:flex;gap:8px;align-items:center"><svg class="si"><use href="#s-done"/></svg><span style="flex:1;opacity:.9">Remote network toggles</span><span style="opacity:.6">done</span></span>
-   </div></div>
- </div>
-</div></div>
-<div class="notes"><h3>Lock screen first</h3>
-<dl><dt>What it is</dt><dd>One Live Activity for all your agents (Dynamic Island shows how many need you), notifications with Allow, Deny and Reply that work without unlocking into the app, and a Home Screen widget of the inbox.</dd>
-<dt>Web parity</dt><dd>Notifications settings, snooze wake-ups, usage limits (“Codex is out of usage until 9:23 PM” as a quiet line).</dd></dl></div></div>
-</section>
+      <!-- 9 -->
+      <section class="panel" data-t="9 · Draw on the live screen">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="nav">
+                <span class="gb"
+                  ><svg><use href="#i-back" /></svg></span
+                ><span style="display: flex; flex-direction: column; align-items: center"
+                  ><span style="font-size: 14px; font-weight: 500">localhost:5173/settings</span
+                  ><span class="meta"
+                    ><svg class="si"><use href="#s-work" /></svg> Agent is driving</span
+                  ></span
+                ><span class="gb"
+                  ><svg><use href="#i-pen" /></svg
+                ></span>
+              </div>
+              <div
+                class="body"
+                style="
+                  margin: 8px 12px;
+                  border-radius: 26px;
+                  border: 1px solid var(--border);
+                  background: var(--surface-2);
+                  overflow: hidden;
+                "
+              >
+                <div
+                  style="
+                    padding: 14px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                    font-size: 12px;
+                  "
+                >
+                  <div style="font-size: 15px; font-weight: 600">Remote</div>
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 8px 0;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span>Tailscale</span
+                    ><span
+                      style="
+                        width: 30px;
+                        height: 18px;
+                        border-radius: 9px;
+                        background: var(--success);
+                      "
+                    ></span>
+                  </div>
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 8px 0;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span>Hosted relay</span
+                    ><span
+                      style="
+                        width: 30px;
+                        height: 18px;
+                        border-radius: 9px;
+                        background: var(--success);
+                      "
+                    ></span>
+                  </div>
+                  <div
+                    style="
+                      display: flex;
+                      justify-content: space-between;
+                      padding: 8px 0;
+                      border-bottom: 1px solid var(--border);
+                    "
+                  >
+                    <span>Local network</span
+                    ><span
+                      style="
+                        width: 30px;
+                        height: 18px;
+                        border-radius: 9px;
+                        background: var(--border);
+                      "
+                    ></span>
+                  </div>
+                  <div
+                    style="
+                      align-self: flex-start;
+                      padding: 6px 12px;
+                      border-radius: 6px;
+                      border: 1px solid var(--border);
+                    "
+                  >
+                    Add network
+                  </div>
+                </div>
+                <svg
+                  viewBox="0 0 360 400"
+                  style="position: absolute; inset: 0; width: 100%; height: 100%"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M20 190 C 10 160, 120 150, 130 175 C 140 205, 30 215, 22 196"
+                    fill="none"
+                    stroke="var(--accent)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M140 180 L 200 140"
+                    stroke="var(--accent)"
+                    stroke-width="3"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <div
+                  style="
+                    position: absolute;
+                    left: 200px;
+                    top: 110px;
+                    padding: 5px 10px;
+                    border-radius: 999px;
+                    background: var(--accent);
+                    color: var(--accent-foreground);
+                    font-size: 12px;
+                  "
+                >
+                  1
+                </div>
+              </div>
+              <div style="height: 120px"></div>
+              <div class="composer">
+                <div style="display: flex; gap: 6px">
+                  <span class="pill" style="color: var(--foreground)">Drawing 1 attached</span>
+                </div>
+                <div class="cf">
+                  <span class="rb"
+                    ><svg><use href="#i-plus" /></svg></span
+                  ><span class="field" style="color: var(--foreground)">Make this a capsule</span
+                  ><span class="rb send"
+                    ><svg><use href="#i-up" /></svg
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Draw on the live screen</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                The agent's browser, simulator or Mac screen streams full-screen. Tap the pen,
+                circle what's wrong, type one line. The drawing and a still go to the agent
+                together. Take over input when you need to.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>Browser panel, Devices, computer use, annotations, help requests.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
 
-<!-- 9 -->
-<section class="panel" data-t="9 · Draw on the live screen">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="nav"><span class="gb"><svg><use href="#i-back"/></svg></span><span style="display:flex;flex-direction:column;align-items:center"><span style="font-size:14px;font-weight:500">localhost:5173/settings</span><span class="meta"><svg class="si"><use href="#s-work"/></svg> Agent is driving</span></span><span class="gb"><svg><use href="#i-pen"/></svg></span></div>
- <div class="body" style="margin:8px 12px;border-radius:26px;border:1px solid var(--border);background:var(--surface-2);overflow:hidden">
-  <div style="padding:14px;display:flex;flex-direction:column;gap:10px;font-size:12px">
-   <div style="font-size:15px;font-weight:600">Remote</div>
-   <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Tailscale</span><span style="width:30px;height:18px;border-radius:9px;background:var(--success)"></span></div>
-   <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Hosted relay</span><span style="width:30px;height:18px;border-radius:9px;background:var(--success)"></span></div>
-   <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><span>Local network</span><span style="width:30px;height:18px;border-radius:9px;background:var(--border)"></span></div>
-   <div style="align-self:flex-start;padding:6px 12px;border-radius:6px;border:1px solid var(--border)">Add network</div>
-  </div>
-  <svg viewBox="0 0 360 400" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true"><path d="M20 190 C 10 160, 120 150, 130 175 C 140 205, 30 215, 22 196" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/><path d="M140 180 L 200 140" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/></svg>
-  <div style="position:absolute;left:200px;top:110px;padding:5px 10px;border-radius:999px;background:var(--accent);color:var(--accent-foreground);font-size:12px">1</div>
- </div>
- <div style="height:120px"></div>
- <div class="composer"><div style="display:flex;gap:6px"><span class="pill" style="color:var(--foreground)">Drawing 1 attached</span></div><div class="cf"><span class="rb"><svg><use href="#i-plus"/></svg></span><span class="field" style="color:var(--foreground)">Make this a capsule</span><span class="rb send"><svg><use href="#i-up"/></svg></span></div></div>
-</div></div>
-<div class="notes"><h3>Draw on the live screen</h3>
-<dl><dt>What it is</dt><dd>The agent's browser, simulator or Mac screen streams full-screen. Tap the pen, circle what's wrong, type one line. The drawing and a still go to the agent together. Take over input when you need to.</dd>
-<dt>Web parity</dt><dd>Browser panel, Devices, computer use, annotations, help requests.</dd></dl></div></div>
-</section>
+      <!-- 10 -->
+      <section class="panel" data-t="10 · Search replaces More">
+        <div class="layout">
+          <div class="ace-frame phone">
+            <div class="scr">
+              <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+              <div class="lt">Search</div>
+              <div class="body">
+                <div
+                  style="padding: 2px 16px 6px; font-size: 12px; color: var(--subtle-foreground)"
+                >
+                  Places
+                </div>
+                <div
+                  style="
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 8px;
+                    padding: 0 16px 10px;
+                  "
+                >
+                  <span class="cap" style="justify-content: flex-start"
+                    >Pull requests <span class="ace-subtle" style="font-size: 13px">3</span></span
+                  ><span class="cap" style="justify-content: flex-start">Automations</span>
+                  <span class="cap" style="justify-content: flex-start">Skills</span
+                  ><span class="cap" style="justify-content: flex-start">Usage</span>
+                  <span class="cap" style="justify-content: flex-start">Fleet</span
+                  ><span class="cap" style="justify-content: flex-start">Settings</span>
+                </div>
+                <div style="padding: 6px 16px; font-size: 12px; color: var(--subtle-foreground)">
+                  Threads
+                </div>
+                <div class="row" style="padding: 7px 16px">
+                  <div class="ttl hot">Give every <b>Fleet</b> map wire its own path</div>
+                  <div class="meta">ace · 2h</div>
+                </div>
+                <div class="row" style="padding: 7px 16px">
+                  <div class="ttl hot">Give <b>Fleet</b>'s Overview and Map one frame</div>
+                  <div class="meta">ace · PR #1682 merged</div>
+                </div>
+                <div style="padding: 6px 16px; font-size: 12px; color: var(--subtle-foreground)">
+                  Do
+                </div>
+                <div class="row" style="padding: 7px 16px">
+                  <div class="ttl hot">Open Fleet map</div>
+                </div>
+              </div>
+              <div class="tabbar">
+                <div
+                  style="
+                    flex: 1;
+                    height: 50px;
+                    border-radius: 999px;
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 0 16px;
+                    background: color-mix(in srgb, var(--surface-2) 85%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+                    font-size: 16px;
+                  "
+                >
+                  <svg class="si" style="width: 18px; height: 18px"><use href="#i-search" /></svg
+                  >fleet<span style="width: 2px; height: 20px; background: var(--accent)"></span>
+                </div>
+                <span class="fab"
+                  ><svg><use href="#i-list" /></svg
+                ></span>
+              </div>
+            </div>
+          </div>
+          <div class="notes">
+            <h3>Search replaces More</h3>
+            <dl>
+              <dt>What it is</dt>
+              <dd>
+                The tab bar's search becomes the way to everything that isn't a thread. Empty, it
+                shows Places (Pull requests, Automations, Skills, Usage, Fleet, Settings). Typed, it
+                finds threads, PRs, files, settings and actions.
+              </dd>
+              <dt>Web parity</dt>
+              <dd>Command palette, search, every page under the web rail.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
+    </div>
 
-<!-- 10 -->
-<section class="panel" data-t="10 · Search replaces More">
-<div class="layout"><div class="ace-frame phone"><div class="scr">
- <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
- <div class="lt">Search</div>
- <div class="body">
-  <div style="padding:2px 16px 6px;font-size:12px;color:var(--subtle-foreground)">Places</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 16px 10px">
-   <span class="cap" style="justify-content:flex-start">Pull requests <span class="ace-subtle" style="font-size:13px">3</span></span><span class="cap" style="justify-content:flex-start">Automations</span>
-   <span class="cap" style="justify-content:flex-start">Skills</span><span class="cap" style="justify-content:flex-start">Usage</span>
-   <span class="cap" style="justify-content:flex-start">Fleet</span><span class="cap" style="justify-content:flex-start">Settings</span>
-  </div>
-  <div style="padding:6px 16px;font-size:12px;color:var(--subtle-foreground)">Threads</div>
-  <div class="row" style="padding:7px 16px"><div class="ttl hot">Give every <b>Fleet</b> map wire its own path</div><div class="meta">ace · 2h</div></div>
-  <div class="row" style="padding:7px 16px"><div class="ttl hot">Give <b>Fleet</b>'s Overview and Map one frame</div><div class="meta">ace · PR #1682 merged</div></div>
-  <div style="padding:6px 16px;font-size:12px;color:var(--subtle-foreground)">Do</div>
-  <div class="row" style="padding:7px 16px"><div class="ttl hot">Open Fleet map</div></div>
- </div>
- <div class="tabbar"><div style="flex:1;height:50px;border-radius:999px;display:flex;align-items:center;gap:8px;padding:0 16px;background:color-mix(in srgb,var(--surface-2) 85%,transparent);border:1px solid color-mix(in srgb,var(--foreground) 10%,transparent);font-size:16px"><svg class="si" style="width:18px;height:18px"><use href="#i-search"/></svg>fleet<span style="width:2px;height:20px;background:var(--accent)"></span></div><span class="fab"><svg><use href="#i-list"/></svg></span></div>
-</div></div>
-<div class="notes"><h3>Search replaces More</h3>
-<dl><dt>What it is</dt><dd>The tab bar's search becomes the way to everything that isn't a thread. Empty, it shows Places (Pull requests, Automations, Skills, Usage, Fleet, Settings). Typed, it finds threads, PRs, files, settings and actions.</dd>
-<dt>Web parity</dt><dd>Command palette, search, every page under the web rail.</dd></dl></div></div>
-</section>
-</div>
+    <hr class="ace-divider" style="margin: 24px 0 16px" />
+    <h3 style="margin: 0 0 8px">My pick: one app built from six of these</h3>
+    <ul class="ace-rows">
+      <li>
+        <div class="ace-row between">
+          <span><b>Tabs</b> Threads (1) · Chats · Search (10), plus compose (7)</span>
+        </div>
+      </li>
+      <li>
+        <div class="ace-row between">
+          <span
+            ><b>Thread</b> pages (4) with Agents as a page (5) and the review sheet when it finishes
+            (6)</span
+          >
+        </div>
+      </li>
+      <li>
+        <div class="ace-row between">
+          <span
+            ><b>Outside the app</b> Live Activity, actionable notifications and a widget (8)</span
+          >
+        </div>
+      </li>
+      <li>
+        <div class="ace-row between">
+          <span
+            ><b>Folded in</b> needs-you run from the inbox header (2), drawing in the Browser page
+            (9), drawer on iPad only (3)</span
+          >
+        </div>
+      </li>
+    </ul>
 
-<hr class="ace-divider" style="margin:24px 0 16px">
-<h3 style="margin:0 0 8px">My pick: one app built from six of these</h3>
-<ul class="ace-rows">
-<li><div class="ace-row between"><span><b>Tabs</b> Threads (1) · Chats · Search (10), plus compose (7)</span></div></li>
-<li><div class="ace-row between"><span><b>Thread</b> pages (4) with Agents as a page (5) and the review sheet when it finishes (6)</span></div></li>
-<li><div class="ace-row between"><span><b>Outside the app</b> Live Activity, actionable notifications and a widget (8)</span></div></li>
-<li><div class="ace-row between"><span><b>Folded in</b> needs-you run from the inbox header (2), drawing in the Browser page (9), drawer on iPad only (3)</span></div></li>
-</ul>
-
-<script>
-const tl=document.getElementById('tl');const ps=[...document.querySelectorAll('.panel')];
-let cur=0;
-function render(){ps.forEach((p,i)=>p.classList.toggle('on',i===cur));[...tl.children].forEach((b,i)=>b.setAttribute('aria-selected',i===cur?'true':'false'));}
-ps.forEach((p,i)=>{const b=document.createElement('button');b.className='ace-button small';b.setAttribute('role','tab');b.textContent=p.dataset.t;b.addEventListener('click',()=>{cur=i;render();});tl.appendChild(b);});
-render();
-</script>
-</body></html>
+    <script>
+      const tl = document.getElementById("tl");
+      const ps = [...document.querySelectorAll(".panel")];
+      let cur = 0;
+      function render() {
+        ps.forEach((p, i) => p.classList.toggle("on", i === cur));
+        [...tl.children].forEach((b, i) =>
+          b.setAttribute("aria-selected", i === cur ? "true" : "false"),
+        );
+      }
+      ps.forEach((p, i) => {
+        const b = document.createElement("button");
+        b.className = "ace-button small";
+        b.setAttribute("role", "tab");
+        b.textContent = p.dataset.t;
+        b.addEventListener("click", () => {
+          cur = i;
+          render();
+        });
+        tl.appendChild(b);
+      });
+      render();
+    </script>
+  </body>
+</html>
