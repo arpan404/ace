@@ -1,5 +1,5 @@
 import { basename, dirname, join, relative, sep } from "node:path";
-import type { Stats } from "node:fs";
+import type { CommandStat as Stats } from "./posix-calls.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { FileRecovery, statVersion } from "./recovery.ts";
 import { parseMarkdown, parseOpenCodeConfig, parseCodexAgent } from "./parse.ts";

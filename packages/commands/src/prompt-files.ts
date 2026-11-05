@@ -8,7 +8,7 @@ import {
 } from "@ace/protocol";
 import { parseMarkdown } from "./parse.ts";
 import { SecureCommandIo } from "./secure-io.ts";
-import { CommandWriteOutcomeUnknown } from "./posix-lanes.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 
 export interface PromptFilesOptions {
@@ -137,7 +137,7 @@ export class PromptFiles {
         revision: createHash("sha256").update(data.text).digest("hex"),
       };
     } catch (error) {
-      if (error instanceof CommandWriteOutcomeUnknown)
+      if (writeOutcomeUnknown(error))
         return {
           kind: "error",
           code: "unavailable",

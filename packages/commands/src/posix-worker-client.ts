@@ -9,10 +9,11 @@ import { PosixReply } from "./posix-wire.ts";
 export function spawnPosixWorker(events: PosixExecutorEvents): PosixExecutor {
   const worker = new Worker(new URL("./posix-worker.ts", import.meta.url), { execArgv: [] });
   worker.unref();
+  // An error means the thread can't serve; only "exit" says it has stopped and frees its slot.
   worker.on("error", (error: unknown) =>
-    events.exit(error instanceof Error ? error : new Error("Command discovery worker failed")),
+    events.failed(error instanceof Error ? error : new Error("Command discovery worker failed")),
   );
-  worker.on("exit", () => events.exit(new Error("Command discovery worker exited")));
+  worker.on("exit", () => events.exit());
   worker.on("message", (input: unknown) => {
     const reply = PosixReply.safeParse(input);
     if (reply.success) events.reply(reply.data);
@@ -38,18 +39,15 @@ const unrefTimer = (run: () => void, ms: number) => {
 };
 
 /** Lanes on real worker threads. */
-export function posixWorkerLanes(
-  deadlineMs = 10_000,
-  limits: { maxWorkers?: number; maxThreads?: number } = {},
-): PosixLanes {
+export function posixWorkerLanes(): PosixLanes {
   return new PosixLanes({
     spawn: spawnPosixWorker,
     timer: unrefTimer,
-    deadlineMs,
+    deadlineMs: 10_000,
     idleMs: 30_000,
     spares: 2,
     stuckPerRoot: 2,
-    maxWorkers: limits.maxWorkers ?? 8,
-    maxThreads: limits.maxThreads ?? 16,
+    maxWorkers: 8,
+    maxThreads: 16,
   });
 }

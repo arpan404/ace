@@ -21,20 +21,26 @@ import {
 } from "@ace/workspace/descriptor";
 import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
-import { CommandFilesystemUnavailable, PosixCallOwner, type PosixLanes } from "./posix-lanes.ts";
-import type { PosixValue } from "./posix-lanes.ts";
-import { posixWorkerLanes } from "./posix-worker-client.ts";
+import { CommandFilesystemUnavailable } from "./posix-ops.ts";
 import type { PosixOperation } from "./posix-wire.ts";
-/** Runs calls for whoever is asking; an owner's calls stop when it is cancelled. */
-export interface CommandCalls {
-  run(
-    root: string,
-    operation: PosixOperation,
-    options?: { executor?: number },
-  ): Promise<{ value: PosixValue; executor: number }>;
-  /** The same lanes without cancellation, for releasing what these calls opened. */
-  cleanup(): CommandCalls;
-}
+import {
+  assignRoot,
+  closeCommandFd,
+  commandLanes,
+  commandRootSettled,
+  posix,
+  posixInteger,
+  posixOpen,
+  rootOf,
+  type CommandCalls,
+} from "./posix-calls.ts";
+export {
+  closeCommandFd,
+  commandCallOwner,
+  commandRootSettled,
+  useCommandCallDeadline,
+  type CommandCalls,
+} from "./posix-calls.ts";
 export type OpenCommandChild = (
   directory: number,
   name: string,
@@ -47,53 +53,6 @@ export interface DirectoryReader {
 }
 const integer = z.number().int();
 export class EntryUnavailable extends Error {}
-// Every POSIX call runs on a worker thread of the root its descriptor was opened under: a stalled
-// network, FUSE or cloud mount blocks that root's thread, never the daemon's event loop or
-// another root. Descriptors opened outside a resolved root share one lane.
-let lanes: PosixLanes | undefined;
-const descriptorRoots = new Map<number, string>();
-const sharedRoot = "";
-const rootOf = (fd: number) => descriptorRoots.get(fd) ?? sharedRoot;
-const commandLanes = () => (lanes ??= posixWorkerLanes());
-async function posix(
-  operation: PosixOperation,
-  fd: number,
-  owner?: CommandCalls,
-): Promise<PosixValue> {
-  return (await (owner ?? commandLanes()).run(rootOf(fd), operation)).value;
-}
-async function posixInteger(
-  operation: PosixOperation,
-  fd: number,
-  owner?: CommandCalls,
-): Promise<number> {
-  return integer.parse(await posix(operation, fd, owner));
-}
-/** Opens a descriptor under `parent`'s root; the new descriptor stays on that root. */
-async function posixOpen(
-  operation: PosixOperation,
-  parent: number,
-  owner?: CommandCalls,
-): Promise<number> {
-  const fd = await posixInteger(operation, parent, owner);
-  if (fd >= 0) descriptorRoots.set(fd, rootOf(parent));
-  return fd;
-}
-/** A new owner for one user's calls, cancelled together. */
-export function commandCallOwner(): PosixCallOwner {
-  return new PosixCallOwner(commandLanes());
-}
-/** Tests only: later calls use lanes with a short deadline. Returns the restore. */
-export function useCommandCallDeadline(
-  deadlineMs: number,
-  limits: { maxWorkers?: number; maxThreads?: number } = {},
-): () => void {
-  const previous = lanes;
-  lanes = posixWorkerLanes(deadlineMs, limits);
-  return () => {
-    lanes = previous;
-  };
-}
 const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0x80000;
 export const directoryFlags =
   constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | closeOnExec;
@@ -188,13 +147,26 @@ export async function replaceCommandFile(
   );
   if (renamed < 0) throw new Error("Cannot replace prompt file");
 }
-export async function removeCommandFile(
-  directory: number,
-  name: string,
-  owner?: CommandCalls,
-): Promise<void> {
-  if (process.platform === "win32") return void windowsQuiet(() => unlinkAt(directory, name));
-  await posix({ op: "unlink", directory, name, flags: 0 }, directory, owner);
+/**
+ * Removes `name` from the pinned `directory` in the background, then closes `directory`. A
+ * change left running under the root (a cancelled or timed-out save) finishes first: the removal
+ * waits for it, so the file it may still create or rename is the one removed.
+ */
+export function removeCommandFileLater(directory: number, name: string): void {
+  if (process.platform === "win32") {
+    windowsQuiet(() => unlinkAt(directory, name));
+    void windowsCloseQuietly(directory);
+    return;
+  }
+  // Not an owner's call: a cancelled owner's leftovers are still cleaned up.
+  const remove = () => posix({ op: "unlink", directory, name, flags: 0 }, directory);
+  void remove()
+    .catch(async () => {
+      await commandRootSettled(rootOf(directory));
+      await remove();
+    })
+    .catch(() => {})
+    .finally(() => closeCommandFd(directory));
 }
 export async function linkCommandFile(
   directory: number,
@@ -278,18 +250,18 @@ export async function openResolvedDirectory(
   if (process.platform === "win32") return windowsOpenResolved(openChild, path);
   let fd = await openChild(-100, "/", directoryFlags, owner);
   // Everything opened beneath this root runs on the root's own worker.
-  descriptorRoots.set(fd, path);
+  assignRoot(fd, path);
   try {
     const parts = path.split("/").filter(Boolean);
     if (parts.length > 128) throw new Error("Trusted root depth limit");
     for (const name of parts) {
       const child = await openChild(fd, name, directoryFlags, owner);
-      await closeQuietly(fd);
+      await closeCommandFd(fd);
       fd = child;
     }
     return fd;
   } catch (error) {
-    await closeQuietly(fd);
+    await closeCommandFd(fd);
     throw error;
   }
 }

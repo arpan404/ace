@@ -1,15 +1,21 @@
 import { createHash } from "node:crypto";
-import { fstat, read, close, write, fsync } from "node:fs";
-import { promisify } from "node:util";
 import { dirname, relative, resolve, sep } from "node:path";
 import { isAbsolute } from "node:path";
-import type { Stats } from "node:fs";
 import type { DiscoveryRoot } from "./roots.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
+import {
+  closeCommandFd as closeFd,
+  readCommandFd,
+  statCommandFd,
+  syncCommandFd,
+  writeCommandFd,
+  type CommandStat,
+} from "./posix-calls.ts";
 import {
   createCommandDirectory,
   createCommandFile,
   replaceCommandFile,
-  removeCommandFile,
+  removeCommandFileLater,
   linkCommandFile,
   openCommandChild,
   readCommandLink,
@@ -22,13 +28,14 @@ import {
   openResolvedDirectory,
   commandCallOwner,
 } from "./posix.ts";
-const statFd = promisify(fstat),
-  closeFd = promisify(close);
 export interface CommandFileIo {
-  stat(root: DiscoveryRoot, path: string): Promise<Stats | undefined>;
+  stat(root: DiscoveryRoot, path: string): Promise<CommandStat | undefined>;
   directory(root: DiscoveryRoot, path: string): Promise<DirectoryReader>;
-  read(root: DiscoveryRoot, path: string): Promise<{ text: string; bytes: number; stat: Stats }>;
-  /** Stops new and queued calls at once; `close` then waits for running ones. */
+  read(
+    root: DiscoveryRoot,
+    path: string,
+  ): Promise<{ text: string; bytes: number; stat: CommandStat }>;
+  /** Stops new and queued calls at once; running ones are released when they return. */
   cancel(): void;
   close(): Promise<void>;
 }
@@ -124,7 +131,7 @@ export class SecureCommandIo implements CommandFileIo {
     // Target ancestors and descendants still use O_NOFOLLOW: chains and nested links fail closed.
     return this.open({ ...root, trustedRoot: home, skillLinkHome: undefined }, target, flags);
   }
-  async stat(root: DiscoveryRoot, path: string): Promise<Stats | undefined> {
+  async stat(root: DiscoveryRoot, path: string): Promise<CommandStat | undefined> {
     let fd: number;
     try {
       fd = await this.open(root, path, fileFlags);
@@ -133,36 +140,28 @@ export class SecureCommandIo implements CommandFileIo {
       throw error;
     }
     try {
-      return await statFd(fd);
+      return await statCommandFd(fd, this.owner);
     } finally {
       await closeFd(fd);
     }
   }
   async directory(root: DiscoveryRoot, path: string): Promise<DirectoryReader> {
-    const fd = await this.open(root, path, directoryFlags);
-    try {
-      return await directoryReader(fd, this.owner);
-    } catch (error) {
-      await closeFd(fd);
-      throw error;
-    }
+    // The reader takes the descriptor in every case, including when it fails.
+    return directoryReader(await this.open(root, path, directoryFlags), this.owner);
   }
   async read(
     root: DiscoveryRoot,
     path: string,
-  ): Promise<{ text: string; bytes: number; stat: Stats }> {
+  ): Promise<{ text: string; bytes: number; stat: CommandStat }> {
     const fd = await this.open(root, path, fileFlags);
     try {
-      const stat = await statFd(fd);
+      const stat = await statCommandFd(fd, this.owner);
       if (!stat.isFile()) throw new Error("Not a regular command file");
       const buffer = Buffer.alloc(65537);
       let offset = 0;
       while (offset < buffer.length) {
-        const count = await new Promise<number>((accept, reject) =>
-          read(fd, buffer, offset, buffer.length - offset, offset, (error, bytes) =>
-            error ? reject(error) : accept(bytes),
-          ),
-        );
+        const length = buffer.length - offset;
+        const count = await readCommandFd(fd, buffer, offset, length, offset, this.owner);
         if (!count) break;
         offset += count;
       }
@@ -191,6 +190,8 @@ export class SecureCommandIo implements CommandFileIo {
       throw new Error("prompt_unavailable");
     let parent = await this.openChild(await this.anchor(anchor), ".", directoryFlags);
     let temp: number | undefined;
+    // Whether the temporary file may exist: created, or its create may still land.
+    let made = false;
     try {
       for (const name of parts.slice(0, -1)) {
         await createCommandDirectory(parent, name, this.owner);
@@ -208,19 +209,19 @@ export class SecureCommandIo implements CommandFileIo {
           .update((await this.read(root, path)).text)
           .digest("hex");
       if (current !== expected) throw new Error("prompt_conflict");
-      temp = await createCommandFile(parent, temporary, this.owner);
+      temp = await createCommandFile(parent, temporary, this.owner).catch((error: unknown) => {
+        if (writeOutcomeUnknown(error)) made = true;
+        throw error;
+      });
+      made = true;
       const bytes = Buffer.from(text);
       let at = 0;
       while (at < bytes.length) {
-        const count = await new Promise<number>((accept, reject) =>
-          write(temp ?? -1, bytes, at, bytes.length - at, at, (error, written) =>
-            error ? reject(error) : accept(written),
-          ),
-        );
+        const count = await writeCommandFd(temp, bytes, at, bytes.length - at, at, this.owner);
         if (!count) throw new Error("prompt_unavailable");
         at += count;
       }
-      await promisify(fsync)(temp);
+      await syncCommandFd(temp, this.owner);
       await closeFd(temp);
       temp = undefined;
       if (expected === null) await linkCommandFile(parent, temporary, name, this.owner);
@@ -232,14 +233,12 @@ export class SecureCommandIo implements CommandFileIo {
         await replaceCommandFile(parent, temporary, name, this.owner);
       }
     } finally {
-      // Cleanup failures (a folder that stopped answering) must neither hide the save's own
-      // error nor skip closing the parent.
-      try {
-        if (temp !== undefined) await closeFd(temp).catch(() => {});
-        await removeCommandFile(parent, temporary, this.owner).catch(() => {});
-      } finally {
-        await closeFd(parent);
-      }
+      // Closes wait for any call still using the descriptor. The temporary file goes once no
+      // earlier change on the root can still land, and the folder closes after that; neither
+      // can hide the save's own error.
+      if (temp !== undefined) await closeFd(temp);
+      if (made) removeCommandFileLater(parent, temporary);
+      else await closeFd(parent);
     }
   }
   cancel(): void {
@@ -248,8 +247,7 @@ export class SecureCommandIo implements CommandFileIo {
   }
   async close(): Promise<void> {
     this.cancel();
-    // A running call may still name an anchor; close anchors only once none is on a thread.
-    await this.owner.idle();
+    // Safe right away: an anchor a running call still names stays open until that call returns.
     const descriptors = await Promise.allSettled(this.anchors.values());
     for (const descriptor of descriptors)
       if (descriptor.status === "fulfilled") await closeFd(descriptor.value);

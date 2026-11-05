@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { close, fchmod, fstat, fsync, read, write, type Stats } from "node:fs";
-import { promisify } from "node:util";
 import { basename, dirname } from "node:path";
 import {
   createCommandFile,
@@ -23,23 +21,26 @@ import { commandEntryExists } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
+import {
+  chmodCommandFd,
+  closeCommandFd,
+  readCommandFd,
+  statCommandFd,
+  syncCommandFd,
+  writeCommandFd,
+  type CommandStat,
+} from "./posix-calls.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 
-const closeFd = promisify(close),
-  statFd = promisify(fstat),
-  syncFd = promisify(fsync),
-  chmodFd = promisify(fchmod);
+// Every descriptor call, close included, runs on its root's thread with a deadline (posix-calls).
+const closeFd = closeCommandFd,
+  statFd = (fd: number) => statCommandFd(fd),
+  syncFd = (fd: number) => syncCommandFd(fd),
+  chmodFd = (fd: number, mode: number) => chmodCommandFd(fd, mode);
 const readFd = (fd: number, buffer: Buffer, position: number) =>
-  new Promise<number>((accept, reject) =>
-    read(fd, buffer, 0, buffer.length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
+  readCommandFd(fd, buffer, 0, buffer.length, position);
 const writeFd = (fd: number, buffer: Buffer, offset: number, length: number, position: number) =>
-  new Promise<number>((accept, reject) =>
-    write(fd, buffer, offset, length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
+  writeCommandFd(fd, buffer, offset, length, position);
 const chunk = 64 * 1024;
 const tooLarge = () =>
   new SkillError(
@@ -116,10 +117,8 @@ export class SkillDisk {
   }
   async names(directory: number): Promise<string[]> {
     const fd = await this.openChild(directory, ".", directoryFlags);
-    const reader = await directoryReader(fd).catch(async (error: unknown) => {
-      await closeFd(fd);
-      throw error;
-    });
+    // The reader takes the descriptor in every case, including when it fails.
+    const reader = await directoryReader(fd);
     const names: string[] = [];
     try {
       for (let name = await reader.read(); name !== undefined; name = await reader.read()) {
@@ -155,8 +154,12 @@ export class SkillDisk {
   }
   /** Write `bytes` to a new file (exclusive create, no links) and flush it. */
   async writeNew(directory: number, name: string, bytes: Buffer, mode: number): Promise<void> {
-    const fd = await createCommandFile(directory, name).catch(() => {
-      throw new SkillError("unavailable", "Couldn't write this skill. Check its permissions.");
+    const fd = await createCommandFile(directory, name).catch((error: unknown) => {
+      // A create that timed out may still land; that isn't a permissions problem.
+      throw (
+        writeOutcomeUnknown(error) ??
+        new SkillError("unavailable", "Couldn't write this skill. Check its permissions.")
+      );
     });
     try {
       let at = 0;
@@ -344,7 +347,7 @@ export class SkillDisk {
       await closeFd(fd);
     }
   }
-  private async hash(fd: number, info: Stats, budget: Budget): Promise<string> {
+  private async hash(fd: number, info: CommandStat, budget: Budget): Promise<string> {
     if (info.size > skillFolderLimits.fileBytes) throw tooLarge();
     const digest = createHash("sha256");
     const buffer = Buffer.alloc(chunk);

@@ -1,12 +1,7 @@
 import { expect, it } from "vitest";
-import {
-  CommandFilesystemUnavailable,
-  CommandWriteOutcomeUnknown,
-  PosixCallOwner,
-  PosixLanes,
-  type PosixExecutorEvents,
-  type PosixLaneOptions,
-} from "./posix-lanes.ts";
+import { PosixCallOwner } from "./posix-owner.ts";
+import { PosixLanes, type PosixExecutorEvents, type PosixLaneOptions } from "./posix-lanes.ts";
+import { CommandFilesystemUnavailable, CommandWriteOutcomeUnknown } from "./posix-ops.ts";
 import type { PosixOperation } from "./posix-wire.ts";
 
 interface FakeThread {
@@ -35,7 +30,7 @@ function harness(options: Partial<PosixLaneOptions> = {}) {
           if (!last) throw new Error("Nothing running");
           events.reply({ id: last.id, ok: true, value });
         },
-        exit: () => events.exit(new Error("Command discovery worker exited")),
+        exit: () => events.exit(),
       };
       threads.push(thread);
       return {
@@ -184,15 +179,9 @@ it("cancelling one owner leaves another owner's calls on the same root running i
   // Both of the cancelled owner's calls end now, without waiting for the thread.
   expect((await running).error).toBeInstanceOf(CommandFilesystemUnavailable);
   expect((await queued).error).toBeInstanceOf(CommandFilesystemUnavailable);
-  let idle = false;
-  void closing.idle().then(() => (idle = true));
-  await flush();
-  expect(idle).toBe(false);
   // The running open still returns a descriptor. Nobody asked for it any more, so the same
   // thread closes it before running the other owner's call.
   threads[0]?.answer(11);
-  await flush();
-  expect(idle).toBe(true);
   expect(ops(threads[0])).toEqual([open("first"), { op: "closeFd", fd: 11 }]);
   threads[0]?.answer(0);
   expect(ops(threads[0])?.at(-1)).toEqual(open("theirs"));
@@ -201,19 +190,159 @@ it("cancelling one owner leaves another owner's calls on the same root running i
   await expect(closing.run("/a", open("late"))).rejects.toThrow("closed");
 });
 
-it("an owner is idle one deadline after cancelling, however many of its roots are stuck", async () => {
-  const { lanes, advance } = harness();
+it("a descriptor a cancelled call names is closed only after that call has returned", async () => {
+  const { lanes, threads } = harness();
   const owner = new PosixCallOwner(lanes);
-  for (const root of ["/a", "/b", "/c"]) void settle(owner.run(root, open("stuck")));
+  // Sent, but the thread may not have reached openat yet: the caller gives up and closes fd 3.
+  const opening = settle(owner.run("/a", open("x")));
   owner.cancel();
-  let idle = false;
-  void owner.idle().then(() => (idle = true));
-  advance(999);
+  await opening;
+  lanes.close("/a", 3);
+  expect(ops(threads[0])).toEqual([open("x")]);
+  // The open finishes natively, after the caller gave up: its result is released, and only
+  // then is fd 3 closed, so openat never ran on a number the daemon had reused.
+  threads[0]?.answer(9);
+  expect(ops(threads[0])).toEqual([open("x"), { op: "closeFd", fd: 9 }]);
+  threads[0]?.answer(0);
+  expect(ops(threads[0])?.at(-1)).toEqual({ op: "closeFd", fd: 3 });
+});
+
+it("a descriptor a timed-out call names stays open until the stuck thread returns", async () => {
+  const { lanes, threads, advance } = harness({ stuckPerRoot: 2 });
+  const stuck = settle(lanes.run("/a", open("stuck")));
+  advance(1000);
+  await stuck;
+  lanes.close("/a", 3);
+  // The root reads on in the meantime, but nothing closes fd 3 while openat may be using it.
+  const read = lanes.run("/a", open("other"));
+  threads[1]?.answer(5);
+  await read;
+  expect(threads.flatMap((t) => ops(t) ?? []).filter((op) => op.op === "closeFd")).toEqual([]);
+  // The stuck call returns at last: its thread closes its own result as it drains, and fd 3 is
+  // closed on a live thread.
+  threads[0]?.answer(8);
+  expect(threads.flatMap((t) => ops(t) ?? []).filter((op) => op.op === "closeFd")).toEqual([
+    { op: "closeFd", fd: 3 },
+  ]);
+});
+
+it("openDirectory owns its descriptor once sent, and the lanes close it when it never is", async () => {
+  const { lanes, threads, advance } = harness({ stuckPerRoot: 2 });
+  const owner = new PosixCallOwner(lanes);
+  void settle(lanes.run("/a", open("busy")));
+  // Queued behind another call, then cancelled: never sent, so the lanes close fd 4 for it.
+  const queued = settle(owner.run("/a", { op: "openDirectory", fd: 4 }));
+  owner.cancel();
+  expect((await queued).error).toBeInstanceOf(CommandFilesystemUnavailable);
+  threads[0]?.answer(6);
+  expect(ops(threads[0])?.at(-1)).toEqual({ op: "closeFd", fd: 4 });
+  threads[0]?.answer(0);
+  // Sent, then timed out mid-fdopendir: the stream (or the descriptor, if fdopendir fails) is
+  // the stuck thread's to close as it drains. Nothing else ever closes fd 7.
+  void settle(lanes.run("/a", { op: "openDirectory", fd: 7 }));
+  advance(1000);
+  expect(threads[0]?.drained?.abandoned).toBe(threads[0]?.sent.at(-1)?.id);
+  threads[0]?.answer(1);
+  threads[0]?.exit();
+  expect(
+    threads.flatMap((t) => ops(t) ?? []).filter((op) => op.op === "closeFd" && op.fd === 7),
+  ).toEqual([]);
+});
+
+it("a descriptor is closed once, however many times it is handed back", async () => {
+  const { lanes, threads } = harness();
+  const closes = () =>
+    threads
+      .flatMap((t) => ops(t) ?? [])
+      .filter((op) => op.op === "closeFd" || op.op === "closeDirectory");
+  // A descriptor given to openDirectory belongs to its stream; a caller closing it changes
+  // nothing, and closing the stream closes it.
+  const opening = lanes.run("/a", { op: "openDirectory", fd: 4 });
+  lanes.close("/a", 4);
+  threads[0]?.answer(1);
+  const { executor } = await opening;
+  lanes.close("/a", 4);
+  expect(closes()).toEqual([]);
+  const closing = lanes.run("/a", { op: "closeDirectory", reader: 1 }, { executor });
+  lanes.close("/a", 4);
+  threads[0]?.answer(0);
+  await closing;
+  expect(closes()).toEqual([{ op: "closeDirectory", reader: 1 }]);
+  // A plain close asked twice while the first is pending runs once. Once it has returned, the
+  // number may belong to a new descriptor, and closing that one works.
+  lanes.close("/a", 6);
+  lanes.close("/a", 6);
+  threads.at(-1)?.answer(0);
+  expect(closes().filter((op) => op.op === "closeFd")).toEqual([{ op: "closeFd", fd: 6 }]);
+  lanes.close("/a", 6);
+  expect(closes().filter((op) => op.op === "closeFd")).toHaveLength(2);
+});
+
+it("closes queued behind a stuck call move to the root's next thread", async () => {
+  const { lanes, threads, advance } = harness({ stuckPerRoot: 2 });
+  void settle(lanes.run("/a", { op: "fstat", fd: 3 }));
+  lanes.close("/a", 5);
+  advance(1000);
+  expect(threads).toHaveLength(2);
+  expect(ops(threads[1])).toEqual([{ op: "closeFd", fd: 5 }]);
+});
+
+it("a cancelled change running on its thread reports that its outcome is unknown", async () => {
+  const { lanes } = harness();
+  const owner = new PosixCallOwner(lanes);
+  const save = settle(
+    owner.run("/a", { op: "rename", from: 3, fromName: ".t", to: 3, toName: "a.md", flags: 0 }),
+  );
+  owner.cancel();
+  expect((await save).error).toBeInstanceOf(CommandWriteOutcomeUnknown);
+});
+
+it("a retired or failed thread keeps its slot until it has exited", async () => {
+  const { lanes, threads, advance } = harness({ maxThreads: 1, spares: 1 });
+  const first = lanes.run("/a", open("x"));
+  threads[0]?.answer(3);
+  await first;
+  advance(5000);
+  // Told to exit when idle, but not gone yet: the cap still counts it.
+  expect(threads[0]?.drained).toBeDefined();
+  expect(lanes.threads()).toBe(1);
+  const waiting = lanes.run("/b", open("y"));
+  expect(threads).toHaveLength(1);
+  threads[0]?.exit();
+  expect(threads).toHaveLength(2);
+  // An error makes a thread unusable, but only its exit frees the slot.
+  threads[1]?.events.failed(new Error("boom"));
+  await expect(waiting).rejects.toThrow("boom");
+  void settle(lanes.run("/c", open("z")));
+  expect(threads).toHaveLength(2);
+  threads[1]?.exit();
+  expect(threads).toHaveLength(3);
+});
+
+it("roots that already left a thread stuck can't take the threads kept for healthy roots", async () => {
+  const { lanes, threads, advance } = harness({ maxWorkers: 2, maxThreads: 4, stuckPerRoot: 2 });
+  void settle(lanes.run("/dead/1", open("x")));
+  void settle(lanes.run("/dead/2", open("x")));
+  advance(1000);
+  // Two threads are stuck, which is all the room beyond the serving threads.
+  await expect(lanes.run("/dead/1", open("again"))).rejects.toThrow("still not responding");
+  const healthy = lanes.run("/home/prompts", open("ok"));
+  threads.at(-1)?.answer(4);
+  await expect(healthy).resolves.toMatchObject({ value: 4 });
+});
+
+it("a root settles once its last draining thread has exited", async () => {
+  const { lanes, threads, advance } = harness();
+  await lanes.settled("/a");
+  void settle(lanes.run("/a", open("x")));
+  advance(1000);
+  let settled = false;
+  void lanes.settled("/a").then(() => (settled = true));
   await flush();
-  expect(idle).toBe(false);
-  advance(1);
+  expect(settled).toBe(false);
+  threads[0]?.exit();
   await flush();
-  expect(idle).toBe(true);
+  expect(settled).toBe(true);
 });
 
 it("an idle thread is lent to the next root, then drained after the idle period", async () => {

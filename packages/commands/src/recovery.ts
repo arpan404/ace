@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import type { Stats } from "node:fs";
+import type { CommandStat as Stats } from "./posix-calls.ts";
 interface Tracked {
   path: string;
   version: string | undefined;

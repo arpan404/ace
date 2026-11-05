@@ -101,7 +101,13 @@ export class SkillUpdates {
       return await work({ ...git, folderHash }, scratch);
     } catch (error) {
       if (error instanceof SkillError) throw error;
-      throw new SkillError("update_failed", "Couldn't fetch this skill's source. Try again later.");
+      throw new SkillError(
+        "update_failed",
+        "Couldn't fetch this skill's source. Try again later.",
+        {
+          cause: error,
+        },
+      );
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -153,7 +159,9 @@ export class SkillUpdates {
       } catch (error) {
         await rm(staged, { recursive: true, force: true });
         if (error instanceof SkillError && error.code !== "not_found") throw error;
-        throw new SkillError("update_failed", "The source no longer has a valid SKILL.md here.");
+        throw new SkillError("update_failed", "The source no longer has a valid SKILL.md here.", {
+          cause: error,
+        });
       }
     });
   }

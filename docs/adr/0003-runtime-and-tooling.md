@@ -55,8 +55,10 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     runtimes that are not Bun; the daemon never loads koffi, and the desktop bundle refuses a
     static `bun:ffi` import. bun:ffi has no variadic calls, so the one `openat` with `O_CREAT`
     goes through `@ace/workspace`'s add-on. bun:ffi calls run on the calling thread, so command
-    discovery's filesystem calls run in their own worker (`packages/commands/src/posix-worker.ts`),
-    where a stuck mount blocks only that worker.
+    discovery's filesystem calls, its descriptor reads, writes and closes included, run on
+    worker threads, one lane per root (`packages/commands/src/posix-lanes.ts`). A stuck mount
+    blocks only that root's thread; a call past its deadline drains the thread, which closes
+    what it owns and exits once the call returns.
 - **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
   screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
   `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms
@@ -106,6 +108,12 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     `maxBufferedChunks`; `maxPayload` still caps a message's size.
   - An error thrown in a worker reaches the parent with its `code` but without its name or other
     fields. A worker reports a failure the parent must recognise as a message.
+  - `worker.terminate()` re-refs the worker, and a terminated thread closes none of the
+    process-wide descriptors or directory streams it opened. A worker that may be stuck in a
+    syscall is asked to drain and exit by itself, and is unref'd.
+  - On Linux, a thread in uninterruptible NFS wait (D state) can't be killed. An exiting daemon
+    with such a thread can stay a zombie whose descriptors (the listen socket, file locks) stay
+    open until the mount answers, which can block a restart on the same socket or lock.
   - Bun ignores a Worker's `resourceLimits`. Work that needs a memory limit runs in a process
     of its own with a watchdog, as the history reader does (ADR 0033, 2026-11-04).
   - Bun's `node:sqlite` cannot open a closed WAL database `readOnly`: it creates the missing

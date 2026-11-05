@@ -1,7 +1,17 @@
-import { constants } from "node:fs";
+import {
+  closeSync,
+  constants,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  readSync,
+  writeSync,
+} from "node:fs";
 import { cString, openLibrary, readCString, type NativeFunction } from "@ace/provider-kit/bun-ffi";
 import { openAt } from "@ace/workspace/descriptor";
-import type { PosixOperation } from "./posix-wire.ts";
+import type { PosixOperation, PosixValue } from "./posix-wire.ts";
+
+export type { PosixValue };
 
 // OS interface declarations only. No provider or third-party implementation code.
 function bindings() {
@@ -63,7 +73,7 @@ function integerResult(value: unknown): number {
  * Runs one descriptor-relative call on this thread: the POSIX worker's only job, so a stalled
  * network or FUSE mount blocks the worker, never the daemon's event loop.
  */
-export function runPosixOperation(operation: PosixOperation): number | string | null {
+export function runPosixOperation(operation: PosixOperation): PosixValue {
   const c = (native ??= bindings());
   switch (operation.op) {
     case "open":
@@ -78,7 +88,13 @@ export function runPosixOperation(operation: PosixOperation): number | string | 
         return -1;
       }
     case "openDirectory": {
-      const handle: unknown = c.fdopendir(operation.fd);
+      // The descriptor is this call's from here on: the stream owns it, or it closes now.
+      let handle: unknown;
+      try {
+        handle = c.fdopendir(operation.fd);
+      } finally {
+        if (typeof handle !== "number") closeSync(operation.fd);
+      }
       if (typeof handle !== "number") return 0;
       readers.set(++nextReader, handle);
       return nextReader;
@@ -97,6 +113,25 @@ export function runPosixOperation(operation: PosixOperation): number | string | 
     }
     case "closeFd":
       return integerResult(c.close(operation.fd));
+    // Plain descriptor I/O, synchronous on this thread so a stuck read blocks only this root.
+    case "fstat": {
+      const stat = fstatSync(operation.fd);
+      const { dev, ino, mode, size, mtimeMs, ctimeMs } = stat;
+      return { dev, ino, mode, size, mtimeMs, ctimeMs };
+    }
+    case "read": {
+      const bytes = Buffer.alloc(operation.length);
+      const count = readSync(operation.fd, bytes, 0, operation.length, operation.position);
+      return new Uint8Array(bytes.buffer, bytes.byteOffset, count);
+    }
+    case "write":
+      return writeSync(operation.fd, operation.data, 0, operation.data.length, operation.position);
+    case "fsync":
+      fsyncSync(operation.fd);
+      return 0;
+    case "chmod":
+      fchmodSync(operation.fd, operation.mode);
+      return 0;
     case "readLink": {
       const bytes = Buffer.alloc(4096);
       const count = integerResult(
@@ -153,7 +188,7 @@ export function runPosixOperation(operation: PosixOperation): number | string | 
  * the descriptor it was opened on.
  */
 export function releasePosixState(
-  abandoned: { operation: PosixOperation; value: number | string | null } | undefined,
+  abandoned: { operation: PosixOperation; value: PosixValue } | undefined,
 ): void {
   const c = native;
   if (!c) return;

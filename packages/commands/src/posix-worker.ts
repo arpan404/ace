@@ -1,11 +1,11 @@
 // MessagePort.postMessage has no browser targetOrigin argument.
 /* eslint-disable unicorn/require-post-message-target-origin */
 import { parentPort } from "node:worker_threads";
-import { releasePosixState, runPosixOperation } from "./posix-native.ts";
+import { releasePosixState, runPosixOperation, type PosixValue } from "./posix-native.ts";
 import { PosixDrain, PosixRequest, type PosixOperation, type PosixReply } from "./posix-wire.ts";
 
 // Requests run one at a time, in order: a reader's reads follow its open.
-let last: { id: number; operation: PosixOperation; value: number | string | null } | undefined;
+let last: { id: number; operation: PosixOperation; value: PosixValue } | undefined;
 parentPort?.on("message", (raw: unknown) => {
   const drain = PosixDrain.safeParse(raw);
   if (drain.success) {

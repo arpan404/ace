@@ -1,4 +1,6 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
+import { commandRootSettled } from "./posix.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
@@ -97,6 +99,12 @@ export class SkillLibrary {
       return false;
     }
   }
+  /** Once the folder's stuck call has returned, settle whatever it left half done. */
+  private recoverOnceSettled(root: string): void {
+    void commandRootSettled(root).then(() => {
+      if (!this.closed) void this.start();
+    });
+  }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);
     if (!parsed.success)
@@ -111,6 +119,16 @@ export class SkillLibrary {
     const result = this.tail
       .then(() => this.perform(parsed.data))
       .catch((error: unknown): SkillResult => {
+        const unknown = writeOutcomeUnknown(error);
+        if (unknown) {
+          this.recoverOnceSettled(unknown.root);
+          return {
+            kind: "error",
+            code: "unavailable",
+            message:
+              "This change took too long, so the skill may or may not have changed. Reload the list to check.",
+          };
+        }
         if (error instanceof SkillError)
           return { kind: "error", code: error.code, message: error.message };
         if (error instanceof Error && error.message === "invalid_frontmatter")
