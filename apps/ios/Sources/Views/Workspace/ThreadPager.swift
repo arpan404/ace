@@ -1,48 +1,20 @@
 import SwiftUI
 
-/// The room a page leaves under the thread's header (the page pills drawn over the pages), so
-/// its first row starts below them; rows still scroll beneath, under the header's fade.
-struct PageHeaderClearance: ViewModifier {
-    let height: CGFloat
+/// The thread's header under its title (the page pills) as the navigation bar's own accessory:
+/// on iOS 26 a `safeAreaBar` with the system's scroll-edge effect, so rows blur away under the
+/// title and the pills together as they do under Mail's. Pinned pills take the hard edge Apple
+/// uses under a pinned control; the transcript alone keeps the soft one. Before iOS 26 it sits on
+/// the page colour.
+struct ThreadHeaderBar<Bar: View>: ViewModifier {
+    let pinned: Bool
+    @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
-        content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
-            Color.clear.frame(height: height).accessibilityHidden(true)
-        }
-    }
-}
-
-/// The header's soft edge under the navigation bar: rows fade into the page colour behind the
-/// page pills and out again below them, as they fade under the bar above. The system's own edge
-/// effect only reaches a list that no other scroll view holds, and the pages sit in the pager's,
-/// so this draws the same fade the composer's floor does at the bottom (`BarFloor`). Never a box:
-/// it has no edge of its own.
-struct ThreadHeaderFade: View {
-    /// Under the thread's header: solid from the screen's top edge (behind the title and the
-    /// model line) down, with only the soft fade below.
-    var reachesTop = false
-    private let fade = AceDesign.Space.fade
-    var body: some View {
-        if reachesTop {
-            VStack(spacing: AceTheme.Spacing.none) {
-                AceTheme.Colours.background
-                LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: fade)
-            }
-            .padding(.bottom, -fade)
-            .ignoresSafeArea(edges: .top)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        if #available(iOS 26, *) {
+            content
+                .scrollEdgeEffectStyle(pinned ? .hard : .soft, for: .top)
+                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
         } else {
-            VStack(spacing: AceTheme.Spacing.none) {
-                LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
-                    .frame(height: fade)
-                AceTheme.Colours.background
-                LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: fade)
-            }
-            .padding(.vertical, -fade)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+            content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
         }
     }
 }
@@ -84,6 +56,8 @@ struct ThreadPager<Page: View>: View {
             }
             .scrollTargetLayout()
         }
+        // The page colour behind every page, which the header's scroll-edge effect takes up.
+        .background(AceDesign.Surface.background)
         .scrollTargetBehavior(.paging)
         .scrollPosition(id: $position)
         .scrollIndicators(.hidden)

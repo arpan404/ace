@@ -793,13 +793,13 @@ private struct TapPutsKeyboardAway: ViewModifier {
     }
 }
 
-/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own, and rows
-/// fade softly under its buttons as the system's bars do (no band, no hairline). Before, the bar
-/// is opaque in the page colour.
+/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
+/// page's own bar sets the system's scroll-edge effect (`PageHeaderClearance`). Before, the bar is
+/// opaque in the page colour.
 private struct TranscriptTopEdge: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            content.scrollEdgeEffectStyle(.soft, for: .top)
+            content
         } else {
             content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)

@@ -105,7 +105,8 @@ extension View {
     /// rows pass under it; iOS 18 gives it the page colour.
     @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
         if #available(iOS 26, *) {
-            safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
+            scrollEdgeEffectStyle(.hard, for: .top)
+                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
         } else {
             safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
         }
