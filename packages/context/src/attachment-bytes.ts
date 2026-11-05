@@ -1,6 +1,7 @@
 import { constants } from "node:fs";
 import { link, open } from "node:fs/promises";
 import type { Attachment } from "@ace/protocol";
+import { fitImage } from "@ace/provider-kit/image";
 import { requireContext } from "./errors.ts";
 
 const extensions: Record<string, string> = {
@@ -29,15 +30,14 @@ export async function providerImagePath(path: string, mime: string): Promise<str
   return alias;
 }
 export const previewLimit = 512 * 1024;
-/** libvips costs ~13 MB of native RSS once loaded; idle daemons never render a preview. */
-let decoder: Promise<typeof import("sharp")> | undefined;
+/** A PNG preview of at most 512px a side, upright by its EXIF orientation. */
 export async function renderThumbnail(path: string): Promise<Buffer> {
-  const sharp = await (decoder ??= import("sharp").then((module) => module.default));
-  return sharp(path, { limitInputPixels: 40_000_000, sequentialRead: true, animated: false })
-    .rotate()
-    .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
-    .png()
-    .toBuffer();
+  const preview = await fitImage(
+    { input: { path }, maxPixels: 40_000_000, autoOrient: true },
+    { width: 512, height: 512 },
+    { format: "png" },
+  );
+  return preview.bytes;
 }
 /** Originals are read in bounded ranges; previews have independent byte and pixel bounds. */
 export class AttachmentBytes {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fitImage, imageSize } from "@ace/provider-kit/image";
 import { framePacket, type Frame } from "@ace/screen";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import { DeviceError } from "./sdk.ts";
@@ -29,20 +30,20 @@ export async function shotJpeg(source: Buffer): Promise<DeviceShot> {
       "Device screenshot is empty or too large",
       "Retry; if it persists, restart the device.",
     );
-  const { default: sharp } = await import("sharp");
   try {
-    const image = sharp(source, { limitInputPixels: 64 * 1024 * 1024 });
-    const { width: sourceWidth } = await image.metadata();
-    const { data, info } = await image
-      .resize({ width: maxWidth, height: maxHeight, fit: "inside", withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer({ resolveWithObject: true });
+    const image = { input: source, maxPixels: 64 * 1024 * 1024, autoOrient: false };
+    const { width: sourceWidth } = await imageSize(image);
     if (!sourceWidth) throw new Error("No image width");
+    const shot = await fitImage(
+      image,
+      { width: maxWidth, height: maxHeight },
+      { format: "jpeg", quality: 80 },
+    );
     return {
-      payload: data,
-      width: info.width,
-      height: info.height,
-      scale: info.width / sourceWidth,
+      payload: shot.bytes,
+      width: shot.width,
+      height: shot.height,
+      scale: shot.width / sourceWidth,
     };
   } catch {
     throw new DeviceError(
