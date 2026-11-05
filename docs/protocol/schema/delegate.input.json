@@ -13,7 +13,7 @@
             "description": "Default inherit; never above yours."
           },
           "accountId": {
-            "description": "Account id or label; with machine, one machines lists there.",
+            "description": "Account id or label; with machine, one from its machines entry.",
             "maxLength": 256,
             "minLength": 1,
             "type": "string"

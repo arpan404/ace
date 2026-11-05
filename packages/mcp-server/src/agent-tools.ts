@@ -51,7 +51,7 @@ const DelegateTask = z.strictObject({
     .min(1)
     .max(256)
     .optional()
-    .describe("Account id or label; with machine, one machines lists there."),
+    .describe("Account id or label; with machine, one from its machines entry."),
   effort: z
     .string()
     .min(1)
