@@ -12,7 +12,12 @@ it("an unterminated oversized POSIX helper reply kills the process before readli
   const failed = deferred<Error>();
   const helper = await Helper.open({
     command: process.execPath,
-    args: ["-e", 'process.stdin.once("data", () => process.stdout.write("x".repeat(1048577)));'],
+    // The helper's own arguments follow; "--" keeps Node from reading them as its options.
+    args: [
+      "-e",
+      'process.stdin.once("data", () => process.stdout.write("x".repeat(1048577)));',
+      "--",
+    ],
     platform: "darwin",
     nextId: ids(),
     spawn: (options) => {
@@ -24,9 +29,9 @@ it("an unterminated oversized POSIX helper reply kills the process before readli
     onFailure: failed.resolve,
   });
   try {
-    await expect(helper.request({ op: "permissions" })).rejects.toThrow("exited");
-    await exited.promise;
-    expect(await failed.promise).toBeInstanceOf(Error);
+    await expect(helper.request({ op: "permissions" })).rejects.toThrow("line exceeded limit");
+    expect(await exited.promise).toMatchObject({ reason: "output-limit" });
+    expect((await failed.promise).message).toContain("line exceeded limit");
   } finally {
     await helper.close();
   }
@@ -35,7 +40,7 @@ it("a request whose write hears EPIPE from a dying helper fails as the helper's 
   const failed = deferred<Error>();
   const helper = await Helper.open({
     command: process.execPath,
-    args: ["-e", 'process.stdin.once("data", () => process.exit(3));'],
+    args: ["-e", 'process.stdin.once("data", () => process.exit(3));', "--"],
     platform: "darwin",
     nextId: ids(),
     spawn: (options) => {

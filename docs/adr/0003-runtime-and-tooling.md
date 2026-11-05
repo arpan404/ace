@@ -108,6 +108,7 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     descriptors instead (`packages/diagnostics/src/open-resources.ts`).
   - An Error's `stack` is a data property formatted on first access, so even reading its
     descriptor runs `Error.prepareStackTrace` and can throw.
+  - `fs.readdir` with `recursive: true` lists entries in no fixed order.
 - **Tests on Bun.** `bun run test` and every tier run Vitest on Bun, then run the projects in
   `nodeProjects` (`scripts/test-tiers.ts`) in a second pass on Node and merge the timings: the
   `web` and `client-react` jsdom projects, whose code runs in browsers, and the suites in
