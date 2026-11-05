@@ -165,39 +165,46 @@ async function workingFiles(aceHome: string) {
   return names.filter((name) => name.startsWith("past-sessions-"));
 }
 
-it("daemon startup reads no provider history files and creates no history index", async () => {
-  const fixture = await providerHome();
-  const log = join(fixture.root, "reads.log");
-  const daemon = await launch(fixture, log);
-  // A request that every connected client sends, after the services are listening.
-  daemon.client.send({ type: "ping" });
-  await bounded(
-    next(daemon.client, (message) => message.type === "pong"),
-    2000,
-  );
-  expect(await reads(log)).toEqual([]);
-  expect(existsSync(join(daemon.aceHome, "history"))).toBe(false);
-  expect(await workingFiles(daemon.aceHome)).toEqual([]);
+// The read recorder patches node:fs for every isolate: workers inherit its --import and
+// syncBuiltinESMExports updates named imports. Bun does neither, so it would see no reads at all.
+// What startup reads is the code's own behaviour, the same on either runtime, so Node checks it.
+it.skipIf(Boolean(process.versions.bun))(
+  "daemon startup reads no provider history files and creates no history index",
+  async () => {
+    const fixture = await providerHome();
+    const log = join(fixture.root, "reads.log");
+    const daemon = await launch(fixture, log);
+    // A request that every connected client sends, after the services are listening.
+    daemon.client.send({ type: "ping" });
+    await bounded(
+      next(daemon.client, (message) => message.type === "pong"),
+      2000,
+    );
+    expect(await reads(log)).toEqual([]);
+    expect(existsSync(join(daemon.aceHome, "history"))).toBe(false);
+    expect(await workingFiles(daemon.aceHome)).toEqual([]);
 
-  // The same recorder sees provider files as soon as the person asks for past sessions.
-  daemon.client.send({ type: "history.list", requestId: "find", cwd, limit: 10, rescan: true });
-  const found = await bounded(
-    next(daemon.client, (m) => m.type === "history.list" && m.requestId === "find"),
-    20_000,
-  );
-  if (found.type !== "history.list") throw new Error("Missing past sessions");
-  expect(found.sessions.map((session) => session.nativeId)).toContain("claude-session");
-  expect((await reads(log)).length).toBeGreaterThan(0);
+    // The same recorder sees provider files as soon as the person asks for past sessions.
+    daemon.client.send({ type: "history.list", requestId: "find", cwd, limit: 10, rescan: true });
+    const found = await bounded(
+      next(daemon.client, (m) => m.type === "history.list" && m.requestId === "find"),
+      20_000,
+    );
+    if (found.type !== "history.list") throw new Error("Missing past sessions");
+    expect(found.sessions.map((session) => session.nativeId)).toContain("claude-session");
+    expect((await reads(log)).length).toBeGreaterThan(0);
 
-  // Leaving the page ends the session: nothing it read is kept in ACE_HOME.
-  daemon.client.send({ type: "history.release", requestId: "leave" });
-  await bounded(
-    next(daemon.client, (m) => m.type === "history.release" && m.requestId === "leave"),
-    5000,
-  );
-  expect(await workingFiles(daemon.aceHome)).toEqual([]);
-  expect(existsSync(join(daemon.aceHome, "history"))).toBe(false);
-  daemon.child.kill("SIGTERM");
-  const [code, signal] = await bounded(daemon.exited, 5000);
-  expect({ code, signal }).toEqual({ code: 0, signal: null });
-}, 40_000);
+    // Leaving the page ends the session: nothing it read is kept in ACE_HOME.
+    daemon.client.send({ type: "history.release", requestId: "leave" });
+    await bounded(
+      next(daemon.client, (m) => m.type === "history.release" && m.requestId === "leave"),
+      5000,
+    );
+    expect(await workingFiles(daemon.aceHome)).toEqual([]);
+    expect(existsSync(join(daemon.aceHome, "history"))).toBe(false);
+    daemon.child.kill("SIGTERM");
+    const [code, signal] = await bounded(daemon.exited, 5000);
+    expect({ code, signal }).toEqual({ code: 0, signal: null });
+  },
+  40_000,
+);
