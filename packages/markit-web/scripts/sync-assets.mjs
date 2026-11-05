@@ -8,8 +8,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gitForWindowsBash } from "../src/git-for-windows-bash.ts";
 
 /*
  * Builds markit's Wasm worker from the packages/markit submodule and copies the web assets to
@@ -43,18 +44,19 @@ const stamp = JSON.stringify({
   features: process.env.MARKIT_FEATURES ?? "",
 });
 /**
- * The bash that runs markit's build script. On Windows it is Git for Windows' own (found from
- * `git --exec-path`, `<git>/<mingw64|clangarm64>/libexec/git-core`): a bare `bash` there is
- * usually missing from PATH, or is WSL's System32 launcher, which cannot run a Windows toolchain.
+ * The bash that runs markit's build script. On Windows it is Git for Windows' own
+ * (src/git-for-windows-bash.ts): a bare `bash` there is usually missing from PATH, or is WSL's
+ * System32 launcher, which cannot run a Windows toolchain.
  */
 function bash() {
   if (process.platform !== "win32") return "bash";
-  const exec = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim();
-  const found = join(resolve(exec, "..", "..", ".."), "bin", "bash.exe");
-  if (existsSync(found)) return found;
-  process.stderr.write(
-    `Building markit's Wasm needs Git for Windows' bash; ${found} is missing.\n`,
-  );
+  const found = gitForWindowsBash({
+    env: process.env,
+    execPath: (env) => execFileSync("git", ["--exec-path"], { encoding: "utf8", env }),
+    exists: existsSync,
+  });
+  if (found.ok) return found.bash;
+  process.stderr.write(`Building markit's Wasm needs Git for Windows' bash: ${found.error}.\n`);
   process.exit(1);
 }
 
