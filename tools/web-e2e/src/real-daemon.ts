@@ -9,10 +9,10 @@ import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import { prepareDaemonHome } from "@ace/service";
 import { ThreadId, WorkspaceId, type CommandPayload, type ProviderKind } from "@ace/protocol";
 import { daemonCommands } from "./daemon-socket.ts";
+import { assertRemovable, e2eLayout } from "./real-daemon-layout.ts";
 import {
-  daemonHome,
   daemonPort,
-  pluginMarketPath,
+  pluginMarketIn,
   pluginName,
   holdMarker,
   limitMarker,
@@ -36,18 +36,31 @@ import {
   longTurns,
   webOrigin,
   pairedDeviceName,
-  projectsRoot,
   existingFolder,
   linkedFolder,
   clonedFile,
 } from "./real-daemon-config.ts";
 
 // The launcher (real-daemon-launcher.ts) starts this process on Bun with every inherited
-// storage and provider selector already replaced. Refuse any other start: Bun's os.homedir()
-// keeps the HOME a process started with, so isolation can't be applied from in here.
+// storage and provider selector already replaced, and names its layout in the arguments.
+// Refuse any other start: Bun's os.homedir() keeps the HOME a process started with, so
+// isolation can't be applied from in here.
+const [tmpRoot, fixtureName] = process.argv.slice(2);
+if (!tmpRoot || !fixtureName)
+  throw new Error("Start the e2e daemon with src/real-daemon-launcher.ts, which isolates it");
+const fixture = e2eLayout(tmpRoot, fixtureName);
+const { daemonHome, projectsRoot } = fixture;
 if (homedir() !== daemonHome || process.env.ACE_HOME !== daemonHome)
   throw new Error("Start the e2e daemon with src/real-daemon-launcher.ts, which isolates it");
 await assertRealDaemonEnvironment(process.env, daemonHome);
+const pluginMarketPath = pluginMarketIn(daemonHome);
+
+// The launcher holds the other end of stdin for as long as it lives. When it dies, even by
+// SIGKILL, stdin ends and the daemon stops rather than outliving it.
+let running: { close(): Promise<void> } | undefined;
+const stop = () => void (running?.close() ?? Promise.resolve()).finally(() => process.exit(0));
+process.stdin.once("end", stop);
+process.stdin.resume();
 
 /**
  * A real ace daemon (apps/daemon) for the e2e smoke test, with scripted providers from
@@ -74,6 +87,7 @@ function scriptedProvider(provider: ProviderKind) {
   });
 }
 
+assertRemovable(daemonHome, fixture);
 rmSync(daemonHome, { recursive: true, force: true });
 prepareDaemonHome(daemonHome);
 const project = join(daemonHome, "projects", workspaceName);
@@ -197,9 +211,9 @@ await seedThread(daemon.url, daemonToken, workspace, queueTitle, "Warm up the qu
 await seedThread(daemon.url, daemonToken, workspace, limitTitle, "Warm up before the limit.");
 if (longTurns > 0) await seedLongThread(daemon.url, daemonToken, workspace, longTurns);
 daemon.store.devices.create(pairedDeviceName, ["read", "operate"], Date.now());
-process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
+running = daemon;
+process.stdout.write(`e2e daemon ready on ${daemon.url} (pid ${process.pid})\n`);
 
-const stop = () => void daemon.close().finally(() => process.exit(0));
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 
@@ -298,6 +312,7 @@ function commitAll(cwd: string, subject: string): void {
  * and be cancelled.
  */
 function seedProjects(): void {
+  assertRemovable(projectsRoot, fixture);
   rmSync(projectsRoot, { recursive: true, force: true });
   const existing = join(projectsRoot, existingFolder);
   mkdirSync(existing, { recursive: true });
