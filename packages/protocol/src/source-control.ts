@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ForgeRepository } from "./forge.ts";
 import { WorkspaceId } from "./ids.ts";
 
 export const GitHubHost = z
@@ -9,12 +10,22 @@ export const GitHubAccount = z
   .string()
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/)
   .max(100);
+export const ForgeAccount = z.union([
+  z
+    .string()
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
+    .max(100),
+  z.email().max(254),
+]);
+export const SourceControlHost = z.object({
+  host: GitHubHost,
+  /** Absent in existing settings means GitHub. */
+  forge: ForgeRepository.shape.forge.optional(),
+  account: ForgeAccount.optional(),
+});
 export const SourceControlPreferences = z
   .object({
-    hosts: z
-      .array(z.object({ host: GitHubHost, account: GitHubAccount.optional() }))
-      .min(1)
-      .max(32),
+    hosts: z.array(SourceControlHost).min(1).max(32),
     host: GitHubHost,
     remote: z
       .string()
@@ -24,7 +35,23 @@ export const SourceControlPreferences = z
   .refine(
     (value) =>
       value.hosts.some((entry) => entry.host === value.host) &&
-      new Set(value.hosts.map((entry) => entry.host)).size === value.hosts.length,
+      new Set(value.hosts.map((entry) => entry.host)).size === value.hosts.length &&
+      value.hosts.every((entry) => {
+        const known: Record<string, string> = {
+          "github.com": "github",
+          "gitlab.com": "gitlab",
+          "bitbucket.org": "bitbucket",
+          "codeberg.org": "forgejo",
+          "origin.cursor.com": "origin",
+        };
+        return (
+          (!known[entry.host] || (entry.forge ?? "github") === known[entry.host]) &&
+          (entry.forge !== "origin" || entry.host === "origin.cursor.com") &&
+          ((entry.forge ?? "github") !== "github" ||
+            !entry.account ||
+            GitHubAccount.safeParse(entry.account).success)
+        );
+      }),
     "Select a configured, unique host",
   )
   .meta({
@@ -36,8 +63,8 @@ export const SourceControlReadiness = z.object({
   preferences: SourceControlPreferences,
   cli: z.enum(["available", "unavailable"]),
   version: z.string().max(256).nullable(),
-  accounts: z.array(z.object({ login: GitHubAccount, active: z.boolean() })).max(100),
-  account: GitHubAccount.nullable(),
+  accounts: z.array(z.object({ login: ForgeAccount, active: z.boolean() })).max(100),
+  account: ForgeAccount.nullable(),
   /** `offline` and `rate_limited` are network and quota answers, never sign-in problems. */
   api: z.enum([
     "ready",

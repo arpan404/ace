@@ -5,7 +5,12 @@
     "forge": {
       "enum": [
         "github",
-        "gitlab"
+        "gitlab",
+        "gitbucket",
+        "bitbucket",
+        "gitea",
+        "forgejo",
+        "origin"
       ],
       "type": "string"
     },

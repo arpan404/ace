@@ -91,6 +91,14 @@ export function useRowSteps(input: {
           onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
         },
       };
+    if (row.ref.repository.forge !== "github" && step !== "answer")
+      return {
+        status:
+          row.state === "closed" || row.state === "merged"
+            ? status
+            : { words: "Review status unavailable", tone: undefined },
+        action: { label: "View", onPress: () => openPr(row) },
+      };
     if (label === "Mark ready")
       return {
         status,

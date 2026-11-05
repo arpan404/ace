@@ -1,6 +1,12 @@
 import { useThreadMeta } from "@ace/client-react";
 import type { ForgePrRef, ForgePrStatus } from "@ace/protocol";
-import { actionErrorText, mergeMethods, prBlocker, type Checkout } from "@ace/ui-core";
+import {
+  actionErrorText,
+  mergeMethods,
+  prBlocker,
+  linkPrBlocker,
+  type Checkout,
+} from "@ace/ui-core";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -132,13 +138,7 @@ export function useGitFlow(thread: ThreadRef): {
   const pr = checkout?.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
   const draftBlocked = prBlocked ?? (live ? `PR #${pr.number} is already open` : undefined);
-  const linkBlocked = !checkout
-    ? unread
-    : checkout.repository?.forge === "gitlab"
-      ? prBlocker(checkout)
-      : checkout.repository
-        ? undefined
-        : prBlocker(checkout);
+  const linkBlocked = checkout ? linkPrBlocker(checkout) : unread;
   const close = () => setDialog(undefined);
   const form = (at: Checkout) =>
     dialog === "link-pr" || dialog === "request-review" ? (

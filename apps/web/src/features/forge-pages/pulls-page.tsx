@@ -1,4 +1,11 @@
-import { groupByWork, prQuery, sortPrs, type PullsSearch, type PullsSort } from "@ace/ui-core";
+import {
+  groupByWork,
+  prQuery,
+  sortPrs,
+  workKey,
+  type PullsSearch,
+  type PullsSort,
+} from "@ace/ui-core";
 import { useState } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { GitMergeIcon, GitPullRequestIcon, XCircleIcon } from "@phosphor-icons/react";
@@ -89,8 +96,10 @@ export function PullRequestsPage(props: {
   // repository; several are read newest first, a page per project at a time.
   const byWork = sort === "ready" && open;
   const listed = usePrPages(projects, query, pages);
-  const ranked = useReadyPages(single, search, byWork && single !== undefined);
-  const list = byWork && single !== undefined ? ranked : listed;
+  const rankedActive = byWork && single !== undefined;
+  const ranked = useReadyPages(single, search, rankedActive);
+  const useRanked = rankedActive && ranked.error === undefined;
+  const list = useRanked ? ranked : listed;
   const peopleQuery = prQuery({ ...search, who: undefined }, 1);
   const people = useGroupCounts(open ? projects : [], { by: "pr-people", query: peopleQuery });
   const linked = useLinkedThreads().pulls;
@@ -121,20 +130,26 @@ export function PullRequestsPage(props: {
   const [method, setMethod] = useMergeMethod(single ?? "");
   const navigate = useNavigate();
   const dialogs = useProjectDialogs();
-  const complete = !list.more;
+  const incomplete = [...list.firsts.values()].some((first) => first.incomplete || first.truncated);
+  const complete = !list.more && !incomplete;
   const sum = (pick: (counts: ForgePrList["counts"]) => number) => {
     if (list.firsts.size < projects.length) return undefined;
+    if (incomplete) return undefined;
     let total = 0;
     for (const first of list.firsts.values()) total += pick(first.counts);
     return total;
   };
   const openCounts = new Map(
-    [...list.firsts].map(([id, first]) => [id, first.counts.open + first.counts.draft]),
+    [...list.firsts]
+      .filter(([, first]) => !first.incomplete && !first.truncated)
+      .map(([id, first]) => [id, first.counts.open + first.counts.draft]),
   );
   const peopleTotal = people.total;
-  const allOpen = peopleTotal
-    ? Object.values(peopleTotal).reduce((a, b) => a + b, 0)
-    : sum((c) => c.open + c.draft);
+  const allOpen = incomplete
+    ? undefined
+    : peopleTotal
+      ? Object.values(peopleTotal).reduce((a, b) => a + b, 0)
+      : sum((c) => c.open + c.draft);
   const state: State | undefined = search.state === "all" ? undefined : (search.state ?? "open");
   const sections = pullSections(search, list.rows, onSearch);
   const filtered =
@@ -251,6 +266,14 @@ export function PullRequestsPage(props: {
           <>
             {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
             <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
+            {incomplete && !list.loading && !(list.error && !list.first) && (
+              <div
+                role="status"
+                className="flex min-h-9 min-w-0 items-center gap-1 border-t border-border py-1 text-ui text-muted-foreground"
+              >
+                <span className="min-w-0 truncate">Some totals are incomplete.</span>
+              </div>
+            )}
             {byWork && single && ranked.rankingError && (
               <div
                 role="status"
@@ -285,7 +308,7 @@ export function PullRequestsPage(props: {
           choice.loaded && (
             <EmptyState
               title="No projects yet"
-              description="Add a project with a GitHub remote to see its pull requests."
+              description="Add a project with a remote to see its pull requests."
             />
           )
         ) : list.error && !list.first ? (
@@ -309,9 +332,7 @@ export function PullRequestsPage(props: {
             label="Pull requests"
             stale={list.stale}
             rows={rows}
-            rowKey={(row) =>
-              `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`
-            }
+            rowKey={(row) => workKey(row.ref.repository, row.ref.number)}
             rowTitle={(row) => row.title}
             estimate={57}
             renderRow={(row, _group, last) => {
@@ -332,9 +353,7 @@ export function PullRequestsPage(props: {
             onMore={
               list.more
                 ? () =>
-                    byWork && single !== undefined
-                      ? ranked.loadMore()
-                      : setPaging({ key: listKey, pages: pages + 1 })
+                    useRanked ? ranked.loadMore() : setPaging({ key: listKey, pages: pages + 1 })
                 : undefined
             }
           />

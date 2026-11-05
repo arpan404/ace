@@ -10,6 +10,7 @@ import type {
   ForgeIssueRow,
   ForgeRepository,
 } from "@ace/protocol";
+import { workKey } from "@ace/ui-core";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   keepPreviousData,
@@ -46,8 +47,8 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   retry(): void;
 }
 
-const rowKey = (row: { ref: { repository: { owner: string; name: string }; number: number } }) =>
-  `${row.ref.repository.owner}/${row.ref.repository.name}#${row.ref.number}`.toLowerCase();
+const rowKey = (row: { ref: { repository: ForgeRepository; number: number } }) =>
+  workKey(row.ref.repository, row.ref.number);
 
 /**
  * One cached read per project and page: page 2 of a project is asked for only once its page 1
@@ -261,7 +262,8 @@ export function cachedRow<K extends "prList" | "issueList">(
   project: string,
   kind: K,
   number: number,
-  repository?: { owner: string; name: string },
+  repository?: Pick<ForgeRepository, "owner" | "name"> &
+    Partial<Pick<ForgeRepository, "forge" | "host">>,
 ): (K extends "prList" ? ForgePrRow : ForgeIssueRow) | undefined {
   type Row = K extends "prList" ? ForgePrRow : ForgeIssueRow;
   for (const [, data] of cache.getQueriesData<{ items: Row[] }>({
@@ -272,7 +274,9 @@ export function cachedRow<K extends "prList" | "issueList">(
         item.ref.number === number &&
         (!repository ||
           (same(item.ref.repository.owner, repository.owner) &&
-            same(item.ref.repository.name, repository.name))),
+            same(item.ref.repository.name, repository.name) &&
+            (repository.forge === undefined || same(item.ref.repository.forge, repository.forge)) &&
+            (repository.host === undefined || same(item.ref.repository.host, repository.host)))),
     );
     if (row) return row;
   }

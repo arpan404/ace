@@ -1,12 +1,15 @@
 import {
   GitHubForge,
+  GitLabReader,
+  OriginReader,
+  type ForgeReader,
   GitHubInbox,
   ForgeError,
   ForgeListCaches,
   repositoryKey,
   type CommandRunner,
 } from "@ace/forge";
-import type { ForgeRepository } from "@ace/protocol";
+import type { ForgeRepository, LinkedPullRequest } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
@@ -66,7 +69,51 @@ export class ForgeBackends {
       )) ?? {}
     );
   }
+  /** Host-specific reads never share GitHub's API transport or mutation backend. */
+  async reader(
+    cwd: string,
+    repository: ForgeRepository,
+    signal: AbortSignal,
+  ): Promise<ForgeReader> {
+    if (repository.forge === "github") return this.backend(cwd, repository);
+    if (repository.forge !== "gitlab" && repository.forge !== "origin")
+      throw new ForgeError("unsupported");
+    const identity = await this.sourceControl?.readIdentity(cwd, repository, signal);
+    const options = { repository, runner: identity?.runner ?? this.runner(cwd) };
+    return repository.forge === "gitlab" ? new GitLabReader(options) : new OriginReader(options);
+  }
+  async states(
+    cwd: string,
+    repository: ForgeRepository,
+    numbers: readonly number[],
+    signal: AbortSignal,
+  ) {
+    if (repository.forge === "github")
+      return (await this.backend(cwd, repository)).states(numbers, signal);
+    const reader = await this.reader(cwd, repository, signal);
+    const result = new Map<number, LinkedPullRequest | null>();
+    for (const number of numbers) {
+      try {
+        const status = await reader.status(number, signal);
+        if (status.state === "unknown") throw new ForgeError("invalid_data");
+        result.set(number, {
+          number,
+          repo: repository,
+          state: status.state,
+          url: status.url,
+          title: status.title,
+          head: status.headSha,
+          updatedAt: this.now(),
+        });
+      } catch (error) {
+        if (error instanceof ForgeError && error.kind === "not_found") result.set(number, null);
+        else throw error;
+      }
+    }
+    return result;
+  }
   async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    if (repository.forge !== "github") throw new ForgeError("unsupported");
     const identity = await this.sourceControl?.identity(cwd, repository.host, this.signal);
     const listKey = JSON.stringify({
       repository: repositoryKey(repository),
@@ -112,7 +159,10 @@ export class ForgeBackends {
    * repository. Every request goes through the identity-checked runner.
    */
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
-    const target = host || (await this.repository(cwd)).host;
+    const repository = host ? undefined : await this.repository(cwd);
+    if (repository && repository.forge !== "github") throw new ForgeError("unsupported");
+    const target = host || repository?.host;
+    if (!target) throw new ForgeError("unsupported");
     const identity = await this.sourceControl?.identity(cwd, target, this.signal);
     const key = JSON.stringify({
       host: target,

@@ -1,3 +1,4 @@
+import { prUrl } from "@ace/forge/pr-reference";
 import { GitPullRequestIcon } from "@phosphor-icons/react";
 import type { ForgeRepository } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
@@ -14,9 +15,14 @@ export function PrFailure(props: {
 }) {
   const openWeb = useOpenWebAddress();
   const repository = props.repository;
-  const url =
-    repository &&
-    `https://${repository.host}/${repository.owner}/${repository.name}/pull/${props.number}`;
+  const supported = repository && ["github", "gitlab", "origin"].includes(repository.forge);
+  const url = supported ? prUrl({ repository, number: props.number }) : undefined;
+  const host =
+    repository?.forge === "origin"
+      ? "Cursor Origin"
+      : repository?.forge === "gitlab"
+        ? "GitLab"
+        : "GitHub";
   const missing = failureCode(props.error) === "forge_not_found";
   return (
     <EmptyState
@@ -26,7 +32,7 @@ export function PrFailure(props: {
           ? `Pull request #${props.number} not found`
           : `Couldn't load pull request #${props.number}`
       }
-      description={props.error.message}
+      description={props.error.message.replaceAll("GitHub", host)}
       action={
         <div className="flex gap-2">
           <Button size="sm" onClick={props.onRetry}>
@@ -38,7 +44,7 @@ export function PrFailure(props: {
               variant="ghost"
               onClick={(event) => void openWeb(url, event).catch(() => {})}
             >
-              Open on GitHub
+              Open on {host}
             </Button>
           )}
         </div>

@@ -70,3 +70,41 @@ test("source control follows the machine picked in Settings, and reconnecting re
   );
   expect(screen.getByText("Signed in as ada")).toBeTruthy();
 });
+
+test("adding a GitBucket host preserves GitHub and reports pending API support", async () => {
+  const app = harness({ throughWorker: true });
+  await app.open("/settings/source-control");
+  await screen.findByText("Signed in as ada");
+  await userEvent.click(screen.getByRole("button", { name: "Add GitBucket host" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "GitBucket host" }), "git.example.com");
+  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await screen.findByText(/Host saved/);
+  expect(screen.getByRole("button", { name: "Manage GitHub host" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Manage GitBucket host" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Manage GitHub host" }));
+  expect(screen.getByRole("textbox", { name: "GitHub host" })).toHaveProperty(
+    "value",
+    "github.com",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await screen.findByText("Signed in as ada");
+  expect(screen.getByRole("button", { name: "Manage GitBucket host" })).toBeTruthy();
+});
+
+test("GitLab saves dotted account names and keeps its selected provider on rescan", async () => {
+  const app = harness({ throughWorker: true });
+  await app.open("/settings/source-control");
+  await screen.findByText("Signed in as ada");
+  await userEvent.click(screen.getByRole("button", { name: "Add GitLab host" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "a.user_1");
+  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await screen.findByText("Signed in as ada, expected a.user_1");
+  expect(screen.getByRole("textbox", { name: "GitLab host" })).toHaveProperty(
+    "value",
+    "gitlab.com",
+  );
+  expect(screen.getByText(/glab auth login --hostname gitlab.com/)).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Rescan" }));
+  await screen.findByText("Signed in as ada, expected a.user_1");
+  expect(screen.getByRole("combobox", { name: "Git provider" }).textContent).toContain("GitLab");
+});

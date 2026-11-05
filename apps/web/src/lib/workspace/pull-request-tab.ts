@@ -1,3 +1,4 @@
+import { ForgeRepository } from "@ace/protocol/forge";
 import * as z from "zod/mini";
 import type { OpenRequest } from "./model.ts";
 
@@ -5,14 +6,7 @@ import type { OpenRequest } from "./model.ts";
 export const PullRequestTabData = z.object({
   state: z.optional(z.enum(["open", "draft", "closed", "merged", "unknown"])),
   workspaceId: z.string().check(z.minLength(1)),
-  repository: z.optional(
-    z.object({
-      forge: z.enum(["github", "gitlab"]),
-      host: z.string(),
-      owner: z.string(),
-      name: z.string(),
-    }),
-  ),
+  repository: z.optional(ForgeRepository),
   number: z.number().check(z.int(), z.gte(1)),
 });
 export type PullRequestTabData = z.infer<typeof PullRequestTabData>;

@@ -168,9 +168,15 @@ export class WorkspaceForge {
     selection: import("@ace/protocol").ForgePrWorktree,
     signal: AbortSignal,
   ) {
-    const detail = await (
-      await this.backends.backend(cwd, selection.ref.repository)
-    ).prDetail(selection.ref.number, signal);
+    const reader = await this.backends.reader(cwd, selection.ref.repository, signal);
+    let detail = await reader.prDetail(selection.ref.number, signal);
+    // Alternative hosts resolve fork checkout metadata separately from their display snapshot.
+    if (selection.ref.repository.forge !== "github" && !detail.headRepository) {
+      const checkout = await reader.prCheckout(selection.ref.number, signal);
+      if (checkout.headSha !== detail.status.headSha || checkout.baseSha !== detail.baseSha)
+        throw new ForgeError("head_moved");
+      detail = { ...detail, headRepository: checkout.headRepository };
+    }
     // GitHub keeps a PR whose fork was deleted, but its head can no longer be fetched.
     if (!detail.headRepository) throw new ForgeError("fork_deleted");
     if (detail.status.headSha !== selection.headSha) throw new ForgeError("head_moved");
@@ -182,7 +188,7 @@ export class WorkspaceForge {
     signal: AbortSignal,
   ) {
     const value = await (
-      await this.backends.backend(cwd, selection.ref.repository)
+      await this.backends.reader(cwd, selection.ref.repository, signal)
     ).prCheckout(selection.ref.number, signal);
     if (!value.headRepository) throw new ForgeError("fork_deleted");
     if (value.headSha !== selection.headSha) throw new ForgeError("head_moved");
@@ -195,7 +201,7 @@ export class WorkspaceForge {
     numbers: readonly number[],
     signal: AbortSignal,
   ) {
-    return (await this.backends.backend(cwd, repository)).states(numbers, signal);
+    return this.backends.states(cwd, repository, numbers, signal);
   }
   admitCheckout(id: ThreadId, status: ForgePrStatus): void {
     this.store.atomic(() => {

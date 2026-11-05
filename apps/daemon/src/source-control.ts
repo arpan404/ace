@@ -1,6 +1,10 @@
 import {
   createCommandRunner,
   githubReadiness,
+  gitlabReadiness,
+  gitlabIdentity,
+  originReadiness,
+  originIdentity,
   githubIdentity,
   identityRunner,
   repositoryFromRemote,
@@ -9,7 +13,11 @@ import {
   identityVerificationMs,
   type CommandRunner,
 } from "@ace/forge";
-import { SourceControlPreferences, type SourceControlReadiness } from "@ace/protocol";
+import {
+  SourceControlPreferences,
+  type SourceControlReadiness,
+  type ForgeRepository,
+} from "@ace/protocol";
 import type { SettingsService } from "@ace/settings";
 import { GitError } from "@ace/git";
 import type { WorkspaceGit } from "./workspace-roots.ts";
@@ -91,7 +99,8 @@ export class SourceControl {
     };
     check();
     const configured = preferences.hosts.find((entry) => entry.host === host);
-    if (!configured) throw new ForgeError("unsupported");
+    if (!configured || (configured.forge ?? "github") !== "github")
+      throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
     const { account, at } = await this.verifiedAccount(runner, host, revision, signal);
     await assertCurrent();
@@ -105,6 +114,47 @@ export class SourceControl {
         verifiedAt: at,
       }),
     };
+  }
+  /** Alternative host reads are pinned to an admitted CLI identity and preferences revision. */
+  async readIdentity(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    if (repository.forge === "github") return this.identity(cwd, repository.host, signal);
+    if (repository.forge !== "gitlab" && repository.forge !== "origin")
+      throw new ForgeError("unsupported");
+    const check = await this.guard();
+    const preferences = await this.preferences();
+    const configured = preferences.hosts.find((entry) => entry.host === repository.host);
+    if (!configured || configured.forge !== repository.forge) throw new ForgeError("unsupported");
+    const runner = this.runner(cwd);
+    const identify = () =>
+      repository.forge === "origin"
+        ? originIdentity(runner, signal)
+        : gitlabIdentity(runner, repository.host, signal);
+    const account = await identify();
+    check();
+    if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
+    const verified: CommandRunner = async (request) => {
+      check();
+      request.signal.throwIfAborted();
+      const command = repository.forge === "origin" ? "origin" : "glab";
+      const methodAt = request.args.findIndex((arg) => arg === "-X" || arg === "--method");
+      if (
+        request.command !== command ||
+        request.args[0] !== "api" ||
+        methodAt < 0 ||
+        request.args[methodAt + 1] !== "GET" ||
+        request.args.some((arg) =>
+          ["--input", "--field", "--raw-field", "-F", "-f", "--verbose"].includes(arg),
+        )
+      )
+        throw new ForgeError("unsupported");
+      if ((await identify()) !== account) throw new ForgeError("forbidden");
+      const result = await runner(request);
+      check();
+      if ((await identify()) !== account) throw new ForgeError("forbidden");
+      check();
+      return result;
+    };
+    return { account, revision: this.currentRevision, check, runner: verified };
   }
   /** One `/user` probe per host per window, not one per operation. */
   private async verifiedAccount(
@@ -157,7 +207,27 @@ export class SourceControl {
     const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
-    const status = await githubReadiness(runner, preferences, signal, this.now);
+    const forge =
+      preferences.hosts.find((entry) => entry.host === preferences.host)?.forge ?? "github";
+    const status: SourceControlReadiness =
+      forge === "github"
+        ? await githubReadiness(runner, preferences, signal, this.now)
+        : forge === "gitlab"
+          ? await gitlabReadiness(runner, preferences, signal)
+          : forge === "origin"
+            ? await originReadiness(runner, preferences, signal)
+            : {
+                preferences,
+                cli: "unavailable",
+                version: null,
+                accounts: [],
+                account: null,
+                api: "unavailable",
+                instructions:
+                  "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
+                transport: "unchecked",
+                transportInstructions: "Check a project's remote to verify Git access.",
+              };
     // A rescan re-verifies identity from scratch.
     this.identities.clear();
     check();
@@ -177,7 +247,7 @@ export class SourceControl {
       }
       repositoryFromRemote(
         remote,
-        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"])),
+        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, entry.forge ?? "github"])),
         await this.hostAliases([remote], signal),
       );
       // The same transport a push uses (credential helpers, SSH command, no prompts), so a

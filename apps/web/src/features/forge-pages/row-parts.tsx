@@ -36,15 +36,15 @@ export function Dot() {
 export const rowActionClass =
   "inline-flex h-6 items-center rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover disabled:opacity-50";
 
-/** Open a pull request or issue on GitHub, saying so when the browser can't be reached. */
+/** Open a pull request or issue on its host, reporting browser failures. */
 export function useOpenOnGitHub() {
   const openWeb = useOpenWebAddress();
   const toast = useToast();
   return (url: string) =>
-    void openWeb(url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+    void openWeb(url).catch(() => toast.error({ title: "Couldn't open the host page" }));
 }
 
-/** ⌘/Ctrl-click on a row's link opens it on GitHub instead of in ace. */
+/** ⌘/Ctrl-click on a row's link opens it on its host instead of in ace. */
 export function onModifiedClick(url: string | undefined, open: (url: string) => void) {
   return (event: MouseEvent<HTMLElement>) => {
     if (!url || !(event.metaKey || event.ctrlKey)) return;
@@ -70,6 +70,15 @@ export function RowShell(props: {
 }) {
   const openOnGitHub = useOpenOnGitHub();
   const url = props.url;
+  const hostname = url && URL.canParse(url) ? new URL(url).hostname : undefined;
+  const host =
+    hostname === "github.com"
+      ? "GitHub"
+      : hostname === "cursor.com"
+        ? "Cursor Origin"
+        : hostname === "gitlab.com"
+          ? "GitLab"
+          : "host";
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -90,7 +99,7 @@ export function RowShell(props: {
         {props.onNewThread && <MenuItem onClick={props.onNewThread}>New thread</MenuItem>}
         {url && (
           <>
-            <MenuItem onClick={() => openOnGitHub(url)}>Open on GitHub</MenuItem>
+            <MenuItem onClick={() => openOnGitHub(url)}>Open on {host}</MenuItem>
             <MenuItem onClick={() => void navigator.clipboard?.writeText(url)}>Copy link</MenuItem>
           </>
         )}
