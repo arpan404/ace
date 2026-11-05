@@ -14,7 +14,7 @@ import {
   unlinkSkill,
   withSkillFolder,
 } from "./skill-files.ts";
-import { SkillDisk } from "./skill-disk.ts";
+import { SkillDisk, sameDirectory } from "./skill-disk.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
@@ -341,16 +341,41 @@ export class SkillLibrary {
               "This skill changed elsewhere. Reload it before deleting.",
             );
         };
-        await withSkillFolder(this.disk, canonical, (_root, folder) => unchanged(folder));
+        const pinned = await withSkillFolder(this.disk, canonical, async (_root, folder) => {
+          await unchanged(folder);
+          return this.disk.identityOf(folder);
+        });
         // Links live under other roots: they go with nothing else pinned, since holding one
         // root's thread while waiting for another's can deadlock when every thread is taken.
-        for (const link of place.members.filter((m) => m.link)) await unlinkSkill(this.disk, link);
-        await withSkillFolder(this.disk, canonical, async (root, folder) => {
-          await unchanged(folder);
-          // Contents go through the pinned folder; the name is removed only if it is still it.
-          await this.disk.empty(folder);
-          await this.disk.removeEmptyDirectory(root, canonical.name);
-        });
+        const links = place.members.filter((m) => m.link);
+        for (const link of links) await unlinkSkill(this.disk, link);
+        try {
+          await withSkillFolder(this.disk, canonical, async (root, folder) => {
+            // The same folder, not just the same SKILL.md: a replacement is never emptied.
+            if (!sameDirectory(await this.disk.identityOf(folder), pinned))
+              throw new SkillError(
+                "conflict",
+                "This skill changed elsewhere. Reload it before deleting.",
+              );
+            await unchanged(folder);
+            // Contents go through the pinned folder; the name is removed only if it is still it.
+            await this.disk.empty(folder);
+            await this.disk.removeEmptyDirectory(root, canonical.name);
+          });
+        } catch (error) {
+          if (!(error instanceof SkillError && error.code === "conflict")) throw error;
+          // Nothing was deleted: put its agents' links back, and say so if any can't be.
+          let restored = true;
+          for (const link of links)
+            await linkSkill(this.disk, link.root, link.name, canonical).catch(() => {
+              restored = false;
+            });
+          if (restored) throw error;
+          throw new SkillError(
+            "conflict",
+            "This skill changed elsewhere, so it wasn't deleted, but some agents' links to it were removed. Reload it to check.",
+          );
+        }
         this.notify();
         return { kind: "deleted", id: op.id };
       }

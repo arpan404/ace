@@ -525,3 +525,30 @@ it("a change given up while running blocks its folder through other anchors unti
   threads[1]?.answer(0);
   await expect(after).resolves.toMatchObject({ value: 0 });
 });
+
+it("a change queued behind a read is refused when a change to its folder times out first", async () => {
+  const { lanes, threads, advance } = harness({ stuckPerRoot: 2 });
+  const opened = async (root: string, thread: () => FakeThread | undefined) => {
+    const handle = lanes.allocate();
+    const opening = lanes.run(root, { op: "openPath", path: root, handle });
+    thread()?.answer(statOf(99));
+    await opening;
+    return handle;
+  };
+  const global = await opened("/w/.ace", () => threads[0]);
+  const project = await opened("/w", () => threads[1]);
+  const timedOut = settle(lanes.run("/w/.ace", renameIn(global)));
+  advance(500);
+  // The project's rename waits behind a read on its own, healthy lane...
+  const read = lanes.run("/w", fstat(project));
+  const queued = settle(lanes.run("/w", renameIn(project)));
+  // ...while the global rename of the same folder times out and may still land.
+  advance(500);
+  expect((await timedOut).error).toBeInstanceOf(CommandWriteOutcomeUnknown);
+  threads[1]?.answer(0);
+  await read;
+  expect((await queued).error).toMatchObject({
+    message: expect.stringContaining("hasn't finished"),
+  });
+  expect(ops(threads[1]).map((op) => op.op)).toEqual(["openPath", "fstat"]);
+});

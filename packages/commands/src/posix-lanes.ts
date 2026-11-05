@@ -71,6 +71,8 @@ interface Lane {
 
 const quiet = () => {};
 const stopped = () => new CommandFilesystemUnavailable("Command folder stopped responding");
+const unfinished = () =>
+  new CommandFilesystemUnavailable("An earlier change to this folder hasn't finished");
 const closedHandle = () =>
   new CommandFilesystemUnavailable("This command folder handle is no longer open");
 
@@ -182,13 +184,7 @@ export class PosixLanes {
     }
     if (signal?.aborted) return refuse(cancelled(signal));
     const stuck = this.draining.get(root) ?? 0;
-    if (
-      isChange(operation) &&
-      (stuck > 0 || identities.some((identity) => this.landing.has(identity)))
-    )
-      return refuse(
-        new CommandFilesystemUnavailable("An earlier change to this folder hasn't finished"),
-      );
+    if (isChange(operation) && this.fenced(root, identities)) return refuse(unfinished());
     if (!owner && !this.lanes.has(root)) {
       if (stuck >= this.options.stuckPerRoot)
         return refuse(new CommandFilesystemUnavailable("Command folder is still not responding"));
@@ -255,6 +251,11 @@ export class PosixLanes {
     };
   }
 
+  /** Whether a change to `identities` under `root` could race one that may still land. */
+  private fenced(root: string, identities: readonly string[]): boolean {
+    if ((this.draining.get(root) ?? 0) > 0) return true;
+    return identities.some((identity) => this.landing.has(identity));
+  }
   /** A change that may still land keeps what it changes off limits to other changes. */
   private hold(job: Job): void {
     if (job.holding || !isChange(job.operation)) return;
@@ -351,6 +352,12 @@ export class PosixLanes {
     if (job.owner && job.owner !== executor) {
       // Its handles belonged to a thread this root no longer has.
       job.reject(closedHandle());
+      return this.pump(lane);
+    }
+    // Checked again on dispatch: an earlier change may have timed out while this one waited.
+    if (isChange(job.operation) && this.fenced(lane.root, job.identities)) {
+      job.unlisten();
+      job.reject(unfinished());
       return this.pump(lane);
     }
     const stop = this.options.timer(() => this.abandon(lane), this.limits.deadlineMs);

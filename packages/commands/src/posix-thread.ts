@@ -61,8 +61,16 @@ export class PosixThread {
   /** Stores `fd` under `handle` and answers what it is (its identity), or -1 if it failed. */
   private keep(handle: number, fd: number): PosixStat | -1 {
     if (fd < 0) return -1;
+    let stat: Stats;
+    try {
+      stat = fstatSync(fd);
+    } catch (error) {
+      // Never stored, so nothing else could close it: close it here.
+      closeSync(fd);
+      throw error;
+    }
     this.fds.set(handle, fd);
-    return statFields(fstatSync(fd));
+    return statFields(stat);
   }
 
   run(operation: PosixOperation): PosixValue {

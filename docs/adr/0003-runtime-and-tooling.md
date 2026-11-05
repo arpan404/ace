@@ -67,8 +67,10 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
     root under its two names, runs on two lanes: a stalled mount can cost up to two draining
     threads per name, and the reserve (no new thread once stuck ones fill the room beyond the
     serving threads) bounds the total. Changes are fenced by what they change, not by lane: a
-    change that may still land keeps its folder's identity (dev and inode) off limits to changes
-    through every lane until it returns.
+    change that may still land keeps the identity (dev and inode) of each handle it names off
+    limits to changes naming that folder through any lane until it returns; queued changes are
+    checked again when they start. Path calls that name no handle (`mkdirPath`, which skill
+    create and link use for a root) get only their own lane's fence.
 - **Images.** Raster images the daemon fits and re-encodes (Simulator frames, one-off device
   screenshots, attachment previews) go through Bun's own `Bun.Image`, behind
   `@ace/provider-kit/image`. Fitting a 1206×2622 Simulator frame to half size took 3.8–4.0 ms
