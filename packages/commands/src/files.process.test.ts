@@ -12,6 +12,8 @@ import {
   discoveryRoots,
   type Target,
 } from "./index.ts";
+import { closeCommandFd, openResolvedDirectory } from "./posix.ts";
+import { statCommandFd } from "./posix-calls.ts";
 const target: Target = { provider: "claude", instance: "personal", session: "t" };
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -282,8 +284,8 @@ it.skipIf(process.platform === "win32")(
     const { home } = await fixture();
     // Opening a FIFO with no writer blocks, as a call into a dead network mount does.
     execFileSync("mkfifo", [join(home, "stuck")]);
-    const root = openSync(home, constants.O_RDONLY | constants.O_DIRECTORY);
-    cleanups.push(async () => closeSync(root));
+    const root = await openResolvedDirectory(openCommandChild, home);
+    cleanups.push(() => closeCommandFd(root));
     const opening = openCommandChild(root, "stuck", constants.O_RDONLY);
     let ticks = 0;
     await new Promise<void>((resolve) => {
@@ -295,10 +297,44 @@ it.skipIf(process.platform === "win32")(
       }, 10);
     });
     expect(ticks).toBe(5);
-    // A writer lets the open finish; the descriptor it returns belongs to this process.
+    // A writer lets the open finish; its handle works like any other.
     const writer = openSync(join(home, "stuck"), constants.O_WRONLY | constants.O_NONBLOCK);
     const fd = await opening;
     closeSync(writer);
-    closeSync(fd);
+    expect((await statCommandFd(fd)).isFile()).toBe(false);
+    await closeCommandFd(fd);
   },
 );
+
+it("a folder with exactly the entry limit is indexed whole, and one over it is reported", async () => {
+  const base = await realpath(await mkdtemp(join(tmpdir(), "ace-command-limit-")));
+  cleanups.push(() => rm(base, { recursive: true, force: true }));
+  const discover = async (count: number, extension: string) => {
+    const path = join(base, `anchor-${count}`, "commands");
+    await mkdir(path, { recursive: true });
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        writeFile(join(path, `c${count}-${i}.${extension}`), "Body"),
+      ),
+    );
+    const catalog = new CommandCatalog(() => 0);
+    const files = new CommandFiles(catalog, [
+      { path, format: "claude", scope: "user", instance: "personal" },
+    ]);
+    cleanups.push(() => files.close());
+    await files.start();
+    return { catalog, files };
+  };
+  // `.` and `..` aren't entries: every one of the 2,048 files is read, and no limit is reported.
+  const exact = await discover(2048, "md");
+  expect(exact.files.metrics().fileReads).toBe(2048);
+  // (The catalog admits fewer commands than that; its own cap is reported separately.)
+  expect(exact.catalog.list(target).diagnostics.map((d) => d.message)).not.toContain(
+    "Directory entry limit exceeded",
+  );
+  // Entries that aren't commands, so no catalog admission notes crowd out the report.
+  const over = await discover(2049, "txt");
+  expect(over.catalog.list(target).diagnostics.map((d) => d.message)).toContain(
+    "Directory entry limit exceeded",
+  );
+});

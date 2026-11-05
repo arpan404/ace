@@ -6,6 +6,7 @@ import {
   readFile,
   readlink,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -13,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult } from "@ace/protocol";
-import { SkillLibrary } from "./index.ts";
+import { SkillLibrary, openCommandChild } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -253,4 +254,48 @@ test("subscribers hear about skills added outside ace", async () => {
   } finally {
     stop();
   }
+});
+
+test("deleting refuses a folder swapped for one with the same SKILL.md, and puts its links back", async () => {
+  const { home } = await fixture();
+  const canonical = join(home, ".agents/skills/research");
+  const text = await readFile(join(canonical, "SKILL.md"), "utf8");
+  let armed = false;
+  let sequence = 0;
+  const library = new SkillLibrary({
+    homes: {
+      home,
+      claude: join(home, ".claude"),
+      codex: join(home, ".codex"),
+      opencode: join(home, ".config/opencode"),
+      cursor: join(home, ".cursor"),
+      pi: join(home, ".pi/agent"),
+    },
+    workspace: () => undefined,
+    id: () => `d${++sequence}`,
+    async openChild(directory, name, flags, owner) {
+      if (armed && name === ".claude") {
+        // While its links are being removed, someone replaces the folder with another holding
+        // the same SKILL.md and a script of its own.
+        armed = false;
+        await rename(canonical, join(home, ".agents/skills/.research-old"));
+        await put(join(canonical, "SKILL.md"), text);
+        await put(join(canonical, "scripts/run.sh"), "echo mine");
+      }
+      return openCommandChild(directory, name, flags, owner);
+    },
+  });
+  cleanups.push(() => library.close());
+  const research = await named(library, "research");
+  armed = true;
+  const result = await library.request({
+    op: "delete",
+    id: research.id,
+    expectedHash: research.hash,
+  });
+  expect(result).toMatchObject({ kind: "error", code: "conflict" });
+  // The replacement is untouched, and Claude's link to the skill is back.
+  expect(await readFile(join(canonical, "scripts/run.sh"), "utf8")).toBe("echo mine");
+  expect((await lstat(join(home, ".claude/skills/research"))).isSymbolicLink()).toBe(true);
+  expect(await realpath(join(home, ".claude/skills/research"))).toBe(canonical);
 });

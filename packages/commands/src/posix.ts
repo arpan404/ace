@@ -21,68 +21,124 @@ import {
 } from "@ace/workspace/descriptor";
 import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
-import { PosixWorkerClient } from "./posix-worker-client.ts";
-import type { PosixOperation } from "./posix-wire.ts";
-export type OpenCommandChild = (directory: number, name: string, flags: number) => Promise<number>;
+import {
+  closeCommandFd,
+  commandLane,
+  commandRootSettled,
+  posix,
+  posixInteger,
+  posixOpen,
+  rootOf,
+  type CommandCalls,
+} from "./posix-calls.ts";
+import { directoryFlags } from "./posix-flags.ts";
+export {
+  closeCommandFd,
+  commandCallOwner,
+  commandRootSettled,
+  useCommandCallDeadline,
+  type CommandCalls,
+} from "./posix-calls.ts";
+export type OpenCommandChild = (
+  directory: number,
+  name: string,
+  flags: number,
+  owner?: CommandCalls,
+) => Promise<number>;
 export interface DirectoryReader {
   read(): Promise<string | undefined>;
   close(): Promise<void>;
 }
-const integer = z.number().int();
 export class EntryUnavailable extends Error {}
-// Every POSIX call runs in the discovery worker: a stalled network, FUSE or cloud mount blocks
-// that thread, never the daemon's event loop.
-let client: PosixWorkerClient | undefined;
-function posix(operation: PosixOperation): Promise<number | string | null> {
-  return (client ??= new PosixWorkerClient()).call(operation);
-}
-async function posixInteger(operation: PosixOperation): Promise<number> {
-  return integer.parse(await posix(operation));
-}
-const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0x80000;
-export const directoryFlags =
-  constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | closeOnExec;
-export const fileFlags =
-  constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec;
-export const openCommandChild: OpenCommandChild = async (directory, name, flags) => {
+export { directoryFlags, fileFlags } from "./posix-flags.ts";
+export const openCommandChild: OpenCommandChild = async (directory, name, flags, owner) => {
   if (process.platform === "win32") return windowsOpenChild(directory, name);
-  const fd = await posixInteger({ op: "open", directory, name, flags });
-  if (fd < 0) throw new EntryUnavailable("Cannot open command entry without following symlinks");
-  return fd;
+  const root = rootOf(directory, owner);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "open", directory, name, flags, handle: result }),
+    owner,
+  );
+  if (handle < 0)
+    throw new EntryUnavailable("Cannot open command entry without following symlinks");
+  return handle;
 };
-export async function directoryReader(fd: number): Promise<DirectoryReader> {
+/**
+ * An absolute directory path opened from `/` in one call on `root`'s thread, with O_NOFOLLOW at
+ * every component: a component swapped for a symlink fails closed.
+ */
+export async function openCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<number> {
+  if (process.platform === "win32") return windowsOpenResolved(openCommandChild, path);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "openPath", path, handle: result }),
+    owner,
+  );
+  if (handle < 0) throw new EntryUnavailable("Cannot open command folder without following links");
+  return handle;
+}
+/** Real entries (never `.` or `..`) a directory listing reads at most: discovery's limit. */
+export const listingLimit = 2048;
+/** A listing had more entries than its limit; its reader has given every name it read. */
+export class DirectoryListingTruncated extends Error {}
+const entryName = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((name) => !name.includes("/") && !name.includes("\0"));
+const Listing = z.object({ names: z.array(entryName), truncated: z.boolean() });
+/**
+ * Takes `fd` over in every case and lists up to `limit` real entries in one call on its thread,
+ * which closes the directory before answering, so no handle outlives the call. The reader gives
+ * the names from memory, then throws `DirectoryListingTruncated` if more were left.
+ */
+export async function directoryReader(
+  fd: number,
+  owner?: CommandCalls,
+  limit = listingLimit,
+): Promise<DirectoryReader> {
   if (process.platform === "win32") return windowsDirectoryReader(fd);
-  const reader = await posixInteger({ op: "openDirectory", fd });
-  if (reader === 0) throw new Error("Cannot enumerate command directory");
-  let closed = false;
+  const value = await posix({ op: "listDirectory", fd, limit }, fd, owner);
+  if (value === null) throw new Error("Cannot enumerate command directory");
+  const listing = Listing.parse(value);
+  return memoryReader(listing.names, listing.truncated);
+}
+function memoryReader(names: string[], truncated: boolean): DirectoryReader {
+  let next = 0;
   return {
     async read() {
-      if (closed) return undefined;
-      const value = await posix({ op: "readDirectory", reader });
-      if (value === null) return undefined;
-      return z
-        .string()
-        .min(1)
-        .max(1024)
-        .refine((name) => !name.includes("/") && !name.includes("\0"))
-        .parse(value);
+      // Each entry yields to the event loop, so a scan never runs ahead of the batch that asked.
+      await new Promise((resolve) => setImmediate(resolve));
+      if (next < names.length) return names[next++];
+      if (truncated) throw new DirectoryListingTruncated("Directory entry limit exceeded");
+      return undefined;
     },
     async close() {
-      if (!closed) {
-        closed = true;
-        await posixInteger({ op: "closeDirectory", reader });
-      }
+      next = names.length;
+      truncated = false;
     },
   };
 }
 
 /** Small descriptor-relative mutation primitives, shared by prompt file editing. */
-export async function createCommandDirectory(directory: number, name: string): Promise<void> {
+export async function createCommandDirectory(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<void> {
   if (process.platform === "win32") return void windowsQuiet(() => mkdirAt(directory, name));
-  await posix({ op: "mkdir", directory, name, mode: 0o700 });
+  await posix({ op: "mkdir", directory, name, mode: 0o700 }, directory, owner);
   // The caller opens the result with O_NOFOLLOW, including when mkdir found an existing entry.
 }
-export async function createCommandFile(directory: number, name: string): Promise<number> {
+export async function createCommandFile(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<number> {
   if (process.platform === "win32") {
     const parent = windowsKnownPath(directory) ?? "";
     try {
@@ -92,38 +148,55 @@ export async function createCommandFile(directory: number, name: string): Promis
     }
   }
   const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL;
-  const fd = await posixInteger({ op: "create", directory, name, flags });
-  if (fd < 0) throw new EntryUnavailable("Cannot create prompt file");
-  return fd;
+  const root = rootOf(directory, owner);
+  const handle = await posixOpen(
+    root,
+    (result) => ({ op: "create", directory, name, flags, handle: result }),
+    owner,
+  );
+  if (handle < 0) throw new EntryUnavailable("Cannot create prompt file");
+  return handle;
 }
 export async function replaceCommandFile(
   directory: number,
   source: string,
   target: string,
+  owner?: CommandCalls,
 ): Promise<void> {
   if (process.platform === "win32") {
     if (!windowsQuiet(() => renameAt(directory, source, target)))
       throw new Error("Cannot replace prompt file");
     return;
   }
-  const renamed = await posixInteger({
-    op: "rename",
-    from: directory,
-    fromName: source,
-    to: directory,
-    toName: target,
-    flags: 0,
-  });
+  const renamed = await posixInteger(
+    { op: "rename", from: directory, fromName: source, to: directory, toName: target, flags: 0 },
+    directory,
+    owner,
+  );
   if (renamed < 0) throw new Error("Cannot replace prompt file");
 }
-export async function removeCommandFile(directory: number, name: string): Promise<void> {
-  if (process.platform === "win32") return void windowsQuiet(() => unlinkAt(directory, name));
-  await posix({ op: "unlink", directory, name, flags: 0 });
+/**
+ * Removes `name` from the directory at `path` in the background, once nothing abandoned under
+ * `root` can still land: a change left running there (a cancelled or timed-out save) finishes
+ * first, so the file it may still create or rename is the one removed. The folder is reopened by
+ * path, never followed through a link, since the handles of an abandoned thread are gone.
+ */
+export function removeCommandEntryLater(root: string, path: string, name: string): void {
+  void (async () => {
+    await commandRootSettled(root);
+    const parent = await openCommandPath(root, path);
+    try {
+      await removeCommandEntry(parent, name, false);
+    } finally {
+      await closeCommandFd(parent);
+    }
+  })().catch(() => {});
 }
 export async function linkCommandFile(
   directory: number,
   source: string,
   target: string,
+  owner?: CommandCalls,
 ): Promise<void> {
   if (process.platform === "win32") {
     // No hard links: claim the name exclusively, then replace the claim with the written file.
@@ -135,21 +208,22 @@ export async function linkCommandFile(
     }
     return;
   }
-  const linked = await posixInteger({
-    op: "link",
-    from: directory,
-    fromName: source,
-    to: directory,
-    toName: target,
-    flags: 0,
-  });
+  const linked = await posixInteger(
+    { op: "link", from: directory, fromName: source, to: directory, toName: target, flags: 0 },
+    directory,
+    owner,
+  );
   if (linked < 0) throw new Error("prompt_conflict");
 }
 
 /** Read the link itself relative to the pinned skill directory, never its target. */
-export async function readCommandLink(directory: number, name: string): Promise<string> {
+export async function readCommandLink(
+  directory: number,
+  name: string,
+  owner?: CommandCalls,
+): Promise<string> {
   if (process.platform === "win32") return windowsReadLink(directory, name);
-  const text = await posix({ op: "readLink", directory, name });
+  const text = await posix({ op: "readLink", directory, name }, directory, owner);
   if (typeof text !== "string") throw new EntryUnavailable("Unavailable skill link");
   return text;
 }
@@ -163,7 +237,7 @@ export async function makeCommandDirectory(
   mode: number,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsQuiet(() => mkdirAt(directory, name));
-  return (await posixInteger({ op: "mkdir", directory, name, mode })) === 0;
+  return (await posixInteger({ op: "mkdir", directory, name, mode }, directory)) === 0;
 }
 /** unlinkat of a file, symlink (never its target) or, with `folder`, an empty directory. */
 export async function removeCommandEntry(
@@ -173,7 +247,7 @@ export async function removeCommandEntry(
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRemove(directory, name, folder);
   const flags = folder ? removeDirectoryFlag : 0;
-  return (await posixInteger({ op: "unlink", directory, name, flags })) === 0;
+  return (await posixInteger({ op: "unlink", directory, name, flags }, directory)) === 0;
 }
 /** renameat between two pinned directories; neither name is followed. */
 export async function renameCommandEntry(
@@ -184,7 +258,7 @@ export async function renameCommandEntry(
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRename(fromDirectory, from, toDirectory, to);
   const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
-  return (await posixInteger({ op: "rename", ...operation, flags: 0 })) === 0;
+  return (await posixInteger({ op: "rename", ...operation, flags: 0 }, fromDirectory)) === 0;
 }
 const closeQuietly = (fd: number) =>
   new Promise<void>((accept) => closeDescriptor(fd, () => accept()));
@@ -195,20 +269,28 @@ const closeQuietly = (fd: number) =>
 export async function openResolvedDirectory(
   openChild: OpenCommandChild,
   path: string,
+  owner?: CommandCalls,
+  lane = commandLane(path),
 ): Promise<number> {
   if (process.platform === "win32") return windowsOpenResolved(openChild, path);
-  let fd = await openChild(-100, "/", directoryFlags);
+  // `/` opens on the lane's own thread; everything opened beneath it stays there.
+  let fd = await posixOpen(
+    lane,
+    (handle) => ({ op: "open", directory: -100, name: "/", flags: directoryFlags, handle }),
+    owner,
+  );
+  if (fd < 0) throw new EntryUnavailable("Cannot open /");
   try {
     const parts = path.split("/").filter(Boolean);
     if (parts.length > 128) throw new Error("Trusted root depth limit");
     for (const name of parts) {
-      const child = await openChild(fd, name, directoryFlags);
-      await closeQuietly(fd);
+      const child = await openChild(fd, name, directoryFlags, owner);
+      await closeCommandFd(fd);
       fd = child;
     }
     return fd;
   } catch (error) {
-    await closeQuietly(fd);
+    await closeCommandFd(fd);
     throw error;
   }
 }
@@ -234,7 +316,7 @@ export async function renameCommandEntryAs(
   }
   const flags = renameModes[mode];
   const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
-  return (await posixInteger({ op: "renameFlags", ...operation, flags })) === 0;
+  return (await posixInteger({ op: "renameFlags", ...operation, flags }, fromDirectory)) === 0;
 }
 /** symlinkat: `name` in the pinned directory, storing `target` as text; fails if `name` exists. */
 export async function linkCommandEntry(
@@ -243,7 +325,7 @@ export async function linkCommandEntry(
   name: string,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsJunction(target, directory, name);
-  return (await posixInteger({ op: "symlink", target, directory, name })) === 0;
+  return (await posixInteger({ op: "symlink", target, directory, name }, directory)) === 0;
 }
 
 // Windows: the same primitives over @ace/workspace's handle-relative add-on. Handles are Node fds,
@@ -322,13 +404,20 @@ function windowsOpenChild(directory: number, name: string): number {
     throw new EntryUnavailable("Cannot open command entry without following links");
   }
 }
-function windowsDirectoryReader(fd: number): DirectoryReader {
-  const names = descriptorNames(fd);
+async function windowsDirectoryReader(fd: number): Promise<DirectoryReader> {
+  // The reader owns `fd` from here: it closes, and forgets its path, if listing fails.
+  let names: string[];
+  try {
+    names = descriptorNames(fd);
+  } catch (error) {
+    await windowsCloseQuietly(fd);
+    throw error;
+  }
   let closed = false;
   return {
     async read() {
-      // Each entry yields to the event loop, as the POSIX reader's threaded readdir does, so a
-      // scan never runs ahead of the batch that asked for it.
+      // Each entry yields to the event loop, as the POSIX reader does, so a scan never runs
+      // ahead of the batch that asked for it.
       await new Promise((resolve) => setImmediate(resolve));
       return closed ? undefined : names.shift();
     },

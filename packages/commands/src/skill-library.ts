@@ -1,4 +1,6 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
+import { commandRootSettled } from "./posix.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
@@ -12,7 +14,7 @@ import {
   unlinkSkill,
   withSkillFolder,
 } from "./skill-files.ts";
-import { SkillDisk } from "./skill-disk.ts";
+import { SkillDisk, sameDirectory } from "./skill-disk.ts";
 import { SkillError } from "./skill-errors.ts";
 import type { OpenCommandChild } from "./posix.ts";
 import { planAgents } from "./skill-model.ts";
@@ -97,6 +99,12 @@ export class SkillLibrary {
       return false;
     }
   }
+  /** Once the folder's stuck call has returned, settle whatever it left half done. */
+  private recoverOnceSettled(root: string): void {
+    void commandRootSettled(root).then(() => {
+      if (!this.closed) void this.start();
+    });
+  }
   request(operation: unknown): Promise<SkillResult> {
     const parsed = SkillOperation.safeParse(operation);
     if (!parsed.success)
@@ -111,6 +119,16 @@ export class SkillLibrary {
     const result = this.tail
       .then(() => this.perform(parsed.data))
       .catch((error: unknown): SkillResult => {
+        const unknown = writeOutcomeUnknown(error);
+        if (unknown) {
+          this.recoverOnceSettled(unknown.root);
+          return {
+            kind: "error",
+            code: "unavailable",
+            message:
+              "This change took too long, so the skill may or may not have changed. Reload the list to check.",
+          };
+        }
         if (error instanceof SkillError)
           return { kind: "error", code: error.code, message: error.message };
         if (error instanceof Error && error.message === "invalid_frontmatter")
@@ -301,7 +319,10 @@ export class SkillLibrary {
               "This skill changed elsewhere. Reload it before saving.",
             );
           const next = editSkill(current.text, op);
-          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id());
+          await replacePinnedSkill(this.disk, folder, next, op.expectedHash, this.options.id(), {
+            rootReal: canonical.rootReal,
+            name: canonical.name,
+          });
         });
         this.notify();
         return this.skill(op.id, op.workspaceId);
@@ -313,18 +334,48 @@ export class SkillLibrary {
       }
       case "delete": {
         const { place, canonical } = await this.editable(op.id, op.workspaceId);
-        await withSkillFolder(this.disk, canonical, async (root, folder) => {
+        const unchanged = async (folder: number) => {
           if ((await readPinnedSkill(this.disk, folder))?.hash !== op.expectedHash)
             throw new SkillError(
               "conflict",
               "This skill changed elsewhere. Reload it before deleting.",
             );
-          for (const link of place.members.filter((m) => m.link))
-            await unlinkSkill(this.disk, link);
-          // Contents go through the pinned folder; the name is removed only if it is still it.
-          await this.disk.empty(folder);
-          await this.disk.removeEmptyDirectory(root, canonical.name);
+        };
+        const pinned = await withSkillFolder(this.disk, canonical, async (_root, folder) => {
+          await unchanged(folder);
+          return this.disk.identityOf(folder);
         });
+        // Links live under other roots: they go with nothing else pinned, since holding one
+        // root's thread while waiting for another's can deadlock when every thread is taken.
+        const links = place.members.filter((m) => m.link);
+        for (const link of links) await unlinkSkill(this.disk, link);
+        try {
+          await withSkillFolder(this.disk, canonical, async (root, folder) => {
+            // The same folder, not just the same SKILL.md: a replacement is never emptied.
+            if (!sameDirectory(await this.disk.identityOf(folder), pinned))
+              throw new SkillError(
+                "conflict",
+                "This skill changed elsewhere. Reload it before deleting.",
+              );
+            await unchanged(folder);
+            // Contents go through the pinned folder; the name is removed only if it is still it.
+            await this.disk.empty(folder);
+            await this.disk.removeEmptyDirectory(root, canonical.name);
+          });
+        } catch (error) {
+          if (!(error instanceof SkillError && error.code === "conflict")) throw error;
+          // Nothing was deleted: put its agents' links back, and say so if any can't be.
+          let restored = true;
+          for (const link of links)
+            await linkSkill(this.disk, link.root, link.name, canonical).catch(() => {
+              restored = false;
+            });
+          if (restored) throw error;
+          throw new SkillError(
+            "conflict",
+            "This skill changed elsewhere, so it wasn't deleted, but some agents' links to it were removed. Reload it to check.",
+          );
+        }
         this.notify();
         return { kind: "deleted", id: op.id };
       }

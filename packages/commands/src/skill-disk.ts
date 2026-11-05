@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { close, fchmod, fstat, fsync, read, write, type Stats } from "node:fs";
-import { promisify } from "node:util";
 import { basename, dirname } from "node:path";
 import {
   createCommandFile,
@@ -19,27 +17,31 @@ import {
 } from "./posix.ts";
 import { commandEntryIsLink } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
-import { commandEntryExists } from "./posix.ts";
+import { DirectoryListingTruncated, commandEntryExists, commandRootSettled } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
+import {
+  skillLane,
+  chmodCommandFd,
+  closeCommandFd,
+  readCommandFd,
+  statCommandFd,
+  syncCommandFd,
+  writeCommandFd,
+  type CommandStat,
+} from "./posix-calls.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 
-const closeFd = promisify(close),
-  statFd = promisify(fstat),
-  syncFd = promisify(fsync),
-  chmodFd = promisify(fchmod);
+// Every descriptor call, close included, runs on its root's thread with a deadline (posix-calls).
+const closeFd = closeCommandFd,
+  statFd = (fd: number) => statCommandFd(fd),
+  syncFd = (fd: number) => syncCommandFd(fd),
+  chmodFd = (fd: number, mode: number) => chmodCommandFd(fd, mode);
 const readFd = (fd: number, buffer: Buffer, position: number) =>
-  new Promise<number>((accept, reject) =>
-    read(fd, buffer, 0, buffer.length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
+  readCommandFd(fd, buffer, 0, buffer.length, position);
 const writeFd = (fd: number, buffer: Buffer, offset: number, length: number, position: number) =>
-  new Promise<number>((accept, reject) =>
-    write(fd, buffer, offset, length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
+  writeCommandFd(fd, buffer, offset, length, position);
 const chunk = 64 * 1024;
 const tooLarge = () =>
   new SkillError(
@@ -69,8 +71,9 @@ export class SkillDisk {
     this.openChild = openChild;
   }
   /** A resolved directory, or `undefined` when any component is missing or is a link. */
-  async openPath(real: string): Promise<number | undefined> {
-    return openResolvedDirectory(this.openChild, real).catch(() => undefined);
+  /** `lane` defaults to the folder's skill root's, the one every skill call on it shares. */
+  async openPath(real: string, lane = skillLane(real)): Promise<number | undefined> {
+    return openResolvedDirectory(this.openChild, real, undefined, lane).catch(() => undefined);
   }
   /**
    * Whether a resolved path is confirmed gone: its parent opens (pinned, no links) and its
@@ -97,8 +100,9 @@ export class SkillDisk {
     rootReal: string,
     name: string,
     work: (root: number, folder: number) => Promise<T>,
+    lane = skillLane(rootReal),
   ): Promise<T> {
-    const root = await this.openPath(rootReal);
+    const root = await this.openPath(rootReal, lane);
     if (root === undefined)
       throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
     try {
@@ -116,17 +120,18 @@ export class SkillDisk {
   }
   async names(directory: number): Promise<string[]> {
     const fd = await this.openChild(directory, ".", directoryFlags);
-    const reader = await directoryReader(fd).catch(async (error: unknown) => {
-      await closeFd(fd);
-      throw error;
-    });
+    // The reader takes the descriptor in every case, including when it fails.
+    const limit = skillFolderLimits.files * 2;
+    const reader = await directoryReader(fd, undefined, limit);
     const names: string[] = [];
     try {
       for (let name = await reader.read(); name !== undefined; name = await reader.read()) {
         if (name === "." || name === "..") continue;
-        if (names.length >= skillFolderLimits.files * 2) throw tooLarge();
+        if (names.length >= limit) throw tooLarge();
         names.push(name);
       }
+    } catch (error) {
+      throw error instanceof DirectoryListingTruncated ? tooLarge() : error;
     } finally {
       await reader.close();
     }
@@ -155,8 +160,12 @@ export class SkillDisk {
   }
   /** Write `bytes` to a new file (exclusive create, no links) and flush it. */
   async writeNew(directory: number, name: string, bytes: Buffer, mode: number): Promise<void> {
-    const fd = await createCommandFile(directory, name).catch(() => {
-      throw new SkillError("unavailable", "Couldn't write this skill. Check its permissions.");
+    const fd = await createCommandFile(directory, name).catch((error: unknown) => {
+      // A create that timed out may still land; that isn't a permissions problem.
+      throw (
+        writeOutcomeUnknown(error) ??
+        new SkillError("unavailable", "Couldn't write this skill. Check its permissions.")
+      );
     });
     try {
       let at = 0;
@@ -280,6 +289,23 @@ export class SkillDisk {
         throw new SkillError("unavailable", "Couldn't remove this skill's files.");
     }
   }
+  /**
+   * In the background, once nothing abandoned under `rootReal` can still land, remove `name`
+   * from it, reopening the root by path since an abandoned thread's handles are gone.
+   */
+  removeWhenSettled(rootReal: string, name: string): void {
+    void commandRootSettled(skillLane(rootReal))
+      .then(async () => {
+        const root = await this.openPath(rootReal);
+        if (root === undefined) return;
+        try {
+          await this.remove(root, name);
+        } finally {
+          await closeFd(root);
+        }
+      })
+      .catch(() => {});
+  }
   /** Remove `name` from a pinned parent: a directory's contents first, a link only as itself. */
   async remove(parent: number, name: string): Promise<void> {
     const child = await this.openDirectory(parent, name);
@@ -344,7 +370,7 @@ export class SkillDisk {
       await closeFd(fd);
     }
   }
-  private async hash(fd: number, info: Stats, budget: Budget): Promise<string> {
+  private async hash(fd: number, info: CommandStat, budget: Budget): Promise<string> {
     if (info.size > skillFolderLimits.fileBytes) throw tooLarge();
     const digest = createHash("sha256");
     const buffer = Buffer.alloc(chunk);

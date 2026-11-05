@@ -1,7 +1,4 @@
-import { constants } from "node:fs";
-import { cString, openLibrary, readCString, type NativeFunction } from "@ace/provider-kit/bun-ffi";
-import { openAt } from "@ace/workspace/descriptor";
-import type { PosixOperation } from "./posix-wire.ts";
+import { openLibrary, type NativeFunction } from "@ace/provider-kit/bun-ffi";
 
 // OS interface declarations only. No provider or third-party implementation code.
 function bindings() {
@@ -23,6 +20,7 @@ function bindings() {
     [`fdopendir${suffix}`]: { args: ["i32"], returns: "ptr" },
     [`readdir${suffix}`]: { args: ["ptr"], returns: "ptr" },
     closedir: { args: ["ptr"], returns: "i32" },
+    close: { args: ["i32"], returns: "i32" },
   });
   const bound = (name: string): NativeFunction => {
     const fn = library.symbols[name];
@@ -38,107 +36,15 @@ function bindings() {
     linkat: bound("linkat"),
     symlinkat: bound("symlinkat"),
     closedir: bound("closedir"),
+    close: bound("close"),
     renameFlags: bound(renameFlags),
     fdopendir: bound(`fdopendir${suffix}`),
     readdir: bound(`readdir${suffix}`),
   };
 }
-let native: ReturnType<typeof bindings> | undefined;
-
-// Open directory streams by reader id; DIR pointers never leave this thread.
-const readers = new Map<number, number>();
-let nextReader = 0;
-// Public dirent ABIs: Linux 64-bit d_name at 19; Darwin inode64 at 21.
-const nameOffset = process.platform === "darwin" ? 21 : 19;
-
-function integerResult(value: unknown): number {
-  if (typeof value !== "number" || !Number.isSafeInteger(value))
-    throw new Error("Native call returned a non-integer");
-  return value;
-}
-
-/**
- * Runs one descriptor-relative call on this thread: the POSIX worker's only job, so a stalled
- * network or FUSE mount blocks the worker, never the daemon's event loop.
- */
-export function runPosixOperation(operation: PosixOperation): number | string | null {
-  const c = (native ??= bindings());
-  switch (operation.op) {
-    case "open":
-      // Without O_CREAT, openat reads no mode, so its variadic tail is never passed.
-      return integerResult(c.openat(operation.directory, cString(operation.name), operation.flags));
-    case "create":
-      // openat with O_CREAT takes its mode as a variadic argument, which bun:ffi cannot pass
-      // (and Apple's arm64 ABI passes on the stack). @ace/workspace's add-on creates it, 0600.
-      try {
-        return openAt(operation.directory, operation.name, operation.flags | constants.O_CREAT).fd;
-      } catch {
-        return -1;
-      }
-    case "openDirectory": {
-      const handle: unknown = c.fdopendir(operation.fd);
-      if (typeof handle !== "number") return 0;
-      readers.set(++nextReader, handle);
-      return nextReader;
-    }
-    case "readDirectory": {
-      const handle = readers.get(operation.reader);
-      if (handle === undefined) throw new Error("Unknown directory reader");
-      const entry: unknown = c.readdir(handle);
-      return typeof entry === "number" ? readCString(entry, nameOffset) : null;
-    }
-    case "closeDirectory": {
-      const handle = readers.get(operation.reader);
-      if (handle === undefined) return 0;
-      readers.delete(operation.reader);
-      return integerResult(c.closedir(handle));
-    }
-    case "readLink": {
-      const bytes = Buffer.alloc(4096);
-      const count = integerResult(
-        c.readlinkat(operation.directory, cString(operation.name), bytes, bytes.length),
-      );
-      if (count < 1 || count >= bytes.length) return null;
-      return bytes.subarray(0, count).toString("utf8");
-    }
-    case "mkdir":
-      return integerResult(c.mkdirat(operation.directory, cString(operation.name), operation.mode));
-    case "unlink":
-      return integerResult(
-        c.unlinkat(operation.directory, cString(operation.name), operation.flags),
-      );
-    case "symlink":
-      return integerResult(
-        c.symlinkat(cString(operation.target), operation.directory, cString(operation.name)),
-      );
-    case "rename":
-      return integerResult(
-        c.renameat(
-          operation.from,
-          cString(operation.fromName),
-          operation.to,
-          cString(operation.toName),
-        ),
-      );
-    case "link":
-      return integerResult(
-        c.linkat(
-          operation.from,
-          cString(operation.fromName),
-          operation.to,
-          cString(operation.toName),
-          operation.flags,
-        ),
-      );
-    case "renameFlags":
-      return integerResult(
-        c.renameFlags(
-          operation.from,
-          cString(operation.fromName),
-          operation.to,
-          cString(operation.toName),
-          operation.flags,
-        ),
-      );
-  }
+export type PosixBindings = ReturnType<typeof bindings>;
+let native: PosixBindings | undefined;
+/** The C functions command workers call, bound on first use. */
+export function posixBindings(): PosixBindings {
+  return (native ??= bindings());
 }
