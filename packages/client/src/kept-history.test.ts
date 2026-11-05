@@ -304,7 +304,7 @@ test("explicit cached history cannot be read after revocation or cache clearing"
   await f.client.clearReadSnapshots();
   expect(await f.client.cachedItemsWindow(windowTarget)).toBeUndefined();
   await keepWindow(f);
-  f.closeSocket(4003);
+  f.closeSocket(4003, "Device revoked");
   await expect.poll(() => f.client.state).toBe("fatal");
   expect(await f.client.cachedItemsWindow(windowTarget)).toBeUndefined();
   f.lease.release();
@@ -371,7 +371,7 @@ test.each(["clear", "reload", "revoke"] as const)(
     if (action === "clear") await f.client.clearReadSnapshots();
     else if (action === "reload") await f.client.forgetThread("thread");
     else {
-      f.closeSocket(4003);
+      f.closeSocket(4003, "Device revoked");
       await expect.poll(() => f.client.state).toBe("fatal");
     }
     resume.resolve();
