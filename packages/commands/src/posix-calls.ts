@@ -198,31 +198,51 @@ export async function lstatCommandPath(
   const { value } = await (owner ?? commandLanes()).run(root, { op: "lstatPath", path });
   return commandStat(PosixStat.parse(value));
 }
-export async function statCommandPath(root: string, path: string): Promise<CommandStat> {
+export async function statCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<CommandStat> {
   if (process.platform === "win32") return nodePaths.stat(path);
   return commandStat(
-    PosixStat.parse((await commandLanes().run(root, { op: "statPath", path })).value),
+    PosixStat.parse((await (owner ?? commandLanes()).run(root, { op: "statPath", path })).value),
   );
 }
-export async function realCommandPath(root: string, path: string): Promise<string> {
+export async function realCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<string> {
   if (process.platform === "win32") return nodePaths.realpath(path);
-  return textValue.parse((await commandLanes().run(root, { op: "realpath", path })).value);
+  return textValue.parse(
+    (await (owner ?? commandLanes()).run(root, { op: "realpath", path })).value,
+  );
 }
 export async function listCommandPath(
   root: string,
   path: string,
   limit: number,
+  owner?: CommandCalls,
 ): Promise<string[]> {
   if (process.platform === "win32") return (await nodePaths.readdir(path)).slice(0, limit);
-  const { value } = await commandLanes().run(root, { op: "readdirPath", path, limit });
+  const { value } = await (owner ?? commandLanes()).run(root, { op: "readdirPath", path, limit });
   return namesValue.parse(value);
 }
-export async function makeCommandPath(root: string, path: string): Promise<void> {
+export async function makeCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<void> {
   if (process.platform === "win32") return void (await nodePaths.mkdir(path, { recursive: true }));
-  await commandLanes().run(root, { op: "mkdirPath", path });
+  await (owner ?? commandLanes()).run(root, { op: "mkdirPath", path });
 }
 /** A whole regular file at `path`, never through a final link; `EFBIG` over `limit` bytes. */
-export async function readCommandPath(root: string, path: string, limit: number): Promise<Buffer> {
+export async function readCommandPath(
+  root: string,
+  path: string,
+  limit: number,
+  owner?: CommandCalls,
+): Promise<Buffer> {
   if (process.platform === "win32") {
     const handle = await nodePaths.open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
@@ -237,6 +257,10 @@ export async function readCommandPath(root: string, path: string, limit: number)
       await handle.close();
     }
   }
-  const { value } = await commandLanes().run(root, { op: "readPathNoFollow", path, limit });
+  const { value } = await (owner ?? commandLanes()).run(root, {
+    op: "readPathNoFollow",
+    path,
+    limit,
+  });
   return Buffer.from(bytesValue.parse(value));
 }

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { CommandCalls } from "./posix-calls.ts";
 import { skillRootLane } from "./skill-roots.ts";
 import type { SkillEntry } from "@ace/protocol";
 import { parseSkill } from "./skill-markdown.ts";
@@ -27,6 +28,8 @@ export interface Listed {
   text?: string;
 }
 export interface ListInput {
+  /** Whose calls the listing makes: cancelling the owner ends it at once. */
+  calls?: CommandCalls | undefined;
   homes: SkillHomes;
   workspace: string | undefined;
   builtinDirectory?: string | undefined;
@@ -35,16 +38,17 @@ export interface ListInput {
 }
 /** Everything visible from one project (or none): personal, project, builtin and plugin skills. */
 export async function listSkills(input: ListInput): Promise<Listed[]> {
+  const { calls } = input;
   const { homes, workspace } = input;
   const roots = skillRoots(homes, workspace);
   const show = (path: string) => displayPath(path, homes.home, workspace);
   const locked = (await input.locked) ?? new Map<string, LockedSkill>();
   const agentsRoot = canonicalRoot(roots, "personal");
   const listed: Listed[] = [];
-  for (const place of groupSkills(await inspectRoots(roots))) {
+  for (const place of groupSkills(await inspectRoots(roots, calls))) {
     const directory = place.canonical?.real ?? place.real;
     const lane = place.canonical ? skillRootLane(place.canonical.root) : undefined;
-    const file = await readSkillFile(directory, lane).catch(() => undefined);
+    const file = await readSkillFile(directory, lane, calls).catch(() => undefined);
     if (!file) continue;
     const source = place.canonical?.root === agentsRoot ? locked.get(place.name) : undefined;
     listed.push({
@@ -79,8 +83,8 @@ export async function listSkills(input: ListInput): Promise<Listed[]> {
       readers: skillAgents,
       linkFor: [],
     };
-    for (const folder of await inspectRoots([builtin])) {
-      const file = await readSkillFile(folder.real, skillRootLane(folder.root)).catch(
+    for (const folder of await inspectRoots([builtin], calls)) {
+      const file = await readSkillFile(folder.real, skillRootLane(folder.root), calls).catch(
         () => undefined,
       );
       if (!file) continue;

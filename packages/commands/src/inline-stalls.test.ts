@@ -273,3 +273,91 @@ test.skipIf(process.platform === "win32")(
     expect(await readFile(join(real, "other", "SKILL.md"), "utf8")).toBe("Other");
   },
 );
+
+test.skipIf(process.platform === "win32")(
+  "closing the skill library during a stuck skill call ends its calls at once, and leaves another owner's alone",
+  async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-close-")));
+    cleanups.push(() => rm(base, { recursive: true, force: true }));
+    const home = join(base, "home");
+    const folder = join(home, ".claude/skills/notes");
+    await mkdir(folder, { recursive: true });
+    await writeFile(
+      join(folder, "SKILL.md"),
+      "---\nname: notes\ndescription: Notes\n---\n# Notes\n",
+    );
+    let stalled = false;
+    const { promise: stuck, resolve: onStall } = Promise.withResolvers<void>();
+    const { lanes, release } = inlineLanes(
+      (operation) => {
+        if (stalled || operation.op !== "rename" || operation.toName !== "SKILL.md") return false;
+        stalled = true;
+        onStall();
+        return true;
+      },
+      { deadlineMs: 5000 },
+    );
+    const restore = useCommandLanes(lanes);
+    cleanups.push(async () => {
+      release();
+      restore();
+    });
+    let sequence = 0;
+    const library = new SkillLibrary({
+      homes: {
+        home,
+        claude: join(home, ".claude"),
+        codex: join(home, ".codex"),
+        opencode: join(home, ".config/opencode"),
+        cursor: join(home, ".cursor"),
+        pi: join(home, ".pi/agent"),
+      },
+      workspace: () => undefined,
+      id: () => `t${++sequence}`,
+    });
+    const listed = await library.request({ op: "list" });
+    if (listed.kind !== "list") throw new Error(JSON.stringify(listed));
+    const notes = listed.entries.find((entry) => entry.name === "notes");
+    if (!notes) throw new Error("Missing notes");
+    const editing = library.request({
+      op: "edit",
+      id: notes.id,
+      expectedHash: notes.hash,
+      description: "Changed",
+      body: "# Changed\n",
+      manual: false,
+    });
+    await stuck;
+    // A request queued behind the stuck one, and another owner reading on the same root's lane.
+    const queued = library.request({ op: "list" });
+    const other = new SecureCommandIo();
+    cleanups.push(() => other.close());
+    let read: string | undefined;
+    const reading = other
+      .read(
+        {
+          path: join(home, ".claude/skills"),
+          trustedRoot: join(home, ".claude"),
+          format: "claude",
+          scope: "user",
+          skill: true,
+          skillLinkHome: home,
+        },
+        join(folder, "SKILL.md"),
+      )
+      .then((data) => (read = data.text));
+    const closing = performance.now();
+    await library.close();
+    const [edited, list] = await Promise.all([editing, queued]);
+    expect(performance.now() - closing).toBeLessThan(300);
+    // The stuck rename may still land, and the queued request never ran.
+    expect(edited).toMatchObject({ kind: "error", code: "unavailable" });
+    expect(list).toMatchObject({ kind: "error" });
+    // The other owner's read waits its turn behind the stuck rename, untouched by the close.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(read).toBeUndefined();
+    release();
+    await reading;
+    expect(read).toContain("Changed");
+  },
+);

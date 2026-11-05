@@ -1,6 +1,6 @@
 import { SkillOperation, type SkillAgent, type SkillResult, type SkillUsage } from "@ace/protocol";
 import { writeOutcomeUnknown } from "./posix-ops.ts";
-import { commandRootSettled } from "./posix.ts";
+import { commandCallOwner, commandRootSettled } from "./posix.ts";
 import { CommandCatalog } from "./catalog.ts";
 import { CommandFiles, type WatchSource } from "./files.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
@@ -76,9 +76,11 @@ export class SkillLibrary {
   private pending = 0;
   private closed = false;
   private stopRetry: (() => void) | undefined;
+  /** Every file call the library makes; closing cancels it, so no stuck folder holds it open. */
+  private readonly calls = commandCallOwner();
   constructor(options: SkillLibraryOptions) {
     this.options = options;
-    this.disk = new SkillDisk(options.openChild);
+    this.disk = new SkillDisk(options.openChild, this.calls);
     this.updates = options.updates ? new SkillUpdates(options.updates, this.disk) : undefined;
   }
   /**
@@ -129,7 +131,16 @@ export class SkillLibrary {
       });
     this.pending++;
     const result = this.tail
-      .then(() => this.perform(parsed.data))
+      // A request still waiting when the library closes never runs: its calls would be refused.
+      .then(() =>
+        this.closed
+          ? ({
+              kind: "error",
+              code: "unavailable",
+              message: "Skills are closing. Try again in a moment.",
+            } satisfies SkillResult)
+          : this.perform(parsed.data),
+      )
       .catch((error: unknown): SkillResult => {
         const unknown = writeOutcomeUnknown(error);
         if (unknown) {
@@ -175,6 +186,8 @@ export class SkillLibrary {
   }
   async close(): Promise<void> {
     this.closed = true;
+    // Queued file calls fail now and a running one is let go, so the wait below is short.
+    this.calls.cancel();
     this.stopRetry?.();
     this.stopRetry = undefined;
     this.listeners.clear();
@@ -234,6 +247,7 @@ export class SkillLibrary {
   }
   private listAll(workspaceId: string | undefined): Promise<Listed[]> {
     return listSkills({
+      calls: this.calls,
       ...this.options,
       workspace: workspaceId ? this.workspace(workspaceId) : undefined,
       locked: this.updates?.locked(),

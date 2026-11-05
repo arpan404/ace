@@ -3,6 +3,7 @@ import { writeOutcomeUnknown } from "./posix-ops.ts";
 import { removeCommandEntryLater } from "./posix.ts";
 import {
   skillLane,
+  type CommandCalls,
   listCommandPath,
   lstatCommandPath,
   makeCommandPath,
@@ -23,7 +24,10 @@ const missing = (error: unknown) =>
 
 // Path calls run on the skill root's own thread (posix-calls), never on the shared file pool.
 /** Every `<root>/<name>` that is, or links to, a directory with a SKILL.md. Bounded per root. */
-export async function inspectRoots(roots: readonly SkillRoot[]): Promise<SkillFolder[]> {
+export async function inspectRoots(
+  roots: readonly SkillRoot[],
+  calls?: CommandCalls,
+): Promise<SkillFolder[]> {
   const folders: SkillFolder[] = [];
   const seen = new Set<string>();
   for (const root of roots) {
@@ -31,18 +35,23 @@ export async function inspectRoots(roots: readonly SkillRoot[]): Promise<SkillFo
     if (seen.has(path)) continue;
     seen.add(path);
     const lane = skillRootLane(root);
-    const rootReal = await realCommandPath(lane, path).catch(() => undefined);
+    const rootReal = await realCommandPath(lane, path, calls).catch(() => undefined);
     if (!rootReal) continue;
-    const names = await listCommandPath(lane, path, 1024).catch(() => [] as string[]);
+    const names = await listCommandPath(lane, path, 1024, calls).catch(() => [] as string[]);
     for (const name of names) {
       if (name.startsWith(".")) continue;
       const entry = join(path, name);
-      const info = await lstatCommandPath(lane, entry).catch(() => undefined);
+      const info = await lstatCommandPath(lane, entry, calls).catch(() => undefined);
       if (!info || !(info.isDirectory() || info.isSymbolicLink())) continue;
-      const real = await realCommandPath(lane, entry).catch(() => undefined);
-      if (!real || !(await statCommandPath(lane, real).catch(() => undefined))?.isDirectory())
+      const real = await realCommandPath(lane, entry, calls).catch(() => undefined);
+      if (
+        !real ||
+        !(await statCommandPath(lane, real, calls).catch(() => undefined))?.isDirectory()
+      )
         continue;
-      const skill = await lstatCommandPath(lane, join(real, "SKILL.md")).catch(() => undefined);
+      const skill = await lstatCommandPath(lane, join(real, "SKILL.md"), calls).catch(
+        () => undefined,
+      );
       if (!skill?.isFile()) continue;
       folders.push({ root, name, path: entry, real, link: info.isSymbolicLink(), rootReal });
     }
@@ -54,16 +63,20 @@ export async function readSkillFile(
   directory: string,
   /** The lane of the skill's root; otherwise keyed by the folder's own parent. */
   lane = skillLane(dirname(directory)),
+  calls?: CommandCalls,
 ): Promise<{ text: string; hash: string }> {
-  const bytes = await readCommandPath(lane, join(directory, "SKILL.md"), skillFileLimit).catch(
-    (error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "EFBIG")
-        throw new SkillError("limit", "SKILL.md can be up to 256 KB.");
-      throw missing(error)
-        ? new SkillError("not_found", "This skill no longer exists. Reload the list.")
-        : new SkillError("unavailable", "Couldn't read this skill. Check its permissions.");
-    },
-  );
+  const bytes = await readCommandPath(
+    lane,
+    join(directory, "SKILL.md"),
+    skillFileLimit,
+    calls,
+  ).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "EFBIG")
+      throw new SkillError("limit", "SKILL.md can be up to 256 KB.");
+    throw missing(error)
+      ? new SkillError("not_found", "This skill no longer exists. Reload the list.")
+      : new SkillError("unavailable", "Couldn't read this skill. Check its permissions.");
+  });
   const text = bytes.toString("utf8");
   return { text, hash: sha256(text) };
 }
@@ -140,8 +153,8 @@ export async function createSkill(
   token: string,
 ): Promise<string> {
   const lane = skillRootLane(root);
-  await makeCommandPath(lane, root.path);
-  const rootReal = await realCommandPath(lane, root.path);
+  await makeCommandPath(lane, root.path, disk.calls);
+  const rootReal = await realCommandPath(lane, root.path, disk.calls);
   const pinned = await disk.openPath(rootReal, lane);
   if (pinned === undefined) throw new SkillError("unavailable", "Couldn't open the skill folder.");
   try {
@@ -200,15 +213,16 @@ export async function linkSkill(
   canonical: SkillFolder,
 ): Promise<void> {
   const lane = skillRootLane(root);
-  await makeCommandPath(lane, root.path);
-  const rootReal = await realCommandPath(lane, root.path);
+  await makeCommandPath(lane, root.path, disk.calls);
+  const rootReal = await realCommandPath(lane, root.path, disk.calls);
   await withLinkRoot(disk, rootReal, lane, async (pinned) => {
     // Relative to the folder the link really sits in, which is where the system resolves it.
     const target = relative(rootReal, canonical.real);
     if (!(await disk.symlink(pinned, target, name)))
       throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
     if (
-      (await realCommandPath(lane, join(rootReal, name)).catch(() => undefined)) !== canonical.real
+      (await realCommandPath(lane, join(rootReal, name), disk.calls).catch(() => undefined)) !==
+      canonical.real
     ) {
       // Windows reads link text by path, which a moved root no longer has; the junction just made
       // through the handle is taken back through the handle while it is still a link.
@@ -234,7 +248,10 @@ export async function unlinkSkill(disk: SkillDisk, link: SkillFolder): Promise<v
         throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
       return;
     }
-    if ((await realCommandPath(lane, resolve(rootReal, target)).catch(() => "")) !== link.real)
+    if (
+      (await realCommandPath(lane, resolve(rootReal, target), disk.calls).catch(() => "")) !==
+      link.real
+    )
       throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
     await disk.removeFile(pinned, link.name);
   });

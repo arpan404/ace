@@ -122,19 +122,21 @@ export async function makeCommandDirectory(
   directory: number,
   name: string,
   mode: number,
+  owner?: CommandCalls,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsQuiet(() => mkdirAt(directory, name));
-  return (await posixInteger({ op: "mkdir", directory, name, mode }, directory)) === 0;
+  return (await posixInteger({ op: "mkdir", directory, name, mode }, directory, owner)) === 0;
 }
 /** unlinkat of a file, symlink (never its target) or, with `folder`, an empty directory. */
 export async function removeCommandEntry(
   directory: number,
   name: string,
   folder: boolean,
+  owner?: CommandCalls,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRemove(directory, name, folder);
   const flags = folder ? removeDirectoryFlag : 0;
-  return (await posixInteger({ op: "unlink", directory, name, flags }, directory)) === 0;
+  return (await posixInteger({ op: "unlink", directory, name, flags }, directory, owner)) === 0;
 }
 /** renameat between two pinned directories; neither name is followed. */
 export async function renameCommandEntry(
@@ -142,10 +144,16 @@ export async function renameCommandEntry(
   from: string,
   toDirectory: number,
   to: string,
+  owner?: CommandCalls,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsRename(fromDirectory, from, toDirectory, to);
   const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
-  return (await posixInteger({ op: "rename", ...operation, flags: 0 }, fromDirectory)) === 0;
+  const renamed = await posixInteger(
+    { op: "rename", ...operation, flags: 0 },
+    fromDirectory,
+    owner,
+  );
+  return renamed === 0;
 }
 // RENAME_EXCL / RENAME_SWAP (<stdio.h>, macOS) and RENAME_NOREPLACE / RENAME_EXCHANGE (Linux).
 const renameModes =
@@ -160,6 +168,7 @@ export async function renameCommandEntryAs(
   from: string,
   toDirectory: number,
   to: string,
+  owner?: CommandCalls,
 ): Promise<boolean> {
   if (process.platform === "win32") {
     // The add-on refuses an existing `to` in the same rename call, with no separate check.
@@ -168,16 +177,19 @@ export async function renameCommandEntryAs(
   }
   const flags = renameModes[mode];
   const operation = { from: fromDirectory, fromName: from, to: toDirectory, toName: to };
-  return (await posixInteger({ op: "renameFlags", ...operation, flags }, fromDirectory)) === 0;
+  return (
+    (await posixInteger({ op: "renameFlags", ...operation, flags }, fromDirectory, owner)) === 0
+  );
 }
 /** symlinkat: `name` in the pinned directory, storing `target` as text; fails if `name` exists. */
 export async function linkCommandEntry(
   target: string,
   directory: number,
   name: string,
+  owner?: CommandCalls,
 ): Promise<boolean> {
   if (process.platform === "win32") return windowsJunction(target, directory, name);
-  return (await posixInteger({ op: "symlink", target, directory, name }, directory)) === 0;
+  return (await posixInteger({ op: "symlink", target, directory, name }, directory, owner)) === 0;
 }
 
 /**
