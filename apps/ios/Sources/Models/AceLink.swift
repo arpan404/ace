@@ -13,6 +13,14 @@ enum AceLink {
         if let machine, !machine.isEmpty { components.queryItems = [URLQueryItem(name: "machine", value: machine)] }
         return components.url ?? URL(string: "ace://thread")!
     }
+
+    /// The machine a thread link opens on. A link naming a paired machine opens there or nowhere:
+    /// until that machine lists the thread there is no answer yet, never another machine's
+    /// thread with the same id. Only a link naming no paired machine takes any that holds it.
+    static func machine(named: String?, paired: [String], holds: (String) -> Bool) -> String? {
+        if let named, paired.contains(named) { return holds(named) ? named : nil }
+        return paired.first(where: holds)
+    }
 }
 
 /// An `ace://` link as the shared runtime read it (`readAceLink`).
@@ -33,10 +41,9 @@ extension MachineInbox {
         guard url.scheme?.lowercased() == AceLink.scheme, let client = sessions.first?.client else { return nil }
         return try? await client.service(["type": "link.read", "url": url.absoluteString], as: LinkReply.self).link
     }
-    /// The machine holding `threadId`: the one the link names when it holds it, else any that does.
+    /// The machine holding `threadId`, by `AceLink.machine`.
     func machine(holding threadId: String, named: String?) -> String? {
-        if let named, client(named)?.inbox[threadId] != nil { return named }
-        return sessions.first { $0.client.inbox[threadId] != nil }?.hostId
+        AceLink.machine(named: named, paired: sessions.map(\.hostId)) { client($0)?.inbox[threadId] != nil }
     }
 }
 

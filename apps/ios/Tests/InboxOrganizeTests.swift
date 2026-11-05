@@ -44,4 +44,16 @@ import Testing
         #expect(AceLink.thread("t-1", machine: "studio").absoluteString == "ace://thread/t-1?machine=studio")
         #expect(AceLink.thread("t-1", machine: nil).absoluteString == "ace://thread/t-1")
     }
+
+    @Test func aLinkNamingAMachineNeverOpensAnotherMachinesThreadWithTheSameId() {
+        let paired = ["studio", "laptop"]
+        // The laptop lists t-1 first; the studio, which the link names, hasn't yet.
+        var listing: Set<String> = ["laptop"]
+        #expect(AceLink.machine(named: "studio", paired: paired) { listing.contains($0) } == nil)
+        listing.insert("studio")
+        #expect(AceLink.machine(named: "studio", paired: paired) { listing.contains($0) } == "studio")
+        // A link naming no machine (or one this phone hasn't paired) opens wherever it is listed.
+        #expect(AceLink.machine(named: nil, paired: paired) { $0 == "laptop" } == "laptop")
+        #expect(AceLink.machine(named: "elsewhere", paired: paired) { $0 == "laptop" } == "laptop")
+    }
 }
