@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath, rename, rm, open } from "node:fs/promises";
+import { skillLane } from "./posix-calls.ts";
 import { basename, dirname, join } from "node:path";
 import type { SkillUpdateReview } from "@ace/protocol";
 import {
@@ -165,9 +166,19 @@ export class SkillUpdates {
       }
     });
   }
-  private async withStaged<T>(staged: string, work: (folder: number) => Promise<T>): Promise<T> {
+  /** `lane` puts the staged folder on another root's lane, so one thread serves both. */
+  private async withStaged<T>(
+    staged: string,
+    work: (folder: number) => Promise<T>,
+    lane?: string,
+  ): Promise<T> {
     const real = await realpath(staged);
-    return this.disk.withFolder(dirname(real), basename(real), (_root, folder) => work(folder));
+    return this.disk.withFolder(
+      dirname(real),
+      basename(real),
+      (_root, folder) => work(folder),
+      lane,
+    );
   }
   /**
    * Swap the folder for the staged one and record the new hash in the lock, under the skills
@@ -202,7 +213,14 @@ export class SkillUpdates {
           token,
           lockTemporary,
           fingerprint: pending.fingerprint,
-          fill: (next) => this.withStaged(pending.staged, (staged) => this.disk.copy(staged, next)),
+          // Copied with the skill root still pinned: the staged folder opens on the root's lane,
+          // so the copy never waits for a second lane's thread while holding one.
+          fill: (next) =>
+            this.withStaged(
+              pending.staged,
+              (staged) => this.disk.copy(staged, next),
+              skillLane(canonical.rootReal),
+            ),
           commit: () => this.writeLock(name, folderHash, lockTemporary),
         });
       } finally {

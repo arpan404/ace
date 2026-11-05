@@ -1,4 +1,5 @@
 import { close, constants, fchmod, fstat, fsync, read, write } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { lstat, mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { z } from "zod";
@@ -29,6 +30,14 @@ export function useCommandLanes(replacement: PosixLanes): () => void {
     lanes = previous;
   };
 }
+/**
+ * The one lane key for a folder: its absolute path, normalised once. Every caller names a root
+ * by its anchor (discovery's trusted root or a skill root's parent), so one folder reached by
+ * different callers shares one lane.
+ */
+export const commandLane = (anchor: string) => resolve(anchor);
+/** The lane of a skill root, named the way discovery names it: by the root's parent. */
+export const skillLane = (skillRoot: string) => commandLane(dirname(skillRoot));
 const integer = z.number().int();
 const bytesValue = z.instanceof(Uint8Array);
 const textValue = z.string();
@@ -180,11 +189,14 @@ export async function closeCommandFd(handle: number, owner?: CommandCalls): Prom
 
 // Path calls on a command root run on that root's thread too. `root` names the lane.
 const nodePaths = { lstat, stat, realpath, readdir, mkdir, open };
-export async function lstatCommandPath(root: string, path: string): Promise<CommandStat> {
+export async function lstatCommandPath(
+  root: string,
+  path: string,
+  owner?: CommandCalls,
+): Promise<CommandStat> {
   if (process.platform === "win32") return nodePaths.lstat(path);
-  return commandStat(
-    PosixStat.parse((await commandLanes().run(root, { op: "lstatPath", path })).value),
-  );
+  const { value } = await (owner ?? commandLanes()).run(root, { op: "lstatPath", path });
+  return commandStat(PosixStat.parse(value));
 }
 export async function statCommandPath(root: string, path: string): Promise<CommandStat> {
   if (process.platform === "win32") return nodePaths.stat(path);

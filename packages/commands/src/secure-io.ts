@@ -5,6 +5,7 @@ import type { DiscoveryRoot } from "./roots.ts";
 import { writeOutcomeUnknown } from "./posix-ops.ts";
 import {
   closeCommandFd as closeFd,
+  commandLane,
   readCommandFd,
   statCommandFd,
   syncCommandFd,
@@ -43,7 +44,7 @@ export interface CommandFileIo {
 }
 /** The lane a root's calls run on: its trusted anchor. */
 export const commandLaneOf = (root: DiscoveryRoot) =>
-  resolve(root.trustedRoot ?? dirname(root.path));
+  commandLane(root.trustedRoot ?? dirname(root.path));
 
 /**
  * Roots and every descendant are opened relative to pinned handles with O_NOFOLLOW. Each call
@@ -123,6 +124,10 @@ export class SecureCommandIo implements CommandFileIo {
     if (!root.skill || !home || resolve(dirname(path)) !== resolve(root.path))
       throw new EntryUnavailable("Unavailable skill folder");
     const target = resolve(dirname(path), await readCommandLink(parent, name, this.owner));
+    // Give back the handle on this root before opening the link's: holding one lane's thread
+    // while waiting for another's could deadlock when every thread is taken. Closing it again
+    // later does nothing.
+    await closeFd(parent, this.owner);
     const tail = relative(resolve(home), target);
     if (tail === ".." || tail.startsWith(`..${sep}`) || tail.startsWith(sep))
       throw new EntryUnavailable("Skill link outside home");
@@ -153,7 +158,10 @@ export class SecureCommandIo implements CommandFileIo {
     root: DiscoveryRoot,
     path: string,
   ): Promise<{ text: string; bytes: number; stat: CommandStat }> {
-    const fd = await this.open(root, path, fileFlags);
+    return this.readOpen(await this.open(root, path, fileFlags));
+  }
+  /** Reads a regular file through its handle, then gives the handle back. */
+  private async readOpen(fd: number): Promise<{ text: string; bytes: number; stat: CommandStat }> {
     try {
       const stat = await statCommandFd(fd, this.owner);
       if (!stat.isFile()) throw new Error("Not a regular command file");
@@ -171,6 +179,19 @@ export class SecureCommandIo implements CommandFileIo {
       await closeFd(fd, this.owner);
     }
   }
+  /** The revision of `name` in the pinned `parent`, or null when there is none. */
+  private async revisionAt(parent: number, name: string): Promise<string | null> {
+    let fd: number;
+    try {
+      fd = await this.openChild(parent, name, fileFlags);
+    } catch (error) {
+      if (error instanceof EntryUnavailable) return null;
+      throw error;
+    }
+    return createHash("sha256")
+      .update((await this.readOpen(fd)).text)
+      .digest("hex");
+  }
   /** Atomic prompt replacement beneath the same pinned root used by discovery. */
   async writePrompt(
     root: DiscoveryRoot,
@@ -180,7 +201,7 @@ export class SecureCommandIo implements CommandFileIo {
     temporary: string,
   ): Promise<void> {
     if (Buffer.byteLength(text) > 65536) throw new Error("prompt_limit");
-    const anchor = resolve(root.trustedRoot ?? dirname(root.path));
+    const anchor = commandLaneOf(root);
     const tail = relative(anchor, resolve(path));
     if (tail.startsWith("..") || tail.startsWith(sep) || tail.includes("\0"))
       throw new Error("prompt_unavailable");
@@ -201,14 +222,9 @@ export class SecureCommandIo implements CommandFileIo {
       }
       const name = parts.at(-1);
       if (!name) throw new Error("prompt_unavailable");
-      // Compare via the pinned root, never follow a supplied path.
-      let current: string | null = null;
-      const stat = await this.stat(root, path);
-      if (stat)
-        current = createHash("sha256")
-          .update((await this.read(root, path)).text)
-          .digest("hex");
-      if (current !== expected) throw new Error("prompt_conflict");
+      // Checked through the same pinned folder the write goes through: if the path is swapped
+      // mid-save, the check and the write still see one folder.
+      if ((await this.revisionAt(parent, name)) !== expected) throw new Error("prompt_conflict");
       temp = await createCommandFile(parent, temporary, this.owner).catch((error: unknown) => {
         if (writeOutcomeUnknown(error)) made = true;
         throw error;
@@ -226,10 +242,7 @@ export class SecureCommandIo implements CommandFileIo {
       temp = undefined;
       if (expected === null) await linkCommandFile(parent, temporary, name, this.owner);
       else {
-        const latest = createHash("sha256")
-          .update((await this.read(root, path)).text)
-          .digest("hex");
-        if (latest !== expected) throw new Error("prompt_conflict");
+        if ((await this.revisionAt(parent, name)) !== expected) throw new Error("prompt_conflict");
         await replaceCommandFile(parent, temporary, name, this.owner);
       }
     } finally {

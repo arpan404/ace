@@ -8,7 +8,7 @@ import { FileRecovery } from "./recovery.ts";
 import { RecoveryLoop, type RecoveryScheduler } from "./recovery-loop.ts";
 export type { RecoveryScheduler } from "./recovery-loop.ts";
 import { SecureCommandIo, commandLaneOf, type CommandFileIo } from "./secure-io.ts";
-import { lstatCommandPath } from "./posix-calls.ts";
+import { commandCallOwner, commandLane, lstatCommandPath } from "./posix-calls.ts";
 import { FileIndex, type DiscoveryMetrics } from "./file-index.ts";
 import { inside, key, sourceId, type RegisteredRoot } from "./file-keys.ts";
 const rootSchema = z.object({
@@ -55,7 +55,9 @@ export class CommandFiles {
   private readonly watchers = new Map<string, () => void>();
   private readonly pending = new Set<string>();
   private readonly listeners = new Set<() => void>();
-  private readonly recovery = new FileRecovery((path) => this.laneOf(path));
+  // Recovery's and the ancestor watch's own path calls, cancelled when these files close.
+  private readonly calls = commandCallOwner();
+  private readonly recovery = new FileRecovery((path) => this.laneOf(path), this.calls);
   private readonly index: FileIndex;
   private readonly io: CommandFileIo;
   private readonly watchSource: WatchSource;
@@ -169,13 +171,13 @@ export class CommandFiles {
   private laneOf(path: string): string {
     for (const root of this.roots)
       if (path === root.path || path.startsWith(root.path + sep)) return commandLaneOf(root);
-    return dirname(path);
+    return commandLane(dirname(path));
   }
   private async watchAncestor(root: RegisteredRoot): Promise<void> {
     let parent = dirname(root.path);
     while (!this.closed) {
       try {
-        if ((await lstatCommandPath(commandLaneOf(root), parent)).isDirectory()) {
+        if ((await lstatCommandPath(commandLaneOf(root), parent, this.calls)).isDirectory()) {
           this.watchDirectory(root, parent);
           return;
         }
@@ -324,6 +326,8 @@ export class CommandFiles {
     // calls only: at most one deadline in total, however many roots have stopped answering.
     this.index.stop();
     this.io.cancel();
+    this.recovery.stop();
+    this.calls.cancel();
     await Promise.allSettled([this.startup, this.healing, this.flushing, this.batch]);
     try {
       await this.index.close();

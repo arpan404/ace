@@ -26,9 +26,13 @@ export const PosixOperation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("create"), directory: handle, name, flags, handle }),
   // `path` opened from `/` one component at a time, never following a link.
   z.object({ op: z.literal("openPath"), path, handle }),
-  // Takes `fd` over: the stream owns its descriptor, and a failed fdopendir closes it. 1 or 0.
-  z.object({ op: z.literal("openDirectory"), fd: handle, stream: handle }),
-  z.object({ op: z.literal("readDirectory"), reader: handle }),
+  // Takes `fd` over and closes it: up to `limit` entry names in one call, so no directory
+  // stream outlives the call. Answers the names, or null when fdopendir failed.
+  z.object({
+    op: z.literal("listDirectory"),
+    fd: handle,
+    limit: z.number().int().positive().max(65536),
+  }),
   z.object({ op: z.literal("close"), handle }),
   z.object({ op: z.literal("fstat"), fd: handle }),
   z.object({
@@ -93,7 +97,8 @@ export type PosixStat = z.infer<typeof PosixStat>;
 
 /**
  * Integer results are the call's own return value (negative on failure); see each call above.
- * `readDirectory` answers an entry name or null at the end, `readLink` the link text or null,
+ * `listDirectory` answers entry names (null if the directory can't be read), `readLink` the
+ * link text or null,
  * `read` and `readPathNoFollow` bytes, stat calls the stat fields, `readdirPath` names and
  * `realpath` the path. Calls that throw answer the error's message and code.
  */

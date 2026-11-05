@@ -38,20 +38,17 @@ const statFields = ({ dev, ino, mode, size, mtimeMs, ctimeMs }: Stats): PosixSta
 });
 
 /**
- * One worker's descriptors and directory streams, by handle. Descriptor numbers never leave
+ * One worker's descriptors, by handle. Descriptor numbers never leave
  * this thread: callers name handles, which are never reused, and only this thread closes what it
  * opened. A stuck call blocks this thread only; `release` then closes everything it still owns.
  */
 export class PosixThread {
   private readonly fds = new Map<number, number>();
-  private readonly streams = new Map<number, number>();
 
-  /** Closes every descriptor and stream this thread still owns. */
+  /** Closes every descriptor this thread still owns. */
   release(): void {
     const c = posixBindings();
-    for (const stream of this.streams.values()) c.closedir(stream);
     for (const fd of this.fds.values()) c.close(fd);
-    this.streams.clear();
     this.fds.clear();
   }
 
@@ -92,8 +89,8 @@ export class PosixThread {
         }
       case "openPath":
         return this.keep(operation.handle, this.walk(operation.path));
-      case "openDirectory": {
-        // The descriptor is this call's from here on: the stream owns it, or it closes now.
+      case "listDirectory": {
+        // The descriptor is this call's: the stream takes it, and closing the stream closes it.
         const fd = this.fd(operation.fd);
         this.fds.delete(operation.fd);
         let stream: unknown;
@@ -102,22 +99,20 @@ export class PosixThread {
         } finally {
           if (typeof stream !== "number") closeSync(fd);
         }
-        if (typeof stream !== "number") return 0;
-        this.streams.set(operation.stream, stream);
-        return 1;
-      }
-      case "readDirectory": {
-        const stream = this.streams.get(operation.reader);
-        if (stream === undefined) throw new Error("Unknown command handle");
-        const entry: unknown = c.readdir(stream);
-        return typeof entry === "number" ? readCString(entry, nameOffset) : null;
+        if (typeof stream !== "number") return null;
+        try {
+          const names: string[] = [];
+          while (names.length < operation.limit) {
+            const entry: unknown = c.readdir(stream);
+            if (typeof entry !== "number") break;
+            names.push(readCString(entry, nameOffset));
+          }
+          return names;
+        } finally {
+          c.closedir(stream);
+        }
       }
       case "close": {
-        const stream = this.streams.get(operation.handle);
-        if (stream !== undefined) {
-          this.streams.delete(operation.handle);
-          return integerResult(c.closedir(stream));
-        }
         const fd = this.fds.get(operation.handle);
         if (fd === undefined) return 0;
         this.fds.delete(operation.handle);

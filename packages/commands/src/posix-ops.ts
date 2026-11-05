@@ -53,15 +53,13 @@ export function handlesOf(operation: PosixOperation): number[] {
     case "link":
     case "renameFlags":
       return operation.from === operation.to ? [operation.from] : [operation.from, operation.to];
-    case "openDirectory":
+    case "listDirectory":
     case "fstat":
     case "read":
     case "write":
     case "fsync":
     case "chmod":
       return [operation.fd];
-    case "readDirectory":
-      return [operation.reader];
     case "close":
       return [operation.handle];
     default:
@@ -75,15 +73,12 @@ export function createdBy(operation: PosixOperation): number | undefined {
     case "create":
     case "openPath":
       return operation.handle;
-    case "openDirectory":
-      return operation.stream;
     default:
       return undefined;
   }
 }
 /** Whether a call that answered `value` created its handle. */
-export const created = (operation: PosixOperation, value: unknown) =>
-  operation.op === "openDirectory" ? value === 1 : value === 0;
-/** openDirectory takes its descriptor over once sent; it is gone whatever the outcome. */
+export const created = (_operation: PosixOperation, value: unknown) => value === 0;
+/** listDirectory takes its descriptor over once sent; it is gone whatever the outcome. */
 export const consumedBy = (operation: PosixOperation): number | undefined =>
-  operation.op === "openDirectory" ? operation.fd : undefined;
+  operation.op === "listDirectory" ? operation.fd : undefined;

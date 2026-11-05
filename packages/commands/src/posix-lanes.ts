@@ -170,15 +170,17 @@ export class PosixLanes {
       return refuse(
         new CommandFilesystemUnavailable("An earlier change to this folder hasn't finished"),
       );
-    // A root that already left a thread stuck can't take the threads kept for healthy roots.
-    const reserved = this.limits.maxThreads - this.limits.maxWorkers;
-    if (
-      !owner &&
-      !this.lanes.has(root) &&
-      stuck > 0 &&
-      (stuck >= this.options.stuckPerRoot || this.drainingTotal >= reserved)
-    )
-      return refuse(new CommandFilesystemUnavailable("Command folder is still not responding"));
+    if (!owner && !this.lanes.has(root)) {
+      if (stuck >= this.options.stuckPerRoot)
+        return refuse(new CommandFilesystemUnavailable("Command folder is still not responding"));
+      // Stuck threads may fill only the room beyond the serving threads. Once they do, no new
+      // thread starts for any root, however its path is spelled; a new root takes a spare or
+      // fails at once.
+      if (!this.mayStart() && this.spare.length === 0)
+        return refuse(
+          new CommandFilesystemUnavailable("Too many command folders stopped responding"),
+        );
+    }
     // From here on the caller can't use a handle this call takes over.
     const consumed = consumedBy(operation);
     if (consumed !== undefined) this.handles.delete(consumed);
@@ -260,6 +262,7 @@ export class PosixLanes {
     }
     if (this.live >= this.limits.maxWorkers || this.allocated >= this.limits.maxThreads)
       return undefined;
+    if (!this.mayStart()) return undefined;
     let executor: Executor | undefined;
     const native = this.options.spawn({
       reply: (reply) => executor && this.replied(executor, reply),
@@ -271,6 +274,12 @@ export class PosixLanes {
     this.allocated++;
     native.hold(false);
     return executor;
+  }
+
+  /** Whether stuck threads leave room to start one: they may fill only the reserve. */
+  private mayStart(): boolean {
+    const reserve = Math.max(1, this.limits.maxThreads - this.limits.maxWorkers);
+    return this.drainingTotal < reserve;
   }
 
   private bind(lane: Lane, executor: Executor): void {

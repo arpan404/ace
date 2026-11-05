@@ -2,6 +2,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { writeOutcomeUnknown } from "./posix-ops.ts";
 import { removeCommandEntryLater } from "./posix.ts";
 import {
+  skillLane,
   listCommandPath,
   lstatCommandPath,
   makeCommandPath,
@@ -29,18 +30,19 @@ export async function inspectRoots(roots: readonly SkillRoot[]): Promise<SkillFo
     const path = resolve(root.path);
     if (seen.has(path)) continue;
     seen.add(path);
-    const rootReal = await realCommandPath(path, path).catch(() => undefined);
+    const lane = skillLane(path);
+    const rootReal = await realCommandPath(lane, path).catch(() => undefined);
     if (!rootReal) continue;
-    const names = await listCommandPath(path, path, 1024).catch(() => [] as string[]);
+    const names = await listCommandPath(lane, path, 1024).catch(() => [] as string[]);
     for (const name of names) {
       if (name.startsWith(".")) continue;
       const entry = join(path, name);
-      const info = await lstatCommandPath(path, entry).catch(() => undefined);
+      const info = await lstatCommandPath(lane, entry).catch(() => undefined);
       if (!info || !(info.isDirectory() || info.isSymbolicLink())) continue;
-      const real = await realCommandPath(path, entry).catch(() => undefined);
-      if (!real || !(await statCommandPath(path, real).catch(() => undefined))?.isDirectory())
+      const real = await realCommandPath(lane, entry).catch(() => undefined);
+      if (!real || !(await statCommandPath(lane, real).catch(() => undefined))?.isDirectory())
         continue;
-      const skill = await lstatCommandPath(path, join(real, "SKILL.md")).catch(() => undefined);
+      const skill = await lstatCommandPath(lane, join(real, "SKILL.md")).catch(() => undefined);
       if (!skill?.isFile()) continue;
       folders.push({ root, name, path: entry, real, link: info.isSymbolicLink(), rootReal });
     }
@@ -50,7 +52,7 @@ export async function inspectRoots(roots: readonly SkillRoot[]): Promise<SkillFo
 /** SKILL.md text and hash, never through a final symlink and never past the size limit. */
 export async function readSkillFile(directory: string): Promise<{ text: string; hash: string }> {
   const bytes = await readCommandPath(
-    dirname(directory),
+    skillLane(dirname(directory)),
     join(directory, "SKILL.md"),
     skillFileLimit,
   ).catch((error: unknown) => {
@@ -106,7 +108,11 @@ export async function replacePinnedSkill(
     // After a change that timed out, the temporary file goes once the folder has settled (the
     // rename may still land); a failed cleanup never replaces the save's own error.
     if (writeOutcomeUnknown(failure))
-      removeCommandEntryLater(location.rootReal, join(location.rootReal, location.name), temporary);
+      removeCommandEntryLater(
+        skillLane(location.rootReal),
+        join(location.rootReal, location.name),
+        temporary,
+      );
     else
       await disk.removeFile(folder, temporary).catch((error: unknown) => {
         if (failure === undefined) throw error;
@@ -135,8 +141,8 @@ export async function createSkill(
   text: string,
   token: string,
 ): Promise<string> {
-  await makeCommandPath(root.path, root.path);
-  const rootReal = await realCommandPath(root.path, root.path);
+  await makeCommandPath(skillLane(root.path), root.path);
+  const rootReal = await realCommandPath(skillLane(root.path), root.path);
   const pinned = await disk.openPath(rootReal);
   if (pinned === undefined) throw new SkillError("unavailable", "Couldn't open the skill folder.");
   try {
@@ -189,15 +195,15 @@ export async function linkSkill(
   name: string,
   canonical: SkillFolder,
 ): Promise<void> {
-  await makeCommandPath(root.path, root.path);
-  const rootReal = await realCommandPath(root.path, root.path);
+  await makeCommandPath(skillLane(root.path), root.path);
+  const rootReal = await realCommandPath(skillLane(root.path), root.path);
   await withLinkRoot(disk, rootReal, async (pinned) => {
     // Relative to the folder the link really sits in, which is where the system resolves it.
     const target = relative(rootReal, canonical.real);
     if (!(await disk.symlink(pinned, target, name)))
       throw new SkillError("exists", `Another folder called ${name} is already in ${root.path}.`);
     if (
-      (await realCommandPath(rootReal, join(rootReal, name)).catch(() => undefined)) !==
+      (await realCommandPath(skillLane(rootReal), join(rootReal, name)).catch(() => undefined)) !==
       canonical.real
     ) {
       // Windows reads link text by path, which a moved root no longer has; the junction just made
@@ -223,7 +229,10 @@ export async function unlinkSkill(disk: SkillDisk, link: SkillFolder): Promise<v
         throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
       return;
     }
-    if ((await realCommandPath(rootReal, resolve(rootReal, target)).catch(() => "")) !== link.real)
+    if (
+      (await realCommandPath(skillLane(rootReal), resolve(rootReal, target)).catch(() => "")) !==
+      link.real
+    )
       throw new SkillError("conflict", "A skill link changed elsewhere. Reload the list.");
     await disk.removeFile(pinned, link.name);
   });

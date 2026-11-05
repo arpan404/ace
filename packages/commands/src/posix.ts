@@ -23,6 +23,7 @@ import { junctionAt, renameAtNoReplace } from "@ace/workspace/descriptor";
 import type { Stats } from "node:fs";
 import {
   closeCommandFd,
+  commandLane,
   commandRootSettled,
   posix,
   posixInteger,
@@ -80,30 +81,39 @@ export async function openCommandPath(
   if (handle < 0) throw new EntryUnavailable("Cannot open command folder without following links");
   return handle;
 }
-/** Takes `fd` over in every case: it belongs to the stream, or is closed if listing fails. */
-export async function directoryReader(fd: number, owner?: CommandCalls): Promise<DirectoryReader> {
+/** Names a directory listing reads at most: discovery's entry limit, plus one to notice it. */
+export const listingLimit = 2049;
+const entryName = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((name) => !name.includes("/") && !name.includes("\0"));
+const entryNames = z.array(entryName);
+/**
+ * Takes `fd` over in every case and lists up to `limit` names in one call on its thread, which
+ * closes the directory before answering, so no handle outlives the call. The reader reads the
+ * names from memory.
+ */
+export async function directoryReader(
+  fd: number,
+  owner?: CommandCalls,
+  limit = listingLimit,
+): Promise<DirectoryReader> {
   if (process.platform === "win32") return windowsDirectoryReader(fd);
-  const root = rootOf(fd, owner);
-  const reader = await posixOpen(root, (stream) => ({ op: "openDirectory", fd, stream }), owner);
-  if (reader < 0) throw new Error("Cannot enumerate command directory");
-  let closed = false;
+  const value = await posix({ op: "listDirectory", fd, limit }, fd, owner);
+  if (value === null) throw new Error("Cannot enumerate command directory");
+  return memoryReader(entryNames.parse(value));
+}
+function memoryReader(names: string[]): DirectoryReader {
+  let next = 0;
   return {
     async read() {
-      if (closed) return undefined;
-      const value = await posix({ op: "readDirectory", reader }, reader, owner);
-      if (value === null) return undefined;
-      return z
-        .string()
-        .min(1)
-        .max(1024)
-        .refine((name) => !name.includes("/") && !name.includes("\0"))
-        .parse(value);
+      // Each entry yields to the event loop, so a scan never runs ahead of the batch that asked.
+      await new Promise((resolve) => setImmediate(resolve));
+      return names[next++];
     },
     async close() {
-      // Done at once: the owning thread closes the stream after its queued calls.
-      if (closed) return;
-      closed = true;
-      await closeCommandFd(reader, owner);
+      next = names.length;
     },
   };
 }
@@ -254,11 +264,12 @@ export async function openResolvedDirectory(
   openChild: OpenCommandChild,
   path: string,
   owner?: CommandCalls,
+  lane = commandLane(path),
 ): Promise<number> {
   if (process.platform === "win32") return windowsOpenResolved(openChild, path);
-  // `/` opens on this root's own thread; everything opened beneath it stays there.
+  // `/` opens on the lane's own thread; everything opened beneath it stays there.
   let fd = await posixOpen(
-    path,
+    lane,
     (handle) => ({ op: "open", directory: -100, name: "/", flags: directoryFlags, handle }),
     owner,
   );
@@ -387,13 +398,20 @@ function windowsOpenChild(directory: number, name: string): number {
     throw new EntryUnavailable("Cannot open command entry without following links");
   }
 }
-function windowsDirectoryReader(fd: number): DirectoryReader {
-  const names = descriptorNames(fd);
+async function windowsDirectoryReader(fd: number): Promise<DirectoryReader> {
+  // The reader owns `fd` from here: it closes, and forgets its path, if listing fails.
+  let names: string[];
+  try {
+    names = descriptorNames(fd);
+  } catch (error) {
+    await windowsCloseQuietly(fd);
+    throw error;
+  }
   let closed = false;
   return {
     async read() {
-      // Each entry yields to the event loop, as the POSIX reader's threaded readdir does, so a
-      // scan never runs ahead of the batch that asked for it.
+      // Each entry yields to the event loop, as the POSIX reader does, so a scan never runs
+      // ahead of the batch that asked for it.
       await new Promise((resolve) => setImmediate(resolve));
       return closed ? undefined : names.shift();
     },

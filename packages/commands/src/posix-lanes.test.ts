@@ -264,15 +264,13 @@ it("closing a handle a running call names is done at once and reaches its thread
   expect(ops(threads[0]).map((op) => op.op)).toEqual(["openPath", "open", "close", "close"]);
 });
 
-it("openDirectory takes its handle over, and a call that never runs closes it on its thread", async () => {
+it("listDirectory takes its handle over, and a call that never runs closes it on its thread", async () => {
   const { lanes, threads, open } = harness();
   const a = await open("/a", () => threads[0]);
   const listed = await open("/a", () => threads[0]);
   const owner = new PosixCallOwner(lanes);
   void settle(lanes.run("/a", fstat(a)));
-  const queued = settle(
-    owner.run("/a", { op: "openDirectory", fd: listed, stream: lanes.allocate() }),
-  );
+  const queued = settle(owner.run("/a", { op: "listDirectory", fd: listed, limit: 10 }));
   owner.cancel();
   expect((await queued).error).toBeInstanceOf(CommandFilesystemUnavailable);
   // The handle is no longer the caller's: using or closing it does nothing.
@@ -301,12 +299,10 @@ it("closes on stuck threads never start threads, so caps hold on a dead mount", 
   }
   expect(threads).toHaveLength(2);
   expect(threads.flatMap((t) => ops(t)).filter((op) => op.op === "close")).toEqual([]);
-  // Every thread is stuck: a new root waits, and fails as busy at the deadline.
-  const waiting = settle(
+  // Every thread is stuck, filling the reserve: a new root gets no thread and fails at once.
+  await expect(
     lanes.run("/home", { op: "openPath", path: "/home", handle: lanes.allocate() }),
-  );
-  advance(1000);
-  expect((await waiting).error).toMatchObject({ message: "Too many command folders are busy" });
+  ).rejects.toThrow("Too many command folders stopped responding");
   expect(threads).toHaveLength(2);
 });
 
@@ -344,22 +340,32 @@ it("a retired or failed thread keeps its slot until it has exited", async () => 
   expect(threads).toHaveLength(3);
 });
 
-it("roots that already left a thread stuck can't take the threads kept for healthy roots", async () => {
+it("once stuck threads fill the reserve, no thread starts for a mount under another name", async () => {
   const { lanes, threads, advance, open } = harness({
     maxWorkers: 2,
-    maxThreads: 4,
+    maxThreads: 3,
     stuckPerRoot: 2,
   });
-  const one = await open("/dead/1", () => threads[0]);
-  const two = await open("/dead/2", () => threads[1]);
-  void settle(lanes.run("/dead/1", fstat(one)));
-  void settle(lanes.run("/dead/2", fstat(two)));
+  const home = await open("/home", () => threads[0]);
+  const share = await open("/mnt/share", () => threads[1]);
+  void settle(lanes.run("/mnt/share", fstat(share)));
   advance(1000);
-  // Two threads are stuck, which is all the room beyond the serving threads.
+  // The same dead share reached by another path string gets no thread of its own.
   await expect(
-    lanes.run("/dead/1", { op: "openPath", path: "/dead/1", handle: lanes.allocate() }),
-  ).rejects.toThrow("still not responding");
-  await open("/home/prompts", () => threads.at(-1));
+    lanes.run("/Volumes/share", {
+      op: "openPath",
+      path: "/Volumes/share",
+      handle: lanes.allocate(),
+    }),
+  ).rejects.toThrow("Too many command folders stopped responding");
+  expect(threads).toHaveLength(2);
+  // A root already holding a thread carries on.
+  const stat = lanes.run("/home", fstat(home));
+  threads[0]?.answer(0);
+  await stat;
+  // Once the stuck thread has returned and exited, there is room again.
+  threads[1]?.exit();
+  await open("/Volumes/share", () => threads[2]);
 });
 
 it("a root settles once its last draining thread has exited", async () => {
@@ -414,25 +420,28 @@ it("many roots on one dead mount never start more threads than the cap", async (
     ),
   );
   expect(threads).toHaveLength(3);
-  // The first three stall and drain; two more threads fit under the cap, then roots wait.
+  // The first three stall and drain. One more thread starts while the stuck ones still leave
+  // room in the reserve; once they fill it, no more start.
   advance(1000);
-  expect(threads).toHaveLength(5);
-  expect(lanes.threads()).toBe(5);
+  expect(threads).toHaveLength(4);
   advance(1000);
   const results = await Promise.all(opens);
-  expect(threads).toHaveLength(5);
+  expect(threads).toHaveLength(4);
   const messages = results.map((r) => (r.error instanceof Error ? r.error.message : ""));
-  expect(messages.filter((m) => m === "Command folder stopped responding")).toHaveLength(5);
-  expect(messages.filter((m) => m === "Too many command folders are busy")).toHaveLength(5);
-  // While every thread is stuck a healthy root waits; once one returns it is served.
-  const healthy = lanes.run("/home/prompts", {
-    op: "openPath",
+  expect(messages.filter((m) => m === "Command folder stopped responding")).toHaveLength(4);
+  expect(messages.filter((m) => m === "Too many command folders are busy")).toHaveLength(6);
+  // A healthy root fails at once while the stuck threads fill the reserve; once enough of them
+  // have returned it is served.
+  const fresh = () => ({
+    op: "openPath" as const,
     path: "/home/prompts",
     handle: lanes.allocate(),
   });
-  threads[0]?.exit();
-  expect(threads).toHaveLength(6);
-  threads[5]?.answer(0);
+  await expect(lanes.run("/home/prompts", fresh())).rejects.toThrow("stopped responding");
+  for (const thread of threads.slice(0, 3)) thread.exit();
+  const healthy = lanes.run("/home/prompts", fresh());
+  expect(threads).toHaveLength(5);
+  threads[4]?.answer(0);
   await expect(healthy).resolves.toMatchObject({ value: 0 });
 });
 

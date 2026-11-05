@@ -22,6 +22,7 @@ import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
 import {
+  skillLane,
   chmodCommandFd,
   closeCommandFd,
   readCommandFd,
@@ -70,8 +71,9 @@ export class SkillDisk {
     this.openChild = openChild;
   }
   /** A resolved directory, or `undefined` when any component is missing or is a link. */
-  async openPath(real: string): Promise<number | undefined> {
-    return openResolvedDirectory(this.openChild, real).catch(() => undefined);
+  /** `lane` defaults to the folder's skill root's, the one every skill call on it shares. */
+  async openPath(real: string, lane = skillLane(real)): Promise<number | undefined> {
+    return openResolvedDirectory(this.openChild, real, undefined, lane).catch(() => undefined);
   }
   /**
    * Whether a resolved path is confirmed gone: its parent opens (pinned, no links) and its
@@ -98,8 +100,9 @@ export class SkillDisk {
     rootReal: string,
     name: string,
     work: (root: number, folder: number) => Promise<T>,
+    lane = skillLane(rootReal),
   ): Promise<T> {
-    const root = await this.openPath(rootReal);
+    const root = await this.openPath(rootReal, lane);
     if (root === undefined)
       throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
     try {
@@ -288,7 +291,7 @@ export class SkillDisk {
    * from it, reopening the root by path since an abandoned thread's handles are gone.
    */
   removeWhenSettled(rootReal: string, name: string): void {
-    void commandRootSettled(rootReal)
+    void commandRootSettled(skillLane(rootReal))
       .then(async () => {
         const root = await this.openPath(rootReal);
         if (root === undefined) return;

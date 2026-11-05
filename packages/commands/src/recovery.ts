@@ -1,5 +1,10 @@
 import { dirname } from "node:path";
-import { lstatCommandPath, type CommandStat as Stats } from "./posix-calls.ts";
+import {
+  commandLane,
+  lstatCommandPath,
+  type CommandCalls,
+  type CommandStat as Stats,
+} from "./posix-calls.ts";
 interface Tracked {
   path: string;
   version: string | undefined;
@@ -15,8 +20,19 @@ export class FileRecovery {
   private inspected = 0;
   /** The command root lane a tracked path is checked on, so a dead mount stalls only its own. */
   private readonly laneOf: (path: string) => string;
-  constructor(laneOf: (path: string) => string = dirname) {
+  /** Whose calls these are: cancelling the owner ends a pass at once. */
+  private readonly calls: CommandCalls | undefined;
+  private stopped = false;
+  constructor(
+    laneOf: (path: string) => string = (path) => commandLane(dirname(path)),
+    calls?: CommandCalls,
+  ) {
     this.laneOf = laneOf;
+    this.calls = calls;
+  }
+  /** No pass goes further once stopped; a check in progress ends at its next path. */
+  stop(): void {
+    this.stopped = true;
   }
   get checks(): number {
     return this.inspected;
@@ -44,15 +60,19 @@ export class FileRecovery {
   async check(): Promise<string[]> {
     const changed: string[] = [];
     const count = Math.min(32, this.slots.length);
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count && !this.stopped; i++) {
       const entry = this.slots[this.cursor];
       this.cursor = (this.cursor + 1) % this.slots.length;
       if (!entry) continue;
       let current: string | undefined;
       this.inspected++;
       try {
-        current = statVersion(await lstatCommandPath(this.laneOf(entry.path), entry.path));
+        current = statVersion(
+          await lstatCommandPath(this.laneOf(entry.path), entry.path, this.calls),
+        );
       } catch {
+        // Cancelled: nothing was learned about this path.
+        if (this.stopped) break;
         current = undefined;
       }
       if (current !== entry.version) {
