@@ -111,3 +111,14 @@ test("a filter that selects only one runtime's files passes with the other pass 
   expect(combinedExit([ran, { exitCode: 1, files: 1 }], true)).toBe(1);
   expect(combinedExit([{ exitCode: 130, files: 1 }, empty], true)).toBe(130);
 });
+
+test("projects named with --project go to their own runtime's pass, on top of the tier's", () => {
+  const named = parseRunArgs(["full", "--project", "web", "--project=process", "apps/x"]);
+  expect(named.vitestArgs).toEqual(["apps/x"]);
+  expect(splitByRuntime(projectsFor(named))).toEqual({ bun: ["process"], node: ["web"] });
+  const widened = projectsFor(parseRunArgs(["process", "--project", "client-react"]));
+  expect(splitByRuntime(widened)).toEqual({
+    bun: ["process"],
+    node: ["node-process", "client-react"],
+  });
+});

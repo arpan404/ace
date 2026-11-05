@@ -104,6 +104,8 @@ export interface RunOptions {
   withSlow: boolean;
   /** test:changed only: the ref to diff against (default: merge-base with origin/main). */
   base: string | undefined;
+  /** Projects named with `--project`, added to the tier's; each runs on its own runtime. */
+  projects: string[];
   /** Arguments passed through to `vitest run`. */
   vitestArgs: string[];
 }
@@ -118,6 +120,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     withProcess: false,
     withSlow: false,
     base: undefined,
+    projects: [],
     vitestArgs: [],
   };
   for (let index = 0; index < rest.length; index++) {
@@ -130,13 +133,31 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     else if (tier === "changed" && arg === "--base") {
       options.base = rest[++index];
       if (!options.base) throw new Error("--base needs a git ref");
-    } else options.vitestArgs.push(arg);
+    } else if (arg === "--project") {
+      const name = rest[++index];
+      if (!name) throw new Error("--project needs a project name");
+      options.projects.push(name);
+    } else if (arg.startsWith("--project=")) options.projects.push(arg.slice("--project=".length));
+    else options.vitestArgs.push(arg);
   }
   return options;
 }
 
-/** The Vitest projects a run selects; an empty list means every project. */
-export function projectsFor(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">) {
+/**
+ * The Vitest projects a run selects; an empty list means every project. Projects named with
+ * `--project` join the tier's, as Vitest's own flag would, and go through the runner so a Bun run
+ * sends each to the pass for its runtime instead of handing Bun a project its config leaves out.
+ */
+export function projectsFor(
+  options: Pick<RunOptions, "tier" | "withProcess" | "withSlow"> & { projects?: readonly string[] },
+): string[] {
+  const named = options.projects ?? [];
+  const tier = tierProjects(options);
+  if (named.length === 0) return tier;
+  return tier.length === 0 ? [...new Set(named)] : [...new Set([...tier, ...named])];
+}
+
+function tierProjects(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">): string[] {
   switch (options.tier) {
     case "full":
       return [];

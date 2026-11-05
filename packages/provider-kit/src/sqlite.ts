@@ -25,24 +25,25 @@ export class DatabaseSync extends NodeDatabaseSync {
     // Node rejects an explicit undefined options argument.
     if (options === undefined) super(path);
     else super(path, options);
-    if (options?.readOnly === true && typeof path === "string") this.openReadOnly(path);
+    if (options?.readOnly === true && typeof path === "string") openReadOnly(this, path);
   }
-  /**
-   * Bun opens the file at the first statement, and fails there for a closed WAL database. A
-   * probe surfaces that now; with the missing -wal created, the same connection opens. Any
-   * other failure is left for the caller's own statements, as before.
-   */
-  private openReadOnly(path: string): void {
-    const probe = () => this.prepare("SELECT 1 FROM sqlite_master LIMIT 0").all();
+}
+
+/**
+ * Bun opens the file at the first statement, and fails there for a closed WAL database. A probe
+ * surfaces that now; with the missing -wal created, the same connection opens. Any other failure
+ * is left for the caller's own statements, as before.
+ */
+function openReadOnly(db: NodeDatabaseSync, path: string): void {
+  const probe = () => db.prepare("SELECT 1 FROM sqlite_master LIMIT 0").all();
+  try {
+    probe();
+  } catch (error) {
+    if (!createMissingWal(path, error)) return;
     try {
       probe();
-    } catch (error) {
-      if (!createMissingWal(path, error)) return;
-      try {
-        probe();
-      } catch {
-        // The caller's statements report it.
-      }
+    } catch {
+      // The caller's statements report it.
     }
   }
 }
