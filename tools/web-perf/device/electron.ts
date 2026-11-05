@@ -11,6 +11,7 @@ import { _electron, type ElectronApplication } from "@playwright/test";
 import { startDaemon, readConfig, createDevThread } from "../../../apps/daemon/src/index.ts";
 import {
   appEnvironment,
+  e2eSwitches,
   electronBinary,
   mainEntry,
   desktop,
@@ -100,7 +101,9 @@ try {
         ? await packagePerfDesktop(out, home)
         : await electronBinary(),
     args:
-      process.env["ACE_PERF_PACKAGED"] === "1" ? ["--use-mock-keychain"] : [join(out, mainEntry)],
+      process.env["ACE_PERF_PACKAGED"] === "1"
+        ? e2eSwitches(process.platform)
+        : [...e2eSwitches(process.platform), join(out, mainEntry)],
     env: {
       ...appEnvironment(process.env),
       ACE_HOME: await realpath(home),
