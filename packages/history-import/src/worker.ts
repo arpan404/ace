@@ -31,6 +31,7 @@ async function openCatalog(): Promise<Catalog> {
     const refused = incompatibleData(error);
     if (!refused || !parentPort) throw error;
     // Report the refusal with its fields, then wait for the parent to stop this worker.
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin
     parentPort.postMessage({ refused: { code: "incompatible-data", ...refused } });
     parentPort.on("message", () => {});
     return new Promise<never>(() => {});

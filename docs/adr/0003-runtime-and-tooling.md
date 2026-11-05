@@ -60,6 +60,26 @@ Accepted by the owner. This supersedes the "Daemon runtime" row above.
   - With `PATH=""`, Bun searches the system's default path where Node finds nothing.
   - After a spawn fails (ENOENT), Bun leaves `child.exitCode` null where Node sets the negative
     errno; code waits on the `error` or `close` event, never on `exitCode`.
+  - Bun reads a socket up to 512 KiB at a time whatever its high-water mark (Node: 64 KiB), and
+    a paused socket can hold one such read. The preview relay splits reads larger than its
+    window before they reach the stream mux.
+  - Bun serves its own built-in `ws` in place of the npm package. It has no `maxFragments` or
+    `maxBufferedChunks`; `maxPayload` still caps a message's size.
+  - An error thrown in a worker reaches the parent with its `code` but without its name or other
+    fields. A worker reports a failure the parent must recognise as a message.
+  - Bun ignores a Worker's `resourceLimits`. The history reader's 128 MB heap limit holds only
+    on Node, so on Bun a transcript that exhausts the reader grows the daemon instead. Not yet
+    fixed.
+  - Bun's `node:sqlite` cannot open a closed WAL database `readOnly` (no `-wal` or `-shm` files
+    yet); Node can.
+  - A pending top-level await keeps a Bun process alive, so `beforeExit` never fires.
+  - Replacing a function on a builtin module's object does not reach named imports
+    (`syncBuiltinESMExports` does nothing), and plugins cannot replace builtin modules.
+- **Tests on Bun.** `bun scripts/test-run.ts` runs Vitest on Bun, then runs the suites in
+  `nodeOnlySuites` (`scripts/test-tiers.ts`) in a second pass on Node. They cover code that
+  doesn't run on Bun in production (the Cloudflare Worker, whose wrangler test harness refuses
+  Bun, and the self-hosted relay server, which ships on Node), or rely on hooks and limits only
+  Node has.
 - **Measured** on the release bundle with the daemon benchmark's standard workload, two runs
   each on the same (shared) machine. Daemon CPU per turn is about the same (new thread 180–199
   vs 175–184 ms, same thread 107–111 vs 111–128 ms, long text 1,671–1,998 vs 1,553–1,915 ms).
