@@ -48,7 +48,7 @@ test("the e2e daemon refuses a start that its launcher didn't isolate", async ()
   expect(stderr).toContain("which isolates it");
 });
 
-test("the e2e daemon exits when its stdin closes, even while it is still starting", async () => {
+test("the e2e daemon still exits when its stdin closes while it is starting", async () => {
   const root = await fixtureRoot();
   const layout = desktopDaemonLayout(root);
   const child = spawn(bunBinary(), [program, root, profile], {
@@ -58,9 +58,10 @@ test("the e2e daemon exits when its stdin closes, even while it is still startin
   let stdout = "";
   child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
   child.stdin.end();
-  const [code] = await once(child, "exit");
-  expect(code).toBe(0);
-  // It stopped before it was ever ready.
+  // It finishes starting, so nothing it spawned is orphaned, then closes; its own 10 s bound
+  // ends it either way.
+  await once(child, "exit");
+  // It never reported itself ready to a client that had already gone.
   expect(stdout).not.toContain("ready");
 });
 

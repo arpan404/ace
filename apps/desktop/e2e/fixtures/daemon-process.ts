@@ -31,7 +31,8 @@ let current: Daemon | undefined;
 let closing = false;
 /**
  * Stops the daemon and exits. It never takes longer than 10 s: a daemon whose close hangs must
- * not outlive the spec that started it.
+ * not outlive the spec that started it. During startup it waits for the daemon to finish
+ * starting and closes that (below): exiting mid-start would orphan the children it spawns.
  */
 function close() {
   if (closing) return;
@@ -40,13 +41,15 @@ function close() {
     console.error("The e2e daemon did not close within 10 s");
     process.exit(1);
   }, 10_000).unref();
-  void (current?.close() ?? Promise.resolve())
+  if (!current) return;
+  void current
+    .close()
     .catch((error: unknown) => console.error("The e2e daemon did not close cleanly", error))
     .finally(() => process.exit(0));
 }
 
 // Before the daemon starts: the client holds the other end of stdin, and when it closes it, or
-// dies however it dies, stdin ends and this process stops, even while startup is still running.
+// dies however it dies, stdin ends and this process stops, at the latest once startup ends.
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
   let request: DaemonRequest;
