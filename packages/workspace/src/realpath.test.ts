@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,4 +42,24 @@ test("an unreadable folder resolves, and a missing leaf still fails as missing",
   await mkdir(join(dir, "locked"), { mode: 0o100 });
   expect(await canonicalPath(join(dir, "locked"))).toBe(join(dir, "locked"));
   await expect(canonicalPath(join(dir, "missing"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+test("a link whose target climbs out of another link resolves through that link first", async () => {
+  const dir = await root();
+  // alias -> deep/subdir, so alias/.. is deep, not the root.
+  await mkdir(join(dir, "deep", "subdir"), { recursive: true });
+  await symlink(join("deep", "subdir"), join(dir, "alias"));
+  await writeFile(join(dir, "deep", "locked"), "right", { mode: 0o000 });
+  await writeFile(join(dir, "locked"), "wrong", { mode: 0o000 });
+  // Written as is: join would fold alias/.. away before the link exists.
+  await symlink("alias/../locked", join(dir, "link"));
+  expect(await canonicalPath(join(dir, "link"))).toBe(join(dir, "deep", "locked"));
+});
+
+test("an unreadable file named with another case resolves to the name its folder stores", async () => {
+  const dir = await root();
+  await writeFile(join(dir, "Mixed"), "x", { mode: 0o000 });
+  if (existsSync(join(dir, "MIXED")))
+    expect(await canonicalPath(join(dir, "MIXED"))).toBe(join(dir, "Mixed"));
+  else await expect(canonicalPath(join(dir, "MIXED"))).rejects.toMatchObject({ code: "ENOENT" });
 });
