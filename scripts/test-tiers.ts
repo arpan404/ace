@@ -65,6 +65,24 @@ export function splitByRuntime(projects: readonly string[]): {
   };
 }
 
+export interface PassResult {
+  exitCode: number;
+  /** Test files the pass ran, from its timings. */
+  files: number;
+}
+
+/**
+ * The exit code of a run made of passes. Each pass may select nothing (a filter can match only
+ * one runtime's suites), but a filtered run that ran no file at all fails, as Vitest does on Node:
+ * a mistyped filter must not pass.
+ */
+export function combinedExit(passes: readonly PassResult[], filtered: boolean): number {
+  const failed = passes.find((pass) => pass.exitCode !== 0);
+  if (failed) return failed.exitCode;
+  const files = passes.reduce((total, pass) => total + pass.files, 0);
+  return filtered && files === 0 ? 1 : 0;
+}
+
 export type BudgetTier = "fast" | "process";
 const budgetTier = (project: string): BudgetTier | undefined =>
   (fastProjects as readonly string[]).includes(project)
