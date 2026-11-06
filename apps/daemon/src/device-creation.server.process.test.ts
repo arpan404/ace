@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { parsePairingLink } from "@ace/client/access";
+import { DeviceCredential, DeviceId } from "@ace/protocol";
 import { setup } from "./remote-test-support.ts";
 import { token } from "./socket-test-support.ts";
 
@@ -80,4 +82,93 @@ it("undersized entropy never persists a device credential", async () => {
   } finally {
     reopened.close();
   }
+});
+
+const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+/** A pinned socket opened with a fresh ticket, its hello naming the app install. */
+async function helloFrom(
+  f: Awaited<ReturnType<typeof setup>>,
+  deviceId: string,
+  credential: string,
+) {
+  const { ticket } = await f.ticket(credential);
+  const client = await f.open();
+  client.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse(deviceId),
+    ticket,
+    installId,
+  });
+  return client;
+}
+
+it("a phone connected over LAN and Tailscale at once is one device on the daemon", async () => {
+  const f = await setup();
+  // Paired once from the LAN link and once from the Tailscale link: one install.
+  const redeem = async () =>
+    DeviceCredential.parse(
+      await f.remoteRequest("/v1/pair", {
+        method: "POST",
+        body: { code: parsePairingLink((await f.pairing()).url).code, name: "Phone", installId },
+      }),
+    );
+  const lan = await redeem();
+  const tailscale = await redeem();
+  expect(tailscale.device.id).toBe(lan.device.id);
+  const overLan = await helloFrom(f, tailscale.device.id, tailscale.token);
+  const overTailscale = await helloFrom(f, tailscale.device.id, tailscale.token);
+  expect(await overLan.next()).toMatchObject({ type: "welcome" });
+  expect(await overTailscale.next()).toMatchObject({ type: "welcome" });
+  expect(await f.request("/v1/devices", { token })).toEqual([
+    expect.objectContaining({ id: lan.device.id, name: "Phone", revokedAt: null }),
+  ]);
+});
+
+it("signing out and in again keeps one device: records an install left behind fold into the one it uses", async () => {
+  const f = await setup();
+  // Before installs had ids, pairing again after signing back in left the first record behind.
+  const left = f.store.devices.create("Phone", ["read", "operate"], 1000);
+  f.advance(1000);
+  const used = f.store.devices.create("Phone", ["read", "operate"], 2000);
+  const other = f.store.devices.create("Tablet", ["read"], 2000);
+  expect(await f.request("/v1/devices", { token })).toHaveLength(3);
+
+  const client = await helloFrom(f, used.device.id, used.token);
+  expect(await client.next()).toMatchObject({ type: "welcome" });
+  expect(await f.request("/v1/devices", { token })).toEqual([
+    expect.objectContaining({ id: used.device.id }),
+    expect.objectContaining({ id: other.device.id }),
+  ]);
+  // Paired again from the same install: the same record, never a new one.
+  const again = DeviceCredential.parse(
+    await f.remoteRequest("/v1/pair", {
+      method: "POST",
+      body: { code: parsePairingLink((await f.pairing()).url).code, name: "Phone", installId },
+    }),
+  );
+  expect(again.device.id).toBe(used.device.id);
+  expect(await f.request("/v1/devices", { token })).toHaveLength(2);
+});
+
+it("a folded record that is used again is listed again, and removing an install removes its folded records", async () => {
+  const f = await setup();
+  const left = f.store.devices.create("Phone", ["read"], 1000);
+  f.advance(1000);
+  const used = f.store.devices.create("Phone", ["read"], 2000);
+  expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  expect(await f.request("/v1/devices", { token })).toHaveLength(1);
+  // It was another phone with the same name after all: it keeps its access and shows again.
+  expect(await f.ticket(left.token)).toMatchObject({ ticket: expect.any(String) });
+  expect(await f.request("/v1/devices", { token })).toHaveLength(2);
+
+  const third = f.store.devices.create("Phone", ["read"], 500);
+  expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
+  await expect(f.ticket(third.token)).rejects.toThrow("HTTP 401");
+  await expect(f.ticket(left.token)).resolves.toMatchObject({ ticket: expect.any(String) });
 });

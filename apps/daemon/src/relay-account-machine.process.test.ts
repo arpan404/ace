@@ -8,7 +8,8 @@ import { keyPair } from "@ace/secure-channel";
 import { Client, ClientError, machineCodeAdmin, machineCodeGate, relayRoute } from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
-import { DeviceId, HostId } from "@ace/protocol";
+import { Device, DeviceCredential, DeviceId, HostId, PairingResponse } from "@ace/protocol";
+import { parsePairingLink } from "@ace/client/access";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
 import { fixture, token } from "./socket-test-support.ts";
@@ -324,4 +325,33 @@ it("the window's account leaving brings back the paired entry its account machin
 
   machines.closeAccountMachines();
   expect(machines.ids).toEqual(["host"]);
+});
+
+it("a phone reached over LAN and ace's relay is one device on the daemon", async () => {
+  const machine = await accountMachine();
+  const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+  const pairing = PairingResponse.parse(
+    await accessRequest(machine.f.server.httpUrl, "/v1/pairings", {
+      method: "POST",
+      token,
+      body: { scopes: ["read"] },
+    }),
+  );
+  const paired = DeviceCredential.parse(
+    await accessRequest(machine.f.server.httpUrl, "/v1/pair", {
+      method: "POST",
+      body: { code: parsePairingLink(pairing.url).code, name: "Phone", installId },
+    }),
+  );
+  // Its paired device and its account device are the same id: the install's.
+  expect(paired.device.id).toBe(installId);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const relayed = await machine.device(installId).connect();
+  expect(relayed.state).toBe("ready");
+  const listed = Device.array().parse(
+    await accessRequest(machine.f.server.httpUrl, "/v1/devices", { token }),
+  );
+  expect(listed.map((device) => device.id)).toEqual([installId]);
+  // Reaching it through ace's relay is that device being seen.
+  expect(listed[0]?.lastSeenAt).toBeGreaterThan(paired.device.lastSeenAt);
 });

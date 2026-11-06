@@ -129,7 +129,11 @@ export class Devices {
       );
       return { device, token };
     }
-    const id = DeviceId.parse(this.runtime.id());
+    // A new install's device is named by the install itself, so its paired credential and its
+    // ace account grant name one device on every path. An id already taken is never reused.
+    const id = DeviceId.parse(
+      installId !== undefined && !this.byId.get(installId) ? installId : this.runtime.id(),
+    );
     const device = Device.parse({
       id,
       name,
@@ -162,13 +166,14 @@ export class Devices {
     const row = this.byId.get(id);
     if (!row || row.revoked_at !== null) return;
     if (row.merged_into !== null) this.unfold.run(id);
-    if (row.install_id === installId) return;
     // A record of another install keeps its install: a credential moved between installs is
     // still the record the owner paired.
-    if (row.install_id !== null) return;
-    const other = this.byInstall.get(installId, at);
-    if (other && other.id !== id) this.fold.run(id, String(other.id), String(other.id));
-    this.stamp.run(installId, id);
+    if (row.install_id !== null && row.install_id !== installId) return;
+    if (row.install_id === null) {
+      const other = this.byInstall.get(installId, at);
+      if (other && other.id !== id) this.fold.run(id, String(other.id), String(other.id));
+      this.stamp.run(installId, id);
+    }
     for (const orphan of this.orphans.all(id, String(row.name), Number(row.created_at), at))
       this.fold.run(id, String(orphan.id), String(orphan.id));
   }
@@ -185,6 +190,11 @@ export class Devices {
     this.touch(device.id, at);
     device.lastSeenAt = at;
     return device;
+  }
+  /** An ace account device connected: the paired record of the same install is seen too. */
+  seen(installId: string, at: number): void {
+    const row = this.byInstall.get(installId, at);
+    if (row) this.touch(String(row.id), at);
   }
   touch(id: string, at: number): void {
     Device.shape.lastSeenAt.parse(at);

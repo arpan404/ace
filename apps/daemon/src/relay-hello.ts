@@ -27,7 +27,11 @@ export async function relayHello(
   options: { auth: RemoteAuth; account?: MachineAccount | undefined },
 ): Promise<RelayAdmission> {
   // An account grant wins over a paired token: a signed-in device is admin (ADR 0114).
-  if (hello.grant !== undefined) return accountHello(hello, hello.grant, options.account);
+  if (hello.grant !== undefined) {
+    const admitted = await accountHello(hello, hello.grant, options.account);
+    if (admitted.device) options.auth.accountDeviceSeen(admitted.device.id);
+    return admitted;
+  }
   const device =
     hello.ticket !== undefined
       ? options.auth.consume(hello.ticket)

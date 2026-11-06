@@ -102,7 +102,9 @@ export async function startFilesRelay(
           return;
         }
         channel.authorize();
-        clients.set(channel, device.id);
+        // An account device shares its id with the same install's pairing (ADR 0115): revoking
+        // that pairing closes only what the pairing opened. An empty id matches no revocation.
+        clients.set(channel, admitted.stillAdmitted ? "" : device.id);
         if (admitted.stillAdmitted) accountClients.set(channel, admitted.stillAdmitted);
         // Sign-in traffic carries codes and links: that channel never compresses anything.
         if (hello.compression?.includes("deflate-raw") && hello.channel !== "provider_auth")

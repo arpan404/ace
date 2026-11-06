@@ -120,6 +120,13 @@ export class RemoteAuth {
       installId,
     );
   }
+  /**
+   * An ace account device was admitted: its account device id is its install id (ADR 0115), so
+   * the same install's paired record is the device it is, seen now.
+   */
+  accountDeviceSeen(deviceId: string): void {
+    this.devices.seen(deviceId, this.now());
+  }
   /** A paired device's hello named its app install: its records fold into one (ADR 0115). */
   recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {
     if (installId !== undefined) this.devices.recognize(device.id, installId, this.now());
