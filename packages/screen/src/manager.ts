@@ -202,8 +202,9 @@ export class ScreenManager {
     permission: "screenRecording" | "accessibility",
   ): Promise<ScreenPermissions> {
     this.reservations++;
+    let helper: Helper | undefined;
     try {
-      const helper = await this.host.open();
+      helper = await this.host.open();
       return ScreenPermissions.parse(
         await helper.request({ op: "permissions.request", permission }),
       );
@@ -218,6 +219,7 @@ export class ScreenManager {
       );
     } finally {
       this.reservations--;
+      if (this.reservations === 0 && helper?.capabilities?.inspectionOnly) await this.host.close();
     }
   }
   configureAccess(access: ScreenAccess): void {
@@ -450,6 +452,8 @@ export class ScreenManager {
       return await helper.request({ op });
     } finally {
       this.reservations--;
+      // Reprobe on the next inspection so a reconnected session can initialize its desktop.
+      if (this.reservations === 0 && helper?.capabilities?.inspectionOnly) await this.host.close();
     }
   }
   isWindowsHost(): boolean {

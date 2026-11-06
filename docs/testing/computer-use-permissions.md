@@ -127,3 +127,34 @@ in ready, granted or not-applicable states must have no request action. On macOS
 and share-picker permission failures retain Screen Recording and Accessibility guidance, including
 legacy replies with no platform field. Linux and Windows recovery messages must name the host
 computer rather than a Mac.
+
+## Windows startup inspection in a service session
+
+The live-view helper checks WTS connection state and the input desktop before DPI awareness,
+COM, UI Automation or frame-pipe initialization. A non-interactive helper stays on stdio and
+answers hello, permissions and permissions.request. Hello sets `inspectionOnly: true`; the
+TypeScript owner does not connect a frame pipe. Other commands return the session's refusal.
+Permission inspections release this helper so another check can recover after reconnection.
+Interactive startup failures name the operation that failed.
+
+On the ARM64 Windows VM, rebuild and run the following from both the signed-in session and
+plain SSH/session 0. This inspects permissions only and does not enumerate or capture windows:
+
+```powershell
+cargo build --locked --manifest-path native/screen-helper-windows/Cargo.toml --target aarch64-pc-windows-msvc
+$helper = '.\native\screen-helper-windows\target\aarch64-pc-windows-msvc\debug\ace-screen-helper-windows.exe'
+$endpoint = 'pipe:\\.\pipe\ace-screen-inspection-' + $PID
+@(
+  '{"version":2,"id":"hello","op":"hello"}',
+  '{"version":2,"id":"permissions","op":"permissions"}',
+  '{"version":2,"id":"request","op":"permissions.request","permission":"accessibility"}'
+) | & $helper --endpoint $endpoint
+```
+
+Signed-in, connected and unlocked: hello succeeds normally, interactiveDesktop is ready, and
+targetIntegrity/desktopCapture remain unknown until used. Session 0: all three requests succeed,
+hello says inspectionOnly, and both permission replies contain interactiveDesktop blocked with
+"Run ace in your signed-in session, not as a service in session 0." There must be no startup
+Access-is-denied exit or attempt to create a frame pipe. A disconnected session must say to
+reconnect; an unavailable input desktop must say to unlock or dismiss UAC. In web/iOS, check
+that the actual interactiveDesktop row appears rather than a generic desktopConnection error.

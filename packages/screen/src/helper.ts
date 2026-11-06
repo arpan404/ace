@@ -197,7 +197,7 @@ export class Helper {
           !helper.capabilities.codecs.includes("jpeg")
         )
           throw new Error("Helper platform or codec differs from host");
-        await channel.connect();
+        if (!helper.capabilities.inspectionOnly) await channel.connect();
         return helper;
       } catch (error) {
         if (helper) await helper.close();

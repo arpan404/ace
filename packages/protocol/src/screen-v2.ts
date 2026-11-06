@@ -77,6 +77,8 @@ export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
   .object({
     version: z.literal(2),
+    /** Stdio inspection remains available, but no desktop runtime or frame endpoint exists. */
+    inspectionOnly: z.boolean().optional(),
     background: z.boolean().optional(),
     windowSelection: z.boolean().optional(),
     permissionEvents: z.boolean().optional(),

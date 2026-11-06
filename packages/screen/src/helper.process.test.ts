@@ -183,3 +183,35 @@ it.runIf(process.platform !== "win32").each(["exit", "socket"])(
     }
   },
 );
+
+it("Windows non-interactive requirements are readable without a frame pipe", async () => {
+  const fixture = await manager(
+    {},
+    {
+      platform: "win32",
+      protocolVersion: 2,
+      args: [new URL("./testing/fake-helper-inspection.ts", import.meta.url).pathname],
+    },
+  );
+  try {
+    expect((await fixture.screen.capabilities())?.inspectionOnly).toBe(true);
+    for (const permissions of [
+      await fixture.screen.permissions(),
+      await fixture.screen.requestPermission("accessibility"),
+    ]) {
+      expect(permissions.platform).toBe("win32");
+      expect(permissions.requirements).toMatchObject([
+        {
+          kind: "interactiveDesktop",
+          state: "blocked",
+          message: expect.stringContaining("signed-in session"),
+        },
+      ]);
+      expect(permissions.requirements?.[0]?.message).toContain("session 0");
+    }
+    await fixture.screen.enable(true);
+    await expect(fixture.screen.targets()).rejects.toThrow("signed-in session");
+  } finally {
+    await fixture.close();
+  }
+});
