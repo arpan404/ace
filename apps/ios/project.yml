@@ -29,8 +29,13 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # The ace account backend sign-in reaches (`AceAccountURL` in Info.plist): none in
+    # development and fixture builds, ace's own in Release, as the web and desktop releases do
+    # (`ACE_HOSTED_ACCOUNT_ORIGIN`). Set it on the command line to point a build elsewhere.
     ACE_ACCOUNT_URL: ""
   configs:
+    Release:
+      ACE_ACCOUNT_URL: https://relay.acehq.dev
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
     Perf:
