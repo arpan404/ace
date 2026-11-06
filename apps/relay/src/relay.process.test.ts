@@ -461,3 +461,29 @@ it("a host the relay refuses stops with the refusal instead of reconnecting", as
   expect(unauthorized).toBeGreaterThan(1);
   expect(grants).toBeGreaterThanOrEqual(unauthorized);
 });
+
+it("a host says when its registration is lost and again when the relay confirms it once more", async () => {
+  const first = await startRelay({ bind: "127.0.0.1" });
+  const port = Number(new URL(first.url).port);
+  const events: boolean[] = [];
+  const host = await connectHostToRelay({
+    relayUrl: first.url,
+    hostKeys: keyPair(),
+    limits: { retryInitialMs: 20, retryMaxMs: 50 },
+    onRegistration: (registered) => events.push(registered),
+    onClientChannel: () => {},
+  });
+  cleanups.push(() => host.close());
+  expect(events).toEqual([true]);
+
+  await first.close();
+  await expect.poll(() => events).toEqual([true, false]);
+  // Failed retries while the relay is down say nothing more.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(events).toEqual([true, false]);
+
+  const second = await startRelay({ bind: "127.0.0.1", port });
+  cleanups.push(() => second.close());
+  await host.whenRegistered(1);
+  expect(events).toEqual([true, false, true]);
+});

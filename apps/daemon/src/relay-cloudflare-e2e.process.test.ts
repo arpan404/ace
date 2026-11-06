@@ -23,6 +23,7 @@ import { accessRequest } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";
 import { tlsFixtureHome } from "./process-test-support.ts";
 import { readConfig } from "./config.ts";
+import { z } from "zod";
 import { message } from "./payload-test-support.ts";
 import type { CommandHandler } from "./commands.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
@@ -310,4 +311,41 @@ it("a signed-in machine on the LAN and Tailscale is also on ace's relay; signing
     }),
   );
   expect(paired.device.name).toBe("Laptop on the LAN");
+});
+
+it("a running daemon forgotten from its account registers again and is listed, and is on only while listed", async () => {
+  const { f, account } = await hostedDaemon();
+  const session = await signInThroughWorker(worker.http, workos, owner);
+  // Other tests' machines are on the same account: only this one's entry counts.
+  const listed = async () =>
+    (await accounts().machines(session.token, signal())).some(
+      (machine) => machine.hostId === f.server.relayHostId,
+    );
+  const accountNetwork = async () =>
+    z
+      .object({
+        remoteAccess: z.object({
+          networks: z.object({ account: z.object({ state: z.string() }).loose() }),
+        }),
+      })
+      .parse(await accessRequest(f.server.httpUrl, "/v1/status", { token: adminToken }))
+      .remoteAccess.networks.account.state;
+  await account.handover(worker.http, session.token);
+  await expect.poll(accountNetwork, { timeout: 10_000, interval: 100 }).toBe("on");
+  const hostId = f.server.relayHostId ?? "";
+  // On means the account lists it: no wait between the two.
+  expect(await listed()).toBe(true);
+
+  // Forgotten while it runs and stays signed in, it is back on the account's list by itself.
+  await accounts().forgetMachine(session.token, hostId, signal());
+  await expect.poll(listed, { timeout: 10_000, interval: 250 }).toBe(true);
+  await expect.poll(accountNetwork, { timeout: 10_000, interval: 100 }).toBe("on");
+
+  // Signed out, it leaves the relay, and forgetting it then takes it off the list for good.
+  await account.signOut();
+  await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBeUndefined();
+  await accounts().forgetMachine(session.token, hostId, signal());
+  expect(
+    (await accounts().machines(session.token, signal())).map((machine) => machine.hostId),
+  ).not.toContain(hostId);
 });

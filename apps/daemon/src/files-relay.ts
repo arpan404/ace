@@ -28,6 +28,8 @@ export async function startFilesRelay(
       | { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string }
       | undefined;
     onRefused?: ((error: RelayRefusedError) => void) | undefined;
+    /** Registration on the relay came (`true`) or was lost and is being retried (`false`). */
+    onRegistration?: ((registered: boolean) => void) | undefined;
     /** Serves a main conversation channel (a hello without `channel`). */
     relayMain?: ((entry: RelayedMain) => void) | undefined;
   },
@@ -53,6 +55,7 @@ export async function startFilesRelay(
       signal: controller.signal,
       ...(options.relayAccount ? { account: options.relayAccount } : {}),
       ...(options.onRefused ? { onRefused: options.onRefused } : {}),
+      ...(options.onRegistration ? { onRegistration: options.onRegistration } : {}),
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {
