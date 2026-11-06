@@ -82,3 +82,51 @@ it("messages ignore reasoning and output fields without losing or creating text 
   expect(applyDelta(item, "reasoning", "hidden")).toBe(false);
   expect(item).toMatchObject({ parts: [{ type: "text", text: "visible" }] });
 });
+
+const preview = (text: string, source: Record<string, unknown>) =>
+  Item.parse({
+    id: "m",
+    agentId: "a",
+    type: "message",
+    role: "assistant",
+    createdAt: 1,
+    complete: false,
+    parts: [
+      { type: "text", text, source: { streamId: "text:m", encoding: "utf-16le", ...source } },
+    ],
+  });
+const lastText = (item: Item) => {
+  const part = item.type === "message" ? item.parts.at(-1) : undefined;
+  return part?.type === "text" ? part : undefined;
+};
+
+it("a preview marked as the stream's tail keeps extending with each delta", () => {
+  // 100 units carried of a 1,000-unit stream: units 900 to 1,000.
+  const item = preview("t".repeat(100), { bytes: 2000, offset: 1800 });
+  applyDelta(item, "text", " next");
+  expect(lastText(item)).toMatchObject({
+    text: "t".repeat(100) + " next",
+    source: { bytes: 2010, offset: 1800 },
+  });
+});
+
+it("a preview of the stream's head stays as sent while its source counts on", () => {
+  for (const source of [
+    { bytes: 2000 },
+    { bytes: 2000, offset: 0 },
+    { bytes: 2000, offset: 600 },
+  ]) {
+    const item = preview("h".repeat(100), source);
+    applyDelta(item, "text", " next");
+    expect(lastText(item)).toMatchObject({ text: "h".repeat(100), source: { bytes: 2010 } });
+  }
+});
+
+it("an unreadable preview offset decodes as an unmarked preview, never a failure", () => {
+  for (const offset of [-2, 1.5, "far", null]) {
+    const item = preview("h".repeat(100), { bytes: 2000, offset });
+    expect(lastText(item)?.source?.offset).toBeUndefined();
+    applyDelta(item, "text", " next");
+    expect(lastText(item)?.text).toBe("h".repeat(100));
+  }
+});
