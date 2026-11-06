@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import { spawnSupervised } from "@ace/provider-kit/process";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Helper, type Frame } from "./index.ts";
 import { deferred, fakeCommand, ids, target, manager } from "./testing/support.ts";
 it("the supervised helper correlates concurrent commands and receives fragmented binary frames", async () => {
@@ -145,6 +145,40 @@ it.runIf(process.platform !== "win32").each(["exit", "socket"])(
       if (mode === "socket")
         expect(permissions.requirements?.[0]?.message).toMatch(/^Frame socket closed:/);
     } finally {
+      await fixture.close();
+    }
+  },
+);
+
+it.runIf(process.platform !== "win32").each(["exit", "socket"])(
+  "startup %s redacts credentials and host paths before they reach permission requirements",
+  async (mode) => {
+    const secret = `opaque-startup-${"private".repeat(300)}-credential`;
+    const inheritedSecret = "opaque-inherited-environment-credential";
+    vi.stubEnv("SCREEN_INHERITED_SECRET", inheritedSecret);
+    const fixture = await manager(
+      { FAILURE_MODE: mode, SENSITIVE_STARTUP: "1", SCREEN_STARTUP_SECRET: secret },
+      {
+        platform: "linux",
+        protocolVersion: 2,
+        redactionContext: { home: "/srv/diagnostic-home" },
+        args: [new URL("./testing/fake-helper-startup.ts", import.meta.url).pathname],
+      },
+    );
+    try {
+      const permissions = await fixture.screen.permissions();
+      const visible = JSON.stringify(permissions);
+      expect(permissions.requirements?.[0]?.state).toBe("blocked");
+      expect(visible).toContain("ScreenCast portal unavailable");
+      expect(visible).not.toContain("abcdefghijklmnopqrstuvwxyz");
+      expect(visible).not.toContain("/srv/diagnostic-home");
+      expect(visible).not.toContain(secret);
+      expect(visible).not.toContain("privateprivate");
+      expect(visible).not.toContain(inheritedSecret);
+      expect(visible).toContain("<HOME>");
+      expect(visible).toContain("<ENV>");
+    } finally {
+      vi.unstubAllEnvs();
       await fixture.close();
     }
   },

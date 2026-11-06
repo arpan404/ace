@@ -1,3 +1,6 @@
+import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
+import type { RedactionContext } from "@ace/redaction";
+import { homedir, hostname } from "node:os";
 import { hostPermissions } from "./permission-model.ts";
 import { PermissionFacts } from "./permission-facts.ts";
 import { z } from "zod";
@@ -47,6 +50,8 @@ export type HelperOptions = {
   transport?: "endpoint" | "legacy";
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
+  /** Additional host context for diagnostics; inherited and helper environment values are included. */
+  redactionContext?: RedactionContext;
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   nextId: () => string;
   onFrame: (frame: Frame) => void;
@@ -140,9 +145,18 @@ export class Helper {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
     });
+    const redactStartup = createDiagnosticRedactor({
+      home: homedir(),
+      host: hostname(),
+      username: process.env.USER ?? process.env.USERNAME,
+      ...options.redactionContext,
+      env: { ...process.env, ...options.env, ...options.redactionContext?.env },
+    });
     proc.stderr.on("line", (line: string) => {
       if (!this.replied && !this.closed)
-        this.startupDiagnostic = `${this.startupDiagnostic}\n${line}`.slice(-1536).trim();
+        this.startupDiagnostic = `${this.startupDiagnostic}\n${redactStartup(line)}`
+          .slice(-1536)
+          .trim();
     });
     // Process close follows stdio draining, unlike frame-socket close.
     void proc.exited.then(() => this.fail(this.transportError(new Error("Screen helper exited"))));
