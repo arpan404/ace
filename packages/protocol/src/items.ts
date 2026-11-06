@@ -22,13 +22,13 @@ import { ToolCall } from "./tools.ts";
  * Where a text's whole value lives when the text carried beside it may be a preview. `bytes` is
  * the whole stream's length. `offset` is where the carried text starts in it (both UTF-16LE
  * bytes): absent, the text is the stream's head. A text that ends at `bytes` holds the stream's
- * tail, so deltas extend it. An unreadable `offset` is dropped, leaving an unmarked preview.
+ * tail, so deltas extend it; any other text is left as sent while `bytes` counts on.
  */
 export const TextSource = z.object({
   streamId: z.string().min(1),
   bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   encoding: z.literal("utf-16le"),
-  offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional().catch(undefined),
+  offset: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 export type TextSource = z.infer<typeof TextSource>;
 

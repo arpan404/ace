@@ -122,11 +122,10 @@ it("a preview of the stream's head stays as sent while its source counts on", ()
   }
 });
 
-it("an unreadable preview offset decodes as an unmarked preview, never a failure", () => {
-  for (const offset of [-2, 1.5, "far", null]) {
+it("a preview whose offset disagrees with its length is left as sent, never extended wrongly", () => {
+  for (const offset of [1900, 4000]) {
     const item = preview("h".repeat(100), { bytes: 2000, offset });
-    expect(lastText(item)?.source?.offset).toBeUndefined();
     applyDelta(item, "text", " next");
-    expect(lastText(item)?.text).toBe("h".repeat(100));
+    expect(lastText(item)).toMatchObject({ text: "h".repeat(100), source: { bytes: 2010 } });
   }
 });
