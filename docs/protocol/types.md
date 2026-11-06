@@ -9906,6 +9906,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
@@ -9914,10 +9915,11 @@ Example:
 
 ```json
 {
-  "channel": "provider_auth",
+  "compression": [],
   "deviceId": "example",
+  "grant": "example",
+  "machineCode": "example",
   "protocolVersion": 1,
-  "ticket": "example",
   "type": "hello"
 }
 ```
@@ -15528,6 +15530,18 @@ Example:
 }
 ```
 
+## InstallId
+
+[JSON Schema](schema/InstallId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e"
+```
+
 ## InstallMethod
 
 [JSON Schema](schema/InstallMethod.json), input validation.
@@ -20522,6 +20536,7 @@ Example:
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 
 Example:
 
@@ -20576,6 +20591,7 @@ Example:
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 | type | yes | `"pair.redeem"` |  |
 
 Example:

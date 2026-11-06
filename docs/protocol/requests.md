@@ -418,6 +418,7 @@ Example:
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 | type | yes | `"pair.redeem"` |  |
 
 Example:
@@ -425,6 +426,7 @@ Example:
 ```json
 {
   "code": "example",
+  "installId": "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
   "name": "example",
   "type": "pair.redeem"
 }
@@ -3340,6 +3342,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
@@ -3348,11 +3351,12 @@ Example:
 
 ```json
 {
-  "channel": "devices",
-  "compression": [],
+  "channel": "screen",
   "deviceId": "example",
+  "flowControl": [],
+  "grant": "example",
   "protocolVersion": 1,
-  "token": "example",
+  "trims": [],
   "type": "hello"
 }
 ```
