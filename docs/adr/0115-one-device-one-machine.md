@@ -45,15 +45,28 @@ The same phone showed up as several devices, and the same machine as several mac
 - A new install's paired device takes the install id as its device id (unless that id is taken).
   Its paired credential and its account grant then name one device, whichever path it uses.
 - Pairing again from an install that holds a device keeps that record and its id: the new
-  link's name, scopes and expiry replace the old ones, and the old token stops working.
+  link's name, scopes and expiry replace the old ones, and the old token stops working. So
+  does everything the old token opened: each paired session, ticket and authority lease carries
+  the generation of the credential that opened it, a ticket asked for with the old credential
+  opens nothing, and the old credential's sockets and relay channels close with `4001`
+  ("Credential replaced", not the `4003` wipe). The install's account sockets are not the
+  pairing's and stay open.
 - A paired hello that names an install stamps the record with it (`devices.install_id`,
-  schema 28) and folds the install's other records into it (`merged_into`): one already
-  stamped with the install, and records it left behind before installs had ids (the same name,
-  not used since this record was made). A folded record is listed under the one it folded into
-  and revoked with it. If a folded record's own token is used again, it was another device
-  after all: it unfolds and is listed again. Folding never removes access, so it needs no
-  cleanup button.
-- An account hello from an install marks the same install's paired record seen. Revoking that
+  schema 28) and folds into it the records the install left behind before installs had ids:
+  the same name, not used since this record was made, and no access this record lacks. A
+  folded record is listed under the one it folded into and revoked with it: its sockets,
+  tickets, notifications and relay channels end as the survivor's do. If a folded record's own
+  token is used again, it was another device after all: it unfolds and is listed again.
+  Folding never removes access, so it needs no cleanup button.
+- Naming an install proves nothing (an install id is not a secret), so a hello never folds a
+  record another credential already holds for that install, and the caller isn't stamped beside
+  it: both stay listed. Only a pairing code from that install takes such a record over.
+- An account hello from an install marks the same install's paired record seen. The paired
+  record (once stamped) and the install's account device are one device for command receipts:
+  a command first sent over the pairing and sent again through the account is answered from
+  its receipt, never refused or run twice. A client re-binds the sends it saved under the
+  install's other id on that machine to the id it connects with (`deviceAliases`), so a route
+  change loses no queued send. Revoking that
   pairing closes only what the pairing opened, never the install's account sockets
   (`4003` wipes a device's data, ADR 0114).
 
@@ -64,7 +77,12 @@ The same phone showed up as several devices, and the same machine as several mac
   not after a proof: the paired entry steps aside, the account entry expects that daemon id on
   every path (a welcome from any other drops the path), and it inherits the paired entry's paths
   and its paired address. A browser may use the paired address directly, because it accepted
-  that certificate when it paired.
+  that certificate when it paired. A browser pairs an address without a fingerprint of its own;
+  the fingerprint the daemon gives for that address over the authenticated connection is saved
+  with the pairing, and entries saved before recover it from their saved paths.
+- A paired entry that learns such paths while its account entry is already open merges then:
+  the paired entry steps aside, and the account entry gains its address and looks for a better
+  route at once.
 - An entry's listing id stays what it is today: the daemon id for a paired machine, the relay
   host id for an account machine. Both map to one daemon, and the turned-off list (below)
   records both.
@@ -76,8 +94,11 @@ The same phone showed up as several devices, and the same machine as several mac
   relays, the candidate must still be 20% and 5 ms faster. The order is the same computer, the
   LAN, Tailscale, the person's own relay, ace's relay.
 - iOS chooses between a merged machine's pinned direct route and the account relay route in a
-  pure route plan: direct while it connects, the relay when it doesn't, and direct again on a
-  network change or wake once it answers.
+  pure route plan: direct while it connects, the relay when it doesn't (also when the relay is
+  learned only after direct stopped reaching the machine), and direct again on a network change
+  or wake once a pinned WebSocket to it opens. Never sooner than 10 s after taking the relay,
+  and after a move back that fails before it is ready, not for 30 s, doubling to 5 minutes; a
+  move back that reaches ready resets the wait.
 - "Auto" routing erred because an account machine in a browser had only ace's relay, and a
   machine reachable both ways was two entries, one of them failing; both are gone.
 
@@ -89,7 +110,14 @@ The same phone showed up as several devices, and the same machine as several mac
   Turning it on connects again with the same entry, credential, cache and permissions.
 - The choice is the device's alone: kept in its storage by host id (`ace.machines.off` on the web;
   iOS's own store), read when the app starts, never sent to the machine. Forgetting the machine
-  clears it. This window's own daemon has no switch.
+  clears it. Off is kept under every id the device knows the machine by (its daemon id and its
+  relay host id), so a machine turned off as an account machine stays off once it is known to be
+  a paired one; turning it on or forgetting it clears both. Turning machines off withdraws their
+  finishes from iOS's "threads finished" summary, which is posted again over the rest or
+  withdrawn.
+- A paired device's grants (what the pairing allows) are kept by machine and device on iOS:
+  one install id names the phone on every machine, so a device id alone no longer tells two
+  pairings apart. Grants saved by device alone move to their machine on the next launch. This window's own daemon has no switch.
 - Web and desktop: Turn off and Turn on on the machine's row in Settings and a row on its page.
   iPhone: a swipe or menu action on the machine's row and a switch on its page, in system list
   grammar and motion.
@@ -102,7 +130,8 @@ The same phone showed up as several devices, and the same machine as several mac
   other paired, fold together until the unused one connects again; nothing is lost either way.
 - An install id is not a secret. Whoever holds a valid pairing code may name any install id,
   so they can take over that install's record: its id and what is keyed by it, with the code's
-  scopes, and the old token stops working. A pairing code is already the owner's grant of a
+  scopes, and the old token (and everything it opened) stops working. A hello alone, without a
+  code, takes nothing over. A pairing code is already the owner's grant of a
   device, and the code chooses the scopes; a signed challenge per install would close this and
   is a follow-up.
 - The daemon's paired device ids are no longer all daemon-minted: a new install's is its install
