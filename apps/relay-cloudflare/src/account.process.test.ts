@@ -206,7 +206,7 @@ it("grants need a live session and a machine grant names a host id", async () =>
   expect((await post({ kind: "device", subject: "phone" })).status).toBe(401);
 });
 
-it("a signed-in machine and device reach each other through the account, and only its owner forgets it", async () => {
+it("a signed-in machine and device reach each other through the account, and only its owner forgets it, which a connected one survives", async () => {
   const client = aceAccountClient({
     origin: worker.http,
     fetch: async (input, init) => {
@@ -285,8 +285,14 @@ it("a signed-in machine and device reach each other through the account, and onl
   await expect(client.forgetMachine(stranger, machine.hostId, signal)).rejects.toMatchObject({
     status: 404,
   });
+  // Forgetting a machine that is still signed in and connected only lists it again: it
+  // registers again, and once registered it is on the account's list.
+  const registered = machine.generation;
   await client.forgetMachine(owner, machine.hostId, signal);
-  expect(await client.machines(owner, signal)).toEqual([]);
+  await machine.whenRegistered(registered);
+  expect((await client.machines(owner, signal)).map((listed) => listed.hostId)).toEqual([
+    machine.hostId,
+  ]);
   await client.logout(owner, signal);
   await expect(client.session(owner, signal)).rejects.toMatchObject({ status: 401 });
   await expect(
