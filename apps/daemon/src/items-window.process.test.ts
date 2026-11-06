@@ -402,9 +402,10 @@ it("a long answer still streaming opens with its newest text, marked so deltas k
   const whole = Array.from({ length: 50_000 }, (_, n) => `Next step ${n}: wire the filters. `).join(
     "",
   );
+  const live = AgentItem.parse({ ...message("live", ""), complete: false });
   f.store.appendEvents(f.thread.id, [
-    { type: "item.created", item: AgentItem.parse({ ...message("live", ""), complete: false }) },
-    { type: "item.delta", itemId: "live", agentId: "root", field: "text", append: whole },
+    { type: "item.created", item: live },
+    { type: "item.delta", itemId: live.id, agentId: live.agentId, field: "text", append: whole },
   ]);
   const view = f.store.snapshotThread(f.thread.id);
   expectPreviewOnly(view, "live");
