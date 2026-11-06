@@ -37,6 +37,8 @@ export async function relayHello(
   // As on a direct socket: the client stops instead of retrying a credential that won't work.
   if (!device || device.id !== hello.deviceId)
     return { refusal: { type: "error", code: "unauthorized", message: "Valid hello required" } };
+  // The same install over the LAN, Tailscale or a relay is one device (ADR 0115).
+  options.auth.recognize(device, hello.installId);
   return { device };
 }
 

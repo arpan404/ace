@@ -198,7 +198,7 @@ async function redeemPairing(
   let result: PairResult["result"];
   try {
     auth.pairingAttempt("relay");
-    result = { ok: true, ...auth.redeem(request.code, request.name) };
+    result = { ok: true, ...auth.redeem(request.code, request.name, request.installId) };
   } catch (error) {
     const status = error instanceof AccessError ? error.status : 500;
     result =

@@ -39,6 +39,8 @@ export function helloActor(
         : desktop;
   const revocable = message.ticket !== undefined || desktop !== undefined;
   if (!actor || (revocable && actor.id !== message.deviceId)) return undefined;
+  // A paired device names its app install, so its records fold into one (ADR 0115).
+  if (message.ticket !== undefined) auth.recognize(actor, message.installId);
   return { ...actor, scopes: [...actor.scopes], revocable };
 }
 

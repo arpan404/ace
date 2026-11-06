@@ -1,5 +1,5 @@
 import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
-import { DeviceId, PendingPairing } from "@ace/protocol";
+import { DeviceId, PendingPairing, type InstallId } from "@ace/protocol";
 import { activeDevice, allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
 import { validToken } from "./local-files.ts";
 import { MemoryPairingCodes, type PairingCodeStore } from "./pairing-codes.ts";
@@ -106,7 +106,8 @@ export class RemoteAuth {
     this.limit(address);
     this.limit("*");
   }
-  redeem(code: string, name: string): { device: Device; token: string } {
+  /** Redeems a pairing; the same app install (`installId`, ADR 0115) keeps its one record. */
+  redeem(code: string, name: string, installId?: InstallId): { device: Device; token: string } {
     const pairing = this.codes.take(hash(code));
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
@@ -116,7 +117,12 @@ export class RemoteAuth {
       pairing.scopes,
       at,
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
+      installId,
     );
+  }
+  /** A paired device's hello named its app install: its records fold into one (ADR 0115). */
+  recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {
+    if (installId !== undefined) this.devices.recognize(device.id, installId, this.now());
   }
   ticket(device: Device): { ticket: string; expiresAt: number } {
     if (device.scopes.includes("desktop") || device.scopes.includes("user-browser"))

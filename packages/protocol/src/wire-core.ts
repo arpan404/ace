@@ -12,7 +12,7 @@ import { DiagnosticsHealth } from "./diagnostics.ts";
 import { Event, UsageUpdated } from "./events.ts";
 import { ForgeStackOperation } from "./forge-stacks.ts";
 import { ForgePrRef, ForgePrStatus } from "./forge.ts";
-import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
+import { CommandId, DeviceId, HostId, InstallId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Capabilities } from "./provider.ts";
@@ -232,6 +232,11 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
       grant: z.string().min(1).max(2048).optional(),
       /** The machine code, with a grant, when the daemon asked for it. */
       machineCode: MachineCode.optional(),
+      /**
+       * The app install this device runs in (ADR 0115). A paired device's record learns it, so
+       * older records of the same install fold into one. Older daemons ignore it.
+       */
+      installId: InstallId.optional(),
       /**
        * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
        * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
