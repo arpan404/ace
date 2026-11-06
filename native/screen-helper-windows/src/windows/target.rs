@@ -9,7 +9,7 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::{Dwm::*, Gdi::*},
-        System::{StationsAndDesktops::*, Threading::*},
+        System::Threading::*,
         UI::{HiDpi::*, WindowsAndMessaging::*},
     },
 };
@@ -161,28 +161,7 @@ pub fn identity(hwnd: HWND) -> Result<String> {
     }
 }
 pub fn desktop_available() -> Result<()> {
-    unsafe {
-        if !crate::session::active() {
-            return Err(Error::new(Code::Busy, "Windows session is not actively connected. Sign in or reconnect to this session; run ace in the person's interactive session, not session 0."));
-        }
-        let desktop = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
-            .map_err(|_| Error::new(Code::Busy, "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry."))?;
-        let mut name = [0u16; 128];
-        let result = GetUserObjectInformationW(
-            HANDLE(desktop.0),
-            UOI_NAME,
-            Some(name.as_mut_ptr().cast()),
-            (name.len() * 2) as u32,
-            None,
-        );
-        let _ = CloseDesktop(desktop);
-        result?;
-        let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
-        if !String::from_utf16_lossy(&name[..end]).eq_ignore_ascii_case("default") {
-            return Err(Error::new(Code::Busy, "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry."));
-        }
-        Ok(())
-    }
+    crate::session::current_access()
 }
 pub fn inventory() -> Result<Value> {
     desktop_available()?;

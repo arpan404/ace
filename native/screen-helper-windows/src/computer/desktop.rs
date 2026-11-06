@@ -8,36 +8,14 @@ use std::time::{Duration, Instant};
 use windows::Win32::{
     Foundation::*,
     Security::*,
-    System::{LibraryLoader::GetModuleHandleW, StationsAndDesktops::*, Threading::*},
+    System::{LibraryLoader::GetModuleHandleW, Threading::*},
     UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
 };
 
 /// True when the input desktop is the normal one. The lock screen, sign-in and UAC prompts
 /// run on other desktops, where ace never sends input.
 pub fn input_on_default_desktop() -> bool {
-    unsafe {
-        if !crate::session::active() {
-            return false;
-        }
-        let Ok(desktop) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
-        else {
-            return false;
-        };
-        let mut name = [0u16; 128];
-        let read = GetUserObjectInformationW(
-            HANDLE(desktop.0),
-            UOI_NAME,
-            Some(name.as_mut_ptr().cast()),
-            (name.len() * 2) as u32,
-            None,
-        );
-        let _ = CloseDesktop(desktop);
-        if read.is_err() {
-            return false;
-        }
-        let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
-        String::from_utf16_lossy(&name[..end]).eq_ignore_ascii_case("default")
-    }
+    crate::session::current_access().is_ok()
 }
 
 pub fn locked_error() -> CuError {

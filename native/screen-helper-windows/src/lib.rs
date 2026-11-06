@@ -5,6 +5,7 @@ pub mod computer;
 pub mod coordinates;
 pub mod errors;
 pub mod input;
+pub mod inspection;
 pub mod mailbox;
 pub mod references;
 pub mod semantic;
