@@ -48,7 +48,9 @@ The same phone showed up as several devices, and the same machine as several mac
 - Pairing again from an install that holds a device keeps that record and its id: the new
   link's name, scopes and expiry replace the old ones, and the old token stops working. A client
   whose socket closes with `4001` "Credential replaced" reads its credential again and
-  reconnects; a plain `4001` refusal stays fatal. So
+  reconnects; a plain `4001` refusal stays fatal. A web pairing refused with the token its worker
+  started with reads the stored token again and starts one new worker if it changed; the iPhone
+  reopens a machine it pairs again with the new credential and grants. So
   does everything the old token opened: each paired session, ticket and authority lease carries
   the generation of the credential that opened it, a ticket asked for with the old credential
   opens nothing, and the old credential's sockets and relay channels close with `4001`
@@ -92,7 +94,9 @@ The same phone showed up as several devices, and the same machine as several mac
   with the pairing, and entries saved before recover it from their saved paths.
 - A paired entry that learns such paths while its account entry is already open merges then:
   the paired entry steps aside, and the account entry gains its address and looks for a better
-  route at once.
+  route at once. An account entry that is refused (its authorization, or a machine code still to
+  enter) takes no pairing aside; it does once it is admitted, so a working pairing is never
+  hidden behind an entry that can't open.
 - An entry's listing id stays what it is today: the daemon id for a paired machine, the relay
   host id for an account machine. Both map to one daemon, and the turned-off list (below)
   records both.
@@ -108,7 +112,9 @@ The same phone showed up as several devices, and the same machine as several mac
   learned only after direct stopped reaching the machine), and direct again on a network change
   or wake once a pinned WebSocket to it opens. Never sooner than 10 s after taking the relay,
   and after a move back that fails before it is ready, not for 30 s, doubling to 5 minutes; a
-  move back that reaches ready resets the wait.
+  move back that reaches ready resets the wait. A network change or wake inside the hold or
+  the wait is not dropped: the plan says when it may look again, and the app looks then, once,
+  unless the machine is turned off, removed or moves route first.
 - "Auto" routing erred because an account machine in a browser had only ace's relay, and a
   machine reachable both ways was two entries, one of them failing; both are gone.
 
