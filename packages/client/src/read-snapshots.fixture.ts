@@ -1,7 +1,12 @@
 import { expect } from "vitest";
 import { createThreadView } from "@ace/projection";
 import { ClientMessage, DeviceId, HostId, Item, Thread, ThreadListView } from "@ace/protocol";
-import { ClientCore, type ReadSnapshotStorage, type TransportEvents } from "./index.ts";
+import {
+  ClientCore,
+  type ClientOptions,
+  type ReadSnapshotStorage,
+  type TransportEvents,
+} from "./index.ts";
 
 export const thread = Thread.parse({
   id: "thread",
@@ -86,7 +91,12 @@ export function memory() {
 export function harness(
   storage: ReadSnapshotStorage,
   threads = 32,
-  options: { host?: string | undefined; now?: () => number } = { host: hostId },
+  options: {
+    host?: string | undefined;
+    now?: () => number;
+    /** Where queued work is kept; nothing is kept when absent. */
+    outbox?: ClientOptions["storage"];
+  } = { host: hostId },
 ) {
   let socket: TransportEvents | undefined;
   let nextId = 0;
@@ -96,7 +106,7 @@ export function harness(
     deviceId: DeviceId.parse("device"),
     readSnapshots: storage,
     ...(options.now ? { now: options.now } : {}),
-    storage: { load: async () => null, save: async () => {} },
+    storage: options.outbox ?? { load: async () => null, save: async () => {} },
     credential: async () => "a".repeat(64),
     random: () => 0.5,
     id: () => `id-${++nextId}`,
@@ -123,7 +133,7 @@ export function harness(
     }),
   });
   const deliver = (message: unknown) => socket?.message(JSON.stringify(message));
-  const closeSocket = (code: number) => socket?.close(code);
+  const closeSocket = (code: number, reason?: string) => socket?.close(code, reason);
   return {
     client,
     sent,

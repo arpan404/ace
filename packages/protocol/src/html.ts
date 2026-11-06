@@ -25,11 +25,18 @@ export type HtmlRenderInput = z.infer<typeof HtmlRenderInput>;
 /** The app theme a preview is drawn in. */
 export const HtmlColorScheme = z.enum(["dark", "light"]);
 export type HtmlColorScheme = z.infer<typeof HtmlColorScheme>;
+/**
+ * The widths a page is shown at: the chat on a phone, the desktop message column, and full screen
+ * in the side panel.
+ */
+export const HtmlPreviewWidth = z.literal([360, 760, 1200]);
+export type HtmlPreviewWidth = z.infer<typeof HtmlPreviewWidth>;
 /** A page to lay out and look at before publishing it; nothing is stored or shown. */
 export const HtmlPreviewInput = z.strictObject({
   html: HtmlDocument,
   mode: HtmlMode.optional(),
   scheme: HtmlColorScheme.optional(),
+  widths: z.array(HtmlPreviewWidth).min(1).max(3).optional(),
 });
 export type HtmlPreviewInput = z.infer<typeof HtmlPreviewInput>;
 export const HtmlDiagnostics = z.object({

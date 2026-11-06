@@ -9,7 +9,7 @@ import { HistoryListRequest, HistoryListResponse, HistorySession } from "@ace/pr
 import { z } from "zod";
 import { SnapshotScratch, type SnapshotScratchOptions } from "./snapshot-scratch.ts";
 import { ReadBackoff } from "./read-backoff.ts";
-import { CrashLedger } from "./crash-ledger.ts";
+import { CrashLedger, type LastExit } from "./crash-ledger.ts";
 import { IncompatibleDataError } from "@ace/provider-kit/incompatible-data";
 
 /** The only index format this build reads. Pre-release builds carry no upgrades (AGENTS.md). */
@@ -38,7 +38,10 @@ export class Catalog {
   private needsCleanup = true;
   private displaySummary: (json: string) => HistorySession = (json) =>
     HistorySession.parse(JSON.parse(json));
-  constructor(path: string, options: { now: () => number; snapshots?: SnapshotScratchOptions }) {
+  constructor(
+    path: string,
+    options: { now: () => number; snapshots?: SnapshotScratchOptions; lastExit?: LastExit },
+  ) {
     this.snapshots = new SnapshotScratch(dirname(path), options.snapshots);
     // Crash-ledger marks are written between samples; wait out another writer's brief commit.
     this.db = new DatabaseSync(path, { timeout: 2000 });
@@ -74,7 +77,7 @@ export class Catalog {
       );
     }
     this.backoff = new ReadBackoff(this.db, options.now);
-    this.crashes = new CrashLedger(this.db, options.now);
+    this.crashes = new CrashLedger(this.db, options.now, options.lastExit);
     this.reader = new DatabaseSync(path, { readOnly: true });
     this.reader.exec(
       "PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",

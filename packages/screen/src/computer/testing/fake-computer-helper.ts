@@ -7,6 +7,7 @@
  *   FAKE_LOG_SESSION=1      log the WAYLAND_DISPLAY it was started with, before any op
  *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
  *   FAKE_LOCKED=<file>      while the file reads "locked", state and act refuse as screen_locked
+ *   FAKE_NO_DISPLAYS=1      answer like a helper from before display pictures
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
@@ -147,6 +148,28 @@ const lockedReply = (id: string) => ({
   },
 });
 
+/** Two displays, with Calculator, Ghostty, ace and TextEdit on screen. */
+const screens = [
+  { index: 1, name: "Built-in Retina Display", width: 1512, height: 982, main: true },
+  { index: 2, name: "PHL 241V8LB", width: 1080, height: 1920, rotation: 270 },
+];
+const onScreen = ["calculator", "ghostty", "ace", "textedit"].flatMap((key) => apps[key] ?? []);
+
+function captureDisplays(request: Request): unknown {
+  const include = (request["include"] ?? []) as string[];
+  log(`included ${include.join(",")}`);
+  const wanted = (request["displays"] ?? []) as number[];
+  const pictured = [];
+  for (const screen of screens) {
+    if (!wanted.includes(screen.index)) continue;
+    const jpeg = Buffer.from(`display ${screen.index}`).toString("base64");
+    pictured.push(
+      Object.assign({ screenshot: { jpeg, width: screen.width, height: screen.height } }, screen),
+    );
+  }
+  return { displays: pictured };
+}
+
 /** Answers one request; undefined means it never replies. */
 async function answer(request: Request): Promise<unknown> {
   const app = find(request["app"]);
@@ -185,13 +208,26 @@ async function answer(request: Request): Promise<unknown> {
       if (once(env["FAKE_CRASH_ONCE"])) process.exit(3);
       if (app.name === "Stuck") return undefined;
       return { id: request.id, ok: true, result: state(app, request["screenshot"] === true) };
+    case "displays":
+    case "capture_displays":
+      if (env["FAKE_NO_DISPLAYS"]) break;
+      return {
+        id: request.id,
+        ok: true,
+        result:
+          request.op === "displays"
+            ? {
+                displays: screens,
+                apps: onScreen.map(({ bundleId, name }) => ({ bundleId, name })),
+              }
+            : captureDisplays(request),
+      };
     case "act":
       if (!app) return missing;
       if (app.name === "Stuck" || once(env["FAKE_HANG_ONCE"])) return undefined;
       return { id: request.id, ok: true, result: await act(request, app) };
-    default:
-      return { id: request.id, ok: false, error: { code: "bad_request", message: "Unknown op." } };
   }
+  return { id: request.id, ok: false, error: { code: "bad_request", message: "Unknown op." } };
 }
 
 if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);

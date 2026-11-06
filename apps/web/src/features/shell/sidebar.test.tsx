@@ -275,13 +275,14 @@ test("every view's shortcut opens it from anywhere", async () => {
   // Not from New thread: with no project it is a chat, and its focused composer takes the keys.
   await harness().open("/settings");
   await title("Settings");
+  // The test page is not on an Apple platform: views are Ctrl+Alt chords there.
   for (const [keys, heading] of [
-    ["gu", "Automations"],
-    ["gs", "Skills"],
-    ["go", "Usage"],
-    ["{Meta>},{/Meta}", "Settings"],
-    ["gp", "Pull requests"],
-    ["gh", "Home"],
+    ["{Control>}{Alt>}a{/Alt}{/Control}", "Automations"],
+    ["{Control>}{Alt>}s{/Alt}{/Control}", "Skills"],
+    ["{Control>}{Alt>}u{/Alt}{/Control}", "Usage"],
+    ["{Control>},{/Control}", "Settings"],
+    ["{Control>}{Alt>}{Shift>}p{/Shift}{/Alt}{/Control}", "Pull requests"],
+    ["{Control>}{Alt>}h{/Alt}{/Control}", "Home"],
   ] as const) {
     await userEvent.keyboard(keys);
     await title(heading);

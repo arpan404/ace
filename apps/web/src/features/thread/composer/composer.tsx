@@ -181,14 +181,14 @@ function ComposerBody({
     const shown = message.step(direction);
     if (shown) list.dismissAt(shown.text, shown.caret);
   };
-  // In an idle composer, ↑ from empty brings back the last sent message and each further ↑ the
-  // one before it; ↓ walks forward and past the newest clears again. Once the shown message is
-  // edited or the caret leaves its end, the arrows move the caret as usual.
+  // ↑ from an empty composer brings back the last sent message and each further ↑ the one before
+  // it, whether or not the agent is working; ↓ walks forward and past the newest clears again.
+  // Once the shown message is edited or the caret leaves its end, the arrows move the caret.
   const recall = (direction: "older" | "newer") => {
-    if (props.busy || !props.recall) return false;
+    if (!props.recall) return false;
     const shown = recalled.current;
     const walking = !!shown && shown.text === text && caret === text.length;
-    if (!walking && text) return false;
+    if (!walking && text.trim()) return false;
     const older = (walking ? shown.older : -1) + (direction === "older" ? 1 : -1);
     if (older < -1) return false;
     const next = older === -1 ? "" : props.recall(older);

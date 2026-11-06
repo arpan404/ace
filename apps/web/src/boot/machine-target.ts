@@ -9,5 +9,9 @@ import { WorkerTargetShape } from "./worker-target.ts";
 export const MachineTarget = z.object({
   ...WorkerTargetShape,
   hostId: z.string().check(z.minLength(1)),
+  /** What the machine named about its other paths; parsed where they are dialed. */
+  paths: z.optional(z.array(z.unknown())),
+  /** The kind of path that won last time. */
+  lastPath: z.optional(z.string()),
 });
 export type MachineTarget = z.infer<typeof MachineTarget>;

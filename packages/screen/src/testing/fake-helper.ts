@@ -416,6 +416,20 @@ function processRequest(request: ScreenHelperRequest) {
     data = {
       screenRecording: process.env.SCREEN_DENIED !== "1",
       accessibility: process.env.ACCESS_DENIED !== "1",
+      ...(process.env.HOST_REQUIREMENTS === "1"
+        ? {
+            platform: "linux",
+            requirements: [
+              {
+                kind: "futureBus",
+                state: "blocked",
+                title: "Desktop bus",
+                message: "Enable the desktop bus.",
+                futureFact: true,
+              },
+            ],
+          }
+        : {}),
     };
     if (process.env.REVOKE_ACCESS === "1" && permissionQueries > 1)
       data = { screenRecording: true, accessibility: false };

@@ -10,6 +10,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "failure": {
+      "$ref": "https://ace.local/protocol/v1/DelegationFailure.json"
+    },
     "last": {
       "maxLength": 160,
       "type": "string"

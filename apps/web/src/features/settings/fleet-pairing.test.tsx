@@ -181,7 +181,11 @@ test("a link for another machine is made on that machine", async () => {
   });
   await app.open("/settings/remote");
   await waitFor(() => expect(app.pool().machine("build")?.status).toBe("online"));
-  await userEvent.click(await screen.findByRole("button", { name: "Pair a device" }));
+  // With more than one machine there are no next steps: pairing is under Add.
+  await userEvent.click(await screen.findByRole("button", { name: "Add", expanded: false }));
+  await userEvent.click(
+    await screen.findByRole("menuitem", { name: /^A phone, tablet or browser/ }),
+  );
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await userEvent.click(within(dialog).getByRole("combobox", { name: "Pairs with" }));
   await userEvent.click(await screen.findByRole("option", { name: "Build server" }));

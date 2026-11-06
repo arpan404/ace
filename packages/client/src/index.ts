@@ -12,6 +12,7 @@ export type {
   DiagnosticEvent,
   Transport,
   TransportEvents,
+  PathRefusal,
   Storage,
   IntentRecords,
   Scheduler,
@@ -47,6 +48,10 @@ export type { SidebarKey, SidebarReader } from "./readers.ts";
 export { ticketCredential } from "./credentials.ts";
 export { machineCodeGate } from "./machine-code-gate.ts";
 export { relayRoute, MACHINE_CODE_CLOSE } from "./relay-route.ts";
+export { Multipath } from "./multipath.ts";
+export type { MachineRoute, MultipathOptions, PathConnection } from "./multipath.ts";
+export type { PathRoute } from "./path-handshake.ts";
+export { pathRank, isDirect, isPathKind, knownPaths, type PlannedPath } from "./path-plan.ts";
 export { machineCodeAdmin } from "./machine-code-admin.ts";
 export type { MachineCodeAdmin } from "./machine-code-admin.ts";
 export type { RelayRouteOptions } from "./relay-route.ts";
@@ -69,6 +74,8 @@ export { readServerQueue } from "./queue-read.ts";
 export { listThreadAttachments } from "./thread-attachment-list.ts";
 export { subscribeSettings } from "./settings-subscription.ts";
 export { subscribeLockedUse } from "./locked-use-subscription.ts";
+export { onSocketMove } from "./socket-moves.ts";
+export type { SocketSource } from "./socket-moves.ts";
 export type { LockedUseOwner } from "./locked-use-subscription.ts";
 export type { RetryTimers, SettingsOwner } from "./settings-subscription.ts";
 

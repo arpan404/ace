@@ -12,6 +12,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
+import { setup } from "../agent-control/test-support.ts";
 import { daemonFixture } from "../agent-control/daemon-test-support.ts";
 import { accessRequest, redeemPairing } from "../client-access.ts";
 import { Profiles } from "../cli/profiles.ts";
@@ -36,12 +37,15 @@ const browser = () => ({ headlessBackend: new FakeHeadless(), ffmpeg: "/nonexist
  */
 export async function pairedMachines(
   options: {
+    sourceSteer?: boolean;
     scopes?: DeviceScope[];
     access?: MachineAgentAccess;
     /** The target's engine limits, e.g. one active thread so its engine is full. */
     targetEngineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
     /** The source's calls to the target, e.g. the real transport wrapped to hold a reply. */
     sourceTransport?: import("./transport.ts").MachineTransport;
+    /** The source's stop of a remote child: how often its cancel goes out again. */
+    sourceStopPlan?: import("../liveness/stop.ts").StopPlan<"cancel">;
     /** The target's devices, e.g. the fake simulators from `@ace/devices/testing`. */
     targetDevices?: import("@ace/devices").DevicesService;
     /** Each machine's computer use: its switch and the engine its agents drive. */
@@ -61,14 +65,34 @@ export async function pairedMachines(
     { ACE_LISTEN: "lan", ACE_ADVERTISE_HOST: "127.0.0.1" },
   );
   cleanup.push(() => target.daemon.close());
-  const source = await daemonFixture(undefined, {
-    browser: browser(),
-    ...options.sourceScreen,
-    machines: {
-      pollMs: 50,
-      ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+  const source = await daemonFixture(
+    undefined,
+    {
+      browser: browser(),
+      ...options.sourceScreen,
+      machines: {
+        pollMs: 50,
+        ...(options.sourceTransport ? { transport: options.sourceTransport } : {}),
+        ...(options.sourceStopPlan ? { stopPlan: options.sourceStopPlan } : {}),
+      },
     },
-  });
+    {},
+    options.sourceSteer
+      ? setup(
+          {},
+          undefined,
+          false,
+          undefined,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        )
+      : undefined,
+  );
   cleanup.push(() => source.daemon.close());
   const { remoteUrl, fingerprint } = target.daemon;
   if (!remoteUrl || !fingerprint) throw new Error("Target is not listening for paired devices");

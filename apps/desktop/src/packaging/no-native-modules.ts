@@ -1,13 +1,15 @@
 import type { Plugin } from "esbuild";
 
 /**
- * Native packages only the daemon ships. The daemon bundle keeps them external and stages
- * them (with their platform binaries) under `dist/daemon/node_modules`; app.asar has neither,
- * so if one is bundled into the Electron main process it throws when it loads.
+ * Native code a main-process bundle must not import: node-pty (the app has none), `bun:ffi`,
+ * which exists only in the Bun runtime the daemon runs on, and koffi. The Windows app ships koffi
+ * beside app.asar (scripts/koffi.ts), but bundling it would cut it off from its prebuilt binary,
+ * so main reaches it only through `@ace/provider-kit/koffi`'s lazy require, and `bun:ffi` only
+ * through a lazy require behind a Bun check.
  */
-const daemonOnlyNatives = ["koffi", "node-pty"];
+const unbundledNatives = ["koffi", "node-pty", "bun:ffi"];
 const nativeImport = new RegExp(
-  `^(?:${daemonOnlyNatives.join("|")})(?:/.*)?$|\\.node$`.replaceAll("-", "\\-"),
+  `^(?:${unbundledNatives.join("|")})(?:/.*)?$|\\.node$`.replaceAll("-", "\\-"),
 );
 
 /**

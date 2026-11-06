@@ -16,6 +16,11 @@
           "minimum": 0,
           "type": "integer"
         },
+        "cancelling": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "done": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -54,7 +59,8 @@
         "unknown",
         "done",
         "failed",
-        "cancelled"
+        "cancelled",
+        "cancelling"
       ],
       "type": "object"
     },

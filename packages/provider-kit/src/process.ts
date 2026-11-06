@@ -8,6 +8,7 @@ import type { OutputFlow } from "./flow-control.ts";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
+import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
 import { killGroup, registerGroup, stopRetainedGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
@@ -127,6 +128,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  reportBunStdinFailures(child.stdin);
   const controller = new AbortController();
   const pid = child.pid;
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
@@ -185,7 +187,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     ended = true;
     if (timer) clearTimeout(timer);
     if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
-      destroy(pid);
+      // This runs in the child's exit listener, where a throw would be uncaught (and would end
+      // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
+      // without a kernel32 binding, is reported and ownership still ends.
+      try {
+        destroy(pid);
+      } catch (error) {
+        process.emitWarning(`Could not stop process tree ${pid} after it exited: ${String(error)}`);
+      }
       unregisterGroup(pid);
       job?.dispose();
     }
@@ -207,7 +216,8 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
       }
       resolve({
         code,
-        signal,
+        // After a failed spawn Bun reports no signal at all, where Node reports null.
+        signal: signal ?? null,
         reason: outputLimited
           ? "output-limit"
           : failed
@@ -409,3 +419,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
 }
 export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";
 export { toWindowsCommand, type WindowsCommand } from "./process-owner.ts";
+export { createProbeThread, type ProbeThread } from "./probe-thread.ts";

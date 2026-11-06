@@ -130,10 +130,19 @@ Write-Host "installed $($entry.DisplayVersion) at $installDir"
 $entry | Format-List DisplayName, DisplayVersion, InstallLocation, UninstallString | Out-String | Write-Host
 Get-ChildItem $installDir -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { Write-Host "  $($_.Name)" }
 if (-not $installDir.StartsWith($env:LOCALAPPDATA, [StringComparison]::OrdinalIgnoreCase)) { Fail "not a per-user install: $installDir" }
+# The installed app's own architecture, from ace.exe's PE header (IMAGE_FILE_HEADER.Machine):
+# its koffi must match it, whatever architecture this shell runs as.
+$stream = [IO.File]::OpenRead((Join-Path $installDir "ace.exe"))
+$exe = New-Object byte[] 4096
+[void]$stream.Read($exe, 0, $exe.Length)
+$stream.Dispose()
+$machine = [BitConverter]::ToUInt16($exe, [BitConverter]::ToInt32($exe, 0x3c) + 4)
+$appArch = switch ($machine) { 0xaa64 { "arm64" } 0x8664 { "x64" } default { Fail "ace.exe has unknown machine type $machine" } }
 foreach ($file in @(
     "ace.exe", "resources\runtime\node.exe", "resources\daemon\ace.mjs", "resources\daemon\descriptor.node",
-    "resources\daemon\node_modules\koffi\package.json", "resources\daemon\node_modules\node-pty\package.json",
-    "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs")) {
+    "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs",
+    "resources\node_modules\koffi\package.json",
+    "resources\node_modules\@koromix\koffi-win32-$appArch\win32_$appArch\koffi.node")) {
   if (-not (Test-Path (Join-Path $installDir $file))) { Fail "missing $file" }
 }
 if (-not (Test-Path $shim)) { Fail "the installer wrote no $shim" }

@@ -66,6 +66,22 @@ test("a worker woken every 15 seconds stops paying a cold start for every reques
   }
 });
 
+test.each([30_000, 60_000])(
+  "a worker woken every %i ms learns a longer polling cadence",
+  async (cadenceMs) => {
+    const { worker, advance, request, spawned } = harness();
+    try {
+      for (let i = 0; i < 12; i++) {
+        request();
+        await advance(cadenceMs);
+      }
+      expect(spawned()).toBeLessThanOrEqual(cadenceMs === 30_000 ? 4 : 6);
+    } finally {
+      await worker.terminate();
+    }
+  },
+);
+
 test("a worker left quiet still retires, and a later burst starts from the short window", async () => {
   const { worker, advance, request, spawned } = harness();
   try {

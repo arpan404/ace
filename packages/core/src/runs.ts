@@ -124,7 +124,7 @@ export function endTurn(
   // A delayed end for an older native turn cannot terminate the current turn.
   if (recoveredPast || (active && active.id !== run.id)) return;
   if (!fact.historical && fact.error?.kind === "quota")
-    record.limited = { message: fact.error.message };
+    record.limited = { ...record.limited, message: fact.error.message };
   // A turn the provider completed is proof the account could work: no limit holds it.
   else if (!fact.historical && fact.outcome === "completed") delete record.limited;
   delete record.processSettledStatus;

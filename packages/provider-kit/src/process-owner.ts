@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import type { ProcessJournal } from "./process-inventory.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { win32 } from "node:path";
-import type koffiModule from "koffi";
-import { createRequire } from "node:module";
+import { openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
@@ -166,24 +166,46 @@ export function killWindowsTree(pid: number, force: boolean): void {
   killer.unref();
 }
 
+/** GetSystemDirectoryW: the characters written to a 1,024-character buffer, or 0. */
+type SystemDirectoryReader = { read(buffer: Buffer, size: number): unknown; unload(): void };
+
+// The daemon runs on Bun and binds kernel32 with bun:ffi. Other runtimes take koffi: the desktop
+// app ships it for its main process and probe worker, so their Windows tree stops find
+// taskkill there; the daemon ships none. macOS and Linux load neither.
+function systemDirectoryReader(): SystemDirectoryReader {
+  if (runsOnBun()) {
+    const kernel = openLibrary("kernel32.dll", {
+      GetSystemDirectoryW: { args: ["ptr", "u32"], returns: "u32" },
+    });
+    return {
+      read: (buffer, size) => kernel.symbols.GetSystemDirectoryW(buffer, size),
+      unload: () => kernel.close(),
+    };
+  }
+  const kernel = loadKoffi().load("kernel32.dll");
+  try {
+    const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
+    return { read: (buffer, size) => read(buffer, size), unload: () => kernel.unload() };
+  } catch (error) {
+    kernel.unload();
+    throw error;
+  }
+}
+
 let systemDirectory: string | undefined;
-/** A program in Windows' own System32, located by the kernel rather than the environment. */
+/** A file in Windows' own System32, located by the kernel rather than the environment. */
 export function windowsSystemExecutable(name: string): string {
   if (systemDirectory === undefined) {
-    // Required lazily, like process-containment: bundles without native packages (the desktop
-    // main process) and macOS/Linux never load koffi.
-    const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-    const kernel = koffi.load("kernel32.dll");
+    const reader = systemDirectoryReader();
     try {
-      const read = kernel.func("uint __stdcall GetSystemDirectoryW(void* buffer, uint size)");
       const buffer = Buffer.alloc(1024 * 2);
-      const length = Number(read(buffer, 1024));
+      const length = Number(reader.read(buffer, 1024));
       if (length <= 0 || length >= 1024) throw new Error("Windows system directory unavailable");
       const directory = buffer.toString("utf16le", 0, length * 2);
       if (!win32.isAbsolute(directory)) throw new Error("Windows system directory is not absolute");
       systemDirectory = directory;
     } finally {
-      kernel.unload();
+      reader.unload();
     }
   }
   return win32.join(systemDirectory, name);

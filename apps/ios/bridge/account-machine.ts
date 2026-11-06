@@ -4,15 +4,22 @@ import { MachineCodeRefusal } from "@ace/protocol";
 import { z } from "zod";
 
 /**
+ * A fresh device grant from Swift's `credential` operation, which fetches one from the ace
+ * account backend on every call. Used for each connection's hello and for each open socket's
+ * grant refresh (ADR 0114).
+ */
+export function deviceGrant(credential: () => Promise<string>): () => Promise<string> {
+  return async () =>
+    z.strictObject({ grant: z.string().min(1) }).parse(JSON.parse(await credential())).grant;
+}
+
+/**
  * A machine on the phone's ace account (ADR 0111). Swift's relay socket fetches a fresh device
  * grant for every connection; the hello presents that grant, and the machine code while the
  * daemon asks for one. The code lives only in the gate, until the daemon answers it.
  */
 export function accountGate(credential: () => Promise<string>): MachineCodeGate {
-  const gate = machineCodeGate(
-    async () =>
-      z.strictObject({ grant: z.string().min(1) }).parse(JSON.parse(await credential())).grant,
-  );
+  const gate = machineCodeGate(deviceGrant(credential));
   // A typed code waiting for its answer. A `machine_code_required` arriving meanwhile answers an
   // attempt that left before the code was typed; it must not throw the code away.
   let pending = false;

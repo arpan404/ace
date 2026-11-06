@@ -91,7 +91,7 @@ export function windowsSigning(env: NodeJS.ProcessEnv): WindowsSigning {
 
 /** electron-builder's `win` signing settings for `signing`; empty for an unsigned build. */
 export function windowsSigningConfig(signing: WindowsSigning): Record<string, unknown> {
-  // ace's own native addons (descriptor.node, node-pty's ConPTY files) are signed too.
+  // Native addons and libraries (descriptor.node and any staged .dll) are signed too.
   const signExts = [".node", ".dll"];
   if (signing.kind === "certificate")
     return {

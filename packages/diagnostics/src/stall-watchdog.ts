@@ -1,4 +1,5 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { StallReport } from "./stall-report.ts";
@@ -74,7 +75,7 @@ export function startStallWatchdog(options: StallWatchdogOptions): () => Promise
   mkdirSync(options.directory, { recursive: true });
   const heartbeat = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
   const spawn: StallWorkerFactory =
-    options.spawn ?? ((url, workerData) => new Worker(url, { workerData }));
+    options.spawn ?? ((url, workerData) => startWorker(url, { workerData }));
   const worker = spawn(new URL("./stall-watchdog-worker.ts", import.meta.url), {
     ...timing,
     heartbeat,

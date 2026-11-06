@@ -17,9 +17,9 @@ bun run bench:daemon --runs=3 --update-baseline
    `HOME`, its own `ACE_HOME`, `ACE_PORT=0` and a `PATH` holding only two programs: the fake
    provider CLI and a link to `git` (the daemon needs git to register a project). Nothing
    from your shell, your `~/.ace` or port 4242 is touched.
-3. Starts `ace serve` once to lay out the home, stops it, writes `--seed-threads` finished
-   threads (default 400) into its store, and starts it again with the V8 inspector on a free
-   port.
+3. Starts `ace serve` on Bun, the daemon's runtime, once to lay out the home, stops it, writes `--seed-threads` finished
+   threads (default 400) into its store, and starts it again with the inspector on a free
+   port. Bun's inspector speaks WebKit's protocol; the benchmark reads it and V8's alike.
 4. Connects one client that holds the thread list open, like a sidebar, and watches each
    thread it drives.
 5. Waits `--settle-ms` (10 s), then measures:
@@ -54,8 +54,8 @@ protocol file beside `claude.ts`.
 | `calibrationMs`                | On-thread CPU for a fixed JSON/Map/allocation loop run inside the daemon through the inspector, fastest of 14 runs. A machine-speed yardstick measured in the same process and runtime. |
 | `phases.*.cpuMsPerTurn`        | Daemon CPU (all threads, from `process.cpuUsage`) per turn, in ms. Not gated: it depends on the machine.                                                                                |
 | `phases.*.cpuPerTurn`          | `cpuMsPerTurn / calibrationMs`. Gated; comparable across machines.                                                                                                                      |
-| `idle.cpuPercent`              | Idle daemon CPU as a percentage of one core. Informational.                                                                                                                             |
-| `idle.cpuPerMinute`            | Idle CPU per minute divided by `calibrationMs`. Gated.                                                                                                                                  |
+| `idle.cpuPercent`              | Idle daemon CPU as a percentage of one core. Gated on its own platform: steadier than the normalized figure.                                                                            |
+| `idle.cpuPerMinute`            | Idle CPU per minute divided by `calibrationMs`. Gated. Bun runs the calibration loop about 25% faster than Node, so the same raw CPU reads about 25% higher here on Bun.                |
 | `phases.*.transactionsPerTurn` | SQLite write transactions per turn, from daemon health counters. Deterministic, so gated tightly.                                                                                       |
 | `*.heapUsed`                   | Main-isolate heap after two forced full GCs.                                                                                                                                            |
 | `*.rss`                        | Resident set size at the same moment.                                                                                                                                                   |
@@ -82,16 +82,32 @@ run does without changing an option, bump `workloadVersion`; when it changes the
 edit `standardOptions`. Either way, re-measure every platform's baseline in the same change;
 `--update-baseline` names the entries that are left stale.
 
-Why the tolerances in `baseline.json` are what they are, from twelve full runs on a
+Every result records the runtime the daemon reported (`bun 1.4.4`, or a Node version), and
+heap, RSS, footprint and idle CPU are compared only with a baseline of the same runtime line:
+the same Node major, or the same Bun minor (`bun 1.4`). The macOS baseline is Bun 1.4.4's: the median of three standard runs on a
+16-core M-series Mac at one-minute load average 36–101, each run's daemon reporting
+`bun 1.4.4`. Across those runs new-thread and same-thread transactions varied by under 1%
+(≈117 and ≈79), long-text transactions by about 4% (327–340); normalized CPU per turn by
+5–7% for new-thread and same-thread turns and 33% for long-text turns; raw idle CPU by 31%
+(0.87–1.14% of a core) and normalized idle CPU by 38%; heap after GC by under 1%; and RSS
+by up to 21% at startup and 10% after the turns.
+
+Why the tolerances in `baseline.json` are what they are, from twelve full runs on Node on a
 loaded M-series Mac (load average 30–125) in four sets of three:
 
-- **Transactions per turn**, 10% (+3): new-thread and same-thread turns varied by under 1%
-  (≈139 and ≈100). Long-text turns, 20%: buffered deltas share 75 ms flushes, so they
-  varied by about 11% (≈2,100 for 1,000 deltas).
+- **Transactions per turn**, 10% (+3): new-thread and same-thread turns varied by under 1%.
+  Long-text turns, 20%: buffered deltas share 75 ms flushes, so they varied by about 11%.
+  These Node runs measured ≈139, ≈100 and ≈2,100 (for 1,000 deltas). They predate #1417's
+  write batching (the transport-signal live write buffer and lock-free queue reads), which
+  brought them to ≈117, ≈79 and ≈310 on Node and Bun alike, with the stored transcript
+  byte-identical.
 - **Normalized CPU per turn**, 35%: single runs varied by up to 2× under load, but medians
   of three stayed within about 20% of each other while the calibration itself moved by
   30%. Gate on `--runs=3`; one run is a smoke test, not a verdict.
 - **Idle CPU per minute**, 50% (+2): small and noisy (about 1% of one core).
+- **Raw idle CPU**, 35% (+0.2 points of a core): nine Bun 1.4.4 runs on this Mac measured
+  0.77–1.14% of a core, while the normalized figure moved 17.4–24.9 with the calibration. Raw
+  daemon idle on this Mac is 0.50–0.57% on Node and 0.72–1.14% on Bun.
 - **Heap after GC**, 10% (+4 MiB): varied by under 0.5%; a leak of a few MiB fails.
 - **RSS and footprint**, 15% (+16 MiB): varied by up to 10% (allocator and page reuse).
 
@@ -114,6 +130,6 @@ bun run bench:daemon --results=run-1.json,run-2.json,run-3.json --update-baselin
 
 ## CI
 
-The `daemon-bench` job in `.github/workflows/check.yml` runs three times on Linux with Node 24
-and uploads the results. It is `continue-on-error` until it has proven stable on shared
+The `daemon-bench` job in `.github/workflows/check.yml` runs three times on Linux, the daemon
+on Bun, and uploads the results. It is `continue-on-error` until it has proven stable on shared
 runners; remove that line to make it blocking.

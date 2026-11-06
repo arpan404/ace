@@ -4,6 +4,7 @@ import { readFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
 import { promisify } from "node:util";
+import { bunBinary } from "../../../scripts/runtimes.ts";
 
 const run = promisify(execFile);
 
@@ -72,12 +73,15 @@ async function readWhenPresent(path: string, deadline: number, child: ChildProce
   throw new Error(`Daemon did not write ${path}`);
 }
 
-/** Starts `ace serve` with the inspector on a free port and waits for its endpoint. */
+/**
+ * Starts `ace serve` on Bun, the daemon's runtime, with the inspector on a free port and waits
+ * for its endpoint.
+ */
 export async function startDaemon(settings: DaemonSettings): Promise<RunningDaemon> {
   const endpoint = join(settings.root.aceHome, "daemon-endpoint");
   await rm(endpoint, { force: true });
   const child = spawn(
-    process.execPath,
+    bunBinary(),
     ["--inspect=127.0.0.1:0", "--no-warnings", settings.entry, "serve"],
     {
       cwd: dirname(settings.entry),
@@ -89,7 +93,8 @@ export async function startDaemon(settings: DaemonSettings): Promise<RunningDaem
   const inspector = Promise.withResolvers<string>();
   child.stderr?.on("data", (chunk: Buffer) => {
     stderr = (stderr + chunk.toString()).slice(-8000);
-    const url = /Debugger listening on (ws:\/\/\S+)/.exec(stderr)?.[1];
+    // Node prints "Debugger listening on ws://…"; Bun prints "Listening:" and the URL below it.
+    const url = /(?:Debugger listening on|Listening:)\s+(ws:\/\/\S+)/.exec(stderr)?.[1];
     if (url) inspector.resolve(url);
   });
   child.once("exit", (code) => inspector.reject(new Error(`Daemon exited ${code}: ${stderr}`)));

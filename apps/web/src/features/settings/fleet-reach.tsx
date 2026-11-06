@@ -5,7 +5,11 @@ import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx"
 import { HairlineRow, RowAction, RowGroup, StateWords } from "@/components/hairline-row.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useMachineAccountStatus, useThisMachineAccount } from "@/features/ace-account/index.ts";
+import {
+  machineSignOutQuestion,
+  useMachineAccountStatus,
+  useThisMachineAccount,
+} from "@/features/ace-account/index.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { accountLine, directLine, type DirectNetwork } from "./data/fleet-words.ts";
 import { listNames } from "./data/list-names.ts";
@@ -155,61 +159,70 @@ function ThisComputerAccount(props: {
   const { query, write } = useMachineAccountStatus(props.machine.id, access);
   const status = query.data;
   const { row, change } = useThisMachineAccount(status, access, write);
+  const [confirming, setConfirming] = useState<Confirming>();
   // A daemon without ace accounts has no row to show.
   if (status === null || query.isError) return null;
   const email = status?.signedIn ? status.account?.email : undefined;
   const line = accountLine({ email, live: props.live });
   const action = row?.action;
   return (
-    <HairlineRow
-      id="account.reach"
-      title="ace account"
-      sub={
-        <>
-          <StateWords tone={line.tone}>
-            {action === "switch" || (!email && row) ? row?.sentence : line.words}
-          </StateWords>
-          {change.isError && (
-            <span role="alert" className="block text-destructive">
-              {change.error.message}
-            </span>
-          )}
-        </>
-      }
-      actions={
-        action === "appFirst" ? (
-          <Link
-            to="/settings/profile"
-            className={cn(
-              buttonVariants({ size: "sm", variant: "ghost" }),
-              "relative z-1 text-foreground",
-            )}
-          >
-            Sign in
-          </Link>
-        ) : action === "signIn" || action === "switch" || action === "signOut" ? (
+    <>
+      <HairlineRow
+        id="account.reach"
+        title="ace account"
+        sub={
           <>
-            {action !== "signIn" && (
-              <RowAction
-                reveal={action === "signOut"}
-                disabled={change.isPending}
-                onClick={() => change.mutate("signOut")}
-              >
-                Sign out
-              </RowAction>
-            )}
-            {action !== "signOut" && (
-              <RowAction
-                className="text-foreground"
-                disabled={change.isPending}
-                onClick={() => change.mutate("signIn")}
-              >
-                {action === "switch" ? "Use this app's account" : "Sign in"}
-              </RowAction>
+            <StateWords tone={line.tone}>
+              {action === "switch" || (!email && row) ? row?.sentence : line.words}
+            </StateWords>
+            {change.isError && (
+              <span role="alert" className="block text-destructive">
+                {change.error.message}
+              </span>
             )}
           </>
-        ) : undefined
-      }
-    />
+        }
+        actions={
+          action === "appFirst" ? (
+            <Link
+              to="/settings/profile"
+              className={cn(
+                buttonVariants({ size: "sm", variant: "ghost" }),
+                "relative z-1 text-foreground",
+              )}
+            >
+              Sign in
+            </Link>
+          ) : action === "signIn" || action === "switch" || action === "signOut" ? (
+            <>
+              {action !== "signIn" && (
+                <RowAction
+                  reveal={action === "signOut"}
+                  disabled={change.isPending}
+                  onClick={() =>
+                    setConfirming({
+                      ...machineSignOutQuestion(),
+                      run: () => change.mutate("signOut"),
+                    })
+                  }
+                >
+                  Sign out
+                </RowAction>
+              )}
+              {action !== "signOut" && (
+                <RowAction
+                  className="text-foreground"
+                  disabled={change.isPending}
+                  onClick={() => change.mutate("signIn")}
+                >
+                  {action === "switch" ? "Use this app's account" : "Sign in"}
+                </RowAction>
+              )}
+            </>
+          ) : undefined
+        }
+      />
+      <ConfirmDialog confirming={confirming} onDone={() => setConfirming(undefined)} />
+    </>
   );
 }

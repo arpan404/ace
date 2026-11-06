@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
-import { constants, fstatSync } from "node:fs";
+import { statCommandFd } from "./posix-calls.ts";
+import { constants } from "node:fs";
 import {
   mkdir,
   mkdtemp,
@@ -60,7 +61,7 @@ async function fixture(options: { claudeLink?: boolean } = {}) {
       await rename(join(skills, "notes"), join(skills, ".moved"));
       await symlink(outside, join(skills, "notes"));
     }
-    if (armedRoot && fstatSync(fd).ino === armedRoot.ino) {
+    if (armedRoot && (await statCommandFd(fd)).ino === armedRoot.ino) {
       // Right after ace pins Claude's skill folder, it becomes a symlink to the outside folder.
       armedRoot = undefined;
       await rename(claudeSkills, join(home, ".claude/moved"));

@@ -1,3 +1,4 @@
+import { DelegationFailure } from "./delegation-failure.ts";
 import { z } from "zod";
 import { InteractionId, ThreadId } from "./ids.ts";
 import { RemoteContact } from "./agent.ts";
@@ -36,6 +37,7 @@ export const WatchedRequest = z.object({
 });
 export type WatchedRequest = z.infer<typeof WatchedRequest>;
 export const WatchedThread = z.object({
+  failure: DelegationFailure.optional(),
   threadId: ThreadId,
   state: WatchedState,
   title: z.string().max(120),
@@ -85,14 +87,20 @@ export const WaitResult = z.object({
 export type WaitResult = z.infer<typeof WaitResult>;
 /**
  * A snapshot row's state. `unknown`: ace could not read this child's facts. It is never settled,
- * so an unreadable child can't make its parent look done.
+ * so an unreadable child can't make its parent look done. `cancelling`: a child on another
+ * machine was stopped here, and ace keeps sending the cancel until that machine confirms it
+ * ended; its work there may still be running. A wait reads it as cancelled, so it never holds
+ * its parent on a machine that may never answer again.
  */
-export const MonitoredState = z.enum([...WatchedState.options, "unknown"]);
+export const MonitoredState = z.enum([...WatchedState.options, "unknown", "cancelling"]);
 export type MonitoredState = z.infer<typeof MonitoredState>;
 /** How many children one snapshot lists; `counts` and `omitted` cover the rest. */
 export const maxMonitoredChildren = 64;
 /** One child in a compact tree snapshot. */
 export const MonitoredChild = z.object({
+  failure: DelegationFailure.optional(),
+  /** The start of its result once settled; read the child by threadId for all of it. */
+  result: z.string().max(200).optional(),
   id: ThreadId,
   /** Present when the child belongs to another child rather than the caller. */
   parent: ThreadId.optional(),
@@ -129,6 +137,7 @@ export const MonitorSnapshot = z.object({
     done: z.number().int().nonnegative(),
     failed: z.number().int().nonnegative(),
     cancelled: z.number().int().nonnegative(),
+    cancelling: z.number().int().nonnegative(),
   }),
 });
 export type MonitorSnapshot = z.infer<typeof MonitorSnapshot>;

@@ -1,5 +1,5 @@
 import { createTextRedactor } from "@ace/redaction";
-import { htmlToolkit, type HtmlPublicationPort } from "@ace/mcp-server";
+import { htmlToolkit, type HtmlLayoutPort, type HtmlPublicationPort } from "@ace/mcp-server";
 import { ItemId } from "@ace/protocol";
 import { resolveHtmlMode, styleKitVersion } from "@ace/html";
 import type { ContextService } from "@ace/context";
@@ -12,6 +12,8 @@ export function htmlPublication(runtime: {
   now(): number;
   id(): string;
   redactTitle?: (title: string) => string;
+  /** Lays a page out at the phone width before publishing; absent, a markup guess stands in. */
+  layout?: HtmlLayoutPort;
 }) {
   // The reference is indexed independently of the windowed in-memory transcript.
   runtime.store
@@ -65,7 +67,7 @@ export function htmlPublication(runtime: {
       return { itemId };
     },
   };
-  return htmlToolkit(port);
+  return htmlToolkit(port, runtime.layout);
 }
 
 export function retainsHtml(store: Store, thread: string, hash: string): boolean {

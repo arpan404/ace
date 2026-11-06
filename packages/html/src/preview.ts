@@ -1,11 +1,16 @@
 import { z } from "zod";
+import type { HtmlDiagnostics } from "@ace/protocol";
 
-/** The widths html_preview lays a page out at: a phone, and the desktop message column. */
+/** The widths html_preview lays a page out at by default: a phone, and the desktop message column. */
 export const previewWidths = [360, 760] as const;
+/** The phone width: html_render refuses what breaks there. */
+export const phoneWidth = 360;
 /** The tallest preview image, in CSS pixels. */
 export const previewMaxHeight = 2000;
 /** Text drawn smaller than this, in CSS pixels after every scale, is hard to read. */
 export const smallTextPx = 11;
+/** Text drawn smaller than this at the phone width keeps a page from publishing. */
+export const unreadableTextPx = 9;
 
 /**
  * Runs in the page's own frame once it has settled; returns `PreviewFacts`. Finds the outermost
@@ -101,25 +106,59 @@ export function previewReport(measurements: readonly PreviewMeasurement[]): stri
   return measurements.map(widthLine).join("\n");
 }
 
+const readFacts = (facts: unknown) =>
+  PreviewFacts.catch({ view: 0, pageWidth: 0, outside: [], clipped: [], texts: [], runs: 0 }).parse(
+    facts,
+  );
+
+const pastEdge = (entry: { left: number; width: number }, view: number) =>
+  Math.round(Math.max(entry.left + entry.width - view, -entry.left));
+
+type Diagnostic = HtmlDiagnostics["diagnostics"][number];
+
+/**
+ * What html_render refuses once the page is laid out at the phone width: anything reaching past
+ * the column's edge outside a sideways scroller, and text too small to read. Facts a page script
+ * mangled count as a page that fits.
+ */
+export function measuredLayoutProblems(measured: unknown): Diagnostic[] {
+  const facts = readFacts(measured);
+  const view = facts.view || phoneWidth;
+  const problems: Diagnostic[] = [];
+  if (facts.pageWidth > view + 1 || facts.outside.length > 0) {
+    const sticking = facts.outside.map(
+      (entry) => `${entry.element} ${pastEdge(entry, view)}px past the edge`,
+    );
+    problems.push({
+      code: "overflow",
+      message: `At ${view}px the page is wider than the chat${sticking.length ? ` (${list(sticking, 2)})` : ""}. Let it shrink: minmax(0,1fr) or auto-fit columns, flex-wrap, max-width:100%; give wide-by-nature content an overflow-x:auto box.`,
+    });
+  }
+  const unreadable = facts.texts
+    .filter((entry) => entry.size < unreadableTextPx)
+    .toSorted((a, b) => a.size - b.size);
+  if (unreadable.length)
+    problems.push({
+      code: "text-too-small",
+      message: `At ${view}px, ${unreadable.length} text ${unreadable.length === 1 ? "run renders" : "runs render"} under ${unreadableTextPx}px (${list(
+        unreadable.map((entry) => `"${entry.text.slice(0, 20)}" ${entry.size}px`),
+        2,
+      )}). Use 12px or more; draw an SVG's viewBox about as wide as it shows.`,
+    });
+  return problems;
+}
+
 function widthLine(measurement: PreviewMeasurement): string {
-  const facts = PreviewFacts.catch({
-    view: 0,
-    pageWidth: 0,
-    outside: [],
-    clipped: [],
-    texts: [],
-    runs: 0,
-  }).parse(measurement.facts);
+  const facts = readFacts(measurement.facts);
   const parts = [
     `height ${measurement.contentHeight}px${measurement.imageHeight < measurement.contentHeight ? ` (image cut at ${measurement.imageHeight}px)` : ""}`,
   ];
   const view = facts.view || measurement.width;
   const wide = facts.pageWidth > view + 1;
   if (wide || facts.outside.length > 0) {
-    const sticking = facts.outside.map((entry) => {
-      const past = Math.max(entry.left + entry.width - view, -entry.left);
-      return `${entry.element} ${entry.width}px wide, ${Math.round(past)}px past the edge`;
-    });
+    const sticking = facts.outside.map(
+      (entry) => `${entry.element} ${entry.width}px wide, ${pastEdge(entry, view)}px past the edge`,
+    );
     parts.push(
       `overflows sideways${wide ? ` (page ${facts.pageWidth}px)` : ""}${sticking.length ? `: ${list(sticking, 4)}` : ""}`,
     );

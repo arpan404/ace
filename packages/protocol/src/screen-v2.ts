@@ -77,6 +77,8 @@ export type ScreenError = z.infer<typeof ScreenError>;
 export const ScreenCapabilities = z
   .object({
     version: z.literal(2),
+    /** Stdio inspection remains available, but no desktop runtime or frame endpoint exists. */
+    inspectionOnly: z.boolean().optional(),
     background: z.boolean().optional(),
     windowSelection: z.boolean().optional(),
     permissionEvents: z.boolean().optional(),
@@ -315,6 +317,10 @@ const Envelope = z.object({
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
   Envelope.extend({ op: z.literal("permissions") }),
+  Envelope.extend({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
   Envelope.extend({ op: z.literal("targets") }),
   Envelope.extend({
     op: z.literal("open.url"),

@@ -1,3 +1,8 @@
+import { childStoppedOnLimit } from "../agent-control/limit-settlement.ts";
+import { threadAccount } from "../agent-control/failure-account.ts";
+import { TargetOutcomes, type SettledView } from "./target-outcomes.ts";
+import { accountLaunchRefusal } from "../agent-control/account-availability.ts";
+import { modelsAvailableWithoutAuth } from "@ace/models/availability";
 import { createHash } from "node:crypto";
 import { isAgentProse } from "@ace/projection";
 import { z } from "zod";
@@ -46,6 +51,8 @@ const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
 
 export interface TargetThreadDeps {
   store: Store;
+  registry?(): import("@ace/accounts").AccountRegistry | undefined;
+  accountEnabled?(provider: import("@ace/protocol").ProviderKind, id: string): boolean;
   engine(): Engine | undefined;
   /** This machine's model catalog, which a loosely written model name is matched against. */
   models?(): import("@ace/models").ModelCatalogApi | undefined;
@@ -87,8 +94,11 @@ export class TargetThreads {
   readonly launches: TargetLaunches;
   /** Messages refused before they reached their thread, which no copy of can ever run. */
   readonly rejections: MessageRejections;
+  private outcomes: TargetOutcomes;
+  private cancelAttempts = 0;
   constructor(deps: TargetThreadDeps) {
     this.deps = deps;
+    this.outcomes = new TargetOutcomes(deps.store);
     deps.store.atomic((db) =>
       // The store's migrations own machine_threads (machine-tables.ts).
       db.exec(`CREATE TABLE IF NOT EXISTS machine_thread_notices (
@@ -141,9 +151,18 @@ export class TargetThreads {
    * agents_status and parent hear of it through `view`, as they would for a local child.
    */
   private observe(event: Event) {
+    const { payload } = event;
+    // It runs again, or it is deleted (a deleted thread reads as deleted): its outcome goes.
+    // Only threads another machine owns keep one, so other threads' events cost no write.
+    const outcomeEnds =
+      payload.type === "run.started" ||
+      (payload.type === "thread.client.updated" && payload.changes.deletedAt !== undefined);
     const notice = deliveryNotice(event);
+    if (!outcomeEnds && !notice) return;
+    if (!this.owner(event.threadId)) return;
+    if (outcomeEnds) this.outcomes.forget(event.threadId);
     const engine = this.deps.engine();
-    if (!notice || !engine || !this.owner(event.threadId)) return;
+    if (!notice || !engine) return;
     if (!engine.messageFacts(event.threadId, CommandId.parse(notice.commandId)).fromParent) return;
     const title = this.deps.store.getThread(event.threadId)?.title ?? "the child";
     this.deps.store.atomic((db) =>
@@ -301,6 +320,23 @@ export class TargetThreads {
         title: raced.title,
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
+    let instance: string;
+    try {
+      instance = engine.targetInstance(call.provider, accountId ? { accountId } : {});
+    } catch (error) {
+      // A provider this machine can't run is refused with its reason, before anything is made.
+      const reason = error instanceof Error ? error.message : "provider not ready";
+      throw new TargetRefusal("unavailable", `This machine could not start it: ${reason}`);
+    }
+    const refusal = this.freeModel(call.provider, instance, model)
+      ? undefined
+      : accountLaunchRefusal(
+          this.deps.registry?.()?.list() ?? [],
+          instance,
+          this.deps.now(),
+          (id) => this.deps.accountEnabled?.(call.provider, id) !== false,
+        );
+    if (refusal) throw new TargetRefusal("unavailable", refusal);
     return store.atomic(() => {
       const command = Command.parse({
         id: `machine-prepare:${key}`,
@@ -370,6 +406,20 @@ export class TargetThreads {
       );
     return machineAccount(this.deps.accounts?.() ?? [], provider, name, await this.host());
   }
+  /** A model that needs no sign-in spends no account usage, so a limit never refuses it. */
+  private freeModel(
+    provider: import("@ace/protocol").ProviderKind,
+    instance: string,
+    model: string | undefined,
+  ): boolean {
+    const catalog = this.deps.models?.();
+    if (!catalog?.resolveCached || model === undefined) return false;
+    const resolved = catalog.resolveCached({ provider, instance, model, role: "delegate" });
+    return (
+      resolved.ok &&
+      modelsAvailableWithoutAuth([resolved.model], catalog.list({ provider, instance }).instances)
+    );
+  }
   /** A model the other machine named loosely ("opus 5.5"), as this machine's catalog id. */
   private modelNamed(
     provider: import("@ace/protocol").ProviderKind,
@@ -395,8 +445,11 @@ export class TargetThreads {
     if (!engine) throw new TargetRefusal("unavailable");
     // A child still waiting for a slot settles cancelled without ever running.
     if (this.launches.cancel(threadId)) return { ok: true };
+    // Each cancel is its own attempt: a child that ignored an earlier interrupt, or ran again
+    // since one, is interrupted again. Interrupting a stopped thread changes nothing.
+    const attempt = `${this.deps.store.headSeq()}-${this.deps.now()}-${++this.cancelAttempts}`;
     const command = Command.parse({
-      id: `machine-cancel:${threadId}`,
+      id: `machine-cancel:${threadId}:${attempt}`,
       deviceId: device.id,
       payload: { type: "thread.interrupt", threadId, cascade: true },
     });
@@ -480,7 +533,10 @@ export class TargetThreads {
         delivery: restart ? "queue" : call.delivery,
         trigger: "parent_agent",
       });
-      if (result.ok) this.launches.reopen(call.threadId);
+      if (result.ok) {
+        this.launches.reopen(call.threadId);
+        this.outcomes.forget(call.threadId);
+      }
       return result;
     });
     if (!sent.ok)
@@ -545,24 +601,40 @@ export class TargetThreads {
     if (waiting) return waiting;
     const root = thread.rootAgentId && store.getMcpAgent(thread.id, thread.rootAgentId);
     const rootIdle = !!root && ["idle", "blocked", "interrupted"].includes(root.status.state);
-    const state = watchedState(thread, undefined, false, rootIdle);
+    const engine = this.deps.engine();
     const notice = this.notice(threadId);
-    const settled = settledStates.has(state);
-    const base = {
+    const shared = {
       threadId,
-      state,
       title: clip(thread.title, 120),
-      elapsedSeconds: elapsedSeconds(
-        thread.createdAt,
-        settled ? thread.updatedAt : this.deps.now(),
-      ),
       status: thread.status,
       requests: this.requests(thread),
       ...(notice ? { notice } : {}),
     };
+    const kept = this.keptOutcome(thread);
+    if (kept) return { ...shared, ...kept };
+    const stoppedOnLimit = childStoppedOnLimit(thread, engine, this.deps.journal());
+    const state = stoppedOnLimit ? "failed" : watchedState(thread, undefined, false, rootIdle);
+    const settled = settledStates.has(state);
+    const base = {
+      ...shared,
+      state,
+      elapsedSeconds: elapsedSeconds(
+        thread.createdAt,
+        settled ? thread.updatedAt : this.deps.now(),
+      ),
+    };
     if (settled) {
-      const outcome = threadOutcome(store, thread, state === "cancelled");
-      return { ...base, result: outcome.result, truncated: outcome.truncated };
+      const account = threadAccount(thread, engine, this.deps.registry?.(), this.deps.now());
+      const outcome = threadOutcome(store, thread, state === "cancelled", account);
+      const view = {
+        state,
+        elapsedSeconds: base.elapsedSeconds,
+        ...(outcome.failure ? { failure: outcome.failure } : {}),
+        result: outcome.result,
+        truncated: outcome.truncated,
+      };
+      this.outcomes.save(threadId, view);
+      return { ...base, ...view };
     }
     const step = root ? agentStep(root.status) : undefined;
     const last = this.lastOutput(thread);
@@ -580,6 +652,25 @@ export class TargetThreads {
           }
         : {}),
     };
+  }
+  /**
+   * The outcome the thread settled with, while it is still that stop. Anything live in its
+   * tree (a background task or retry that started without a new run, a request, a descendant,
+   * a resume ace has scheduled) means it went on, so the saved outcome is dropped and the live
+   * state is read instead.
+   */
+  private keptOutcome(thread: Thread): SettledView | undefined {
+    const engine = this.deps.engine();
+    if (
+      engine?.treeActive(thread.id) ||
+      (this.deps.journal()?.liveDescendants(thread.id).length ?? 0) > 0
+    ) {
+      // A read, not a write, on each look at a live thread.
+      if (this.outcomes.get(thread.id)) this.outcomes.forget(thread.id);
+      return undefined;
+    }
+    if (["needs_you", "working"].includes(thread.status.state)) return undefined;
+    return this.outcomes.get(thread.id);
   }
   /**
    * A thread whose task has not run: queued for a slot, which keeps the parent elsewhere open,

@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { statCommandFd } from "./posix-calls.ts";
 import {
   lstat,
   mkdir,
@@ -12,7 +13,6 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { fstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult } from "@ace/protocol";
@@ -53,7 +53,7 @@ async function fixture() {
   // The moment ace opens the skill folder, another program moves it and leaves a junction.
   const openChild: OpenCommandChild = async (directory, name, flags) => {
     const fd = await openCommandChild(directory, name, flags);
-    if (armedRoot !== undefined && fstatSync(fd).ino === armedRoot) {
+    if (armedRoot !== undefined && (await statCommandFd(fd)).ino === armedRoot) {
       // Right after ace pins Claude's skill folder, it becomes a junction to the outside folder.
       armedRoot = undefined;
       await rename(claudeSkills, join(home, ".claude", "moved"));

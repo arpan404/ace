@@ -7,9 +7,12 @@ import { promisify } from "node:util";
 import { expect, test } from "vitest";
 import { parseTestEnvironment } from "@ace/provider-kit/test-isolation";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
+import { bunBinary, realNode } from "./runtimes.ts";
+import { splitByRuntime } from "./test-tiers.ts";
 
 const repository = fileURLToPath(new URL("../", import.meta.url));
 const execute = promisify(execFile);
+const projectArg = (name: string) => ["--project", name];
 function observation(line: string) {
   const { project, home, data, xdg, tmp } = parseTestEnvironment(JSON.parse(line));
   if (!project || !home || !data || !xdg || !tmp)
@@ -67,10 +70,10 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
     CODEX_HOME: join(protectedHome, ".codex"),
     ZDOTDIR: protectedHome,
   };
-  const run = (result: string) => {
+  const vitest = (runtime: string, args: string[], result: string) => {
     const execution = execute(
-      process.execPath,
-      [join(repository, "node_modules/vitest/vitest.mjs"), "run", "--config", config],
+      runtime,
+      [join(repository, "node_modules/vitest/vitest.mjs"), "run", "--config", config, ...args],
       {
         cwd: repository,
         env: { ...env, REHEARSAL_RESULT: result },
@@ -85,10 +88,20 @@ async function rehearsal(cleanup: (close: () => Promise<void>) => void) {
     });
     return execution;
   };
-  return { root, protectedHome, config, fixture, setup, run };
+  // As `bun run test` does: Bun runs every project its config keeps, then Node runs the Node
+  // projects (scripts/test-run.ts).
+  const run = async (result: string) => {
+    const passes = splitByRuntime([]);
+    if (passes.bun) await vitest(bunBinary(), passes.bun.flatMap(projectArg), result);
+    const node = realNode();
+    if (!node) throw new Error("The Node pass needs Node on PATH (a `node` that is not Bun)");
+    if (passes.node) await vitest(node, passes.node.flatMap(projectArg), result);
+  };
+  const single = (result: string) => vitest(process.execPath, [], result);
+  return { root, protectedHome, config, fixture, setup, run, single };
 }
 
-test("all projects and concurrent runs own distinct homes and remove them after worker cleanup", async ({
+test("all projects, on Bun and on Node, and concurrent runs own distinct homes and remove them after worker cleanup", async ({
   onTestFinished,
 }) => {
   const fixture = await rehearsal(onTestFinished);
@@ -102,6 +115,7 @@ test("all projects and concurrent runs own distinct homes and remove them after 
       "browser-process",
       "client-react",
       "history-scale",
+      "node-process",
       "process",
       "slow-process",
       "unit",
@@ -139,7 +153,7 @@ test("failed worker setup still removes the global root it acquired", async ({
     export default {...config, test:{...config.test, projects:[{...project, test:{...project.test, include:[${JSON.stringify(fixture.fixture)}], exclude:[], setupFiles:[...project.test.setupFiles,${JSON.stringify(fixture.setup)}]}}]}};
   `,
   );
-  await expect(fixture.run(result)).rejects.toThrow(/Deliberate isolated setup failure/);
+  await expect(fixture.single(result)).rejects.toThrow(/Deliberate isolated setup failure/);
   const observed = parseTestEnvironment(JSON.parse(await readFile(result, "utf8")));
   if (!observed.home) throw new Error("Missing acquired home from failed setup");
   await expect(stat(dirname(observed.home))).rejects.toMatchObject({ code: "ENOENT" });

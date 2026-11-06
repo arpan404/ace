@@ -2,27 +2,45 @@ import { progressReporter } from "./progress-reporter.ts";
 import type { z } from "zod";
 import type { ScanResult } from "./contracts.ts";
 import { nativeReference } from "./native-reference.ts";
-import { parentPort, workerData } from "node:worker_threads";
 import { mkdir, chmod, open } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { validateIndexPath } from "./index-path.ts";
 import { Archive } from "./archive.ts";
 import { Catalog } from "./catalog.ts";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { Envelope, Options, type Packet, type ImportInit } from "./contracts.ts";
 import { scan } from "./scan.ts";
 import { importHistory } from "./import-history.ts";
+import { readerHost } from "./reader-host.ts";
+import { readerMemory } from "./reader-memory.ts";
 
-const options = Options.parse(workerData);
+// The history reader: a process of its own under the daemon (reader-process.ts).
+const { port, data } = await readerHost();
+const options = Options.parse(data);
+const memory = readerMemory(options.memoryLimitBytes);
 await validateIndexPath(options.indexPath, options.instances);
 await mkdir(dirname(options.indexPath), { recursive: true, mode: 0o700 });
 const file = await open(options.indexPath, "a", 0o600);
 await file.close();
 await chmod(options.indexPath, 0o600);
-const catalog = new Catalog(options.indexPath, {
-  now: Date.now,
-  snapshots: options.snapshot ? { policy: options.snapshot } : {},
-});
+const catalog = await openCatalog();
+async function openCatalog(): Promise<Catalog> {
+  try {
+    return new Catalog(options.indexPath, {
+      now: Date.now,
+      snapshots: options.snapshot ? { policy: options.snapshot } : {},
+      ...(options.lastExit ? { lastExit: options.lastExit } : {}),
+    });
+  } catch (error) {
+    const refused = incompatibleData(error);
+    if (!refused) throw error;
+    // Report the refusal with its fields, then wait for the daemon to stop this reader.
+    port.postMessage({ refused: { code: "incompatible-data", ...refused } });
+    port.on("message", () => {});
+    return new Promise<never>(() => {});
+  }
+}
 // Nothing can own a snapshot before this worker starts: remove crash and restart leftovers.
 await catalog.snapshots.sweep();
 catalog.reconcile(options.instances);
@@ -31,8 +49,6 @@ let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
 let scanning = false;
-const port = parentPort;
-if (!port) throw new Error("History worker needs a parent port");
 port.on("message", async (value: unknown) => {
   if (value === "cancel") {
     controller.abort();
@@ -97,6 +113,7 @@ port.on("message", async (value: unknown) => {
         options.instances,
         controller.signal,
         (files, scanProgress) => progress.update({ progress: files, result: scanProgress }),
+        memory,
       );
       result = inventory;
       progress.finish({ progress: inventory.files, result: inventory });

@@ -1,6 +1,6 @@
 import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";
 const noop = () => {};
-import { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import type { LogWorkerRuntime } from "./worker-sink.ts";
 import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
@@ -13,7 +13,7 @@ export async function* recentThreadEvents(
   path: string,
   context: RedactionContext,
   runtime: LogWorkerRuntime = {
-    spawn: (url, data) => new Worker(url, { workerData: data }),
+    spawn: (url, data) => startWorker(url, { workerData: data }),
     schedule(callback, ms) {
       const timer = setTimeout(callback, ms);
       return () => clearTimeout(timer);

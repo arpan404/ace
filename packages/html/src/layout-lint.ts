@@ -23,9 +23,12 @@ function attribute(node: Element, name: string): string | undefined {
 function textOf(node: Element): string {
   return node.childNodes.map((child) => ("value" in child ? child.value : "")).join("");
 }
+/** Inside the kit's sideways scroller, or a box whose own style scrolls sideways. */
 function insideScroller(ancestors: readonly Element[]): boolean {
-  return ancestors.some((node) =>
-    /(?:^|\s)ace-scroll-x(?:\s|$)/.test(attribute(node, "class") ?? ""),
+  return ancestors.some(
+    (node) =>
+      /(?:^|\s)ace-scroll-x(?:\s|$)/.test(attribute(node, "class") ?? "") ||
+      /(?<![\w-])overflow(?:-x)?\s*:\s*(?:auto|scroll)\b/.test(attribute(node, "style") ?? ""),
   );
 }
 interface CssRule {
@@ -87,20 +90,17 @@ function svgFontSizes(svg: Element, pageRules: readonly CssRule[]) {
   return { hasText, sizes };
 }
 
-/**
- * Layout problems that make a page break in the chat column, found from its markup and CSS.
- * Publishing refuses them the same way it refuses unsafe markup, so the agent fixes the page
- * before anyone sees it. Rendering never runs this: pages published before a rule existed still
- * display. Each rule is one the transcript has shown going wrong.
- */
-export function lintHtmlLayout(html: string): Diagnostic[] {
-  const found = new Map<string, string>();
-  const report = (code: string, message: string) => {
-    if (!found.has(code)) found.set(code, message);
-  };
+interface PageCss {
+  css: string;
+  rules: CssRule[];
+  svgs: { node: Element; ancestors: Element[] }[];
+  /** Fixed widths in `style` attributes outside an `ace-scroll-x`. */
+  inlineWidths: number[];
+}
+function readPage(html: string): PageCss {
   const document = parse(html);
   const styles: string[] = [];
-  const svgs: { node: Element; ancestors: Element[] }[] = [];
+  const svgs: PageCss["svgs"] = [];
   const inlineWidths: number[] = [];
   const pending: { node: Node; ancestors: Element[] }[] = [{ node: document, ancestors: [] }];
   while (pending.length) {
@@ -121,12 +121,31 @@ export function lintHtmlLayout(html: string): Diagnostic[] {
     }
   }
   const css = styles.join("\n");
-  const rules = cssRules(css);
+  return { css, rules: cssRules(css), svgs, inlineWidths };
+}
+function collector() {
+  const found = new Map<string, string>();
+  return {
+    report(code: string, message: string) {
+      if (!found.has(code)) found.set(code, message);
+    },
+    diagnostics: (): Diagnostic[] => [...found].map(([code, message]) => ({ code, message })),
+  };
+}
 
+/**
+ * What breaks the frame itself, whatever the width: the frame grows to fit the page, so
+ * viewport units and a full-height root grow it without end, and `position: fixed` pins to the
+ * whole page. These are wrong on every page, so they are read from the markup. Rendering never
+ * runs this: pages published before a rule existed still display.
+ */
+export function lintHtmlLayout(html: string): Diagnostic[] {
+  const { report, diagnostics } = collector();
+  const { css, rules } = readPage(html);
   if (viewportUnit.test(css))
     report(
       "viewport-height",
-      "Don't size with vh/dvh/svh: the frame grows to fit the page, so viewport units make it grow without end. Let content set the height, or give a mockup a fixed px height (ace-frame, --h).",
+      "Size without vh/dvh/svh: the frame grows to fit the page, so viewport units grow it without end. Let content set the height, or give a mockup's screen a fixed px height.",
     );
   if (
     rules.some(
@@ -137,14 +156,25 @@ export function lintHtmlLayout(html: string): Diagnostic[] {
   )
     report(
       "root-height",
-      "Don't set height:100% on html or body: the frame sizes to the page. Let content set the height.",
+      "Leave html and body at their content height (no height:100%): the frame sizes to the page.",
     );
   if (fixedPosition.test(css))
     report(
       "fixed-position",
-      "position:fixed pins to the whole frame, which is as tall as the page. Put overlays, sheets and toasts in an ace-frame with position:absolute.",
+      "position:fixed pins to the whole page, which is as tall as its content. Put overlays, sheets and toasts in a position:relative box with a fixed height, using position:absolute.",
     );
 
+  return diagnostics();
+}
+
+/**
+ * A guess at what overflows or shrinks unreadably on a phone, read from the markup and CSS. Only
+ * for when the page can't be laid out (`measuredLayoutProblems` is the real check): it misses
+ * fixed grid tracks and min-widths, and flags some text that renders fine.
+ */
+export function estimateHtmlLayout(html: string): Diagnostic[] {
+  const { report, diagnostics } = collector();
+  const { css, rules, svgs, inlineWidths } = readPage(html);
   const wide = [
     ...rules
       .filter(
@@ -157,7 +187,7 @@ export function lintHtmlLayout(html: string): Diagnostic[] {
   if (wide.length)
     report(
       "fixed-width",
-      `A fixed width of ${Math.max(...wide)}px is wider than the ${narrowestColumn}px phone column and gets cut off. Use width:min(100%, ${Math.max(...wide)}px), max-width, or flexible grid/flex sizing; put deliberately wide content in an ace-scroll-x.`,
+      `A fixed width of ${Math.max(...wide)}px is wider than the ${narrowestColumn}px phone column and gets cut off. Use width:min(100%, ${Math.max(...wide)}px), max-width, or flexible grid/flex sizing; give wide-by-nature content an overflow-x:auto box.`,
     );
 
   const tiny = numbers(pxFontSize, css).filter((size) => size > 0 && size < 10);
@@ -183,15 +213,15 @@ export function lintHtmlLayout(html: string): Diagnostic[] {
     if (rendered < minimumText)
       report(
         "svg-text-too-small",
-        `An SVG drawn ${Math.round(width)} units wide shrinks to ${shown}px on a phone, so its ${smallest}-unit labels render at about ${rendered.toFixed(1)}px. Draw it narrower (viewBox about 360–600 wide, labels 13–14 units), lay it out in HTML (ace-flow, ace-timeline, ace-split), or wrap it in an ace-scroll-x.`,
+        `An SVG drawn ${Math.round(width)} units wide shrinks to ${shown}px on a phone, so its ${smallest}-unit labels render at about ${rendered.toFixed(1)}px. Draw it narrower (viewBox about 360–600 wide, labels 13–14 units), lay it out in HTML, or give it an overflow-x:auto box.`,
       );
   }
-  return [...found].map(([code, message]) => ({ code, message }));
+  return diagnostics();
 }
 
 /**
- * Everything `html_render` checks before it publishes: the safety rules every display path also
- * enforces, then the layout rules only publishing enforces.
+ * What `html_render` checks from the markup before it lays the page out: the safety rules every
+ * display path also enforces, then the frame rules only publishing enforces.
  */
 export function checkHtmlForPublish(html: string): HtmlDiagnostics {
   const safety = validateHtml(html);

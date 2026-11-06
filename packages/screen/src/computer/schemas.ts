@@ -26,6 +26,16 @@ const window = z
   .union([z.number().int().min(1).max(64), z.string().min(1).max(200)])
   .describe("Number from the Windows line, or part of a title.");
 
+const displayInput = z.strictObject({
+  display: z
+    .number()
+    .int()
+    .min(1)
+    .max(16)
+    .optional()
+    .describe("Number from an earlier look; omit for every display."),
+});
+
 export function computerSchemasFor(platform: ComputerPlatform) {
   const app = z.string().min(1).max(200).describe(appIds[platform].app);
   return {
@@ -54,7 +64,14 @@ export function computerSchemasFor(platform: ComputerPlatform) {
       screenshot: z.boolean().optional().describe("Also a picture after acting."),
       observe: z.boolean().optional().describe("false: skip the look afterwards."),
     }),
+    screen_display: displayInput,
   };
+}
+
+/** The tools each platform's engine serves: whole-display pictures are macOS only. */
+export function computerToolNamesFor(platform: ComputerPlatform): ComputerToolName[] {
+  const names = Object.keys(computerSchemas) as ComputerToolName[];
+  return platform === "macos" ? names : names.filter((name) => name !== "screen_display");
 }
 
 /** The macOS schemas; the action shapes are the same on every platform. */
@@ -113,6 +130,13 @@ export function computerToolMetadataFor(platform: ComputerPlatform) {
       riskClass: "external-effect" as const,
       timeoutMs: 90_000,
       description: words.act,
+    },
+    screen_display: {
+      title: "Look at the displays",
+      riskClass: "read-only" as const,
+      timeoutMs: 30_000,
+      description:
+        "Screenshot of each whole display (screen, monitor), or of one. Use it, not screencapture: the shell lacks Screen Recording. Apps computer use refuses are left out. View only; act through screen_state.",
     },
   };
 }

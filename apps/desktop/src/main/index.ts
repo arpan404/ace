@@ -36,6 +36,7 @@ import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { windowsAppUserModelId } from "./notifications/native.ts";
 import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activation.ts";
 import { appearance, createHandlers } from "./handlers.ts";
+import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { claimKeychainName } from "./keychain.ts";
 import { applicationMenu } from "./menu.ts";
@@ -58,7 +59,7 @@ import { appPaths } from "./paths.ts";
 import { applyDevCsp, installDaemonNetwork, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { DaemonNetwork } from "./daemon-network.ts";
 import { SettingsStore } from "./settings-store.ts";
-import { desktopUserData } from "./user-data.ts";
+import { desktopLogs, desktopUserData } from "./user-data.ts";
 import { timers } from "./os/timers.ts";
 import { QuitGate } from "./os/quit-gate.ts";
 import { createMainWindow } from "./window/main-window.ts";
@@ -90,6 +91,8 @@ const userData = desktopUserData({
   appData: app.getPath("appData"),
 });
 app.setPath("userData", userData);
+const logs = desktopLogs(process.env.ACE_DESKTOP_USER_DATA);
+if (logs) app.setAppLogsPath(logs);
 // Windows: toasts, their buttons and the taskbar entry belong to the installed shortcut's id.
 if (process.platform === "win32")
   app.setAppUserModelId(windowsAppUserModelId(app, process.execPath));
@@ -553,13 +556,14 @@ function main(target: DaemonTarget, crashDumps: string): void {
     let terminalStatus: Awaited<ReturnType<typeof terminal.status>> | undefined;
     void terminal.status().then((status) => (terminalStatus = status));
     let bindings: Readonly<Record<string, string>> | undefined;
+    const toolchains = bundledToolchains(import.meta.url);
     const handlers = createHandlers({
       info,
       runtime,
       settings,
       background,
       window: () => window,
-      env: process.env,
+      toolchains: () => toolchains(process.env),
       connection,
       authorizeDaemon: (url) => network.authorize(url),
       quit: () => app.quit(),

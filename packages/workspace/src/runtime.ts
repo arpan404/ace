@@ -2,8 +2,10 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import { watch, type Stats, type FSWatcher } from "node:fs";
 import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { win32 } from "node:path";
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
 import { openMetadataAt, openRoot } from "./descriptor.ts";
+import { canonicalPath } from "./realpath.ts";
 
 export interface WorkspaceFileSystem {
   realpath(path: string): Promise<string>;
@@ -11,7 +13,7 @@ export interface WorkspaceFileSystem {
   lstat(path: string): Promise<Stats>;
   open(path: string, flags: number): Promise<FileHandle>;
 }
-export const filesystem: WorkspaceFileSystem = { realpath, stat, lstat, open };
+export const filesystem: WorkspaceFileSystem = { realpath: canonicalPath, stat, lstat, open };
 if (process.platform === "win32")
   Object.assign(filesystem, { stat: windowsStat, lstat: windowsLstat });
 
@@ -77,7 +79,7 @@ export function workspaceRuntime(): WorkspaceRuntime {
     filesystem,
     spawn,
     watch,
-    worker: (url) => new Worker(url, { execArgv: [] }),
+    worker: (url) => startWorker(url, { execArgv: [] }),
     clock: {
       after(callback, milliseconds) {
         const timer = setTimeout(callback, milliseconds);

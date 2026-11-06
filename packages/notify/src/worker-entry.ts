@@ -1,6 +1,7 @@
 import { parentPort, workerData } from "node:worker_threads";
+import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { NotificationService, type DeliveryResult } from "./service.ts";
-import { ToWorker, WorkerConfig, type WorkerValue } from "./worker-wire.ts";
+import { ToWorker, WorkerConfig, incompatibleFrame, type WorkerValue } from "./worker-wire.ts";
 
 const port = parentPort;
 if (!port) throw new Error("Notification worker requires a parent");
@@ -16,31 +17,43 @@ const report = () => {
   port.postMessage({ type: "state", ...state });
 };
 const sends = new Map<number, (result: DeliveryResult) => void>();
-const service = new NotificationService({
-  ...config,
-  now: Date.now,
-  jitter: Math.random,
-  transport: {
-    async send(device, notification, signal) {
-      const id = ++sequence;
-      return new Promise<DeliveryResult>((resolve) => {
-        const abort = () => {
-          port.postMessage({ type: "cancel", id });
-          finish("retry");
-        };
-        const finish = (result: DeliveryResult) => {
-          sends.delete(id);
-          signal.removeEventListener("abort", abort);
-          resolve(result);
-        };
-        sends.set(id, finish);
-        signal.addEventListener("abort", abort, { once: true });
-        if (signal.aborted) abort();
-        else port.postMessage({ type: "delivery", id, device, notification });
-      });
+let service: NotificationService;
+try {
+  service = new NotificationService({
+    ...config,
+    now: Date.now,
+    jitter: Math.random,
+    transport: {
+      async send(device, notification, signal) {
+        const id = ++sequence;
+        return new Promise<DeliveryResult>((resolve) => {
+          const abort = () => {
+            port.postMessage({ type: "cancel", id });
+            finish("retry");
+          };
+          const finish = (result: DeliveryResult) => {
+            sends.delete(id);
+            signal.removeEventListener("abort", abort);
+            resolve(result);
+          };
+          sends.set(id, finish);
+          signal.addEventListener("abort", abort, { once: true });
+          if (signal.aborted) abort();
+          else port.postMessage({ type: "delivery", id, device, notification });
+        });
+      },
     },
-  },
-});
+  });
+} catch (error) {
+  const incompatible = incompatibleData(error);
+  if (!incompatible) throw error;
+  // Bun's worker error event drops the error's path, so send the fields and wait here, with
+  // the port held open, until the parent stops this worker.
+  port.postMessage(incompatibleFrame(incompatible));
+  port.on("message", () => {});
+  await new Promise<never>(() => {});
+  throw error;
+}
 port.on("message", (input: unknown) => {
   const message = ToWorker.parse(input);
   if (message.type === "deliveryResult") {

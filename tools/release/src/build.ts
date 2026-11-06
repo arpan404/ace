@@ -1,28 +1,23 @@
 import { execFileSync } from "node:child_process";
 import { collectLicenses } from "./licenses.ts";
 import { bundleDaemon } from "./bundle.ts";
-import { LinuxNativeInput, stageNativeFiles } from "./native-assets.ts";
 import { releaseFiles, createReleaseArchive } from "./archive.ts";
-import { copyRuntimePackage } from "./copy-runtime-package.ts";
 import { mkdir, readFile, writeFile, cp, chmod, stat, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
-import { z } from "zod";
 import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
 import { hashFile, releaseArchiveLimits } from "@ace/service";
-import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
+import { bunVersion, nodeVersion, releaseRuntimePath, stageBunRuntime } from "./daemon-runtime.ts";
 import { mismatchedBinaries } from "./native-arch.ts";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 import { linuxScreenHelperPath, stageLinuxScreenHelper } from "./screen-helper-assets.ts";
-const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function main() {
   const version = ReleaseVersion.parse(process.argv[2]);
   if (process.versions.node !== nodeVersion)
     throw new Error(`Release builds require Node ${nodeVersion}; use that runtime on PATH`);
   const target = ReleaseTarget.parse(process.argv[3]);
   const publicKeyPath = process.argv[4];
-  if (!publicKeyPath)
-    throw new Error("Usage: build VERSION TARGET PUBLIC_KEY.pem [native-inputs.json]");
+  if (!publicKeyPath) throw new Error("Usage: build VERSION TARGET PUBLIC_KEY.pem");
   const key = createPublicKey(await readFile(publicKeyPath));
   if (key.asymmetricKeyType !== "ed25519") throw new Error("Ed25519 public key required");
   const publicKey = key.export({ type: "spki", format: "pem" }).toString();
@@ -33,18 +28,12 @@ async function main() {
   await rm(join(output, `${target}.json`), { force: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
-  await stageNodeRuntime({ target, version, cacheDir: output, destination: root });
-  const native = process.argv[5]
-    ? NativeInputs.parse(JSON.parse(await readFile(process.argv[5], "utf8")))[target]
-    : undefined;
-  const installedPty = join(repo, "tools/release/node_modules/node-pty");
-  const prebuild = join(installedPty, "prebuilds", target);
-  const destination = join(root, "node_modules/node-pty");
-  await mkdir(join(destination, "prebuilds", target), { recursive: true });
-  await copyRuntimePackage(join(installedPty, "lib"), join(destination, "lib"));
-  await cp(join(installedPty, "package.json"), join(destination, "package.json"));
-  await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
-  await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
+  await stageBunRuntime({
+    target,
+    cacheDir: output,
+    executable: releaseRuntimePath(root, target),
+    licensePath: join(root, "LICENSE"),
+  });
   execFileSync("bun", ["x", "vite", "build"], { cwd: join(repo, "apps/web"), stdio: "inherit" });
   // The web build emits hidden source maps; nothing loads them, so they stay out of the archive.
   await cp(join(repo, "apps/web/dist"), join(root, "web"), {
@@ -74,17 +63,13 @@ async function main() {
   for (const path of paths) {
     await chmod(
       join(root, path),
-      path === "bin/node" ||
-        path.endsWith("spawn-helper") ||
-        ((await stat(join(root, path))).mode & 0o111) !== 0
-        ? 0o755
-        : 0o644,
+      path === "bin/node" || ((await stat(join(root, path))).mode & 0o111) !== 0 ? 0o755 : 0o644,
     );
     checksums[path] = await hashFile(join(root, path));
   }
   await writeFile(
     join(root, "files.json"),
-    JSON.stringify({ nodeVersion, version, target, checksums }) + "\n",
+    JSON.stringify({ bunVersion, nodeVersion, version, target, checksums }) + "\n",
   );
   const archive = `ace-${version}-${target}.tar.gz`;
   await createReleaseArchive(root, join(output, archive));

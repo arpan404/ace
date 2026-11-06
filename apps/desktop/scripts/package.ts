@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
@@ -9,9 +9,11 @@ import { assertLinuxRuntimeFloor } from "@ace/release/glibc";
 import { chromiumAppArmorProfile } from "@ace/browser/linux-sandbox";
 import {
   appVersion,
+  asarUnpacked,
   desktop,
   dist,
   electronVersion,
+  repo,
   installedElectronDist,
   packagedAppVersion,
   targetArch,
@@ -19,6 +21,8 @@ import {
 import { lockedUseEnvironment } from "../src/packaging/locked-use.ts";
 import { notaryCredentials } from "../src/packaging/release-signing.ts";
 import { windowsSigning, windowsSigningConfig } from "../src/packaging/release-signing.ts";
+import { checkAppArchive } from "../src/packaging/app-archive.ts";
+import { copyBesideApp, packagedResources } from "./beside-app.ts";
 import { writeLinuxTarball } from "./linux-tarball.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
@@ -113,9 +117,7 @@ const config: Configuration = {
   asar: true,
   // dist/app has no node_modules: everything is bundled.
   npmRebuild: false,
-  // Native addons and helper binaries cannot run from inside an asar archive.
-  // A worker thread's module loader cannot read the archive either (the freeze watchdog).
-  asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe", "stall-watchdog-worker.mjs"],
+  asarUnpack: [...asarUnpacked],
   extraResources: [
     ...(signed && process.platform === "darwin" && existsSync(join(dist, "locked-use"))
       ? [{ from: join(dist, "locked-use"), to: "locked-use" }]
@@ -127,7 +129,7 @@ const config: Configuration = {
       to: "icons",
       filter: ["trayTemplate*.png", "trayColor*.png"],
     },
-    // The daemon's own Node runtime.
+    // The daemon's own runtime (Bun).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     // Windows: what the installer runs on that runtime (build/installer.nsh).
     ...(existsSync(join(dist, "setup")) ? [{ from: join(dist, "setup"), to: "setup" }] : []),
@@ -141,22 +143,14 @@ const config: Configuration = {
       ? [{ from: join(linuxResources, "apparmor-chromium"), to: "apparmor-chromium" }]
       : []),
   ],
-  // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
-  // rather than through extraResources, which always drops node_modules, and the daemon needs
-  // its staged runtime packages (node-pty, koffi, playwright-core, the Claude SDK).
-  afterPack: async (context) => {
-    const resources =
-      context.electronPlatformName === "darwin"
-        ? join(
-            context.appOutDir,
-            `${context.packager.appInfo.productFilename}.app`,
-            "Contents/Resources",
-          )
-        : join(context.appOutDir, "resources");
-    await cp(join(dist, "daemon"), join(resources, "daemon"), {
-      recursive: true,
-      verbatimSymlinks: true,
-    });
+  // The daemon runs as a separate process, so it ships as plain files, and so does koffi for
+  // the Windows main process (beside-app.ts). They are copied here rather than through
+  // extraResources, which always drops node_modules: the daemon needs its staged runtime
+  // packages (playwright-core, the Claude SDK).
+  afterPack: async (packed) => {
+    // A run that packed a dependency tree into app.asar fails here, before anything is signed.
+    await checkAppArchive(join(packagedResources(packed), "app.asar"));
+    await copyBesideApp(dist, arch)(packed);
   },
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
@@ -291,7 +285,16 @@ const targets =
     : process.platform === "win32"
       ? Platform.WINDOWS
       : Platform.LINUX;
-const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
+// electron-builder packs the dependencies of the first of the app folder, the project folder and
+// the workspace root that declares any. dist/app declares none, and neither does the repo root,
+// so the project folder is pinned there: left to default to the working directory, a run from
+// apps/desktop packed the desktop package's whole dependency tree into app.asar.
+const outputs = await build({
+  targets: targets.createTarget(),
+  config,
+  projectDir: repo,
+  publish: "never",
+});
 if (process.platform === "linux")
   outputs.push(
     await writeLinuxTarball({

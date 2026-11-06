@@ -49,6 +49,8 @@ export async function relayDaemon(
     register?: (backendId: string, transport: EmbeddedTransport) => EmbeddedBackend;
     /** Every message the desktop sends, as the daemon's socket receives it. */
     received?: (message: unknown) => void;
+    /** A daemon without the browser backend: it answers the register request with this code. */
+    refuseRegister?: string;
   } = {},
 ) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -87,6 +89,8 @@ export async function relayDaemon(
       }
       if (message.type === "ping") return reply({ type: "pong" });
       if (message.type === "browser.backend.register") {
+        if (options.refuseRegister)
+          return reply({ type: "error", code: options.refuseRegister, message: "no backend" });
         if (!("credential" in message) || message.credential !== credential.token)
           return reply({ type: "error", code: "browser_backend_denied", message: "denied" });
         relay = register(`backend-${connections}`, {
@@ -122,7 +126,7 @@ export async function relayDaemon(
   cleanups.push(() => new Promise((resolve) => server.close(resolve)));
   /** The link blips: the daemon's end of the newest socket drops without a goodbye. */
   const drop = () => sockets.at(-1)?.terminate();
-  return { url: `ws://127.0.0.1:${address.port}/`, relays, drop };
+  return { url: `ws://127.0.0.1:${address.port}/`, relays, drop, connections: () => connections };
 }
 
 /** The desktop's real backend and connection, registered with `daemon` over the socket. */
@@ -131,6 +135,18 @@ export async function connectDesktop(
   daemon: { url: string },
   host: ViewHost,
   /** The app's video encoder: the desktop then registers the `video` capability. */
+  video?: VideoRelaySource,
+) {
+  const desktop = await startDesktop(cleanups, daemon, host, video);
+  await eventually(() => expect(desktop.connection.state()).toBe("registered"));
+  return desktop;
+}
+
+/** The desktop's real backend and connection, dialling `daemon`; not yet registered. */
+export async function startDesktop(
+  cleanups: (() => unknown)[],
+  daemon: { url: string },
+  host: ViewHost,
   video?: VideoRelaySource,
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
@@ -156,6 +172,5 @@ export async function connectDesktop(
   );
   cleanups.push(() => connection.close());
   connection.setAvailable(true);
-  await eventually(() => expect(connection.state()).toBe("registered"));
   return { home, connection };
 }

@@ -72,7 +72,8 @@ final class NativeHost: @unchecked Sendable {
             reply(.failure(HostError.storage), to: callback); return
         }
         if operation == "http" { http(request.input, callback: callback); return }
-        if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback); return }
+        if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.current() }; return }
+        if operation == "credential.fresh", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.fresh() }; return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
@@ -93,13 +94,14 @@ final class NativeHost: @unchecked Sendable {
             reply(result, to: callback)
         }
     }
-    /// An account machine's credential: the device grant its relay socket just fetched, for the
-    /// hello on that same connection (`{"grant": …}`).
-    private func accountGrant(_ grants: AccountGrants, callback: Callback) {
+    /// An account machine's device grant (`{"grant": …}`): `current` for the hello, the one its
+    /// relay socket just fetched; `fresh` for an open socket's grant refresh (ADR 0114).
+    private func accountGrant(_ grants: AccountGrants, callback: Callback,
+                              _ read: @escaping @Sendable (AccountGrants) async throws -> String) {
         Task { [self] in
             let result: Result<String, Error>
             do {
-                let token = try await grants.current()
+                let token = try await read(grants)
                 let json = try JSONEncoder().encode(["grant": token])
                 result = .success(String(decoding: json, as: UTF8.self))
             } catch { result = .failure(error) }

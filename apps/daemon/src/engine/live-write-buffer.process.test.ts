@@ -1,6 +1,6 @@
 import { setTimeout as pause } from "node:timers/promises";
 import { afterEach, expect, test } from "vitest";
-import { DatabaseSync, backup } from "node:sqlite";
+import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import { Store } from "@ace/daemon";
 import type { Event } from "@ace/protocol";

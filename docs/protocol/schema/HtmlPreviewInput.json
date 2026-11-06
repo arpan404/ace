@@ -11,6 +11,14 @@
     },
     "scheme": {
       "$ref": "https://ace.local/protocol/v1/HtmlColorScheme.json"
+    },
+    "widths": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HtmlPreviewWidth.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
     }
   },
   "required": [

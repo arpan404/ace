@@ -38,6 +38,7 @@ import {
   elapsedSeconds,
   lastLine,
   requestPrompt,
+  rowResultLength,
   settledStates,
   shareResults,
   waitOutcome,
@@ -224,7 +225,14 @@ export class AgentMonitor {
           ? this.step(thread)
           : undefined;
     const last = state === "working" ? this.lastOutput(thread, 100) : undefined;
+    const outcome = settledStates.has(state) ? this.watched(thread.id).outcome : undefined;
     return {
+      ...(outcome
+        ? {
+            result: clip(outcome.result, rowResultLength),
+            ...(outcome.failure ? { failure: outcome.failure } : {}),
+          }
+        : {}),
       id: thread.id,
       ...(edge.parentId === caller.threadId ? {} : { parent: edge.parentId }),
       role: clip(edge.request.role, 40),
@@ -359,7 +367,15 @@ export class AgentMonitor {
         record?.phase === "settled" && record.outcome
           ? record.outcome
           : threadOutcome(this.deps.store, thread, state === "cancelled");
-      return { view: { ...base, result: outcome.result, truncated: outcome.truncated }, outcome };
+      return {
+        view: {
+          ...base,
+          result: outcome.result,
+          truncated: outcome.truncated,
+          ...(outcome.failure ? { failure: outcome.failure } : {}),
+        },
+        outcome,
+      };
     }
     const needs = state === "needs_you" ? this.needs(thread) : [];
     const queue = state === "queued" ? this.deps.queueFacts?.(id) : undefined;

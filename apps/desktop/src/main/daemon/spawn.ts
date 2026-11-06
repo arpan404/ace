@@ -5,6 +5,7 @@ import { delimiter, dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
 import type { Launch } from "./launch-priority.ts";
 import { requestStop } from "./stop-request.ts";
+import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
 import type { DaemonProcess } from "./supervisor.ts";
 
 /** Files the packaged app ships next to the daemon. */
@@ -84,6 +85,7 @@ export function daemonEnvironment(
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
   delete env.NODE_OPTIONS;
+  withoutBenchWorkerPreload(env);
   if (resources.screenHelper && existsSync(resources.screenHelper)) {
     env.ACE_SCREEN_HELPER = resources.screenHelper;
     if (resources.screenHelperManifest)

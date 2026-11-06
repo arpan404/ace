@@ -17,7 +17,7 @@ When these conflict, choose in that order.
 ## Decisions that are settled
 
 - Providers are reached only through the user's own installed, logged-in CLIs. ace never collects, stores or proxies provider credentials and is never hosted (ADR 0002).
-- Daemon runtime is Node 26+. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
+- Daemon runtime is Bun (releases ship it as `bin/node`); release builds run on Node 26. Bun is the package manager and script runner. TypeScript everywhere. Zod 4 for schemas. No Effect (ADR 0003).
 - `packages/protocol` is schema-only: Zod schemas and inferred types, no runtime behaviour beyond parsing.
 
 ## Code conventions
@@ -68,7 +68,7 @@ Reviews reject PRs containing such tests.
 - `bun run lint` (oxlint)
 - `bun run typecheck` is the bounded incremental local check; it reuses declaration/check caches.
 - `bun run typecheck:full` checks every original source program, root test tooling, and the client runtime guard from scratch. CI runs it separately as the required safety net for declaration inference.
-- `bun run test` (Vitest) is the full run. Never run `bun test`; that is Bun's own runner. Tiers:
+- `bun run test` (Vitest) is the full run. Never run `bun test`; that is Bun's own runner. Every tier runs Vitest on Bun, the daemon's runtime, then runs the `web` and `client-react` jsdom projects and the Node-only suites (`nodeProjects` and `nodeOnlySuites` in `scripts/test-tiers.ts`) on Node, which must be on PATH. A file that needs a Node-only API goes in `nodeOnlySuites` with a comment saying why, so a default tier still runs it on Node; `skipIf` on Bun is only for one test in a file that otherwise runs on both. Tiers:
   - `bun run test:fast`: unit and jsdom tests, on every change.
   - `bun run test:changed`: only tests importing files changed since `origin/main` (fast tier; `--with-process` or `--with-slow` widens it).
   - `bun run test:process`: real-process tests, before merging to main.

@@ -10,22 +10,7 @@ pub const SETTLE_POLL: Duration = Duration::from_millis(50);
 /// Sets `org.a11y.Status.IsEnabled` on the session bus. True when it was already on, so no app
 /// is about to register; false when this call turned it on (or it could not be read).
 pub async fn enable(session: &Connection) -> bool {
-    let was_enabled = tokio::time::timeout(
-        STATUS_CALL,
-        session.call_method(
-            Some("org.a11y.Bus"),
-            "/org/a11y/bus",
-            Some("org.freedesktop.DBus.Properties"),
-            "Get",
-            &("org.a11y.Status", "IsEnabled"),
-        ),
-    )
-    .await
-    .ok()
-    .and_then(Result::ok)
-    .and_then(|reply| reply.body().deserialize::<OwnedValue>().ok())
-    .and_then(|value| bool::try_from(value).ok())
-    .unwrap_or(false);
+    let was_enabled = enabled(session).await.unwrap_or(false);
     if was_enabled {
         return true;
     }
@@ -41,6 +26,25 @@ pub async fn enable(session: &Connection) -> bool {
         eprintln!("could not set org.a11y.Status.IsEnabled: {e}");
     }
     false
+}
+
+/// Reads the session's current accessibility flag without enabling it.
+pub async fn enabled(session: &Connection) -> Option<bool> {
+    tokio::time::timeout(
+        STATUS_CALL,
+        session.call_method(
+            Some("org.a11y.Bus"),
+            "/org/a11y/bus",
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &("org.a11y.Status", "IsEnabled"),
+        ),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .and_then(|reply| reply.body().deserialize::<OwnedValue>().ok())
+    .and_then(|value| bool::try_from(value).ok())
 }
 
 /// Polls `count` (the registry's app count) until the apps that register once accessibility
@@ -68,8 +72,16 @@ pub fn registry_settled(initial: usize, reads: &[usize]) -> bool {
     let Some(&last) = reads.last() else {
         return false;
     };
-    let steady = reads.iter().rev().take_while(|&&count| count == last).count();
-    if last > initial { steady >= 3 } else { steady >= 10 }
+    let steady = reads
+        .iter()
+        .rev()
+        .take_while(|&&count| count == last)
+        .count();
+    if last > initial {
+        steady >= 3
+    } else {
+        steady >= 10
+    }
 }
 
 #[cfg(test)]

@@ -19,6 +19,7 @@
     "./elision": "./src/elision.ts",
     "./binary-elision": "./src/binary-elision.ts",
     "./data-url": "./src/data-url.ts",
+    "./image": "./src/image.ts",
     "./discovery": "./src/discovery/index.ts",
     "./installers": "./src/installers/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
@@ -42,7 +43,12 @@
     "./process-inventory": "./src/process-inventory.ts",
     "./process-containment": "./src/process-containment.ts",
     "./process-owner": "./src/process-owner.ts",
-    "./tree-stop": "./src/tree-stop.ts"
+    "./resident-memory": "./src/resident-memory.ts",
+    "./memory-watchdog": "./src/memory-watchdog.ts",
+    "./tree-stop": "./src/tree-stop.ts",
+    "./bun-ffi": "./src/bun-ffi.ts",
+    "./koffi": "./src/koffi.ts",
+    "./worker": "./src/worker.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

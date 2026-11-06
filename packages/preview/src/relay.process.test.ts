@@ -3,7 +3,15 @@ import { once } from "node:events";
 import { request } from "node:http";
 import { Readable } from "node:stream";
 import { attachPreviewRelay, openPreviewProxy } from "./index.ts";
-import { channelPair, serve, http, echoWebsocket, websocket, echo } from "./test-support.ts";
+import {
+  channelPair,
+  serve,
+  http,
+  echoWebsocket,
+  websocket,
+  echo,
+  extraSocketReadBytes,
+} from "./test-support.ts";
 
 const cleanup: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -116,7 +124,8 @@ test(
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     expect(received).toBe(size);
-    expect(maxBuffered).toBeLessThan(524_288);
+    // Per side: one read in the paused socket, and the rest of it waiting to be framed.
+    expect(maxBuffered).toBeLessThan(524_288 + 2 * extraSocketReadBytes);
   },
 );
 

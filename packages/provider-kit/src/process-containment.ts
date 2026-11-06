@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
-import type koffiModule from "koffi";
 import { z } from "zod";
+import { nativeHandle, openLibrary, runsOnBun } from "./bun-ffi.ts";
+import { loadKoffi } from "./koffi.ts";
 
 /**
  * Windows Job Object containment for a tree where process groups do not exist. The kernel kills
@@ -18,7 +18,7 @@ export type WindowsJob = {
 };
 export type WindowsJobFactory = () => WindowsJob | undefined;
 
-/** Raw Win32 surface behind the job. Tests inject a fake; production uses koffi. */
+/** Raw Win32 surface behind the job. Tests inject a fake; production binds kernel32. */
 export type WindowsJobApi = {
   create: () => unknown;
   setKillOnClose: (job: unknown) => boolean;
@@ -37,11 +37,52 @@ function check(result: unknown, failure: string): void {
   if (integer.parse(result) === 0) throw new Error(failure);
 }
 
-// koffi is required lazily so bundles without native packages (the desktop main process
-// reaches this through process.ts) still build; a failed load leaves the tree stop in charge.
-function loadWindowsJobApi(): WindowsJobApi {
-  const koffi: typeof koffiModule = createRequire(import.meta.url)("koffi");
-  const library = koffi.load("kernel32.dll");
+/** The kernel32 calls behind a job, bound by bun:ffi or koffi. */
+type JobKernel = {
+  create(): unknown;
+  setInfo(job: unknown, infoClass: number, info: Buffer, length: number): unknown;
+  openProcess(access: number, inherit: number, pid: number): unknown;
+  assign(job: unknown, target: unknown): unknown;
+  closeHandle(handle: unknown): unknown;
+  query(job: unknown, infoClass: number, info: Buffer, length: number): unknown;
+  terminate(job: unknown, exitCode: number): unknown;
+  unload(): void;
+};
+
+// The daemon runs on Bun and binds kernel32 with bun:ffi; it ships no koffi. The desktop main
+// process reaches this file through process.ts on Electron's Node and binds kernel32 with the
+// koffi the app ships (./koffi.ts). A failed load leaves the tree stop in charge.
+// HANDLEs are 64-bit integers (`i64_fast`), never `ptr`; `ptr` is only for the info buffers.
+function bunJobKernel(): JobKernel {
+  const library = openLibrary("kernel32.dll", {
+    CreateJobObjectW: { args: ["ptr", "ptr"], returns: "i64_fast" },
+    SetInformationJobObject: { args: ["i64_fast", "i32", "ptr", "u32"], returns: "i32" },
+    OpenProcess: { args: ["u32", "i32", "u32"], returns: "i64_fast" },
+    AssignProcessToJobObject: { args: ["i64_fast", "i64_fast"], returns: "i32" },
+    CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    QueryInformationJobObject: {
+      args: ["i64_fast", "i32", "ptr", "u32", "ptr"],
+      returns: "i32",
+    },
+    TerminateJobObject: { args: ["i64_fast", "u32"], returns: "i32" },
+  });
+  const k = library.symbols;
+  return {
+    create: () => k.CreateJobObjectW(null, null),
+    setInfo: (job, infoClass, info, length) =>
+      k.SetInformationJobObject(nativeHandle(job), infoClass, info, length),
+    openProcess: (access, inherit, pid) => k.OpenProcess(access, inherit, pid),
+    assign: (job, target) => k.AssignProcessToJobObject(nativeHandle(job), nativeHandle(target)),
+    closeHandle: (handle) => k.CloseHandle(nativeHandle(handle)),
+    query: (job, infoClass, info, length) =>
+      k.QueryInformationJobObject(nativeHandle(job), infoClass, info, length, null),
+    terminate: (job, exitCode) => k.TerminateJobObject(nativeHandle(job), exitCode),
+    unload: () => library.close(),
+  };
+}
+
+function koffiJobKernel(): JobKernel {
+  const library = loadKoffi().load("kernel32.dll");
   try {
     const create = library.func("void* __stdcall CreateJobObjectW(void* attrs, void* name)");
     const setInfo = library.func(
@@ -58,28 +99,12 @@ function loadWindowsJobApi(): WindowsJobApi {
     const terminate = library.func("int __stdcall TerminateJobObject(void* job, uint exitCode)");
     return {
       create: () => create(null, null),
-      setKillOnClose: (job) => {
-        // JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9) is 144 bytes on 64-bit, 112 on 32-bit;
-        // LimitFlags sits at offset 16 and 0x2000 is KILL_ON_JOB_CLOSE.
-        const info = Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
-        info.writeUInt32LE(0x2000, 16);
-        return integer.parse(setInfo(job, 9, info, info.length)) !== 0;
-      },
-      clearLimits: (job) => {
-        const info = Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
-        return integer.parse(setInfo(job, 9, info, info.length)) !== 0;
-      },
-      // PROCESS_SET_QUOTA | PROCESS_TERMINATE are the rights AssignProcessToJobObject needs.
-      openProcess: (pid) => openProcess(0x0100 | 0x0001, 0, pid),
-      assignProcess: (job, target) => integer.parse(assign(job, target)) !== 0,
-      close: (handle) => check(closeHandle(handle), "Windows handle close failed"),
-      activeCount(job) {
-        // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (class 1): ActiveProcesses at offset 40.
-        const info = Buffer.alloc(48);
-        check(query(job, 1, info, info.length, null), "Windows job inspection failed");
-        return info.readUInt32LE(40);
-      },
-      terminate: (job) => check(terminate(job, 1), "Windows job termination failed"),
+      setInfo: (job, infoClass, info, length) => setInfo(job, infoClass, info, length),
+      openProcess: (access, inherit, pid) => openProcess(access, inherit, pid),
+      assign: (job, target) => assign(job, target),
+      closeHandle: (handle) => closeHandle(handle),
+      query: (job, infoClass, info, length) => query(job, infoClass, info, length, null),
+      terminate: (job, exitCode) => terminate(job, exitCode),
       unload: () => library.unload(),
     };
   } catch (error) {
@@ -90,6 +115,38 @@ function loadWindowsJobApi(): WindowsJobApi {
     }
     throw error;
   }
+}
+
+// JOBOBJECT_EXTENDED_LIMIT_INFORMATION (class 9) is 144 bytes on 64-bit, 112 on 32-bit;
+// LimitFlags sits at offset 16 and 0x2000 is KILL_ON_JOB_CLOSE.
+const limits = () => Buffer.alloc(process.arch === "ia32" || process.arch === "arm" ? 112 : 144);
+
+function loadWindowsJobApi(): WindowsJobApi {
+  const kernel = runsOnBun() ? bunJobKernel() : koffiJobKernel();
+  return {
+    create: () => kernel.create(),
+    setKillOnClose: (job) => {
+      const info = limits();
+      info.writeUInt32LE(0x2000, 16);
+      return integer.parse(kernel.setInfo(job, 9, info, info.length)) !== 0;
+    },
+    clearLimits: (job) => {
+      const info = limits();
+      return integer.parse(kernel.setInfo(job, 9, info, info.length)) !== 0;
+    },
+    // PROCESS_SET_QUOTA | PROCESS_TERMINATE are the rights AssignProcessToJobObject needs.
+    openProcess: (pid) => kernel.openProcess(0x0100 | 0x0001, 0, pid),
+    assignProcess: (job, target) => integer.parse(kernel.assign(job, target)) !== 0,
+    close: (handle) => check(kernel.closeHandle(handle), "Windows handle close failed"),
+    activeCount(job) {
+      // JOBOBJECT_BASIC_ACCOUNTING_INFORMATION (class 1): ActiveProcesses at offset 40.
+      const info = Buffer.alloc(48);
+      check(kernel.query(job, 1, info, info.length), "Windows job inspection failed");
+      return info.readUInt32LE(40);
+    },
+    terminate: (job) => check(kernel.terminate(job, 1), "Windows job termination failed"),
+    unload: () => kernel.unload(),
+  };
 }
 
 let sharedApi: WindowsJobApi | undefined;

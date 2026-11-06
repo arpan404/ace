@@ -2,7 +2,15 @@ import { afterEach, expect, test } from "vitest";
 import { request } from "node:http";
 import { once } from "node:events";
 import { Readable } from "node:stream";
-import { http, serve, gateway, echoWebsocket, websocket, echo } from "./test-support.ts";
+import {
+  http,
+  serve,
+  gateway,
+  echoWebsocket,
+  websocket,
+  echo,
+  extraSocketReadBytes,
+} from "./test-support.ts";
 
 const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -133,8 +141,13 @@ test(
       await new Promise<void>((done) => setImmediate(done));
     }
     expect(received).toBe(size);
-    expect(maxQueue).toBeLessThan(262_144);
-    expect(maxGatewayQueue).toBeLessThan(524_288);
+    expect(maxQueue).toBeLessThan(262_144 + extraSocketReadBytes);
+    // What the gateway holds per download: the upstream response's read buffer (its 64 KiB
+    // high-water mark plus one socket read) and the browser response's write queue. Node reads
+    // 64 KiB at a time, which stays under 512 KiB. Bun reads up to 512 KiB at once and hands the
+    // whole read to the response, so its peak sits one Bun read above Node's: the bound is the
+    // same design bound plus that read, and it stays flat however much of the 50 MiB has gone.
+    expect(maxGatewayQueue).toBeLessThan(524_288 + extraSocketReadBytes);
   },
 );
 

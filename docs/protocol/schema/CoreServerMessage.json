@@ -209,6 +209,11 @@
     },
     {
       "properties": {
+        "grantTtlMs": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "headSeq": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -637,6 +642,67 @@
       },
       "required": [
         "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "type": "string"
+        },
+        "result": {
+          "oneOf": [
+            {
+              "properties": {
+                "grantTtlMs": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "ok": {
+                  "const": true,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok",
+                "grantTtlMs"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "code": {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                "message": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "ok": {
+                  "const": false,
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "ok",
+                "code",
+                "message"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "type": {
+          "const": "account.grant.refresh.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
       ],
       "type": "object"
     }

@@ -49,6 +49,7 @@ export * from "./orchestration-spawn.ts";
 export * from "./notifications.ts";
 export * from "./mcp.ts";
 export * from "./remote.ts";
+export * from "./machine-paths.ts";
 export * from "./machine-access.ts";
 export * from "./relay-channel.ts";
 
@@ -198,3 +199,5 @@ export * from "./storage.ts";
 export * from "./html.ts";
 export * from "./image-share.ts";
 export * from "./forge-inbox.ts";
+
+export { DelegationFailure } from "./delegation-failure.ts";

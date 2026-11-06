@@ -124,6 +124,25 @@ export class ThreadLiveness {
     }
     return { agentsRunning, operationsRunning };
   }
+  /**
+   * Something in the thread's local tree goes on: a turn runs or retries, a background task
+   * runs, a request waits on a person, or an input is being sent. Facts alone count, so work
+   * that started without a new run (a late background start) is seen too.
+   */
+  active(id: ThreadId): boolean {
+    const { repo } = this.ports;
+    return this.tree(id).some((owner) => {
+      const state = repo.state(owner);
+      return (
+        repo.pending.running(owner) ||
+        repo.sessionOpening(owner) ||
+        (state !== undefined &&
+          (Object.keys(state.indexes.runningTasks).length > 0 ||
+            Object.keys(state.indexes.pendingInteractions).length > 0 ||
+            Object.values(state.agents).some((record) => record.activeRun || record.retry)))
+      );
+    });
+  }
   /** Called after the durable cleanup fence has denied all new execution. */
   stop(id: ThreadId): Promise<void> {
     return this.stopOwned(id, () => {});

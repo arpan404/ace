@@ -28,7 +28,6 @@ export async function collectDoctorReport(
     [
       ...createDoctorChecks(
         createSystemProbes({
-          moduleOrigin: new URL("./index.ts", import.meta.url),
           dataDir: config.dataDir,
           port: config.port,
           env,

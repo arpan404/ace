@@ -1,6 +1,6 @@
 # Daemon releases
 
-The runtime is pinned to Node 26.12.1. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v26.12.1/SHASUMS256.txt). Bun's lockfile pins the JS and macOS node-pty inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
+The runtime is pinned to Node 26.12.1. The four archive hashes in `src/build.ts` come from the [official SHASUMS256.txt](https://nodejs.org/dist/v26.12.1/SHASUMS256.txt). Bun's lockfile pins the JS inputs. Vendored third-party dependencies retain license notices in the bundles and distribution files.
 
 Build from a committed checkout after `bun install --frozen-lockfile`, with Node 26.12.1 on PATH. The builder rejects other host runtime versions so tar/gzip output uses a fixed implementation. Generate a release authority outside the repository, or use an existing authority from the release secret manager. The build accepts only the public key. Keep the private key offline and outside this checkout, and never pass its contents as an argument or environment variable.
 
@@ -13,17 +13,14 @@ bun run --filter @ace/release build 1.0.0 darwin-x64 /secure/ace-public.pem
 
 ## Linux (linux-x64, linux-arm64)
 
-Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: node-pty's `pty.node`, the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
-
-node-pty 1.1.0 has no Linux prebuilds. `native linux-<arch>` rebuilds the locked package against Node 26.12.1 headers, records compiler provenance and writes checksum-pinned input JSON (`dist/native/linux-<arch>.json`) for the build. Do not reuse another host's binary, a different Node ABI or an unverified download.
+Linux releases are glibc-only and must run on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy) ([ADR 0093](../../docs/adr/0093-linux-release.md)). Everything ace compiles is therefore built inside a Debian 12 container (glibc 2.36, GCC 12), on a host of the target architecture: the workspace addon `descriptor.node` (built by `bun install`'s postinstall), the terminal guardian `group-keeper`, and the screen helper. The bundled Node 26.12.1 itself needs glibc 2.28. `tools/release/linux/setup-debian12.sh` prepares a fresh `debian:12` container as root: it installs the C/C++ toolchain and PipeWire headers, the checksum-pinned Node 26.12.1, Bun 1.4.0 and Rust 1.91.1. `.github/workflows/release.yml` runs the same steps on `ubuntu-24.04` and `ubuntu-24.04-arm`.
 
 ```sh
 # Inside the debian:12 container on a host of the target architecture, from the checkout:
 sh tools/release/linux/setup-debian12.sh
 export PATH="$HOME/.cargo/bin:$PATH"
 bun install --frozen-lockfile
-node tools/release/src/native.ts linux-arm64
-node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem tools/release/dist/native/linux-arm64.json
+node tools/release/src/build.ts 1.0.0 linux-arm64 /secure/ace-public.pem
 node tools/release/src/glibc-check.ts tools/release/dist/linux-arm64
 node tools/release/src/smoke.ts tools/release/dist/linux-arm64
 # The desktop release from the same container: AppImage, deb, tar.gz and latest-linux*.yml,
@@ -37,7 +34,7 @@ The Linux build stages the screen helper at `helpers/ace-screen-helper-linux`, b
 The deb installs `/opt/ace` and the `ace-desktop` command; the GUI never installs `/usr/bin/ace`, which stays the daemon CLI. It depends on electron-builder's default libraries plus ALSA (`libasound2t64 | libasound2`), which Electron links and minimal installs lack. Its postinst installs and loads two AppArmor profiles when the running AppArmor can parse them (abi 4.0; Ubuntu 23.10+ needs them, older systems skip them): `ace-desktop` for the Electron binary (electron-builder's profile) and `ace-chromium` for ace's downloaded headless Chrome under `~/.ace/chromium`. Both grant only unprivileged user namespaces, so Chromium's sandbox works without turning off `kernel.apparmor_restrict_unprivileged_userns`. Removing the package unloads and deletes both; upgrades keep them. The AppImage and tar.gz have no installer, so where user namespaces are restricted their launchers start Electron with `--no-sandbox` (the AppImage's AppRun; the tar.gz's `ace-desktop`, a launcher beside Electron's `ace-desktop-bin`, written by `scripts/linux-tarball.ts`) and the app offers a one-time setup in one sentence: through pkexec or run0 it installs a profile attached to that copy (the AppImage file, covering the `ace-*.AppImage` names its updates take in the same folder; or the tarball's two executables) plus ace-chromium, after which a restart runs sandboxed. Without a password prompt it offers the same commands to copy. The profile is inherited by everything the AppImage starts, so its AppRun's own probe passes and adds nothing. Under an AppImage, the `ace` command the app writes names the stable `.AppImage` file and mounts it per command (`--appimage-mount`), so it keeps working after the app quits.
 
 ```sh
-bun run --filter @ace/release build 1.0.0 linux-x64 /secure/ace-public.pem /verified/native-inputs.json
+bun run --filter @ace/release build 1.0.0 linux-x64 /secure/ace-public.pem
 bun run --filter @ace/release sign dist/linux-x64.json /secure/offline/ace-key.pem dist/linux-x64.sig
 # Sign each built target, then prepare publication without uploading anything.
 node tools/release/src/publication.ts tools/release/dist https://github.com/arpan404/ace/releases/download/v1.0.0 /secure/ace-public.pem
@@ -45,7 +42,7 @@ node tools/release/src/publication.ts tools/release/dist https://github.com/arpa
 
 Publication accepts any non-empty subset of the four targets, so Linux can ship before macOS signing is ready. A target is included when its `TARGET.json` is present, and then needs its signature and archive. The installer pins only the included targets and refuses the others by name before downloading anything. The Homebrew formula names all four archives, so it is written only for a full release.
 
-Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile, public key and native inputs must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish the archives, manifests and signatures of every built target, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME. It must not load node-pty into Electron itself.
+Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repeating a build with identical checkout, lockfile and public key must produce identical archive hashes. Sign the exact manifest bytes, including the final newline. Publish the archives, manifests and signatures of every built target, install.sh and install.sh.sha256 together. The desktop app should spawn `bin/node ace.mjs start` from this artifact and pass ACE_HOME.
 
 Publication also emits one `ace-cli-VERSION-TARGET.tgz` npm package per target, their SHA-256
 sidecars and `npx.json` with the matching commands. Publish them with the signed
@@ -65,7 +62,7 @@ reviewed installer and immutable `ACE_HOME/releases` directory, so npm cache
 eviction cannot remove their runtime. The packages are ready for publication;
 building them does not upload a release or claim an npm registry name.
 
-The first public release needs a reviewed production public key and native Linux inputs. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
+The first public release needs a reviewed production public key. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
 
 The Cursor runtime ships as the `@cursor/sdk` 1.0.35 runtime package, its installed dependency and peer closure, and the release target's pinned helper package. The SDK and its subpaths stay external to esbuild; `cursor-sdk-host.mjs` runs in the selected account's supervised process. Staging refuses unsupported targets, conflicting dependency versions, more than 64 graph entries or manifests over 64 KiB. Staging omits TypeScript declarations and source maps, retaining runtime JS, native helpers and license notices. Archive mode normalization preserves executable helpers. Build and publication both extract every completed archive through the supported updater before producing publication metadata. The archive retains the oldest supported updater limits of 2,048 entries and 512 MiB expanded bytes. The offline artifact guard writes and reopens a local SDK checkpoint without authentication or a provider turn.
 

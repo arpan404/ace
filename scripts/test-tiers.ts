@@ -5,7 +5,7 @@ export const tiers: readonly Tier[] = ["full", "fast", "process", "slow", "chang
 
 /** Vitest projects (see vitest.config.ts) that make up each budgeted tier. */
 export const fastProjects = ["unit", "web", "client-react"] as const;
-export const processProjects = ["process"] as const;
+export const processProjects = ["process", "node-process"] as const;
 export const slowProjects = ["slow-process", "browser-process", "history-scale"] as const;
 
 /** Per-file budgets in milliseconds; projects not listed have no budget. */
@@ -14,7 +14,86 @@ export const budgetMs: Readonly<Record<string, number>> = {
   web: 5_000,
   "client-react": 5_000,
   process: 30_000,
+  "node-process": 30_000,
 };
+
+/**
+ * Process suites that always run on Node, also in a run on Bun (the `node-process` project).
+ * Each covers code whose production runtime is not Bun.
+ */
+export const nodeOnlySuites = [
+  // The Worker runs on Cloudflare's workerd. Wrangler's test harness refuses to forward requests
+  // under Bun, whose fetch ignores the undici dispatcher Miniflare routes through.
+  "apps/relay-cloudflare/src/**/*.process.test.ts",
+  // A daemon and its clients through that same Worker harness; the daemon's relay path on Bun is
+  // covered against the self-hosted relay.
+  "apps/daemon/src/relay-cloudflare-e2e.process.test.ts",
+  // The self-hosted relay server ships on Node (apps/relay/Dockerfile). Bun's built-in `ws`
+  // has no fragment limit (`maxFragments`), which this suite checks the server enforces.
+  "apps/relay/src/abuse.process.test.ts",
+  // Their test preloads patch node:fs/promises inside the history worker. Bun's named imports of
+  // builtins don't see such patches, and Bun lets nothing replace a builtin module.
+  "packages/history-import/src/audit-scan.process.test.ts",
+  "packages/history-import/src/observed-reads.process.test.ts",
+  "packages/history-import/src/snapshot-bounds.process.test.ts",
+  "packages/history-import/src/snapshot-race.process.test.ts",
+  // The bench's telemetry preload sees workers through Node's worker_threads diagnostics channel
+  // and reaches them through inherited --import; Bun has neither.
+  "apps/daemon/src/bench-telemetry.process.test.ts",
+  // The Electron main process bundles provider-kit's process code and runs it on Node, where it
+  // takes koffi instead of bun:ffi and runs the probe worker on Node. These cover those paths.
+  "packages/provider-kit/src/process-on-node.process.test.ts",
+  // The main process runs its bundle on Electron's Node; this runs its toolchain probe on Node.
+  "apps/desktop/src/main/system/toolchains.process.test.ts",
+  // The main process binds kernel32 through the koffi the app ships, on Electron's Node; this
+  // loads it from the packaged layout on Node.
+  "apps/desktop/src/main/system/koffi.process.test.ts",
+  // The desktop main process runs the stall watchdog on Electron's Node, whose worker pauses the
+  // frozen main thread through node:inspector to read its stack. Bun's node:inspector has no
+  // Debugger domain; what holds on both runtimes is in stall-watchdog.process.test.ts.
+  "packages/diagnostics/src/stall-watchdog-stacks.process.test.ts",
+];
+/**
+ * Projects that run on Node in a run on Bun: the Node-only suites, and the web and client-react
+ * jsdom projects, whose code runs in browsers (Vite builds it; Node is what its tooling runs on).
+ */
+export const nodeProjects: readonly string[] = ["node-process", "web", "client-react"];
+
+/**
+ * A run on Bun in two passes: Bun runs every selected project but the Node ones, then Node runs
+ * the selected Node ones. `undefined` skips a pass; an empty list means every project, as in
+ * projectsFor (Bun's config leaves the Node projects out).
+ */
+export function splitByRuntime(projects: readonly string[]): {
+  bun: string[] | undefined;
+  node: string[] | undefined;
+} {
+  if (projects.length === 0) return { bun: [], node: [...nodeProjects] };
+  const bun = projects.filter((name) => !nodeProjects.includes(name));
+  const node = projects.filter((name) => nodeProjects.includes(name));
+  return {
+    bun: bun.length ? bun : undefined,
+    node: node.length ? node : undefined,
+  };
+}
+
+export interface PassResult {
+  exitCode: number;
+  /** Test files the pass ran, from its timings. */
+  files: number;
+}
+
+/**
+ * The exit code of a run made of passes. Each pass may select nothing (a filter can match only
+ * one runtime's suites), but a filtered run that ran no file at all fails, as Vitest does on Node:
+ * a mistyped filter must not pass.
+ */
+export function combinedExit(passes: readonly PassResult[], filtered: boolean): number {
+  const failed = passes.find((pass) => pass.exitCode !== 0);
+  if (failed) return failed.exitCode;
+  const files = passes.reduce((total, pass) => total + pass.files, 0);
+  return filtered && files === 0 ? 1 : 0;
+}
 
 export type BudgetTier = "fast" | "process";
 const budgetTier = (project: string): BudgetTier | undefined =>
@@ -31,6 +110,8 @@ export interface RunOptions {
   withSlow: boolean;
   /** test:changed only: the ref to diff against (default: merge-base with origin/main). */
   base: string | undefined;
+  /** Projects named with `--project`, added to the tier's; each runs on its own runtime. */
+  projects: string[];
   /** Arguments passed through to `vitest run`. */
   vitestArgs: string[];
 }
@@ -45,6 +126,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     withProcess: false,
     withSlow: false,
     base: undefined,
+    projects: [],
     vitestArgs: [],
   };
   for (let index = 0; index < rest.length; index++) {
@@ -57,13 +139,31 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     else if (tier === "changed" && arg === "--base") {
       options.base = rest[++index];
       if (!options.base) throw new Error("--base needs a git ref");
-    } else options.vitestArgs.push(arg);
+    } else if (arg === "--project") {
+      const name = rest[++index];
+      if (!name) throw new Error("--project needs a project name");
+      options.projects.push(name);
+    } else if (arg.startsWith("--project=")) options.projects.push(arg.slice("--project=".length));
+    else options.vitestArgs.push(arg);
   }
   return options;
 }
 
-/** The Vitest projects a run selects; an empty list means every project. */
-export function projectsFor(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">) {
+/**
+ * The Vitest projects a run selects; an empty list means every project. Projects named with
+ * `--project` join the tier's, as Vitest's own flag would, and go through the runner so a Bun run
+ * sends each to the pass for its runtime instead of handing Bun a project its config leaves out.
+ */
+export function projectsFor(
+  options: Pick<RunOptions, "tier" | "withProcess" | "withSlow"> & { projects?: readonly string[] },
+): string[] {
+  const named = options.projects ?? [];
+  const tier = tierProjects(options);
+  if (named.length === 0) return tier;
+  return tier.length === 0 ? [...new Set(named)] : [...new Set([...tier, ...named])];
+}
+
+function tierProjects(options: Pick<RunOptions, "tier" | "withProcess" | "withSlow">): string[] {
   switch (options.tier) {
     case "full":
       return [];

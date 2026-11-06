@@ -423,7 +423,7 @@ const threadLinkPr = controlTool({
   riskClass: "thread-write",
   capability: "thread_control",
   description:
-    "Link this thread's pull request, by URL or number, so the person sees its state and CI here. Call it right after you open or find the PR. unlink removes a link (all: every link); the PR never changes.",
+    "Link this thread's pull request, by URL or number, so the person sees its state and CI here, right after you open or find it. unlink removes a link (all: every link); the PR never changes.",
   input: z
     .strictObject({
       url: z.url().max(2048).optional(),

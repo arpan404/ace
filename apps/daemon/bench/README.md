@@ -29,34 +29,44 @@ The event-loop histogram measures only the window; the daemon's drift monitor
 also includes startup. [Catalog idle measurements](idle-catalog-REPORT.md) record
 the investigation and its host-load limits.
 
-These scripts start the real daemon with a temporary `ACE_HOME`, an in-process scripted provider, real SQLite and a real WebSocket. They never send provider prompts. The synthetic provider deliberately has no native process, so active-session RSS excludes provider CLI memory. The harness adds a second engine sharing the daemon's Store to feed scripted frames through the normal persistence and delivery paths.
+These scripts start the real daemon on Bun, its runtime (scripts/runtimes.ts finds it when they run on Node), with a temporary `ACE_HOME`, an in-process scripted provider, real SQLite and a real WebSocket. They never send provider prompts. The synthetic provider deliberately has no native process, so active-session RSS excludes provider CLI memory. The harness adds a second engine sharing the daemon's Store to feed scripted frames through the normal persistence and delivery paths.
 
 ```sh
-# Source baseline: installed Node, development TypeScript entries.
-node apps/daemon/bench/measure.ts --output=baseline.json
+# Source baseline: Bun, development TypeScript entries.
+bun apps/daemon/bench/measure.ts --output=baseline.json
 
 # Production bundling, including every independently bundled worker/helper entry.
-node apps/daemon/bench/compile.ts --output=.ace-dev/perf-current
-node apps/daemon/bench/measure.ts --entry=.ace-dev/perf-current/ace.mjs --output=after.json.gz
+bun apps/daemon/bench/compile.ts --output=.ace-dev/perf-current
+bun apps/daemon/bench/measure.ts --entry=.ace-dev/perf-current/ace.mjs --output=after.json.gz
 
-# Optionally stage the release's pinned Node runtime as well.
-node apps/daemon/bench/compile.ts --output=.ace-dev/perf-release --runtime
-node apps/daemon/bench/measure.ts --entry=.ace-dev/perf-release/ace.mjs --node=.ace-dev/perf-release/bin/node --output=node24.json
+# Optionally stage the release's pinned runtime (Bun, shipped as bin/node) as well.
+bun apps/daemon/bench/compile.ts --output=.ace-dev/perf-release --runtime
+bun apps/daemon/bench/measure.ts --entry=.ace-dev/perf-release/ace.mjs --node=.ace-dev/perf-release/bin/node --output=release.json
 
 # Fresh thread identities exercise cache eviction and lifecycle ownership.
-node apps/daemon/bench/measure.ts --entry=.ace-dev/perf-current/ace.mjs --warmup-cycles=16 --fresh-cycles --collect --soak-ms=180000 --output=soak.json.gz
+bun apps/daemon/bench/measure.ts --entry=.ace-dev/perf-current/ace.mjs --warmup-cycles=16 --fresh-cycles --collect --soak-ms=180000 --output=soak.json.gz
 
 # Only the daemon budget measurement, without the repository test suites.
-node apps/daemon/bench/check.ts
+bun apps/daemon/bench/check.ts
 # Optional five-minute budget soak.
-node apps/daemon/bench/check.ts --long
+bun apps/daemon/bench/check.ts --long
 ```
 
-The daemon gate also measures idle CPU on a persisted store with 16 completed fake-provider sessions and 16,000 historical deltas. It closes the seeding daemon and reopens that store, warms up for 10 seconds, then samples process-wide `process.cpuUsage()` around a full 60-second idle interval. This includes worker CPU, uses the child's actual monotonic elapsed time, and adds no telemetry interval to the daemon. Average CPU must remain below 2% of one core; the existing 256 MiB RSS budget still applies. Timing qualification uses the same host-load gate before and after measurement. Run `node apps/daemon/bench/idle-cpu.ts` for a standalone source measurement, or pass a compiled bench entry as its first argument. The gate uses a freshly compiled entry.
+The daemon gate also measures idle CPU on a persisted store with 16 completed fake-provider sessions and 16,000 historical deltas. It closes the seeding daemon and reopens that store, warms up for 10 seconds, then samples process-wide `process.cpuUsage()` around a full 60-second idle interval. This includes worker CPU, uses the child's actual monotonic elapsed time, and adds no telemetry interval to the daemon. Average CPU must remain below 2% of one core; the existing 256 MiB RSS budget still applies. Timing qualification uses the same host-load gate before and after measurement. Run `bun apps/daemon/bench/idle-cpu.ts` for a standalone source measurement, or pass a compiled bench entry as its first argument. The gate uses a freshly compiled entry.
 
 Defaults sample idle memory 10 and 60 seconds after endpoint publication, then open 16 scripted sessions and ingest 1,000 timestamped deltas. Endpoint publication is the same startup boundary as the existing owner measurement; it is not completion of background indexing. Throughput includes provider frame translation, append, projection and receipt by the WebSocket subscriber. p99 uses synchronized epoch timestamps from processes on this machine. `--sessions=N`, `--events=N`, `--idle-ms=N` and `--soak-ms=N` change the workload. Short runs record their actual idle sampling interval and leave `idle60` null; their idle CPU is not meaningful.
 
-The measurement preload samples each JavaScript isolate every 500 ms and atomically publishes a small JSON file. RSS and CPU are process-wide; worker heaps are per-isolate and must not be added to RSS. OS threads also include libuv, V8 and filesystem-watcher threads. The preload subscribes to Node’s `worker_threads` diagnostic channel. Creation first publishes a pending identity; the worker acknowledges initialization through a measurement-only BroadcastChannel after atomically writing its first file. Only then does its parent publish it as live. Samples read the root and its acknowledged descendants directly, then reread their lifecycle generations to verify a coherent tree. Initialization and retirement transitions may resample for at most four seconds inside the unchanged outer deadline. A stable missing live file, malformed file, duplicate identity or cyclic ownership is fatal. On exit, the parent publishes its new generation before pruning the retired subtree’s files. Work and disk usage therefore follow live isolates rather than historical churn; churn latency still needs measurement at merge. See the [Node channel documentation](https://nodejs.org/api/diagnostics_channel.html#event-worker_threads). CPU numbers include this observer's overhead. The scripts currently measure Darwin/Linux thread counts.
+The measurement preload samples each JavaScript isolate every 500 ms and atomically publishes a small JSON file. RSS and CPU are process-wide; worker heaps are per-isolate and must not be added to RSS. OS threads also include libuv, V8 and filesystem-watcher threads. The preload subscribes to Node’s `worker_threads` diagnostic channel. Creation first publishes a pending identity; the worker acknowledges initialization through a measurement-only BroadcastChannel after atomically writing its first file. Only then does its parent publish it as live. Samples read the root and its acknowledged descendants directly, then reread their lifecycle generations to verify a coherent tree. Initialization and retirement transitions may resample for at most four seconds inside the unchanged outer deadline. A stable missing live file, malformed file, duplicate identity or cyclic ownership is fatal. On exit, the parent publishes its new generation before pruning the retired subtree’s files. Work and disk usage therefore follow live isolates rather than historical churn; churn latency still needs measurement at merge. See the [Node channel documentation](https://nodejs.org/api/diagnostics_channel.html#event-worker_threads). CPU numbers include this observer's overhead. On Bun a preload doesn't reach workers and nothing announces them on that channel, so every worker ace runs starts through `startWorker` (`@ace/provider-kit/worker`): with `ACE_BENCH_WORKER_PRELOAD` set it gives the worker those preloads and announces it on the channel as Node does. The preload holds that channel for the process's life; Bun drops a channel nothing references, and later announcements would reach nobody.
+
+Threads are counted by owner from their names (`threads.ts`: `sample` on macOS, `/proc` on Linux). Bun's runtime threads (its pool, GC helpers and collectors, JIT helpers, the allocator's scavenger) grow with the machine's cores, so they get only a loose ceiling of twice the cores plus 16, which a runaway pool reaches; each JS worker is one thread named `Worker`; the rest are the daemon's own. The gate (`budgets.ts`) fails when:
+
+- the OS runs more workers than telemetry saw ("not measured", never a zero);
+- more than one worker stays alive through the five-second startup idle floor (the stall watchdog stays);
+- more than four workers run under the workload;
+- once the workload's sessions end, a worker stays whose kind (its module's name, which `startWorker` reports) isn't on the gate's list, or two of one kind. An idle window grows when a worker is reused before `max(12 × base, 4 × current)` milliseconds after retirement, up to two minutes; long quiet resets it to the base five seconds. The list holds the watchdog, the notification worker the workload's first notification starts for good, and the usage and WAL-checkpoint workers, which the benchmark reuses periodically. The measurement waits up to 130 s for anything else to retire;
+- the daemon's own threads pass 4 idle or 6 active (measured 2–3 and 3–4 on Bun 1.4.4), or Bun's runtime threads pass twice the cores plus 16.
+
+The scripts measure Darwin/Linux threads only.
 
 `--collect` enables GC only in the measurement process. It measures retained main-isolate heap and process RSS before and after the soak, after warm-up. Main-isolate GC is followed by event-loop turns so weak native wrappers can finalize. With `--collect-workers`, the measurement preload also collects live worker heaps through an acknowledged file marker. Production never enables this marker. Without that flag, worker heaps are sampled without forced GC. Production does not expose or force GC. Without `--fresh-cycles`, the soak reopens the same 16 threads; with it, each cycle creates 16 new durable threads, finishes their turns and closes their sessions. The database deliberately retains the historical rows. The fixed-size engine caches must not retain every closed session. Soak samples also record each worker heap and identity. Compare RSS as well as heap: allocator/native growth can be invisible to `heapUsed`.
 
@@ -80,9 +90,9 @@ Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--
 
 ## Long-thread acceptance
 
-`node --expose-gc apps/daemon/bench/long-thread-reliability.ts` runs the fast acceptance workload: 10,000 initial items, 5,000 answered approvals followed by 5,000 pending approvals, 48 provider subagents, four large-gap reconnects, 64 KiB stdout bursts and a concurrent worker history publication. Pending approvals remain open through reconnects. It verifies item counts, exact committed text length, snapshot and frame budgets, retained memory and writes per delta, including a separate pending-approval write sample. Both write samples budget below 2,048 WAL bytes and one changed row per delta. `check:perf` includes this workload in the daemon gate.
+`bun --expose-gc apps/daemon/bench/long-thread-reliability.ts` runs the fast acceptance workload: 10,000 initial items, 5,000 answered approvals followed by 5,000 pending approvals, 48 provider subagents, four large-gap reconnects, 64 KiB stdout bursts and a concurrent worker history publication. Pending approvals remain open through reconnects. It verifies item counts, exact committed text length, snapshot and frame budgets, retained memory and writes per delta, including a separate pending-approval write sample. Both write samples budget below 2,048 WAL bytes and one changed row per delta. `check:perf` includes this workload in the daemon gate.
 
-`node --expose-gc apps/daemon/bench/long-thread-reliability.ts --long` seeds one million items and runs for two days. `--items=N`, `--cycles=N` and `--duration-ms=N` allow shorter investigations. The synthetic provider is a local Node fixture; it never invokes a provider CLI. Memory telemetry retains at most 128 samples, and SQLite checkpointing resumes after the isolated write-volume sample.
+`bun --expose-gc apps/daemon/bench/long-thread-reliability.ts --long` seeds one million items and runs for two days. `--items=N`, `--cycles=N` and `--duration-ms=N` allow shorter investigations. The synthetic provider is a local Node fixture; it never invokes a provider CLI. Memory telemetry retains at most 128 samples, and SQLite checkpointing resumes after the isolated write-volume sample.
 
 `long-thread-writes.ts` compares 1,000 one-character tokens, each preceded by a transport signal, on a WAL truncated immediately before measurement. `long-thread-snapshot.ts` compares the same 10,000-item, 5,000-approval, 48-subagent fixture on both branches. Run each copied script from its own worktree so workspace dependencies resolve to that checkout.
 
@@ -98,10 +108,18 @@ The owner prohibits executing tests, benchmarks, probes, mutation runs and CI du
 
 ## Idle import guard
 
-`check.ts` also runs `node apps/daemon/bench/idle-imports.ts`. The guard starts the
-source benchmark daemon in a temporary home with provider discovery disabled,
-observes actual module loads in the main isolate and startup workers, and includes
-background initialization before shutdown. It reports each forbidden dependency
+`check.ts` also runs `bun apps/daemon/bench/idle-imports.ts`. The guard starts the
+source benchmark daemon on Bun in a temporary home with provider discovery disabled,
+observes actual module loads in the main isolate and every worker ace starts, and
+includes background initialization before shutdown. Bun has no load hooks like Node's
+`registerHooks`, and its resolve hook never sees package imports, so a Bun preload
+hooks the loads of exactly the forbidden files. Workers get it through
+`ACE_BENCH_WORKER_PRELOAD`. Bun numbers workers from 1 across the process, so the hook
+logs each worker the factory announces and each isolate it ran in, and at the guard's
+close request the next worker id: every id below it must have been announced and must
+have run the hook, or the guard fails as not measured. A lint rule keeps `Worker` from
+being imported past the factory, and the CLI entry and the desktop drop the variable so
+it never reaches a person's daemon. It reports each forbidden dependency
 by name, including sharp, Cursor/Claude/OpenCode SDKs, browser/CDP clients, the ACP
 SDK and MCP SDKs. Source execution preserves names that a production bundle would
 otherwise hide. The separate bundled measurement still enforces the unchanged RSS,

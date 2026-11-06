@@ -74,7 +74,10 @@ pub const NO_REMOTE_DESKTOP: &str = "This desktop's screen-sharing portal has no
 /// share the whole desktop for a window (`KDE_WATCH_ONLY`), and Hyprland's portal (like other
 /// portals without it) has no RemoteDesktop at all: both are asked of ScreenCast alone and are watch-only.
 pub fn portal_route(desktop: &str, offer: &PortalOffer) -> PortalRoute {
-    if desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE")) {
+    if desktop
+        .split(':')
+        .any(|name| name.eq_ignore_ascii_case("KDE"))
+    {
         PortalRoute::ScreenCastOnly(KDE_WATCH_ONLY)
     } else if offer.remote_desktop.is_none() {
         PortalRoute::ScreenCastOnly(NO_REMOTE_DESKTOP)
@@ -117,9 +120,49 @@ pub fn stream_matches(asked: u32, source_type: Option<u32>) -> bool {
 }
 
 /// A tree request cannot silently switch the approved capture scope.
-pub fn scoped_target(requested: Option<&crate::protocol::Target>, active: Option<&crate::protocol::Target>) -> Result<()> {
+pub fn scoped_target(
+    requested: Option<&crate::protocol::Target>,
+    active: Option<&crate::protocol::Target>,
+) -> Result<()> {
     if requested.is_some() && requested != active {
-        return Err(Fault::new("target_gone", "Tree target differs from active approved target"));
+        return Err(Fault::new(
+            "target_gone",
+            "Tree target differs from active approved target",
+        ));
     }
     Ok(())
+}
+
+/// Report the effective route and each device granted by the active sharing session.
+pub fn portal_input_requirements(
+    route: PortalRoute,
+    sharing: bool,
+    devices: u32,
+) -> serde_json::Value {
+    let (state, message) = match route {
+        PortalRoute::ScreenCastOnly(reason) => ("n/a", reason),
+        PortalRoute::RemoteDesktop if !sharing => (
+            "prompt",
+            "Grant pointer and keyboard access in the sharing dialog on this Linux machine.",
+        ),
+        PortalRoute::RemoteDesktop if devices & 3 == 3 => (
+            "ready",
+            "The sharing session grants pointer and keyboard input.",
+        ),
+        PortalRoute::RemoteDesktop => (
+            "blocked",
+            "The sharing session did not grant every input device. Share again and allow the missing devices.",
+        ),
+    };
+    let device_state = |bit| match route {
+        PortalRoute::ScreenCastOnly(_) => "n/a",
+        PortalRoute::RemoteDesktop if !sharing => "prompt",
+        PortalRoute::RemoteDesktop if devices & bit != 0 => "ready",
+        PortalRoute::RemoteDesktop => "blocked",
+    };
+    serde_json::json!([
+        {"kind":"remoteDesktopPortal", "state":state, "title":"Remote desktop input", "message":message},
+        {"kind":"portalPointer", "state":device_state(2), "title":"Shared pointer input", "message":"Pointer input requires the pointer grant in the active RemoteDesktop sharing session."},
+        {"kind":"portalKeyboard", "state":device_state(1), "title":"Shared keyboard input", "message":"Keyboard input requires the keyboard grant in the active RemoteDesktop sharing session."}
+    ])
 }

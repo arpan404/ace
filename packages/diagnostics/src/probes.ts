@@ -25,6 +25,35 @@ export function portAvailable(port: number, signal: AbortSignal): Promise<boolea
     server.listen(port, "127.0.0.1", () => server.close(() => finish(true)));
   });
 }
+/**
+ * Runs in a child on the daemon's runtime: opens a terminal with `Bun.spawn({ terminal })`,
+ * runs a command that prints a marker, and passes only when the marker comes back through the
+ * terminal and the command exits cleanly. It decides once both the command has exited and the
+ * terminal's output has ended (or 2 s after the exit), since the two arrive separately. Not
+ * Bun, no terminal.
+ */
+const terminalCheck = `
+const marker = "ace-terminal-" + "check";
+if (typeof Bun !== "object") process.exit(2);
+const command = process.platform === "win32"
+  ? [process.env.ComSpec ?? "cmd.exe", "/d", "/c", "echo " + marker]
+  : ["/bin/sh", "-c", "printf " + marker];
+let output = "", ended, code;
+const decide = () => {
+  if (code === undefined || !ended) return;
+  const ok = code === 0 && output.includes(marker);
+  process.stdout.write(ok ? "terminal ok\\n" : "terminal failed\\n", () => process.exit(ok ? 0 : 1));
+};
+const child = Bun.spawn(command, { terminal: { cols: 80, rows: 24,
+  data(_terminal, bytes) { output += new TextDecoder().decode(bytes); },
+  exit() { setImmediate(() => { ended = true; decide(); }); },
+} });
+child.exited.then((exitCode) => {
+  code = exitCode;
+  decide();
+  setTimeout(() => { ended = true; decide(); }, 2000);
+});
+`;
 export interface SystemProbeRuntime {
   probe: typeof probeOutput;
   statfs: (directory: string) => Promise<{ bavail: number; bsize: number }>;
@@ -36,8 +65,6 @@ export function createSystemProbes(
     port: number;
     env: NodeJS.ProcessEnv;
     timeoutMs?: number;
-    /** Module origin in the daemon installation, independent of the invoking cwd. */
-    moduleOrigin?: URL;
     /** Starts the Chromium ace's browser runs (`@ace/browser/engine-check`). */
     browserEngine?: (signal: AbortSignal) => Promise<Verdict>;
   },
@@ -79,17 +106,14 @@ export function createSystemProbes(
         ? result.stdout
         : undefined;
     },
+    // A real terminal on the daemon's runtime: a short command through Bun's own PTY.
     pty: async (signal) => {
-      const source = `const {createRequire}=await import("node:module");const require=createRequire(${JSON.stringify((options.moduleOrigin ?? import.meta.url).toString())});const pty=require("node-pty");if(typeof pty.spawn!=="function")process.exit(1)`;
-      return (
-        (
-          await runtime.probe(process.execPath, ["--input-type=module", "-e", source], {
-            timeoutMs,
-            env: options.env,
-            signal,
-          })
-        ).code === 0
-      );
+      const result = await runtime.probe(process.execPath, ["-e", terminalCheck], {
+        timeoutMs,
+        env: options.env,
+        signal,
+      });
+      return result.code === 0 && result.stdout.includes("terminal ok");
     },
     chromium: async (signal) =>
       options.browserEngine

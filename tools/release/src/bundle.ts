@@ -1,6 +1,5 @@
 import { build, type PluginBuild } from "esbuild";
 import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
-import { stagePtyRuntime } from "./pty-assets.ts";
 import {
   guardianBundlePath,
   guardianSourcePath,
@@ -9,7 +8,7 @@ import {
 import { readFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
-export { stageNativeFiles } from "./native-assets.ts";
+import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
 export { createReleaseArchive, validateReleaseArchive, releaseFiles } from "./archive.ts";
 export { createNpxPackage } from "./npx-package.ts";
 export {
@@ -33,12 +32,13 @@ export async function bundleDaemon(
     target: "node26",
     mainFields: ["module", "main"],
     format: "esm" as const,
-    external: ["node-pty", ...runtimePackages.map((pkg) => pkg.name)],
+    external: runtimePackages.map((pkg) => pkg.name),
     legalComments: "eof" as const,
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },
     plugins: [
+      daemonWithoutKoffi,
       {
         name: "release-paths",
         setup(ctx: PluginBuild) {
@@ -54,6 +54,11 @@ export async function bundleDaemon(
               let contents = await readFile(args.path, "utf8");
               for (const [source, worker, output] of [
                 ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],
+                [
+                  "/commands/src/posix-worker-client.ts",
+                  "./posix-worker.ts",
+                  "./commands-posix-worker.mjs",
+                ],
                 [
                   "/files/src/exclusive-rename.ts",
                   "./rename-worker.ts",
@@ -208,7 +213,6 @@ export async function bundleDaemon(
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
-  inputs.add(await stagePtyRuntime(repo, root, target));
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
   );
@@ -233,6 +237,7 @@ export async function bundleDaemon(
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
     ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],
+    ["packages/commands/src/posix-worker.ts", "commands-posix-worker.mjs"],
     ["packages/search/src/query-worker.ts", "search-query-worker.mjs"],
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
@@ -269,5 +274,6 @@ export async function bundleDaemon(
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   // esbuild reports output paths relative to the working directory.
   await assertAsciiScripts(scripts.map((path) => resolve(path)));
+  await assertNoKoffi(scripts.map((path) => resolve(path)));
   return [...inputs];
 }

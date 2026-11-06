@@ -1,8 +1,9 @@
 import { EventEmitter } from "node:events";
 import type { Transferable, WorkerOptions } from "node:worker_threads";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
-import { incompatibleData } from "@ace/provider-kit/incompatible-data";
-import { Reply, Envelope } from "./contracts.ts";
+import { incompatibleData, revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
+import { Reply, Envelope, Refusal } from "./contracts.ts";
+import { readerMemoryLimitCode } from "./reader-process.ts";
 
 /** A crashed isolate releases its heap; retries keep the durable catalog and bounded RPC queue. */
 export class RecoveringWorker extends EventEmitter {
@@ -18,6 +19,8 @@ export class RecoveringWorker extends EventEmitter {
   private entry: URL;
   private options: WorkerOptions;
   private runtime: IdleWorkerRuntime;
+  /** How the previous reader ended, for the next one's crash ledger. */
+  private lastExit: "crash" | "memory-limit" | undefined;
   constructor(entry: URL, options: WorkerOptions, runtime: IdleWorkerRuntime) {
     super();
     this.entry = entry;
@@ -29,10 +32,19 @@ export class RecoveringWorker extends EventEmitter {
   }
   start(): void {
     if (this.closing || this.worker) return;
-    const worker = new IdleWorker(this.entry, this.options, this.runtime);
+    const worker = new IdleWorker(
+      this.entry,
+      { ...this.options, workerData: withLastExit(this.options.workerData, this.lastExit) },
+      this.runtime,
+    );
     this.worker = worker;
     worker.on("message", (input: unknown) => {
       if (this.worker !== worker) return;
+      const refusal = Refusal.safeParse(input).data;
+      if (refusal) {
+        failed(revivedIncompatibleData(refusal.refused));
+        return;
+      }
       const reply = Reply.safeParse(input).data;
       if (reply?.id === 0) {
         this.available = true;
@@ -67,13 +79,18 @@ export class RecoveringWorker extends EventEmitter {
       this.available = false;
       this.queued = [];
       this.recovering = true;
+      // A watchdog kill strikes on process-wide memory, so the next reader can't tell from its
+      // marks alone which source was the cause (crash-ledger.ts).
+      this.lastExit = readerMemoryLimit(error) ? "memory-limit" : "crash";
       this.emit("recovery", true);
       this.emit("error", error);
-      void worker.terminate().catch(() => undefined);
+      // The replacement starts only once this reader has gone (on Windows a stop is not
+      // immediate), so two never run over the same index.
+      const gone = worker.terminate().catch(() => undefined);
       const milliseconds = Math.min(30000, 1000 * 2 ** Math.min(this.attempt++, 5));
       this.stopRetry = this.runtime.delay(() => {
         this.stopRetry = undefined;
-        this.start();
+        void gone.then(() => this.start());
       }, milliseconds);
     };
     worker.on("error", failed);
@@ -105,4 +122,14 @@ export class RecoveringWorker extends EventEmitter {
     this.worker = undefined;
     return worker ? worker.terminate() : 0;
   }
+}
+
+function readerMemoryLimit(error: Error): boolean {
+  return "code" in error && error.code === readerMemoryLimitCode;
+}
+
+/** The reader's options, telling it how the reader before it ended. */
+function withLastExit(data: unknown, lastExit: "crash" | "memory-limit" | undefined): unknown {
+  if (lastExit === undefined || typeof data !== "object" || data === null) return data;
+  return { ...data, lastExit };
 }

@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
-    "@ace/provider-kit": "workspace:*",
+    "@ace/provider-kit": "workspace:*"
+  },
+  "devDependencies": {
     "node-pty": "^1.1.0"
   }
 }

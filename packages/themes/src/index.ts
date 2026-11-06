@@ -6,6 +6,7 @@
 export * from "./accent.ts";
 export * from "./accent-fit.ts";
 export * from "./backdrops.ts";
+export * from "./chart.ts";
 export * from "./colour.ts";
 export * from "./glass-floor.ts";
 export * from "./palettes.ts";

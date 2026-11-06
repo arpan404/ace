@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
-import { DatabaseSync } from "node:sqlite";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { mkdtemp, mkdir, rm, writeFile, readFile, readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -88,36 +90,62 @@ test("an explicitly empty original inventory can remove databases introduced by 
 
 test("a rollback snapshot finishes as one consistent copy while another connection keeps writing", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-snapshot-writer-"));
-  const writer = new DatabaseSync(join(root, "events.sqlite"));
-  let writes: ReturnType<typeof setInterval> | undefined;
+  const path = join(root, "events.sqlite");
+  const setup = new DatabaseSync(path);
+  setup.exec("PRAGMA journal_mode=WAL; CREATE TABLE content(value BLOB)");
+  const insert = setup.prepare("INSERT INTO content VALUES(randomblob(4000))");
+  setup.exec("BEGIN");
+  // About 24 MB: dozens of backup steps, each one a chance for a write to restart the copy.
+  for (let row = 0; row < 6_000; row++) insert.run();
+  setup.exec("COMMIT");
+  setup.close();
+  // The daemon writes from its own process, so writes go on even while a copy step holds the
+  // updater's thread (Bun copies in one synchronous step).
+  const writer = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `import { DatabaseSync } from "node:sqlite";
+      const db = new DatabaseSync(process.env.ACE_DB, { timeout: 5000 });
+      const insert = db.prepare("INSERT INTO content VALUES(randomblob(4000))");
+      let first = true;
+      setInterval(() => {
+        insert.run();
+        if (first) process.stdout.write("writing\\n");
+        first = false;
+      }, 1);`,
+    ],
+    { env: { ...process.env, ACE_DB: path }, stdio: ["ignore", "pipe", "inherit"] },
+  );
+  const exited = once(writer, "exit");
   try {
-    writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE content(value BLOB)");
-    const insert = writer.prepare("INSERT INTO content VALUES(randomblob(4000))");
-    writer.exec("BEGIN");
-    // About 24 MB: dozens of backup steps, each one a chance for a write to restart the copy.
-    for (let row = 0; row < 6_000; row++) insert.run();
-    writer.exec("COMMIT");
-    writes = setInterval(() => insert.run(), 1);
+    await once(writer.stdout, "data");
     const snapshot = join(root, "snapshot");
     const finished = snapshotDatabases(root, snapshot).then(() => "finished" as const);
     const stalled = new Promise<"stalled">((resolve) =>
       setTimeout(resolve, 30_000, "stalled").unref(),
     );
     expect(await Promise.race([finished, stalled])).toBe("finished");
-    clearInterval(writes);
+    // Writes continue after the copy, so the live database ends up ahead of it.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    writer.kill();
+    await exited;
     const copy = new DatabaseSync(join(snapshot, "events.sqlite"), { readOnly: true });
+    const live = new DatabaseSync(path, { readOnly: true });
     try {
       expect(copy.prepare("PRAGMA integrity_check").get()?.integrity_check).toBe("ok");
       const copied = Number(copy.prepare("SELECT count(*) AS rows FROM content").get()?.rows);
-      const live = Number(writer.prepare("SELECT count(*) AS rows FROM content").get()?.rows);
+      const current = Number(live.prepare("SELECT count(*) AS rows FROM content").get()?.rows);
       expect(copied).toBeGreaterThanOrEqual(6_000);
-      expect(copied).toBeLessThan(live);
+      expect(copied).toBeLessThan(current);
     } finally {
       copy.close();
+      live.close();
     }
   } finally {
-    clearInterval(writes);
-    writer.close();
+    writer.kill();
+    await exited;
     await rm(root, { recursive: true, force: true });
   }
 });

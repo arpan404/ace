@@ -1,8 +1,9 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { WorkerOptions } from "node:worker_threads";
 import { type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { RecoveringWorker } from "./recovering-worker.ts";
 import { validateIndexPath } from "./index-path.ts";
+import { ReaderProcess, systemReaderRuntime, type ReaderProcessRuntime } from "./reader-process.ts";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
 import { Agent, ThreadId } from "@ace/protocol/entities";
 import {
@@ -32,7 +33,10 @@ export type { HistorySession } from "@ace/protocol/history";
 
 export interface HistoryRuntime {
   delay?: IdleWorkerRuntime["delay"];
+  /** The reader process's memory watchdog: its limit, sampler and clock. */
+  reader?: Partial<ReaderProcessRuntime>;
 }
+export { readerMemoryLimitBytes, readerMemoryError } from "./reader-process.ts";
 const ImportedAgents = z.array(Agent).max(512);
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 const Progress = z.object({
@@ -42,20 +46,26 @@ const Progress = z.object({
 /** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
 export async function openHistory(
   options: HistoryOptions,
-  spawnWorker: (url: URL, options: WorkerOptions) => Worker = (url, workerOptions) =>
-    new Worker(url, workerOptions),
+  spawnWorker?: (url: URL, options: WorkerOptions) => WorkerPort,
   runtime: HistoryRuntime = {},
 ): Promise<HistoryService> {
+  // The reader runs in a process of its own, held to a memory limit (reader-process.ts).
+  // Callers may still inject a worker thread, as tests that observe the reader's internals do.
+  const reader = { ...systemReaderRuntime(), ...runtime.reader };
+  const spawn =
+    spawnWorker ??
+    ((url: URL, workerOptions: WorkerOptions) => new ReaderProcess(url, workerOptions, reader));
   const parsed = Options.parse(options);
   await validateIndexPath(parsed.indexPath, parsed.instances);
   const worker = new RecoveringWorker(
     new URL("./worker.ts", import.meta.url),
     {
-      workerData: parsed,
+      workerData: { ...parsed, memoryLimitBytes: reader.limitBytes },
+      // Applies to an injected worker thread; the reader process has its watchdog instead.
       resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
     },
     {
-      spawn: spawnWorker,
+      spawn,
       delay:
         runtime.delay ??
         ((callback, milliseconds) => {

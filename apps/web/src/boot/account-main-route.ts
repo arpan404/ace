@@ -44,6 +44,7 @@ export function accountMainRoute(
         deviceId: options.deviceId,
         transport: route.transport,
         credential: route.credential,
+        grant: () => grants.grant(),
       });
     },
   };

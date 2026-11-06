@@ -1,12 +1,21 @@
 import type { Credential } from "./credentials.ts";
 import type { DeviceId, HostId } from "@ace/protocol";
 
+/** A refusal one path heard (a 4xxx close from the relay or the daemon). */
+export interface PathRefusal {
+  code: number;
+  reason: string;
+}
 export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  /** The socket closed, with its close code and the peer's reason when it gave one. */
-  close(code: number, reason?: string): void;
+  /**
+   * The socket closed, with its close code and the peer's reason when it gave one. A race of
+   * paths that ends as a drop passes `refused` when a path was refused: why it can't connect
+   * while it retries.
+   */
+  close(code: number, reason?: string, refused?: PathRefusal): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;
@@ -20,6 +29,12 @@ export interface Transport {
    * returns credit as it reads). Absent: the hello asks for none.
    */
   readonly flowControl?: readonly string[];
+  /**
+   * The credential this transport opened with (a relay attempt fetches its own grant or ticket
+   * to dial): its hello carries this one rather than the route's, so concurrent attempts on
+   * one route never take each other's.
+   */
+  credential?(): Promise<Credential>;
   open(events: TransportEvents): void;
   send(text: string): void;
   close(): void;
@@ -92,6 +107,12 @@ export interface ClientOptions {
     options: RequestOptions,
   ): AsyncGenerator<import("./attachment-types.ts").AttachmentFrame>;
   credential(): Promise<Credential>;
+  /**
+   * A fresh ace account device grant, for an account device (ADR 0111). An account socket stays
+   * open only while its grant lasts, so the connection sends a new one on each open socket
+   * before it runs out (ADR 0114). None: the socket is closed at expiry and reconnects.
+   */
+  grant?(): Promise<string>;
   storage: Storage;
   /**
    * Where thread and thread-list views keep read snapshots between sessions, so a reload paints

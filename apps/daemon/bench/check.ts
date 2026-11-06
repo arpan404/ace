@@ -3,7 +3,7 @@ import { checkIdleImports } from "./idle-imports.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
-import { cpus, tmpdir, loadavg } from "node:os";
+import { availableParallelism, cpus, tmpdir, loadavg } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
 import {
@@ -12,10 +12,19 @@ import {
   readFreshMeasurement,
   checkBudgets,
 } from "@ace/perf-kit";
+import { bunBinary } from "../../../scripts/runtimes.ts";
+import {
+  IdleThreadSample,
+  runtimeThreadCeiling,
+  ThreadSample,
+  threadViolations,
+} from "./budgets.ts";
 
 const run = promisify(execFile);
+// Every phase runs on Bun, the daemon's runtime, whichever runtime started the gate.
+const bun = bunBinary();
 const runTimed = (args: string[], options: { cwd: string; timeout: number; maxBuffer?: number }) =>
-  runSubprocess(run, process.execPath, args, options, (stdout) => {
+  runSubprocess(run, bun, args, options, (stdout) => {
     process.stdout.write(stdout);
   });
 function phase<T>(name: string, measure: () => Promise<T>): Promise<T> {
@@ -36,11 +45,13 @@ const root = resolve(import.meta.dirname, "../../..");
 const long = process.argv.includes("--long");
 const bytes = z.number().nonnegative();
 const memory = z.object({ rss: bytes, heapUsed: bytes });
-const Sample = z.object({ memory, threads: z.number().int(), workers: z.array(z.unknown()) });
+const Sample = z.object({ memory, workers: z.array(z.unknown()) });
 const Measurement = z.object({
   startupMs: bytes,
   idle10: Sample,
-  active: Sample,
+  idleThreads: IdleThreadSample,
+  settledThreads: ThreadSample,
+  active: Sample.extend(ThreadSample.shape),
   eventsPerSecond: bytes,
   p99Ms: bytes,
   shutdownMs: bytes,
@@ -49,13 +60,33 @@ const Measurement = z.object({
   soak: z.array(z.object({ elapsedMs: bytes, rss: bytes })),
 });
 const MiB = 1024 * 1024;
-// Headroom above the measured Node 24/26 values. The 150 MiB goal remains open.
+// The 150 MiB goal remains open. Threads are budgeted by owner (threads.ts): Bun's runtime
+// threads grow with the machine's cores and get only a loose core-scaled ceiling. Measured on
+// Bun 1.4.4:
+// - one worker alive through the startup idle floor, the stall watchdog; recurring workers can
+//   learn a longer window after reuse, so workload-retained workers are checked by kind below;
+// - 2-3 workers under the workload;
+// - after its sessions ended, the watchdog, the notification worker the workload's first
+//   notification starts for good, and its usage and WAL-checkpoint workers, which are reused
+//   periodically and so keep their grown idle windows (up to two minutes);
+// - 2-3 threads of the daemon's own at idle and 3-4 when active (the main thread, the file
+//   watcher's run loop, native helpers).
+// One leaked worker fails, idle or after the workload; the daemon's own threads get one thread
+// of headroom at idle and two when active over the most measured.
 const limits = {
   idleRss: 256 * MiB,
   startupMs: 5000,
-  idleThreads: 18,
   idleWorkers: 1,
-  activeThreads: 20,
+  activeWorkers: 4,
+  settledWorkers: [
+    "stall-watchdog-worker",
+    "notification-worker",
+    "usage-worker",
+    "wal-checkpoint-worker",
+  ],
+  idleOwnThreads: 4,
+  activeOwnThreads: 6,
+  runtimeThreads: runtimeThreadCeiling(availableParallelism()),
   eventsPerSecond: 300,
   p99Ms: 50,
   retainedHeapGrowth: 8 * MiB,
@@ -138,9 +169,10 @@ try {
             "--collect-workers",
             "--progress",
             "--fresh-cycles",
+            `--settle-workers=${limits.settledWorkers.join(",")}`,
             `--output=${output}`,
           ],
-          { cwd: root, timeout: long ? 360000 : 35000, maxBuffer: 4 * 1024 * 1024 },
+          { cwd: root, timeout: long ? 720000 : 420000, maxBuffer: 4 * 1024 * 1024 },
         ),
       );
       const data = Measurement.parse(JSON.parse(raw));
@@ -154,9 +186,12 @@ try {
       }
       maximum("idle RSS", data.idle10.memory.rss, limits.idleRss);
       maximumTiming("startup ms", data.startupMs, limits.startupMs);
-      maximum("idle OS threads", data.idle10.threads, limits.idleThreads);
-      maximum("idle JS workers", data.idle10.workers.length, limits.idleWorkers);
-      maximum("active OS threads", data.active.threads, limits.activeThreads);
+      violations.push(
+        ...threadViolations(
+          { idle: data.idleThreads, active: data.active, settled: data.settledThreads },
+          limits,
+        ),
+      );
       maximumTiming("p99 ms", data.p99Ms, limits.p99Ms);
       maximum(
         "retained heap growth",

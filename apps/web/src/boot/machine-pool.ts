@@ -8,6 +8,7 @@ import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/mach
 import type { KeyValueStorage } from "@ace/ui-core";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
+import { pairedUrls } from "./machine-routes.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -49,7 +50,7 @@ const timers = {
 };
 
 /** One dedicated client worker per machine; never shared between machines. */
-function dedicatedWorker(name: string, url: string): SpawnedWorker {
+function dedicatedWorker(name: string, urls: readonly string[]): SpawnedWorker {
   // Vite bundles the worker from this literal constructor call.
   const worker = new Worker(new URL("./machine-worker.ts", import.meta.url), {
     type: "module",
@@ -64,7 +65,8 @@ function dedicatedWorker(name: string, url: string): SpawnedWorker {
   };
   worker.addEventListener("error", fail);
   worker.addEventListener("messageerror", fail);
-  const ready = authorizeDaemonUrl(url).then(
+  // The desktop app allows each address this machine's paths dial before the worker starts.
+  const ready = Promise.all(urls.map((url) => authorizeDaemonUrl(url))).then(
     () => true,
     () => {
       fail();
@@ -112,6 +114,8 @@ function machineConfig(entry: MachineEntry, url: string, token: string): Machine
     seed: null,
     hostId: entry.hostId,
     ...(entry.target.kind === "relay" ? { relayHostId: entry.target.ticketReference } : {}),
+    ...(entry.paths?.length ? { paths: entry.paths } : {}),
+    ...(entry.lastPath ? { lastPath: entry.lastPath } : {}),
   };
 }
 
@@ -148,16 +152,16 @@ export function browserMachinePool(options: {
   return new MachinePool({
     directory,
     // A hidden or frozen window can't hear its workers; that silence must not end a connection.
-    remote: { scheduler: timers, visibility: documentVisibility },
+    remote: { scheduler: timers, visibility: documentVisibility, now: () => Date.now() },
     ...(options.account ? { account: options.account } : {}),
     spawn(entry, token) {
       // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
       if (entry.target.kind === "account")
         throw new ClientError("offline", "Account machines don't run in a machine worker");
+      const config = machineConfig(entry, entry.target.url, token);
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
-        : dedicatedWorker(`ace-machine-${entry.hostId}`, entry.target.url);
-      const config = machineConfig(entry, entry.target.url, token);
+        : dedicatedWorker(`ace-machine-${entry.hostId}`, pairedUrls(config, config.paths));
       return {
         port: worker.port,
         config,

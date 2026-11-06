@@ -24,7 +24,13 @@ import { activeDevice, allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
+import {
+  HostId,
+  DeviceId,
+  DeviceRevokedClose,
+  type ServerMessage,
+  type Notification,
+} from "@ace/protocol";
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { busyRefusal } from "./busy-refusal.ts";
 import { defaultPressure, Outbox } from "./outbox.ts";
@@ -35,6 +41,14 @@ import { readCore } from "./socket-reads.ts";
 import { admitUpgrades } from "./socket-upgrade.ts";
 import { createSocketCloser } from "./server-socket-close.ts";
 import { enrollNotifications, helloActor } from "./socket-hello.ts";
+import { accountDeviceActor, accountHello } from "./relay-hello.ts";
+import { accountGrantSocket, type AccountGrantSocket } from "./account-access/grant-socket.ts";
+import {
+  ACCESS_CHANGED_CLOSE,
+  ACCESS_CHANGED_REASON,
+  GRANT_EXPIRED_CLOSE,
+  GRANT_EXPIRED_REASON,
+} from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
 import { WireEncoder } from "./wire-encoder.ts";
@@ -210,7 +224,22 @@ export async function startServer(options: ServerOptions): Promise<{
     for (const [socket, device] of authenticated)
       if (device.revocable && device.id === id) {
         cleanups.get(socket)?.();
-        closer.gracefulClose(socket, 4003, "Device revoked");
+        closer.gracefulClose(
+          socket,
+          DeviceRevokedClose.shape.code.value,
+          DeviceRevokedClose.shape.reason.value,
+        );
+      }
+  });
+  // Account devices on any path keep access only while the machine stays on their account and
+  // they hold the current machine code; an account change closes every path at once (ADR 0114).
+  // Not as a revocation: the client reconnects and its next hello gets the refusal that fits.
+  const accountSockets = new Map<MainSocket, () => boolean>();
+  const stopAccountChange = options.machineAccount?.onChange(() => {
+    for (const [socket, admitted] of accountSockets)
+      if (!admitted()) {
+        cleanups.get(socket)?.();
+        closer.gracefulClose(socket, ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON);
       }
   });
   const createServiceSessions = createSocketRegistry();
@@ -281,8 +310,23 @@ export async function startServer(options: ServerOptions): Promise<{
       send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
-    // An account device holds admin only while the machine stays on its account (ADR 0111).
-    const stillAdmitted = () => relayed?.stillAdmitted?.() !== false;
+    // An account device holds admin only while the machine stays on its account (ADR 0111),
+    // whichever path its hello came by.
+    let accountAdmitted = relayed?.stillAdmitted;
+    let accountId = relayed?.account;
+    // An account device's main socket stays open only while it holds an unexpired grant.
+    let grant: AccountGrantSocket | undefined;
+    const holdGrant = (expiresAt: number | undefined, deviceId: DeviceId) => {
+      if (expiresAt === undefined || accountId === undefined) return;
+      grant = accountGrantSocket({
+        expiresAt,
+        account: accountId,
+        deviceId,
+        machine: options.machineAccount,
+        now: () => auth.now(),
+      });
+    };
+    const stillAdmitted = () => accountAdmitted?.() !== false;
     const authorize = (scope: import("@ace/protocol").DeviceScope) => {
       if (!stillAdmitted()) return false;
       const actor = authenticated.get(socket);
@@ -294,7 +338,9 @@ export async function startServer(options: ServerOptions): Promise<{
       socket,
       sessionId,
       local: isLocal,
-      canSubmitSecret: () => isLocal && authenticated.get(socket)?.revocable === false,
+      // The host's own credential only: an account device is never the host, on any path.
+      canSubmitSecret: () =>
+        isLocal && accountAdmitted === undefined && authenticated.get(socket)?.revocable === false,
       onPresence: (update) => {
         if (update.appState === "background") backgrounded.add(socket);
         else backgrounded.delete(socket);
@@ -317,8 +363,11 @@ export async function startServer(options: ServerOptions): Promise<{
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
-      hostCredential: () => relayed === undefined && authenticated.get(socket)?.revocable === false,
-      accountDevice: () => relayed?.account,
+      hostCredential: () =>
+        relayed === undefined &&
+        accountAdmitted === undefined &&
+        authenticated.get(socket)?.revocable === false,
+      accountDevice: () => accountId,
       access: {
         auth,
         pairing,
@@ -356,9 +405,15 @@ export async function startServer(options: ServerOptions): Promise<{
       } else cleanups.delete(socket);
       ticks.delete(socket);
       authenticated.delete(socket);
+      accountSockets.delete(socket);
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
+      if (grant?.expired()) {
+        cleanups.get(socket)?.();
+        closer.gracefulClose(socket, GRANT_EXPIRED_CLOSE, GRANT_EXPIRED_REASON);
+        return;
+      }
       if (auth.now() - lastActivity > (options.idleTimeoutMs ?? 60_000))
         socket.close(4008, "Idle timeout");
       outbox.tick();
@@ -400,7 +455,15 @@ export async function startServer(options: ServerOptions): Promise<{
             );
             return;
           }
-          if (frame.kind === "invalid") throw new Error("Message does not match the protocol");
+          if (frame.kind === "invalid") {
+            fail(
+              "invalid_message",
+              "Message does not match the protocol",
+              false,
+              frame.requestId ? { requestId: frame.requestId } : {},
+            );
+            return;
+          }
           message = frame.message;
         } else message = parseSocketMessage(frameValue);
       } catch {
@@ -416,20 +479,41 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        const actor = relayed ? relayed.actor : helloActor(message, auth, isLocal);
+        let actor: (Device & { revocable: boolean }) | undefined;
+        if (relayed) actor = relayed.actor;
+        else if (message.grant !== undefined) {
+          // A signed-in device is admin on every path, even one also paired (ADR 0114).
+          const admitted = await accountHello(message, message.grant, options.machineAccount);
+          if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
+          if (!admitted.device) {
+            if (admitted.refusal) send(admitted.refusal);
+            // A machine code refusal closes as the relay route reports it, so the client asks.
+            const code = admitted.refusal?.code ?? "unauthorized";
+            socket.close(code.startsWith("machine_code") ? 4011 : 4001, code);
+            return;
+          }
+          actor = accountDeviceActor(message.deviceId, auth.now());
+          accountAdmitted = admitted.stillAdmitted;
+          accountId = admitted.account;
+          // Dedicated channels end with their main connection's access; the main socket refreshes.
+          if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, message.deviceId);
+        } else actor = helloActor(message, auth, isLocal);
         if (!actor) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
+        if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
+        if (relayed) holdGrant(relayed.grantExpiresAt, actor.id);
         device = actor.id;
         trimmer = new WireTrimmer(message.trims);
-        peer.access = relayed
-          ? "paired"
-          : !actor.revocable
-            ? "host"
-            : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")
-              ? "desktop"
-              : "paired";
+        peer.access =
+          relayed || accountAdmitted
+            ? "paired"
+            : !actor.revocable
+              ? "host"
+              : actor.scopes.includes("desktop") || actor.scopes.includes("user-browser")
+                ? "desktop"
+                : "paired";
         if (message.channel !== undefined) peer.channel = message.channel;
         preAuth.authenticated(socket);
         authenticated.set(socket, actor);
@@ -481,6 +565,7 @@ export async function startServer(options: ServerOptions): Promise<{
           hostId,
           protocolVersion: 1,
           headSeq: options.store.headSeq(),
+          ...(grant ? { grantTtlMs: grant.ttlMs() } : {}),
         });
         for (const service of sessions) service.welcomed?.();
         return;
@@ -494,6 +579,19 @@ export async function startServer(options: ServerOptions): Promise<{
         case "ping":
           send({ type: "pong" });
           return;
+        case "account.grant.refresh": {
+          const { requestId } = message;
+          const result = grant
+            ? await grant.refresh(message.grant)
+            : ({
+                ok: false,
+                code: "unsupported",
+                message: "No account grant to refresh.",
+              } as const);
+          if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
+            send({ type: "account.grant.refresh.result", requestId, result });
+          return;
+        }
         case "command":
           await admitCommand(message.command, {
             options,
@@ -605,6 +703,7 @@ export async function startServer(options: ServerOptions): Promise<{
     machineUpdates?.close();
     updateHold.close();
     stopRevocation();
+    stopAccountChange?.();
     await closeListener(local);
     if (remote) await closeListener(remote);
     await closeServers();
@@ -651,6 +750,7 @@ export async function startServer(options: ServerOptions): Promise<{
       closing ??= new Promise<void>((resolve, reject) => {
         stopTimer();
         stopRevocation();
+        stopAccountChange?.();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();
         for (const socket of relaySockets) closer.gracefulClose(socket, 1001, "Daemon shutdown");

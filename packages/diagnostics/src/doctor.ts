@@ -165,16 +165,16 @@ export function createDoctorChecks(probes: DoctorProbes): Check[] {
       },
     },
     {
-      id: "node-pty",
-      fix: "Reinstall/rebuild node-pty for this Node or Electron ABI.",
+      id: "terminal",
+      fix: "Reinstall ace: its runtime could not open a terminal.",
       run: async (signal) => {
-        const loadable = await probes.pty(signal);
+        const works = await probes.pty(signal);
         return verdict(
-          loadable ? "ok" : "fail",
-          loadable
-            ? "node-pty loads for running ABI"
-            : "node-pty is missing or cannot load for running ABI",
-          "Reinstall/rebuild node-pty for this Node or Electron ABI.",
+          works ? "ok" : "fail",
+          works
+            ? "A terminal opens and runs a command"
+            : "A terminal could not open or run a command",
+          "Reinstall ace: its runtime could not open a terminal.",
         );
       },
     },

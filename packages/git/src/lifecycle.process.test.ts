@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
-import { execute, git, proxyGit, repository, scalar, scratch } from "./test-repo.ts";
+import {
+  execute,
+  idleBarrierScript,
+  git,
+  proxyGit,
+  repository,
+  scalar,
+  scratch,
+} from "./test-repo.ts";
 
 test("same-worktree operations wait for the earlier operation across service instances", async () => {
   const repo = await repository();
@@ -28,7 +36,7 @@ test("same-worktree operations wait for the earlier operation across service ins
     const checkpoints = await Promise.all([first, second]);
     process.stdout.write(JSON.stringify(checkpoints.map(checkpoint => [checkpoint.label, checkpoint.sequence])));
   `;
-  const output = await execute(process.execPath, ["--input-type=module", "--eval", script], {
+  const output = await execute(process.execPath, idleBarrierScript(script), {
     timeout: PROCESS_TEST_TIMEOUT,
   });
   expect(JSON.parse(output.stdout)).toEqual([

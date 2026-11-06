@@ -16,12 +16,30 @@ use crate::{
 };
 use capture::Capture;
 use pipe::Writer;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use target::Target;
 use uia::Automation;
 use windows::Win32::{System::WinRT::*, UI::HiDpi::*};
 pub struct Host {
+    startup: crate::inspection::Startup<Box<DesktopHost>>,
+}
+impl Host {
+    pub fn open(endpoint: &str) -> Result<Self> {
+        Ok(Self {
+            startup: crate::inspection::Startup::open(target::desktop_available(), || {
+                DesktopHost::open(endpoint).map(Box::new)
+            })?,
+        })
+    }
+    pub fn command(&mut self, request: &Request) -> Result<Value> {
+        match &mut self.startup {
+            crate::inspection::Startup::Desktop(host) => host.command(request),
+            crate::inspection::Startup::Inspection(host) => host.command(request),
+        }
+    }
+}
+struct DesktopHost {
     capture: Option<Capture>,
     target: Option<Target>,
     allowed: Vec<String>,
@@ -30,19 +48,21 @@ pub struct Host {
     automation: Automation,
     _apartment: Apartment,
 }
-impl Host {
+impl DesktopHost {
     pub fn open(endpoint: &str) -> Result<Self> {
         unsafe {
-            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)?;
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+                .map_err(|error| Error::from(error).context("SetProcessDpiAwarenessContext"))?;
         }
-        let apartment = Apartment::new()?;
+        let apartment = Apartment::new().map_err(|error| error.context("RoInitialize"))?;
         Ok(Self {
             capture: None,
             target: None,
             allowed: vec![],
             stream: None,
-            writer: Writer::open(endpoint)?,
-            automation: Automation::new()?,
+            writer: Writer::open(endpoint).map_err(|error| error.context("Create frame pipe"))?,
+            automation: Automation::new()
+                .map_err(|error| error.context("UI Automation initialization"))?,
             _apartment: apartment,
         })
     }
@@ -56,21 +76,9 @@ impl Host {
     }
     pub fn command(&mut self, request: &Request) -> Result<Value> {
         match request.op.as_str() {
-            "hello" => {
-                target::desktop_available()?;
-                Ok(json!({"version":2,"platform":"windows",
-                "capture":{"windows":true,"displays":true,"changeDriven":true},
-                "input":{"pointer":true,"keyboard":true,"scroll":true,"text":true},
-                "uiTree":true,"semanticActions":["press","focus","setValue","scroll","expand","select"],
-                "codecs":["jpeg"],"permissions":{"screen":"n/a","input":"granted"}}))
-            }
-            "permissions" => {
-                target::desktop_available()?;
-                Ok(if request.version == 1 {
-                    json!({"screenRecording":true,"accessibility":true})
-                } else {
-                    json!({"screen":"n/a","input":"granted"})
-                })
+            "hello" => Ok(crate::inspection::capabilities()),
+            "permissions" | "permissions.request" => {
+                Ok(crate::inspection::permissions(target::desktop_available()))
             }
             "targets" => target::inventory(),
             "start" => {
@@ -163,6 +171,7 @@ impl Host {
             }
             "ui.act" => {
                 let target = self.target()?.clone();
+                target.check_integrity()?;
                 let reference: String = request.get("ref")?;
                 let action: String = request.get("action")?;
                 self.automation
@@ -203,7 +212,7 @@ impl Host {
         Ok(())
     }
 }
-impl Drop for Host {
+impl Drop for DesktopHost {
     fn drop(&mut self) {
         self.capture = None;
     }

@@ -306,3 +306,37 @@ it("a Linux screenshot shows a change made while nobody was watching", async () 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it.runIf(process.platform !== "win32")(
+  "portal keyboard input works without AT-SPI while semantic actions require it",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "screen-portal-access-"));
+    const manager = new ScreenManager({
+      ...command,
+      platform: "linux",
+      env: { AT_SPI_DISABLED: "1" },
+      nextId: ids(),
+      recordingDirectory: directory,
+      publishArtifact: async () => {},
+    });
+    try {
+      await manager.enable(true);
+      const state = await manager.start(target);
+      manager.controller(state.sessionId, "human", "viewer");
+      await expect(
+        manager.input(
+          state.sessionId,
+          "human",
+          { kind: "key.press", key: "Enter", modifiers: [] },
+          "viewer",
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        manager.uiAct(state.sessionId, "human", { ref: "stable-entry", action: "press" }, "viewer"),
+      ).rejects.toThrow("Linux desktop access denied");
+    } finally {
+      await manager.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Prepares a Debian 12 (glibc 2.36) container, as root, to build ace's Linux release:
-# the C/C++ toolchain for node-pty, the workspace addon and the terminal guardian, Rust and the
+# the C/C++ toolchain for the workspace addon and the terminal guardian, Rust and the
 # PipeWire headers for the screen helper, Node 26.12.1 (checksum-pinned, the release runtime),
 # and Bun. Everything built here runs on Ubuntu 24.04+, Debian 12+, Fedora and Arch (Omarchy).
 # Used by .github/workflows/release.yml and for local builds (tools/release/README.md).
@@ -10,7 +10,7 @@ set -eu
 [ "$ID" = debian ] && [ "$VERSION_ID" = 12 ] || { echo 'Expected Debian 12' >&2; exit 1; }
 
 NODE_VERSION=26.12.1
-BUN_VERSION=1.4.0
+BUN_VERSION=1.4.4
 RUST_VERSION=1.91.1
 case "$(uname -m)" in
   x86_64) node_arch=x64; node_sha=0fd1eb7770598f52a21995edf6ed35fc690400fa437c2386af329519e9143132;;

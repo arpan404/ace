@@ -160,25 +160,32 @@ export function BrowserPip(props: {
   const MuteGlyph = props.muted ? SpeakerSlashIcon : SpeakerHighIcon;
   // The chrome shows while the person points at the window or tabs into it, and always where
   // nothing hovers (touch screens). State, not `:hover`: tests and touch drive real events.
-  const [revealed, setRevealed] = useState(false);
+  // Pointer and focus count apart: the pointer leaving never hides a focused control.
+  const [pointed, setPointed] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [touch] = useState(
     () => typeof matchMedia === "function" && matchMedia("(hover: none)").matches,
   );
-  const shown = revealed || touch;
-  // Glass over the video, never glass on glass: the window itself is solid.
+  const shown = pointed || focused || touch;
+  // Glass over the video, never glass on glass: the window itself is solid. Hidden chips are
+  // only transparent and let clicks through, never `visibility: hidden`: Tab must still reach
+  // their buttons, and reaching one is what shows them.
   const chip = shown
-    ? "absolute visible opacity-100 transition-opacity duration-(--motion-fast)"
-    : "absolute invisible opacity-0 transition-opacity duration-(--motion-fast)";
+    ? "absolute opacity-100 transition-opacity duration-(--motion-fast)"
+    : "absolute pointer-events-none opacity-0 transition-opacity duration-(--motion-fast)";
   return createPortal(
     <section
       aria-label={`Picture in picture: ${props.page.title}`}
       data-browser-pip=""
       style={{ right: geometry.right, bottom: geometry.bottom, width: geometry.width }}
       onPointerDownCapture={() => frontPip.set(() => threadId)}
-      onPointerEnter={() => setRevealed(true)}
-      onPointerLeave={() => setRevealed(false)}
-      onFocus={() => setRevealed(true)}
-      onBlur={() => setRevealed(false)}
+      onPointerEnter={() => setPointed(true)}
+      onPointerLeave={() => setPointed(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => {
+        // Focus moving between its own controls keeps the chrome up.
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
+      }}
       className={cn(
         "fixed flex flex-col overflow-hidden rounded-lg ace-floating-solid shadow-glass",
         front ? "z-41" : "z-40",

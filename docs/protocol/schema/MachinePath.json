@@ -1,0 +1,67 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinePath.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "fingerprint": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "loopback",
+            "lan",
+            "tailscale"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "examples": [
+            "https://192.168.1.4:7443",
+            "wss://relay.example.com"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "An https: or wss: URL with no credentials, query or fragment."
+        }
+      },
+      "required": [
+        "kind",
+        "url",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "enum": [
+            "relay",
+            "account"
+          ],
+          "type": "string"
+        },
+        "relayHostId": {
+          "pattern": "^[A-Z2-7]{52}$",
+          "type": "string"
+        },
+        "url": {
+          "examples": [
+            "https://192.168.1.4:7443",
+            "wss://relay.example.com"
+          ],
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "An https: or wss: URL with no credentials, query or fragment."
+        }
+      },
+      "required": [
+        "kind",
+        "url",
+        "relayHostId"
+      ],
+      "type": "object"
+    }
+  ]
+}

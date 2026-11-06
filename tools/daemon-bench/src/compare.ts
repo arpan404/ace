@@ -46,6 +46,9 @@ export interface Verdict {
 export function metricsOf(result: BenchResult): Record<string, number> {
   const out: Record<string, number> = {
     "idle.cpuPerMinute": result.idle.cpuPerMinute,
+    // Raw percent of one core: steadier than the normalized figure, whose calibration loop runs
+    // at a different speed on each runtime.
+    "idle.cpuPercent": result.idle.cpuPercent,
     "startup.heapUsed": result.startup.heapUsed,
     "startup.rss": result.startup.rss,
   };
@@ -140,7 +143,16 @@ export function staleBaselines(baseline: Baseline, standard: Workload): string[]
     .map(([name]) => name);
 }
 
-const nodeMajor = (version: string) => /^v?(\d+)/.exec(version)?.[1];
+/**
+ * The runtime line whose memory and idle costs hold: `node 26` for `v26.8.1`, `bun 1.4` for
+ * `bun 1.4.4`. Bun still changes its allocator and collector between minor versions.
+ */
+function runtimeLine(version: string): string | undefined {
+  const bun = /^bun (\d+\.\d+)\./.exec(version);
+  if (bun) return `bun ${bun[1]}`;
+  const node = /^v?(\d+)\./.exec(version);
+  return node ? `node ${node[1]}` : undefined;
+}
 
 function matches(pattern: string, metric: string) {
   const parts = pattern.split(".");
@@ -157,8 +169,12 @@ function matches(pattern: string, metric: string) {
 export function compare(measured: Measured, baseline: Baseline): Verdict[] {
   const { platform, metrics: actual } = measured;
   const own = baseline.platforms[platform];
-  // Memory and idle costs depend on the runtime: another Node major's numbers don't hold.
-  const sameRuntime = own !== undefined && nodeMajor(own.node) === nodeMajor(measured.node);
+  // Memory and idle costs depend on the runtime: another runtime line's (Node major, Bun minor)
+  // numbers don't hold.
+  const sameRuntime =
+    own !== undefined &&
+    runtimeLine(own.node) !== undefined &&
+    runtimeLine(own.node) === runtimeLine(measured.node);
   const others = Object.entries(baseline.platforms).filter(([name]) => name !== platform);
   if (own)
     requireSameWorkload(

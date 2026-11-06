@@ -24,7 +24,7 @@ Run from the main checkout (`~/Code/ace-next`). Every check passes before anythi
 4. `security find-identity -v -p codesigning` lists `Developer ID Application: $CSC_NAME`.
 5. `xcrun notarytool history --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER"` exits 0.
 6. `uname -m` is `arm64`. The build targets the host only, so this release is Apple silicon only.
-7. Node 26.12.1 for the build: download `node-v26.12.1-darwin-arm64.tar.gz` from nodejs.org into a new temp directory and check it against the `darwin-arm64` hash in `tools/release/src/node-runtime.ts`. The daemon archives refuse any other Node.
+7. Node 26.12.1 for the build (`nodeVersion` in `tools/release/src/daemon-runtime.ts`): download `node-v26.12.1-darwin-arm64.tar.gz` from nodejs.org into a new temp directory and check it against the line for that file in `https://nodejs.org/dist/v26.12.1/SHASUMS256.txt`. Release builds refuse any other Node. The app ships Bun (`bunVersion` in the same file), which the build downloads and checks itself.
 
 ## 2. Build
 

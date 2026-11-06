@@ -2730,6 +2730,30 @@
         "type"
       ],
       "type": "object"
+    },
+    {
+      "properties": {
+        "grant": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "account.grant.refresh",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "grant"
+      ],
+      "type": "object"
     }
   ]
 }

@@ -154,6 +154,11 @@ export class ClientHost {
   get clients(): number {
     return this.#entries.size;
   }
+  /** Whether any tab this worker serves is on screen; true while none has said otherwise. */
+  visible(): boolean {
+    for (const tab of this.#tabs) if (tab.visible) return true;
+    return this.#tabs.size === 0;
+  }
   /** @internal */
   join(tab: Tab, config: unknown): Entry {
     const target = this.#options.target(config);
@@ -186,10 +191,29 @@ export class ClientHost {
         linger: undefined,
       };
       const selection = client.connectionState();
-      created.unwatch = selection.subscribe(() => {
+      const stopState = selection.subscribe(() => {
         if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
+      const stopPath = client.activePath().subscribe(() => {
+        for (const member of created.tabs) member.connection();
+      });
+      // A move to another path ends what the daemon kept for the old socket, as a drop does.
+      let socket = client.connectionGeneration().getSnapshot();
+      const stopSocket = client.connectionGeneration().subscribe(() => {
+        const next = client.connectionGeneration().getSnapshot();
+        if (next === socket) return;
+        const moved = socket !== undefined && next !== undefined;
+        socket = next;
+        if (!moved) return;
+        created.generation++;
+        for (const member of created.tabs) member.connection(true);
+      });
+      created.unwatch = () => {
+        stopState();
+        stopPath();
+        stopSocket();
+      };
       this.#entries.set(target.key, created);
       entry = created;
     }
@@ -278,6 +302,10 @@ class Tab {
       this.drop();
     }
   }
+  /** Whether this tab says it is on screen. */
+  get visible(): boolean {
+    return this.#visible;
+  }
   /** Whether this tab has been silent too long to be alive; a tab with a lock never is. */
   silentSince(now: number, silence: number, hiddenSilence: number): boolean {
     if (this.#stopLock) return false;
@@ -293,14 +321,18 @@ class Tab {
     });
     return !this.#dropped;
   }
-  connection(): void {
+  /** Tell the tab how the connection stands; `moved` when it moved to another socket. */
+  connection(moved = false): void {
     const client = this.#entry?.client;
     if (!client) return;
-    if (client.state !== "ready") this.#channels?.reset();
+    if (moved || client.state !== "ready") this.#channels?.reset();
+    const generation = client.connectionGeneration().getSnapshot();
     this.#post({
       t: "connection",
       state: client.state,
       ...(client.error ? { error: errorShape(client.error) } : {}),
+      ...pathOf(client),
+      ...(generation === undefined ? {} : { generation }),
     });
   }
   #receive(data: unknown): void {
@@ -751,4 +783,10 @@ class Tab {
     this.#host.forget(this);
     this.#entry = undefined;
   }
+}
+
+/** The machine path a client's connection uses, when it moves between paths (ADR 0114). */
+function pathOf(client: { activePath(): { getSnapshot(): string | undefined } }) {
+  const path = client.activePath().getSnapshot();
+  return path ? { path } : {};
 }

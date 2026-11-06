@@ -6,6 +6,7 @@ import clientReactProject from "./packages/client-react/vitest.config.ts";
 import { isolateTestProject } from "./scripts/test-project-isolation.ts";
 import { FailureDetailsReporter } from "./scripts/test-failure-reporter.ts";
 import { TimingReporter } from "./scripts/test-timing-reporter.ts";
+import { nodeOnlySuites } from "./scripts/test-tiers.ts";
 
 /** React packages run in their own jsdom projects with their own Vite plugins. */
 const react = ["apps/web/**", "packages/client-react/**"];
@@ -29,6 +30,8 @@ const slowProcessSuites = [
   "tools/real-smoke/src/**/*.process.test.ts",
   "{packages,tools,apps}/*/src/**/*.perf.process.test.ts",
 ];
+// Under Bun, scripts/test-run.ts runs the Node-only suites in a separate pass on Node.
+const onBun = "bun" in process.versions;
 // Four workers by default; ACE_TEST_WORKERS raises it on machines with more cores.
 const workers = Number(process.env.ACE_TEST_WORKERS) || 4;
 
@@ -59,6 +62,7 @@ export default defineConfig({
             "packages/*/src/**/*.test.ts",
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
+            "apps/desktop/e2e/fixtures/*.test.ts",
             "apps/ios/bridge/**/*.test.ts",
             "scripts/*.test.ts",
           ],
@@ -72,6 +76,7 @@ export default defineConfig({
           name: "process",
           include: [
             "{packages,tools,apps}/*/src/**/*.process.test.ts",
+            "apps/desktop/e2e/fixtures/*.process.test.ts",
             "scripts/**/*.process.test.ts",
             historyWorkerReview,
           ],
@@ -81,6 +86,7 @@ export default defineConfig({
             ...browserStartupSuites,
             historyScaleSuite,
             ...slowProcessSuites,
+            ...nodeOnlySuites,
           ],
           maxWorkers: workers,
           sequence: { groupOrder: 1 },
@@ -94,6 +100,26 @@ export default defineConfig({
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },
+      ...(onBun
+        ? []
+        : [
+            {
+              test: {
+                name: "node-process",
+                include: nodeOnlySuites,
+                exclude: ["**/node_modules/**"],
+                maxWorkers: workers,
+                sequence: { groupOrder: 1 },
+                testTimeout: PROCESS_TEST_TIMEOUT,
+                hookTimeout: PROCESS_TEST_TIMEOUT,
+                globalSetup: [
+                  "./scripts/test-home-global-setup.ts",
+                  "./scripts/process-test-setup.ts",
+                ],
+                setupFiles: ["./scripts/test-home-setup.ts"],
+              },
+            },
+          ]),
       {
         test: {
           name: "slow-process",
@@ -140,11 +166,16 @@ export default defineConfig({
           setupFiles: ["./scripts/test-home-setup.ts"],
         },
       },
-      isolateTestProject(webProject, fileURLToPath(new URL("./apps/web", import.meta.url))),
-      isolateTestProject(
-        clientReactProject,
-        fileURLToPath(new URL("./packages/client-react", import.meta.url)),
-      ),
+      // Browser code: under Bun, scripts/test-run.ts runs these jsdom projects on Node.
+      ...(onBun
+        ? []
+        : [
+            isolateTestProject(webProject, fileURLToPath(new URL("./apps/web", import.meta.url))),
+            isolateTestProject(
+              clientReactProject,
+              fileURLToPath(new URL("./packages/client-react", import.meta.url)),
+            ),
+          ]),
     ],
   },
 });

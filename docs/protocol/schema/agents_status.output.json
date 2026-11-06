@@ -40,6 +40,38 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "failure": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "accountId": {
+                        "maxLength": 256,
+                        "type": "string"
+                      },
+                      "accountLabel": {
+                        "maxLength": 256,
+                        "type": "string"
+                      },
+                      "code": {
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "message": {
+                        "maxLength": 512,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "resetsAt": {
+                        "minimum": 0,
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "message"
+                    ],
+                    "type": "object"
+                  },
                   "id": {
                     "minLength": 1,
                     "type": "string"
@@ -75,6 +107,10 @@
                     "maximum": 9007199254740991,
                     "type": "integer"
                   },
+                  "result": {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
                   "role": {
                     "maxLength": 40,
                     "type": "string"
@@ -97,7 +133,8 @@
                       "done",
                       "failed",
                       "cancelled",
-                      "unknown"
+                      "unknown",
+                      "cancelling"
                     ],
                     "type": "string"
                   },
@@ -121,6 +158,11 @@
               "additionalProperties": false,
               "properties": {
                 "cancelled": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "cancelling": {
                   "maximum": 9007199254740991,
                   "minimum": 0,
                   "type": "integer"
@@ -163,7 +205,8 @@
                 "unknown",
                 "done",
                 "failed",
-                "cancelled"
+                "cancelled",
+                "cancelling"
               ],
               "type": "object"
             },
@@ -196,6 +239,38 @@
                       "type": "null"
                     }
                   ]
+                },
+                "failure": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "accountId": {
+                      "maxLength": 256,
+                      "type": "string"
+                    },
+                    "accountLabel": {
+                      "maxLength": 256,
+                      "type": "string"
+                    },
+                    "code": {
+                      "maxLength": 64,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "message": {
+                      "maxLength": 512,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "resetsAt": {
+                      "minimum": 0,
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
                 },
                 "outcome": {
                   "enum": [

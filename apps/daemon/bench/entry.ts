@@ -9,7 +9,7 @@ import {
 } from "@ace/daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
-import { getHeapCodeStatistics, queryObjects } from "node:v8";
+import * as v8 from "node:v8";
 import { DatabaseSync, StatementSync } from "node:sqlite";
 import { setImmediate } from "node:timers/promises";
 
@@ -51,6 +51,8 @@ const Request = z.discriminatedUnion("op", [
     count: z.number().int().positive().max(64),
     fresh: z.boolean().default(false),
   }),
+  /** Ends these threads' scripted sessions, as their turns finishing would. */
+  z.object({ id: z.number(), op: z.literal("finish"), threads: z.array(ThreadId) }),
   z.object({ id: z.number(), op: z.literal("idle-store") }),
   z.object({ id: z.number(), op: z.literal("idle-sample") }),
   z.object({ id: z.number(), op: z.literal("close") }),
@@ -86,6 +88,15 @@ process.on("message", (input: unknown) => {
         await engine.close();
         await daemon.close();
         process.disconnect?.();
+        return;
+      }
+      if (request.op === "finish") {
+        for (const id of request.threads) {
+          await provider.finish(id);
+          await engine.flush();
+        }
+        if (errors.length) throw new Error(String(errors[0]));
+        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
         return;
       }
       if (request.op === "idle-store") {
@@ -157,11 +168,15 @@ process.on("message", (input: unknown) => {
         await setImmediate();
         globalThis.gc();
         await setImmediate();
-        const native = {
-          statements: queryObjects(StatementSync),
-          databases: queryObjects(DatabaseSync),
-          code: getHeapCodeStatistics(),
-        };
+        // Bun's node:v8 has no queryObjects; there the counts are left out.
+        const native =
+          typeof v8.queryObjects === "function"
+            ? {
+                statements: v8.queryObjects(StatementSync),
+                databases: v8.queryObjects(DatabaseSync),
+                code: v8.getHeapCodeStatistics(),
+              }
+            : undefined;
         process.send?.({ id: request.id, threads: [], memory: process.memoryUsage(), native });
         return;
       }

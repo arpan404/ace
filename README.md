@@ -53,7 +53,8 @@ The generated [protocol reference](docs/protocol/README.md) covers WebSocket mes
 
 ### Prerequisites
 
-- **Bun** 1.3+ (package manager and script runner) and **Node 26+** (the daemon runtime).
+- **Bun** 1.4.4+ (package manager, script runner and the daemon runtime) and **Node 26+**
+  (release builds and tooling).
 - **macOS:** the Xcode Command Line Tools (`xcode-select --install`) for git, `cc` and `swiftc`
   (native addons and the screen helper). Full Xcode only for the iOS Simulator.
 - **Optional:** the Android SDK (`ANDROID_HOME`) for emulators; Rust (`cargo`) to build the
@@ -72,25 +73,24 @@ bun run check   # merge gate only: includes tests
 Every development command runs its processes side by side with prefixed logs (`daemon │`,
 `web │`, `desktop │`). Ctrl-C stops all of them; a second Ctrl-C kills them.
 
-| Command                          | What runs                                                                                                             |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `bun run dev`                    | The daemon in watch mode, the web Vite server, and Electron on the Vite URL (renderer HMR; main restarts)             |
-| `bun run dev:web`                | The daemon and the web app in your browser; prints a `#token=` link for the dev daemon                                |
-| `bun run dev:fake`               | The web app against the in-page fake daemon. No daemon, no providers                                                  |
-| `bun run dev:desktop:fake`       | Electron against the fake daemon                                                                                      |
-| `bun run daemon`                 | Only the daemon, in watch mode                                                                                        |
-| `bun run doctor`                 | The daemon's doctor checks against the dev data dir                                                                   |
-| `bun run desktop:build`          | An unsigned (ad-hoc signed) local app for this machine: macOS `.app` and dmg in `apps/desktop/dist/release`           |
-| `bun run desktop:package`        | The full platform package (see Packaging)                                                                             |
-| `bun run desktop:rebuild-native` | node-pty compiled for Electron with `@electron/rebuild`                                                               |
-| `bun run desktop:e2e`            | Playwright-for-Electron smoke test against the fake daemon (`ACE_E2E_ELECTRON=1`)                                     |
-| `bun run release:doctor`         | What this Mac has set up for a release: Developer ID, notarization, GitHub CLI ([releasing](docs/releasing.md))       |
-| `bun run release:build <v>`      | A release for this Mac's architecture, signed, notarized and verified, staged under `dist/releases/v<v>`              |
-| `bun run release:publish <v>`    | The staged release as a GitHub release, which installed apps update from                                              |
-| `bun run smoke:real`             | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
+| Command                       | What runs                                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `bun run dev`                 | The daemon in watch mode, the web Vite server, and Electron on the Vite URL (renderer HMR; main restarts)             |
+| `bun run dev:web`             | The daemon and the web app in your browser; prints a `#token=` link for the dev daemon                                |
+| `bun run dev:fake`            | The web app against the in-page fake daemon. No daemon, no providers                                                  |
+| `bun run dev:desktop:fake`    | Electron against the fake daemon                                                                                      |
+| `bun run daemon`              | Only the daemon, in watch mode                                                                                        |
+| `bun run doctor`              | The daemon's doctor checks against the dev data dir                                                                   |
+| `bun run desktop:build`       | An unsigned (ad-hoc signed) local app for this machine: macOS `.app` and dmg in `apps/desktop/dist/release`           |
+| `bun run desktop:package`     | The full platform package (see Packaging)                                                                             |
+| `bun run desktop:e2e`         | Playwright-for-Electron smoke test against the fake daemon (`ACE_E2E_ELECTRON=1`)                                     |
+| `bun run release:doctor`      | What this Mac has set up for a release: Developer ID, notarization, GitHub CLI ([releasing](docs/releasing.md))       |
+| `bun run release:build <v>`   | A release for this Mac's architecture, signed, notarized and verified, staged under `dist/releases/v<v>`              |
+| `bun run release:publish <v>` | The staged release as a GitHub release, which installed apps update from                                              |
+| `bun run smoke:real`          | Headless Chromium tour against a protected copy of owner data; [options and fixture mode](tools/real-smoke/README.md) |
 
 **Dev data is isolated and persistent.** The dev daemon uses `ACE_HOME=~/.ace/dev` on port 4343,
-and Electron keeps its window state, sessions and settings in `~/.ace/dev-electron`. Every
+and Electron keeps its window state, sessions, settings and logs in `~/.ace/dev-electron`. Every
 checkout and worktree shares this home, so dev threads and settings survive across branches,
 and none of it touches `~/.ace` or an installed app. Set `ACE_DEV_SEED=1` to copy the fake
 daemon's demo threads into an empty dev store before the daemon starts
@@ -106,11 +106,10 @@ a daemon on another machine, start the app with `ACE_DAEMON_URL=wss://host:port/
 device, rather than the host token printed by `ace token`. In the browser build, enter the
 address, paired-device token and paired device ID on the connection screen.
 
-**node-pty and Electron.** node-pty 1.x is a Node-API addon, so its npm prebuilds load in
-Electron's Node (ABI 149 in Electron 44) as well as in Node 26. The desktop app runs the daemon
-with Electron's own Node (`ELECTRON_RUN_AS_NODE`), never inside the Electron main process. Linux
-has no prebuilds: run `bun run desktop:rebuild-native` before `desktop:build` there, or whenever
-`bun run doctor` reports that node-pty cannot load.
+**Terminals and native calls.** The daemon runs on Bun: terminals use Bun's own PTY
+(`Bun.spawn({ terminal })`) and C or Win32 calls go through `bun:ffi`, so the daemon ships no
+node-pty or koffi. node-pty stays a development dependency of `@ace/terminal`, loaded only when
+tests open a terminal on Node.
 
 ### Troubleshooting
 
@@ -136,7 +135,9 @@ Use `bun run typecheck:clean` to remove the caches. See
 CI also runs `bun run typecheck:full`, checking every original program from source
 with fresh build info as an independent safety net for declaration inference.
 
-Tests run in separate unit and process projects with bounded concurrency. See
+Tests run in separate unit and process projects with bounded concurrency. They run on Bun,
+the daemon's runtime; the web and client-react jsdom projects and a few Node-only suites follow
+in a second pass on Node (`node` on PATH). See
 [process test reliability](docs/testing/process-tests.md) for the real-I/O suite
 inventory, shared fixtures and validation record. The owner requires tests to
 run only at merge; development verification uses the permitted static checks.
@@ -185,9 +186,9 @@ any staged binary is built for another architecture.
   `ace-chromium` while a standalone daemon or the deb uses ace's Chrome). Delete `~/.ace` only
   to erase ace's data.
 
-Each package carries the daemon bundle from `tools/release` (`Resources/daemon`), the pinned Node
-runtime it runs on (`Resources/runtime`, the same one as the standalone archive), node-pty, koffi
-and the other staged runtime packages, `rg` from `@vscode/ripgrep`, and the platform's screen
+Each package carries the daemon bundle from `tools/release` (`Resources/daemon`), the pinned Bun
+runtime it runs on (`Resources/runtime`, the same one as the standalone archive), the staged
+runtime packages, `rg` from `@vscode/ripgrep`, and the platform's screen
 helper. Electron's `runAsNode` fuse is off. A full package also carries the update feed
 (`app-update.yml`), and electron-builder writes `latest*.yml` beside it: the app updates itself
 from GitHub releases ([ADR 0091](docs/adr/0091-desktop-auto-update.md)), and the bundled

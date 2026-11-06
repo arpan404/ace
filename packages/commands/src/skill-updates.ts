@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath, rename, rm, open } from "node:fs/promises";
+import { skillRootLane } from "./skill-roots.ts";
 import { basename, dirname, join } from "node:path";
 import type { SkillUpdateReview } from "@ace/protocol";
 import {
@@ -101,7 +102,13 @@ export class SkillUpdates {
       return await work({ ...git, folderHash }, scratch);
     } catch (error) {
       if (error instanceof SkillError) throw error;
-      throw new SkillError("update_failed", "Couldn't fetch this skill's source. Try again later.");
+      throw new SkillError(
+        "update_failed",
+        "Couldn't fetch this skill's source. Try again later.",
+        {
+          cause: error,
+        },
+      );
     } finally {
       await rm(scratch, { recursive: true, force: true });
     }
@@ -153,13 +160,25 @@ export class SkillUpdates {
       } catch (error) {
         await rm(staged, { recursive: true, force: true });
         if (error instanceof SkillError && error.code !== "not_found") throw error;
-        throw new SkillError("update_failed", "The source no longer has a valid SKILL.md here.");
+        throw new SkillError("update_failed", "The source no longer has a valid SKILL.md here.", {
+          cause: error,
+        });
       }
     });
   }
-  private async withStaged<T>(staged: string, work: (folder: number) => Promise<T>): Promise<T> {
+  /** `lane` puts the staged folder on another root's lane, so one thread serves both. */
+  private async withStaged<T>(
+    staged: string,
+    work: (folder: number) => Promise<T>,
+    lane?: string,
+  ): Promise<T> {
     const real = await realpath(staged);
-    return this.disk.withFolder(dirname(real), basename(real), (_root, folder) => work(folder));
+    return this.disk.withFolder(
+      dirname(real),
+      basename(real),
+      (_root, folder) => work(folder),
+      lane,
+    );
   }
   /**
    * Swap the folder for the staged one and record the new hash in the lock, under the skills
@@ -182,7 +201,7 @@ export class SkillUpdates {
         await this.settleJournals();
         this.owed = false;
       }
-      const root = await this.disk.openPath(canonical.rootReal);
+      const root = await this.disk.openPath(canonical.rootReal, skillRootLane(canonical.root));
       if (root === undefined)
         throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
       try {
@@ -194,7 +213,14 @@ export class SkillUpdates {
           token,
           lockTemporary,
           fingerprint: pending.fingerprint,
-          fill: (next) => this.withStaged(pending.staged, (staged) => this.disk.copy(staged, next)),
+          // Copied with the skill root still pinned: the staged folder opens on the root's lane,
+          // so the copy never waits for a second lane's thread while holding one.
+          fill: (next) =>
+            this.withStaged(
+              pending.staged,
+              (staged) => this.disk.copy(staged, next),
+              skillRootLane(canonical.root),
+            ),
           commit: () => this.writeLock(name, folderHash, lockTemporary),
         });
       } finally {

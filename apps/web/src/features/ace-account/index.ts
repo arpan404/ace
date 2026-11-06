@@ -23,3 +23,8 @@ export {
 } from "./machine-connector.ts";
 export { MachineAccountSections, type MachineAccountAccess } from "./machine-account-settings.tsx";
 export { useMachineAccountStatus, useThisMachineAccount } from "./machine-account-state.ts";
+export {
+  accountSignOutQuestion,
+  machineSignOutQuestion,
+  type SignOutQuestion,
+} from "./sign-out-copy.ts";

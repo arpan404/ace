@@ -353,6 +353,22 @@ test("a child delegated onto an added Antigravity account runs on it; other prov
     expect(() => h.service.delegate(parent, { ...request, requestId: "signed-out" })).toThrow(
       /Antigravity account .* is signed out and this model requires authentication/,
     );
+    // At its limit, it is refused naming the other Antigravity account, never another provider.
+    h.clock.advance(10_000);
+    accounts.recordAcpAuth("work", "logged_in", h.clock.now());
+    accounts.ingest("work", {
+      provider: "acp",
+      observedAt: h.clock.now(),
+      timeZone: "UTC",
+      payload: new ProviderPayload(
+        JSON.stringify({
+          usageWindows: { session: { usedPercent: 100, resetsAt: h.clock.now() + 3_600_000 } },
+        }),
+      ),
+    });
+    expect(() => h.service.delegate(parent, { ...request, requestId: "exhausted" })).toThrow(
+      /Antigravity account Work is at its limit until .*\. Other accounts with usage or unread limits: [^.]*\(antigravity/,
+    );
     expect(h.store.listThreads()).toHaveLength(2);
   } finally {
     await h.close();

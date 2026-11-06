@@ -1,12 +1,11 @@
 import { expect, test } from "vitest";
 import { spawn, execFile } from "node:child_process";
-import { spawn as spawnPty } from "node-pty";
 import { promisify } from "node:util";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { TerminalManager, createPosixBackendFactory } from "./index.ts";
+import { TerminalManager, createPosixBackendFactory, spawnNativePty as spawnPty } from "./index.ts";
 import { TerminalProcessSchema } from "@ace/protocol";
 
 async function settleCleanup(tasks: Promise<unknown>[]) {

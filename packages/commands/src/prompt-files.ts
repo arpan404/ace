@@ -8,6 +8,7 @@ import {
 } from "@ace/protocol";
 import { parseMarkdown } from "./parse.ts";
 import { SecureCommandIo } from "./secure-io.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 import type { DiscoveryRoot } from "./roots.ts";
 
 export interface PromptFilesOptions {
@@ -136,6 +137,13 @@ export class PromptFiles {
         revision: createHash("sha256").update(data.text).digest("hex"),
       };
     } catch (error) {
+      if (writeOutcomeUnknown(error))
+        return {
+          kind: "error",
+          code: "unavailable",
+          message:
+            "Saving took too long, so this prompt may or may not have changed. Reload it to check before saving again.",
+        };
       const code =
         error instanceof Error && error.message === "prompt_conflict"
           ? "conflict"

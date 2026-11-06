@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { DatabaseSync, backup } from "node:sqlite";
+import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { join } from "node:path";
 import type { Fact } from "@ace/core";
 import type { Frame } from "@ace/engine-api";

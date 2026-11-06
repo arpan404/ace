@@ -9,6 +9,8 @@ import { DIRECTORY_CAP, WorkspaceError } from "./types.ts";
 
 const require = createRequire(import.meta.url);
 const Binding = z.object({
+  /** Present from the build whose pipe write end never blocks; older builds can freeze Bun. */
+  pipeWriterNonBlocking: z.literal(true).optional(),
   pipe: z.function({
     input: [],
     output: z.object({
@@ -215,9 +217,23 @@ export function openRoot(path: string): Descriptor {
   }
 }
 
+/**
+ * Whether pipes this process feeds can be made safely: the loaded native build gives them a
+ * non-blocking write end. A build from before that would let a full pipe freeze the process.
+ */
+export function feedablePipes(): boolean {
+  if (process.platform === "win32") return false;
+  return binding().pipeWriterNonBlocking === true;
+}
+
 export function pipeDescriptors() {
   if (process.platform === "win32") throw failed("Windows has no descriptor pipes", "ENOTSUP");
   try {
+    if (binding().pipeWriterNonBlocking !== true)
+      throw failed(
+        "The workspace native build is out of date; run bun install to rebuild descriptor.node",
+        "ENOTSUP",
+      );
     return binding().pipe();
   } catch (error) {
     return nativeFailure(error);
