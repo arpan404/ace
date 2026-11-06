@@ -69,11 +69,12 @@ struct MachineRoutePlan: Equatable, Sendable {
 }
 
 /// Whether a paired machine's pinned direct address answers: one HTTPS request that only
-/// completes when the server presents the pinned key. Any HTTP status counts.
+/// completes when the server presents the pinned key. Any HTTP status counts: unauthenticated,
+/// `/v1/status` answers a small 401, which is enough to show the daemon is there.
 enum DirectProbe {
     static func answers(_ target: ConnectionTarget) async -> Bool {
         guard let origin = target.httpsOrigin, let pin = target.pin else { return false }
-        let request = PinnedHTTPRequest(method: "GET", path: "/v1/health", body: nil, token: nil)
+        let request = PinnedHTTPRequest(method: "GET", path: "/v1/status", body: nil, token: nil)
         return await withCheckedContinuation { continuation in
             PinnedHTTP.send(origin: origin, pin: pin, request: request, timeout: 5) { result in
                 if case .success = result { continuation.resume(returning: true) } else { continuation.resume(returning: false) }
