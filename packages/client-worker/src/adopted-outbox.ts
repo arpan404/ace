@@ -43,9 +43,8 @@ export function adoptedOutbox(
     if (pairing.records) return pairing.records.load();
     return entries(await pairing.load()).map((entry) => JSON.stringify(entry));
   };
-  const release = async () => {
-    const ids = new Set(taken);
-    taken = [];
+  /** The pairing's outbox lets these sends go. */
+  const release = async (ids: ReadonlySet<string>) => {
     if (ids.size === 0) return;
     if (pairing.records) {
       for (const id of ids) await pairing.records.write(id, null);
@@ -67,20 +66,32 @@ export function adoptedOutbox(
         // The pairing's outbox can't be read: its sends stay there, for the pairing.
       }
       const moved: unknown[] = [];
+      const held = new Set(seen);
+      /** Sends `own` already holds that the pairing's outbox still has: an adoption cut short. */
+      const copied = new Set<string>();
       for (const text of records) {
         const saved = idOf(text);
-        if (!saved || saved.hostId !== daemonId || seen.has(saved.id)) continue;
+        if (!saved || saved.hostId !== daemonId) continue;
+        // Saved here already, by an adoption stopped before the pairing's outbox let it go.
+        if (held.has(saved.id)) copied.add(saved.id);
+        if (seen.has(saved.id)) continue;
         seen.add(saved.id);
         taken.push(saved.id);
         moved.push(JSON.parse(text));
       }
+      // Those are safe here: the pairing's copies go now, whether or not anything new moves.
+      await release(copied).catch(() => {
+        // Tried again on the next load; their command ids keep a second send from running twice.
+      });
       return moved.length === 0 && current.length === 0
         ? await own.load()
         : JSON.stringify([...current, ...moved]);
     },
     async save(value) {
       await own.save(value);
-      await release().catch(() => {
+      const ids = new Set(taken);
+      taken = [];
+      await release(ids).catch(() => {
         // Left in the pairing's outbox: its command ids keep a second send from running twice.
       });
     },
