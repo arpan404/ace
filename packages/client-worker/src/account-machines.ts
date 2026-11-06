@@ -52,6 +52,11 @@ export interface AccountMachineOptions {
   directRoute?(
     path: Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }>,
     credential: () => Promise<Credential>,
+    /**
+     * The address this app paired the same daemon at (ADR 0115): it checked that certificate
+     * when it paired, so even a browser can use it.
+     */
+    paired?: boolean,
   ): (PathRoute & { probe?(): Promise<number> }) | undefined;
   /**
    * The machine's client, in this thread: `new Client({ deviceId, transport, credential, … })`
@@ -138,6 +143,8 @@ export function accountRoutes(input: {
   gate: MachineCodeGate;
   scheduler: Scheduler;
   paths(): readonly MachinePath[];
+  /** The address this app paired the same daemon at, if it did (ADR 0115). */
+  paired?(): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined;
 }): () => MachineRoute[] {
   const { account, gate, hostId } = input;
   const credential = () => gate.credential();
@@ -158,12 +165,17 @@ export function accountRoutes(input: {
   const built = new Map<string, MachineRoute>([[home.path.key, home]]);
   return () => {
     const usable = [home];
-    for (const path of input.paths()) {
+    const paired = input.paired?.();
+    const pairedKey = paired && `${paired.kind} ${paired.url}`;
+    const paths = paired
+      ? [paired, ...input.paths().filter((path) => `${path.kind} ${path.url}` !== pairedKey)]
+      : input.paths();
+    for (const path of paths) {
       const key = `${path.kind} ${path.url}`;
       let route = built.get(key);
       if (!route) {
         if (isDirect(path.kind) && "fingerprint" in path) {
-          const direct = account.directRoute?.(path, credential);
+          const direct = account.directRoute?.(path, credential, key === pairedKey);
           route = direct && { path: { key, kind: path.kind }, ...direct };
         } else if ("relayHostId" in path && path.relayHostId === hostId)
           route = relay(path.url, path.kind === "account" ? "account" : "relay");
@@ -173,4 +185,34 @@ export function accountRoutes(input: {
     }
     return usable;
   };
+}
+
+/**
+ * A paired entry that is the account machine `relayHostId` (ADR 0115): the daemon told this app,
+ * over its own pinned connection, that ace's relay (or a relay) knows it by that host key. Pure.
+ */
+export function pairedEntryFor(
+  entries: readonly MachineEntry[],
+  relayHostId: string,
+): MachineEntry | undefined {
+  return entries.find(
+    (entry) =>
+      entry.target.kind !== "account" &&
+      (entry.paths ?? []).some((path) => "relayHostId" in path && path.relayHostId === relayHostId),
+  );
+}
+
+/** The paired entry's own pinned address as a direct path, ranked by what it is. Pure. */
+export function pairedAddress(
+  entry: MachineEntry,
+): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined {
+  if (entry.target.kind !== "direct" || !entry.target.fingerprint) return undefined;
+  const url = URL.parse(entry.target.url);
+  if (!url) return undefined;
+  if (url.protocol === "wss:") url.protocol = "https:";
+  if (url.protocol !== "https:" || !/^[0-9a-f]{64}$/.test(entry.target.fingerprint))
+    return undefined;
+  const known = (entry.paths ?? []).find((path) => URL.parse(path.url)?.host === url.host)?.kind;
+  const kind = known === "loopback" || known === "tailscale" ? known : "lan";
+  return { kind, url: url.origin, fingerprint: entry.target.fingerprint };
 }

@@ -128,7 +128,7 @@ it("a phone connected over LAN and Tailscale at once is one device on the daemon
 it("signing out and in again keeps one device: records an install left behind fold into the one it uses", async () => {
   const f = await setup();
   // Before installs had ids, pairing again after signing back in left the first record behind.
-  const left = f.store.devices.create("Phone", ["read", "operate"], 1000);
+  f.store.devices.create("Phone", ["read", "operate"], 1000);
   f.advance(1000);
   const used = f.store.devices.create("Phone", ["read", "operate"], 2000);
   const other = f.store.devices.create("Tablet", ["read"], 2000);

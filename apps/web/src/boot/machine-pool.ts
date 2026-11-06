@@ -1,4 +1,5 @@
 import { documentVisibility } from "@/lib/page-visibility.ts";
+import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
@@ -105,8 +106,14 @@ function dedicatedWorker(name: string, urls: readonly string[]): SpawnedWorker {
  * machine paired through a self-hosted relay keeps the relay host key it pins in its entry's
  * `ticketReference`.
  */
-function machineConfig(entry: MachineEntry, url: string, token: string): MachineTarget {
+function machineConfig(
+  entry: MachineEntry,
+  url: string,
+  token: string,
+  installId?: string,
+): MachineTarget {
   return {
+    ...(installId ? { installId } : {}),
     url: socketUrl(url),
     token,
     deviceId: entry.deviceId,
@@ -158,7 +165,12 @@ export function browserMachinePool(options: {
       // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
       if (entry.target.kind === "account")
         throw new ClientError("offline", "Account machines don't run in a machine worker");
-      const config = machineConfig(entry, entry.target.url, token);
+      const config = machineConfig(
+        entry,
+        entry.target.url,
+        token,
+        browserInstallId(options.storage),
+      );
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
         : dedicatedWorker(`ace-machine-${entry.hostId}`, pairedUrls(config, config.paths));

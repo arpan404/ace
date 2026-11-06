@@ -1,5 +1,5 @@
 import type { Credential } from "./credentials.ts";
-import type { DeviceId, HostId } from "@ace/protocol";
+import type { DeviceId, HostId, InstallId } from "@ace/protocol";
 
 /** A refusal one path heard (a 4xxx close from the relay or the daemon). */
 export interface PathRefusal {
@@ -95,6 +95,11 @@ export interface DiagnosticEvent {
 }
 export interface ClientOptions {
   deviceId: DeviceId;
+  /**
+   * This app install's id (ADR 0115), sent in each hello so the machine knows every path and
+   * every credential of this install as one device. Older daemons ignore it.
+   */
+  installId?: InstallId;
   /** Pin a directory entry before subscriptions or durable intents can replay. */
   expectedHostId?: HostId;
   transport(): Transport;

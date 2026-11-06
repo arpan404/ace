@@ -11,7 +11,11 @@ import { aceAccountClient } from "@ace/client/ace-account";
 import { Device, DeviceCredential, DeviceId, HostId, PairingResponse } from "@ace/protocol";
 import { parsePairingLink } from "@ace/client/access";
 import { MachineDirectory } from "@ace/client/machines";
-import { MachinePool } from "@ace/client-worker/machines";
+import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
+import { webSocketTransport, type Transport } from "@ace/client";
+import { ticketSocket } from "./client-access.ts";
+import { loadIdentity } from "./tls-identity.ts";
+import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { accessRequest } from "./client-access.ts";
 import { machineAccount } from "./account-access/machine-account.ts";
@@ -22,6 +26,7 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
 
+const identity = loadIdentity(tlsFixtureHome());
 const scheduler = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -29,8 +34,11 @@ const scheduler = {
   },
 };
 
-/** A daemon signed in to an ace account, reachable only through a relay. */
-async function accountMachine() {
+/**
+ * A daemon signed in to an ace account, reachable through a relay, and with `direct` also on
+ * its pinned TLS listener.
+ */
+async function accountMachine(direct = false) {
   const backend = await startFakeAccountBackend(Date.now);
   cleanup.push(() => backend.close());
   const root = await mkdtemp(join(tmpdir(), "ace-relay-account-"));
@@ -38,20 +46,28 @@ async function accountMachine() {
   const relay = await startRelay();
   cleanup.push(() => relay.close());
   let account: ReturnType<typeof machineAccount> | undefined;
-  const f = await fixture({ relay: { url: relay.url, keys: keyPair() } }, (store) => {
-    account = machineAccount({
-      dataDir: root,
-      codes: store.machineCodes,
-      fetch: globalThis.fetch,
-      now: Date.now,
-      randomBytes,
-      delay: (run, milliseconds) => {
-        const timer = setTimeout(run, milliseconds);
-        return () => clearTimeout(timer);
-      },
-    });
-    return { machineAccount: account };
-  });
+  const f = await fixture(
+    {
+      relay: { url: relay.url, keys: keyPair() },
+      ...(direct
+        ? { remote: { host: "127.0.0.1", advertisedHost: "127.0.0.1", port: 0, identity } }
+        : {}),
+    },
+    (store) => {
+      account = machineAccount({
+        dataDir: root,
+        codes: store.machineCodes,
+        fetch: globalThis.fetch,
+        now: Date.now,
+        randomBytes,
+        delay: (run, milliseconds) => {
+          const timer = setTimeout(run, milliseconds);
+          return () => clearTimeout(timer);
+        },
+      });
+      return { machineAccount: account };
+    },
+  );
   cleanup.push(() => f.close());
   if (!account) throw new Error("Machine account missing");
   cleanup.push(() => account?.close());
@@ -101,24 +117,33 @@ async function accountMachine() {
     return { gate, connect };
   }
   /** This app's machine pool, opening account machines with grants from the backend. */
-  function pool(deviceId: string) {
+  function pool(deviceId: string, extra: PoolExtras = {}) {
     const id = DeviceId.parse(deviceId);
     const memory = new Map<string, string>();
     let sequence = 0;
-    const machines = new MachinePool({
-      directory: new MachineDirectory(
-        { load: async () => null, save: async () => {} },
-        {
-          get: async (key) => memory.get(key) ?? null,
-          set: async (key, value) => void memory.set(key, value),
-          delete: async (key) => void memory.delete(key),
+    let saved: string | null = null;
+    const directory = new MachineDirectory(
+      {
+        load: async () => saved,
+        save: async (value) => {
+          saved = value;
         },
-      ),
+      },
+      {
+        get: async (key) => memory.get(key) ?? null,
+        set: async (key, value) => void memory.set(key, value),
+        delete: async (key) => void memory.delete(key),
+      },
+    );
+    const machines = new MachinePool({
+      directory,
       spawn: () => {
         throw new Error("Account machines need no worker");
       },
-      remote: { scheduler },
+      remote: { scheduler, ...(extra.now ? { now: extra.now } : {}) },
       account: {
+        ...(extra.directRoute ? { directRoute: extra.directRoute } : {}),
+        ...(extra.watchNetwork ? { watchNetwork: extra.watchNetwork } : {}),
         relayUrl: relay.url,
         deviceId: id,
         grant: async () =>
@@ -143,10 +168,13 @@ async function accountMachine() {
       },
     });
     cleanup.push(() => machines.close());
-    return machines;
+    return Object.assign(machines, { directory });
   }
-  return { f, backend, device, pool, hostId };
+  return { f, backend, device, pool, hostId, relay };
 }
+type PoolExtras = Partial<
+  Pick<AccountMachineOptions, "directRoute" | "watchNetwork"> & { now: () => number }
+>;
 
 it("an account device connects through the relay with a fresh grant per attempt", async () => {
   const machine = await accountMachine();
@@ -354,4 +382,85 @@ it("a phone reached over LAN and ace's relay is one device on the daemon", async
   expect(listed.map((device) => device.id)).toEqual([installId]);
   // Reaching it through ace's relay is that device being seen.
   expect(listed[0]?.lastSeenAt).toBeGreaterThan(paired.device.lastSeenAt);
+});
+
+it("a machine paired directly and found through the account is one machine on the phone, using the direct route while it works and the relay when it doesn't", async () => {
+  const machine = await accountMachine(true);
+  const remoteUrl = machine.f.server.remoteUrl;
+  if (!remoteUrl) throw new Error("Remote listener missing");
+  const lanUrl = remoteUrl.replace("wss:", "https:").replace(/\/$/, "");
+  // The LAN can drop: its sockets close and new ones fail until it is back.
+  let lanUp = true;
+  const lanSockets = new Set<{ close(): void }>();
+  let skew = 0;
+  let networkChanged: (() => void) | undefined;
+  const lanTransport = (): Transport => {
+    const inner = webSocketTransport(() => {
+      const socket = ticketSocket(remoteUrl, identity.fingerprint);
+      lanSockets.add(socket);
+      return socket as unknown as WebSocket;
+    });
+    return {
+      ...inner,
+      open(events) {
+        if (!lanUp) events.close(1006, "Network unreachable");
+        else inner.open(events);
+      },
+    };
+  };
+  const machines = machine.pool("phone", {
+    now: () => Date.now() + skew,
+    watchNetwork: (changed) => {
+      networkChanged = changed;
+      return () => {};
+    },
+    directRoute: (path, credential, paired) =>
+      paired && path.url === lanUrl
+        ? {
+            transport: lanTransport,
+            credential,
+            probe: async () => {
+              if (!lanUp) throw new Error("Network unreachable");
+              return 1;
+            },
+          }
+        : undefined,
+  });
+  // Paired earlier over the LAN; the daemon then said ace's relay knows it by its host key.
+  await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: remoteUrl, fingerprint: identity.fingerprint },
+    deviceId: "phone-paired",
+    token: "e".repeat(64),
+  });
+  expect(machines.ids).toEqual(["host"]);
+  const relayUrl = machine.relay.url.replace(/^ws:/, "wss:");
+  await machines.directory.remember("host", {
+    paths: [
+      { kind: "lan", url: lanUrl, fingerprint: identity.fingerprint },
+      { kind: "account", url: relayUrl, relayHostId: machine.hostId },
+    ],
+  });
+
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  // One machine from the start, before any connection proves it.
+  expect(machines.ids).toEqual([machine.hostId]);
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  const path = () => machines.machine(machine.hostId)?.path;
+  await expect.poll(path, { timeout: 10_000 }).toBe("lan");
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  // The LAN goes away: the machine stays one, now through ace's relay.
+  lanUp = false;
+  for (const socket of lanSockets) socket.close();
+  await expect.poll(path, { timeout: 10_000 }).toBe("account");
+  expect(machines.machine(machine.hostId)?.status).toBe("online");
+  expect(machines.ids).toEqual([machine.hostId]);
+
+  // The LAN is back: past the hold after a switch, a network change brings it back to the LAN.
+  lanUp = true;
+  skew += 70_000;
+  networkChanged?.();
+  await expect.poll(path, { timeout: 10_000 }).toBe("lan");
+  expect(machines.ids).toEqual([machine.hostId]);
 });

@@ -341,6 +341,7 @@ export class Connection {
       type: "hello",
       protocolVersion: 1,
       deviceId: this.#options.deviceId,
+      ...(this.#options.installId ? { installId: this.#options.installId } : {}),
       trims: [...supportedWireTrims],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),

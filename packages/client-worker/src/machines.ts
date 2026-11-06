@@ -29,6 +29,8 @@ import {
 import { RemoteClient, type RemoteOptions } from "./remote.ts";
 import {
   accountRoutes,
+  pairedAddress,
+  pairedEntryFor,
   accountMachineEntry,
   accountMachineState,
   type AccountMachine,
@@ -128,6 +130,8 @@ export class MachinePool {
   private owners = new Map<string, string>();
   /** Paired machines an open account machine (`by`) stands in for, by daemon id. */
   private superseded = new Map<string, { entry: MachineEntry; by: string }>();
+  /** The paired entry each account machine is known to be, by the account machine's host id. */
+  private pairedAs = new Map<string, MachineEntry>();
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
@@ -156,6 +160,9 @@ export class MachinePool {
       .load()
       .then((entries) => {
         if (this.closed) return;
+        // Account machines opened before the directory loaded find their paired entry now.
+        for (const [hostId, live] of this.live)
+          if (live.state.entry.target.kind === "account") this.adoptPaired(hostId, entries);
         for (const entry of entries) if (!this.superseded.has(entry.hostId)) this.connect(entry);
       })
       .catch((error: unknown) => {
@@ -191,8 +198,10 @@ export class MachinePool {
     this.assertOpen();
     const live = this.live.get(hostId);
     if (live?.removing) throw new ClientError("storage", "Machine removal pending");
-    // A paired machine standing aside for its account entry goes for good.
+    // A paired machine standing aside for its account entry goes for good, address and all.
     this.superseded.delete(hostId);
+    for (const [account, paired] of this.pairedAs)
+      if (paired.hostId === hostId) this.pairedAs.delete(account);
     if (live) {
       // Disable every async continuation and retained client handle before secret-store I/O.
       live.enabled = false;
@@ -237,8 +246,10 @@ export class MachinePool {
       this.gates.set(hostId, gate);
     }
     const current = this.live.get(hostId);
-    if (!current) this.connect(accountMachineEntry(machine, account));
-    else if (current.state.entry.target.kind !== "account")
+    if (!current) {
+      this.adoptPaired(hostId, this.options.directory.machines);
+      this.connect(accountMachineEntry(machine, account));
+    } else if (current.state.entry.target.kind !== "account")
       throw new ClientError("identity", "A paired machine already uses this host id");
     const opened = gate;
     return {
@@ -401,6 +412,21 @@ export class MachinePool {
     });
   }
   /**
+   * The account machine `hostId` is a daemon this app also paired, when that paired entry's own
+   * saved paths name it (ADR 0115): the daemon said so over its pinned connection. Then it is
+   * one machine from the start: the paired entry steps aside at once, the account machine
+   * expects that daemon on every path, and it may use the paired address directly, so it takes
+   * the LAN or Tailscale while they work and ace's relay when they don't.
+   */
+  private adoptPaired(hostId: string, entries: readonly MachineEntry[]): void {
+    const paired = pairedEntryFor(entries, hostId);
+    if (!paired) return;
+    this.pairedAs.set(hostId, paired);
+    if (!this.accountDaemons.has(hostId)) this.accountDaemons.set(hostId, paired.hostId);
+    if (!this.accountPaths.has(hostId) && paired.paths) this.accountPaths.set(hostId, paired.paths);
+    this.supersede(paired.hostId, hostId);
+  }
+  /**
    * `daemonId`'s paired entry, if any, steps aside for the account machine `by` that reached
    * the same daemon: a signed-in device is admin on that machine, whatever scopes its pairing
    * gave (ADR 0114). It comes back when the account machine closes.
@@ -493,6 +519,10 @@ export class MachinePool {
       gate,
       scheduler,
       paths: () => this.accountPaths.get(hostId) ?? [],
+      paired: () => {
+        const entry = this.pairedAs.get(hostId);
+        return entry && pairedAddress(entry);
+      },
     });
     const visibility = this.options.remote.visibility;
     const paths = new Multipath({
@@ -624,7 +654,14 @@ export class MachinePool {
               displayName: reply.identity.displayName,
               icon: reply.identity.icon,
             };
-            this.publish(live, { entry, status: "online", identity: reply.identity });
+            // The path it is on now stays named: it may have been chosen before the welcome.
+            const path = client.activePath?.().getSnapshot();
+            this.publish(live, {
+              entry,
+              status: "online",
+              identity: reply.identity,
+              ...(path ? { path } : {}),
+            });
             if (live.attached) this.threads.rename(entry);
             else {
               live.attached = true;

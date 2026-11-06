@@ -5,6 +5,8 @@ import { DaemonTargetShape } from "./connection-settings.ts";
 export const WorkerTargetShape = {
   ...DaemonTargetShape,
   deviceId: z.string().check(z.minLength(1)),
+  /** This app install (ADR 0115); a worker can't read local storage, so the page passes it. */
+  installId: z.optional(z.string().check(z.minLength(1), z.maxLength(64))),
   /** The outbox an older build kept in localStorage, to carry over once. */
   seed: z.nullable(z.string()),
 };

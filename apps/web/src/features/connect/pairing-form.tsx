@@ -1,3 +1,4 @@
+import { browserInstallId } from "@/boot/install-id.ts";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { AccessClient, parsePairingLink, RelayPairingError } from "@ace/client/access";
@@ -35,6 +36,7 @@ async function redeemThroughRelay(
   const paired = await redeemPairingViaRelay({
     link,
     name,
+    installId: browserInstallId(),
     socket: browserDeviceSocket,
     schedule: (callback, delayMs) => {
       const timer = setTimeout(callback, delayMs);
@@ -104,7 +106,7 @@ export function PairingForm(props: {
         fetch: (input, init) => fetch(input, init),
         token: async () => "",
       });
-      const paired = await access.redeem(code, name.trim(), owned.signal);
+      const paired = await access.redeem(code, name.trim(), owned.signal, browserInstallId());
       const url = new URL(origin);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
       if (owned.signal.aborted) return;

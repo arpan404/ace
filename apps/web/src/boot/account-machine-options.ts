@@ -3,13 +3,9 @@ import { aceAccountClient } from "@ace/client/ace-account";
 import { browserDeviceSocket } from "@ace/client/devices";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
-import {
-  accountDeviceId,
-  accountOrigin,
-  hostedRelayUrl,
-  windowAccountSession,
-} from "./account-config.ts";
+import { accountOrigin, hostedRelayUrl, windowAccountSession } from "./account-config.ts";
 import { createBrowserClient } from "./client.ts";
+import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
 
@@ -137,7 +133,8 @@ export function accountMachineOptions(options: {
       return fetch(input, init);
     },
   });
-  const deviceId = accountDeviceId(options.storage, () => crypto.randomUUID());
+  // The account knows this install by its install id, the id every machine knows it by too.
+  const deviceId = browserInstallId(options.storage);
   return {
     relayUrl,
     deviceId,
@@ -161,8 +158,10 @@ export function accountMachineOptions(options: {
     },
     clock: () => performance.now(),
     // A direct path only where the browser checks the machine's certificate (ADR 0114).
-    directRoute: (path, credential) =>
-      browserChecksDirect(path)
+    // A path a browser can check: a `ts.net` name, or the address this window paired the same
+    // daemon at (ADR 0115), whose certificate it accepted then.
+    directRoute: (path, credential, paired) =>
+      paired || browserChecksDirect(path)
         ? {
             transport: () => checkedSocketTransport(path.url),
             credential,
