@@ -2,7 +2,8 @@ import { once } from "node:events";
 import { expect, it } from "vitest";
 import { parsePairingLink } from "@ace/client/access";
 import { Command, CommandId, DeviceCredential, DeviceId } from "@ace/protocol";
-import { setup } from "./remote-test-support.ts";
+import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
+import { cleanups, setup } from "./remote-test-support.ts";
 import { token } from "./socket-test-support.ts";
 
 it("rejected public device creation leaves persistent listings unchanged and usable", async () => {
@@ -349,26 +350,48 @@ it("work a replaced credential started finds no authority when it checks again, 
 });
 
 it("removing an install withdraws notifications from the records folded into it", async () => {
-  const revoked: string[] = [];
-  const f = await setup({
-    notifications: {
-      async connectDevice() {},
-      async disconnect() {},
-      async updatePresence() {},
-      async register() {},
-      async preferences() {},
-      async snooze() {},
-      async revoke(id: string) {
-        revoked.push(id);
-      },
-    },
+  let notifications: DaemonNotifications | undefined;
+  const delivered: string[] = [];
+  const f = await setup({}, (store, home) => {
+    notifications = createDaemonNotifications(home, store, () => {}, {}, 0);
+    notifications.setSender((id) => {
+      delivered.push(id);
+      return true;
+    });
+    return { notifications: notifications.service };
   });
+  cleanups.push(async () => {
+    await notifications?.close();
+  });
+  const service = notifications?.service;
+  if (!service) throw new Error("Notifications missing");
+  const desktop = { channel: "websocket", platform: "desktop" } as const;
   const left = f.store.devices.create("Phone", ["read"], 1000);
+  await service.register(left.device.id, desktop);
   f.advance(1000);
   const used = f.store.devices.create("Phone", ["read"], 2000);
+  await service.register(used.device.id, desktop);
   expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
     type: "welcome",
   });
+  const finish = async () => {
+    f.store.appendEvents(f.thread.id, [
+      { type: "thread.updated", status: { state: "working", agents: 1 } },
+      { type: "thread.updated", status: { state: "done" } },
+    ]);
+    await service.ingest(f.store.readEvents({ afterSeq: 0, limit: 100 }));
+    await service.drain();
+  };
+  // Folded under the record in use, the one left behind still gets its notifications.
+  await finish();
+  expect(delivered.toSorted()).toEqual([left.device.id, used.device.id].toSorted());
+
   await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
-  await expect.poll(() => revoked.toSorted()).toEqual([left.device.id, used.device.id].toSorted());
+  await expect
+    .poll(() => service.register(left.device.id, desktop).then(() => "kept", () => "withdrawn"))
+    .toBe("withdrawn");
+  delivered.length = 0;
+  await finish();
+  expect(delivered).toEqual([]);
+  await expect(service.register(used.device.id, desktop)).rejects.toThrow();
 });
