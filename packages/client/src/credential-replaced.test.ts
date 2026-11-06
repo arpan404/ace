@@ -3,6 +3,8 @@ import { expect, test } from "vitest";
 import { Client } from "./client.ts";
 import { defaultLimits, type TransportEvents } from "./types.ts";
 
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 /**
  * A client on manual timers whose credential the test can change, as a new pairing of the same
  * install does. Every socket and every hello it sends is recorded.
@@ -56,7 +58,6 @@ function harness() {
     timer.live = false;
     timer.run();
   };
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   return {
     client,
     sockets,
@@ -64,13 +65,12 @@ function harness() {
     latest,
     welcome,
     retry,
-    settle,
     repair: (next: string) => void (token = next),
   };
 }
 
 test("a socket closed because the install paired again reconnects with the new credential", async () => {
-  const { client, sockets, hellos, latest, welcome, retry, settle, repair } = harness();
+  const { client, sockets, hellos, latest, welcome, retry, repair } = harness();
   await client.start();
   await settle();
   welcome();
@@ -88,7 +88,7 @@ test("a socket closed because the install paired again reconnects with the new c
 });
 
 test("a client still holding the replaced credential stops at the daemon's plain refusal", async () => {
-  const { client, sockets, latest, welcome, retry, settle } = harness();
+  const { client, sockets, latest, welcome, retry } = harness();
   await client.start();
   await settle();
   welcome();
