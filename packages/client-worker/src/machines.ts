@@ -181,6 +181,9 @@ export class MachinePool {
     this.saveOff();
     const live = this.live.get(hostId);
     if (!live || live.state.status === "off") return;
+    // Disabled first: a credential read or worker start still in flight then ends there, and
+    // nothing it resumes spawns a worker or reconnects.
+    live.enabled = false;
     this.dispose(live);
     this.failures.delete(hostId);
     this.publish(live, { entry: live.state.entry, status: "off" });
