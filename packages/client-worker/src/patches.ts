@@ -1,5 +1,5 @@
 import type { SidebarReader, ThreadReader } from "@ace/client";
-import type { Item } from "@ace/protocol";
+import type { Item, TextSource } from "@ace/protocol";
 
 /*
  * Fine-grained changes between a store in the worker and its mirror in a tab. A patch carries
@@ -17,6 +17,13 @@ export interface Patch {
    * text of a reasoning or notice item.
    */
   append?: string | undefined;
+  /** With `append`: units dropped from the front of that text first, as a long text slides. */
+  drop?: number | undefined;
+  /**
+   * With `append` on a message: the text part's source now (a preview's length moves on). A
+   * TextSource the worker's client already decoded (wire.ts).
+   */
+  source?: unknown;
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
   deleted?: boolean | undefined;
@@ -114,21 +121,32 @@ const sameBut = (previous: Record<string, unknown>, next: Record<string, unknown
   Object.keys(previous).every((key) => key === field || Object.hasOwn(next, key)) &&
   Object.keys(next).every((key) => key === field || Object.is(previous[key], next[key]));
 
+/** How a streaming item's text changed: `drop` units off its front, then `append` at its end. */
+export interface TextChange {
+  append: string;
+  drop?: number;
+  /** A message text part's new source, when only its length or offset moved. */
+  source?: TextSource;
+}
+
 /**
- * Text `next` appended to `previous`'s text (a message's last text part), when that is the
- * only difference. Every other field and part must be the same object, which is how the
- * client's delta path builds the next item; anything else is sent whole. For a message that
- * path built, the reader vouches for the append, where comparing the texts would scan the
- * whole message each frame.
+ * How `next`'s text (a message's last text part) grew from `previous`'s, when that is the only
+ * difference. Every other field and part must be the same object, which is how the client's
+ * delta path builds the next item; anything else is sent whole. For a message that path built,
+ * the reader vouches for the change (a long text also slides off its front), where comparing the
+ * texts would scan the whole message each frame.
  */
 export function appendedText(
   previous: Item | undefined,
   next: Item | undefined,
-  reader: Pick<ThreadReader, "appended">,
-) {
+  reader: Pick<ThreadReader, "edited">,
+): TextChange | undefined {
   if (!previous || !next || previous.type !== next.type) return undefined;
-  if (hasText(previous) && hasText(next))
-    return sameBut(previous, next, "text") ? gained(previous.text, next.text) : undefined;
+  if (hasText(previous) && hasText(next)) {
+    if (!sameBut(previous, next, "text")) return undefined;
+    const append = gained(previous.text, next.text);
+    return append === undefined ? undefined : { append };
+  }
   if (previous.type !== "message" || next.type !== "message" || !sameBut(previous, next, "parts"))
     return undefined;
   const before = previous.parts;
@@ -140,11 +158,23 @@ export function appendedText(
     after.some((part, at) => part !== now && part !== before[at])
   )
     return undefined;
-  if (old?.type !== "text" || now?.type !== "text" || old.source !== now.source) return undefined;
-  // Within one run of appends the text only grows.
-  return reader.appended?.(previous, next)
-    ? now.text.slice(old.text.length)
-    : gained(old.text, now.text);
+  if (old?.type !== "text" || now?.type !== "text") return undefined;
+  const source = old.source === now.source ? undefined : now.source;
+  // A source may only move on: the same stream, which a delta lengthens or slides along.
+  if (source && old.source?.streamId !== source.streamId) return undefined;
+  const edit = reader.edited?.(previous, next);
+  if (edit) {
+    const kept = old.text.length - edit.dropped;
+    if (kept < 0 || kept > now.text.length) return undefined;
+    return {
+      append: now.text.slice(kept),
+      ...(edit.dropped ? { drop: edit.dropped } : {}),
+      ...(source ? { source } : {}),
+    };
+  }
+  if (source) return undefined;
+  const append = gained(old.text, now.text);
+  return append === undefined ? undefined : { append };
 }
 
 /**
@@ -166,12 +196,12 @@ export function threadPatches(
     }
     const item = reader.item(id);
     const cut = reader.truncated(id);
-    const append = appendedText(sent.get(id), item, reader);
+    const change = appendedText(sent.get(id), item, reader);
     if (item) sent.set(id, item);
     else sent.delete(id);
     patches.push(
-      append !== undefined
-        ? { k, append, cut }
+      change !== undefined
+        ? { k, ...change, cut }
         : item
           ? { k, v: item, cut, s: reader.itemSeq?.(id) }
           : { k, cut, deleted: reader.deleted?.(id) },

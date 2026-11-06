@@ -1,5 +1,5 @@
 import { Agent, BackgroundTask, Interaction, ThreadId, Run, AgentItem } from "@ace/protocol";
-import { applyDelivery, applyItemsPage, trackItem } from "@ace/projection";
+import { applyDelivery, applyDelta, applyItemsPage, trackItem } from "@ace/projection";
 import { afterEach, expect, it } from "vitest";
 import { fixture } from "./socket-test-support.ts";
 import type { Store } from "./index.ts";
@@ -45,7 +45,8 @@ function completeMessage(store: Store, item: Item) {
       }
       expect(offset).toBe(source.bytes);
       const text = Buffer.concat(chunks).toString("utf16le");
-      expect(preview.text).toBe(text.slice(0, preview.text.length));
+      const start = (source.offset ?? 0) / 2;
+      expect(preview.text).toBe(text.slice(start, start + preview.text.length));
       return { ...preview, text };
     }),
   };
@@ -394,4 +395,47 @@ it("budgets appended message text including a newly created text part and JSON e
   expect(f.store.readItems(f.thread.id, f.store.headSeq() + 1, 1).items[0]).toMatchObject({
     parts: [{ text: text + text }],
   });
+});
+
+it("a long answer still streaming opens with its newest text, marked so deltas keep extending it", async () => {
+  const f = await setup();
+  const whole = Array.from({ length: 50_000 }, (_, n) => `Next step ${n}: wire the filters. `).join(
+    "",
+  );
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: AgentItem.parse({ ...message("live", ""), complete: false }) },
+    { type: "item.delta", itemId: "live", agentId: "root", field: "text", append: whole },
+  ]);
+  const view = f.store.snapshotThread(f.thread.id);
+  expectPreviewOnly(view, "live");
+  const item = view.items.live;
+  if (item?.type !== "message") throw new Error("Expected message");
+  const part = item.parts.at(-1);
+  if (part?.type !== "text" || !part.source) throw new Error("Expected a text preview");
+  // The newest end, and the source says where it starts.
+  expect(whole.endsWith(part.text)).toBe(true);
+  expect(part.source).toMatchObject({
+    bytes: whole.length * 2,
+    offset: (whole.length - part.text.length) * 2,
+  });
+  expect(completeMessage(f.store, item)).toMatchObject({ parts: [{ text: whole }] });
+  // A client holding it appends the deltas that follow.
+  const shown = part.text;
+  applyDelta(item, "text", " Next step 50000.");
+  expect(item.parts.at(-1)).toMatchObject({
+    text: shown + " Next step 50000.",
+    source: { bytes: (whole.length + 17) * 2 },
+  });
+});
+
+it("a finished long answer still opens with its first text, as older clients expect", async () => {
+  const f = await setup();
+  const whole = "First words. " + "y".repeat(2 * 1024 * 1024);
+  f.store.appendEvents(f.thread.id, [{ type: "item.created", item: message("done", whole) }]);
+  const view = f.store.snapshotThread(f.thread.id);
+  expectPreviewOnly(view, "done");
+  const part = view.items.done?.type === "message" ? view.items.done.parts.at(-1) : undefined;
+  if (part?.type !== "text") throw new Error("Expected a text preview");
+  expect(whole.startsWith(part.text)).toBe(true);
+  expect(part.source?.offset).toBeUndefined();
 });

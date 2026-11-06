@@ -110,9 +110,7 @@ import XCTest
         XCTAssertGreaterThan(try streamedDeltas(), sent, "the fixture stopped streaming")
         let updates = app.probeValue("bridge.rowUpdates") ?? 0
         report("streaming per 5 s: row updates applied", [updates])
-        XCTExpectFailure(Workload.longStreamFreezes) {
-            XCTAssertGreaterThanOrEqual(updates, Workload.streamingRowUpdatesPer5s, "streamed row updates applied")
-        }
+        XCTAssertGreaterThanOrEqual(updates, Workload.streamingRowUpdatesPer5s, "streamed row updates applied")
         let main = try XCTUnwrap(app.probeValue("bridge.mainMs"))
         let script = try XCTUnwrap(app.probeValue("bridge.scriptMs"))
         let bytes = try XCTUnwrap(app.probeValue("bridge.bytes"))
@@ -132,9 +130,7 @@ import XCTest
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 60))
         XCTAssertTrue(app.waitForCount("bridge.windows", timeout: 15))
         let later = app.probeValue("bridge.rowUpdates") ?? 0
-        XCTExpectFailure(Workload.longStreamFreezes) {
-            XCTAssertGreaterThanOrEqual(later, Workload.streamingRowUpdatesPer5s, "still streaming after a minute")
-        }
+        XCTAssertGreaterThanOrEqual(later, Workload.streamingRowUpdatesPer5s, "still streaming after a minute")
         let after = try XCTUnwrap(app.probeValue("footprintMiB"))
         report("footprint growth over a minute of streaming (MiB)", [after - before])
         XCTAssertLessThan(after - before, PerfBudget.streamingGrowthMiBPerMinute)
@@ -359,13 +355,6 @@ enum Workload {
     static let olderPages = 25.0
     static let newerPages = 5.0
     static let streamingRowUpdatesPer5s = 50.0    // the fixture streams 100 deltas (20 a second)
-    /// Known bug, 2026-10-22: with ACE_IOS_SPIKE_STREAMED of 1,000 or more, the open thread's
-    /// streaming row stops updating after the open (only `thread.cursor` patches arrive; the screen
-    /// stays on the step it opened at), while an unseeded or 1-delta seed streams. The bridge alone
-    /// (`thread-harness.ts`) streams it, so the loss is between the patch pump and native. Strict:
-    /// once fixed, these expectations fail until the wrapper goes. Until then the streaming budgets
-    /// measure cursor traffic, not text.
-    static let longStreamFreezes = "a long seeded stream stops updating on screen (see Workload)"
 }
 
 /// The budgets, on the iOS 26 simulator with the `Perf` configuration. Each sits about 1.5 to 5

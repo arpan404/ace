@@ -175,11 +175,6 @@ nothing, and the list's views are not re-evaluated while the transcript scrolls.
 runner attached, flinging the transcript from inside the app loses 0 to 630 ms of frames in 24 s
 on iPad with the list showing and 310 to 420 ms on the phone.
 
-Known bug: with 1,000 or more seeded deltas the open thread's streaming row stops updating on
-screen after the open; only cursor patches arrive. The streaming test expects that failure
-(`Workload.longStreamFreezes`) and fails once it is fixed, so the expectation gets removed; until
-then the streaming numbers above measure cursor traffic, not text.
-
 For long runs and Instruments sessions, fixture builds take `--spike-open ID` (open a thread
 once its row is listed) and `--spike-items 200` (the paired app's 200-item window). Launch with
 `-ace-frame-trace` to log late frames while a thread is open; the sampler never runs otherwise.

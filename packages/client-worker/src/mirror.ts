@@ -13,7 +13,7 @@ import {
   type ThreadReader,
   type ThreadSource,
 } from "@ace/client";
-import type { ContextMeter, Item, ThreadListEntry, ThreadView } from "@ace/protocol";
+import type { ContextMeter, Item, TextSource, ThreadListEntry, ThreadView } from "@ace/protocol";
 import { hasText, splitKey, type AgentLinks, type Patch } from "./patches.ts";
 import { toError, trusted } from "./trusted.ts";
 import type { ErrorShape } from "./wire.ts";
@@ -266,15 +266,19 @@ export class MirrorThread implements ThreadSource {
     else if (patch.append === undefined && patch.v === undefined) this.seqs.delete(id);
     if (patch.append === undefined) return set(this.items, id, patch.v);
     const item = this.items.get(id);
+    const slid = (text: string) => (patch.drop ? text.slice(patch.drop) : text) + patch.append;
     if (item && hasText(item)) {
-      this.items.set(id, { ...item, text: item.text + patch.append });
+      this.items.set(id, { ...item, text: slid(item.text) });
       return;
     }
     if (item?.type !== "message") return;
     const parts = [...item.parts];
     const last = parts.at(-1);
     if (last?.type !== "text") return;
-    parts[parts.length - 1] = { ...last, text: last.text + patch.append };
+    const text = { ...last, text: slid(last.text) };
+    // The worker's client decoded the source with @ace/protocol before sending it (wire.ts).
+    if (patch.source !== undefined) text.source = trusted<TextSource>(patch.source);
+    parts[parts.length - 1] = text;
     this.items.set(id, { ...item, parts });
   }
 }

@@ -3178,6 +3178,7 @@ Example:
     "encoding": "utf-16le",
     "streamId": "example"
   },
+  "summary": true,
   "text": "example",
   "type": "reasoning"
 }
@@ -32198,6 +32199,7 @@ Example:
 | streamId | yes | string | {"minLength":1} |
 | bytes | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | encoding | yes | `"utf-16le"` |  |
+| offset | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
