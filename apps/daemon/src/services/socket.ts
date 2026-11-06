@@ -60,6 +60,11 @@ export interface SocketContext {
   /** This machine's remote updates (ADR 0113), when the daemon has them. */
   machineUpdates?: import("../machine-update/machine-updates.ts").MachineUpdates;
   device(): DeviceId | undefined;
+  /**
+   * The generation of the paired credential that authenticated this socket; undefined for the
+   * host and account devices, whose authority no credential replacement ends.
+   */
+  credentialGeneration?(): string | undefined;
   authorize(scope: DeviceScope): boolean;
   /** Capture authenticated authority for admitted durable effects across reconnects. */
   authorityLease?(scope: DeviceScope): () => boolean;

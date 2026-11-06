@@ -217,7 +217,8 @@ export async function startServer(options: ServerOptions): Promise<{
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
-    preview?.revokeDevice(id);
+    // Preview sessions name the credential that opened them, so the authority decides.
+    void preview?.revalidate();
     void options.notifications
       ?.revoke?.(DeviceId.parse(id))
       .catch(() => options.log?.(new Error("Notification revocation failed")));
@@ -235,6 +236,8 @@ export async function startServer(options: ServerOptions): Promise<{
   // anything (4001, not 4003), and the client connects again with the credential it holds now.
   // Its account sockets are not the pairing's and stay.
   const stopReplaced = auth.onCredentialReplaced((id) => {
+    // Its preview links, sessions and open streams were the old credential's (ADR 0115).
+    void preview?.revalidate();
     for (const [socket, device] of authenticated)
       if (
         device.revocable &&
@@ -370,6 +373,10 @@ export async function startServer(options: ServerOptions): Promise<{
       appUpdate,
       ...(machineUpdates ? { machineUpdates } : {}),
       device: () => device,
+      credentialGeneration: () => {
+        const actor = authenticated.get(socket);
+        return actor?.revocable ? actor.generation : undefined;
+      },
       authorize,
       authorityLease: (scope) => {
         const actor = authenticated.get(socket);
