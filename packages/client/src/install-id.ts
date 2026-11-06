@@ -38,6 +38,16 @@ export function appInstallId(storage: InstallIdStorage, make: () => string): Ins
 }
 
 /**
+ * The install id resolved once and then held: every caller in this run gets the same id, even
+ * when storage refuses to keep it (private mode, full), where reading it again would make a
+ * new one each time.
+ */
+export function installIdentity(storage: InstallIdStorage, make: () => string): () => InstallId {
+  let resolved: InstallId | undefined;
+  return () => (resolved ??= appInstallId(storage, make));
+}
+
+/**
  * A UUIDv7 (RFC 9562 §5.7) from a Unix millisecond time and 10 random bytes: time ordered, so
  * an install's id also says roughly when it was made.
  */

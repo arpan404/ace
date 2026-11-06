@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { appInstallId, uuidV7 } from "./install-id.ts";
+import { appInstallId, installIdentity, uuidV7 } from "./install-id.ts";
 
 function memory(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -37,6 +37,23 @@ test("a damaged install id is made again, and storage that refuses writes still 
     },
   };
   expect(appInstallId(refusing, () => "fresh-install-2")).toBe("fresh-install-2");
+});
+
+test("every caller in one run gets the same install id when storage refuses to keep it", () => {
+  const refusing = {
+    getItem: () => null,
+    setItem: () => {
+      throw new Error("Quota");
+    },
+  };
+  let made = 0;
+  const identity = installIdentity(refusing, () =>
+    uuidV7(1_700_000_000_000 + made++, new Uint8Array(10).fill(3)),
+  );
+  const first = identity();
+  expect(identity()).toBe(first);
+  expect(identity()).toBe(first);
+  expect(made).toBe(1);
 });
 
 test("install ids are version 7 UUIDs ordered by the time they were made", () => {
