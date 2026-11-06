@@ -18,7 +18,7 @@ struct NewThreadEntry: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $composing) {
-                NewThreadSheet(inbox: inbox, saved: { machineId, commandId in awaiting = (machineId, commandId) }, initialProject: project.isEmpty ? nil : project)
+                NewThreadSheetHost(inbox: inbox, saved: { machineId, commandId in awaiting = (machineId, commandId) }, initialProject: project.isEmpty ? nil : project)
                     .presentationDetents([.large]).presentationDragIndicator(.visible)
             }
             .task(id: awaiting?.commandId) {
@@ -110,6 +110,29 @@ struct NewThreadEntry: ViewModifier {
         guard drafts.load().handoff == handoff.id else { return false }
         store.remove(handoff.id)
         return true
+    }
+}
+
+/// Opens New thread's draft once per showing of the sheet, in `onAppear` rather than in a `@State`
+/// initial value: SwiftUI may evaluate that again whenever this view is rebuilt and throw the
+/// result away, and opening a draft clears copies and takes back a draft set aside.
+private struct NewThreadSheetHost: View {
+    @Bindable var inbox: MachineInbox
+    let saved: (_ machineId: String, _ commandId: String) -> Void
+    let initialProject: String?
+    @State private var drafts: NewThreadDraftModel?
+
+    var body: some View {
+        if let drafts {
+            NewThreadSheet(inbox: inbox, drafts: drafts, saved: saved, initialProject: initialProject)
+        } else {
+            AceTheme.Colours.background.onAppear {
+                guard drafts == nil else { return }
+                let opened = NewThreadDraftModel(store: .standard())
+                opened.open()
+                drafts = opened
+            }
+        }
     }
 }
 

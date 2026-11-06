@@ -10,11 +10,13 @@ enum NewThreadRoute: Hashable { case mention, instructions }
 /// the sheet only once the start is saved on this phone.
 struct NewThreadSheet: View {
     @Bindable var inbox: MachineInbox
+    /// The draft, opened once for this showing of the sheet (`NewThreadSheetHost`).
+    let drafts: NewThreadDraftModel
     /// The start was saved on this phone under this command id on this machine.
     let saved: (_ machineId: String, _ commandId: String) -> Void
     var initialProject: String? = nil
     @Environment(\.dismiss) private var dismiss
-    @State private var drafts = NewThreadDraftModel(store: .standard())
+    @Environment(\.scenePhase) private var scenePhase
     /// The machine started on last, each machine's last project and model, and each project's
     /// last picks and skills.
     private let memory = NewThreadMemoryStore.standard()
@@ -99,7 +101,7 @@ struct NewThreadSheet: View {
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sending) { _, now in now }
         .task(id: machineId) {
             // A start handed over from a share or a shortcut takes the sheet first.
-            if NewThreadHandoffIntake.take(inbox: inbox, into: drafts.file) { drafts.reload() }
+            drafts.takeHandoff { NewThreadHandoffIntake.take(inbox: inbox, into: $0) }
             guard let client, let machineId else { return }
             // The draft holds the machine it opens on, so a later connection doesn't move it. A
             // draft already written on a project before machines were named keeps that project.
@@ -138,7 +140,10 @@ struct NewThreadSheet: View {
             client?.composeAction(["kind": "close"])
             // Closed before it could start: what was handed over stays as a draft to send by hand.
             if draft.autoSend { drafts.edit { $0.autoSend = false } }
+            drafts.leave()
         }
+        // Leaving the app saves what was typed, without waiting for typing to pause.
+        .onChange(of: scenePhase) { _, phase in if phase != .active { drafts.leave() } }
         .sheet(isPresented: $browsing) { projectFiles }
         .sheet(isPresented: $choosingProject) {
             if let client {
