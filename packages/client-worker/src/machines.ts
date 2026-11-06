@@ -184,10 +184,16 @@ export class MachinePool {
     this.off.add(hostId);
     if (daemon) this.off.add(daemon);
     this.saveOff();
+    this.stopOff(hostId);
+  }
+  /**
+   * `hostId` is off: its connection, if any, closes and its threads leave every list. Disabled
+   * first: a credential read, worker start or identity check still in flight then ends there,
+   * and nothing it resumes spawns a worker, attaches threads or reconnects.
+   */
+  private stopOff(hostId: string): void {
     const live = this.live.get(hostId);
-    if (!live || live.state.status === "off") return;
-    // Disabled first: a credential read or worker start still in flight then ends there, and
-    // nothing it resumes spawns a worker or reconnects.
+    if (!live || live.removing || live.state.status === "off") return;
     live.enabled = false;
     this.dispose(live);
     this.failures.delete(hostId);
@@ -206,6 +212,23 @@ export class MachinePool {
     if (!live || live.state.status !== "off") return;
     this.live.delete(hostId);
     this.connect(live.state.entry);
+  }
+  /**
+   * Clears `hostId`'s off mark. A paired machine's mark goes under its account ids too (ADR
+   * 0115), so a later pairing isn't off again through an alias, unless that account entry is
+   * still listed: it is the same machine, still shown off. Closing an account entry leaves its
+   * pairing's mark alone. Whether anything changed.
+   */
+  private forgetOff(hostId: string, account: boolean): boolean {
+    const aliases = new Set([hostId]);
+    if (!account) {
+      for (const [id, paired] of this.pairedAs) if (paired.hostId === hostId) aliases.add(id);
+      for (const [id, daemon] of this.accountDaemons) if (daemon === hostId) aliases.add(id);
+    }
+    let changed = false;
+    for (const id of aliases)
+      if ((id === hostId || !this.live.has(id)) && this.off.delete(id)) changed = true;
+    return changed;
   }
   /** The daemon an account machine is known to be, if any. */
   private daemonOf(hostId: string): string | undefined {
@@ -279,8 +302,8 @@ export class MachinePool {
     this.assertOpen();
     const live = this.live.get(hostId);
     if (live?.removing) throw new ClientError("storage", "Machine removal pending");
-    // Forgotten here: whether it was off goes with it.
-    if (this.off.delete(hostId)) this.saveOff();
+    // Forgotten here: whether it was off goes with it, under every id it is known by.
+    if (this.forgetOff(hostId, live?.state.entry.target.kind === "account")) this.saveOff();
     // A paired machine standing aside for its account entry goes for good, address and all.
     this.superseded.delete(hostId);
     for (const [account, paired] of this.pairedAs)
@@ -525,6 +548,9 @@ export class MachinePool {
     this.off.add(hostId);
     this.off.add(alias);
     this.saveOff();
+    // Whichever of the two was connecting or online is stopped now, before it goes further.
+    this.stopOff(hostId);
+    this.stopOff(alias);
   }
   /**
    * The proof, for an account machine's hellos, that this install also holds the pairing it
@@ -780,6 +806,8 @@ export class MachinePool {
             // device too, steps aside while its account entry is open.
             if (live.state.entry.target.kind === "account" && expected !== undefined)
               this.supersede(expected, live.state.entry.hostId);
+            // Learning the daemon may have shown the machine is off (`offUnder`): it stopped.
+            if (!this.current(live) || live.verification !== epoch) return;
             // Account machines come from the account's list, not the saved directory.
             // Paths come only from the machine itself, over this verified connection.
             if (live.state.entry.target.kind !== "account") {

@@ -146,3 +146,46 @@ test("an account machine that adopted this app's pairing proves it in its hellos
   await f.pool.remove("host");
   expect(await credential()).toEqual({ grant: "grant" });
 });
+
+test("an account entry that turns out to be an Off pairing's daemon is stopped as soon as its identity says so", async () => {
+  let stored: readonly string[] = ["host"];
+  const f = world({
+    off: { load: () => stored, save: (ids) => void (stored = ids) },
+    accountOverRelay: true,
+  });
+  await f.pool.start();
+  // Paired and turned off before it ever connected: no saved paths name its account entry.
+  await f.pool.add(browserPairing);
+  expect(f.pool.machine("host")?.status).toBe("off");
+
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  await until(() => stored.includes(relayKey));
+  await settle();
+  expect(f.pool.machine(relayKey)?.status).toBe("off");
+  expect(f.accountSockets.length).toBeGreaterThan(0);
+  expect(f.accountSockets.every((socket) => socket.closed)).toBe(true);
+  expect(f.pool.threads.ids).toEqual([]);
+  // One machine, listed once, and nothing connects to it.
+  expect(f.pool.ids).toEqual([relayKey]);
+  expect(f.workers).toEqual([]);
+});
+
+test("forgetting a pairing that is off forgets it under its account id too, so pairing it again starts on", async () => {
+  let stored: readonly string[] = [];
+  const off = { load: () => stored, save: (ids: readonly string[]) => void (stored = ids) };
+  const f = world({ off });
+  await f.pool.start();
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  f.pool.turnOff(relayKey);
+  await pairAndLearnPaths(f);
+  f.pool.closeAccountMachines();
+  expect(stored.toSorted()).toEqual(["host", relayKey].toSorted());
+
+  await f.pool.remove("host");
+  expect(stored).toEqual([]);
+  // Paired again and found through the account again: one machine, on.
+  await pairAndLearnPaths(f);
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  await until(() => f.pool.machine(relayKey)?.status === "online");
+  expect(stored).toEqual([]);
+});

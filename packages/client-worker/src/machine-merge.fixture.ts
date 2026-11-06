@@ -47,6 +47,12 @@ export interface WorldOptions {
   grant?: () => Promise<string>;
   /** Replaces every account connection's transport, to stage what the daemon answers. */
   accountTransport?: () => Transport;
+  /**
+   * The account entry reaches the daemon through a working relay: its connection goes straight
+   * to the fake daemon and reports the relay path, so the pool learns the daemon's id from it.
+   * Each such connection is recorded in `accountSockets`.
+   */
+  accountOverRelay?: boolean;
 }
 
 /**
@@ -95,6 +101,30 @@ export function world(options: WorldOptions = {}) {
       ...(expectedHostId ? { expectedHostId: HostId.parse(expectedHostId) } : {}),
     });
   const directDialed: string[] = [];
+  const accountSockets: { closed: boolean }[] = [];
+  /** A connection to the daemon that the pool sees as running over ace's relay. */
+  const overRelay = () => {
+    const relayed = client(
+      () => {
+        const inner = fakeTransport(daemon);
+        const socket = { closed: false };
+        accountSockets.push(socket);
+        return {
+          open: (events) => inner.open(events),
+          send: (text) => inner.send(text),
+          close: (code, reason) => {
+            socket.closed = true;
+            inner.close(code, reason);
+          },
+        };
+      },
+      async () => ({ token }),
+    );
+    return Object.assign(relayed, {
+      usePaths() {},
+      activePath: () => ({ getSnapshot: () => "account" as const, subscribe: () => () => {} }),
+    });
+  };
   const accountCredentials: (() => Promise<Credential>)[] = [];
   /** Every paired worker started: the token it was given, and whether it was stopped. */
   const workers: { token: string; terminated: boolean }[] = [];
@@ -145,7 +175,13 @@ export function world(options: WorldOptions = {}) {
         return { transport: () => fakeTransport(daemon), credential: async () => ({ token }) };
       },
       client: (route) =>
-        client(options.accountTransport ?? route.transport, route.credential, route.expectedHostId),
+        options.accountOverRelay
+          ? overRelay()
+          : client(
+              options.accountTransport ?? route.transport,
+              route.credential,
+              route.expectedHostId,
+            ),
     },
   });
   pools.push(pool);
@@ -158,7 +194,16 @@ export function world(options: WorldOptions = {}) {
     for (const key of secrets.keys()) secrets.set(key, next);
     daemon.disconnectAll(4001);
   };
-  return { pool, daemon, directory, directDialed, accountCredentials, workers, pairAgainElsewhere };
+  return {
+    pool,
+    daemon,
+    directory,
+    directDialed,
+    accountCredentials,
+    accountSockets,
+    workers,
+    pairAgainElsewhere,
+  };
 }
 
 /** What pairing in a browser saves: the address alone, with no fingerprint of its own. */
