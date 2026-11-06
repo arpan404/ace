@@ -103,6 +103,7 @@ export class IdleWorker extends EventEmitter {
           if (this.closing) return;
           const deferred = this.deferred.splice(0);
           if (!deferred.length) return;
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })
@@ -141,6 +142,8 @@ export class IdleWorker extends EventEmitter {
           const deferred = this.deferred;
           this.deferred = [];
           if (!deferred.length) return;
+          // Requests queued during terminate() mean this was not a useful idle retirement.
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })

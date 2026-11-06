@@ -63,7 +63,8 @@ const MiB = 1024 * 1024;
 // The 150 MiB goal remains open. Threads are budgeted by owner (threads.ts): Bun's runtime
 // threads grow with the machine's cores and get only a loose core-scaled ceiling. Measured on
 // Bun 1.4.4:
-// - one worker alive at idle, the stall watchdog (idle workers retire after five idle seconds);
+// - one worker alive through the startup idle floor, the stall watchdog; recurring workers can
+//   learn a longer window after reuse, so workload-retained workers are checked by kind below;
 // - 2-3 workers under the workload;
 // - after its sessions ended, the watchdog, the notification worker the workload's first
 //   notification starts for good, and its usage and WAL-checkpoint workers, which are reused

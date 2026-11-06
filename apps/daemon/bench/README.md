@@ -61,9 +61,9 @@ The measurement preload samples each JavaScript isolate every 500 ms and atomica
 Threads are counted by owner from their names (`threads.ts`: `sample` on macOS, `/proc` on Linux). Bun's runtime threads (its pool, GC helpers and collectors, JIT helpers, the allocator's scavenger) grow with the machine's cores, so they get only a loose ceiling of twice the cores plus 16, which a runaway pool reaches; each JS worker is one thread named `Worker`; the rest are the daemon's own. The gate (`budgets.ts`) fails when:
 
 - the OS runs more workers than telemetry saw ("not measured", never a zero);
-- more than one worker stays alive across five idle seconds (idle workers retire after five; the stall watchdog stays);
+- more than one worker stays alive through the five-second startup idle floor (the stall watchdog stays);
 - more than four workers run under the workload;
-- once the workload's sessions end, a worker stays whose kind (its module's name, which `startWorker` reports) isn't on the gate's list, or two of one kind. The list holds the watchdog, the notification worker the workload's first notification starts for good, and the usage and WAL-checkpoint workers, whose idle windows double while they are reused, up to two minutes. The measurement waits up to 130 s for anything else to retire;
+- once the workload's sessions end, a worker stays whose kind (its module's name, which `startWorker` reports) isn't on the gate's list, or two of one kind. An idle window grows when a worker is reused before `max(12 × base, 4 × current)` milliseconds after retirement, up to two minutes; long quiet resets it to the base five seconds. The list holds the watchdog, the notification worker the workload's first notification starts for good, and the usage and WAL-checkpoint workers, which the benchmark reuses periodically. The measurement waits up to 130 s for anything else to retire;
 - the daemon's own threads pass 4 idle or 6 active (measured 2–3 and 3–4 on Bun 1.4.4), or Bun's runtime threads pass twice the cores plus 16.
 
 The scripts measure Darwin/Linux threads only.
