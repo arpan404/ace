@@ -5,8 +5,13 @@ import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
-import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
-import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  MachinePool,
+  type AccountMachineOptions,
+  type OffMachines,
+} from "@ace/client-worker/machines";
+import { readJson, type KeyValueStorage } from "@ace/ui-core";
+import * as z from "zod/mini";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
 import { pairedUrls } from "./machine-routes.ts";
@@ -161,6 +166,7 @@ export function browserMachinePool(options: {
     // A hidden or frozen window can't hear its workers; that silence must not end a connection.
     remote: { scheduler: timers, visibility: documentVisibility, now: () => Date.now() },
     ...(options.account ? { account: options.account } : {}),
+    off: offMachines(options.storage),
     spawn(entry, token) {
       // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
       if (entry.target.kind === "account")
@@ -183,4 +189,19 @@ export function browserMachinePool(options: {
       };
     },
   });
+}
+
+const offKey = "ace.machines.off";
+/** Machines turned off in this browser or desktop app (ADR 0115), by host id. Never synced. */
+export function offMachines(storage: KeyValueStorage): OffMachines {
+  return {
+    load: () =>
+      readJson(
+        storage,
+        offKey,
+        z.array(z.string().check(z.maxLength(256))).check(z.maxLength(200)),
+        [],
+      ),
+    save: (hostIds) => storage.setItem(offKey, JSON.stringify(hostIds.slice(0, 200))),
+  };
 }

@@ -108,6 +108,15 @@ export function machineNode(machine: MapMachineInput): MapNode {
         problem: undefined,
       };
     }
+    case "off":
+      return {
+        ...base,
+        tone: "unknown",
+        status: "Off on this device",
+        wire: { from, kind: "unknown", relayed, label: "off" },
+        lines: [{ label: "Reached", value: "Not while it's off here" }],
+        problem: undefined,
+      };
     case "connecting":
       return {
         ...base,

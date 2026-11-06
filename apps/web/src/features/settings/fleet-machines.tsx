@@ -22,6 +22,7 @@ import { summarizeNames } from "./data/list-names.ts";
 import { machineState, pathWordsFor } from "./data/fleet-words.ts";
 import type { Fleet } from "./data/use-fleet.ts";
 import { UpdateRowAction, UpdateWords } from "./fleet-software.tsx";
+import { useMachineSwitch } from "./machine-on-here.tsx";
 import { MachineDirectory } from "./machine-directory.tsx";
 
 type Row =
@@ -175,6 +176,7 @@ function MachineRow(props: {
   const online = fleet.machines.filter((entry) => entry.client).length;
   const known = fleet.links.get(machine.id)?.isSuccess;
   const update = fleet.update.line(machine.id);
+  const toggle = useMachineSwitch(machine);
   return (
     <HairlineRow
       id={machine.primary ? "host.displayName" : undefined}
@@ -204,8 +206,18 @@ function MachineRow(props: {
       }
       meta={missing.length === 0 && known && online > 1 && !machine.primary ? "Linked" : undefined}
       actions={
-        (missing.length > 0 || update?.action) && (
+        (missing.length > 0 || update?.action || toggle) && (
           <>
+            {toggle && (
+              <RowAction
+                reveal={!toggle.off}
+                className={toggle.off ? "text-foreground" : undefined}
+                aria-label={`${toggle.label} ${machine.name} on this device`}
+                onClick={toggle.toggle}
+              >
+                {toggle.label}
+              </RowAction>
+            )}
             {update && (
               <UpdateRowAction fleet={fleet} id={machine.id} name={machine.name} line={update} />
             )}

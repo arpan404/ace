@@ -11,7 +11,11 @@ import { aceAccountClient } from "@ace/client/ace-account";
 import { Device, DeviceCredential, DeviceId, HostId, PairingResponse } from "@ace/protocol";
 import { parsePairingLink } from "@ace/client/access";
 import { MachineDirectory } from "@ace/client/machines";
-import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
+import {
+  MachinePool,
+  type AccountMachineOptions,
+  type OffMachines,
+} from "@ace/client-worker/machines";
 import { webSocketTransport, type Transport } from "@ace/client";
 import { ticketSocket } from "./client-access.ts";
 import { loadIdentity } from "./tls-identity.ts";
@@ -122,25 +126,28 @@ async function accountMachine(direct = false) {
     const memory = new Map<string, string>();
     let sequence = 0;
     let saved: string | null = null;
-    const directory = new MachineDirectory(
-      {
-        load: async () => saved,
-        save: async (value) => {
-          saved = value;
+    const directory =
+      extra.directory ??
+      new MachineDirectory(
+        {
+          load: async () => saved,
+          save: async (value) => {
+            saved = value;
+          },
         },
-      },
-      {
-        get: async (key) => memory.get(key) ?? null,
-        set: async (key, value) => void memory.set(key, value),
-        delete: async (key) => void memory.delete(key),
-      },
-    );
+        {
+          get: async (key) => memory.get(key) ?? null,
+          set: async (key, value) => void memory.set(key, value),
+          delete: async (key) => void memory.delete(key),
+        },
+      );
     const machines = new MachinePool({
       directory,
       spawn: () => {
         throw new Error("Account machines need no worker");
       },
       remote: { scheduler, ...(extra.now ? { now: extra.now } : {}) },
+      ...(extra.off ? { off: extra.off } : {}),
       account: {
         ...(extra.directRoute ? { directRoute: extra.directRoute } : {}),
         ...(extra.watchNetwork ? { watchNetwork: extra.watchNetwork } : {}),
@@ -173,7 +180,12 @@ async function accountMachine(direct = false) {
   return { f, backend, device, pool, hostId, relay };
 }
 type PoolExtras = Partial<
-  Pick<AccountMachineOptions, "directRoute" | "watchNetwork"> & { now: () => number }
+  Pick<AccountMachineOptions, "directRoute" | "watchNetwork"> & {
+    now: () => number;
+    off: OffMachines;
+    /** Another pool's directory: the same app starting again. */
+    directory: MachineDirectory;
+  }
 >;
 
 it("an account device connects through the relay with a fresh grant per attempt", async () => {
@@ -463,4 +475,56 @@ it("a machine paired directly and found through the account is one machine on th
   networkChanged?.();
   await expect.poll(path, { timeout: 10_000 }).toBe("lan");
   expect(machines.ids).toEqual([machine.hostId]);
+});
+
+it("a turned-off machine's threads leave the inbox and come back when turned on", async () => {
+  const machine = await accountMachine();
+  const off: string[][] = [];
+  const machines = machine.pool("phone", {
+    off: { load: () => off.at(-1) ?? [], save: (ids) => void off.push([...ids]) },
+  });
+  const opened = machines.openAccountMachine({ hostId: machine.hostId, name: "Office Mac" });
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  const threads = () => machines.threads.ids.map((key) => machines.threads.thread(key)?.thread.id);
+  await expect.poll(threads, { timeout: 10_000 }).toContain(machine.f.thread.id);
+
+  machines.turnOff(machine.hostId);
+  expect(threads()).toEqual([]);
+  // Still listed, quietly off, and never reconnecting on its own.
+  expect(machines.ids).toEqual([machine.hostId]);
+  expect(machines.machine(machine.hostId)?.status).toBe("off");
+  expect(off.at(-1)).toContain(machine.hostId);
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  expect(machines.machine(machine.hostId)?.status).toBe("off");
+
+  machines.turnOn(machine.hostId);
+  await expect.poll(() => opened.get(), { timeout: 10_000 }).toEqual({ kind: "open" });
+  await expect.poll(threads, { timeout: 10_000 }).toContain(machine.f.thread.id);
+  expect(off.at(-1)).toEqual([]);
+});
+
+it("turning a machine off never unpairs it, and it stays off after a restart", async () => {
+  const machine = await accountMachine();
+  const kept: string[][] = [];
+  const offStore = {
+    load: () => kept.at(-1) ?? [],
+    save: (ids: readonly string[]) => void kept.push([...ids]),
+  };
+  const machines = machine.pool("phone", { off: offStore });
+  const paired = await machines.add({
+    identity: { hostId: HostId.parse("host"), displayName: "Office Mac", version: "1" },
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/" },
+    deviceId: "phone-paired",
+    token: "e".repeat(64),
+  });
+  machines.turnOff("host");
+  expect(machines.machine("host")?.status).toBe("off");
+  // Its pairing is untouched: the entry and its credential stay.
+  expect(machines.directory.machines.map((entry) => entry.hostId)).toEqual(["host"]);
+  await expect(machines.directory.token(paired)).resolves.toBe("e".repeat(64));
+  // The next start of the app finds it listed and still off.
+  const again = machine.pool("phone", { off: offStore, directory: machines.directory });
+  await again.start();
+  expect(again.ids).toEqual(["host"]);
+  expect(again.machine("host")?.status).toBe("off");
 });

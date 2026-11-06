@@ -39,8 +39,25 @@ import {
 } from "./account-machines.ts";
 import type { PortLike } from "./wire.ts";
 
-/** `machine_code`: an account machine waits for the person to enter its code (ADR 0111). */
-export type MachineStatus = "online" | "connecting" | "offline" | "auth_failed" | "machine_code";
+/**
+ * `machine_code`: an account machine waits for the person to enter its code (ADR 0111). `off`:
+ * the person turned it off on this device (ADR 0115); it stays listed and is never connected.
+ */
+export type MachineStatus =
+  | "online"
+  | "connecting"
+  | "offline"
+  | "auth_failed"
+  | "machine_code"
+  | "off";
+/**
+ * Which machines this device keeps turned off, by host id (ADR 0115): stored on the device only,
+ * read once when the pool starts and written on each change.
+ */
+export interface OffMachines {
+  load(): readonly string[];
+  save(hostIds: readonly string[]): void;
+}
 export interface MachineState {
   entry: MachineEntry;
   status: MachineStatus;
@@ -66,6 +83,8 @@ export interface MachinePoolOptions {
   remote: RemoteOptions;
   /** Opens machines on the person's ace account through ace's relay (`openAccountMachine`). */
   account?: AccountMachineOptions;
+  /** Machines turned off on this device (`turnOff`); none without it. */
+  off?: OffMachines;
 }
 interface Live {
   state: MachineState;
@@ -132,10 +151,64 @@ export class MachinePool {
   private superseded = new Map<string, { entry: MachineEntry; by: string }>();
   /** The paired entry each account machine is known to be, by the account machine's host id. */
   private pairedAs = new Map<string, MachineEntry>();
+  /** Host ids turned off on this device: a machine's listing id, and its daemon's when known. */
+  private off: Set<string>;
   private closed = false;
   private starting: Promise<void> | undefined;
   constructor(options: MachinePoolOptions) {
     this.options = options;
+    let kept: readonly string[] = [];
+    try {
+      kept = options.off?.load() ?? [];
+    } catch {
+      // Unreadable: every machine starts on, the safe way round for a person's own choice.
+    }
+    this.off = new Set(kept);
+  }
+  /** Whether the person turned `hostId` off on this device. */
+  isOff(hostId: string): boolean {
+    return this.off.has(hostId) || this.off.has(this.daemonOf(hostId) ?? "");
+  }
+  /**
+   * Turn a machine off on this device (ADR 0115): its connection closes and its threads leave
+   * every list, but it stays listed, paired and signed in. Nothing is sent to the machine.
+   */
+  turnOff(hostId: string): void {
+    this.assertOpen();
+    const daemon = this.daemonOf(hostId);
+    this.off.add(hostId);
+    if (daemon) this.off.add(daemon);
+    this.saveOff();
+    const live = this.live.get(hostId);
+    if (!live || live.state.status === "off") return;
+    this.dispose(live);
+    this.failures.delete(hostId);
+    this.publish(live, { entry: live.state.entry, status: "off" });
+  }
+  /** Turn it back on: it connects again with the same entry, credential and saved threads. */
+  turnOn(hostId: string): void {
+    this.assertOpen();
+    const daemon = this.daemonOf(hostId);
+    this.off.delete(hostId);
+    if (daemon) this.off.delete(daemon);
+    for (const [account, paired] of this.pairedAs)
+      if (paired.hostId === hostId) this.off.delete(account);
+    this.saveOff();
+    const live = this.live.get(hostId);
+    if (!live || live.state.status !== "off") return;
+    this.live.delete(hostId);
+    this.connect(live.state.entry);
+  }
+  /** The daemon an account machine is known to be, if any. */
+  private daemonOf(hostId: string): string | undefined {
+    return this.accountDaemons.get(hostId) ?? this.pairedAs.get(hostId)?.hostId;
+  }
+  private saveOff(): void {
+    try {
+      this.options.off?.save([...this.off]);
+    } catch {
+      // Not saved: the choice still holds until the window closes.
+    }
   }
   get ids(): readonly string[] {
     return this.order;
@@ -198,6 +271,8 @@ export class MachinePool {
     this.assertOpen();
     const live = this.live.get(hostId);
     if (live?.removing) throw new ClientError("storage", "Machine removal pending");
+    // Forgotten here: whether it was off goes with it.
+    if (this.off.delete(hostId)) this.saveOff();
     // A paired machine standing aside for its account entry goes for good, address and all.
     this.superseded.delete(hostId);
     for (const [account, paired] of this.pairedAs)
@@ -305,6 +380,7 @@ export class MachinePool {
     if (!previous) throw new ClientError("offline", "Unknown machine");
     if (previous.removing) throw new ClientError("storage", "Machine removal pending");
     if (previous.state.status === "connecting" || previous.state.status === "online") return;
+    if (previous.state.status === "off") return;
     this.stopWorker(previous);
     this.connect(previous.state.entry);
   }
@@ -393,6 +469,7 @@ export class MachinePool {
   private recover(live: Live): void {
     if (
       !this.current(live) ||
+      live.state.status === "off" ||
       live.retry ||
       live.state.status === "auth_failed" ||
       live.state.status === "machine_code"
@@ -463,17 +540,20 @@ export class MachinePool {
       this.superseded.set(entry.hostId, { entry, by: owner });
       return;
     }
+    const off = this.isOff(entry.hostId);
     const live: Live = {
-      state: { entry, status: "connecting" },
+      state: { entry, status: off ? "off" : "connecting" },
       verification: 0,
       attached: false,
       enabled: true,
       removing: false,
     };
     this.live.set(entry.hostId, live);
-    this.threads.register(entry);
     if (!this.order.includes(entry.hostId)) this.order = [...this.order, entry.hostId];
     this.notifications.emit(["ids", `machine:${entry.hostId}`]);
+    // Turned off on this device: listed, and nothing more until it is turned on.
+    if (off) return;
+    this.threads.register(entry);
     // Credential access, worker startup and identity verification never share a host queue.
     void this.open(live).catch((error: unknown) => {
       if (!this.current(live)) return;
