@@ -24,7 +24,6 @@ it("uses all 32 bytes of supplied entropy and the supplied id for a usable devic
   const f = await setup();
   const { Store } = await import("./store.ts");
   const { join } = await import("node:path");
-  const { cleanups } = await import("./remote-test-support.ts");
   const bytes = Buffer.from(
     "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
     "hex",
@@ -388,7 +387,12 @@ it("removing an install withdraws notifications from the records folded into it"
 
   await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
   await expect
-    .poll(() => service.register(left.device.id, desktop).then(() => "kept", () => "withdrawn"))
+    .poll(() =>
+      service.register(left.device.id, desktop).then(
+        () => "kept",
+        () => "withdrawn",
+      ),
+    )
     .toBe("withdrawn");
   delivered.length = 0;
   await finish();
