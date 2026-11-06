@@ -215,6 +215,12 @@ export type CommandResult = z.infer<typeof CommandResult>;
  */
 export const CommandStatusState = z.enum(["running", "settled", "unknown"]);
 export type CommandStatusState = z.infer<typeof CommandStatusState>;
+/** A paired credential's proof, carried by an account hello of the same install (ADR 0115). */
+export const PairingLinkProof = z.object({
+  deviceId: DeviceId,
+  proof: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+export type PairingLinkProof = z.infer<typeof PairingLinkProof>;
 /** The core client messages, in the order the full `ClientMessage` lists them. */
 export const CoreClientMessage = z.discriminatedUnion("type", [
   z
@@ -237,6 +243,13 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
        * older records of the same install fold into one. Older daemons ignore it.
        */
       installId: InstallId.optional(),
+      /**
+       * With a grant: proof that this account device also holds a paired credential here (ADR
+       * 0115), so the two ids are one device for command receipts. `proof` is the base64url
+       * HMAC-SHA256 of `ace-link/v1\n<deviceId>\n<hello deviceId>`, keyed by the lowercase hex
+       * SHA-256 of the paired token. Naming an install id links nothing; only this does.
+       */
+      link: PairingLinkProof.optional(),
       /**
        * Message compression this client can undo on a relayed channel: `deflate-raw` lets the
        * daemon deflate bulk JSON messages, each alone, before encrypting them. Unknown names
@@ -268,9 +281,12 @@ export const CoreClientMessage = z.discriminatedUnion("type", [
     .refine((hello) => hello.machineCode === undefined || hello.grant !== undefined, {
       message: "A machine code goes with a grant",
     })
+    .refine((hello) => hello.link === undefined || hello.grant !== undefined, {
+      message: "A pairing link goes with a grant",
+    })
     .meta({
       "x-ace-constraint":
-        "Exactly one of token, ticket and grant is required; machineCode only with grant.",
+        "Exactly one of token, ticket and grant is required; machineCode and link only with grant.",
     }),
   z.object({
     type: z.literal("subscribe"),
