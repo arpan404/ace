@@ -2470,6 +2470,9 @@
         "installId": {
           "$ref": "https://ace.local/protocol/v1/InstallId.json"
         },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/PairingLinkProof.json"
+        },
         "machineCode": {
           "$ref": "https://ace.local/protocol/v1/MachineCode.json"
         },
@@ -2502,7 +2505,7 @@
         "deviceId"
       ],
       "type": "object",
-      "x-ace-constraint": "Exactly one of token, ticket and grant is required; machineCode only with grant."
+      "x-ace-constraint": "Exactly one of token, ticket and grant is required; machineCode and link only with grant."
     },
     {
       "properties": {

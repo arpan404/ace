@@ -9894,7 +9894,7 @@ Example:
 
 ### hello
 
-Semantic rule: Exactly one of token, ticket and grant is required; machineCode only with grant.
+Semantic rule: Exactly one of token, ticket and grant is required; machineCode and link only with grant.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9907,6 +9907,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
+| link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
@@ -9917,9 +9918,10 @@ Example:
 {
   "compression": [],
   "deviceId": "example",
-  "grant": "example",
-  "machineCode": "example",
+  "flowControl": [],
   "protocolVersion": 1,
+  "ticket": "example",
+  "trims": [],
   "type": "hello"
 }
 ```
@@ -10622,6 +10624,24 @@ Example:
     "ok": true
   },
   "type": "account.grant.refresh.result"
+}
+```
+
+## CredentialReplacedClose
+
+[JSON Schema](schema/CredentialReplacedClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | `4001` |  |
+| reason | yes | `"Credential replaced"` |  |
+
+Example:
+
+```json
+{
+  "code": 4001,
+  "reason": "Credential replaced"
 }
 ```
 
@@ -20525,6 +20545,24 @@ Example:
   "streamId": "example",
   "tail": "example",
   "truncated": false
+}
+```
+
+## PairingLinkProof
+
+[JSON Schema](schema/PairingLinkProof.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "deviceId": "example",
+  "proof": "9Zv1NskOWlhajWdhQj0wW7CSyNx8q5MjKOnu4AZLZz5"
 }
 ```
 

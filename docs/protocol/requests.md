@@ -3330,7 +3330,7 @@ Example:
 
 ### hello
 
-Semantic rule: Exactly one of token, ticket and grant is required; machineCode only with grant.
+Semantic rule: Exactly one of token, ticket and grant is required; machineCode and link only with grant.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -3343,6 +3343,7 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
 | installId | no | [InstallId.json](schema/InstallId.json) |  |
+| link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
@@ -3351,12 +3352,11 @@ Example:
 
 ```json
 {
-  "channel": "screen",
+  "channel": "browser",
+  "compression": [],
   "deviceId": "example",
-  "flowControl": [],
   "grant": "example",
   "protocolVersion": 1,
-  "trims": [],
   "type": "hello"
 }
 ```
