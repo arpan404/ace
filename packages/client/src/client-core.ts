@@ -354,6 +354,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
     this.#intents = new Intents({
       storage: options.storage,
       device: options.deviceId,
+      aliases: options.deviceAliases,
       hostId: () => this.#hostId,
       limit: limits.intents,
       bytes: limits.outboxBytes,

@@ -22,10 +22,21 @@ struct MachineDetailView: View {
     var body: some View {
         let facts = MachineFacts(inbox: inbox, machines: machines, hostId: hostId)
         List {
+            if let machines, !facts.needsPairing {
+                Section {
+                    Toggle("On this iPhone", isOn: Binding(get: { !machines.isOff(hostId) },
+                                                          set: { on in Task { await machines.setOn(hostId, on) } }))
+                        .accessibilityIdentifier("machine.on")
+                } footer: {
+                    Text(facts.off ? "\(facts.name) stays paired. Its threads and notifications are hidden on this iPhone until you turn it on."
+                                   : "Turn off to hide its threads and notifications on this iPhone. It stays paired.")
+                }
+                .insetRowBackground()
+            }
             Section {
                 LabeledContent("Connection") { StateLabel(status: facts.connection) }
                     .accessibilityIdentifier("machine.connection")
-                if !facts.connected {
+                if !facts.connected && !facts.off {
                     LabeledContent("Last seen", value: facts.lastSeen.map { $0.formatted(.relative(presentation: .named)) } ?? "Not yet")
                 }
                 if let readOnly = facts.readOnly {

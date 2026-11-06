@@ -15,6 +15,7 @@ export async function startRelayTransport(
   access: {
     account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
     onRefused?: (error: import("@ace/relay").RelayRefusedError) => void;
+    onRegistration?: (registered: boolean) => void;
   } = {},
 ) {
   if (!relay) return undefined;
@@ -62,6 +63,7 @@ export async function startRelayTransport(
     account: options.machineAccount,
     relayAccount: access.account,
     onRefused: access.onRefused,
+    onRegistration: access.onRegistration,
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),

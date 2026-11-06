@@ -1,14 +1,21 @@
 import { documentVisibility } from "@/lib/page-visibility.ts";
+import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { machineSecrets } from "./machine-secrets.ts";
 import { ClientError, type Storage } from "@ace/client";
 import { MachineDirectory, type MachineEntry } from "@ace/client/machines";
 import type { PortLike } from "@ace/client-worker";
-import { MachinePool, type AccountMachineOptions } from "@ace/client-worker/machines";
-import type { KeyValueStorage } from "@ace/ui-core";
+import {
+  MachinePool,
+  type AccountMachineOptions,
+  type OffMachines,
+} from "@ace/client-worker/machines";
+import { readJson, type KeyValueStorage } from "@ace/ui-core";
+import * as z from "zod/mini";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
 import { pairedUrls } from "./machine-routes.ts";
+import { machineSocketUrl } from "./worker-target.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -32,14 +39,6 @@ function directoryStorage(storage: KeyValueStorage): Storage {
     load: async () => storage.getItem(directoryKey),
     save: async (value) => storage.setItem(directoryKey, value),
   };
-}
-
-/** A directory URL as the socket address the client worker dials. */
-function socketUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.protocol === "http:") parsed.protocol = "ws:";
-  if (parsed.protocol === "https:") parsed.protocol = "wss:";
-  return parsed.toString();
 }
 
 const timers = {
@@ -105,9 +104,15 @@ function dedicatedWorker(name: string, urls: readonly string[]): SpawnedWorker {
  * machine paired through a self-hosted relay keeps the relay host key it pins in its entry's
  * `ticketReference`.
  */
-function machineConfig(entry: MachineEntry, url: string, token: string): MachineTarget {
+function machineConfig(
+  entry: MachineEntry,
+  url: string,
+  token: string,
+  installId?: string,
+): MachineTarget {
   return {
-    url: socketUrl(url),
+    ...(installId ? { installId } : {}),
+    url: machineSocketUrl(url),
     token,
     deviceId: entry.deviceId,
     pairedDeviceId: entry.deviceId,
@@ -154,11 +159,17 @@ export function browserMachinePool(options: {
     // A hidden or frozen window can't hear its workers; that silence must not end a connection.
     remote: { scheduler: timers, visibility: documentVisibility, now: () => Date.now() },
     ...(options.account ? { account: options.account } : {}),
+    off: offMachines(options.storage),
     spawn(entry, token) {
       // Account machines open in this thread (`account-machine-options.ts`), never in a worker.
       if (entry.target.kind === "account")
         throw new ClientError("offline", "Account machines don't run in a machine worker");
-      const config = machineConfig(entry, entry.target.url, token);
+      const config = machineConfig(
+        entry,
+        entry.target.url,
+        token,
+        browserInstallId(options.storage),
+      );
       const worker = options.spawnWorker
         ? options.spawnWorker(`ace-machine-${entry.hostId}`)
         : dedicatedWorker(`ace-machine-${entry.hostId}`, pairedUrls(config, config.paths));
@@ -171,4 +182,19 @@ export function browserMachinePool(options: {
       };
     },
   });
+}
+
+const offKey = "ace.machines.off";
+/** Machines turned off in this browser or desktop app (ADR 0115), by host id. Never synced. */
+export function offMachines(storage: KeyValueStorage): OffMachines {
+  return {
+    load: () =>
+      readJson(
+        storage,
+        offKey,
+        z.array(z.string().check(z.maxLength(256))).check(z.maxLength(200)),
+        [],
+      ),
+    save: (hostIds) => storage.setItem(offKey, JSON.stringify(hostIds.slice(0, 200))),
+  };
 }

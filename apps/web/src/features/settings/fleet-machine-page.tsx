@@ -16,6 +16,7 @@ import { MachineAccount } from "./machine-account.tsx";
 import { MachineAgents } from "./machine-agents.tsx";
 import { MachineDevices, RemoveMachine } from "./machine-devices.tsx";
 import { MachineEditor } from "./machine-editor.tsx";
+import { MachineOnHere } from "./machine-on-here.tsx";
 import { MachinePause } from "./machine-pause.tsx";
 import { MachineSoftware } from "./machine-software.tsx";
 import { useMachineAction } from "./machine-unlock.tsx";
@@ -110,7 +111,9 @@ function MachinePage(props: { machine: Machine; fleet: Fleet }) {
         </MachineScope>
       ) : (
         <p className="text-ui text-muted-foreground">
-          How it's reached, its agents and its devices show when it's back online.
+          {machine.status === "off"
+            ? "It's off on this device. Turn it on to see how it's reached, its agents and its devices."
+            : "How it's reached, its agents and its devices show when it's back online."}
         </p>
       )}
       <MachinePause machine={machine} />
@@ -123,6 +126,7 @@ function MachinePage(props: { machine: Machine; fleet: Fleet }) {
           <MoreOptions dependents={dependents} />
         </MachineScope>
       )}
+      <MachineOnHere machine={machine} />
       {!machine.primary && <RemoveMachine machine={machine} fleet={fleet} />}
       {editing && (
         <MachineEditor

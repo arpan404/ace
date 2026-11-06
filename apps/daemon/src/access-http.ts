@@ -133,7 +133,7 @@ export function accessHttp({
         auth.pairingAttempt(sourceAddress(request));
         const data = PairingRedemption.safeParse(await body(request));
         if (!data.success) throw new AccessError(400, "Invalid pairing redemption");
-        result = auth.redeem(data.data.code, data.data.name);
+        result = auth.redeem(data.data.code, data.data.name, data.data.installId);
       } else if (path === "/v1/tickets" && request.method === "POST") {
         const device = auth.deviceBearer(token);
         if (!device) throw new AccessError(401, "Device token required");

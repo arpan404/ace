@@ -7,6 +7,7 @@ import { DeviceId, ThreadId, type PreviewRequest, type PreviewResult } from "@ac
 import { expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { startDaemon, readConfig } from "./index.ts";
+import { redeemPairing } from "./client-access.ts";
 import { PreviewClient } from "./preview-client.ts";
 import { cleanups, setup } from "./remote-test-support.ts";
 import { Client, token } from "./socket-test-support.ts";
@@ -251,4 +252,84 @@ test("a paired device's preview session is its own: read-only devices get none, 
   const revoked = await get(origin, { cookie: session, "sec-fetch-mode": "navigate" });
   expect(revoked.status).toBe(401);
   expect(revoked.body).toContain('data-reason="session_expired"');
+});
+
+/** A dev server whose one response streams until the client or the gateway ends it. */
+async function streamingServer() {
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/plain" });
+    res.write("first chunk");
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing dev server address");
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  return address.port;
+}
+/** Opens a streamed preview response; `ended` settles once the stream stops for any reason. */
+function stream(url: string, cookie: string) {
+  const target = new URL(url);
+  return new Promise<{ first: string; ended: Promise<void> }>((resolve, reject) => {
+    const req = request(
+      {
+        hostname: "127.0.0.1",
+        port: target.port,
+        path: "/",
+        headers: { host: target.host, cookie },
+        agent: false,
+      },
+      (res) => {
+        const ended = new Promise<void>((done) => {
+          res.once("close", () => done());
+          res.once("error", () => done());
+        });
+        res.setEncoding("utf8");
+        res.once("data", (chunk: string) => resolve({ first: chunk, ended }));
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("pairing the same install again ends the old credential's preview session and its open streams", async () => {
+  const f = await previewSetup();
+  const port = await streamingServer();
+  const host = await f.connect();
+  expect(await host.next()).toMatchObject({ type: "welcome" });
+  const origin = (await preview(host, f.thread.id, { op: "forward", port })).previews?.[0]?.origin;
+  if (!origin) throw new Error("Missing preview origin");
+  const install = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0f";
+  const operator = await redeemPairing((await f.pairing()).url, "Phone", install);
+  const phone = await f.connectTicket(operator.device.id, (await f.ticket(operator.token)).ticket);
+  expect(await phone.next()).toMatchObject({ type: "welcome" });
+  const signIn = await preview(phone, f.thread.id, { op: "link", port });
+  const session = embedded(await get(signIn.link?.url ?? "", { "sec-fetch-mode": "navigate" }));
+  const open = await stream(origin, session);
+  expect(open.first).toBe("first chunk");
+  // A link minted under the old credential but not yet redeemed.
+  const unredeemed = await preview(phone, f.thread.id, { op: "link", port });
+
+  const again = await redeemPairing((await f.pairing()).url, "Phone", install);
+  expect(again.device.id).toBe(operator.device.id);
+  const stale = await get(origin, { cookie: session, "sec-fetch-mode": "navigate" });
+  expect(stale.status).toBe(401);
+  expect(stale.body).toContain('data-reason="session_expired"');
+  const late = await get(unredeemed.link?.url ?? "", { "sec-fetch-mode": "navigate" });
+  expect(late.status).toBe(401);
+  await open.ended;
+
+  // The new credential signs in as before.
+  const renewed = await f.connectTicket(again.device.id, (await f.ticket(again.token)).ticket);
+  expect(await renewed.next()).toMatchObject({ type: "welcome" });
+  const fresh = await preview(renewed, f.thread.id, { op: "link", port });
+  const current = embedded(await get(fresh.link?.url ?? "", { "sec-fetch-mode": "navigate" }));
+  expect((await stream(origin, current)).first).toBe("first chunk");
 });

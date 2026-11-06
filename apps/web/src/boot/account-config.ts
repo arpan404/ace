@@ -5,7 +5,6 @@ import {
   ACE_WEB_SIGN_IN_PATH,
   AceAccountGrant,
 } from "@ace/protocol/ace-account";
-import { z } from "zod";
 
 /*
  * Where this build finds ace's account backend and hosted relay (docs/relay/accounts.md). The
@@ -51,16 +50,4 @@ export function accountSessionKey(origin: string): string {
 /** The ace session this window holds for `origin`, if any. */
 export function windowAccountSession(storage: KeyValueStorage, origin: string) {
   return readJson(storage, accountSessionKey(origin), AceAccountGrant.nullable(), null);
-}
-
-const deviceKey = "ace.account.deviceId";
-const DeviceIdShape = z.string().regex(/^[A-Za-z0-9-]{8,64}$/);
-
-/** This browser's device id on the account: the subject of its device grants, kept for good. */
-export function accountDeviceId(storage: KeyValueStorage, id: () => string): string {
-  const saved = DeviceIdShape.safeParse(storage.getItem(deviceKey));
-  if (saved.success) return saved.data;
-  const next = id();
-  storage.setItem(deviceKey, next);
-  return next;
 }

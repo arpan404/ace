@@ -220,7 +220,8 @@ export function startMachines(context: ServiceContext): void {
           { timeoutMs: 4000 },
         ),
       ),
-    redeem: options.machines?.redeem ?? redeemPairing,
+    // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
+    redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
     hostName,
     transfers: (profile) =>
       new TransferClient(options.transfers?.transport ?? transferTransport, profile).probe(),

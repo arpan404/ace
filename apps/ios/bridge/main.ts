@@ -4,7 +4,7 @@ import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { ClientCore } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
+import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { ProjectManage } from "./project-manage.ts";
@@ -67,12 +67,19 @@ import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
+  /** This app install (ADR 0115), sent in every hello so the machine sees one device. */
+  installId: InstallId.optional().catch(undefined),
+  /** This install's other device id on the same machine (ADR 0115): its saved sends are ours. */
+  deviceAliases: z.array(DeviceId).max(4).optional().catch(undefined),
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
-  /** A machine on the phone's ace account, through ace's relay: device grants (ADR 0111). */
-  account: z.strictObject({}).optional(),
+  /**
+   * A machine on the phone's ace account, through ace's relay: device grants (ADR 0111), and
+   * the proof of this install's pairing with it (`link`, ADR 0115); a malformed proof is dropped.
+   */
+  account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
@@ -198,7 +205,7 @@ async function start(json: string): Promise<void> {
   const credential = paired
     ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
     : account
-      ? accountCredential(account)
+      ? accountCredential(account, config.account?.link)
       : async () =>
           z
             .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
@@ -221,6 +228,8 @@ async function start(json: string): Promise<void> {
   }
   client = new ClientCore({
     deviceId: config.deviceId,
+    ...(config.installId ? { installId: config.installId } : {}),
+    ...(config.deviceAliases ? { deviceAliases: config.deviceAliases } : {}),
     // An account machine's key is pinned by the relay handshake; its welcome names the
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),

@@ -50,10 +50,10 @@ export class AccessClient {
   async ticket(signal?: AbortSignal) {
     return SocketTicket.parse(await this.http("/v1/tickets", "POST", undefined, true, signal));
   }
-  async redeem(code: string, name: string, signal?: AbortSignal) {
-    return DeviceCredential.parse(
-      await this.http("/v1/pair", "POST", PairingRedemption.parse({ code, name }), false, signal),
-    );
+  /** `installId`: this app install (ADR 0115); pairing it again keeps its one device. */
+  async redeem(code: string, name: string, signal?: AbortSignal, installId?: string) {
+    const body = PairingRedemption.parse({ code, name, ...(installId ? { installId } : {}) });
+    return DeviceCredential.parse(await this.http("/v1/pair", "POST", body, false, signal));
   }
   async previewLink(port: number, signal?: AbortSignal) {
     z.number().int().min(1).max(65535).parse(port);

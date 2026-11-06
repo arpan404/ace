@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceId } from "./ids.ts";
+import { DeviceId, InstallId } from "./ids.ts";
 import { MachineAccountStatus } from "./machine-access.ts";
 
 /**
@@ -64,6 +64,11 @@ export type PendingPairing = z.infer<typeof PendingPairing>;
 export const PairingRedemption = z.object({
   code: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
+  /**
+   * The redeeming app's install id (ADR 0115). Pairing the same install again keeps its one
+   * device record and id. Older apps send none; older daemons ignore it.
+   */
+  installId: InstallId.optional(),
 });
 export const PairingResponse = z.object({
   url: z.url(),

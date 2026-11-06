@@ -10,14 +10,12 @@ struct MachinesView: View {
     var body: some View {
         List {
             Section {
-                ForEach(inbox.sessions) { session in
-                    NavigationLink(value: SettingsRoute.machine(session.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: session.hostId) }
-                        .accessibilityIdentifier("machines.row.\(session.hostId)")
+                ForEach(listed, id: \.self) { hostId in
+                    NavigationLink(value: SettingsRoute.machine(hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: hostId) }
+                        .accessibilityIdentifier("machines.row.\(hostId)")
                         .insetRowBackground()
-                }
-                ForEach(unsupported) { entry in
-                    NavigationLink(value: SettingsRoute.machine(entry.hostId)) { MachineRow(inbox: inbox, machines: machines, hostId: entry.hostId) }
-                        .insetRowBackground()
+                        .swipeActions(edge: .trailing) { turnOnOrOff(hostId) }
+                        .contextMenu { turnOnOrOff(hostId) }
                 }
             }
             if !inbox.sessions.isEmpty {
@@ -61,8 +59,23 @@ struct MachinesView: View {
             }
         }
     }
-    private var unsupported: [MachineEntry] {
-        machines.map { model in model.machines.filter { model.unsupported.contains($0.hostId) } } ?? []
+    /// Connected machines in their runtimes' order, then the ones turned off here or needing
+    /// pairing again: every machine stays listed, once.
+    private var listed: [String] {
+        let live = inbox.sessions.map(\.hostId)
+        guard let machines else { return live }
+        let rest = machines.machines.map(\.hostId).filter { hostId in
+            !live.contains(hostId) && (machines.isOff(hostId) || machines.unsupported.contains(hostId))
+        }
+        return live + rest
+    }
+    /// Turn a machine off on this phone, or on again; it stays paired either way.
+    @ViewBuilder private func turnOnOrOff(_ hostId: String) -> some View {
+        if let machines, !machines.unsupported.contains(hostId) {
+            let off = machines.isOff(hostId)
+            Button(off ? "Turn on" : "Turn off") { Task { await machines.setOn(hostId, off) } }
+                .accessibilityIdentifier("machines.row.\(hostId).\(off ? "on" : "off")")
+        }
     }
 }
 
@@ -120,18 +133,23 @@ struct ConnectionDot: View {
     let symbol: String
     /// New work is paused there ("Pause new work").
     let paused: Bool
+    /// Turned off on this phone: no connection, its threads and notifications hidden.
+    let off: Bool
 
     init(inbox: MachineInbox, machines: MachinesModel?, hostId: String) {
         let entry = machines?.entry(hostId)
         let client = inbox.client(hostId)
         name = entry?.displayName ?? inbox.name(hostId)
         needsPairing = machines?.unsupported.contains(hostId) ?? false
+        off = machines?.isOff(hostId) ?? false
         connection = needsPairing ? StatusDisplay(label: "Pair again", token: "failed")
+            : off ? StatusDisplay(label: "Off on this iPhone", token: "neutral")
             : client?.machineStatus?.status ?? StatusDisplay(label: "Connecting…", token: "neutral")
-        trying = !needsPairing && ["connecting", "reconnecting"].contains(client?.connection ?? "")
+        trying = !needsPairing && !off && ["connecting", "reconnecting"].contains(client?.connection ?? "")
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
-        address = entry?.isAccountMachine == true ? "Through your ace account"
+        let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
+        address = entry?.isAccountMachine == true || onRelay ? "Through your ace account"
             : entry.flatMap { URL(string: $0.target.url) }.map { url in [url.host, url.port.map(String.init)].compactMap { $0 }.joined(separator: ":") }
         symbol = Self.symbol(entry?.icon?.kind)
         paused = client?.admission?.paused == true
@@ -141,6 +159,7 @@ struct ConnectionDot: View {
     var subtitle: String {
         var parts: [String] = []
         if connected { parts.append(address ?? connection.label) }
+        else if off { parts.append(connection.label) }
         else {
             parts.append(connection.label)
             if let lastSeen, let age = ActivityTime.elapsed(since: lastSeen, now: Date()) { parts.append(age) }

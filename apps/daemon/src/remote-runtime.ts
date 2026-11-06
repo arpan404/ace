@@ -9,6 +9,7 @@ import { relayPairing, relayRoute } from "./relay-route.ts";
 import { computerName } from "./computer-name.ts";
 import { remoteDirect } from "./remote-direct.ts";
 import { remoteRelays } from "./remote-relays.ts";
+import { startRelayTransport } from "./services/transports.ts";
 import { remoteNetworksStatus } from "./remote-status.ts";
 import {
   addedDirect,
@@ -80,7 +81,7 @@ export function remoteRuntime(
   // Links name the relay only while no direct address serves; then closing it withdraws them.
   const relays = remoteRelays({
     options,
-    auth,
+    connect: (relay, access) => startRelayTransport(options, auth, relay, access),
     machineName,
     serialize,
     clearPending: () => {

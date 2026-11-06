@@ -24,6 +24,7 @@ const host = new ClientHost({
           browserClientOptions({
             report,
             deviceId: target.deviceId,
+            installId: target.installId,
             ...daemonRoute(target),
             storage: workerOutbox(target),
             readSnapshots: browserReadSnapshots(target),

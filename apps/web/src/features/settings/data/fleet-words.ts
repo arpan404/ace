@@ -65,6 +65,8 @@ export function machineState(
       return { tone: "on", words: "Online" };
     case "connecting":
       return { tone: "off", words: "Connecting" };
+    case "off":
+      return { tone: "off", words: "Off on this device" };
     case "machine_code":
       return { tone: "warn", words: "Asks for its machine code" };
     case "auth_failed":

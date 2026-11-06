@@ -1,4 +1,4 @@
-import { PairResult, type DeviceCredential, type PairRefusal } from "@ace/protocol";
+import { InstallId, PairResult, type DeviceCredential, type PairRefusal } from "@ace/protocol";
 import { ephemeralRelayKeys } from "./device-route.ts";
 import { parsePairingLink } from "./pairing-link.ts";
 import type { PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
@@ -23,6 +23,8 @@ export class RelayPairingError extends Error {
 export async function redeemPairingViaRelay(input: {
   link: string;
   name: string;
+  /** This app install (ADR 0115): pairing it again keeps its one device. */
+  installId?: string | undefined;
   socket(url: string, protocols?: string[]): PortableSocket;
   schedule(callback: () => void, delayMs: number): () => void;
   keys?: PortableRelayOptions["keys"];
@@ -41,7 +43,12 @@ export async function redeemPairingViaRelay(input: {
     ...(input.signal ? { signal: input.signal } : {}),
   });
   try {
-    await relay.send({ type: "pair.redeem", code: link.code, name: input.name });
+    await relay.send({
+      type: "pair.redeem",
+      code: link.code,
+      name: input.name,
+      ...(input.installId ? { installId: InstallId.parse(input.installId) } : {}),
+    });
     const answer = await relay.receive();
     const parsed = PairResult.safeParse(answer);
     if (!parsed.success) throw new Error("The computer didn't answer the pairing request.");

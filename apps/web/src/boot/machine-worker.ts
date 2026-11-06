@@ -52,6 +52,7 @@ const host = new ClientHost({
         const client = new ClientCore({
           ...browserClientOptions({
             deviceId: target.deviceId,
+            installId: target.installId,
             ...(paths ? paths.route() : daemonRoute(target)),
             storage: workerOutbox(target),
             readSnapshots: browserReadSnapshots(target),

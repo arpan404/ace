@@ -73,15 +73,23 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
     func start(itemLimit: Int = 200) { start(itemLimit: itemLimit, inboxSort: nil) }
     func start(itemLimit: Int, inboxSort: String?) {
-        guard let target = lock.withLock({ binding.target }) else { fail("Could not load the shared client"); return }
-        let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
-                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) },
-                                   account: target.relay.map { _ in AccountConfig() }, inboxSort: inboxSort)
-        guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
-        let entry = (name: "aceStart", json: String(decoding: json, as: UTF8.self))
+        guard let target = lock.withLock({ binding.target }),
+              let json = Self.startConfig(target, itemLimit: itemLimit, inboxSort: inboxSort) else { fail("Could not load the shared client"); return }
+        let entry = (name: "aceStart", json: json)
         if lock.withLock({ thread == nil }) { boot(then: entry); return }
         // Warm: the bundle is evaluated (or evaluating) on its thread; the entry runs after it.
         execute { [weak self] context in self?.run(entry, in: context) }
+    }
+    /// What the client bundle's entry starts with. An account route to a machine this install
+    /// also paired carries the pairing's proof, read once from the Keychain; never its token.
+    static func startConfig(_ target: ConnectionTarget, itemLimit: Int, inboxSort: String?,
+                            secrets: any SecretStore = KeychainSecrets()) -> String? {
+        let config = RuntimeConfig(deviceId: target.deviceId, installId: target.installId,
+                                   deviceAliases: target.deviceAliases.isEmpty ? nil : target.deviceAliases, hostId: target.hostId, itemLimit: itemLimit,
+                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) },
+                                   account: target.relay.map { _ in AccountConfig(link: PairingLinkProof.of(target, secrets: secrets)) },
+                                   inboxSort: inboxSort)
+        return (try? JSONEncoder().encode(config)).map { String(decoding: $0, as: UTF8.self) }
     }
     func startAccess(_ json: String) { boot(then: (name: "aceAccess", json: json)) }
     private func run(_ entry: (name: String, json: String), in context: JSContext) {
@@ -181,9 +189,10 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
 }
 private struct PairedConfig: Encodable { let secretKey: String }
-/// An account machine: each connection presents a device grant (`account.grant`).
-private struct AccountConfig: Encodable {}
+/// An account machine: each connection presents a device grant (`account.grant`), and the
+/// proof of this install's pairing with it when it has one (`link`).
+private struct AccountConfig: Encodable { let link: PairingLinkProof? }
 private struct RuntimeConfig: Encodable {
-    let deviceId: String; let hostId: String; let itemLimit: Int
+    let deviceId: String; let installId: String?; let deviceAliases: [String]?; let hostId: String; let itemLimit: Int
     let paired: PairedConfig?; let account: AccountConfig?; let inboxSort: String?
 }

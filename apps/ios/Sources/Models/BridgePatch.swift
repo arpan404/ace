@@ -348,8 +348,9 @@ enum BridgePatch: Decodable, Sendable {
     case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
-    /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
-    case machineIdentity(String)
+    /// The mark this runtime's machine chose, its own id and the paths it serves
+    /// (`bridge/machine-identity.ts`).
+    case machineIdentity(MachineIdentityPatch)
     /// An account machine asks for its machine code: `machine_code_required`, `_wrong` or `_locked`; nil once answered.
     case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
@@ -473,7 +474,7 @@ enum BridgePatch: Decodable, Sendable {
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
-        case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
+        case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
         case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
                                                     lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
@@ -504,4 +505,20 @@ enum BridgePatch: Decodable, Sendable {
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }
+}
+
+/// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
+/// own id, and the paths it serves (absent from older daemons and bridges).
+struct MachineIdentityPatch: Decodable, Equatable, Sendable {
+    let glyph: String
+    let hostId: String?
+    let paths: [MachinePath]?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil) { self.glyph = glyph; self.hostId = hostId; self.paths = paths }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        glyph = try box.decode(String.self, forKey: .glyph)
+        hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
+        paths = MachinePath.lenient(box, forKey: .paths)
+    }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths }
 }
