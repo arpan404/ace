@@ -74,8 +74,8 @@ export interface ThreadPhases {
 
 export interface ThreadLimits {
   /**
-   * JS worker threads that stay alive at idle. Idle workers retire after five idle seconds, so
-   * the fewest alive across five seconds is what is held to it.
+   * JS worker threads that stay alive through the startup idle floor. Periodic reuse can grow
+   * an idle window up to two minutes; retained workers after the workload are checked by kind.
    */
   idleWorkers: number;
   /** JS worker threads under the workload. */
