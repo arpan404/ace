@@ -19,6 +19,11 @@ import Observation
     private(set) var accountMachines: [AceMachine] = []
     /// Signed in to an ace account with a listing this launch.
     private(set) var accountSignedIn = false
+    /// Machines turned off on this phone (by the host id the list keys them by): listed, but no
+    /// runtime, no rows, no notifications. Never told to the machine.
+    private(set) var off: Set<String>
+    /// The route each machine reachable two ways is on (`MachineRoutePlan`), by host id.
+    private(set) var plans: [String: MachineRoutePlan] = [:]
     let inbox: MachineInbox
     /// The SDK directory's paired machines; `machines` is these plus unpaired account machines.
     @ObservationIgnored private var paired: [MachineEntry] = []
@@ -28,19 +33,32 @@ import Observation
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let itemLimit: Int
     @ObservationIgnored private let makeClient: @MainActor () -> ClientModel
+    /// This app install (ADR 0115), in every hello.
+    @ObservationIgnored private let installId: String?
+    @ObservationIgnored private let probe: (ConnectionTarget) async -> Bool
+    /// Account machines whose daemon said, over the relay, which paired machine it is: account
+    /// host id → daemon id.
+    @ObservationIgnored private var daemons: [String: String]
     /// Runs before each machine's connection opens, so notifications bind to that runtime.
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
     @ObservationIgnored var afterRemove: ((ClientModel, String) -> Void)?
     /// Runs once every listed machine has its runtime.
     @ObservationIgnored var afterLoad: (() -> Void)?
+    /// Runs once a machine turned off here has let its runtime go, so what it showed outside the
+    /// app (notifications, the Live Activity, widgets) goes too.
+    @ObservationIgnored var afterTurnOff: ((String) -> Void)?
 
     init(access: any MachineAccess, account: (any AccountDirectory)? = nil, storage: URL, defaults: UserDefaults = .standard,
-         itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
+         probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
+        self.installId = installId; self.probe = probe
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:]
+        off = Self.turnedOff(in: defaults)
+        daemons = defaults.dictionary(forKey: Keys.daemons) as? [String: String] ?? [:]
     }
     func entry(_ hostId: String) -> MachineEntry? { machines.first { $0.hostId == hostId } }
     /// The host chose a view-only grant for this phone; its commands will be refused.
@@ -58,7 +76,10 @@ import Observation
         if !known.isEmpty {
             machines = known
             paired = known.filter { !$0.isAccountMachine }
-            accountMachines = known.filter(\.isAccountMachine).map { AceMachine(hostId: $0.hostId, name: $0.displayName, platform: "", lastSeenAt: 0) }
+            // A paired machine also on the account keeps its relay route before the account answers.
+            accountMachines = known.compactMap { entry in
+                (entry.isAccountMachine ? entry.hostId : entry.accountHostId).map { AceMachine(hostId: $0, name: entry.displayName, platform: "", lastSeenAt: 0) }
+            }
             loaded = true
             for entry in known { await connect(entry) }
         }
@@ -101,7 +122,7 @@ import Observation
     }
     private func merged() -> [MachineEntry] {
         guard let account, let relay = account.relayURL?.absoluteString else { return paired }
-        return AccountMachines.merge(paired: paired, account: accountMachines, relayURL: relay, deviceId: account.deviceId)
+        return AccountMachines.merge(paired: paired, account: accountMachines, relayURL: relay, deviceId: account.deviceId, daemons: daemons)
     }
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
@@ -115,10 +136,16 @@ import Observation
                 continue
             }
             // Gone from the directory, or reachable another way now: this runtime stops.
+            plans[entry.hostId] = nil
             guard let client = inbox.detach(entry.hostId) else { continue }
             unsupported.remove(entry.hostId)
             await client.disconnectAndWait()
             afterRemove?(client, entry.hostId)
+        }
+        // A machine that gained or lost its account route keeps its runtime, on a route it still has.
+        for entry in listed where plans[entry.hostId] != nil {
+            let routes = targets(for: entry)
+            await take(plans[entry.hostId]?.routes(direct: routes.direct != nil, relay: routes.relay != nil), entry.hostId)
         }
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
@@ -160,7 +187,9 @@ import Observation
             if let client, let target = target(for: entry) { await open(client, entry: entry, target: target) }
             return
         }
+        plans[hostId] = nil
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
+        if off.remove(hostId) != nil { saveOff() }
         // Removed on purpose: what this phone remembers of the machine goes too. A machine that
         // only left the list (signed out, another account) keeps it for when it comes back.
         inbox.forget(hostId)
@@ -185,14 +214,20 @@ import Observation
     }
     /// Back from the background: a suspended socket may be dead without having closed, so every
     /// machine checks its own now instead of at its next heartbeat.
-    func wake() { for session in inbox.sessions { session.client.wake() } }
-    /// Network changes reach every runtime; the SDK owns each reconnect.
+    /// A machine on its account relay checks whether its direct address answers again.
+    func wake() {
+        for session in inbox.sessions { session.client.wake() }
+        reconsiderRoutes()
+    }
+    /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
+    /// account relay checks whether its direct address answers on the new network.
     func network(online: Bool, interfaceChanged: Bool) {
         for session in inbox.sessions {
             session.client.network(online)
             // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't.
             if online && interfaceChanged { session.client.retry() }
         }
+        if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {
         for session in inbox.sessions { await session.client.disconnectAndWait() }
@@ -216,17 +251,105 @@ import Observation
             return nil
         }
     }
-    /// Pinned direct for a paired machine; the relay for an account machine.
+    /// The routes a machine has: pinned direct for a paired machine, the account relay for an
+    /// account machine, and both for a paired machine also on the account. Every route keeps the
+    /// machine's own scope, so either one reads and writes the same cache.
+    private func targets(for entry: MachineEntry) -> (direct: ConnectionTarget?, relay: ConnectionTarget?) {
+        let scope = MachineScope(hostId: entry.hostId, deviceId: entry.deviceId)
+        var direct = entry.isAccountMachine ? nil : entry.connectionTarget
+        let relayHost = entry.isAccountMachine ? entry.hostId : entry.accountHostId
+        var relay = relayHost.flatMap { host in
+            account?.route(hostId: host).map { ConnectionTarget(relay: $0, deviceId: entry.isAccountMachine ? entry.deviceId : account?.deviceId ?? entry.deviceId) }
+        }
+        direct?.installId = installId
+        relay?.installId = installId
+        relay?.machineScope = scope
+        return (direct, relay)
+    }
+    /// The route the machine's plan is on, or the one it has.
     private func target(for entry: MachineEntry) -> ConnectionTarget? {
-        guard entry.isAccountMachine else { return entry.connectionTarget }
-        return account?.route(hostId: entry.hostId).map { ConnectionTarget(relay: $0, deviceId: entry.deviceId) }
+        let routes = targets(for: entry)
+        return plans[entry.hostId]?.current == .relay ? routes.relay ?? routes.direct : routes.direct ?? routes.relay
     }
     private func connect(_ entry: MachineEntry) async {
-        guard let target = target(for: entry) else { unsupported.insert(entry.hostId); return }
-        if inbox.client(entry.hostId) != nil { return }
+        let routes = targets(for: entry)
+        guard routes.direct != nil || routes.relay != nil else { unsupported.insert(entry.hostId); return }
+        if off.contains(entry.hostId) || inbox.client(entry.hostId) != nil { return }
+        plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil)
+        guard let target = target(for: entry) else { return }
         let client = makeClient()
+        let hostId = entry.hostId
+        client.onConnection = { [weak self] state in
+            Task { @MainActor in await self?.take(self?.plans[hostId]?.connection(state), hostId) }
+        }
+        client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
         inbox.attach(entry.hostId, name: entry.displayName, client: client)
         await open(client, entry: entry, target: target)
+    }
+    /// Does what a machine's route plan said: reopen its runtime on the other route, or probe the
+    /// direct address and report the answer back to the plan.
+    private func take(_ step: MachineRoutePlan.Step?, _ hostId: String) async {
+        guard let step, let entry = entry(hostId), let client = inbox.client(hostId) else { return }
+        switch step {
+        case .stay: return
+        case .open: if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        case .probeDirect:
+            var answered = false
+            if let direct = targets(for: entry).direct { answered = await probe(direct) }
+            guard inbox.client(hostId) === client else { return }
+            await take(plans[hostId]?.probed(answered: answered), hostId)
+        }
+    }
+    private func reconsiderRoutes() {
+        for hostId in plans.keys where plans[hostId]?.current == .relay {
+            Task { await take(plans[hostId]?.networkChanged(), hostId) }
+        }
+    }
+    /// What a machine said about itself over its own authenticated connection: a paired
+    /// machine's paths are saved with it (they may name its account machine), and an account
+    /// machine whose daemon is a paired machine becomes that machine (ADR 0115).
+    private func learned(_ identity: MachineIdentityPatch, from hostId: String) async {
+        guard let entry = entry(hostId), let daemon = identity.hostId else { return }
+        if entry.isAccountMachine {
+            guard daemon != hostId, daemons[hostId] != daemon, paired.contains(where: { $0.hostId == daemon }) else { return }
+            daemons[hostId] = daemon
+            defaults.set(daemons, forKey: Keys.daemons)
+            await follow(merged())
+            return
+        }
+        guard daemon == hostId, let paths = identity.paths, paths != paired.first(where: { $0.hostId == hostId })?.paths ?? [] else { return }
+        if case .success(let outcome) = await access.perform(.remember(hostId: hostId, paths: paths)), let listed = outcome.machines {
+            paired = listed
+            await follow(merged())
+        }
+    }
+
+    // MARK: Turning a machine off on this phone
+
+    func isOff(_ hostId: String) -> Bool { off.contains(hostId) }
+    /// Off: the machine stays listed and paired, with its credential, grants and cache, but its
+    /// runtime stops and its threads, notifications and lock screen rows go. On: it connects
+    /// again with the same identity. Kept on this phone only; the machine is never told.
+    func setOn(_ hostId: String, _ on: Bool) async {
+        if on {
+            guard off.remove(hostId) != nil else { return }
+            saveOff()
+            if let entry = entry(hostId) { await connect(entry) }
+            return
+        }
+        guard off.insert(hostId).inserted else { return }
+        saveOff()
+        plans[hostId] = nil
+        if let client = inbox.detach(hostId) {
+            await client.disconnectAndWait()
+            afterRemove?(client, hostId)
+        }
+        afterTurnOff?(hostId)
+    }
+    private func saveOff() { defaults.set(off.sorted(), forKey: Keys.off) }
+    /// The machines turned off on this phone, as stored; notifications read it too.
+    nonisolated static func turnedOff(in defaults: UserDefaults) -> Set<String> {
+        Set(defaults.stringArray(forKey: Keys.off) ?? [])
     }
     private func open(_ client: ClientModel, entry: MachineEntry, target: ConnectionTarget) async {
         client.canOperate = canOperate(entry)
@@ -234,5 +357,8 @@ import Observation
         await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }
-    private nonisolated enum Keys { static let grants = "ace.machines.grants", known = "ace.machines.known" }
+    private nonisolated enum Keys {
+        static let grants = "ace.machines.grants", known = "ace.machines.known"
+        static let off = "ace.machines.off", daemons = "ace.machines.accountDaemons"
+    }
 }

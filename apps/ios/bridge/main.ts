@@ -4,7 +4,7 @@ import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { ClientCore } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
+import { DeviceId, HostId, InstallId, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { ProjectManage } from "./project-manage.ts";
@@ -67,6 +67,8 @@ import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
+  /** This app install (ADR 0115), sent in every hello so the machine sees one device. */
+  installId: InstallId.optional().catch(undefined),
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
@@ -221,6 +223,7 @@ async function start(json: string): Promise<void> {
   }
   client = new ClientCore({
     deviceId: config.deviceId,
+    ...(config.installId ? { installId: config.installId } : {}),
     // An account machine's key is pinned by the relay handshake; its welcome names the
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),

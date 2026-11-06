@@ -90,6 +90,13 @@ final class SystemNotificationCenter: NotificationCenterPort {
         save()
         center.withdraw(ids)
     }
+    /// Every notification from one machine, such as one turned off on this phone.
+    func clear(hostId: String) {
+        let ids = stack.clear(hostId: hostId)
+        guard !ids.isEmpty else { return }
+        save()
+        center.withdraw(ids)
+    }
     /// The thread was opened, or its request is answered or gone.
     func clear(threadId: String, hostId: String?) {
         let ids = stack.clear(threadId: threadId, hostId: hostId)

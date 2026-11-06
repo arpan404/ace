@@ -74,7 +74,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     func start(itemLimit: Int = 200) { start(itemLimit: itemLimit, inboxSort: nil) }
     func start(itemLimit: Int, inboxSort: String?) {
         guard let target = lock.withLock({ binding.target }) else { fail("Could not load the shared client"); return }
-        let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
+        let config = RuntimeConfig(deviceId: target.deviceId, installId: target.installId, hostId: target.hostId, itemLimit: itemLimit,
                                    paired: target.secretKey.map { PairedConfig(secretKey: $0) },
                                    account: target.relay.map { _ in AccountConfig() }, inboxSort: inboxSort)
         guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
@@ -184,6 +184,6 @@ private struct PairedConfig: Encodable { let secretKey: String }
 /// An account machine: each connection presents a device grant (`account.grant`).
 private struct AccountConfig: Encodable {}
 private struct RuntimeConfig: Encodable {
-    let deviceId: String; let hostId: String; let itemLimit: Int
+    let deviceId: String; let installId: String?; let hostId: String; let itemLimit: Int
     let paired: PairedConfig?; let account: AccountConfig?; let inboxSort: String?
 }

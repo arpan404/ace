@@ -126,13 +126,18 @@ import QuartzCore
     /// when the machine is removed. Background launches build their own.
     static func machines(directory: URL, notifications: NotificationCoordinator, warmup: RuntimeWarmup? = nil,
                          now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) -> MachinesModel {
-        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory)),
-                                     account: AceAccountDirectory(),
+        // One install id for this phone on every machine and path (ADR 0115).
+        let install = InstallIdentity.system
+        let installId = install.id()
+        let machines = MachinesModel(access: BridgeMachineAccess(directoryURL: machineDirectory(in: directory), installId: installId),
+                                     account: AceAccountDirectory(install: install),
                                      storage: directory.appendingPathComponent("machines", isDirectory: true), now: now,
+                                     installId: installId,
                                      makeClient: { warmup.map { ClientModel(now: now, makeRuntime: $0.makeRuntime) } ?? ClientModel(now: now) })
         machines.afterLoad = { warmup?.releaseUnused() }
         machines.beforeConnect = { [weak notifications] model, target in await notifications?.attach(model, target: target) }
         machines.afterRemove = { [weak notifications] model, _ in notifications?.detach(model) }
+        machines.afterTurnOff = { [weak notifications] hostId in notifications?.turnedOff(hostId) }
         return machines
     }
 

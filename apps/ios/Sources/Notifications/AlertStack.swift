@@ -80,6 +80,13 @@ struct AlertStack: Codable, Equatable, Sendable {
         guard let index = shown.firstIndex(where: { $0.threadId == threadId && $0.hostId == hostId }) else { return [] }
         return remove(at: index)
     }
+    /// Every notification from one machine goes. A finish folded into the summary has none of
+    /// its own; the summary stays.
+    mutating func clear(hostId: String) -> [String] {
+        let gone = shown.filter { $0.hostId == hostId }
+        shown.removeAll { $0.hostId == hostId }
+        return gone.filter { !$0.folded }.map(\.key)
+    }
     /// Threads whose notification asks for the person, for checking against their rows.
     func asking(hostId: String) -> [String] {
         shown.filter { $0.hostId == hostId && $0.status == "needs_you" }.map(\.threadId)

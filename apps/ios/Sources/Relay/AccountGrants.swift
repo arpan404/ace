@@ -46,14 +46,9 @@ struct AceAccountSessionStore: Sendable {
     func save(_ token: String) throws { try secrets.set(key, token) }
     func clear() throws { try secrets.delete(key) }
     /// This phone's device id on the account: the grant's subject, and the name each machine
-    /// remembers a passed machine code under. Made once; not a secret.
-    func deviceId(defaults: UserDefaults = .standard) -> String {
-        let stored = "ace.account.device.\(key)"
-        if let id = defaults.string(forKey: stored), !id.isEmpty { return id }
-        let id = "ios-" + UUID().uuidString.lowercased()
-        defaults.set(id, forKey: stored)
-        return id
-    }
+    /// remembers a passed machine code under. It is the install id (ADR 0115), the same for every
+    /// account origin and across signing out and in; not a secret.
+    func deviceId(install: InstallIdentity = .system) -> String { install.id() }
 }
 
 /// An account machine reached through ace's hosted relay.
