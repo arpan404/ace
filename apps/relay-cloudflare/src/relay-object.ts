@@ -19,6 +19,8 @@ import type { Env } from "./env.ts";
 import { refuseUpgrade, upgraded } from "./upgrade.ts";
 
 const limits = LimitsSchema.parse({});
+/** Closes a registered daemon's control socket so it registers again at once. */
+const REGISTER_AGAIN = 4002;
 const tag = (id: string) => `socket:${id}`;
 
 function randomTicket(): string {
@@ -198,26 +200,27 @@ export class RelayObject extends DurableObject<Env> {
     clearTimeout(pending.timer);
     this.#handshakes.delete(attachment.id);
     const transport = pending.state.transport;
+    let host: Attachment & { kind: "host" };
     try {
       const proven = hostIdOf(transport.remoteStatic);
       // The claimed id only routed this socket here. A key that doesn't own this object's id
       // cannot register; 1008 tells the daemon retrying won't help.
       if (proven !== attachment.hostId) return this.#close(ws, 1008, "Host id mismatch");
-      this.#save(ws, {
+      host = {
         kind: "host",
         id: attachment.id,
         hostId: proven,
         account: attachment.account,
         send: transport.send.snapshot(),
         receive: transport.receive.snapshot(),
-      });
-      this.#apply(this.#routing().register(attachment.id, proven));
+      };
     } finally {
       transport.destroy();
     }
     // Two proofs bind the machine to the account: the grant (the session) and the handshake
-    // (the key). Without its directory entry the account's devices can't find it, so a failed
-    // write ends the registration and the daemon retries.
+    // (the key). The directory entry is written before the daemon hears it is registered, so a
+    // registered machine is always one the account's devices can find. A failed write ends the
+    // registration and the daemon retries.
     try {
       await machineStore(this.env.ACCOUNTS).register(
         {
@@ -229,7 +232,24 @@ export class RelayObject extends DurableObject<Env> {
         Date.now(),
       );
     } catch {
-      this.#close(ws, 1011, "Directory unavailable");
+      return this.#close(ws, 1011, "Directory unavailable");
+    }
+    // The daemon closed while the entry was written.
+    if (this.#read(ws)?.id !== attachment.id) return;
+    this.#save(ws, host);
+    this.#apply(this.#routing().register(attachment.id, host.hostId));
+  }
+
+  /**
+   * The account forgot this machine while it is registered here. Its control socket closes with
+   * {@link REGISTER_AGAIN}, so the daemon registers again with a fresh grant: still signed in to
+   * the account, it is listed again; signed out, the relay refuses it.
+   */
+  async registerAgain(account: string): Promise<void> {
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = this.#read(ws);
+      if (attachment?.kind === "host" && attachment.account === account)
+        this.#close(ws, REGISTER_AGAIN, "Register again");
     }
   }
 

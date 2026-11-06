@@ -35,6 +35,8 @@ function accounts(env: Env) {
       fetch: (input, init) => fetch(input, init),
       now: () => Date.now(),
       random: (length) => crypto.getRandomValues(new Uint8Array(length)),
+      forgotten: (hostId, accountId) =>
+        env.RELAY.get(env.RELAY.idFromName(hostId)).registerAgain(accountId),
     });
     found = { setup, api };
     isolates.set(env, found);
