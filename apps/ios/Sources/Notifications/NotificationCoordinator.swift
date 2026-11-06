@@ -123,6 +123,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
+        machines[index].notifier.invalidate()
         machines.remove(at: index)
         model.liveActivity.onChange = nil
         model.liveActivity.onShow = nil
@@ -132,6 +133,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
     /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
     func turnedOff(_ hostId: String) {
+        // Alerts it already handed over don't land after the clear, whenever their task runs.
+        for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
         desk.clear(hostId: hostId)
         approvals = approvals.filter { $0.value.hostId != hostId }
         approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }

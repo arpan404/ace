@@ -280,6 +280,59 @@ import Testing
         #expect(coordinator.model?.deepLink == "thread")
     }
 
+    @Test func anAlertHandedOverJustBeforeItsMachineIsTurnedOffNeverLandsAndIsNotPostedLater() async throws {
+        let center = FakeCenter()
+        let sessions = Sessions()
+        let store = try defaults()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target("studio"))
+        // The alert's task is queued, then the machine is turned off before it runs.
+        coordinator.receive(.alert(alert("n:1")), from: "studio")
+        coordinator.turnedOff("studio")
+        for _ in 0..<50 { await Task.yield() }
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(center.posted.isEmpty)
+        #expect(AlertStack.load(store).shown.isEmpty)
+        // On again: the alert was counted, so the same alert is never posted late.
+        let again = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(again, target: try target("studio"))
+        coordinator.receive(.alert(alert("n:1")), from: "studio")
+        coordinator.receive(.alert(alert("n:2", thread: "other")), from: "studio")
+        try await until("the new alert posted") { center.posted.count == 1 }
+        #expect(center.posted.map(\.threadId) == ["other"])
+    }
+
+    @Test func aCatchUpWhoseFirstPostIsStillOutWhenTheMachineIsTurnedOffLandsNothingMore() async throws {
+        let center = HeldCenter()
+        let sessions = Sessions()
+        let store = try defaults()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target("studio"))
+        await model.connect(target: try target("studio"), directory: URL(fileURLWithPath: "/unused"))
+        let session = try #require(sessions.values.first)
+        coordinator.receive(.feed(cursor: 7, entries: [alert("n:1", thread: "t1"), alert("n:2", thread: "t2")], retracted: []),
+                            from: "studio")
+        try await until("the first post is out") { center.holding }
+        coordinator.turnedOff("studio")
+        center.release()
+        try await Task.sleep(for: .milliseconds(30))
+        for _ in 0..<50 { await Task.yield() }
+        // The first was withdrawn once it landed; the second, and the summary it would fold into, never came.
+        #expect(center.delivered.isEmpty)
+        #expect(!center.posted.contains { $0.threadId == "t2" })
+        #expect(AlertStack.load(store).shown.isEmpty)
+        // The catch-up cursor still moved past both.
+        coordinator.sync()
+        #expect(session.actions("notifications.sync").last?["cursor"] as? Int == 7)
+        await model.disconnectAndWait()
+    }
+
     // MARK: Support
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",
@@ -340,6 +393,24 @@ private final class FakeCenter: NotificationCenterPort, @unchecked Sendable {
         withdrawn.append(contentsOf: identifiers)
         for id in identifiers { delivered.removeValue(forKey: id) }
     }
+}
+/// Holds the first post open until released, as a slow Notification Center would.
+private final class HeldCenter: NotificationCenterPort, @unchecked Sendable {
+    private let lock = NSLock()
+    private var gate: CheckedContinuation<Void, Never>?
+    private var first = true
+    private var posts: [AlertContent] = []
+    private var shown: [String: AlertContent] = [:]
+    var holding: Bool { lock.withLock { gate != nil } }
+    var posted: [AlertContent] { lock.withLock { posts } }
+    var delivered: [String: AlertContent] { lock.withLock { shown } }
+    func post(_ content: AlertContent) async {
+        let hold = lock.withLock { () -> Bool in defer { first = false }; return first }
+        if hold { await withCheckedContinuation { continuation in lock.withLock { gate = continuation } } }
+        lock.withLock { posts.append(content); shown[content.identifier] = content }
+    }
+    func release() { lock.withLock { let held = gate; gate = nil; return held }?.resume() }
+    func withdraw(_ identifiers: [String]) { lock.withLock { for id in identifiers { shown.removeValue(forKey: id) } } }
 }
 private struct FakeAuthorizer: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }

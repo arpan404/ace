@@ -168,15 +168,20 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let desk: AlertDesk
     private var store: LedgerStore?
     private(set) var ledger = NotificationLedger()
+    /// False once its machine is turned off or detached: alerts still advance the ledger, so
+    /// none is posted later, but nothing lands any more, even from a task already under way.
+    private(set) var valid = true
     init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
         self.center = center; self.hostId = hostId; self.desk = desk ?? AlertDesk(center: center)
     }
 
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
+    /// Its machine was turned off or let go: nothing it still has under way lands.
+    func invalidate() { valid = false }
     func receive(_ alert: AlertNotification) async {
         guard ledger.admit(alert.id) else { return }
         store?.save(ledger)
-        guard alert.delivery?.post != false else { return }
+        guard alert.delivery?.post != false, valid else { return }
         await desk.land(alert, hostId: hostId)
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
@@ -184,7 +189,11 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let fresh = entries.filter { ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
-        for alert in fresh where alert.delivery?.post != false { await desk.land(alert, hostId: hostId) }
+        // Checked before each one: an earlier post can be awaited past a turn-off.
+        for alert in fresh where alert.delivery?.post != false {
+            guard valid else { return }
+            await desk.land(alert, hostId: hostId)
+        }
     }
     func withdraw(_ id: String) { desk.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.

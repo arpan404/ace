@@ -121,6 +121,35 @@ import Testing
         #expect(fixture.model.inbox.sessions.map(\.hostId) == ["studio"])
     }
 
+    @Test func anAccountMachineFoundToBeAnOffPairingHasTheNotificationsItDeliveredWithdrawn() async throws {
+        let relayKey = String(repeating: "R", count: 52)
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [machine("studio", device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        let center = Center()
+        let coordinator = NotificationCoordinator(center: center, authorizer: Allowed(), defaults: fixture.defaults, now: { 0 },
+                                                  connectInBackground: { _ in [] })
+        fixture.model.afterTurnOff = { coordinator.turnedOff($0) }
+        fixture.model.afterRemove = { model, _ in coordinator.detach(model) }
+        await fixture.model.load()
+        for session in fixture.sessions.started { session.finishShutdownWhenStopped() }
+        // The pairing is off; the account entry, not yet known to be it, delivered an alert.
+        await fixture.model.setOn("studio", false)
+        await coordinator.desk.land(AlertNotification(id: "a-r1", threadId: "r1", title: "Fix it", status: "needs_you",
+                                                      interactionId: nil, backgroundCount: 0, actions: [], preview: nil, message: nil),
+                                    hostId: relayKey)
+        #expect(coordinator.presentation(for: "r1", hostId: relayKey) != [])
+
+        let accountRuntime = try #require(fixture.sessions.started.first { $0.target.relay != nil })
+        accountRuntime.emit(#"[{"type":"connection","state":"ready"},{"type":"machine.identity","glyph":"laptop","hostId":"studio"}]"#)
+        await settle { fixture.model.machines.count == 1 && center.withdrawn.contains(AlertStack.thread("r1", hostId: relayKey)) }
+        #expect(fixture.model.machines.map(\.hostId) == ["studio"])
+        #expect(center.withdrawn.contains(AlertStack.thread("r1", hostId: relayKey)))
+        #expect(center.delivered.isEmpty)
+        #expect(coordinator.presentation(for: "r1", hostId: relayKey) == [])
+        #expect(MachinesModel.turnedOff(in: fixture.defaults) == ["studio", relayKey])
+    }
+
     @Test func aViewOnlyPairingWithOneMachineNeverChangesWhatAnotherPairingWithTheSameInstallAllows() async throws {
         let install = "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b"
         let fixture = try MachinesFixture(machines: [])

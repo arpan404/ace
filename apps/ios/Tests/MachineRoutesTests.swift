@@ -182,6 +182,40 @@ private let fingerprint = DaemonCertificate.pin
         #expect(fixture.model.machines.first?.accountHostId == relayKey)
     }
 
+    @Test func aSendTheAccountRuntimeSavedMovesToThePairedMachineItTurnsOutToBeAndIsReadThereOnce() async throws {
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: nil)], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let accountRuntime = try #require(fixture.sessions.started.first { $0.target.relay != nil })
+        let direct = try #require(fixture.sessions.started.first { $0.target.relay == nil })
+        direct.finishShutdownWhenStopped()
+        // Queued through the account entry while the phone couldn't yet tell they were one machine.
+        let send = #"{"command":{"id":"queued-on-relay","deviceId":"ios-account-device","payload":{"type":"thread.archive","threadId":"t1"}},"hostId":"studio","state":"pending","order":1}"#
+        let saved = try DurableStore(url: accountRuntime.storage)
+        _ = try saved.perform(HostRequest("storage.host.save", body: "studio"))
+        _ = try saved.perform(HostRequest("storage.write", input: Data(#"{"id":"queued-on-relay"}"#.utf8), body: send))
+        // Another daemon's send stays where it was.
+        let other = #"{"command":{"id":"for-another","deviceId":"ios-account-device","payload":{"type":"thread.archive","threadId":"t2"}},"hostId":"elsewhere","state":"pending","order":2}"#
+        _ = try saved.perform(HostRequest("storage.write", input: Data(#"{"id":"for-another"}"#.utf8), body: other))
+        let startedBefore = fixture.sessions.started.count
+
+        accountRuntime.emit(#"[{"type":"connection","state":"ready"},{"type":"machine.identity","glyph":"laptop","hostId":"studio"}]"#)
+        await settle { accountRuntime.stopped }
+        accountRuntime.finishShutdown()
+        await settle { fixture.model.machines.count == 1 && fixture.sessions.started.count > startedBefore }
+        // The paired runtime opened again on its own store, which now holds the send, once.
+        let reopened = try #require(fixture.sessions.started.last)
+        #expect(reopened.storage == direct.storage && reopened.target.relay == nil)
+        #expect(reopened.target.deviceAliases == ["ios-account-device"])
+        #expect(try records(direct.storage) == [send])
+        #expect(try records(accountRuntime.storage) == [other])
+        #expect(fixture.model.inbox.sessions.map(\.hostId) == ["studio"])
+    }
+
+    private func records(_ database: URL) throws -> [String] {
+        try JSONDecoder().decode([String].self, from: Data(DurableStore(url: database).perform(HostRequest("storage.records")).utf8))
+    }
     private var allPaths: [MachinePath] {
         [MachinePath(kind: "lan", url: "https://192.168.1.4:4243", fingerprint: fingerprint),
          MachinePath(kind: "tailscale", url: "https://100.64.0.7:4243", fingerprint: fingerprint),

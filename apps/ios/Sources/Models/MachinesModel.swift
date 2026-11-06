@@ -151,10 +151,17 @@ import Observation
             // Gone from the directory, or reachable another way now: this runtime stops.
             dropPlan(entry.hostId)
             supersedeOpening(entry.hostId)
-            guard let client = inbox.detach(entry.hostId) else { continue }
-            unsupported.remove(entry.hostId)
-            await client.disconnectAndWait()
-            afterRemove?(client, entry.hostId)
+            let client = inbox.detach(entry.hostId)
+            if let client {
+                unsupported.remove(entry.hostId)
+                await client.disconnectAndWait()
+                afterRemove?(client, entry.hostId)
+            }
+            // An account machine now known to be a paired one: what its runtime saved to send
+            // goes with it, into the machine's own store, before that runtime reads it again.
+            if let survivor = listed.first(where: { $0.hostId != entry.hostId && $0.accountHostId == entry.hostId }) {
+                await adoptSends(of: entry, into: survivor)
+            }
         }
         await followOff()
         // A machine that gained or lost its account route keeps its runtime, on a route it still has.
@@ -162,6 +169,17 @@ import Observation
             let routes = targets(for: entry)
             await take(plans[entry.hostId]?.routes(direct: routes.direct != nil, relay: routes.relay != nil, at: clock()), entry.hostId)
         }
+    }
+    /// Moves the sends `gone`'s runtime saved into `survivor`'s store (ADR 0074 durable sends,
+    /// ADR 0115): each keeps its command id and its daemon. A survivor runtime already running
+    /// opens again, so it reads and sends them; an off one finds them when turned on.
+    private func adoptSends(of gone: MachineEntry, into survivor: MachineEntry) async {
+        let source = ClientModel.database(hostId: gone.hostId, deviceId: gone.deviceId, in: storage)
+        let destination = ClientModel.database(hostId: survivor.hostId, deviceId: survivor.deviceId, in: storage)
+        let daemon = survivor.hostId
+        let moved = await Task.detached { (try? DurableStore.adopt(from: source, into: destination, daemon: daemon)) ?? 0 }.value
+        guard moved > 0, let client = inbox.client(survivor.hostId), let target = target(for: survivor) else { return }
+        await open(client, entry: survivor, target: target)
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
@@ -423,8 +441,12 @@ import Observation
         for entry in machines {
             let ids = aliases(of: entry.hostId)
             guard !off.isDisjoint(with: ids) else { continue }
-            if !ids.isSubset(of: off) { off.formUnion(ids); saveOff() }
+            let added = ids.subtracting(off)
+            if !added.isEmpty { off.formUnion(ids); saveOff() }
             if inbox.client(entry.hostId) != nil { await stopTurnedOff(entry.hostId, ids) }
+            // No runtime left to stop (an account runtime it took in has already gone), but
+            // what was shown under the ids just found to be this off machine's goes too.
+            else { for id in added.sorted() { afterTurnOff?(id) } }
         }
     }
     private func saveOff() { defaults.set(off.sorted(), forKey: Keys.off) }
