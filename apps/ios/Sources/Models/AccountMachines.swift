@@ -18,11 +18,11 @@ struct AceAccountDirectory: AccountDirectory {
     let session: AceAccountSessionStore
     let deviceId: String
 
-    init?(settings: Bundle = .main, defaults: UserDefaults = .standard) {
+    init?(settings: Bundle = .main, install: InstallIdentity = .system) {
         guard let origin = AceAccountAPI.origin(from: settings.object(forInfoDictionaryKey: "AceAccountURL") as? String) else { return nil }
         api = AceAccountAPI(origin: origin)
         session = AceAccountSessionStore(origin: origin)
-        deviceId = session.deviceId(defaults: defaults)
+        deviceId = session.deviceId(install: install)
     }
     var relayURL: URL? { api.relayURL }
     func machines() async throws(AccountGrantError) -> [AceMachine]? {
@@ -45,14 +45,27 @@ enum AccountMachines {
     static let kind = "account"
 
     /// Paired machines first, then account machines that aren't paired: a machine on both is
-    /// reached the paired way (direct, LAN or Tailscale) and listed once. Pure.
-    static func merge(paired: [MachineEntry], account: [AceMachine], relayURL: String, deviceId: String) -> [MachineEntry] {
-        let pairedHosts = Set(paired.map(\.hostId))
-        let added = account.filter { !pairedHosts.contains($0.hostId) }.map { machine in
+    /// listed once (ADR 0115), as its paired entry, keeping both routes. A paired entry is an
+    /// account machine when the daemon said so over an authenticated connection: its own paths
+    /// name that relay host id, or that account machine's daemon answered with the paired id
+    /// (`daemons`, account host id → daemon id). Pure.
+    static func merge(paired: [MachineEntry], account: [AceMachine], relayURL: String, deviceId: String,
+                      daemons: [String: String] = [:]) -> [MachineEntry] {
+        var claimed = Set(paired.map(\.hostId))
+        let merged = paired.map { entry -> MachineEntry in
+            let match = account.first { machine in
+                !claimed.contains(machine.hostId) && (entry.relayHostIds.contains(machine.hostId) || daemons[machine.hostId] == entry.hostId)
+            }
+            var entry = entry
+            entry.accountHostId = match?.hostId
+            if let match { claimed.insert(match.hostId) }
+            return entry
+        }
+        let added = account.filter { !claimed.contains($0.hostId) }.map { machine in
             MachineEntry(hostId: machine.hostId, displayName: machine.name.isEmpty ? "Machine" : machine.name, icon: nil,
                          target: .init(kind: kind, url: relayURL, fingerprint: machine.hostId), deviceId: deviceId)
         }
-        return paired + added
+        return merged + added
     }
 }
 

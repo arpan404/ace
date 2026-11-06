@@ -11,6 +11,13 @@ struct ConnectionTarget: Sendable {
     let credential: @Sendable () throws -> String
     /// An account machine (ADR 0111): reached through ace's hosted relay with device grants.
     let relay: RelayRoute?
+    /// This app install (ADR 0115), sent in every hello.
+    var installId: String?
+    /// The machine this target reaches, as the phone keys it, when that isn't this target's own
+    /// host and device: a paired machine reached through its account relay keeps its paired
+    /// identity, so it is one machine with one cache and one set of notifications on any route.
+    var machineScope: MachineScope?
+    var scope: MachineScope { machineScope ?? MachineScope(hostId: hostId, deviceId: deviceId) }
 
     /// Debug loopback fixture only: a fixed fake credential, never a paired device.
     init(endpoint: URL, hostId: String, deviceId: String, pin: String?, credential: @escaping @Sendable () throws -> String) {
@@ -51,6 +58,9 @@ struct ConnectionTarget: Sendable {
         #endif
     }
 }
+
+/// The host and device a machine's cache, outbox and notifications are bound to on this phone.
+struct MachineScope: Sendable, Equatable { let hostId: String; let deviceId: String }
 
 /// What a socket event carries: text, or a binary message's own bytes.
 enum SocketPayload: Sendable { case text(String), bytes(Data) }

@@ -53,7 +53,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored let desk: AlertDesk
     @ObservationIgnored private let center: any NotificationCenterPort
     @ObservationIgnored private let authorizer: any NotificationAuthorizer
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored private(set) var foreground = true
     @ObservationIgnored private var outcomes: [String: Waiter<NotificationPatch.ActionOutcome>] = [:]
@@ -100,12 +100,14 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// never share one machine's storage.
     func attach(_ model: ClientModel, target: ConnectionTarget) async {
         if transient.contains(where: { $0 !== model }) { await releaseTransient() }
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let ledger = LocalNotifier(center: center, hostId: target.hostId, desk: desk)
+        // The machine as the phone keys it, whichever route this connection takes.
+        let machine = target.scope
+        let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let ledger = LocalNotifier(center: center, hostId: machine.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
-        machines.removeAll { $0.hostId == target.hostId || $0.model === model }
-        machines.append((target.hostId, model, ledger))
-        let hostId = target.hostId
+        machines.removeAll { $0.hostId == machine.hostId || $0.model === model }
+        machines.append((machine.hostId, model, ledger))
+        let hostId = machine.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
         model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
         model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
@@ -126,6 +128,16 @@ struct SystemAuthorizer: NotificationAuthorizer {
         model.liveActivity.onShow = nil
         model.onOpenThread = nil
         lockScreen.changed()
+    }
+    /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
+    /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
+    func turnedOff(_ hostId: String) {
+        desk.clear(hostId: hostId)
+        approvals = approvals.filter { $0.value.hostId != hostId }
+        approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
+        if pendingLink?.hostId == hostId { pendingLink = nil }
+        lockScreen.forgetHeld()
+        lockScreen.rebuild()
     }
     func client(_ hostId: String?) -> ClientModel? {
         guard let hostId else { return model }

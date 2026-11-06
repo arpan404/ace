@@ -118,6 +118,8 @@ extension NotificationCoordinator {
     /// While the user looks at a thread, its own alerts stay out of the way; an alert whose
     /// banner is off (Settings › Notifications) goes to the list without showing over the app.
     func presentation(for threadId: String?, hostId: String? = nil, banner: Bool = true) -> UNNotificationPresentationOptions {
+        // A machine turned off on this phone shows nothing, even a notification already on its way.
+        if let hostId, MachinesModel.turnedOff(in: defaults).contains(hostId) { return [] }
         if foreground, let threadId, machines.contains(where: { ($0.hostId == hostId || hostId == nil) && $0.model.thread?.id == threadId }) { return [] }
         return banner ? [.banner, .list, .sound] : [.list]
     }
