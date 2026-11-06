@@ -13,14 +13,19 @@ export const defaultTicketLimits: Readonly<TicketLimits> = {
 
 /** Pure allocation policy. Its owner supplies time, identity and hashed ticket keys. */
 export class TicketPool {
-  private tickets = new ExpiryMap<{ deviceId: string; expiresAt: number }>();
+  private tickets = new ExpiryMap<{ deviceId: string; generation: string; expiresAt: number }>();
   private owned = new Map<string, Set<string>>();
   private rates = new ExpiryMap<{ count: number; resetsAt: number }>();
   private limits: TicketLimits;
   constructor(limits: TicketLimits) {
     this.limits = limits;
   }
-  issue(key: string, deviceId: string, now: number): { expiresAt: number } | { error: string } {
+  issue(
+    key: string,
+    deviceId: string,
+    generation: string,
+    now: number,
+  ): { expiresAt: number } | { error: string } {
     this.evict(now);
     if (this.tickets.size >= this.limits.global) return { error: "Too many pending tickets" };
     if ((this.owned.get(deviceId)?.size ?? 0) >= this.limits.perDevice)
@@ -34,18 +39,19 @@ export class TicketPool {
     rate.count++;
     this.rates.set(deviceId, rate, rate.resetsAt);
     const expiresAt = now + 60_000;
-    this.tickets.set(key, { deviceId, expiresAt }, expiresAt);
+    this.tickets.set(key, { deviceId, generation, expiresAt }, expiresAt);
     const keys = this.owned.get(deviceId) ?? new Set<string>();
     keys.add(key);
     this.owned.set(deviceId, keys);
     return { expiresAt };
   }
-  consume(key: string, now: number): string | undefined {
+  /** The device a ticket was issued to, and the credential generation that asked for it. */
+  consume(key: string, now: number): { deviceId: string; generation: string } | undefined {
     this.evict(now);
     const entry = this.tickets.delete(key);
     if (!entry) return undefined;
     this.disown(entry.deviceId, key);
-    return entry.deviceId;
+    return { deviceId: entry.deviceId, generation: entry.generation };
   }
   revoke(deviceId: string): void {
     const keys = this.owned.get(deviceId);

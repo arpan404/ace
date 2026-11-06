@@ -22,6 +22,21 @@ export const activeDevice = (
   device.revokedAt === null &&
   (device.expiresAt === undefined || device.expiresAt === null || device.expiresAt > at);
 
+/**
+ * A paired device as one of its credentials authenticated it. The generation names that
+ * credential: pairing the same install again replaces it, and everything the old credential
+ * opened (tickets, sockets, leases) stops carrying authority (ADR 0115). It is derived from the
+ * stored hash, never the token, so holding it authenticates nothing.
+ */
+export type PairedDevice = Device & { generation: string };
+/**
+ * Who a socket or channel speaks for. A revocable actor is a paired device and carries the
+ * generation of the credential that opened it; the host and account devices are not revocable.
+ */
+export type SessionActor = Device & { revocable: boolean; generation?: string | undefined };
+const generationOf = (row: Record<string, SQLOutputValue>) =>
+  hash(`generation:${String(row.token_hash)}`).slice(0, 32);
+
 function decode(row: Record<string, SQLOutputValue>): Device {
   return Device.parse({
     id: row.id,
@@ -71,7 +86,7 @@ export class Devices {
     // Records an install left behind before it said who it is: the same name, never used since
     // the install paired again.
     this.orphans = db.prepare(
-      `SELECT id FROM devices WHERE id != ? AND install_id IS NULL AND merged_into IS NULL AND name = ? AND last_seen_at < ? AND ${live} AND scopes NOT LIKE '%"desktop"%' AND scopes NOT LIKE '%"user-browser"%'`,
+      `SELECT * FROM devices WHERE id != ? AND install_id IS NULL AND merged_into IS NULL AND name = ? AND last_seen_at < ? AND ${live} AND scopes NOT LIKE '%"desktop"%' AND scopes NOT LIKE '%"user-browser"%'`,
     );
     this.fold = db.prepare(
       "UPDATE devices SET merged_into = ? WHERE (id = ? OR merged_into = ?) AND revoked_at IS NULL",
@@ -157,10 +172,14 @@ export class Devices {
   }
   /**
    * `id` connected from app install `installId` (ADR 0115): its record learns the install, and
-   * the install's other records fold into it, so the install is listed once. That covers a
-   * record stamped earlier and those left behind by pairing again before installs had ids (the
-   * same name, never used since this one was made). A folded record that is used again comes
-   * back on its own (`authenticate`), so folding never takes access away.
+   * records the install left behind before installs had ids fold into it (the same name, never
+   * used since this one was made, and no access this one lacks), so the install is listed once.
+   * A folded record that is used again comes back on its own (`authenticate`), so folding never
+   * takes access away.
+   *
+   * An install id is not a secret, so naming one proves nothing: a record another credential
+   * already holds for that install is never folded, and the caller is not stamped beside it.
+   * Only a pairing code from that install takes such a record over (`create`).
    */
   recognize(id: string, installId: InstallId, at: number): void {
     const row = this.byId.get(id);
@@ -171,17 +190,34 @@ export class Devices {
     if (row.install_id !== null && row.install_id !== installId) return;
     if (row.install_id === null) {
       const other = this.byInstall.get(installId, at);
-      if (other && other.id !== id) this.fold.run(id, String(other.id), String(other.id));
+      if (other && other.id !== id) return;
       this.stamp.run(installId, id);
     }
+    const survivor = decode(row);
     for (const orphan of this.orphans.all(id, String(row.name), Number(row.created_at), at))
-      this.fold.run(id, String(orphan.id), String(orphan.id));
+      if (decode(orphan).scopes.every((scope) => allows(survivor, scope)))
+        this.fold.run(id, String(orphan.id), String(orphan.id));
   }
   get(id: string): Device | undefined {
     const row = this.byId.get(id);
     return row ? decode(row) : undefined;
   }
-  authenticate(token: string, at: number): Device | undefined {
+  /** The device whose record a pairing from `installId` would take over, if any. */
+  heldBy(installId: InstallId, at: number): string | undefined {
+    const row = this.byInstall.get(installId, at);
+    return row ? String(row.id) : undefined;
+  }
+  /**
+   * `id` while it is active and still holds the credential of `generation`: a session opened
+   * with a credential that has since been replaced carries no authority, not even the new one's.
+   */
+  current(id: string, generation: string | undefined, at: number): PairedDevice | undefined {
+    const row = this.byId.get(id);
+    if (!row || generation === undefined || generationOf(row) !== generation) return undefined;
+    const device = decode(row);
+    return activeDevice(device, at) ? { ...device, generation } : undefined;
+  }
+  authenticate(token: string, at: number): PairedDevice | undefined {
     const row = this.byToken.get(hash(token), at);
     if (!row) return undefined;
     // Its own credential in use: it is a device of its own after all.
@@ -189,7 +225,7 @@ export class Devices {
     const device = decode(row);
     this.touch(device.id, at);
     device.lastSeenAt = at;
-    return device;
+    return { ...device, generation: generationOf(row) };
   }
   /** An ace account device connected: the paired record of the same install is seen too. */
   seen(installId: string, at: number): void {
@@ -203,14 +239,22 @@ export class Devices {
   list(): Device[] {
     return this.listing.all().map(decode);
   }
-  /** Revokes `id` and the records folded into it: the owner removed that install. */
   revoke(id: string, at: number): boolean {
+    return this.revokeInstall(id, at).length > 0;
+  }
+  /**
+   * Revokes `id` and the records folded into it: the owner removed that install. Returns every
+   * id it revoked, `id` first, so each one's sockets, tickets and channels close; empty when
+   * `id` was not active.
+   */
+  revokeInstall(id: string, at: number): string[] {
     Device.shape.revokedAt.parse(at);
     const folded = this.folded.all(id).map((row) => String(row.id));
-    if (this.revocation.run(at, id).changes === 0) return false;
-    for (const other of folded) if (this.revocation.run(at, other).changes > 0) this.notify(other);
-    this.notify(id);
-    return true;
+    if (this.revocation.run(at, id).changes === 0) return [];
+    const revoked = [id];
+    for (const other of folded) if (this.revocation.run(at, other).changes > 0) revoked.push(other);
+    for (const each of revoked) this.notify(each);
+    return revoked;
   }
   private notify(id: string): void {
     for (const listener of this.revoked) {

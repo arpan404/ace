@@ -1,5 +1,5 @@
 import type { ClientMessage, DeviceId } from "@ace/protocol";
-import type { Device } from "./devices.ts";
+import type { SessionActor } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
@@ -13,7 +13,7 @@ export function helloActor(
   message: Hello,
   auth: RemoteAuth,
   isLocal: boolean,
-): (Device & { revocable: boolean }) | undefined {
+): SessionActor | undefined {
   const bearer =
     message.token !== undefined && isLocal && !auth.local(message.token)
       ? auth.deviceBearer(message.token)

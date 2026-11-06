@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { HostChannel } from "@ace/relay";
 import type { ChannelClose } from "@ace/protocol";
 import type { MainSocket } from "./main-socket.ts";
-import type { Device } from "./devices.ts";
+import type { SessionActor } from "./devices.ts";
 import type { DeliveryRuntime } from "./delivery-runtime.ts";
 import { DAEMON_CLOSE_GRACE_MS } from "./server-socket-close.ts";
 
@@ -11,7 +11,7 @@ export interface RelayedMain {
   channel: HostChannel;
   /** The hello as received, replayed to the handler as the channel's first message. */
   hello: string;
-  actor: Device & { revocable: boolean };
+  actor: SessionActor;
   /** For an account device: whether it still holds access (account, machine code). */
   stillAdmitted?: (() => boolean) | undefined;
   /** For an account device: the ace account its grant names. */

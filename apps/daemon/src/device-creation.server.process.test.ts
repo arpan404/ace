@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import { expect, it } from "vitest";
 import { parsePairingLink } from "@ace/client/access";
 import { DeviceCredential, DeviceId } from "@ace/protocol";
@@ -170,5 +171,95 @@ it("a folded record that is used again is listed again, and removing an install 
   });
   await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
   await expect(f.ticket(third.token)).rejects.toThrow("HTTP 401");
+  await expect(f.ticket(left.token)).resolves.toMatchObject({ ticket: expect.any(String) });
+});
+
+/** Redeems a fresh pairing link with `scopes` from this test's app install. */
+async function pairInstall(f: Awaited<ReturnType<typeof setup>>, scopes: string[]) {
+  return DeviceCredential.parse(
+    await f.remoteRequest("/v1/pair", {
+      method: "POST",
+      body: {
+        code: parsePairingLink((await f.pairing(scopes)).url).code,
+        name: "Phone",
+        installId,
+      },
+    }),
+  );
+}
+
+it("pairing an install again as admin gives nothing its old read-only credential opened the new authority", async () => {
+  const f = await setup();
+  const viewer = await pairInstall(f, ["read"]);
+  const socket = await helloFrom(f, viewer.device.id, viewer.token);
+  expect(await socket.next()).toMatchObject({ type: "welcome" });
+  const closed = once(socket.socket, "close");
+  // Asked for before the owner paired the install again with admin.
+  const early = await f.ticket(viewer.token);
+
+  const admin = await pairInstall(f, ["admin"]);
+  expect(admin.device.id).toBe(viewer.device.id);
+  // The socket the read-only credential opened ends, without the revocation wipe.
+  expect((await closed)[0]).toBe(4001);
+  // Its ticket opens nothing now: it would otherwise come back with admin.
+  const stale = await f.connectTicket(viewer.device.id, early.ticket);
+  expect(await stale.next()).toMatchObject({ type: "error", code: "unauthorized" });
+  await expect(f.ticket(viewer.token)).rejects.toThrow("HTTP 401");
+  const fresh = await helloFrom(f, admin.device.id, admin.token);
+  expect(await fresh.next()).toMatchObject({ type: "welcome" });
+});
+
+it("removing an install closes the subscribed socket of a record folded into it", async () => {
+  const f = await setup();
+  // Left behind by an older app, still connected and watching the thread list.
+  const left = f.store.devices.create("Phone", ["read"], 1000);
+  const watching = await f.connectTicket(left.device.id, (await f.ticket(left.token)).ticket);
+  expect(await watching.next()).toMatchObject({ type: "welcome" });
+  watching.send({ type: "subscribe", subscriptionId: "threads", scope: { kind: "threads" } });
+  expect(await watching.next()).toMatchObject({ type: "snapshot" });
+  const closed = once(watching.socket, "close");
+
+  f.advance(1000);
+  const used = f.store.devices.create("Phone", ["read"], 2000);
+  expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  expect(await f.request("/v1/devices", { token })).toHaveLength(1);
+
+  await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
+  expect((await closed)[0]).toBe(4003);
+  await expect(f.ticket(left.token)).rejects.toThrow("HTTP 401");
+});
+
+it("a hello naming another device's install id folds nothing and takes nothing over", async () => {
+  const f = await setup();
+  const admin = await pairInstall(f, ["admin"]);
+  expect(await (await helloFrom(f, admin.device.id, admin.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  // An older app's read-only credential claims the admin install's id, which is no secret.
+  const viewer = f.store.devices.create("Tablet", ["read"], 1000);
+  expect(await (await helloFrom(f, viewer.device.id, viewer.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  expect((await f.request("/v1/devices", { token })) as unknown[]).toHaveLength(2);
+
+  await f.request(`/v1/devices/${viewer.device.id}`, { method: "DELETE", token });
+  await expect(f.ticket(admin.token)).resolves.toMatchObject({ ticket: expect.any(String) });
+});
+
+it("a record left behind with more access than the one in use is never folded under it", async () => {
+  const f = await setup();
+  const left = f.store.devices.create("Phone", ["admin"], 1000);
+  f.advance(1000);
+  const used = f.store.devices.create("Phone", ["read"], 2000);
+  expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  expect(await f.request("/v1/devices", { token })).toEqual([
+    expect.objectContaining({ id: left.device.id }),
+    expect.objectContaining({ id: used.device.id }),
+  ]);
+  await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
   await expect(f.ticket(left.token)).resolves.toMatchObject({ ticket: expect.any(String) });
 });

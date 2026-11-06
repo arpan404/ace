@@ -20,7 +20,7 @@ import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
 import { hostedWebOrigin, webOriginAllowlist } from "./web-origins.ts";
 import { PreAuthAdmission } from "./socket-admission.ts";
-import { activeDevice, allows, type Device } from "./devices.ts";
+import { activeDevice, allows, type SessionActor } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -213,7 +213,7 @@ export async function startServer(options: ServerOptions): Promise<{
     });
   attach(local, true);
   if (remote) attach(remote, false);
-  const authenticated = new Map<MainSocket, Device & { revocable: boolean }>();
+  const authenticated = new Map<MainSocket, SessionActor>();
   /** One owner for every deliberate close frame; state lives here, not in a module global. */
   const closer = createSocketCloser(runtime.delay);
   const stopRevocation = auth.onRevoke((id) => {
@@ -229,6 +229,20 @@ export async function startServer(options: ServerOptions): Promise<{
           DeviceRevokedClose.shape.code.value,
           DeviceRevokedClose.shape.reason.value,
         );
+      }
+  });
+  // The same install paired again: sockets its old credential opened end without wiping
+  // anything (4001, not 4003), and the client connects again with the credential it holds now.
+  // Its account sockets are not the pairing's and stay.
+  const stopReplaced = auth.onCredentialReplaced((id) => {
+    for (const [socket, device] of authenticated)
+      if (
+        device.revocable &&
+        device.id === id &&
+        !options.store.devices.current(id, device.generation, auth.now())
+      ) {
+        cleanups.get(socket)?.();
+        closer.gracefulClose(socket, 4001, "Credential replaced");
       }
   });
   // Account devices on any path keep access only while the machine stays on their account and
@@ -327,12 +341,16 @@ export async function startServer(options: ServerOptions): Promise<{
       });
     };
     const stillAdmitted = () => accountAdmitted?.() !== false;
-    const authorize = (scope: import("@ace/protocol").DeviceScope) => {
-      if (!stillAdmitted()) return false;
-      const actor = authenticated.get(socket);
-      const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
+    // A paired device's authority is its credential's: once that credential is replaced or
+    // revoked, nothing it opened authorizes anything (ADR 0115).
+    const holds = (actor: SessionActor | undefined, scope: import("@ace/protocol").DeviceScope) => {
+      const current = actor?.revocable
+        ? options.store.devices.current(actor.id, actor.generation, auth.now())
+        : actor;
       return activeDevice(current, auth.now()) && allows(current, scope);
     };
+    const authorize = (scope: import("@ace/protocol").DeviceScope) =>
+      stillAdmitted() && holds(authenticated.get(socket), scope);
     const sessions = createServiceSessions({
       options,
       socket,
@@ -355,11 +373,7 @@ export async function startServer(options: ServerOptions): Promise<{
       authorize,
       authorityLease: (scope) => {
         const actor = authenticated.get(socket);
-        return () => {
-          if (!stillAdmitted()) return false;
-          const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
-          return activeDevice(current, auth.now()) && allows(current, scope);
-        };
+        return () => stillAdmitted() && holds(actor, scope);
       },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
@@ -479,7 +493,7 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        let actor: (Device & { revocable: boolean }) | undefined;
+        let actor: SessionActor | undefined;
         if (relayed) actor = relayed.actor;
         else if (message.grant !== undefined) {
           // A signed-in device is admin on every path, even one also paired (ADR 0114).
@@ -704,6 +718,7 @@ export async function startServer(options: ServerOptions): Promise<{
     machineUpdates?.close();
     updateHold.close();
     stopRevocation();
+    stopReplaced();
     stopAccountChange?.();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -751,6 +766,7 @@ export async function startServer(options: ServerOptions): Promise<{
       closing ??= new Promise<void>((resolve, reject) => {
         stopTimer();
         stopRevocation();
+        stopReplaced();
         stopAccountChange?.();
         machineUpdates?.close();
         for (const cleanup of cleanups.values()) cleanup();

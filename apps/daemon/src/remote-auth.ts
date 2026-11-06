@@ -1,6 +1,13 @@
 import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
 import { DeviceId, PendingPairing, type InstallId } from "@ace/protocol";
-import { activeDevice, allows, hash, type Device, type Devices, type Scope } from "./devices.ts";
+import {
+  allows,
+  hash,
+  type Device,
+  type Devices,
+  type PairedDevice,
+  type Scope,
+} from "./devices.ts";
 import { validToken } from "./local-files.ts";
 import { MemoryPairingCodes, type PairingCodeStore } from "./pairing-codes.ts";
 
@@ -32,6 +39,7 @@ export class RemoteAuth {
   private localToken: string;
   readonly now: () => number;
   private revoked = new Set<(id: string) => void>();
+  private replaced = new Set<(id: string) => void>();
   private readonly secret: () => string;
   private readonly id: () => string;
   constructor(
@@ -66,7 +74,7 @@ export class RemoteAuth {
       };
     return this.deviceBearer(token);
   }
-  deviceBearer(token: string): Device | undefined {
+  deviceBearer(token: string): PairedDevice | undefined {
     return this.devices.authenticate(token, this.now());
   }
   /** A single-use pairing code. Callers check the creator may grant `granted` first. */
@@ -112,13 +120,21 @@ export class RemoteAuth {
     if (!pairing || pairing.expiresAt <= this.now())
       throw new AccessError(401, "Invalid or expired pairing code");
     const at = this.now();
-    return this.devices.create(
+    const held = installId === undefined ? undefined : this.devices.heldBy(installId, at);
+    const { device, token } = this.devices.create(
       pairing.label ?? name,
       pairing.scopes,
       at,
       pairing.deviceTtlMs ? at + pairing.deviceTtlMs : null,
       installId,
     );
+    // The install's record got a new credential and scopes: what the old one opened ends, so
+    // no ticket, socket or lease carries the old authority or picks up the new.
+    if (held !== undefined) {
+      this.tickets.revoke(held);
+      for (const listener of this.replaced) listener(held);
+    }
+    return { device, token };
   }
   /**
    * An ace account device was admitted: its account device id is its install id (ADR 0115), so
@@ -131,20 +147,21 @@ export class RemoteAuth {
   recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {
     if (installId !== undefined) this.devices.recognize(device.id, installId, this.now());
   }
-  ticket(device: Device): { ticket: string; expiresAt: number } {
+  ticket(device: PairedDevice): { ticket: string; expiresAt: number } {
     if (device.scopes.includes("desktop") || device.scopes.includes("user-browser"))
       throw new AccessError(403, "Desktop credentials are local only");
     const ticket = this.secret();
-    const allocation = this.tickets.issue(hash(ticket), device.id, this.now());
+    const allocation = this.tickets.issue(hash(ticket), device.id, device.generation, this.now());
     if ("error" in allocation) throw new AccessError(429, allocation.error);
     const { expiresAt } = allocation;
     return { ticket, expiresAt };
   }
-  consume(ticket: string): Device | undefined {
-    const deviceId = this.tickets.consume(hash(ticket), this.now());
-    if (!deviceId) return undefined;
-    const device = this.devices.get(deviceId);
-    if (!activeDevice(device, this.now()) || localOnly(device)) return undefined;
+  consume(ticket: string): PairedDevice | undefined {
+    const issued = this.tickets.consume(hash(ticket), this.now());
+    if (!issued) return undefined;
+    // A ticket asked for with a credential since replaced opens nothing.
+    const device = this.devices.current(issued.deviceId, issued.generation, this.now());
+    if (!device || localOnly(device)) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
   }
@@ -155,11 +172,17 @@ export class RemoteAuth {
   list(): Device[] {
     return this.devices.list();
   }
+  /**
+   * Revokes `id` and every record folded into it (ADR 0115). Listeners hear each revoked id, so
+   * the folded records' sockets, notifications and relay channels close too.
+   */
   revoke(id: string): boolean {
-    if (!this.devices.revoke(id, this.now())) return false;
-    this.tickets.revoke(id);
-    for (const listener of this.revoked) listener(id);
-    return true;
+    const revoked = this.devices.revokeInstall(id, this.now());
+    for (const each of revoked) {
+      this.tickets.revoke(each);
+      for (const listener of this.revoked) listener(each);
+    }
+    return revoked.length > 0;
   }
   /**
    * Revoke every paired device but `keep` and the daemon's local credentials (the desktop app,
@@ -181,6 +204,17 @@ export class RemoteAuth {
     this.revoked.add(listener);
     return () => {
       this.revoked.delete(listener);
+    };
+  }
+  /**
+   * A paired device's credential was replaced by pairing the same install again. Sessions it
+   * opened with the old credential no longer carry authority; listeners close them. Account
+   * sessions of the install are not the pairing's and stay open.
+   */
+  onCredentialReplaced(listener: (id: string) => void): () => void {
+    this.replaced.add(listener);
+    return () => {
+      this.replaced.delete(listener);
     };
   }
   requireAdmin(device: Device | undefined): void {

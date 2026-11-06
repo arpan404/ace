@@ -4,7 +4,7 @@ import { attachRelayService, type RelayServices } from "./services/relay-channel
 import { mayCompress } from "./compression-policy.ts";
 import { HostId } from "@ace/protocol";
 import type { KeyPair } from "@ace/secure-channel";
-import { activeDevice, allows, type Devices } from "./devices.ts";
+import { allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import { accountDeviceActor, relayHello } from "./relay-hello.ts";
@@ -45,6 +45,10 @@ export async function startFilesRelay(
   const stopRevoked = options.auth.onRevoke((id) => {
     for (const [channel, device] of clients) if (device === id) channel.close();
   });
+  // A channel opened with a credential since replaced (the install paired again) ends too.
+  const stopReplaced = options.auth.onCredentialReplaced((id) => {
+    for (const [channel, device] of clients) if (device === id) channel.close();
+  });
   const deadline = setTimeout(() => controller.abort(), 15_000);
   try {
     const connection = await connectHostToRelay({
@@ -73,7 +77,7 @@ export async function startFilesRelay(
         // Credit fragments go only to a client that asked; its first one precedes the welcome.
         if (hello.flowControl?.includes("credit")) channel.flowControl?.();
         if (hello.channel === undefined) {
-          const actor = mainActor(device.id, admitted.stillAdmitted, options);
+          const actor = mainActor(device, admitted.stillAdmitted, options);
           if (!actor || !options.relayMain) {
             await channel
               .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
@@ -120,8 +124,12 @@ export async function startFilesRelay(
             authorize: (scope) => {
               // An account device holds admin, for as long as it stays admitted.
               if (admitted.stillAdmitted) return admitted.stillAdmitted();
-              const current = options.devices.get(device.id);
-              return activeDevice(current, options.auth.now()) && allows(current, scope);
+              const current = options.devices.current(
+                device.id,
+                device.generation,
+                options.auth.now(),
+              );
+              return current !== undefined && allows(current, scope);
             },
           });
         } catch {
@@ -156,6 +164,7 @@ export async function startFilesRelay(
       hostId: connection.hostId,
       async close() {
         stopRevoked();
+        stopReplaced();
         stopAccount?.();
         controller.abort();
         await connection.close();
@@ -163,6 +172,7 @@ export async function startFilesRelay(
     };
   } catch (error) {
     stopRevoked();
+    stopReplaced();
     stopAccount?.();
     throw error;
   } finally {
@@ -176,13 +186,13 @@ export async function startFilesRelay(
  * admitted (ADR 0111).
  */
 function mainActor(
-  id: RelayedMain["actor"]["id"],
+  admitted: { id: RelayedMain["actor"]["id"]; generation?: string | undefined },
   stillAdmitted: (() => boolean) | undefined,
   options: { auth: RemoteAuth; devices: Devices },
 ): RelayedMain["actor"] | undefined {
-  if (stillAdmitted) return accountDeviceActor(id, options.auth.now());
-  const device = options.devices.get(id);
-  if (!activeDevice(device, options.auth.now())) return undefined;
+  if (stillAdmitted) return accountDeviceActor(admitted.id, options.auth.now());
+  const device = options.devices.current(admitted.id, admitted.generation, options.auth.now());
+  if (!device) return undefined;
   if (device.scopes.includes("desktop") || device.scopes.includes("user-browser")) return undefined;
   return { ...device, scopes: [...device.scopes], revocable: true };
 }

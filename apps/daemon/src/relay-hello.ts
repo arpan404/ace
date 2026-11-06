@@ -1,12 +1,13 @@
 import type { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import type { Device } from "./devices.ts";
+import type { SessionActor } from "./devices.ts";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
 export type RelayAdmission =
   | {
-      device: { id: DeviceId };
+      /** For a paired device: the generation of the credential it used. */
+      device: { id: DeviceId; generation?: string };
       /** For an account device: whether it still holds access (account, machine code). */
       stillAdmitted?: () => boolean;
       /** For an account device: the ace account its grant names. */
@@ -43,7 +44,7 @@ export async function relayHello(
     return { refusal: { type: "error", code: "unauthorized", message: "Valid hello required" } };
   // The same install over the LAN, Tailscale or a relay is one device (ADR 0115).
   options.auth.recognize(device, hello.installId);
-  return { device };
+  return { device: { id: device.id, generation: device.generation } };
 }
 
 /**
@@ -88,7 +89,7 @@ export async function accountHello(
 }
 
 /** An admitted account device: admin while it stays admitted, never revoked by device id. */
-export function accountDeviceActor(id: DeviceId, now: number): Device & { revocable: boolean } {
+export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
   return {
     id,
     name: "ace account device",

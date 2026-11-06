@@ -138,7 +138,9 @@ it("desktop credentials cannot be paired or converted to remote socket tickets",
     secret: () => "b".repeat(64),
   });
   expect(() => auth.pairing(["desktop"])).toThrow("local only");
-  expect(() => auth.ticket(f.credential.device)).toThrow("local only");
+  const desktop = auth.deviceBearer(f.credential.token);
+  if (!desktop) throw new Error("Desktop credential missing");
+  expect(() => auth.ticket(desktop)).toThrow("local only");
 });
 it("HTTP revocation closes the desktop backend even when another revocation listener throws", async () => {
   const f = await setup();
