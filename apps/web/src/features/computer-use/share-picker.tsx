@@ -119,7 +119,7 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
       const problem = describeProblem(cause, undefined, platform);
       const sentence =
         chosen.kind === "chooser" && cause instanceof ScreenClientError
-          ? chooserFailure(cause.errorCode, cause.message)
+          ? chooserFailure(cause.errorCode, cause.message, platform)
           : `${problem.title}. ${problem.hint ?? "Try again."}`;
       setError(sentence);
       // The person closed this while the machine's dialog waited: say how it ended anyway.

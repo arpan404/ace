@@ -76,9 +76,13 @@ export function chooserWaitingCopy(machine: string | undefined): string {
  * Why a sharing-dialog start ended without a live view, as one sentence: the machine's own
  * words for a decline or no answer, else the usual problem.
  */
-export function chooserFailure(code: string | undefined, message: string): string {
+export function chooserFailure(
+  code: string | undefined,
+  message: string,
+  platform?: string,
+): string {
   if ((code === "denied" || code === "timeout") && message.endsWith(".")) return message;
-  const problem = screenProblem(code, message);
+  const problem = screenProblem(code, message, undefined, platform);
   return `${problem.title}. ${problem.hint ?? "Try again."}`;
 }
 

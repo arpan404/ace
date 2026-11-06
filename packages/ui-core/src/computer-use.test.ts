@@ -2,6 +2,7 @@ import type { ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   screenProblem,
+  chooserFailure,
   screenSession,
   visibleSessions,
   requirementStatus,
@@ -161,5 +162,22 @@ test("unknown permission names remain readable without offering an unsupported r
   ).toBeUndefined();
   expect(requirementPermission({ state: "blocked", permission: "accessibility" })).toBe(
     "accessibility",
+  );
+});
+
+test.each([
+  ["linux", "permission_denied", "Linux desktop access needs attention"],
+  ["win32", "permission_denied", "Windows desktop access needs attention"],
+  ["linux", "forbidden", "Use the computer running ace."],
+  ["win32", "forbidden", "Use the computer running ace."],
+])("%s chooser failure %s keeps the host's guidance", (platform, code, expected) => {
+  const sentence = chooserFailure(code, "Host refused sharing", platform);
+  expect(sentence).toContain(expected);
+  expect(sentence).not.toMatch(/macOS|Screen Recording|Accessibility|Use the Mac/);
+});
+test("chooser declines and legacy macOS guidance retain their existing words", () => {
+  expect(chooserFailure("denied", "Sharing was declined.", "linux")).toBe("Sharing was declined.");
+  expect(chooserFailure("permission_denied", "Denied")).toContain(
+    "Grant Screen Recording and Accessibility",
   );
 });

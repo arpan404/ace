@@ -71,8 +71,12 @@ export class Helper {
     }
   >();
   private readonly recent: unknown[] = [];
+  private startupDiagnostic = "";
+  private replied = false;
+  private cancelStartupFailure: (() => void) | undefined;
   capabilities: ScreenCapabilities | undefined;
   private closed = false;
+  private failure: Error | undefined;
   private readonly proc: SupervisedProcess;
   private readonly cleanup: () => Promise<void>;
   private readonly options: HelperOptions;
@@ -113,8 +117,11 @@ export class Helper {
         if (!pending) return;
         this.pending.delete(reply.id);
         pending.cancel();
-        if (reply.ok) pending.resolve(reply.data);
-        else {
+        if (reply.ok) {
+          this.replied = true;
+          this.startupDiagnostic = "";
+          pending.resolve(reply.data);
+        } else {
           if (typeof reply.error === "object" && reply.error.code === "permission_denied") {
             this.permissionFacts.invalidate();
           }
@@ -133,7 +140,12 @@ export class Helper {
         this.fail(error instanceof Error ? error : new Error("Invalid helper reply"));
       }
     });
-    void proc.exited.then(() => this.fail(new Error("Screen helper exited")));
+    proc.stderr.on("line", (line: string) => {
+      if (!this.replied && !this.closed)
+        this.startupDiagnostic = `${this.startupDiagnostic}\n${line}`.slice(-1536).trim();
+    });
+    // Process close follows stdio draining, unlike frame-socket close.
+    void proc.exited.then(() => this.fail(this.transportError(new Error("Screen helper exited"))));
   }
   static async open(options: HelperOptions): Promise<Helper> {
     if ((options.platform ?? process.platform) === "win32") {
@@ -153,7 +165,7 @@ export class Helper {
             helper?.fail(error instanceof Error ? error : new Error("Invalid frame"));
           }
         },
-        (error) => helper?.fail(error),
+        (error) => helper?.transportFailed(error),
       );
       try {
         const proc = (options.spawn ?? spawnWindowsHelper)({
@@ -207,8 +219,8 @@ export class Helper {
           helper?.fail(error instanceof Error ? error : new Error("Invalid frame"));
         }
       });
-      candidate.on("error", (error) => helper?.fail(error));
-      candidate.on("close", () => helper?.fail(new Error("Frame socket closed")));
+      candidate.on("error", (error) => helper?.transportFailed(error));
+      candidate.on("close", () => helper?.transportFailed(new Error("Frame socket closed")));
     });
     try {
       await new Promise<void>((resolve, reject) => {
@@ -311,7 +323,7 @@ export class Helper {
     command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
     beforeDispatch?: () => void,
   ): Promise<unknown> {
-    if (this.closed) return Promise.reject(new Error("Helper is closed"));
+    if (this.closed) return Promise.reject(this.failure ?? new Error("Helper is closed"));
     const send = () => {
       beforeDispatch?.();
       return this.send(command);
@@ -354,7 +366,7 @@ export class Helper {
   ): Promise<unknown> {
     if (Buffer.byteLength(JSON.stringify(command)) > 64 * 1024)
       return Promise.reject(new HelperCommandError("bounds", "Helper command exceeds limit"));
-    if (this.closed) return Promise.reject(new Error("Helper is closed"));
+    if (this.closed) return Promise.reject(this.failure ?? new Error("Helper is closed"));
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
     const windows = (this.options.platform ?? process.platform) === "win32";
     const linux =
@@ -446,9 +458,29 @@ export class Helper {
       });
     });
   }
+  private transportError(error: Error): Error {
+    return !this.replied && this.startupDiagnostic
+      ? new Error(`${error.message}: ${this.startupDiagnostic}`)
+      : error;
+  }
+  private transportFailed(error: Error): void {
+    if (this.closed) return;
+    if (this.replied) {
+      this.fail(error);
+      return;
+    }
+    // Give an exiting helper time to drain stderr; a broken but living helper still fails.
+    this.cancelStartupFailure ??= (this.options.scheduler ?? nodeScheduler).schedule(
+      () => this.fail(this.transportError(error)),
+      100,
+    );
+  }
   private fail(error: Error): void {
     if (this.closed) return;
     this.closed = true;
+    this.failure = error;
+    this.cancelStartupFailure?.();
+    this.cancelStartupFailure = undefined;
     for (const pending of this.pending.values()) {
       pending.cancel();
       pending.reject(error);
@@ -469,6 +501,8 @@ export class Helper {
     return this.closing;
   }
   private async finish(): Promise<void> {
+    this.cancelStartupFailure?.();
+    this.cancelStartupFailure = undefined;
     if (!this.closed) {
       this.closed = true;
       for (const pending of this.pending.values()) {

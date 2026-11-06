@@ -2,7 +2,7 @@ import { access } from "node:fs/promises";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { expect, it } from "vitest";
 import { Helper, type Frame } from "./index.ts";
-import { deferred, fakeCommand, ids, target } from "./testing/support.ts";
+import { deferred, fakeCommand, ids, target, manager } from "./testing/support.ts";
 it("the supervised helper correlates concurrent commands and receives fragmented binary frames", async () => {
   const received = deferred<Frame>();
   const errors: Error[] = [];
@@ -115,6 +115,37 @@ it.runIf(process.platform !== "win32")(
       });
     } finally {
       await helper.close();
+    }
+  },
+);
+
+it.runIf(process.platform !== "win32").each(["exit", "socket"])(
+  "startup %s preserves the bounded native diagnostic in permission requirements",
+  async (mode) => {
+    const fixture = await manager(
+      { FAILURE_MODE: mode },
+      {
+        platform: "linux",
+        protocolVersion: 2,
+        args: [new URL("./testing/fake-helper-startup.ts", import.meta.url).pathname],
+      },
+    );
+    try {
+      const permissions = await fixture.screen.permissions();
+      expect(permissions.requirements).toMatchObject([
+        {
+          kind: "desktopConnection",
+          state: "blocked",
+          message: expect.stringContaining(
+            "ScreenCast portal unavailable: org.freedesktop.portal.Desktop has no ScreenCast interface",
+          ),
+        },
+      ]);
+      expect(permissions.requirements?.[0]?.message.length).toBeLessThanOrEqual(2048);
+      if (mode === "socket")
+        expect(permissions.requirements?.[0]?.message).toMatch(/^Frame socket closed:/);
+    } finally {
+      await fixture.close();
     }
   },
 );
