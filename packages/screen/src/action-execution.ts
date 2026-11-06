@@ -1,4 +1,4 @@
-import { desktopAccessFailure } from "./permission-model.ts";
+import { actionPermissionFailure, captureRevokedMessage } from "./permission-model.ts";
 import { type ScreenState } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
@@ -20,6 +20,7 @@ export function executeSessionAction<T>(
   owner: string,
   dispatch: (session: Session, validate: () => void) => Promise<T>,
   actionName: string,
+  access: "input" | "semantic",
 ): Promise<T> {
   runtime.authorize(session);
   authorizeInput(session, actor, owner);
@@ -44,17 +45,14 @@ export function executeSessionAction<T>(
           : runtime.host.execute.bind(runtime.host);
       return execute(validate, async () => {
         const permissions = await session.helper.permissions();
-        if (
-          session.state.permissions.screenRecording !== permissions.screenRecording ||
-          session.state.permissions.accessibility !== permissions.accessibility
-        ) {
+        if (JSON.stringify(session.state.permissions) !== JSON.stringify(permissions)) {
           session.state.permissions = permissions;
           runtime.emit(session);
         }
         if (!permissions.screenRecording)
-          runtime.fail(session, new Error(desktopAccessFailure(permissions)));
-        if (!permissions.accessibility || !permissions.screenRecording)
-          throw new HelperCommandError("permission_denied", desktopAccessFailure(permissions));
+          runtime.fail(session, new Error(captureRevokedMessage(permissions)));
+        const failure = actionPermissionFailure(permissions, access);
+        if (failure) throw new HelperCommandError("permission_denied", failure);
         validate();
         if (
           actor === "agent" &&

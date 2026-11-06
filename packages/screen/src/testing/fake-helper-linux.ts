@@ -80,7 +80,7 @@ input.on("line", (line) => {
     case "permissions":
       data = {
         screenRecording: process.env.REVOKE_SCREEN !== "1" || ++permissionReads === 1,
-        accessibility: true,
+        accessibility: process.env.AT_SPI_DISABLED !== "1",
       };
       break;
     case "targets":

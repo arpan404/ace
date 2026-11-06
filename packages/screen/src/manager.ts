@@ -1,7 +1,7 @@
 import {
   hostPermissions,
   unavailablePermissions,
-  desktopAccessFailure,
+  captureRevokedMessage,
 } from "./permission-model.ts";
 import { selectSessionWindow, performAppOperation, type AppOperation } from "./app-session.ts";
 import { AppWindows } from "./app-windows.ts";
@@ -91,7 +91,7 @@ export class ScreenManager {
           session.state.permissions = permissions;
           this.emit(session);
           if (!permissions.screenRecording)
-            this.fail(session, new Error(desktopAccessFailure(permissions)));
+            this.fail(session, new Error(captureRevokedMessage(permissions)));
         }
         options.onPermissionsChanged?.(permissions);
       },
@@ -552,6 +552,7 @@ export class ScreenManager {
         );
       },
       action.action,
+      "semantic",
     );
   }
   async input(
@@ -757,6 +758,7 @@ export class ScreenManager {
     owner: string,
     dispatch: (session: Session, validate: () => void) => Promise<T>,
     actionName = "input",
+    access: "input" | "semantic" = "input",
   ): Promise<T> {
     return executeSessionAction(
       {
@@ -771,6 +773,7 @@ export class ScreenManager {
       owner,
       dispatch,
       actionName,
+      access,
     );
   }
 

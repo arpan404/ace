@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import {
   desktopAccessFailure,
+  actionPermissionFailure,
+  captureRevokedMessage,
   hostPermissions,
   unavailablePermissions,
 } from "./permission-model.ts";
@@ -58,4 +60,23 @@ test("macOS retains the existing Screen Recording and Accessibility failures", (
   expect(
     desktopAccessFailure({ platform: "darwin", screenRecording: true, accessibility: false }),
   ).toBe("macOS permission denied");
+});
+
+test.each(["linux", "darwin", "win32"] as const)(
+  "%s gates semantic actions separately from Linux portal input",
+  (platform) => {
+    const facts = { platform, screenRecording: true, accessibility: false };
+    expect(actionPermissionFailure(facts, "input") === undefined).toBe(platform === "linux");
+    expect(actionPermissionFailure(facts, "semantic")).toBeDefined();
+    expect(actionPermissionFailure({ ...facts, accessibility: true }, "semantic")).toBeUndefined();
+    expect(actionPermissionFailure({ ...facts, screenRecording: false }, "input")).toBeDefined();
+  },
+);
+test("a revoked macOS capture retains its existing failure literal", () => {
+  expect(captureRevokedMessage({ screenRecording: false, accessibility: true })).toBe(
+    "Screen Recording permission revoked",
+  );
+  expect(
+    captureRevokedMessage({ platform: "darwin", screenRecording: false, accessibility: true }),
+  ).toBe("Screen Recording permission revoked");
 });

@@ -194,14 +194,26 @@ impl Runtime {
             Err(_) => None,
         };
         let ui = self.ui.is_some() && enabled == Some(true);
-        json!({"platform":"linux", "screenRecording":true, "accessibility":ui,
+        let mut permissions = json!({"platform":"linux", "screenRecording":true, "accessibility":ui,
         "requirements":[
           {"kind":"waylandSession", "state":"ready", "title":"Wayland session", "message":"Connected to the Linux Wayland desktop."},
           {"kind":"accessibilityBus", "state":if ui {"ready"} else {"blocked"}, "title":"AT-SPI accessibility", "message":if ui {"The accessibility bus is available."} else {"Enable toolkit accessibility and the org.a11y.Status IsEnabled property on this Linux machine, then retry."}, "action":"Enable accessibility", "permission":"accessibility"},
           {"kind":"screenCastPortal", "state":"ready", "title":"Screen sharing portal", "message":"Connected to the desktop's ScreenCast portal."},
-          {"kind":"remoteDesktopPortal", "state":if self.portal.offer.remote_desktop.is_some() {"ready"} else {"n/a"}, "title":"Remote desktop input", "message":if self.portal.offer.remote_desktop.is_some() {"The desktop advertises a RemoteDesktop portal. Input still depends on the sharing dialog's grant."} else {"This desktop offers screen sharing without portal input. App accessibility actions remain separate from the live view."}},
+
           {"kind":"portalConsent", "state":if sharing {"ready"} else {"prompt"}, "title":"Screen sharing consent", "message":if sharing {"The desktop sharing session is active."} else {"Choose Share a window or screen in the live view, then approve the dialog on this Linux machine. The desktop may reuse a saved restore token."}}
-        ]})
+        ]});
+        if let Some(requirements) = permissions["requirements"].as_array_mut() {
+            if let Some(input) = crate::policy::portal_input_requirements(
+                self.portal.route(),
+                sharing,
+                self.portal.devices,
+            )
+            .as_array()
+            {
+                requirements.extend(input.iter().cloned());
+            }
+        }
+        permissions
     }
     async fn command(&mut self, r: &Request) -> Result<Value> {
         match r.op.as_str() {

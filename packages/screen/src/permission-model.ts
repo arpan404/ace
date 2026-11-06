@@ -60,3 +60,19 @@ export function unavailablePermissions(
     ],
   };
 }
+
+/** Linux portal input and AT-SPI actions have independent native authorization checks. */
+export function actionPermissionFailure(
+  permissions: ScreenPermissions,
+  access: "input" | "semantic",
+): string | undefined {
+  if (!permissions.screenRecording) return desktopAccessFailure(permissions);
+  if (permissions.platform === "linux" && access === "input") return undefined;
+  return permissions.accessibility ? undefined : desktopAccessFailure(permissions);
+}
+
+export function captureRevokedMessage(permissions: ScreenPermissions): string {
+  return !permissions.platform || permissions.platform === "darwin"
+    ? "Screen Recording permission revoked"
+    : desktopAccessFailure(permissions);
+}
