@@ -191,6 +191,7 @@ export class Store {
       statement: (sql) => this.statement(sql),
       atomic: (run) => this.atomic(run),
       now: () => this.now(),
+      sameDevice: (a, b) => this.sameDevice(a, b),
     });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
@@ -1107,6 +1108,10 @@ export class Store {
   }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.receipts.recordCommand(commandId, deviceId, run);
+  }
+  /** One device under two ids: a paired record and its install's account device (ADR 0115). */
+  sameDevice(a: string, b: string): boolean {
+    return a === b || this.devices.sameInstall(a, b);
   }
   commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
     return this.receipts.commandReceipt(commandId, deviceId);

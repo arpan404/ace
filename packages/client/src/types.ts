@@ -100,6 +100,12 @@ export interface ClientOptions {
    * every credential of this install as one device. Older daemons ignore it.
    */
   installId?: InstallId;
+  /**
+   * This install's other device ids on this machine (ADR 0115): a paired machine also reached
+   * through the ace account is one device under two ids, its pairing's and its account
+   * device's. Work saved under either one is this connection's.
+   */
+  deviceAliases?: readonly DeviceId[];
   /** Pin a directory entry before subscriptions or durable intents can replay. */
   expectedHostId?: HostId;
   transport(): Transport;

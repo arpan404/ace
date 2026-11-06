@@ -19,7 +19,7 @@ export class AsyncCommands {
   ): Promise<CommandResult> {
     const existing = this.flights.get(command.id);
     if (existing)
-      return existing.deviceId === command.deviceId
+      return this.store.sameDevice(existing.deviceId, command.deviceId)
         ? existing.promise
         : Promise.resolve(commandNotDispatched(command, "forbidden"));
     // Capacity cannot turn a replay of an already admitted write into an unsent refusal.

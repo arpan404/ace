@@ -198,6 +198,21 @@ export class Devices {
       if (decode(orphan).scopes.every((scope) => allows(survivor, scope)))
         this.fold.run(id, String(orphan.id), String(orphan.id));
   }
+  /**
+   * Whether `a` and `b` are one app install (ADR 0115): a paired record stamped with an install
+   * and that install's ace account device (its id is the install id), or two records stamped
+   * with the same install. A record not yet stamped is only itself. Stamping takes the
+   * record's own credential naming the install (`recognize`), so a claim alone links nothing.
+   */
+  sameInstall(a: string, b: string): boolean {
+    if (a === b) return true;
+    const install = (id: string): string | null => {
+      const row = this.byId.get(id);
+      return row ? (row.install_id === null ? null : String(row.install_id)) : id;
+    };
+    const left = install(a);
+    return left !== null && left === install(b);
+  }
   get(id: string): Device | undefined {
     const row = this.byId.get(id);
     return row ? decode(row) : undefined;

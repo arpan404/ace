@@ -4,6 +4,11 @@ interface ReceiptSource {
   statement(sql: string): StatementSync;
   atomic<T>(run: (db: DatabaseSync) => T): T;
   now(): number;
+  /**
+   * Whether two device ids are one device: the same id, or a paired record and the ace
+   * account device of the same app install (ADR 0115), whose saved work moves between them.
+   */
+  sameDevice(a: string, b: string): boolean;
 }
 /** Durable command identity and guarded completion of pending receipts. */
 export class CommandReceipts {
@@ -17,7 +22,7 @@ export class CommandReceipts {
         .statement("SELECT result,device_id FROM command_receipts WHERE command_id = ?")
         .get(commandId);
       if (receipt) {
-        if (DeviceId.parse(receipt.device_id) !== deviceId)
+        if (!this.source.sameDevice(DeviceId.parse(receipt.device_id), deviceId))
           return { commandId, ok: false, error: "forbidden" };
         return CommandResult.parse(JSON.parse(String(receipt.result)));
       }
@@ -31,9 +36,11 @@ export class CommandReceipts {
   }
   commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
     const row = this.source
-      .statement("SELECT result FROM command_receipts WHERE command_id=? AND device_id=?")
-      .get(commandId, deviceId);
-    return row ? CommandResult.parse(JSON.parse(String(row.result))) : undefined;
+      .statement("SELECT result,device_id FROM command_receipts WHERE command_id=?")
+      .get(commandId);
+    return row && this.source.sameDevice(String(row.device_id), deviceId)
+      ? CommandResult.parse(JSON.parse(String(row.result)))
+      : undefined;
   }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
     const result = CommandResult.parse(input);
