@@ -117,6 +117,8 @@ export class FakeDaemon implements Host {
   readonly version: string;
   /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
   platform: string | undefined;
+  /** The paths `host.identity` reports (ADR 0114); tests set them. */
+  paths: readonly import("@ace/protocol").MachinePath[] | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   /**

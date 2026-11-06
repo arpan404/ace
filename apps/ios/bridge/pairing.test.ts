@@ -16,7 +16,7 @@ function device(id: string, scopes = ["read", "operate"]) {
   return { id, name: "Phone", scopes, createdAt: 1, lastSeenAt: 1, revokedAt: null };
 }
 
-function harness(options: { identity?: () => Promise<typeof identity>; scopes?: string[] } = {}) {
+function harness(options: { identity?: PairingDeps["identity"]; scopes?: string[] } = {}) {
   let saved: string | null = null;
   const secrets = new Map<string, string>();
   const requests: PinnedRequest[] = [];
@@ -133,6 +133,40 @@ describe("pairing a machine", () => {
     expect(secrets.size).toBe(1);
     const unknown = await performAccess(deps, { op: "rename", hostId: "elsewhere", name: "X" });
     expect(unknown.ok).toBe(false);
+  });
+
+  test("pairing names this app install to the machine, in the redemption and in the hello", async () => {
+    const helloInstalls: (string | undefined)[] = [];
+    const { deps, requests } = harness({
+      identity: async (_device, _token, _trust, installId) => {
+        helloInstalls.push(installId);
+        return identity;
+      },
+    });
+    const installId = "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b";
+    await performAccess(deps, { ...pair, installId });
+    const redemption = requests.find((request) => request.path === "/v1/pair");
+    expect(JSON.parse(redemption?.body ?? "{}")).toEqual({
+      code: pair.code,
+      name: "Phone",
+      installId,
+    });
+    expect(helloInstalls).toEqual([installId]);
+  });
+
+  test("a paired machine's own word on its paths is saved with it and listed back", async () => {
+    const { deps } = harness();
+    await performAccess(deps, pair);
+    const paths = [
+      { kind: "lan", url: "https://192.168.1.4:4243", fingerprint },
+      { kind: "tailscale", url: "https://100.64.0.7:4243", fingerprint },
+      { kind: "account", url: "wss://relay.example.com", relayHostId: "A".repeat(52) },
+    ];
+    await performAccess(deps, { op: "remember", hostId: "host-studio", paths });
+    expect(await performAccess(deps, { op: "list" })).toMatchObject({
+      ok: true,
+      machines: [{ hostId: "host-studio", paths }],
+    });
   });
 
   test("a link with a malformed pin is rejected before any request", async () => {

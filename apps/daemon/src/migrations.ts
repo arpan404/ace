@@ -166,6 +166,14 @@ const migrations = [
   machineChildLiveness,
   // The machine code and the account devices that passed it (ADR 0111); no rows exist before it.
   machineCodeTables,
+  // Each paired device names its app install (ADR 0115); older records learn it when they next
+  // connect. A record folded into another (`merged_into`) is listed under it, and revoked with it.
+  `ALTER TABLE devices ADD COLUMN install_id TEXT;
+  ALTER TABLE devices ADD COLUMN merged_into TEXT;
+  CREATE INDEX devices_install ON devices(install_id) WHERE install_id IS NOT NULL;`,
+  // The account device that proved, in its own authenticated hello, that it holds a paired
+  // record's credential (ADR 0115): the two share command receipts. None is proven before it.
+  `ALTER TABLE devices ADD COLUMN account_link TEXT;`,
 ];
 /**
  * Oldest schema an existing database is upgraded from. Each step after it must carry the

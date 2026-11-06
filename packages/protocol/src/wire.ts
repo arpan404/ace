@@ -122,6 +122,7 @@ export {
   CommandStatusState,
   CoreClientMessage,
   CoreServerMessage,
+  PairingLinkProof,
   coreClientTypes,
   coreServerTypes,
   DeliveryEvent,

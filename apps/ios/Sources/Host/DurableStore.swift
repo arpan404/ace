@@ -11,6 +11,8 @@ final class DurableStore {
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             throw HostError.storage
         }
+        // Another connection to the same machine's file (`adopt`) waits its turn rather than failing.
+        sqlite3_busy_timeout(db, 5_000)
         try execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS metadata (id TEXT PRIMARY KEY, value TEXT NOT NULL);")
     }
     deinit { sqlite3_close(db) }
@@ -85,6 +87,29 @@ final class DurableStore {
         default: throw HostError.unsupported
         }
     }
+    /// Moves the saved sends in `source` that are bound to `daemon` into `destination`, each
+    /// under its own command id, so the daemon answers one it already ran from its receipt (ADR
+    /// 0115). A send `destination` already has stays as it is there. Nothing moves from or into
+    /// a store bound to another daemon. `source`'s runtime must have stopped; `destination`'s
+    /// reads them when it next starts. Returns how many moved.
+    @discardableResult static func adopt(from source: URL, into destination: URL, daemon: String) throws -> Int {
+        guard source != destination, FileManager.default.fileExists(atPath: source.path) else { return 0 }
+        let from = try DurableStore(url: source)
+        guard try from.binding().map({ $0 == daemon }) ?? true else { return 0 }
+        let moving = try from.query("SELECT value FROM records ORDER BY id").compactMap { value -> (String, String)? in
+            guard let saved = try? JSONDecoder().decode(SavedSend.self, from: Data(value.utf8)), saved.hostId == daemon else { return nil }
+            return (saved.command.id, value)
+        }
+        guard !moving.isEmpty else { return 0 }
+        let into = try DurableStore(url: destination)
+        guard try into.binding().map({ $0 == daemon }) ?? true else { return 0 }
+        try into.transaction {
+            for (id, value) in moving { try into.write("INSERT OR IGNORE INTO records(id,value) VALUES (?,?)", [id, value]) }
+        }
+        try from.transaction { for (id, _) in moving { try from.write("DELETE FROM records WHERE id=?", [id]) } }
+        return moving.count
+    }
+    private func binding() throws -> String? { try query("SELECT value FROM metadata WHERE id='host'").first }
     private func transaction(_ run: () throws -> Void) throws {
         try execute("BEGIN IMMEDIATE")
         do { try run(); try execute("COMMIT") }
@@ -125,5 +150,11 @@ final class DurableStore {
     }
 }
 private struct RecordId: Decodable { let id: String }
+/// What `adopt` reads of a saved send: its command id and the daemon it is bound to.
+private struct SavedSend: Decodable {
+    struct Command: Decodable { let id: String }
+    let command: Command
+    let hostId: String?
+}
 private struct KeptKey: Decodable { let key: String }
 enum HostError: Error { case storage, identity, unsupported, encoding, entropy, transport }

@@ -9,7 +9,13 @@ struct MachineEntry: Codable, Sendable, Identifiable, Equatable {
     let icon: Icon?
     let target: Target
     let deviceId: String
+    /// How else the machine said it can be reached (ADR 0114); decoded leniently, see `MachinePaths.swift`.
+    var paths: [MachinePath]? = nil
+    /// The account machine (its relay host id) this paired machine also is (ADR 0115): set only
+    /// by `AccountMachines.merge`, never by the SDK directory.
+    var accountHostId: String? = nil
     var id: String { hostId }
+    enum CodingKeys: String, CodingKey { case hostId, displayName, icon, target, deviceId, paths, accountHostId }
 
     /// Keychain key shared with the SDK's `machineSecretKey`: a JSON array of host and device.
     var secretKey: String {
@@ -45,6 +51,8 @@ enum AccessRequest: Sendable {
     case remove(hostId: String)
     case rename(hostId: String, name: String)
     case pair(PairingLink, name: String)
+    /// Save what a machine said about its paths, over its own authenticated connection.
+    case remember(hostId: String, paths: [MachinePath])
 }
 
 /// Directory and pairing operations; the bridge implementation runs the shared SDK.
@@ -56,10 +64,12 @@ protocol MachineAccess: Sendable {
 struct BridgeMachineAccess: MachineAccess {
     let directoryURL: URL
     var secrets: any SecretStore = KeychainSecrets()
+    /// This app install (ADR 0115), sent when pairing so the machine keeps one device for it.
+    var installId: String? = nil
 
     func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
         let target: ConnectionTarget?
-        let body: [String: String]
+        var body: [String: Any]
         switch request {
         case .list: target = nil; body = ["op": "list"]
         case .remove(let hostId): target = nil; body = ["op": "remove", "hostId": hostId]
@@ -67,6 +77,11 @@ struct BridgeMachineAccess: MachineAccess {
         case .pair(let link, let name):
             target = .pairing(endpoint: link.socketURL, pin: link.fingerprint)
             body = ["op": "pair", "code": link.code, "name": name, "url": link.socketURL.absoluteString, "fingerprint": link.fingerprint]
+            if let installId { body["installId"] = installId }
+        case .remember(let hostId, let paths):
+            target = nil
+            let encoded = (try? JSONEncoder().encode(paths)).flatMap { try? JSONSerialization.jsonObject(with: $0) }
+            body = ["op": "remember", "hostId": hostId, "paths": encoded ?? []]
         }
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.unknown) }
         let once = Once()
@@ -80,8 +95,9 @@ struct BridgeMachineAccess: MachineAccess {
                 finish(value.ok ? .success(value) : .failure(value.problem ?? .unknown))
             }
             // Listing follows machines that are already connecting: it never competes with their
-            // runtimes for the CPU. Pairing, renaming and removing are what the person waits on.
-            let priority: QualityOfService = if case .list = request { .utility } else { .userInitiated }
+            // runtimes for the CPU, nor does saving paths. Pairing, renaming and removing are what
+            // the person waits on.
+            let priority: QualityOfService = switch request { case .list, .remember: .utility; default: .userInitiated }
             let runtime = ClientRuntime(access: target, services: services, priority: priority, fail: { _ in finish(.failure(.unknown)) })
             once.runtime = runtime
             runtime.startAccess(String(decoding: data, as: UTF8.self))

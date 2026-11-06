@@ -69,6 +69,9 @@ import WidgetKit
         shownByHand = true
         rebuild()
     }
+    /// Drop the last confirmed summary kept for when no machine answers: what it showed may
+    /// belong to a machine that is no longer to be shown.
+    func forgetHeld() { lastLive = nil }
     /// Rebuild at once; tests and the background refresh call it directly.
     func rebuild() {
         let at = now()

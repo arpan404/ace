@@ -28,6 +28,8 @@ export interface Host {
   readonly version?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */
   readonly platform?: string | undefined;
+  /** How else the machine says it is reached (`host.identity` paths); absent, none said. */
+  readonly paths?: readonly import("@ace/protocol").MachinePath[] | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
   /**
@@ -192,6 +194,7 @@ export class Connection {
             version: this.host.version ?? "fake",
             ...(this.host.platform ? { platform: this.host.platform } : {}),
           },
+          ...(this.host.paths ? { paths: [...this.host.paths] } : {}),
         });
         return;
       }

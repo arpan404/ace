@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { stubHandler } from "@ace/daemon";
-import { AgentId, InteractionId, DeviceId, CommandResult } from "@ace/protocol";
+import { AgentId, InteractionId, DeviceId, CommandResult, InstallId } from "@ace/protocol";
+import { pairingLinkProof } from "./link-proof.ts";
 import { setup, sharedDaemon, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -112,6 +113,72 @@ test("saved work from another device is never sent, and never blocks connecting"
   await ready(client);
   expect(client.state).toBe("ready");
   expect(faults.sent.filter((text) => text.includes('"old"'))).toEqual([]);
+});
+
+test("a send queued on the paired route is shown and sent once the machine is reached through the account", async () => {
+  const h = await harness();
+  const storage = memoryStorage();
+  // Queued while the LAN connection was down: saved under the pairing's device id.
+  await storage.save(
+    JSON.stringify([
+      {
+        state: "pending",
+        command: {
+          id: "queued-on-lan",
+          deviceId: "phone-paired",
+          payload: { type: "thread.archive", threadId: h.thread.id },
+        },
+      },
+    ]),
+  );
+  // The same install, now through ace's relay as its account device.
+  const { client } = h.make({
+    storage,
+    deviceId: DeviceId.parse("phone-install"),
+    deviceAliases: [DeviceId.parse("phone-paired")],
+  });
+  await ready(client);
+  expect(client.intent("queued-on-lan").getSnapshot()).toBeDefined();
+  await when(client.intent("queued-on-lan"), (intent) => intent?.state === "acked");
+});
+
+test("a send the daemon already ran on the paired route runs once when replayed through the account", async () => {
+  const h = await harness();
+  const install = InstallId.parse("01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e");
+  // A pairing whose credential the install's account device has proved it holds.
+  const paired = h.daemon.store.devices.create("Phone", ["read", "operate"], 1);
+  const account = DeviceId.parse(install);
+  expect(
+    h.daemon.store.devices.link(
+      account,
+      await pairingLinkProof(paired.token, paired.device.id, account, crypto.subtle),
+      1,
+    ),
+  ).toBe(true);
+  const lan = h.make({ storage: h.storage, deviceId: paired.device.id });
+  await ready(lan.client);
+  // Its receipt never came back over the LAN.
+  lan.faults.incoming = (message, frame, deliver) => {
+    if (message.type !== "commandResult") deliver(frame);
+  };
+  await lan.client.enqueue({ type: "thread.archive", threadId: h.thread.id }, "archive-across");
+  await lan.faults.wait((message) => message.type === "commandResult");
+  lan.client.close();
+
+  const relayed = h.make({
+    storage: h.storage,
+    deviceId: DeviceId.parse(install),
+    deviceAliases: [paired.device.id],
+  });
+  await ready(relayed.client);
+  await when(relayed.client.intent("archive-across"), (intent) => intent?.state === "acked");
+  expect(relayed.client.intent("archive-across").getSnapshot()?.result?.ok).toBe(true);
+  const archived = h.daemon.store
+    .readEvents({ afterSeq: 0, threadId: h.thread.id, limit: 100 })
+    .filter(
+      (event) => event.payload.type === "thread.updated" && event.payload.archivedAt !== undefined,
+    );
+  expect(archived).toHaveLength(1);
 });
 
 test("the first interaction answer wins and a later daemon rejection becomes a failed intent", async () => {

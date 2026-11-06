@@ -15,9 +15,19 @@ export type DaemonPreview = Awaited<ReturnType<typeof createPreviewGateway>>;
 export const hostPreviewIdentity = "host:local";
 
 /**
+ * The identity a paired device's preview session carries: the device and the generation of the
+ * credential that opened it. Pairing the same install again replaces that credential, and every
+ * link and session it signed stops passing (ADR 0115). Device ids hold no ":".
+ */
+export function pairedPreviewIdentity(device: string, generation: string): string {
+  return `${device}:${generation}`;
+}
+
+/**
  * A preview session permits app mutations, so it requires operate authority: a paired operate
- * device (rechecked on every request), or the host credential through `hostPreviewIdentity`.
- * Device tokens alone never resolve to the host identity.
+ * device still holding the credential that signed it in (rechecked on every request), or the
+ * host credential through `hostPreviewIdentity`. Device tokens alone never resolve to the host
+ * identity.
  */
 export async function createDaemonPreview(
   store: Store,
@@ -32,11 +42,19 @@ export async function createDaemonPreview(
       async authorize(token) {
         // Authentication records last-seen bookkeeping, so it passes the write boundary.
         const device = await store.write(() => store.devices.authenticate(token, now()));
-        return allows(device, "operate") ? (device?.id ?? null) : null;
+        return device && allows(device, "operate")
+          ? pairedPreviewIdentity(device.id, device.generation)
+          : null;
       },
-      async isPaired(id) {
-        if (id === hostPreviewIdentity) return true;
-        const device = store.devices.get(id);
+      async isPaired(identity) {
+        if (identity === hostPreviewIdentity) return true;
+        const split = identity.lastIndexOf(":");
+        if (split <= 0) return false;
+        const device = store.devices.current(
+          identity.slice(0, split),
+          identity.slice(split + 1),
+          now(),
+        );
         return activeDevice(device, now()) && allows(device, "operate");
       },
     },

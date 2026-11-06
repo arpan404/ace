@@ -1,25 +1,33 @@
 import { z } from "zod";
-import { DeviceToken, SocketTicket } from "@ace/protocol";
+import { DeviceToken, PairingLinkProof, SocketTicket } from "@ace/protocol";
 import { ClientError } from "./errors.ts";
 
 /**
  * What a hello presents: a device token, a one-use ticket, or a device grant from the ace
- * account backend (ADR 0111) with the machine code when the daemon asked for one.
+ * account backend (ADR 0111) with the machine code when the daemon asked for one, and the proof
+ * of this install's paired credential on that machine (`link`, ADR 0115) when it has one.
  */
 export type Credential =
   | string
   | { token: string }
   | { ticket: string }
-  | { grant: string; machineCode?: string };
+  | { grant: string; machineCode?: string; link?: PairingLinkProof };
 const HelloCredential = z.union([
   z.string().transform((token) => ({ token })),
   z.strictObject({ token: z.string() }),
   z.strictObject({ ticket: z.string() }),
-  z.strictObject({ grant: z.string(), machineCode: z.string().optional() }),
+  z.strictObject({
+    grant: z.string(),
+    machineCode: z.string().optional(),
+    link: PairingLinkProof.optional(),
+  }),
 ]);
 export function parseCredential(
   credential: Credential,
-): { token: string } | { ticket: string } | { grant: string; machineCode?: string | undefined } {
+):
+  | { token: string }
+  | { ticket: string }
+  | { grant: string; machineCode?: string | undefined; link?: PairingLinkProof | undefined } {
   return HelloCredential.parse(credential);
 }
 /** The grant to offer the relay itself, when the credential is an account grant. */

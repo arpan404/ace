@@ -56,6 +56,11 @@ import QuartzCore
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// Each change of the runtime's connection state, after it applies; the machine list uses
+    /// it to move a machine between its routes (`MachineRoutePlan`).
+    @ObservationIgnored var onConnection: ((String) -> Void)?
+    /// What the machine said about itself on each ready connection (`MachineIdentityPatch`).
+    @ObservationIgnored var onMachineIdentity: ((MachineIdentityPatch) -> Void)?
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
@@ -191,7 +196,7 @@ import QuartzCore
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        hostId = target.hostId
+        hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset()
@@ -202,7 +207,8 @@ import QuartzCore
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
-        let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
+        // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
+        let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
         apply(InboxCheckpoint.read(database: database))
         restoring.end()
         await closing?.value
@@ -440,8 +446,10 @@ import QuartzCore
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
             case .connection(let state, let generation):
-                if state != connection { LaunchTrace.mark("connection", state) }
+                let changed = state != connection
+                if changed { LaunchTrace.mark("connection", state) }
                 connection = state
+                if changed { onConnection?(state) }
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
@@ -463,7 +471,9 @@ import QuartzCore
             case .machineAdmission(let info): admission = info
             case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
-            case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
+            case .machineIdentity(let identity):
+                machineGlyph = AceIcon.Name(rawValue: identity.glyph)
+                onMachineIdentity?(identity)
             case .pending(let id, let row): pending[id] = row
             case .needs(let id, let value): receiveNeeds(id, value)
             case .needsWords(let id, let words): needsWords[id] = words

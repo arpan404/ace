@@ -39,6 +39,17 @@ export type CommandId = z.infer<typeof CommandId>;
 export const DeviceId = id<"DeviceId">();
 export type DeviceId = z.infer<typeof DeviceId>;
 
+/**
+ * One app install's own identity (ADR 0115): a UUIDv7 the app makes on first run and keeps for
+ * good. The same value names the install on every machine and every path, and is its ace
+ * account device id. Older installs' ids (a UUIDv4, an `ios-` prefixed one) are accepted as is.
+ */
+export const InstallId = z
+  .string()
+  .regex(/^[A-Za-z0-9-]{8,64}$/)
+  .meta({ examples: ["01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e"] });
+export type InstallId = z.infer<typeof InstallId>;
+
 /** Milliseconds since the Unix epoch. */
 export const Timestamp = z.number().int().nonnegative();
 export type Timestamp = z.infer<typeof Timestamp>;

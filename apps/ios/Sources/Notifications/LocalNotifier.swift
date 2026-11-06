@@ -71,31 +71,108 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let defaults: UserDefaults?
     private let now: () -> Double
     private(set) var stack: AlertStack
+    /// The last post asked for: every post waits for the one before, so they land in order.
+    private var effects: Task<Void, Never>?
+    /// Notifications with a post queued or out, by identifier: the latest post's generation, or
+    /// a withdrawal's when one came after it.
+    private var pending: [String: Pending] = [:]
+    private var generation = 0
+    private struct Pending { let generation: Int; let withdrawn: Bool }
+    /// Landings whose post is queued or out, by serial, with the notifier that asked for each.
+    private var landing: [Int: (owner: ObjectIdentifier, threadId: String, hostId: String?)] = [:]
+    private var landings = 0
     init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
         self.center = center; self.defaults = defaults; self.now = now
         stack = defaults.map(AlertStack.load) ?? AlertStack()
     }
-    func land(_ alert: AlertNotification, hostId: String?) async {
-        let landing = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
+    /// Lands an alert; `owner`'s landings still queued or out can be cancelled (`cancel`).
+    func land(_ alert: AlertNotification, hostId: String?, owner: ObjectIdentifier? = nil) async {
+        let landed = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
         save()
-        center.withdraw(landing.withdraw)
-        if let post = landing.post { await center.post(post) }
+        withdraw(landed.withdraw)
+        guard let content = landed.post else { return }
+        landings += 1
+        let serial = landings
+        if let owner { landing[serial] = (owner, alert.threadId, hostId) }
+        await post(content).value
+        landing[serial] = nil
+    }
+    /// `owner` went (its machine let go): what it landed that hasn't reached the notification
+    /// center yet never does, and what is out right now is withdrawn once it has landed.
+    func cancel(owner: ObjectIdentifier) {
+        let mine = landing.filter { $0.value.owner == owner }
+        guard !mine.isEmpty else { return }
+        for serial in mine.keys { landing[serial] = nil }
+        for entry in mine.values { clear(threadId: entry.threadId, hostId: entry.hostId) }
     }
     /// Retracted by the daemon: withdrawn if it is still its thread's, plus the ids earlier
     /// builds posted under (`AlertContent.requestIds`).
     func retract(_ alertIds: [String], hostId: String?) {
         guard !alertIds.isEmpty else { return }
-        var ids: [String] = []
-        for id in alertIds { ids += stack.retract(id, hostId: hostId) + AlertContent.requestIds(retracting: id, hostId: hostId) }
-        save()
-        center.withdraw(ids)
+        let before = stack
+        var landings: [AlertStack.Landing] = []
+        for id in alertIds {
+            var landing = stack.retract(id, hostId: hostId)
+            landing.withdraw += AlertContent.requestIds(retracting: id, hostId: hostId)
+            landings.append(landing)
+        }
+        apply(landings, since: before)
+    }
+    /// Every notification from one machine, such as one turned off on this phone.
+    func clear(hostId: String) {
+        let before = stack
+        apply([stack.clear(hostId: hostId)], since: before)
     }
     /// The thread was opened, or its request is answered or gone.
     func clear(threadId: String, hostId: String?) {
-        let ids = stack.clear(threadId: threadId, hostId: hostId)
+        let before = stack
+        apply([stack.clear(threadId: threadId, hostId: hostId)], since: before)
+    }
+    /// Every change to the stack is kept, folded finishes included, and the summary follows
+    /// what is left of it: posted again over the rest, or withdrawn.
+    private func apply(_ landings: [AlertStack.Landing], since before: AlertStack) {
+        if stack != before { save() }
+        var ids = landings.flatMap(\.withdraw)
+        let summaryMoved = landings.contains { $0.post != nil || $0.withdraw.contains(AlertStack.summaryId) }
+        let summary = summaryMoved ? stack.summary : nil
+        if summary != nil { ids.removeAll { $0 == AlertStack.summaryId } }
+        withdraw(ids)
+        if let summary { post(summary) }
+    }
+    /// Withdrawn now; a post of it still queued won't land, and one already out is withdrawn
+    /// again once it has.
+    func withdraw(_ ids: [String]) {
         guard !ids.isEmpty else { return }
-        save()
+        for id in ids where pending[id] != nil {
+            generation += 1
+            pending[id] = Pending(generation: generation, withdrawn: true)
+        }
         center.withdraw(ids)
+    }
+    /// Posted after every earlier post, unless a later post or withdrawal of the same
+    /// notification overtakes it first. Done when it has landed or been skipped.
+    @discardableResult func post(_ content: AlertContent) -> Task<Void, Never> {
+        let id = content.identifier
+        generation += 1
+        let mine = generation
+        pending[id] = Pending(generation: mine, withdrawn: false)
+        let previous = effects
+        let center = center
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard self.pending[id]?.generation == mine else {
+                // Overtaken by a withdrawal that nothing posted after: nothing is left to undo.
+                if self.pending[id]?.withdrawn == true { self.pending[id] = nil }
+                return
+            }
+            await center.post(content)
+            guard let now = self.pending[id] else { return }
+            if now.generation == mine || now.withdrawn { self.pending[id] = nil }
+            if now.withdrawn { center.withdraw([id]) }
+        }
+        effects = task
+        return task
     }
     private func save() { if let defaults { stack.save(defaults) } }
 }
@@ -108,27 +185,40 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let desk: AlertDesk
     private var store: LedgerStore?
     private(set) var ledger = NotificationLedger()
+    /// False once its machine is turned off or detached: alerts still advance the ledger, so
+    /// none is posted later, but nothing lands any more, even from a task already under way.
+    private(set) var valid = true
     init(center: any NotificationCenterPort, hostId: String? = nil, desk: AlertDesk? = nil) {
         self.center = center; self.hostId = hostId; self.desk = desk ?? AlertDesk(center: center)
     }
 
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
+    /// Its machine was turned off or let go: nothing it still has under way lands, and what it
+    /// handed the desk that hasn't landed yet is called back.
+    func invalidate() {
+        valid = false
+        desk.cancel(owner: ObjectIdentifier(self))
+    }
     func receive(_ alert: AlertNotification) async {
         guard ledger.admit(alert.id) else { return }
         store?.save(ledger)
-        guard alert.delivery?.post != false else { return }
-        await desk.land(alert, hostId: hostId)
+        guard alert.delivery?.post != false, valid else { return }
+        await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
         let fresh = entries.filter { ledger.admit($0.id) }
         ledger.advance(to: cursor)
         store?.save(ledger)
-        for alert in fresh where alert.delivery?.post != false { await desk.land(alert, hostId: hostId) }
+        // Checked before each one: an earlier post can be awaited past a turn-off.
+        for alert in fresh where alert.delivery?.post != false {
+            guard valid else { return }
+            await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
+        }
     }
-    func withdraw(_ id: String) { center.withdraw([id]) }
+    func withdraw(_ id: String) { desk.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.
     func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) async {
-        await center.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId))
+        await desk.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId)).value
     }
 }

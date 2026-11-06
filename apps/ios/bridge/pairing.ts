@@ -1,5 +1,5 @@
 import type { MachineDirectory, MachineEntry } from "@ace/client/machines";
-import type { DeviceScope, HostIdentity } from "@ace/protocol";
+import { InstallId, MachinePath, type DeviceScope, type HostIdentity } from "@ace/protocol";
 import { z } from "zod";
 import {
   pairingProblem,
@@ -25,6 +25,14 @@ export const AccessRequest = z.discriminatedUnion("op", [
     name: z.string().trim().min(1).max(256),
     url: z.string().max(4096),
     fingerprint: Fingerprint,
+    /** This app install (ADR 0115): pairing it again keeps its one device on that machine. */
+    installId: InstallId.optional(),
+  }),
+  /** What a paired machine said about its paths over its own authenticated connection. */
+  z.strictObject({
+    op: z.literal("remember"),
+    hostId: z.string().min(1).max(256),
+    paths: z.array(MachinePath).max(16),
   }),
 ]);
 export type AccessRequest = z.infer<typeof AccessRequest>;
@@ -41,7 +49,12 @@ export interface PairingDeps {
   http: PinnedHttp;
   directory: MachineDirectory;
   /** Authenticated identity read over the pinned socket with the new device credential. */
-  identity(deviceId: string, token: string, trust: TrustMonitor): Promise<HostIdentity>;
+  identity(
+    deviceId: string,
+    token: string,
+    trust: TrustMonitor,
+    installId?: InstallId,
+  ): Promise<HostIdentity>;
 }
 
 /**
@@ -59,12 +72,27 @@ export async function performAccess(deps: PairingDeps, raw: unknown): Promise<Ac
       await deps.directory.rename(request.hostId, request.name, entry?.icon);
       return { ok: true, machines: deps.directory.machines };
     }
+    if (request.op === "remember") {
+      await deps.directory.remember(request.hostId, { paths: request.paths });
+      return { ok: true, machines: deps.directory.machines };
+    }
     if (request.op === "remove") {
       await deps.directory.remove(request.hostId);
       return { ok: true, machines: deps.directory.machines };
     }
-    const credential = await redeemPairing(deps.http, request.code, request.name, trust);
-    const identity = await deps.identity(credential.device.id, credential.token, trust);
+    const credential = await redeemPairing(
+      deps.http,
+      request.code,
+      request.name,
+      trust,
+      request.installId,
+    );
+    const identity = await deps.identity(
+      credential.device.id,
+      credential.token,
+      trust,
+      request.installId,
+    );
     const entry = await deps.directory.add({
       identity,
       target: { kind: "direct", url: request.url, fingerprint: request.fingerprint },

@@ -144,8 +144,10 @@ export function upgradeCandidates(
 export type SwitchVerdict = "switch" | "hold" | "not_faster" | "unmeasured";
 /**
  * Whether to move from the active path to a probed one. The client stays on a path for
- * `holdMs` after switching to it. The same computer always wins over another kind; anything
- * else must be at least 20% and 5 ms faster.
+ * `holdMs` after switching to it. The same computer always wins over another kind, and a
+ * direct path (the LAN, Tailscale) that answered its probe always wins over a relay (ADR 0115:
+ * LAN, then Tailscale, then relays). Between two direct paths, or two relays, the candidate must
+ * be at least 20% and 5 ms faster.
  */
 export function switchVerdict(input: {
   active: PlannedPath & { rttMs: number | undefined };
@@ -157,6 +159,7 @@ export function switchVerdict(input: {
   if (input.switchedAt !== undefined && input.now - input.switchedAt < pathTiming.holdMs)
     return "hold";
   if (candidate.kind === "loopback" && active.kind !== "loopback") return "switch";
+  if (isDirect(candidate.kind) && !isDirect(active.kind)) return "switch";
   if (active.rttMs === undefined || candidate.rttMs === undefined) return "unmeasured";
   const gain = active.rttMs - candidate.rttMs;
   return gain >= minGainMs && gain >= active.rttMs * minGainRatio ? "switch" : "not_faster";

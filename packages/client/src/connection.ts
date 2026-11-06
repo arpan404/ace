@@ -15,6 +15,7 @@ import {
 import type { PathStandby } from "./multipath.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import {
+  CredentialReplacedClose,
   DeviceRevokedClose,
   MachineCodeRefusal,
   type ClientMessage,
@@ -237,7 +238,7 @@ export class Connection {
   #lost(code: number, reason: string, error?: ClientError): void {
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
-    const decision = disconnectDecision(this.#active, this.#online, code);
+    const decision = disconnectDecision(this.#active, this.#online, code, reason);
     const closed = {
       code,
       // Close reasons are short protocol phrases; bounded so a log line stays one line.
@@ -341,6 +342,7 @@ export class Connection {
       type: "hello",
       protocolVersion: 1,
       deviceId: this.#options.deviceId,
+      ...(this.#options.installId ? { installId: this.#options.installId } : {}),
       trims: [...supportedWireTrims],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
@@ -724,7 +726,14 @@ export class Connection {
   }
   #failover(code: number, reason: string): boolean {
     // Access changed on every path at once: the standby can't carry on either.
-    if (this.state !== "ready" || this.#draining || code === ACCESS_CHANGED_CLOSE) return false;
+    // A replaced credential: the standby said hello with it too, and closes with it.
+    if (
+      this.state !== "ready" ||
+      this.#draining ||
+      code === ACCESS_CHANGED_CLOSE ||
+      CredentialReplacedClose.safeParse({ code, reason }).success
+    )
+      return false;
     const standby = this.#standby?.path();
     if (!standby || !this.swap(standby, "failover")) return false;
     this.#standby?.used(code);

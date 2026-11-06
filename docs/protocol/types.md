@@ -9894,7 +9894,7 @@ Example:
 
 ### hello
 
-Semantic rule: Exactly one of token, ticket and grant is required; machineCode only with grant.
+Semantic rule: Exactly one of token, ticket and grant is required; machineCode and link only with grant.
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
@@ -9906,6 +9906,8 @@ Semantic rule: Exactly one of token, ticket and grant is required; machineCode o
 | ticket | no | string |  |
 | grant | no | string | {"minLength":1,"maxLength":2048} |
 | machineCode | no | [MachineCode.json](schema/MachineCode.json) |  |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
+| link | no | [PairingLinkProof.json](schema/PairingLinkProof.json) |  |
 | compression | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | flowControl | no | array | {"maxItems":8,"items":{"type":"string","maxLength":32}} |
 | trims | no | array | {"maxItems":16,"items":{"type":"string","maxLength":32}} |
@@ -9914,10 +9916,12 @@ Example:
 
 ```json
 {
-  "channel": "provider_auth",
+  "compression": [],
   "deviceId": "example",
+  "flowControl": [],
   "protocolVersion": 1,
   "ticket": "example",
+  "trims": [],
   "type": "hello"
 }
 ```
@@ -10620,6 +10624,24 @@ Example:
     "ok": true
   },
   "type": "account.grant.refresh.result"
+}
+```
+
+## CredentialReplacedClose
+
+[JSON Schema](schema/CredentialReplacedClose.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| code | yes | `4001` |  |
+| reason | yes | `"Credential replaced"` |  |
+
+Example:
+
+```json
+{
+  "code": 4001,
+  "reason": "Credential replaced"
 }
 ```
 
@@ -15526,6 +15548,18 @@ Example:
   "target": "darwin-arm64",
   "version": "28298.15658894072.057587891"
 }
+```
+
+## InstallId
+
+[JSON Schema](schema/InstallId.json), input validation.
+
+Type: string. See JSON Schema for constraints.
+
+Example:
+
+```json
+"01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e"
 ```
 
 ## InstallMethod
@@ -20514,6 +20548,24 @@ Example:
 }
 ```
 
+## PairingLinkProof
+
+[JSON Schema](schema/PairingLinkProof.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
+| proof | yes | string | {"pattern":"^[A-Za-z0-9_-]{43}$"} |
+
+Example:
+
+```json
+{
+  "deviceId": "example",
+  "proof": "9Zv1NskOWlhajWdhQj0wW7CSyNx8q5MjKOnu4AZLZz5"
+}
+```
+
 ## PairingRedemption
 
 [JSON Schema](schema/PairingRedemption.json), input validation.
@@ -20522,6 +20574,7 @@ Example:
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 
 Example:
 
@@ -20576,6 +20629,7 @@ Example:
 | --- | --- | --- | --- |
 | code | yes | string | {"minLength":1,"maxLength":256} |
 | name | yes | string | {"minLength":1,"maxLength":256} |
+| installId | no | [InstallId.json](schema/InstallId.json) |  |
 | type | yes | `"pair.redeem"` |  |
 
 Example:

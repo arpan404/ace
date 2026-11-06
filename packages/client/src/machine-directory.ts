@@ -77,6 +77,26 @@ export interface MachineSecretStore {
   set(key: string, token: string, remember?: boolean): Promise<void>;
   delete(key: string): Promise<void>;
 }
+/**
+ * The certificate fingerprint the machine itself gave for the address `url` reaches, among the
+ * paths it said over an authenticated connection (`host.identity` paths, ADR 0114). A browser
+ * pairs a direct address without a fingerprint of its own (it trusted the certificate by hand),
+ * so this is how its paired address is known as a pinned direct path. Pure.
+ */
+export function pinnedFingerprint(
+  url: string,
+  paths: readonly unknown[] | undefined,
+): string | undefined {
+  const host = URL.parse(url)?.host;
+  if (!host) return undefined;
+  for (const each of paths ?? []) {
+    // Kinds this build doesn't know are kept on the wire but pin nothing.
+    const path = MachinePath.safeParse(each).data;
+    if (path && "fingerprint" in path && URL.parse(path.url)?.host === host)
+      return path.fingerprint;
+  }
+  return undefined;
+}
 export function machineSecretKey(entry: Pick<MachineEntry, "hostId" | "deviceId">): string {
   return JSON.stringify([entry.hostId, entry.deviceId]);
 }
