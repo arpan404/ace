@@ -506,7 +506,7 @@ export async function startServer(options: ServerOptions): Promise<{
             socket.close(code.startsWith("machine_code") ? 4011 : 4001, code);
             return;
           }
-          auth.accountDeviceSeen(message.deviceId);
+          auth.accountDeviceSeen(message.deviceId, message.link);
           actor = accountDeviceActor(message.deviceId, auth.now());
           accountAdmitted = admitted.stillAdmitted;
           accountId = admitted.account;

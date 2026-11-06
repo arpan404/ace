@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { stubHandler } from "@ace/daemon";
 import { AgentId, InteractionId, DeviceId, CommandResult, InstallId } from "@ace/protocol";
+import { pairingLinkProof } from "./link-proof.ts";
 import { setup, sharedDaemon, ready, when, barrier, memoryStorage } from "./test-support.ts";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -144,9 +145,16 @@ test("a send queued on the paired route is shown and sent once the machine is re
 test("a send the daemon already ran on the paired route runs once when replayed through the account", async () => {
   const h = await harness();
   const install = InstallId.parse("01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e");
-  // A pairing from before install ids, which has since said which install it is.
+  // A pairing whose credential the install's account device has proved it holds.
   const paired = h.daemon.store.devices.create("Phone", ["read", "operate"], 1);
-  h.daemon.store.devices.recognize(paired.device.id, install, 1);
+  const account = DeviceId.parse(install);
+  expect(
+    h.daemon.store.devices.link(
+      account,
+      await pairingLinkProof(paired.token, paired.device.id, account, crypto.subtle),
+      1,
+    ),
+  ).toBe(true);
   const lan = h.make({ storage: h.storage, deviceId: paired.device.id });
   await ready(lan.client);
   // Its receipt never came back over the LAN.

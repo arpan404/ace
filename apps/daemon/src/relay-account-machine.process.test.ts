@@ -8,7 +8,16 @@ import { keyPair } from "@ace/secure-channel";
 import { Client, ClientError, machineCodeAdmin, machineCodeGate, relayRoute } from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
-import { Device, DeviceCredential, DeviceId, HostId, PairingResponse } from "@ace/protocol";
+import {
+  CommandId,
+  Device,
+  DeviceCredential,
+  DeviceId,
+  HostId,
+  PairingResponse,
+  type PairingLinkProof,
+} from "@ace/protocol";
+import { pairingLinkProof } from "@ace/client/link-proof";
 import { parsePairingLink } from "@ace/client/access";
 import { MachineDirectory } from "@ace/client/machines";
 import {
@@ -81,7 +90,7 @@ async function accountMachine(direct = false) {
   const accounts = aceAccountClient({ origin: backend.origin, fetch: globalThis.fetch });
 
   /** An app signed in to the same account, connecting with a fresh device grant per attempt. */
-  function device(deviceId: string) {
+  function device(deviceId: string, link?: () => Promise<PairingLinkProof>) {
     const id = DeviceId.parse(deviceId);
     const gate = machineCodeGate(
       async () =>
@@ -96,7 +105,11 @@ async function accountMachine(direct = false) {
     const route = relayRoute({
       relayUrl: relay.url,
       hostId: hostId ?? "",
-      credential: () => gate.credential(),
+      // With `link`, its hello also proves the same install's paired credential (ADR 0115).
+      credential: async () => {
+        const credential = await gate.credential();
+        return link ? { ...credential, link: await link() } : credential;
+      },
       socket: browserDeviceSocket,
       schedule: (callback, delayMs) => scheduler.set(delayMs, callback),
       refused: (reason) => gate.refused(reason),
@@ -383,15 +396,15 @@ it("a phone reached over LAN and ace's relay is one device on the daemon", async
       body: { code: parsePairingLink(pairing.url).code, name: "Phone", installId },
     }),
   );
-  // Its paired device and its account device are the same id: the install's.
-  expect(paired.device.id).toBe(installId);
+  // Its paired device id is the daemon's own: an install id is no secret to be named by.
+  expect(paired.device.id).not.toBe(installId);
   await new Promise((resolve) => setTimeout(resolve, 5));
   const relayed = await machine.device(installId).connect();
   expect(relayed.state).toBe("ready");
   const listed = Device.array().parse(
     await accessRequest(machine.f.server.httpUrl, "/v1/devices", { token }),
   );
-  expect(listed.map((device) => device.id)).toEqual([installId]);
+  expect(listed.map((device) => device.id)).toEqual([paired.device.id]);
   // Reaching it through ace's relay is that device being seen.
   expect(listed[0]?.lastSeenAt).toBeGreaterThan(paired.device.lastSeenAt);
 });
@@ -527,4 +540,75 @@ it("turning a machine off never unpairs it, and it stays off after a restart", a
   await again.start();
   expect(again.ids).toEqual(["host"]);
   expect(again.machine("host")?.status).toBe("off");
+});
+
+/** Pairs `installId` with this machine over its pairing endpoint. */
+async function pairPhone(machine: Awaited<ReturnType<typeof accountMachine>>, installId: string) {
+  const pairing = PairingResponse.parse(
+    await accessRequest(machine.f.server.httpUrl, "/v1/pairings", {
+      method: "POST",
+      token,
+      body: { scopes: ["read", "operate"] },
+    }),
+  );
+  return DeviceCredential.parse(
+    await accessRequest(machine.f.server.httpUrl, "/v1/pair", {
+      method: "POST",
+      body: { code: parsePairingLink(pairing.url).code, name: "Phone", installId },
+    }),
+  );
+}
+
+it("a command the pairing ran is answered from its receipt through the account only once the account hello proves the pairing", async () => {
+  const machine = await accountMachine();
+  const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+  const paired = await pairPhone(machine, installId);
+  // Run over the pairing; its receipt never came back before the route moved.
+  for (const id of ["ran-on-lan", "ran-on-lan-2", "ran-on-lan-3"])
+    machine.f.store.recordCommand(CommandId.parse(id), paired.device.id, () => ({
+      commandId: CommandId.parse(id),
+      ok: true,
+    }));
+  const replay = async (link: (() => Promise<PairingLinkProof>) | undefined, id: string) => {
+    const client = await machine.device(installId, link).connect();
+    expect(client.state).toBe("ready");
+    await client.enqueue({ type: "thread.archive", threadId: machine.f.thread.id }, id);
+    await expect
+      .poll(() => client.intent(id).getSnapshot()?.result, { timeout: 10_000 })
+      .toBeDefined();
+    const result = client.intent(id).getSnapshot()?.result;
+    await client.close();
+    return result;
+  };
+  const proof = (secret: string) => () =>
+    pairingLinkProof(secret, paired.device.id, DeviceId.parse(installId), crypto.subtle);
+
+  // Naming the install, or a proof made without the pairing's credential, links nothing.
+  expect(await replay(undefined, "ran-on-lan")).toMatchObject({ ok: false, error: "forbidden" });
+  expect(await replay(proof("f".repeat(64)), "ran-on-lan-2")).toMatchObject({
+    ok: false,
+    error: "forbidden",
+  });
+  // The same install proving the pairing's credential is that device.
+  expect(await replay(proof(paired.token), "ran-on-lan-3")).toMatchObject({
+    commandId: "ran-on-lan-3",
+    ok: true,
+  });
+});
+
+it("pairing the install again leaves its account connection open", async () => {
+  const machine = await accountMachine();
+  const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+  const first = await pairPhone(machine, installId);
+  const account = await machine.device(installId).connect();
+  expect(account.state).toBe("ready");
+  const again = await pairPhone(machine, installId);
+  expect(again.device.id).toBe(first.device.id);
+  // Still open, and still answering.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  expect(account.state).toBe("ready");
+  await account.enqueue({ type: "thread.archive", threadId: machine.f.thread.id }, "after-repair");
+  await expect
+    .poll(() => account.intent("after-repair").getSnapshot()?.result, { timeout: 10_000 })
+    .toMatchObject({ ok: true });
 });

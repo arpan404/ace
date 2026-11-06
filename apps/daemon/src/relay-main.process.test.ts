@@ -291,3 +291,45 @@ it("the same install paired on the LAN and again through a relay stays one devic
   expect(await hello(lan.token)).toMatchObject({ type: "error", code: "unauthorized" });
   expect(await hello(relayed.token)).toMatchObject({ type: "welcome" });
 });
+
+it("removing an install closes the relayed channels of a record folded into it", async () => {
+  const { f, open } = await relayedDaemon();
+  // Left behind by an older app, still connected through the relay on its main and files channels.
+  const left = f.store.devices.create("Phone", ["read"], Date.now());
+  const hello = async (channel?: "files") => {
+    const client = await open();
+    await client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: left.device.id,
+      token: left.token,
+      ...(channel ? { channel } : {}),
+    });
+    await client.until(ofType("welcome"));
+    return client;
+  };
+  const main = await hello();
+  const files = await hello("files");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // The same app, paired again, says which install it is: the old record folds into it.
+  const used = f.store.devices.create("Phone", ["read"], Date.now());
+  const survivor = await open();
+  await survivor.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: used.device.id,
+    token: used.token,
+    installId: "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
+  });
+  await survivor.until(ofType("welcome"));
+  expect(await accessRequest(f.server.httpUrl, "/v1/devices", { token })).toEqual([
+    expect.objectContaining({ id: used.device.id }),
+  ]);
+
+  await accessRequest(f.server.httpUrl, `/v1/devices/${used.device.id}`, {
+    method: "DELETE",
+    token,
+  });
+  await expect(main.channel.closed).resolves.toBeDefined();
+  await expect(files.channel.closed).resolves.toBeDefined();
+});

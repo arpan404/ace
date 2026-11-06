@@ -1,5 +1,5 @@
 import { TicketPool, defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
-import { DeviceId, PendingPairing, type InstallId } from "@ace/protocol";
+import { DeviceId, PendingPairing, type InstallId, type PairingLinkProof } from "@ace/protocol";
 import {
   allows,
   hash,
@@ -138,10 +138,13 @@ export class RemoteAuth {
   }
   /**
    * An ace account device was admitted: its account device id is its install id (ADR 0115), so
-   * the same install's paired record is the device it is, seen now.
+   * the same install's paired record is the device it is, seen now. With `link`, the paired
+   * record whose credential it proved holding shares its command receipts.
    */
-  accountDeviceSeen(deviceId: string): void {
+  accountDeviceSeen(deviceId: string, link?: PairingLinkProof): void {
     this.devices.seen(deviceId, this.now());
+    // Its hello proved it also holds that paired credential: one device for receipts.
+    if (link !== undefined) this.devices.link(deviceId, link, this.now());
   }
   /** A paired device's hello named its app install: its records fold into one (ADR 0115). */
   recognize(device: Pick<Device, "id">, installId: InstallId | undefined): void {

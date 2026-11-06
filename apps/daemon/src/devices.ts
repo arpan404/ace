@@ -1,7 +1,13 @@
 import { generateSecret, type CredentialRuntime } from "./credential-runtime.ts";
-import { createHash } from "node:crypto";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { DatabaseSync, StatementSync, SQLOutputValue } from "node:sqlite";
-import { DeviceId, Device, type DeviceScope, type InstallId } from "@ace/protocol";
+import {
+  DeviceId,
+  Device,
+  type DeviceScope,
+  type InstallId,
+  type PairingLinkProof,
+} from "@ace/protocol";
 
 export type { Device } from "@ace/protocol";
 export type Scope = DeviceScope;
@@ -73,15 +79,18 @@ export class Devices {
   private fold: StatementSync;
   private unfold: StatementSync;
   private folded: StatementSync;
+  private linkAccount: StatementSync;
   constructor(db: DatabaseSync, runtime: CredentialRuntime) {
     this.runtime = runtime;
     const live = "revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)";
     this.byInstall = db.prepare(
       `SELECT * FROM devices WHERE install_id = ? AND merged_into IS NULL AND ${live} ORDER BY last_seen_at DESC, id LIMIT 1`,
     );
+    // A new credential is a new proof: the account device it was linked to proves it again.
     this.rekey = db.prepare(
-      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ? WHERE id = ?",
+      "UPDATE devices SET name = ?, token_hash = ?, scopes = ?, last_seen_at = ?, expires_at = ?, account_link = NULL WHERE id = ?",
     );
+    this.linkAccount = db.prepare("UPDATE devices SET account_link = ? WHERE id = ?");
     this.stamp = db.prepare("UPDATE devices SET install_id = ? WHERE id = ?");
     // Records an install left behind before it said who it is: the same name, never used since
     // the install paired again.
@@ -144,11 +153,9 @@ export class Devices {
       );
       return { device, token };
     }
-    // A new install's device is named by the install itself, so its paired credential and its
-    // ace account grant name one device on every path. An id already taken is never reused.
-    const id = DeviceId.parse(
-      installId !== undefined && !this.byId.get(installId) ? installId : this.runtime.id(),
-    );
+    // Always minted here: an install id is not a secret, so a record named by one would share
+    // whatever that install's account device keeps under the same id (ADR 0115).
+    const id = DeviceId.parse(this.runtime.id());
     const device = Device.parse({
       id,
       name,
@@ -199,19 +206,39 @@ export class Devices {
         this.fold.run(id, String(orphan.id), String(orphan.id));
   }
   /**
-   * Whether `a` and `b` are one app install (ADR 0115): a paired record stamped with an install
-   * and that install's ace account device (its id is the install id), or two records stamped
-   * with the same install. A record not yet stamped is only itself. Stamping takes the
-   * record's own credential naming the install (`recognize`), so a claim alone links nothing.
+   * The ace account device `accountId` proved, in its own admitted hello, that it holds the
+   * credential of paired record `link.deviceId` (ADR 0115): from then on the two are one device
+   * for command receipts, until that record's credential is replaced. False, linking nothing,
+   * when the proof doesn't match an active paired credential. Local-only credentials (the
+   * desktop app's, "Use my Chrome") never link.
+   */
+  link(accountId: string, link: PairingLinkProof, at: number): boolean {
+    const row = this.byId.get(link.deviceId);
+    if (!row || link.deviceId === accountId || !activeDevice(decode(row), at)) return false;
+    const scopes = decode(row).scopes;
+    if (scopes.includes("desktop") || scopes.includes("user-browser")) return false;
+    const expected = createHmac("sha256", String(row.token_hash))
+      .update(`ace-link/v1\n${link.deviceId}\n${accountId}`)
+      .digest();
+    const given = Buffer.from(link.proof, "base64url");
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return false;
+    this.linkAccount.run(accountId, link.deviceId);
+    return true;
+  }
+  /**
+   * Whether `a` and `b` are one device for command receipts (ADR 0115): a paired record and
+   * the ace account device that proved it holds that record's credential (`link`), or two
+   * paired records proven by the same account device. Naming an install proves nothing, so an
+   * install stamp alone links no one; an id with no paired record is an account device.
    */
   sameInstall(a: string, b: string): boolean {
     if (a === b) return true;
-    const install = (id: string): string | null => {
+    const proven = (id: string): string | null => {
       const row = this.byId.get(id);
-      return row ? (row.install_id === null ? null : String(row.install_id)) : id;
+      return row ? (row.account_link === null ? null : String(row.account_link)) : id;
     };
-    const left = install(a);
-    return left !== null && left === install(b);
+    const left = proven(a);
+    return left !== null && left === proven(b);
   }
   get(id: string): Device | undefined {
     const row = this.byId.get(id);

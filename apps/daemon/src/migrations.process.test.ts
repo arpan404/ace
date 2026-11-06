@@ -40,6 +40,18 @@ test.each([1, 9, 13])(
   },
 );
 
+/**
+ * What the ADR 0115 steps (the last two) added: the devices' install and fold columns, and the
+ * account link column. Taken out so a fixture is the older schema it says it is.
+ */
+const undoInstalls =
+  "DROP INDEX devices_install; ALTER TABLE devices DROP COLUMN account_link; ALTER TABLE devices DROP COLUMN merged_into; ALTER TABLE devices DROP COLUMN install_id;";
+/** The schema just before the ADR 0115 steps. */
+const beforeInstalls = schemaVersion - 2;
+/** The machine code tables (ADR 0111, the step before those) and everything after them. */
+const undoMachineCodeAndInstalls =
+  "DROP TABLE machine_code; DROP TABLE machine_code_passes; " + undoInstalls;
+
 const agent = (threadId: string, id: string, parentId: string | null) =>
   Agent.parse({
     id,
@@ -82,10 +94,13 @@ test("a schema 14 database upgrades in place and its threads keep the root's mes
     const before = store.snapshotThread(thread.id).itemOrder;
     expect(before.slice(0, 2)).toEqual(["ask", "reply"]);
     store.close();
-    // Schema 14 had no per-item agent column, no device expiry and no thread_cold.
+    // Schema 14 had no per-item agent column, no device expiry, no thread_cold, no machine code
+    // and no install ids.
     const db = new DatabaseSync(path);
     db.exec(
-      "DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
+      // Newest steps first: dropping a column rechecks triggers on tables already gone.
+      undoMachineCodeAndInstalls +
+        " DROP INDEX item_heads_thread_agent; ALTER TABLE item_heads DROP COLUMN agent_id; ALTER TABLE devices DROP COLUMN expires_at; DROP TABLE thread_cold; DROP TRIGGER machine_message_rejections_revoked; DROP TABLE machine_message_rejections; DROP TABLE machine_child_messages; DROP TABLE machine_child_launches; DROP TABLE machine_children; DROP TABLE machine_threads; UPDATE schema_version SET version=14 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -131,7 +146,9 @@ test("a thread an agent opened before startedBy existed names its starter after 
     );
     // The remote-child liveness step came after, so its columns go too.
     db.exec(
-      "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; UPDATE schema_version SET version=23 WHERE id=1",
+      "DROP INDEX machine_children_seen; DROP INDEX machine_children_stopping; ALTER TABLE machine_children DROP COLUMN seen_at; ALTER TABLE machine_children DROP COLUMN silent_since; ALTER TABLE machine_children DROP COLUMN stop_started_at; ALTER TABLE machine_children DROP COLUMN stop_attempts; ALTER TABLE machine_children DROP COLUMN stop_last_at; ALTER TABLE machine_children DROP COLUMN stopped_unconfirmed; " +
+        undoMachineCodeAndInstalls +
+        " UPDATE schema_version SET version=23 WHERE id=1",
     );
     db.close();
     const upgraded = new Store(path);
@@ -164,6 +181,45 @@ test("copies older builds left beside the database are deleted when it opens", a
         .filter((name) => name.includes("backup"))
         .toSorted(),
     ).toEqual(["notes.backup", "usage.sqlite.schema-14.backup"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("paired devices keep working credentials through the upgrade to install ids and every reopen after it", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-installs-"));
+  const path = join(home, "events.sqlite");
+  try {
+    const store = new Store(path);
+    const phone = store.devices.create("Phone", ["read", "operate"], 1000);
+    const tablet = store.devices.create("Tablet", ["read"], 1000, 5000);
+    store.close();
+    // The release before installs had ids: no install, fold or account link columns.
+    const db = new DatabaseSync(path);
+    db.exec(`${undoInstalls} UPDATE schema_version SET version=${beforeInstalls} WHERE id=1`);
+    db.close();
+
+    for (let open = 0; open < 2; open++) {
+      const reopened = new Store(path);
+      try {
+        expect(reopened.devices.authenticate(phone.token, 2000)).toMatchObject({
+          id: phone.device.id,
+          scopes: ["read", "operate"],
+        });
+        expect(reopened.devices.authenticate(tablet.token, 2000)).toMatchObject({
+          id: tablet.device.id,
+          expiresAt: 5000,
+        });
+        expect(reopened.devices.list().map((device) => device.id)).toEqual([
+          phone.device.id,
+          tablet.device.id,
+        ]);
+        // Nothing older is linked to an account device: that takes a proof.
+        expect(reopened.devices.sameInstall(phone.device.id, tablet.device.id)).toBe(false);
+      } finally {
+        reopened.close();
+      }
+    }
   } finally {
     await rm(home, { recursive: true, force: true });
   }

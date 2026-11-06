@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { expect, it } from "vitest";
 import { parsePairingLink } from "@ace/client/access";
-import { DeviceCredential, DeviceId } from "@ace/protocol";
+import { Command, CommandId, DeviceCredential, DeviceId } from "@ace/protocol";
 import { setup } from "./remote-test-support.ts";
 import { token } from "./socket-test-support.ts";
 
@@ -262,4 +262,113 @@ it("a record left behind with more access than the one in use is never folded un
   ]);
   await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
   await expect(f.ticket(left.token)).resolves.toMatchObject({ ticket: expect.any(String) });
+});
+
+/** Asks `client` for `commandId`'s state; its reply and any result frame sent before it. */
+async function statusOf(client: Awaited<ReturnType<typeof helloFrom>>, commandId: string) {
+  client.send({
+    type: "command.status",
+    requestId: "status",
+    commandIds: [CommandId.parse(commandId)],
+  });
+  const seen: unknown[] = [];
+  for (;;) {
+    const message = await client.next();
+    seen.push(message);
+    if (message.type === "command.status") return seen;
+  }
+}
+
+it("an older credential naming an account-only phone's install sees none of that phone's command results", async () => {
+  const f = await setup();
+  // The phone reaches this machine only through the ace account: its device id is its install id.
+  f.store.recordCommand(CommandId.parse("phone-secret"), DeviceId.parse(installId), () => ({
+    commandId: CommandId.parse("phone-secret"),
+    ok: true,
+  }));
+  const legacy = f.store.devices.create("Old tablet", ["read", "operate"], 1000);
+  const claimer = await helloFrom(f, legacy.device.id, legacy.token);
+  expect(await claimer.next()).toMatchObject({ type: "welcome" });
+
+  expect(await statusOf(claimer, "phone-secret")).toEqual([
+    expect.objectContaining({
+      type: "command.status",
+      commands: [{ commandId: "phone-secret", state: "unknown" }],
+    }),
+  ]);
+});
+
+it("a pairing code naming an account-only phone's install gets a device id of its own and none of its results", async () => {
+  const f = await setup();
+  f.store.recordCommand(CommandId.parse("phone-secret"), DeviceId.parse(installId), () => ({
+    commandId: CommandId.parse("phone-secret"),
+    ok: true,
+  }));
+  const claimed = await pairInstall(f, ["read", "operate"]);
+  expect(claimed.device.id).not.toBe(installId);
+  const claimer = await helloFrom(f, claimed.device.id, claimed.token);
+  expect(await claimer.next()).toMatchObject({ type: "welcome" });
+  expect(await statusOf(claimer, "phone-secret")).toEqual([
+    expect.objectContaining({ commands: [{ commandId: "phone-secret", state: "unknown" }] }),
+  ]);
+});
+
+it("work a replaced credential started finds no authority when it checks again, not even the new pairing's", async () => {
+  const { promise: held, resolve: release } = Promise.withResolvers<void>();
+  const checked: boolean[] = [];
+  const f = await setup({
+    projects: {
+      subscribe: () => () => {},
+      onProgress: () => () => {},
+      useThreadDeletion: () => () => {},
+      async execute(command: { id: CommandId }, allowed: () => boolean) {
+        checked.push(allowed());
+        await held;
+        checked.push(allowed());
+        return { commandId: command.id, ok: true };
+      },
+    } as unknown as import("./projects.ts").Projects,
+  });
+  const first = await pairInstall(f, ["read", "projects"]);
+  const socket = await helloFrom(f, first.device.id, first.token);
+  expect(await socket.next()).toMatchObject({ type: "welcome" });
+  socket.send({
+    type: "command",
+    command: Command.parse({
+      id: "long-add",
+      deviceId: first.device.id,
+      payload: { type: "workspace.add", path: f.home },
+    }),
+  });
+  await expect.poll(() => checked).toEqual([true]);
+  // Paired again from the same install with more access while the work waits.
+  const again = await pairInstall(f, ["admin", "projects"]);
+  expect(again.device.id).toBe(first.device.id);
+  release();
+  await expect.poll(() => checked).toEqual([true, false]);
+});
+
+it("removing an install withdraws notifications from the records folded into it", async () => {
+  const revoked: string[] = [];
+  const f = await setup({
+    notifications: {
+      async connectDevice() {},
+      async disconnect() {},
+      async updatePresence() {},
+      async register() {},
+      async preferences() {},
+      async snooze() {},
+      async revoke(id: string) {
+        revoked.push(id);
+      },
+    },
+  });
+  const left = f.store.devices.create("Phone", ["read"], 1000);
+  f.advance(1000);
+  const used = f.store.devices.create("Phone", ["read"], 2000);
+  expect(await (await helloFrom(f, used.device.id, used.token)).next()).toMatchObject({
+    type: "welcome",
+  });
+  await f.request(`/v1/devices/${used.device.id}`, { method: "DELETE", token });
+  await expect.poll(() => revoked.toSorted()).toEqual([left.device.id, used.device.id].toSorted());
 });

@@ -30,7 +30,7 @@ export async function relayHello(
   // An account grant wins over a paired token: a signed-in device is admin (ADR 0114).
   if (hello.grant !== undefined) {
     const admitted = await accountHello(hello, hello.grant, options.account);
-    if (admitted.device) options.auth.accountDeviceSeen(admitted.device.id);
+    if (admitted.device) options.auth.accountDeviceSeen(admitted.device.id, hello.link);
     return admitted;
   }
   const device =
