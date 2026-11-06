@@ -1,6 +1,6 @@
 import { ClientError, accessResponseError, ticketCredential } from "@ace/client";
 import type { ConnectionState } from "@ace/client";
-import { DeviceCredential, PairingRedemption } from "@ace/protocol";
+import { DeviceCredential, PairingRedemption, type InstallId } from "@ace/protocol";
 import { z } from "zod";
 
 /**
@@ -74,14 +74,20 @@ export async function accessJson(
   }
 }
 
-/** Redeem a pairing code. The code travels only in the POST body, never in a URL. */
+/**
+ * Redeem a pairing code. The code travels only in the POST body, never in a URL. `installId`
+ * names this app install (ADR 0115), so the machine names the new device by it.
+ */
 export async function redeemPairing(
   http: PinnedHttp,
   code: string,
   name: string,
   trust?: TrustMonitor,
+  installId?: InstallId,
 ): Promise<DeviceCredential> {
-  const body = JSON.stringify(PairingRedemption.parse({ code, name }));
+  const body = JSON.stringify(
+    PairingRedemption.parse({ code, name, ...(installId ? { installId } : {}) }),
+  );
   return DeviceCredential.parse(
     await accessJson(http, { method: "POST", path: "/v1/pair", body }, trust),
   );
