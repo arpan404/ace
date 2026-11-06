@@ -31,3 +31,21 @@ test.each(["darwin", "linux", "win32"])(
     expect(DevicePermissions.parse(reply)).toEqual(reply);
   },
 );
+
+test("future permission names survive screen and device replies", () => {
+  const reply = {
+    ...old,
+    requirements: [
+      {
+        kind: "inputMonitoring",
+        state: "blocked",
+        title: "Input monitoring",
+        message: "Allow input monitoring.",
+        permission: "inputMonitoring",
+      },
+    ],
+  };
+  expect(ScreenPermissions.parse(reply)).toEqual(reply);
+  expect(DevicePermissions.parse(reply)).toEqual(reply);
+  expect(oldPermissions.parse(reply)).toEqual(old);
+});

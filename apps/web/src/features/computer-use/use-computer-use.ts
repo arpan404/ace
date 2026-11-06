@@ -132,7 +132,8 @@ export function useComputerUse() {
       if (!session) return;
       void session.request({ op: "input", sessionId, input }).then(
         () => setProblem(sessionId, undefined),
-        (error: unknown) => setProblem(sessionId, describeProblem(error)),
+        (error: unknown) =>
+          setProblem(sessionId, describeProblem(error, undefined, snapshot.permissions?.platform)),
       );
     },
     stop: (sessionId: string) =>

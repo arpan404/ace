@@ -5,6 +5,8 @@ import {
   screenSession,
   visibleSessions,
   requirementStatus,
+  requirementPermission,
+  permissionsReading,
 } from "./computer-use.ts";
 
 const state = (overrides: Partial<ScreenState> & { bundleId?: string } = {}): ScreenState => {
@@ -110,7 +112,7 @@ test.each([
   expect(requirementStatus(String(requirementState))).toEqual({ label, ready });
 });
 
-test.each(["linux", "win32", undefined])(
+test.each(["linux", "win32"])(
   "permission failures for %s offer host requirements without macOS settings",
   (platform) => {
     const problem = screenProblem("permission_denied", "Host access denied", undefined, platform);
@@ -124,4 +126,40 @@ test("macOS permission failures retain the privacy settings instructions", () =>
     title: "macOS hasn't granted a permission",
     hint: "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
   });
+});
+
+test("older macOS replies retain permission guidance when platform is omitted", () => {
+  expect(screenProblem("permission_denied", "Denied").hint).toContain(
+    "Screen Recording and Accessibility",
+  );
+});
+test.each(["darwin", "linux", "win32"])("%s recovery instructions name the host", (platform) => {
+  const forbidden = screenProblem("forbidden", "Denied", undefined, platform);
+  const reading = permissionsReading({
+    connected: true,
+    closed: false,
+    enabled: true,
+    permissions: { screenRecording: true, accessibility: true, platform },
+    problem: { code: "not_supported", message: "Unavailable" },
+  });
+  expect(forbidden.hint?.includes("Mac")).toBe(platform === "darwin");
+  expect(reading.state).toBe("unavailable");
+  if (reading.state === "unavailable")
+    expect(reading.next.includes("Mac")).toBe(platform === "darwin");
+});
+test.each(["ready", "granted", "n/a", "not-applicable"])(
+  "%s requirements offer no request action",
+  (stateName) => {
+    expect(
+      requirementPermission({ state: stateName, permission: "accessibility" }),
+    ).toBeUndefined();
+  },
+);
+test("unknown permission names remain readable without offering an unsupported request", () => {
+  expect(
+    requirementPermission({ state: "blocked", permission: "inputMonitoring" }),
+  ).toBeUndefined();
+  expect(requirementPermission({ state: "blocked", permission: "accessibility" })).toBe(
+    "accessibility",
+  );
 });

@@ -3,6 +3,7 @@ import {
   permissionsReading,
   visibleSessions,
   requirementStatus,
+  requirementPermission,
 } from "@ace/ui-core/computer-use";
 import { MonitorIcon } from "@phosphor-icons/react";
 import { useId } from "react";
@@ -152,7 +153,7 @@ export function Permissions(props: { use: ComputerUse }) {
       <>
         {snapshot.permissions.requirements.map((requirement) => {
           const status = requirementStatus(requirement.state);
-          const permission = requirement.permission;
+          const permission = requirementPermission(requirement);
           return (
             <SettingRow
               key={requirement.kind}

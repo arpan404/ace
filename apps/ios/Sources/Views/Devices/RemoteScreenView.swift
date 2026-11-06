@@ -90,8 +90,8 @@ struct RemoteScreenView: View {
             }
             if let requirements = status.permissions.requirements {
                 ForEach(requirements) { requirement in
-                    DeviceNote(sentence: requirement.message, action: model.canOperate && requirement.permission != nil ? requirement.action : nil) {
-                        if let key = requirement.permission {
+                    DeviceNote(sentence: requirement.message, action: model.canOperate && requirement.requestPermission != nil ? requirement.action : nil) {
+                        if let key = requirement.requestPermission {
                             Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
                         }
                     }

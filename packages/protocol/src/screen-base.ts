@@ -8,7 +8,7 @@ export const ScreenRequirement = z.looseObject({
   title: z.string().max(256),
   message: z.string().max(2048),
   action: z.string().max(256).optional(),
-  permission: z.enum(["screenRecording", "accessibility"]).optional(),
+  permission: z.string().min(1).max(128).optional(),
 });
 export type ScreenRequirement = z.infer<typeof ScreenRequirement>;
 export const ScreenPermissions = z.object({

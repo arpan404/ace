@@ -94,3 +94,36 @@ On macOS, use an agent-created TextEdit document or Calculator only. Confirm Scr
 and Accessibility still open their original settings panes; grant and revoke each independently.
 No automated check should request a system permission. From iOS, connect to each VM and confirm
 that the remote machine's requirements and actions appear, including after switching machines.
+
+## Review regression checks
+
+On GNOME, disable AT-SPI after starting a sharing session with pointer and keyboard consent.
+Portal clicks and typing must still work; an AT-SPI semantic action must report the missing
+accessibility requirement. Check pointer-only, keyboard-only and no-device portal grants:
+`portalPointer` and `portalKeyboard` must report each actual grant independently. KDE's effective
+ScreenCast-only route must remain watch-only even if RemoteDesktop is advertised.
+Run the native requirement table on Linux:
+
+```sh
+cargo test --locked --manifest-path native/screen-helper-linux/Cargo.toml --test policy
+```
+
+On Windows, keep an RDP session connected: input should work if its desktop is Default and
+other requirements are met. Disconnect that same session without signing out: inspection and
+input must refuse it even if OpenInputDesktop returns Default. Reconnect and retry; it should
+recover. Both live view and the computer-use engine use the same WTSActive check.
+The connection-state table can also run on the development host:
+
+```sh
+cargo test --locked --manifest-path native/screen-helper-windows/Cargo.toml --lib session::tests
+```
+
+[Microsoft's connection-state contract](https://learn.microsoft.com/en-us/windows/win32/api/wtsapi32/ne-wtsapi32-wts_connectstate_class)
+distinguishes WTSActive from WTSDisconnected. [OpenInputDesktop](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openinputdesktop)
+can return the desktop that will become active on reconnection, so its name alone is insufficient.
+
+Web and iOS must display unknown permission names but offer no unsupported request. Requirements
+in ready, granted or not-applicable states must have no request action. On macOS, verify live-input
+and share-picker permission failures retain Screen Recording and Accessibility guidance, including
+legacy replies with no platform field. Linux and Windows recovery messages must name the host
+computer rather than a Mac.

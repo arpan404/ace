@@ -229,7 +229,7 @@ export function screenProblem(
   code: string | undefined,
   fallback: string,
   holder?: string,
-  platform?: string,
+  platform: string = "darwin",
 ): { title: string; hint: string | undefined } {
   switch (code) {
     case "target_busy":
@@ -296,7 +296,10 @@ export function screenProblem(
         hint: "Nothing changed. Try again if you still need it.",
       };
     case "forbidden":
-      return { title: "This device can't manage computer use", hint: "Use the Mac running ace." };
+      return {
+        title: "This device can't manage computer use",
+        hint: platform === "darwin" ? "Use the Mac running ace." : "Use the computer running ace.",
+      };
     default:
       return { title: fallback, hint: undefined };
   }
@@ -327,14 +330,22 @@ export function permissionsReading(input: {
   const off = input.enabled === false;
   const turnOn = "Turn on Let agents use apps above.";
   if (input.problem) {
-    const { title, hint } = screenProblem(input.problem.code, input.problem.message);
+    const { title, hint } = screenProblem(
+      input.problem.code,
+      input.problem.message,
+      undefined,
+      input.permissions?.platform,
+    );
     return {
       state: "unavailable",
       reason: off || input.problem.code === "screen_disabled" ? "Computer use is off" : title,
       next:
         off || input.problem.code === "screen_disabled"
           ? turnOn
-          : (hint ?? "If it keeps failing, restart ace on this Mac."),
+          : (hint ??
+            (input.permissions?.platform && input.permissions.platform !== "darwin"
+              ? "If it keeps failing, restart ace on the computer running it."
+              : "If it keeps failing, restart ace on this Mac.")),
     };
   }
   if (input.permissions) return { state: "known", permissions: input.permissions };
@@ -352,9 +363,20 @@ export { appName } from "./app-names.ts";
 
 /** Requirement words are supplied by the remote host; unknown states stay unverified. */
 export function requirementStatus(state: string): { label: string; ready: boolean } {
-  if (state === "ready" || state === "granted" || state === "n/a")
+  if (state === "ready" || state === "granted" || state === "n/a" || state === "not-applicable")
     return { label: "Ready", ready: true };
   if (state === "prompt") return { label: "Needs your approval", ready: false };
   if (state === "blocked" || state === "denied") return { label: "Needs attention", ready: false };
   return { label: "Not checked", ready: false };
+}
+
+/** Unknown requirement names are readable, but cannot select a request operation. */
+export function requirementPermission(requirement: {
+  state: string;
+  permission?: string | undefined;
+}): "screenRecording" | "accessibility" | undefined {
+  if (requirementStatus(requirement.state).ready) return undefined;
+  return requirement.permission === "screenRecording" || requirement.permission === "accessibility"
+    ? requirement.permission
+    : undefined;
 }
