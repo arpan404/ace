@@ -4,7 +4,7 @@ import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { ClientCore } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId, InstallId, SettingsValues } from "@ace/protocol";
+import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { ProjectManage } from "./project-manage.ts";
@@ -75,8 +75,11 @@ const Config = z.object({
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
-  /** A machine on the phone's ace account, through ace's relay: device grants (ADR 0111). */
-  account: z.strictObject({}).optional(),
+  /**
+   * A machine on the phone's ace account, through ace's relay: device grants (ADR 0111), and
+   * the proof of this install's pairing with it (`link`, ADR 0115); a malformed proof is dropped.
+   */
+  account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
@@ -202,7 +205,7 @@ async function start(json: string): Promise<void> {
   const credential = paired
     ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
     : account
-      ? accountCredential(account)
+      ? accountCredential(account, config.account?.link)
       : async () =>
           z
             .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])

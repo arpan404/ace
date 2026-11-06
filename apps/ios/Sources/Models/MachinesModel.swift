@@ -293,6 +293,7 @@ import Observation
         if let pairedId = direct?.deviceId, let accountId = relay?.deviceId, pairedId != accountId {
             direct?.deviceAliases = [accountId]
             relay?.deviceAliases = [pairedId]
+            relay?.linkedPairing = direct?.secretKey.map { LinkedPairing(deviceId: pairedId, secretKey: $0) }
         }
         return (direct, relay)
     }
