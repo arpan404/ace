@@ -23,7 +23,7 @@
     "./terminal-keys": "./src/terminal-keys.ts",
     "./ace-account": "./src/ace-account.ts",
     "./install-id": "./src/install-id.ts",
-    "./pairing-link": "./src/pairing-link.ts"
+    "./link-proof": "./src/link-proof.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",
