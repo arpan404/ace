@@ -42,10 +42,13 @@ The same phone showed up as several devices, and the same machine as several mac
 
 ### One device record per install on a daemon
 
-- A new install's paired device takes the install id as its device id (unless that id is taken).
-  Its paired credential and its account grant then name one device, whichever path it uses.
+- A new install's paired device gets an id the daemon mints, never the install id: an install id
+  is not a secret, and a record named by one would share whatever the install's account device
+  keeps under that id. The record is stamped with the install id instead.
 - Pairing again from an install that holds a device keeps that record and its id: the new
-  link's name, scopes and expiry replace the old ones, and the old token stops working. So
+  link's name, scopes and expiry replace the old ones, and the old token stops working. A client
+  whose socket closes with `4001` "Credential replaced" reads its credential again and
+  reconnects; a plain `4001` refusal stays fatal. So
   does everything the old token opened: each paired session, ticket and authority lease carries
   the generation of the credential that opened it, a ticket asked for with the old credential
   opens nothing, and the old credential's sockets and relay channels close with `4001`
@@ -61,10 +64,17 @@ The same phone showed up as several devices, and the same machine as several mac
 - Naming an install proves nothing (an install id is not a secret), so a hello never folds a
   record another credential already holds for that install, and the caller isn't stamped beside
   it: both stay listed. Only a pairing code from that install takes such a record over.
-- An account hello from an install marks the same install's paired record seen. The paired
-  record (once stamped) and the install's account device are one device for command receipts:
-  a command first sent over the pairing and sent again through the account is answered from
-  its receipt, never refused or run twice. A client re-binds the sends it saved under the
+- An account hello from an install marks the same install's paired record seen. A paired
+  record and an account device are one device for command receipts only once that account
+  device has proved, in its own admitted hello, that it holds the record's credential: the hello
+  carries `link: { deviceId, proof }` beside its grant, where `proof` is the base64url
+  HMAC-SHA256 of `ace-link/v1\n<paired id>\n<account id>` keyed by the hex SHA-256 of the paired
+  token (all the daemon keeps of it). The daemon records the link on the paired record
+  (`devices.account_link`, schema 29); a new credential for that record clears it until it is
+  proved again. A stamp, a claimed install id or a matching name links nothing. Once linked, a
+  command first sent over the pairing and sent again through the account is answered from its
+  receipt, never refused or run twice. The raw token is never sent on the account connection;
+  web and iOS compute the proof from the pairing they hold for that machine. A client re-binds the sends it saved under the
   install's other id on that machine to the id it connects with (`deviceAliases`), so a route
   change loses no queued send. Revoking that
   pairing closes only what the pairing opened, never the install's account sockets
@@ -129,9 +139,10 @@ The same phone showed up as several devices, and the same machine as several mac
 - A record is folded by name and disuse. Two devices with the same name, one unused since the
   other paired, fold together until the unused one connects again; nothing is lost either way.
 - An install id is not a secret. Whoever holds a valid pairing code may name any install id,
-  so they can take over that install's record: its id and what is keyed by it, with the code's
-  scopes, and the old token (and everything it opened) stops working. A hello alone, without a
-  code, takes nothing over. A pairing code is already the owner's grant of a
+  so they can take over that install's paired record, with the code's scopes, and the old token
+  (and everything it opened) stops working. They get none of the install's account device's
+  receipts: the record's id is the daemon's own, and its account link is cleared by the new
+  credential. A hello alone, without a code, takes nothing over. A pairing code is already the owner's grant of a
   device, and the code chooses the scopes; a signed challenge per install would close this and
   is a follow-up.
 - The daemon's paired device ids are no longer all daemon-minted: a new install's is its install
