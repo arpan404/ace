@@ -64,6 +64,56 @@ private let fingerprint = DaemonCertificate.pin
         #expect(fixture.model.machines.count == 1)
     }
 
+    @Test func aNetworkChangeInsideTheHoldProbesTheDirectRouteWhenTheHoldEndsWithNoOtherEvent() async throws {
+        let answers = Answers()
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        direct.emit(row(connection: "reconnecting", thread: "t1"))
+        await settle { fixture.sessions.started.count == 2 }
+        let relay = try #require(fixture.sessions.started.last)
+        relay.finishShutdownWhenStopped()
+        relay.emit(row(connection: "ready", thread: "t1"))
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
+
+        // Home again 5 s later: too soon to leave the relay, and nothing else happens after.
+        fixture.clock.advance(5_000)
+        answers.queue = [true]
+        fixture.model.network(online: true, interfaceChanged: true)
+        await settle { fixture.scheduler.pending == 1 }
+        #expect(answers.asked == 0)
+        // The hold ends: the direct route is probed, answers, and the machine moves back to it.
+        fixture.scheduler.advance(MachineRoutePlan.hold - 5_000)
+        await settle { fixture.sessions.started.count == 3 }
+        #expect(answers.asked == 1)
+        #expect(fixture.sessions.started.last?.target.relay == nil)
+        #expect(fixture.model.plans["studio"]?.current == .direct)
+    }
+
+    @Test func aLaterLookAtTheRouteIsCancelledWhenTheMachineIsTurnedOff() async throws {
+        let answers = Answers()
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        direct.emit(row(connection: "reconnecting", thread: "t1"))
+        await settle { fixture.sessions.started.count == 2 }
+        fixture.sessions.started[1].finishShutdownWhenStopped()
+        fixture.model.wake()
+        await settle { fixture.scheduler.pending == 1 }
+        await fixture.model.setOn("studio", false)
+        #expect(fixture.scheduler.pending == 0)
+        fixture.scheduler.advance(MachineRoutePlan.hold)
+        await drain()
+        #expect(answers.asked == 0)
+        #expect(fixture.sessions.started.count == 2)
+    }
+
     @Test func aRelayTheAccountListsAfterTheDirectRouteStoppedReachingTheMachineIsTakenAtOnce() async throws {
         let account = FakeAccountDirectory([])
         let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account)
@@ -189,8 +239,27 @@ private let fingerprint = DaemonCertificate.pin
     @Test func theRelayIsKeptForTheHoldBeforeTheDirectRouteIsTriedAgain() {
         var plan = MachineRoutePlan(direct: true, relay: true)
         #expect(plan.connection("reconnecting", at: 1_000) == .open(.relay))
-        #expect(plan.networkChanged(at: 1_000 + MachineRoutePlan.hold - 1) == .stay)
+        #expect(plan.networkChanged(at: 1_000 + MachineRoutePlan.hold - 1) == .reconsider(at: 1_000 + MachineRoutePlan.hold))
         #expect(plan.networkChanged(at: 1_000 + MachineRoutePlan.hold) == .probeDirect)
+    }
+
+    @Test func aRequestInsideTheHoldOrCooldownSaysWhenToLookAgain() {
+        var plan = MachineRoutePlan(direct: true, relay: true)
+        _ = plan.connection("reconnecting", at: 0)
+        // The LAN comes back 5 s after the relay was taken: look again when the hold ends.
+        #expect(plan.networkChanged(at: 5_000) == .reconsider(at: MachineRoutePlan.hold))
+        #expect(plan.connection("reconnecting", at: 6_000) == .reconsider(at: MachineRoutePlan.hold))
+        #expect(plan.networkChanged(at: MachineRoutePlan.hold) == .probeDirect)
+        // A move back that fails before ready: the cooldown's end is the next look.
+        let back = MachineRoutePlan.hold
+        _ = plan.probed(answered: true, at: back)
+        _ = plan.connection("reconnecting", at: back)
+        #expect(plan.networkChanged(at: back + 1_000) == .reconsider(at: back + MachineRoutePlan.cooldown))
+        // On the direct route, or with no direct route, there is nothing to look at later.
+        var direct = MachineRoutePlan(direct: true, relay: true)
+        #expect(direct.networkChanged(at: 0) == .stay)
+        var relayOnly = MachineRoutePlan(direct: false, relay: true)
+        #expect(relayOnly.networkChanged(at: 0) == .stay)
     }
 
     @Test func aDirectRouteThatAnswersButDoesntHoldWaitsLongerEachTimeBeforeItIsTriedAgain() {

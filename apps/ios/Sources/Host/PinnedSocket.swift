@@ -17,6 +17,9 @@ struct ConnectionTarget: Sendable {
     /// the account is one device under its pairing's id and its account device's. Sends saved
     /// under either one are this runtime's, so none is lost when the route changes.
     var deviceAliases: [String] = []
+    /// An account route to a machine this install also paired: its account hello proves the
+    /// pairing (`PairingLinkProof`), so both device ids are one device on the daemon.
+    var linkedPairing: LinkedPairing?
     /// The machine this target reaches, as the phone keys it, when that isn't this target's own
     /// host and device: a paired machine reached through its account relay keeps its paired
     /// identity, so it is one machine with one cache and one set of notifications on any route.

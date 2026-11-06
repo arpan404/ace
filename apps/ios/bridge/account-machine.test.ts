@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ClientError } from "@ace/client";
 import { HostCallError } from "@ace/native-host";
+import { PairingLinkProof } from "@ace/protocol";
 import { accountCredential, accountGate, machineCodeRefusal } from "./account-machine.ts";
 
 const grant = (token: string) => async () => JSON.stringify({ grant: token });
@@ -16,6 +17,19 @@ describe("account machine credential", () => {
     expect(await credential()).toEqual({ grant: "g1", machineCode: "2468" });
     gate.welcomed();
     expect(await credential()).toEqual({ grant: "g1" });
+  });
+
+  test("every hello carries the proof of this install's pairing beside its grant and code", async () => {
+    const link = PairingLinkProof.parse({
+      deviceId: "dev-paired-1",
+      proof: "p_YxW23xNBoRAG2ha65bdxvF7ZXb9gcI9lWzyv68q-M",
+    });
+    const gate = accountGate(grant("g1"));
+    const credential = accountCredential(gate, link);
+    expect(await credential()).toEqual({ grant: "g1", link });
+    gate.refused("machine_code_required");
+    gate.enter("2468");
+    expect(await credential()).toEqual({ grant: "g1", machineCode: "2468", link });
   });
 
   test("a refusal for an attempt that left before the code was typed keeps the code", async () => {

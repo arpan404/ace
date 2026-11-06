@@ -1,6 +1,6 @@
 import { ClientError, machineCodeGate, type MachineCodeGate } from "@ace/client";
 import { HostCallError } from "@ace/native-host";
-import { MachineCodeRefusal } from "@ace/protocol";
+import { MachineCodeRefusal, type PairingLinkProof } from "@ace/protocol";
 import { z } from "zod";
 
 /**
@@ -48,11 +48,16 @@ export function accountGate(credential: () => Promise<string>): MachineCodeGate 
   };
 }
 
-/** The gate's credential, failing the way the SDK retries: offline retries, the rest is final. */
-export function accountCredential(gate: MachineCodeGate) {
-  return async (): Promise<{ grant: string; machineCode?: string }> => {
+/**
+ * The gate's credential, failing the way the SDK retries: offline retries, the rest is final.
+ * `link` is Swift's proof of this install's pairing with the machine (ADR 0115), carried beside
+ * every grant so the daemon answers a send made over either route from one receipt.
+ */
+export function accountCredential(gate: MachineCodeGate, link?: PairingLinkProof) {
+  return async (): Promise<{ grant: string; machineCode?: string; link?: PairingLinkProof }> => {
     try {
-      return await gate.credential();
+      const credential = await gate.credential();
+      return link ? { ...credential, link } : credential;
     } catch (error) {
       if (error instanceof HostCallError && error.code === "offline")
         throw new ClientError("offline");
