@@ -71,6 +71,13 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private let defaults: UserDefaults?
     private let now: () -> Double
     private(set) var stack: AlertStack
+    /// The last post asked for: every post waits for the one before, so they land in order.
+    private var effects: Task<Void, Never>?
+    /// Notifications with a post queued or out, by identifier: the latest post's generation, or
+    /// a withdrawal's when one came after it.
+    private var pending: [String: Pending] = [:]
+    private var generation = 0
+    private struct Pending { let generation: Int; let withdrawn: Bool }
     init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
         self.center = center; self.defaults = defaults; self.now = now
         stack = defaults.map(AlertStack.load) ?? AlertStack()
@@ -78,8 +85,8 @@ final class SystemNotificationCenter: NotificationCenterPort {
     func land(_ alert: AlertNotification, hostId: String?) async {
         let landing = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
         save()
-        center.withdraw(landing.withdraw)
-        if let post = landing.post { await center.post(post) }
+        withdraw(landing.withdraw)
+        if let content = landing.post { await post(content).value }
     }
     /// Retracted by the daemon: withdrawn if it is still its thread's, plus the ids earlier
     /// builds posted under (`AlertContent.requestIds`).
@@ -112,8 +119,43 @@ final class SystemNotificationCenter: NotificationCenterPort {
         let summaryMoved = landings.contains { $0.post != nil || $0.withdraw.contains(AlertStack.summaryId) }
         let summary = summaryMoved ? stack.summary : nil
         if summary != nil { ids.removeAll { $0 == AlertStack.summaryId } }
+        withdraw(ids)
+        if let summary { post(summary) }
+    }
+    /// Withdrawn now; a post of it still queued won't land, and one already out is withdrawn
+    /// again once it has.
+    func withdraw(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        for id in ids where pending[id] != nil {
+            generation += 1
+            pending[id] = Pending(generation: generation, withdrawn: true)
+        }
         center.withdraw(ids)
-        if let summary { Task { await center.post(summary) } }
+    }
+    /// Posted after every earlier post, unless a later post or withdrawal of the same
+    /// notification overtakes it first. Done when it has landed or been skipped.
+    @discardableResult func post(_ content: AlertContent) -> Task<Void, Never> {
+        let id = content.identifier
+        generation += 1
+        let mine = generation
+        pending[id] = Pending(generation: mine, withdrawn: false)
+        let previous = effects
+        let center = center
+        let task = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard self.pending[id]?.generation == mine else {
+                // Overtaken by a withdrawal that nothing posted after: nothing is left to undo.
+                if self.pending[id]?.withdrawn == true { self.pending[id] = nil }
+                return
+            }
+            await center.post(content)
+            guard let now = self.pending[id] else { return }
+            if now.generation == mine || now.withdrawn { self.pending[id] = nil }
+            if now.withdrawn { center.withdraw([id]) }
+        }
+        effects = task
+        return task
     }
     private func save() { if let defaults { stack.save(defaults) } }
 }
@@ -144,9 +186,9 @@ final class SystemNotificationCenter: NotificationCenterPort {
         store?.save(ledger)
         for alert in fresh where alert.delivery?.post != false { await desk.land(alert, hostId: hostId) }
     }
-    func withdraw(_ id: String) { center.withdraw([id]) }
+    func withdraw(_ id: String) { desk.withdraw([id]) }
     /// A local, non-daemon notice (an action that couldn't finish). It opens the thread.
     func notice(id: String, threadId: String, title: String, body: String, hostId: String? = nil) async {
-        await center.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId))
+        await desk.post(.notice(id: id, threadId: threadId, title: title, body: body, hostId: hostId)).value
     }
 }

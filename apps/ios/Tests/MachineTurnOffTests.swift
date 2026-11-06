@@ -151,10 +151,16 @@ import Testing
         let fixture = try MachinesFixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")],
                                           defaults: defaults)
         await fixture.model.load()
-        #expect(fixture.model.isReadOnly("laptop"))
-        #expect(!fixture.model.isReadOnly("studio"))
+        // Moved to machine and device, with no device-only entry left to fall back on.
         let saved = defaults.dictionary(forKey: "ace.machines.grants") as? [String: [String]]
         #expect(saved == ["laptop|phone-2": ["read"], "studio|phone-1": ["read", "operate"]])
+        #expect(fixture.model.isReadOnly("laptop"))
+        #expect(!fixture.model.isReadOnly("studio"))
+        // A relaunch reads them by machine.
+        let relaunch = try MachinesFixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")],
+                                           defaults: defaults)
+        await relaunch.model.load()
+        #expect(relaunch.model.isReadOnly("laptop") && !relaunch.model.isReadOnly("studio"))
     }
 
     @Test func turningOffTheMachinesBehindTheFinishedSummaryRebuildsItAndThenWithdrawsIt() async throws {
@@ -181,6 +187,28 @@ import Testing
         #expect(center.delivered[AlertStack.summaryId] == nil)
         #expect(center.withdrawn.contains(AlertStack.summaryId))
         #expect(AlertStack.load(defaults).shown.isEmpty)
+    }
+
+    @Test func clearingTwoMachinesFinishesBackToBackNeverBringsTheWithdrawnSummaryBack() async throws {
+        let suite = "ace.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let center = Center()
+        let coordinator = NotificationCoordinator(center: center, authorizer: Allowed(), defaults: defaults, now: { 0 },
+                                                  connectInBackground: { _ in [] })
+        for (host, thread, title) in [("studio", "s1", "Fix stalls"), ("laptop", "l1", "Ship the widget")] {
+            await coordinator.desk.land(AlertNotification(id: "a-\(thread)", threadId: thread, title: title, status: "done",
+                                                          interactionId: nil, backgroundCount: 0, actions: [], preview: nil, message: nil),
+                                        hostId: host)
+        }
+        #expect(center.delivered[AlertStack.summaryId]?.title == "2 threads finished")
+        // No yield between them: the first clear's repost must not outlive the second clear.
+        coordinator.turnedOff("laptop")
+        coordinator.turnedOff("studio")
+        for _ in 0..<50 { await Task.yield() }
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(center.delivered[AlertStack.summaryId] == nil)
+        #expect(center.delivered.isEmpty)
     }
 
     private func machine(_ host: String, device: String) -> MachineEntry {
