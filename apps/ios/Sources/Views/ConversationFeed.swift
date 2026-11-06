@@ -254,12 +254,18 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            let opened = intent.opened
             if intent.opened, new.height != old.height {
                 // What opened grows under the row the person tapped, which stays put; the feed
                 // follows the end again only if the end is still in view.
                 intent.opened = false
                 if reading.thread == nil { setFollowing(new.bottom <= AceDesign.Space.group) }
             }
+            // Following, an end that grew past the bottom (a streaming answer) is followed from
+            // here: the lazy tail row that also scrolls on each change isn't built once the end
+            // is a screen away, so one burst of growth would otherwise leave it behind for good.
+            if !opened, pinned, thread.loaded, !intent.active, !keyboardMoving,
+               new.height > old.height, new.bottom > 1 { toEnd(proxy) }
             // Geometry is an observation, not a new scroll request. The bounded correction
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
