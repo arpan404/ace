@@ -100,6 +100,11 @@ The same phone showed up as several devices, and the same machine as several mac
   that sends its install id; until then they stay listed.
 - A record is folded by name and disuse. Two devices with the same name, one unused since the
   other paired, fold together until the unused one connects again; nothing is lost either way.
+- An install id is not a secret. Whoever holds a valid pairing code may name any install id,
+  so they can take over that install's record: its id and what is keyed by it, with the code's
+  scopes, and the old token stops working. A pairing code is already the owner's grant of a
+  device, and the code chooses the scopes; a signed challenge per install would close this and
+  is a follow-up.
 - The daemon's paired device ids are no longer all daemon-minted: a new install's is its install
   id. Device ids were already opaque to every reader.
 - The account backend still lists machines by relay host id only. Listing the daemon id there
