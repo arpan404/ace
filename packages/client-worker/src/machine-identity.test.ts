@@ -191,6 +191,31 @@ test("forgetting a pairing that is off forgets it under its account id too, so p
   expect(stored).toEqual([]);
 });
 
+test("forgetting a pairing while its account entry is still listed and off turns the machine on, so pairing it again isn't off", async () => {
+  let stored: readonly string[] = [];
+  const off = { load: () => stored, save: (ids: readonly string[]) => void (stored = ids) };
+  const f = world({ off, accountOverRelay: true });
+  await f.pool.start();
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  await until(() => f.pool.machine(relayKey)?.status === "online");
+  await f.pool.add(browserPairing);
+  expect(f.pool.ids).toEqual([relayKey]);
+  f.pool.turnOff(relayKey);
+  expect(stored.toSorted()).toEqual(["host", relayKey].toSorted());
+
+  // Forgotten on purpose while the account still lists the machine.
+  await f.pool.remove("host");
+  expect(stored).toEqual([]);
+  await until(() => f.pool.machine(relayKey)?.status === "online");
+  // Paired again: one machine, and on.
+  await f.pool.add(browserPairing);
+  await settle();
+  expect(f.pool.ids).toEqual([relayKey]);
+  expect(f.pool.machine(relayKey)?.status).toBe("online");
+  expect(f.pool.isOff("host")).toBe(false);
+  expect(stored).toEqual([]);
+});
+
 test("a send queued on the pairing moves to the account entry whose identity shows it is the same daemon, and is sent once", async () => {
   const f = world({ accountOverRelay: true });
   // The pairing's connection never says the machine's paths: only the account entry can tell.

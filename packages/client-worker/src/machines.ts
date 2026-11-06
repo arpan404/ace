@@ -214,10 +214,11 @@ export class MachinePool {
     this.connect(live.state.entry);
   }
   /**
-   * Clears `hostId`'s off mark. A paired machine's mark goes under its account ids too (ADR
-   * 0115), so a later pairing isn't off again through an alias, unless that account entry is
-   * still listed: it is the same machine, still shown off. Closing an account entry leaves its
-   * pairing's mark alone. Whether anything changed.
+   * Clears `hostId`'s off mark. Forgetting a paired machine clears it under every id the
+   * machine is known by (ADR 0115), its account entries' too, so pairing it again starts on;
+   * an account entry still listed and shown off comes back on with it. Closing an account entry
+   * (its session ended, or the account stopped listing it) leaves its pairing's mark alone.
+   * Whether anything changed.
    */
   private forgetOff(hostId: string, account: boolean): boolean {
     const aliases = new Set([hostId]);
@@ -226,9 +227,20 @@ export class MachinePool {
       for (const [id, daemon] of this.accountDaemons) if (daemon === hostId) aliases.add(id);
     }
     let changed = false;
-    for (const id of aliases)
-      if ((id === hostId || !this.live.has(id)) && this.off.delete(id)) changed = true;
+    for (const id of aliases) if (this.off.delete(id)) changed = true;
     return changed;
+  }
+  /**
+   * Every machine shown off that no longer is (`forgetOff`) connects again, as turned on;
+   * `leaving`, being removed, stays as it is.
+   */
+  private resumeOn(leaving: string): void {
+    for (const [hostId, live] of this.live) {
+      if (hostId === leaving || live.state.status !== "off" || live.removing) continue;
+      if (this.isOff(hostId)) continue;
+      this.live.delete(hostId);
+      this.connect(live.state.entry);
+    }
   }
   /** The daemon an account machine is known to be, if any. */
   private daemonOf(hostId: string): string | undefined {
@@ -308,6 +320,8 @@ export class MachinePool {
     this.superseded.delete(hostId);
     for (const [account, paired] of this.pairedAs)
       if (paired.hostId === hostId) this.pairedAs.delete(account);
+    // An account entry of the same machine, still listed, is on again, no longer its stand-in.
+    this.resumeOn(hostId);
     if (live) {
       // Disable every async continuation and retained client handle before secret-store I/O.
       live.enabled = false;
@@ -576,15 +590,21 @@ export class MachinePool {
   /**
    * Paired paths just learned may name account machines already open (ADR 0115): each one that
    * now has its paired entry adopts it, so the paired entry steps aside and the account machine
-   * gains its direct address and paths, and it looks for a better route now.
+   * gains its direct address and paths. Its client opens again, as the pairing's stand-in: one
+   * made before knew neither the pairing's outbox nor its device id, so the sends the pairing
+   * still holds would stay there, unseen and unsent.
    */
   private reconcileAccounts(): void {
     for (const [hostId, live] of this.live) {
       if (live.state.entry.target.kind !== "account" || this.pairedAs.has(hostId)) continue;
       this.adoptPaired(hostId, this.options.directory.machines);
       if (!this.pairedAs.has(hostId) || !this.current(live)) continue;
-      live.paths?.networkChanged();
-      live.client?.reconnectNow();
+      // Off, or refused (its authorization, or a machine code to enter): it opens again, with
+      // the pairing, when turned on or admitted.
+      const status = live.state.status;
+      if (status === "off" || status === "auth_failed" || status === "machine_code") continue;
+      this.stopWorker(live);
+      this.connect(live.state.entry);
     }
   }
   /**
