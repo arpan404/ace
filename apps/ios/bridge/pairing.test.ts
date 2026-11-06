@@ -16,9 +16,7 @@ function device(id: string, scopes = ["read", "operate"]) {
   return { id, name: "Phone", scopes, createdAt: 1, lastSeenAt: 1, revokedAt: null };
 }
 
-function harness(
-  options: { identity?: PairingDeps["identity"]; scopes?: string[] } = {},
-) {
+function harness(options: { identity?: PairingDeps["identity"]; scopes?: string[] } = {}) {
   let saved: string | null = null;
   const secrets = new Map<string, string>();
   const requests: PinnedRequest[] = [];
