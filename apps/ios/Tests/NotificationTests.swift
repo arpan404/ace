@@ -333,6 +333,51 @@ import Testing
         await model.disconnectAndWait()
     }
 
+    @Test func anAlertStillOutWhenItsMachineIsLetGoIsWithdrawnOnceItLandsAndNothingStaysShown() async throws {
+        let center = HeldCenter()
+        let sessions = Sessions()
+        let store = try defaults()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(model, target: try target("studio"))
+        coordinator.receive(.alert(alert("n:1", thread: "t1")), from: "studio")
+        try await until("the post is out") { center.holding }
+        // Let go (removed, or taken in by the machine it turned out to be) while the post is out.
+        coordinator.detach(model)
+        center.release()
+        try await Task.sleep(for: .milliseconds(30))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.posted.map(\.threadId) == ["t1"])
+        #expect(center.delivered.isEmpty)
+        #expect(AlertStack.load(store).shown.isEmpty)
+    }
+
+    @Test func anAlertQueuedBehindAnotherWhenItsMachineIsLetGoIsNeverPosted() async throws {
+        let center = HeldCenter()
+        let sessions = Sessions()
+        let store = try defaults()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: store, now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        let studio = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        let office = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await coordinator.attach(office, target: try target("office"))
+        await coordinator.attach(studio, target: try target("studio"))
+        // Another machine's post is out; the studio's waits behind it.
+        coordinator.receive(.alert(alert("n:1", status: "needs_you", thread: "o1")), from: "office")
+        try await until("the first post is out") { center.holding }
+        coordinator.receive(.alert(alert("n:2", status: "needs_you", thread: "s1")), from: "studio")
+        try await until("the studio's alert is on the stack") { AlertStack.load(store).shown.count == 2 }
+        coordinator.detach(studio)
+        center.release()
+        try await Task.sleep(for: .milliseconds(30))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(center.posted.map(\.threadId) == ["o1"])
+        #expect(AlertStack.load(store).shown.map(\.threadId) == ["o1"])
+    }
+
     // MARK: Support
 
     private let approvalInfo = [NotificationKeys.threadId: "thread", NotificationKeys.interactionId: "push",

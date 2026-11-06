@@ -78,15 +78,32 @@ final class SystemNotificationCenter: NotificationCenterPort {
     private var pending: [String: Pending] = [:]
     private var generation = 0
     private struct Pending { let generation: Int; let withdrawn: Bool }
+    /// Landings whose post is queued or out, by serial, with the notifier that asked for each.
+    private var landing: [Int: (owner: ObjectIdentifier, threadId: String, hostId: String?)] = [:]
+    private var landings = 0
     init(center: any NotificationCenterPort, defaults: UserDefaults? = nil, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
         self.center = center; self.defaults = defaults; self.now = now
         stack = defaults.map(AlertStack.load) ?? AlertStack()
     }
-    func land(_ alert: AlertNotification, hostId: String?) async {
-        let landing = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
+    /// Lands an alert; `owner`'s landings still queued or out can be cancelled (`cancel`).
+    func land(_ alert: AlertNotification, hostId: String?, owner: ObjectIdentifier? = nil) async {
+        let landed = stack.land(AlertContent(alert, hostId: hostId), alert: alert, now: now())
         save()
-        withdraw(landing.withdraw)
-        if let content = landing.post { await post(content).value }
+        withdraw(landed.withdraw)
+        guard let content = landed.post else { return }
+        landings += 1
+        let serial = landings
+        if let owner { landing[serial] = (owner, alert.threadId, hostId) }
+        await post(content).value
+        landing[serial] = nil
+    }
+    /// `owner` went (its machine let go): what it landed that hasn't reached the notification
+    /// center yet never does, and what is out right now is withdrawn once it has landed.
+    func cancel(owner: ObjectIdentifier) {
+        let mine = landing.filter { $0.value.owner == owner }
+        guard !mine.isEmpty else { return }
+        for serial in mine.keys { landing[serial] = nil }
+        for entry in mine.values { clear(threadId: entry.threadId, hostId: entry.hostId) }
     }
     /// Retracted by the daemon: withdrawn if it is still its thread's, plus the ids earlier
     /// builds posted under (`AlertContent.requestIds`).
@@ -176,13 +193,17 @@ final class SystemNotificationCenter: NotificationCenterPort {
     }
 
     func bind(_ store: LedgerStore) { self.store = store; ledger = store.load() }
-    /// Its machine was turned off or let go: nothing it still has under way lands.
-    func invalidate() { valid = false }
+    /// Its machine was turned off or let go: nothing it still has under way lands, and what it
+    /// handed the desk that hasn't landed yet is called back.
+    func invalidate() {
+        valid = false
+        desk.cancel(owner: ObjectIdentifier(self))
+    }
     func receive(_ alert: AlertNotification) async {
         guard ledger.admit(alert.id) else { return }
         store?.save(ledger)
         guard alert.delivery?.post != false, valid else { return }
-        await desk.land(alert, hostId: hostId)
+        await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
     }
     func catchUp(cursor: Int, entries: [AlertNotification], retracted: [String]) async {
         desk.retract(retracted, hostId: hostId)
@@ -192,7 +213,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
         // Checked before each one: an earlier post can be awaited past a turn-off.
         for alert in fresh where alert.delivery?.post != false {
             guard valid else { return }
-            await desk.land(alert, hostId: hostId)
+            await desk.land(alert, hostId: hostId, owner: ObjectIdentifier(self))
         }
     }
     func withdraw(_ id: String) { desk.withdraw([id]) }
