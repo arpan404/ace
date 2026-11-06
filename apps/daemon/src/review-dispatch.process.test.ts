@@ -147,9 +147,7 @@ it("the linked account device recovers the pairing's pending review after a rest
       ok: false,
       error: "review_pending",
     }));
-    const ran = await f.review.handle(
-      Command.parse({ id, deviceId: paired.device.id, payload }),
-    );
+    const ran = await f.review.handle(Command.parse({ id, deviceId: paired.device.id, payload }));
     expect(ran.ok).toBe(true);
 
     // The same install retries through its account entry.

@@ -15,6 +15,7 @@ import * as z from "zod/mini";
 import type { MachineTarget } from "./machine-target.ts";
 import { forgetReadSnapshots } from "./read-snapshots.ts";
 import { pairedUrls } from "./machine-routes.ts";
+import { machineSocketUrl } from "./worker-target.ts";
 
 /*
  * The browser's and desktop renderer's machine pool (ADR 0059): the directory of the person's
@@ -38,14 +39,6 @@ function directoryStorage(storage: KeyValueStorage): Storage {
     load: async () => storage.getItem(directoryKey),
     save: async (value) => storage.setItem(directoryKey, value),
   };
-}
-
-/** A directory URL as the socket address the client worker dials. */
-function socketUrl(url: string): string {
-  const parsed = new URL(url);
-  if (parsed.protocol === "http:") parsed.protocol = "ws:";
-  if (parsed.protocol === "https:") parsed.protocol = "wss:";
-  return parsed.toString();
 }
 
 const timers = {
@@ -119,7 +112,7 @@ function machineConfig(
 ): MachineTarget {
   return {
     ...(installId ? { installId } : {}),
-    url: socketUrl(url),
+    url: machineSocketUrl(url),
     token,
     deviceId: entry.deviceId,
     pairedDeviceId: entry.deviceId,

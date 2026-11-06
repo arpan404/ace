@@ -708,10 +708,12 @@ export class MachinePool {
     live.paths = paths;
     const route = paths.route();
     const daemonId = this.accountDaemons.get(hostId);
+    const paired = this.pairedAs.get(hostId);
     const client = account.client({
       hostId,
       deviceId,
       ...(daemonId ? { expectedHostId: daemonId } : {}),
+      ...(paired ? { paired } : {}),
       transport: route.transport,
       credential: route.credential,
       grant: () => account.grant(),
@@ -808,6 +810,21 @@ export class MachinePool {
               this.supersede(expected, live.state.entry.hostId);
             // Learning the daemon may have shown the machine is off (`offUnder`): it stopped.
             if (!this.current(live) || live.verification !== epoch) return;
+            // Its daemon is one this app paired, and the pairing's saved paths didn't say so:
+            // the account machine opens once more as that pairing's stand-in, taking over the
+            // sends its outbox still holds and proving the pairing in its hello (ADR 0115).
+            if (live.state.entry.target.kind === "account" && expected !== undefined) {
+              const hostId = live.state.entry.hostId;
+              const pairing = this.options.directory.machines.find(
+                (entry) => entry.hostId === expected && entry.target.kind !== "account",
+              );
+              if (pairing && !this.pairedAs.has(hostId)) {
+                this.pairedAs.set(hostId, pairing);
+                this.stopWorker(live);
+                this.connect(live.state.entry);
+                return;
+              }
+            }
             // Account machines come from the account's list, not the saved directory.
             // Paths come only from the machine itself, over this verified connection.
             if (live.state.entry.target.kind !== "account") {

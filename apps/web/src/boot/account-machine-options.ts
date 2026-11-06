@@ -1,6 +1,7 @@
 import { ClientError, type ClientApi, type Storage } from "@ace/client";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { browserDeviceSocket } from "@ace/client/devices";
+import { adoptedOutbox } from "@ace/client-worker/adopted-outbox";
 import type { AccountMachineOptions } from "@ace/client-worker/machines";
 import type { KeyValueStorage } from "@ace/ui-core";
 import { accountOrigin, hostedRelayUrl, windowAccountSession } from "./account-config.ts";
@@ -8,6 +9,7 @@ import { createBrowserClient } from "./client.ts";
 import { browserInstallId } from "./install-id.ts";
 import { authorizeDaemonUrl } from "./daemon-network.ts";
 import { browserChecksDirect, checkedSocketTransport, httpsProbe } from "./machine-routes.ts";
+import { pairedMachineOutbox } from "./worker-outbox.ts";
 
 /** What an account machine's client is made from: its relay route, for one attempt. */
 type AccountMachineRoute = Parameters<AccountMachineOptions["client"]>[0];
@@ -95,6 +97,13 @@ export function accountMachineClient(
     if (holder() !== owner)
       throw new ClientError("auth", "This machine was opened on your other ace account.");
   };
+  const own = outbox(session, owner, route.hostId);
+  // Standing in for this install's pairing of the same daemon, it takes over the sends that
+  // pairing's outbox still holds (ADR 0115). Signed out, there is no outbox to take them to.
+  const pairedOutbox =
+    route.paired && owner !== undefined ? pairedMachineOutbox(route.paired) : undefined;
+  const pairing =
+    route.paired && pairedOutbox ? { entry: route.paired, outbox: pairedOutbox } : undefined;
   return createBrowserClient({
     deviceId: route.deviceId,
     transport: route.transport,
@@ -108,7 +117,8 @@ export function accountMachineClient(
       return route.grant();
     },
     expectedHostId: route.expectedHostId,
-    storage: outbox(session, owner, route.hostId),
+    ...(pairing ? { deviceAliases: [pairing.entry.deviceId] } : {}),
+    storage: pairing ? adoptedOutbox(own, pairing.outbox, pairing.entry.hostId) : own,
   });
 }
 

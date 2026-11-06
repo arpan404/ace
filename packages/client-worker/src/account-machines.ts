@@ -74,6 +74,12 @@ export interface AccountMachineOptions {
     credential(): Promise<Credential>;
     /** A fresh device grant, sent on each open socket before its grant runs out (ADR 0114). */
     grant(): Promise<string>;
+    /**
+     * This install's pairing of the same daemon, when the account machine stands in for it
+     * (ADR 0115): sends its outbox still holds are this client's to take over
+     * (`adoptedOutbox`), and its device id is one of this client's aliases.
+     */
+    paired?: MachineEntry;
   }): ClientApi;
 }
 

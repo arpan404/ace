@@ -27,3 +27,11 @@ export const outboxKey = (target: {
   target.localHostId
     ? `ace.outbox.local.${target.localHostId}.${target.deviceId}`
     : `ace.outbox.${target.url}.${target.deviceId}`;
+
+/** A directory URL as the socket address a machine worker dials (and keys its outbox by). */
+export function machineSocketUrl(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "http:") parsed.protocol = "ws:";
+  if (parsed.protocol === "https:") parsed.protocol = "wss:";
+  return parsed.toString();
+}

@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "vitest";
+import { ThreadId } from "@ace/protocol";
 import {
   browserPairing,
   closePools,
@@ -41,4 +42,45 @@ test("a machine paired in a browser and opened through the account keeps the LAN
   // The paired connection stepped aside; the account entry reaches the same daemon on the LAN.
   await until(() => f.pool.machine(relayKey)?.status === "online");
   expect(f.pool.machine(relayKey)?.path).toBe("lan");
+});
+
+test("a send queued on the pairing is kept and sent once by the account entry that takes its place", async () => {
+  const f = world();
+  f.daemon.createThread({ id: "t1", workspaceId: "w", title: "Thread", provider: "codex" });
+  const sent: string[] = [];
+  const command = f.daemon.command.bind(f.daemon);
+  f.daemon.command = (input) => {
+    sent.push(input.id);
+    return command(input);
+  };
+  await f.pool.start();
+  await f.pool.add({
+    ...browserPairing,
+    target: { kind: "direct", url: "wss://192.168.1.4:7443/", fingerprint },
+  });
+  await until(() => (f.directory.machines[0]?.paths?.length ?? 0) > 0);
+  await until(() => f.pool.machine("host")?.status === "online");
+  // The machine stops answering; the send waits in the pairing's outbox.
+  f.daemon.refuseConnections(true);
+  await until(() => f.pool.machine("host")?.status !== "online");
+  await f.pool.enqueue(
+    { hostId: "host", threadId: "t1" },
+    { type: "thread.archive", threadId: ThreadId.parse("t1") },
+    "queued-on-lan",
+  );
+  const pairing = f.outboxes.get(`paired:host:${browserPairing.deviceId}`);
+  expect([...(pairing?.keys() ?? [])]).toEqual(["queued-on-lan"]);
+
+  // Signed in: the account entry takes the pairing's place, and its send with it.
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  await until(
+    () => f.outboxes.get(`account:${relayKey}`)?.get("value")?.includes("queued-on-lan") ?? false,
+  );
+  expect(pairing?.size).toBe(0);
+  f.daemon.refuseConnections(false);
+  await until(() => f.pool.machine(relayKey)?.status === "online");
+  const intent = f.pool.client(relayKey).intent("queued-on-lan");
+  await until(() => intent.getSnapshot()?.state === "acked");
+  expect(intent.getSnapshot()?.result).toMatchObject({ commandId: "queued-on-lan", ok: true });
+  expect(sent).toEqual(["queued-on-lan"]);
 });

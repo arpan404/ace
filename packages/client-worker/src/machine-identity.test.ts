@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "vitest";
 import { ClientError, type Transport } from "@ace/client";
 import { pairingLinkProof } from "@ace/client/link-proof";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, ThreadId } from "@ace/protocol";
 import {
+  accountToken,
   browserPairing,
   closePools,
   fingerprint,
@@ -188,4 +189,39 @@ test("forgetting a pairing that is off forgets it under its account id too, so p
   f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
   await until(() => f.pool.machine(relayKey)?.status === "online");
   expect(stored).toEqual([]);
+});
+
+test("a send queued on the pairing moves to the account entry whose identity shows it is the same daemon, and is sent once", async () => {
+  const f = world({ accountOverRelay: true });
+  // The pairing's connection never says the machine's paths: only the account entry can tell.
+  f.daemon.paths = [];
+  f.daemon.createThread({ id: "t1", workspaceId: "w", title: "Thread", provider: "codex" });
+  const sent: string[] = [];
+  const command = f.daemon.command.bind(f.daemon);
+  f.daemon.command = (input) => {
+    sent.push(input.id);
+    return command(input);
+  };
+  await f.pool.start();
+  await f.pool.add(browserPairing);
+  await until(() => f.pool.machine("host")?.status === "online");
+  f.daemon.refuseConnections(true);
+  await until(() => f.pool.machine("host")?.status !== "online");
+  await f.pool.enqueue(
+    { hostId: "host", threadId: "t1" },
+    { type: "thread.archive", threadId: ThreadId.parse("t1") },
+    "queued-on-lan",
+  );
+  // The pairing can't get back in; the account entry can.
+  f.daemon.accepts = (credential) => credential.token === accountToken;
+  f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  f.daemon.refuseConnections(false);
+
+  await until(() => f.pool.machine(relayKey)?.status === "online");
+  expect(f.pool.ids).toEqual([relayKey]);
+  const intent = f.pool.client(relayKey).intent("queued-on-lan");
+  await until(() => intent.getSnapshot()?.state === "acked");
+  expect(intent.getSnapshot()?.result).toMatchObject({ ok: true });
+  expect(f.outboxes.get(`paired:host:${browserPairing.deviceId}`)?.size).toBe(0);
+  expect(sent).toEqual(["queued-on-lan"]);
 });

@@ -618,8 +618,8 @@ it("a proof from a replaced credential, or one made for another account device, 
     await client.close();
     return result;
   };
-  const proof = (token: string, account: string) => () =>
-    pairingLinkProof(token, again.device.id, DeviceId.parse(account), crypto.subtle);
+  const proof = (credential: string, account: string) => () =>
+    pairingLinkProof(credential, again.device.id, DeviceId.parse(account), crypto.subtle);
 
   expect(await replay(proof(first.token, installId), "stale-proof")).toMatchObject({
     ok: false,
