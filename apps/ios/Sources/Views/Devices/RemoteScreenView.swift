@@ -88,8 +88,18 @@ struct RemoteScreenView: View {
                         .accessibilityIdentifier("screen.row")
                 }
             }
-            permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
-            permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
+            if let requirements = status.permissions.requirements {
+                ForEach(requirements) { requirement in
+                    DeviceNote(sentence: requirement.message, action: model.canOperate && requirement.requestPermission != nil ? requirement.action : nil) {
+                        if let key = requirement.requestPermission {
+                            Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
+                        }
+                    }
+                }
+            } else {
+                permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
+                permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
+            }
         } else if screen.problem == nil {
             SkeletonRows(count: 2, label: "Loading computer use").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
         }

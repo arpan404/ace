@@ -1,4 +1,10 @@
-import { targetBundle, permissionsReading, visibleSessions } from "@ace/ui-core/computer-use";
+import {
+  targetBundle,
+  permissionsReading,
+  visibleSessions,
+  requirementStatus,
+  requirementPermission,
+} from "@ace/ui-core/computer-use";
 import { MonitorIcon } from "@phosphor-icons/react";
 import { useId } from "react";
 import { SettingNote, SettingRow } from "@/components/setting-row.tsx";
@@ -122,7 +128,7 @@ export function Permissions(props: { use: ComputerUse }) {
         variant="inline"
         icon={MonitorIcon}
         title="No screen helper on ace on this machine."
-        description="Computer use needs ace's screen helper, which comes with the ace desktop app and ace's macOS and Linux releases."
+        description="Computer use needs ace's screen helper, which comes with the ace desktop app and ace's macOS, Linux and Windows releases."
       />
     );
   const reading = permissionsReading({
@@ -142,6 +148,37 @@ export function Permissions(props: { use: ComputerUse }) {
       Check again
     </button>
   );
+  if (snapshot.permissions?.requirements) {
+    return (
+      <>
+        {snapshot.permissions.requirements.map((requirement) => {
+          const status = requirementStatus(requirement.state);
+          const permission = requirementPermission(requirement);
+          return (
+            <SettingRow
+              key={requirement.kind}
+              title={requirement.title}
+              description={requirement.message}
+              density="compact"
+            >
+              <StatusLabel tone={status.ready ? "done" : "idle"} label={status.label} />
+              {permission && requirement.action && !status.ready && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!snapshot.connected || use.pending}
+                  onClick={() => void use.requestPermission(permission)}
+                >
+                  {requirement.action}
+                </Button>
+              )}
+            </SettingRow>
+          );
+        })}
+        <SettingNote>{recheck}</SettingNote>
+      </>
+    );
+  }
   return (
     <>
       {(["screenRecording", "accessibility"] as const).map((key) => {

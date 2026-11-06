@@ -12,6 +12,12 @@ const safeMessages = new Set([
   "Screen Recording permission denied",
   "Screen Recording permission revoked",
   "macOS permission denied",
+  "Windows session 0 cannot access the person's desktop. Run ace in your signed-in session, not as a service in session 0.",
+  "Windows session is not actively connected. Sign in or reconnect to this session, then retry.",
+  "Windows UIPI blocks this elevated target. Run the target app without administrator privileges, then retry.",
+  "Windows session is not actively connected. Sign in or reconnect to this session; run ace in the person's interactive session, not session 0.",
+  "Windows session 0 cannot access the person's desktop. Run ace in the signed-in user's interactive session.",
+  "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry.",
   "macOS permission denied or target unavailable",
   // The native helpers' own check that a request stays inside its session's target.
   "Approved window target required",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ThreadId, AgentId } from "./ids.ts";
-import { ScreenId, ScreenStreamSettings } from "./screen-base.ts";
+import { ScreenId, ScreenStreamSettings, ScreenPermissions } from "./screen-base.ts";
 import { ScreenUITreeOptions, ScreenUIFindOptions, ScreenUIActOptions } from "./screen-v2.ts";
 export * from "./device-chrome.ts";
 
@@ -112,10 +112,7 @@ export type DeviceInventory = z.infer<typeof DeviceInventory>;
 /** macOS privacy permissions held by the daemon's screen helper (iOS Simulator view and input). */
 export const DevicePermission = z.enum(["screenRecording", "accessibility"]);
 export type DevicePermission = z.infer<typeof DevicePermission>;
-export const DevicePermissions = z.object({
-  screenRecording: z.boolean(),
-  accessibility: z.boolean(),
-});
+export const DevicePermissions = ScreenPermissions;
 export type DevicePermissions = z.infer<typeof DevicePermissions>;
 /** The last thing an agent did on a device, so a viewer can show it as it happens. */
 export const DeviceActivity = z.object({

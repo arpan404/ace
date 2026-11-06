@@ -1,6 +1,14 @@
 import type { ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { screenProblem, screenSession, visibleSessions } from "./computer-use.ts";
+import {
+  screenProblem,
+  chooserFailure,
+  screenSession,
+  visibleSessions,
+  requirementStatus,
+  requirementPermission,
+  permissionsReading,
+} from "./computer-use.ts";
 
 const state = (overrides: Partial<ScreenState> & { bundleId?: string } = {}): ScreenState => {
   const { bundleId = "com.apple.TextEdit", ...rest } = overrides;
@@ -91,4 +99,85 @@ test("human takeover stays a live session and says who is in control", () => {
   const human = state({ controller: "human", indicator: false });
   expect(screenSession(human).status).toBe("You're in control");
   expect(visibleSessions([human]).map((entry) => entry.sessionId)).toEqual([human.sessionId]);
+});
+
+test.each([
+  ["ready", "Ready", true],
+  ["granted", "Ready", true],
+  ["n/a", "Ready", true],
+  ["prompt", "Needs your approval", false],
+  ["blocked", "Needs attention", false],
+  ["denied", "Needs attention", false],
+  ["future", "Not checked", false],
+])("requirement state %s is shown without assuming a grant", (requirementState, label, ready) => {
+  expect(requirementStatus(String(requirementState))).toEqual({ label, ready });
+});
+
+test.each(["linux", "win32"])(
+  "permission failures for %s offer host requirements without macOS settings",
+  (platform) => {
+    const problem = screenProblem("permission_denied", "Host access denied", undefined, platform);
+    expect(problem.title).not.toContain("macOS");
+    expect(problem.hint).toContain("Check the requirements");
+  },
+);
+
+test("macOS permission failures retain the privacy settings instructions", () => {
+  expect(screenProblem("permission_denied", "Denied", undefined, "darwin")).toEqual({
+    title: "macOS hasn't granted a permission",
+    hint: "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
+  });
+});
+
+test("older macOS replies retain permission guidance when platform is omitted", () => {
+  expect(screenProblem("permission_denied", "Denied").hint).toContain(
+    "Screen Recording and Accessibility",
+  );
+});
+test.each(["darwin", "linux", "win32"])("%s recovery instructions name the host", (platform) => {
+  const forbidden = screenProblem("forbidden", "Denied", undefined, platform);
+  const reading = permissionsReading({
+    connected: true,
+    closed: false,
+    enabled: true,
+    permissions: { screenRecording: true, accessibility: true, platform },
+    problem: { code: "not_supported", message: "Unavailable" },
+  });
+  expect(forbidden.hint?.includes("Mac")).toBe(platform === "darwin");
+  expect(reading.state).toBe("unavailable");
+  if (reading.state === "unavailable")
+    expect(reading.next.includes("Mac")).toBe(platform === "darwin");
+});
+test.each(["ready", "granted", "n/a", "not-applicable"])(
+  "%s requirements offer no request action",
+  (stateName) => {
+    expect(
+      requirementPermission({ state: stateName, permission: "accessibility" }),
+    ).toBeUndefined();
+  },
+);
+test("unknown permission names remain readable without offering an unsupported request", () => {
+  expect(
+    requirementPermission({ state: "blocked", permission: "inputMonitoring" }),
+  ).toBeUndefined();
+  expect(requirementPermission({ state: "blocked", permission: "accessibility" })).toBe(
+    "accessibility",
+  );
+});
+
+test.each([
+  ["linux", "permission_denied", "Linux desktop access needs attention"],
+  ["win32", "permission_denied", "Windows desktop access needs attention"],
+  ["linux", "forbidden", "Use the computer running ace."],
+  ["win32", "forbidden", "Use the computer running ace."],
+])("%s chooser failure %s keeps the host's guidance", (platform, code, expected) => {
+  const sentence = chooserFailure(code, "Host refused sharing", platform);
+  expect(sentence).toContain(expected);
+  expect(sentence).not.toMatch(/macOS|Screen Recording|Accessibility|Use the Mac/);
+});
+test("chooser declines and legacy macOS guidance retain their existing words", () => {
+  expect(chooserFailure("denied", "Sharing was declined.", "linux")).toBe("Sharing was declined.");
+  expect(chooserFailure("permission_denied", "Denied")).toContain(
+    "Grant Screen Recording and Accessibility",
+  );
 });

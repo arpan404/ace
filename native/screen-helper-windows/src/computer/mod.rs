@@ -35,7 +35,7 @@ mod capture;
 #[cfg(windows)]
 mod clipboard;
 #[cfg(windows)]
-mod desktop;
+pub(crate) mod desktop;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]

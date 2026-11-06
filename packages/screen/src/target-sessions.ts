@@ -1,3 +1,4 @@
+import { desktopAccessFailure } from "./permission-model.ts";
 import { releaseControllerBinding } from "./controller-binding.ts";
 import {
   ScreenTarget,
@@ -154,7 +155,10 @@ export class TargetSessions {
       this.sessions.set(id, session);
       session.state.permissions = await helper.permissions();
       if (!session.state.permissions.screenRecording)
-        throw new HelperCommandError("permission_denied", "Screen Recording permission denied");
+        throw new HelperCommandError(
+          "permission_denied",
+          desktopAccessFailure(session.state.permissions),
+        );
       this.authorize(target);
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
       session.state = { ...session.state, indicator: helper.capabilities?.platform !== "macos" };

@@ -53,6 +53,15 @@ export class HelperHost {
     }
     return this.opening;
   }
+  /** Release only the current blocked helper, without opening one just to inspect it. */
+  async releaseInspection(isIdle: () => boolean): Promise<void> {
+    const opening = this.opening;
+    if (!opening) return;
+    const helper = await opening.catch(() => undefined);
+    // A new reservation may have begun while the existing open promise settled.
+    if (this.opening === opening && isIdle() && helper?.capabilities?.inspectionOnly)
+      await this.close();
+  }
   async stopCapture(helper: import("./helper-session.ts").HelperPort): Promise<void> {
     if (!helper.capabilities) {
       await this.close();

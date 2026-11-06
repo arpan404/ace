@@ -35,7 +35,7 @@ export function computerUseFeature(
   return {
     id: "computer",
     checks(context) {
-      if (context.platform === "win32") return [windowsGrantsCheck()];
+      if (context.platform === "win32") return [windowsGrantsCheck(() => ports.screen(context))];
       if (context.platform === "linux") return linuxComputerChecks(context, linux);
       if (context.platform !== "darwin") return [];
       let facts: Promise<ScreenFacts | undefined> | undefined;
@@ -125,17 +125,43 @@ function tilde(path: string, context: DoctorContext): string {
     : path;
 }
 
-/** Windows has no per-app screen or input grant; integrity levels are the only limit. */
-function windowsGrantsCheck(): Check {
+/** Windows requirements come from the helper in the interactive session. */
+function windowsGrantsCheck(load: () => Promise<ScreenFacts | undefined>): Check {
+  const fix =
+    "Sign in to Windows, unlock the workstation and dismiss UAC prompts. Run target apps without administrator privileges.";
   return {
     id: "computer.grants",
-    fix: "Nothing to do.",
+    fix,
     async run() {
+      const facts = await load();
+      if (facts?.kind === "known" && facts.permissions.requirements) {
+        const blocked = facts.permissions.requirements.filter(
+          (item) => item.state === "blocked" || item.state === "denied",
+        );
+        const interactive = facts.permissions.requirements.some(
+          (item) => item.kind === "interactiveDesktop" && item.state === "ready",
+        );
+        if (!blocked.length && !interactive)
+          return {
+            status: "warn",
+            message:
+              "Windows desktop requirements have not been verified. Update the screen helper and check again.",
+            fix,
+          };
+        return blocked.length
+          ? { status: "warn", message: blocked.map((item) => item.message).join(" "), fix }
+          : {
+              status: "ok",
+              message:
+                "Windows input desktop is available. Target integrity and capture access are checked when used.",
+              fix,
+            };
+      }
       return {
-        status: "ok",
+        status: "warn",
         message:
-          "Windows needs no Accessibility or Screen Recording grant for computer use; apps running as administrator stay out of reach",
-        fix: "Nothing to do.",
+          "Windows desktop requirements could not be checked. Start ace in the signed-in user's interactive session, then run doctor again.",
+        fix,
       };
     },
   };
