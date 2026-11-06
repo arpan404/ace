@@ -141,13 +141,15 @@ export function accountRoutes(input: {
   hostId: string;
   account: AccountMachineOptions;
   gate: MachineCodeGate;
+  /** What each hello presents: the gate's grant and code, and any pairing proof with them. */
+  credential?(): Promise<Credential>;
   scheduler: Scheduler;
   paths(): readonly MachinePath[];
   /** The address this app paired the same daemon at, if it did (ADR 0115). */
   paired?(): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined;
 }): () => MachineRoute[] {
   const { account, gate, hostId } = input;
-  const credential = () => gate.credential();
+  const credential = input.credential ?? (() => gate.credential());
   const relay = (url: string, kind: "relay" | "account"): MachineRoute => ({
     path: { key: `${kind} ${url}`, kind },
     ...relayRoute({

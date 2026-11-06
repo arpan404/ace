@@ -6,6 +6,7 @@ import {
   machineCodeGate,
   type MachineCodeGate,
   type ClientApi,
+  type Credential,
   type RequestOptions,
   type Selection,
   type ServiceRequest,
@@ -18,7 +19,9 @@ import {
   type MachineThreadRef,
   type PairedMachine,
 } from "@ace/client/machines";
+import { pairingLinkProof } from "@ace/client/link-proof";
 import {
+  DeviceId,
   MachineCodeRefusal,
   type CommandPayload,
   type HostIdentity,
@@ -95,6 +98,8 @@ interface Live {
   stop?: () => void;
   stopPath?: (() => void) | undefined;
   stopFailure?: () => void;
+  /** The device token a paired machine's worker was started with; never logged. */
+  token?: string;
   /** Cancels the scheduled automatic reconnect, while one waits. */
   retry?: () => void;
   verification: number;
@@ -504,7 +509,43 @@ export class MachinePool {
     this.pairedAs.set(hostId, paired);
     if (!this.accountDaemons.has(hostId)) this.accountDaemons.set(hostId, paired.hostId);
     if (!this.accountPaths.has(hostId) && paired.paths) this.accountPaths.set(hostId, paired.paths);
+    this.offUnder(hostId, paired.hostId);
+    // A refused account entry (its authorization, or a machine code still to enter) can't stand
+    // in for a pairing that works: the pairing stays until the account entry is admitted.
+    const status = this.live.get(hostId)?.state.status;
+    if (status === "auth_failed" || status === "machine_code") return;
     this.supersede(paired.hostId, hostId);
+  }
+  /**
+   * `hostId` and `alias` are one machine: turned off under either id, it is off under both,
+   * saved, so a pairing or account entry that comes back later stays off (ADR 0115).
+   */
+  private offUnder(hostId: string, alias: string): void {
+    if (this.off.has(hostId) === this.off.has(alias)) return;
+    this.off.add(hostId);
+    this.off.add(alias);
+    this.saveOff();
+  }
+  /**
+   * The proof, for an account machine's hellos, that this install also holds the pairing it
+   * adopted (ADR 0115). Only the proof goes on the account connection, never the token. None
+   * for a machine this app didn't pair, or when the token can't be read: the hello then goes
+   * without it.
+   */
+  private async link(hostId: string, accountDeviceId: string) {
+    const paired = this.pairedAs.get(hostId);
+    if (!paired) return undefined;
+    try {
+      const token = await this.options.directory.token(paired);
+      return await pairingLinkProof(
+        token,
+        DeviceId.parse(paired.deviceId),
+        DeviceId.parse(accountDeviceId),
+        crypto.subtle,
+      );
+    } catch {
+      return undefined;
+    }
   }
   /**
    * Paired paths just learned may name account machines already open (ADR 0115): each one that
@@ -592,6 +633,7 @@ export class MachinePool {
   private async workerClient(live: Live): Promise<ClientApi | undefined> {
     const token = await this.options.directory.token(live.state.entry);
     if (!this.current(live)) return undefined;
+    live.token = token;
     const worker = this.options.spawn(live.state.entry, token);
     live.worker = worker;
     live.stopFailure = worker.onFailure((error) => {
@@ -609,11 +651,16 @@ export class MachinePool {
     if (!account || !gate) throw new ClientError("auth", "ace account sign-in is unavailable");
     const { hostId, deviceId } = live.state.entry;
     const scheduler = this.options.remote.scheduler;
+    const credential = async (): Promise<Credential> => {
+      const [grant, link] = await Promise.all([gate.credential(), this.link(hostId, deviceId)]);
+      return link ? { ...grant, link } : grant;
+    };
     const routes = accountRoutes({
       relayUrl,
       hostId,
       account,
       gate,
+      credential,
       scheduler,
       paths: () => this.accountPaths.get(hostId) ?? [],
       paired: () => {
@@ -657,6 +704,7 @@ export class MachinePool {
     const path = client.activePath?.().getSnapshot();
     if (path !== "account" && path !== "relay") return undefined;
     this.accountDaemons.set(hostId, daemonId);
+    this.offUnder(hostId, daemonId);
     return daemonId;
   }
   private async open(live: Live): Promise<void> {
@@ -704,6 +752,7 @@ export class MachinePool {
           gate.refused(refusal.data, client.error.lockedUntil);
         // A client that is connecting or offline retries by itself; a fatal one never does.
         if (client.state === "fatal") this.recover(live);
+        if (live.state.status === "auth_failed") this.repaired(live);
         return;
       }
       void client
@@ -791,6 +840,26 @@ export class MachinePool {
     live.stop = client.connectionState().subscribe(changed);
     await client.start();
     if (client.state === "ready" && live.verification === 0) changed();
+  }
+  /**
+   * A paired machine refused its worker's token: when this install paired it again (ADR 0115),
+   * the directory now holds the new token, and the machine starts again with it. Refused with
+   * the token it holds now, it stays refused: nothing loops.
+   */
+  private repaired(live: Live): void {
+    const started = live.token;
+    if (live.state.entry.target.kind === "account" || started === undefined) return;
+    void this.options.directory
+      .token(live.state.entry)
+      .then((stored) => {
+        if (!this.current(live) || live.state.status !== "auth_failed" || stored === started)
+          return;
+        this.stopWorker(live);
+        this.connect(live.state.entry);
+      })
+      .catch(() => {
+        // No readable token: it stays refused until it is paired again.
+      });
   }
   private dispose(live: Live): void {
     this.threads.detach(live.state.entry.hostId);
