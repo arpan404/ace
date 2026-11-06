@@ -93,6 +93,96 @@ import Testing
         #expect(coordinator.presentation(for: "s1", hostId: "studio") != [])
     }
 
+    @Test func anAccountMachineTurnedOffStaysOffOnceItIsKnownToBeAPairedOne() async throws {
+        let relayKey = String(repeating: "R", count: 52)
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [machine("studio", device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        #expect(fixture.model.machines.map(\.hostId) == ["studio", relayKey])
+        for session in fixture.sessions.started { session.finishShutdownWhenStopped() }
+        await fixture.model.setOn(relayKey, false)
+
+        // The paired machine says ace's relay knows it by that key: one machine, still off.
+        let direct = try #require(fixture.sessions.started.first { $0.target.relay == nil })
+        let paths = #"[{"kind":"account","url":"wss://ace.example.com","relayHostId":"\#(relayKey)"}]"#
+        direct.emit(#"[{"type":"connection","state":"ready"},{"type":"machine.identity","glyph":"laptop","hostId":"studio","paths":\#(paths)}]"#)
+        await settle { fixture.model.machines.count == 1 && direct.stopped }
+        #expect(fixture.model.machines.map(\.hostId) == ["studio"])
+        #expect(fixture.model.isOff("studio"))
+        #expect(direct.stopped)
+        #expect(fixture.model.inbox.sessions.isEmpty)
+        #expect(MachinesModel.turnedOff(in: fixture.defaults) == ["studio", relayKey])
+
+        // Turning it on clears it under both ids.
+        await fixture.model.setOn("studio", true)
+        #expect(!fixture.model.isOff("studio") && !fixture.model.isOff(relayKey))
+        #expect(MachinesModel.turnedOff(in: fixture.defaults).isEmpty)
+        #expect(fixture.model.inbox.sessions.map(\.hostId) == ["studio"])
+    }
+
+    @Test func aViewOnlyPairingWithOneMachineNeverChangesWhatAnotherPairingWithTheSameInstallAllows() async throws {
+        let install = "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b"
+        let fixture = try MachinesFixture(machines: [])
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let link = try PairingLink.parse("https://127.0.0.1:4611/pair#fingerprint=\(DaemonCertificate.pin)&code=abc&scopes=read")
+        fixture.access.pairing = .success(machine("studio", device: install), scopes: ["read", "operate"])
+        #expect(await fixture.model.pair(link, name: "Phone") == nil)
+        fixture.access.pairing = .success(machine("laptop", device: install), scopes: ["read"])
+        #expect(await fixture.model.pair(link, name: "Phone") == nil)
+        #expect(!fixture.model.isReadOnly("studio"))
+        #expect(fixture.model.isReadOnly("laptop"))
+        for session in fixture.sessions.started { session.finishShutdownWhenStopped() }
+        await fixture.model.remove("laptop")
+        #expect(!fixture.model.isReadOnly("studio"))
+        // A relaunch reads the same grants.
+        let relaunch = try MachinesFixture(machines: [machine("studio", device: install)], defaults: fixture.defaults)
+        await relaunch.model.load()
+        #expect(!relaunch.model.isReadOnly("studio"))
+    }
+
+    @Test func aGrantSavedByAnOlderBuildStaysWithItsMachine() async throws {
+        let suite = "ace.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        // Older builds kept grants by device id alone; each pairing had its own device id then.
+        defaults.set(["phone-2": ["read"], "phone-1": ["read", "operate"]], forKey: "ace.machines.grants")
+        let fixture = try MachinesFixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")],
+                                          defaults: defaults)
+        await fixture.model.load()
+        #expect(fixture.model.isReadOnly("laptop"))
+        #expect(!fixture.model.isReadOnly("studio"))
+        let saved = defaults.dictionary(forKey: "ace.machines.grants") as? [String: [String]]
+        #expect(saved == ["laptop|phone-2": ["read"], "studio|phone-1": ["read", "operate"]])
+    }
+
+    @Test func turningOffTheMachinesBehindTheFinishedSummaryRebuildsItAndThenWithdrawsIt() async throws {
+        let suite = "ace.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let center = Center()
+        let coordinator = NotificationCoordinator(center: center, authorizer: Allowed(), defaults: defaults, now: { 0 },
+                                                  connectInBackground: { _ in [] })
+        for (host, thread, title) in [("studio", "s1", "Fix stalls"), ("laptop", "l1", "Ship the widget")] {
+            await coordinator.desk.land(AlertNotification(id: "a-\(thread)", threadId: thread, title: title, status: "done",
+                                                          interactionId: nil, backgroundCount: 0, actions: [], preview: nil, message: nil),
+                                        hostId: host)
+        }
+        #expect(center.delivered[AlertStack.summaryId]?.title == "2 threads finished")
+
+        coordinator.turnedOff("laptop")
+        await settle { center.delivered[AlertStack.summaryId]?.title == "1 thread finished" }
+        #expect(center.delivered[AlertStack.summaryId]?.body == "Fix stalls")
+        // Kept as it now stands, so a relaunch doesn't bring the laptop's finish back.
+        #expect(AlertStack.load(defaults).shown.map(\.hostId) == ["studio"])
+
+        coordinator.turnedOff("studio")
+        #expect(center.delivered[AlertStack.summaryId] == nil)
+        #expect(center.withdrawn.contains(AlertStack.summaryId))
+        #expect(AlertStack.load(defaults).shown.isEmpty)
+    }
+
     private func machine(_ host: String, device: String) -> MachineEntry {
         MachineEntry(hostId: host, displayName: host.capitalized, icon: nil,
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)
@@ -101,8 +191,13 @@ import Testing
 
 private final class Center: NotificationCenterPort, @unchecked Sendable {
     var withdrawn: [String] = []
-    func post(_ content: AlertContent) async {}
-    func withdraw(_ identifiers: [String]) { withdrawn.append(contentsOf: identifiers) }
+    /// What Notification Center shows: a post replaces any with the same identifier.
+    var delivered: [String: AlertContent] = [:]
+    func post(_ content: AlertContent) async { delivered[content.identifier] = content }
+    func withdraw(_ identifiers: [String]) {
+        withdrawn.append(contentsOf: identifiers)
+        for id in identifiers { delivered.removeValue(forKey: id) }
+    }
 }
 private struct Allowed: NotificationAuthorizer {
     func status() async -> NotificationCoordinator.Permission { .allowed }

@@ -12,6 +12,8 @@ import Testing
     let defaults: UserDefaults
     let suite: String
     let model: MachinesModel
+    /// The model's clock (ms), moved by the test.
+    let clock = TestClock()
     /// `defaults` from an earlier fixture plays the same phone relaunched.
     init(machines: [MachineEntry], account: (any AccountDirectory)? = nil, defaults shared: UserDefaults? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = { _ in false }) throws {
@@ -20,7 +22,8 @@ import Testing
         suite = "ace.tests.\(UUID().uuidString)"
         defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
-        model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { 5_000 },
+        let clock = self.clock
+        model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { clock.now },
                               installId: "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b", probe: probe,
                               makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
@@ -28,6 +31,13 @@ import Testing
         defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: storage)
     }
+}
+
+final class TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Double = 5_000
+    var now: Double { lock.withLock { value } }
+    func advance(_ ms: Double) { lock.withLock { value += ms } }
 }
 
 final class FakeAccountDirectory: AccountDirectory, @unchecked Sendable {
@@ -38,6 +48,8 @@ final class FakeAccountDirectory: AccountDirectory, @unchecked Sendable {
     let deviceId = "ios-account-device"
     let relayURL: URL? = URL(string: "wss://ace.example.com")
     func signOut() { lock.withLock { listed = nil } }
+    /// The account lists these machines from now on.
+    func list(_ machines: [AceMachine]) { lock.withLock { listed = machines } }
     func machines() async throws(AccountGrantError) -> [AceMachine]? { lock.withLock { listed } }
     func forget(_ hostId: String) async throws(AccountGrantError) {
         lock.withLock { forgotten.append(hostId); listed?.removeAll { $0.hostId == hostId } }

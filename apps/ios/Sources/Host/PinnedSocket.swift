@@ -13,6 +13,10 @@ struct ConnectionTarget: Sendable {
     let relay: RelayRoute?
     /// This app install (ADR 0115), sent in every hello.
     var installId: String?
+    /// This install's other device id on the same machine (ADR 0115): a paired machine also on
+    /// the account is one device under its pairing's id and its account device's. Sends saved
+    /// under either one are this runtime's, so none is lost when the route changes.
+    var deviceAliases: [String] = []
     /// The machine this target reaches, as the phone keys it, when that isn't this target's own
     /// host and device: a paired machine reached through its account relay keeps its paired
     /// identity, so it is one machine with one cache and one set of notifications on any route.

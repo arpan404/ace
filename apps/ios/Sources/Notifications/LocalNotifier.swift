@@ -85,24 +85,35 @@ final class SystemNotificationCenter: NotificationCenterPort {
     /// builds posted under (`AlertContent.requestIds`).
     func retract(_ alertIds: [String], hostId: String?) {
         guard !alertIds.isEmpty else { return }
-        var ids: [String] = []
-        for id in alertIds { ids += stack.retract(id, hostId: hostId) + AlertContent.requestIds(retracting: id, hostId: hostId) }
-        save()
-        center.withdraw(ids)
+        let before = stack
+        var landings: [AlertStack.Landing] = []
+        for id in alertIds {
+            var landing = stack.retract(id, hostId: hostId)
+            landing.withdraw += AlertContent.requestIds(retracting: id, hostId: hostId)
+            landings.append(landing)
+        }
+        apply(landings, since: before)
     }
     /// Every notification from one machine, such as one turned off on this phone.
     func clear(hostId: String) {
-        let ids = stack.clear(hostId: hostId)
-        guard !ids.isEmpty else { return }
-        save()
-        center.withdraw(ids)
+        let before = stack
+        apply([stack.clear(hostId: hostId)], since: before)
     }
     /// The thread was opened, or its request is answered or gone.
     func clear(threadId: String, hostId: String?) {
-        let ids = stack.clear(threadId: threadId, hostId: hostId)
-        guard !ids.isEmpty else { return }
-        save()
+        let before = stack
+        apply([stack.clear(threadId: threadId, hostId: hostId)], since: before)
+    }
+    /// Every change to the stack is kept, folded finishes included, and the summary follows
+    /// what is left of it: posted again over the rest, or withdrawn.
+    private func apply(_ landings: [AlertStack.Landing], since before: AlertStack) {
+        if stack != before { save() }
+        var ids = landings.flatMap(\.withdraw)
+        let summaryMoved = landings.contains { $0.post != nil || $0.withdraw.contains(AlertStack.summaryId) }
+        let summary = summaryMoved ? stack.summary : nil
+        if summary != nil { ids.removeAll { $0 == AlertStack.summaryId } }
         center.withdraw(ids)
+        if let summary { Task { await center.post(summary) } }
     }
     private func save() { if let defaults { stack.save(defaults) } }
 }

@@ -69,6 +69,8 @@ const Config = z.object({
   deviceId: DeviceId,
   /** This app install (ADR 0115), sent in every hello so the machine sees one device. */
   installId: InstallId.optional().catch(undefined),
+  /** This install's other device id on the same machine (ADR 0115): its saved sends are ours. */
+  deviceAliases: z.array(DeviceId).max(4).optional().catch(undefined),
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
@@ -224,6 +226,7 @@ async function start(json: string): Promise<void> {
   client = new ClientCore({
     deviceId: config.deviceId,
     ...(config.installId ? { installId: config.installId } : {}),
+    ...(config.deviceAliases ? { deviceAliases: config.deviceAliases } : {}),
     // An account machine's key is pinned by the relay handshake; its welcome names the
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),

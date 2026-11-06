@@ -10,7 +10,8 @@ import Observation
         didSet { if machines != oldValue { defaults.set(try? JSONEncoder().encode(machines), forKey: Keys.known) } }
     }
     private(set) var loaded = false
-    private(set) var grants: [String: [String]]
+    /// What each pairing lets this phone do, by machine and device (`GrantBook`).
+    private(set) var grants: GrantBook
     /// Directory trouble, or an operation on a machine that failed (for a person).
     var problem: ProblemNotice?
     /// Machines stored without a pinned direct address; they need pairing again.
@@ -36,6 +37,8 @@ import Observation
     /// This app install (ADR 0115), in every hello.
     @ObservationIgnored private let installId: String?
     @ObservationIgnored private let probe: (ConnectionTarget) async -> Bool
+    /// Milliseconds, for the route plans' hold and cooldown.
+    @ObservationIgnored private let clock: () -> Double
     /// Account machines whose daemon said, over the relay, which paired machine it is: account
     /// host id → daemon id.
     @ObservationIgnored private var daemons: [String: String]
@@ -54,9 +57,9 @@ import Observation
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
-        self.installId = installId; self.probe = probe
+        self.installId = installId; self.probe = probe; clock = now
         inbox = MachineInbox(defaults: defaults, now: now)
-        grants = defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:]
+        grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
         off = Self.turnedOff(in: defaults)
         daemons = defaults.dictionary(forKey: Keys.daemons) as? [String: String] ?? [:]
     }
@@ -65,7 +68,8 @@ import Observation
     func isReadOnly(_ hostId: String) -> Bool {
         entry(hostId).map { !canOperate($0) } ?? false
     }
-    private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants[entry.deviceId] ?? ["operate"]).canOperate }
+    private func canOperate(_ entry: MachineEntry) -> Bool { Grants(scopes: grants.scopes(for: entry) ?? ["operate"]).canOperate }
+    private func saveGrants() { defaults.set(grants.saved, forKey: Keys.grants) }
 
     /// Connect every machine this phone knew at once, then read the directory and follow it: a
     /// machine it no longer lists stops, a changed one reconnects, a new one connects. Reading the
@@ -92,6 +96,8 @@ import Observation
         case .failure(let notice): problem = notice
         }
         await adopt(account: await accountListing)
+        // Grants saved by device alone move to their machine, now that the machines are known.
+        if grants.adopt(paired) { saveGrants() }
         loaded = true
         for entry in machines { await connect(entry) }
         afterLoad?()
@@ -142,10 +148,11 @@ import Observation
             await client.disconnectAndWait()
             afterRemove?(client, entry.hostId)
         }
+        await followOff()
         // A machine that gained or lost its account route keeps its runtime, on a route it still has.
         for entry in listed where plans[entry.hostId] != nil {
             let routes = targets(for: entry)
-            await take(plans[entry.hostId]?.routes(direct: routes.direct != nil, relay: routes.relay != nil), entry.hostId)
+            await take(plans[entry.hostId]?.routes(direct: routes.direct != nil, relay: routes.relay != nil, at: clock()), entry.hostId)
         }
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
@@ -155,8 +162,8 @@ import Observation
         case .success(let outcome):
             if let listed = outcome.machines { paired = listed; machines = merged() }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
-            grants[entry.deviceId] = paired.scopes
-            defaults.set(grants, forKey: Keys.grants)
+            grants.set(paired.scopes, for: entry)
+            saveGrants()
             await connect(entry)
             return nil
         }
@@ -180,6 +187,7 @@ import Observation
     /// and device. The other machines keep running throughout.
     func remove(_ hostId: String) async {
         guard let entry = entry(hostId) else { return }
+        let known = aliases(of: hostId)
         let client = inbox.client(hostId)
         await client?.disconnectAndWait()
         if let notice = await forgetOrUnpair(entry) {
@@ -189,13 +197,13 @@ import Observation
         }
         plans[hostId] = nil
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
-        if off.remove(hostId) != nil { saveOff() }
+        if !off.isDisjoint(with: known) { off.subtract(known); saveOff() }
         // Removed on purpose: what this phone remembers of the machine goes too. A machine that
         // only left the list (signed out, another account) keeps it for when it comes back.
         inbox.forget(hostId)
         unsupported.remove(hostId)
-        grants[entry.deviceId] = nil
-        defaults.set(grants, forKey: Keys.grants)
+        grants.set(nil, for: entry)
+        saveGrants()
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
         for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix] + ["", "-wal", "-shm"].map({ SnapshotStore.suffix + $0 }) { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
     }
@@ -264,6 +272,12 @@ import Observation
         direct?.installId = installId
         relay?.installId = installId
         relay?.machineScope = scope
+        // One machine reached both ways is one device under two ids: what either route saved is
+        // the other's too (ADR 0115).
+        if let pairedId = direct?.deviceId, let accountId = relay?.deviceId, pairedId != accountId {
+            direct?.deviceAliases = [accountId]
+            relay?.deviceAliases = [pairedId]
+        }
         return (direct, relay)
     }
     /// The route the machine's plan is on, or the one it has.
@@ -274,13 +288,16 @@ import Observation
     private func connect(_ entry: MachineEntry) async {
         let routes = targets(for: entry)
         guard routes.direct != nil || routes.relay != nil else { unsupported.insert(entry.hostId); return }
-        if off.contains(entry.hostId) || inbox.client(entry.hostId) != nil { return }
+        if isOff(entry.hostId) || inbox.client(entry.hostId) != nil { return }
         plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil)
         guard let target = target(for: entry) else { return }
         let client = makeClient()
         let hostId = entry.hostId
         client.onConnection = { [weak self] state in
-            Task { @MainActor in await self?.take(self?.plans[hostId]?.connection(state), hostId) }
+            Task { @MainActor in
+                guard let self else { return }
+                await self.take(self.plans[hostId]?.connection(state, at: self.clock()), hostId)
+            }
         }
         client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
         inbox.attach(entry.hostId, name: entry.displayName, client: client)
@@ -297,12 +314,12 @@ import Observation
             var answered = false
             if let direct = targets(for: entry).direct { answered = await probe(direct) }
             guard inbox.client(hostId) === client else { return }
-            await take(plans[hostId]?.probed(answered: answered), hostId)
+            await take(plans[hostId]?.probed(answered: answered, at: clock()), hostId)
         }
     }
     private func reconsiderRoutes() {
         for hostId in plans.keys where plans[hostId]?.current == .relay {
-            Task { await take(plans[hostId]?.networkChanged(), hostId) }
+            Task { await take(plans[hostId]?.networkChanged(at: clock()), hostId) }
         }
     }
     /// What a machine said about itself over its own authenticated connection: a paired
@@ -326,25 +343,57 @@ import Observation
 
     // MARK: Turning a machine off on this phone
 
-    func isOff(_ hostId: String) -> Bool { off.contains(hostId) }
+    /// Off under any id this phone knows the machine by: turned off as an account machine, it
+    /// stays off once it is known to be a paired one, and the other way round.
+    func isOff(_ hostId: String) -> Bool { !off.isDisjoint(with: aliases(of: hostId)) }
+    /// Every id this phone knows one machine by: its listing id, the account machine a paired
+    /// entry took in, and the paired machine an account machine's daemon said it is.
+    private func aliases(of hostId: String) -> Set<String> {
+        var ids: Set<String> = [hostId]
+        for entry in machines where entry.hostId == hostId || entry.accountHostId == hostId {
+            ids.insert(entry.hostId)
+            if let account = entry.accountHostId { ids.insert(account) }
+        }
+        if let daemon = daemons[hostId] { ids.insert(daemon) }
+        for (account, daemon) in daemons where daemon == hostId { ids.insert(account) }
+        return ids
+    }
     /// Off: the machine stays listed and paired, with its credential, grants and cache, but its
     /// runtime stops and its threads, notifications and lock screen rows go. On: it connects
     /// again with the same identity. Kept on this phone only; the machine is never told.
     func setOn(_ hostId: String, _ on: Bool) async {
+        let ids = aliases(of: hostId)
         if on {
-            guard off.remove(hostId) != nil else { return }
+            guard !off.isDisjoint(with: ids) else { return }
+            off.subtract(ids)
             saveOff()
             if let entry = entry(hostId) { await connect(entry) }
             return
         }
-        guard off.insert(hostId).inserted else { return }
+        guard !ids.isSubset(of: off) else { return }
+        off.formUnion(ids)
         saveOff()
+        await stopTurnedOff(hostId, ids)
+    }
+    /// A machine turned off lets its runtime go, and what it showed outside the app under any
+    /// of its ids goes too.
+    private func stopTurnedOff(_ hostId: String, _ ids: Set<String>) async {
         plans[hostId] = nil
         if let client = inbox.detach(hostId) {
             await client.disconnectAndWait()
             afterRemove?(client, hostId)
         }
-        afterTurnOff?(hostId)
+        for id in ids.sorted() { afterTurnOff?(id) }
+    }
+    /// The list learned that two ids are one machine: if either was turned off, the machine is
+    /// off under both, and a runtime it still has stops.
+    private func followOff() async {
+        for entry in machines {
+            let ids = aliases(of: entry.hostId)
+            guard !off.isDisjoint(with: ids) else { continue }
+            if !ids.isSubset(of: off) { off.formUnion(ids); saveOff() }
+            if inbox.client(entry.hostId) != nil { await stopTurnedOff(entry.hostId, ids) }
+        }
     }
     private func saveOff() { defaults.set(off.sorted(), forKey: Keys.off) }
     /// The machines turned off on this phone, as stored; notifications read it too.
@@ -353,7 +402,7 @@ import Observation
     }
     private func open(_ client: ClientModel, entry: MachineEntry, target: ConnectionTarget) async {
         client.canOperate = canOperate(entry)
-        client.canAdmin = grants[entry.deviceId].map { Grants(scopes: $0).canAdmin }
+        client.canAdmin = grants.scopes(for: entry).map { Grants(scopes: $0).canAdmin }
         await beforeConnect?(client, target)
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
     }

@@ -22,7 +22,7 @@ struct AlertStack: Codable, Equatable, Sendable {
         /// Folded into the finished summary; its own notification is gone.
         var folded = false
     }
-    /// What to do on the notification center for one landing.
+    /// What to do on the notification center for one landing or removal.
     struct Landing: Equatable, Sendable {
         var post: AlertContent?
         var withdraw: [String] = []
@@ -71,31 +71,45 @@ struct AlertStack: Codable, Equatable, Sendable {
     }
 
     /// The daemon no longer stands behind this alert: withdraw it if it is still the thread's.
-    mutating func retract(_ alertId: String, hostId: String?) -> [String] {
-        guard let index = shown.firstIndex(where: { $0.alertId == alertId && $0.hostId == hostId }) else { return [] }
+    mutating func retract(_ alertId: String, hostId: String?) -> Landing {
+        guard let index = shown.firstIndex(where: { $0.alertId == alertId && $0.hostId == hostId }) else { return Landing() }
         return remove(at: index)
     }
     /// The thread was opened, or its request answered or gone: its notification goes.
-    mutating func clear(threadId: String, hostId: String?) -> [String] {
-        guard let index = shown.firstIndex(where: { $0.threadId == threadId && $0.hostId == hostId }) else { return [] }
+    mutating func clear(threadId: String, hostId: String?) -> Landing {
+        guard let index = shown.firstIndex(where: { $0.threadId == threadId && $0.hostId == hostId }) else { return Landing() }
         return remove(at: index)
     }
-    /// Every notification from one machine goes. A finish folded into the summary has none of
-    /// its own; the summary stays.
-    mutating func clear(hostId: String) -> [String] {
+    /// Every notification from one machine goes, such as one turned off on this phone. Its
+    /// finishes leave the summary too: it is posted again over the rest, or withdrawn.
+    mutating func clear(hostId: String) -> Landing {
         let gone = shown.filter { $0.hostId == hostId }
         shown.removeAll { $0.hostId == hostId }
-        return gone.filter { !$0.folded }.map(\.key)
+        var landing = Landing(withdraw: gone.filter { !$0.folded }.map(\.key))
+        if gone.contains(where: \.folded) { summaryChanged(&landing) }
+        return landing
+    }
+    /// The finished summary as the stack stands: over every finish still folded into it, newest
+    /// first, or none when no finish is left.
+    var summary: AlertContent? {
+        let titles = shown.filter(\.folded).map(\.title).reversed()
+        return titles.isEmpty ? nil : .finishedSummary(count: titles.count, titles: Array(titles))
     }
     /// Threads whose notification asks for the person, for checking against their rows.
     func asking(hostId: String) -> [String] {
         shown.filter { $0.hostId == hostId && $0.status == "needs_you" }.map(\.threadId)
     }
 
-    private mutating func remove(at index: Int) -> [String] {
+    private mutating func remove(at index: Int) -> Landing {
         let entry = shown.remove(at: index)
-        // A folded finish has no notification of its own; the summary stays as it was.
-        return entry.folded ? [] : [entry.key]
+        guard entry.folded else { return Landing(withdraw: [entry.key]) }
+        // A folded finish has no notification of its own: the summary loses its title.
+        var landing = Landing()
+        summaryChanged(&landing)
+        return landing
+    }
+    private func summaryChanged(_ landing: inout Landing) {
+        if let summary { landing.post = summary } else { landing.withdraw.append(Self.summaryId) }
     }
     private mutating func record(_ entry: Shown) {
         shown.append(entry)

@@ -56,7 +56,8 @@ struct AlertContent: Equatable, Sendable {
     static func finishedSummary(count: Int, titles: [String]) -> AlertContent {
         let named = titles.prefix(3).joined(separator: ", ")
         let body = titles.count > 3 ? "\(named) and \(titles.count - 3) more" : named
-        return AlertContent(identifier: AlertStack.summaryId, title: "\(count) threads finished", body: body, threadId: "",
+        return AlertContent(identifier: AlertStack.summaryId, title: count == 1 ? "1 thread finished" : "\(count) threads finished",
+                            body: body, threadId: "",
                             group: AlertStack.summaryId)
     }
     private init(identifier: String, title: String, body: String, threadId: String, group: String? = nil) {

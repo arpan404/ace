@@ -47,7 +47,8 @@ private let fingerprint = DaemonCertificate.pin
         await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
         #expect(fixture.model.inbox.row(InboxKey(machineId: "studio", id: "t1")) != nil)
 
-        // A new network where the LAN still doesn't answer: it stays on the relay.
+        // Past the hold, a new network where the LAN still doesn't answer: it stays on the relay.
+        fixture.clock.advance(MachineRoutePlan.hold)
         answers.queue = [false]
         fixture.model.network(online: true, interfaceChanged: true)
         await settle { answers.asked == 1 }
@@ -61,6 +62,40 @@ private let fingerprint = DaemonCertificate.pin
         #expect(back.target.relay == nil && back.target.pin == fingerprint)
         #expect(back.storage == direct.storage)
         #expect(fixture.model.machines.count == 1)
+    }
+
+    @Test func aRelayTheAccountListsAfterTheDirectRouteStoppedReachingTheMachineIsTakenAtOnce() async throws {
+        let account = FakeAccountDirectory([])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        // The LAN stops answering before the account has listed the machine: nowhere else to go.
+        direct.emit(row(connection: "reconnecting", thread: "t1"))
+        await drain()
+        try? await Task.sleep(for: .milliseconds(50))
+        #expect(fixture.sessions.started.count == 1)
+        // The account lists it now; the runtime, still reconnecting, says nothing new.
+        account.list([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        await fixture.model.refreshAccount()
+        await settle { fixture.sessions.started.count == 2 }
+        #expect(fixture.sessions.started.last?.target.relay?.hostId == relayKey)
+        #expect(fixture.model.machines.map(\.hostId) == ["studio"])
+    }
+
+    @Test func aMachineReachedBothWaysSendsWhatEitherRouteSavedAsTheOther() async throws {
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        #expect(direct.target.deviceAliases == ["ios-account-device"])
+        direct.emit(row(connection: "reconnecting", thread: "t1"))
+        await settle { fixture.sessions.started.count == 2 }
+        let relay = try #require(fixture.sessions.started.last)
+        #expect(relay.target.deviceId == "ios-account-device" && relay.target.deviceAliases == ["phone-1"])
     }
 
     @Test func aPairedMachineThatNamesItsAccountKeyTakesTheAccountEntryIntoItself() async throws {
@@ -114,35 +149,79 @@ private let fingerprint = DaemonCertificate.pin
     @Test func theDirectRouteIsLeftForTheRelayOnlyWhenItCantReachTheMachine() {
         var plan = MachineRoutePlan(direct: true, relay: true)
         #expect(plan.current == .direct)
-        for state in ["connecting", "ready", "offline", "fatal"] { #expect(plan.connection(state) == .stay) }
-        #expect(plan.connection("reconnecting") == .open(.relay))
+        for state in ["connecting", "ready", "offline", "fatal"] { #expect(plan.connection(state, at: 0) == .stay) }
+        #expect(plan.connection("reconnecting", at: 0) == .open(.relay))
         #expect(plan.current == .relay)
         // Without a relay there is nowhere else to go.
         var alone = MachineRoutePlan(direct: true, relay: false)
-        #expect(alone.connection("reconnecting") == .stay)
+        #expect(alone.connection("reconnecting", at: 0) == .stay)
     }
 
     @Test func onTheRelayANewNetworkProbesTheDirectRouteAndOnlyAnAnswerFailsBack() {
         var plan = MachineRoutePlan(direct: true, relay: true)
-        _ = plan.connection("reconnecting")
-        #expect(plan.networkChanged() == .probeDirect)
+        _ = plan.connection("reconnecting", at: 0)
+        let later = MachineRoutePlan.hold
+        #expect(plan.networkChanged(at: later) == .probeDirect)
         // One probe at a time.
-        #expect(plan.networkChanged() == .stay)
-        #expect(plan.probed(answered: false) == .stay)
+        #expect(plan.networkChanged(at: later) == .stay)
+        #expect(plan.probed(answered: false, at: later) == .stay)
         #expect(plan.current == .relay)
-        #expect(plan.connection("reconnecting") == .probeDirect)
-        #expect(plan.probed(answered: true) == .open(.direct))
+        #expect(plan.connection("reconnecting", at: later) == .probeDirect)
+        #expect(plan.probed(answered: true, at: later) == .open(.direct))
         #expect(plan.current == .direct)
         // On the direct route there is nothing to probe, and a stray answer moves nothing.
-        #expect(plan.networkChanged() == .stay)
-        #expect(plan.probed(answered: true) == .stay)
+        #expect(plan.networkChanged(at: later) == .stay)
+        #expect(plan.probed(answered: true, at: later) == .stay)
+    }
+
+    @Test func aRelayThatArrivesWhileTheDirectRouteCantReachTheMachineIsTakenAtOnce() {
+        var plan = MachineRoutePlan(direct: true, relay: false)
+        #expect(plan.connection("reconnecting", at: 0) == .stay)
+        // The account lists the machine's relay only now; the runtime reports nothing new.
+        #expect(plan.routes(direct: true, relay: true, at: 1) == .open(.relay))
+        #expect(plan.current == .relay)
+        // A relay that arrives while direct works changes nothing.
+        var working = MachineRoutePlan(direct: true, relay: false)
+        _ = working.connection("ready", at: 0)
+        #expect(working.routes(direct: true, relay: true, at: 1) == .stay)
+    }
+
+    @Test func theRelayIsKeptForTheHoldBeforeTheDirectRouteIsTriedAgain() {
+        var plan = MachineRoutePlan(direct: true, relay: true)
+        #expect(plan.connection("reconnecting", at: 1_000) == .open(.relay))
+        #expect(plan.networkChanged(at: 1_000 + MachineRoutePlan.hold - 1) == .stay)
+        #expect(plan.networkChanged(at: 1_000 + MachineRoutePlan.hold) == .probeDirect)
+    }
+
+    @Test func aDirectRouteThatAnswersButDoesntHoldWaitsLongerEachTimeBeforeItIsTriedAgain() {
+        var plan = MachineRoutePlan(direct: true, relay: true)
+        var now: Double = 0
+        _ = plan.connection("reconnecting", at: now)
+        var waits: [Double] = []
+        for _ in 0..<3 {
+            // Probe until the plan lets it, then fail back and lose the connection before ready.
+            var waited: Double = 0
+            while plan.networkChanged(at: now + waited) != .probeDirect { waited += 1_000 }
+            waits.append(waited)
+            now += waited
+            #expect(plan.probed(answered: true, at: now) == .open(.direct))
+            #expect(plan.connection("reconnecting", at: now) == .open(.relay))
+        }
+        #expect(waits == [MachineRoutePlan.hold, MachineRoutePlan.cooldown, 2 * MachineRoutePlan.cooldown])
+        // A move back that reaches ready proves the route: the wait starts over.
+        now += 2 * MachineRoutePlan.cooldown * 2
+        #expect(plan.networkChanged(at: now) == .probeDirect)
+        _ = plan.probed(answered: true, at: now)
+        _ = plan.connection("ready", at: now)
+        _ = plan.connection("reconnecting", at: now)
+        #expect(plan.networkChanged(at: now + MachineRoutePlan.hold) == .probeDirect)
     }
 
     @Test func aRouteThatGoesAwayIsLeftForTheOneThatStays() {
         var plan = MachineRoutePlan(direct: true, relay: true)
-        _ = plan.connection("reconnecting")
-        #expect(plan.routes(direct: true, relay: false) == .open(.direct))
-        #expect(plan.routes(direct: true, relay: true) == .stay)
+        _ = plan.connection("reconnecting", at: 0)
+        #expect(plan.routes(direct: true, relay: false, at: 0) == .open(.direct))
+        #expect(plan.routes(direct: true, relay: true, at: 0) == .stay)
         #expect(MachineRoutePlan(direct: false, relay: true).current == .relay)
     }
 }
