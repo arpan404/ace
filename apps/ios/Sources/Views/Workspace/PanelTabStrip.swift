@@ -9,7 +9,6 @@ import UniformTypeIdentifiers
 struct PanelTabStrip: View {
     let view: PanelView
     let act: ([String: Any]) -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The order shown while a drag is under way, until the bridge sends the order it settled.
     @State private var drag = TabDrag()
 
@@ -19,7 +18,7 @@ struct PanelTabStrip: View {
         let ordered = order.compactMap { byKey[$0] }
         return ordered.count == view.tabs.count ? ordered : view.tabs
     }
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
 
     var body: some View {
         HStack(spacing: AceTheme.Spacing.none) {
@@ -43,7 +42,7 @@ struct PanelTabStrip: View {
                 }
                 .onChange(of: view.shown?.key, initial: true) { _, key in
                     guard let key else { return }
-                    withAnimation(reduceMotion ? nil : AceTheme.Motion.standardCurve) { proxy.scrollTo(key) }
+                    withAnimation { proxy.scrollTo(key) }
                 }
             }
             openMenu

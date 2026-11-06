@@ -21,7 +21,6 @@ struct GlassChoice: View {
     let select: (String) -> Void
     @Namespace private var thumb
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     var body: some View {
         ScrollViewReader { scroller in
@@ -29,6 +28,8 @@ struct GlassChoice: View {
                 HStack(spacing: AceTheme.Spacing.xxs) {
                     ForEach(items) { item in segment(item).id(item.id) }
                 }
+                // Only the thumb slides; the choice it makes takes effect at once.
+                .animation(.default, value: selection)
                 .padding(AceDesign.Space.tight)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
@@ -37,7 +38,7 @@ struct GlassChoice: View {
             .opacity(disabled ? AceTheme.Opacity.disabled(scheme) : 1)
             .onAppear { if let selection { scroller.scrollTo(selection, anchor: .center) } }
             .onChange(of: selection) { _, id in
-                if let id { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { scroller.scrollTo(id, anchor: .center) } }
+                if let id { withAnimation { scroller.scrollTo(id, anchor: .center) } }
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -50,7 +51,7 @@ struct GlassChoice: View {
         let on = item.id == selection
         return Button {
             guard !on, !disabled else { return }
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { select(item.id) }
+            select(item.id)
         } label: {
             HStack(spacing: AceDesign.Space.tight) {
                 switch item.glyph {

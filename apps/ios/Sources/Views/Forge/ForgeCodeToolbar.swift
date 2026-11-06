@@ -65,7 +65,7 @@ struct ForgeCodeToolbar: View {
                 .background(on ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
                 .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
-                .animation(AceMotion.smooth, value: on)
+                .animation(.default, value: on)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(on ? .isSelected : [])

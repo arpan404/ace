@@ -10,7 +10,9 @@ import Testing
         notifier.bind(store)
         await notifier.receive(alert("n:1"))
         await notifier.catchUp(cursor: 3, entries: [alert("n:1"), alert("n:2")], retracted: [])
-        #expect(center.posted.map(\.identifier) == ["n:1", "n:2"])
+        // Both reach the phone once; the same thread's second replaces its first.
+        #expect(center.posted.count == 2)
+        #expect(center.delivered.count == 1)
         #expect(notifier.ledger.cursor == 3)
         // After a relaunch the same catch-up page alerts nothing new.
         let relaunched = LocalNotifier(center: center)
@@ -25,7 +27,7 @@ import Testing
         notifier.bind(LedgerStore(scope: "host", defaults: try defaults()))
         await notifier.receive(alert("n:1", status: "done"))
         await notifier.catchUp(cursor: 1, entries: [], retracted: ["n:1"])
-        #expect(center.withdrawn == ["n:1"])
+        #expect(center.delivered.isEmpty)
     }
 
     @Test func thePhonesDeliveryChoiceDecidesWhetherAndHowAnAlertIsPosted() async throws {
@@ -38,7 +40,7 @@ import Testing
         quiet.delivery = .init(post: true, interrupt: false, banner: false)
         await notifier.receive(off)
         await notifier.catchUp(cursor: 2, entries: [off, quiet], retracted: [])
-        #expect(center.posted.map(\.identifier) == ["n:2"])
+        #expect(center.posted.count == 1)
         #expect(center.posted.first?.level == .passive)
         #expect(center.posted.first?.banner == false)
         // An alert from a runtime that says nothing about delivery shows as before.
@@ -125,7 +127,8 @@ import Testing
         #expect(studio.actions("notifications.resolve").isEmpty)
         laptop.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"confirmed"}"#)
         await response.value
-        #expect(center.withdrawn == ["n:1"])
+        // The laptop's notification goes; the studio's stays.
+        #expect(center.delivered.values.map(\.hostId) == ["studio"])
     }
 
     @Test func theSameAlertIdFromTwoMachinesShowsTwiceAndRetractingOneLeavesTheOther() async throws {
@@ -142,6 +145,68 @@ import Testing
         #expect(center.delivered.values.map(\.hostId) == ["studio"])
     }
 
+    @Test func aSecondAlertForTheSameThreadReplacesTheFirstInsteadOfStacking() async throws {
+        let center = FakeCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio")
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        await notifier.receive(alert("n:1", status: "needs_you"))
+        await notifier.receive(alert("n:2", status: "done"))
+        #expect(center.delivered.count == 1)
+        #expect(center.delivered.values.first?.body.hasPrefix("Done") == true)
+    }
+
+    @Test func threeThreadsFinishingInsideTheWindowBecomeOneQuietSummary() async throws {
+        let center = FakeCenter()
+        var clock = 1_000_000.0
+        let desk = AlertDesk(center: center, now: { clock })
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: desk)
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        await notifier.receive(alert("n:1", thread: "a", title: "Fix stalls"))
+        // The first finish sounds on its own.
+        #expect(center.delivered.values.map(\.level) == [.active])
+        clock += 30_000
+        await notifier.receive(alert("n:2", thread: "b", title: "Polish the composer"))
+        clock += 30_000
+        await notifier.receive(alert("n:3", thread: "c", title: "Ship the widget"))
+        let shown = try #require(center.delivered.values.first)
+        #expect(center.delivered.count == 1)
+        #expect(shown.title == "3 threads finished")
+        #expect(shown.body == "Ship the widget, Polish the composer, Fix stalls")
+        #expect(shown.level == .passive)
+        // A finish well after the burst is its own notification again.
+        clock += AlertStack.burstWindow + 60_000
+        await notifier.receive(alert("n:4", thread: "d", title: "Later"))
+        #expect(center.delivered.count == 2)
+    }
+
+    @Test func aFailureOrRequestNeverFoldsIntoTheFinishedSummary() async throws {
+        let center = FakeCenter()
+        let notifier = LocalNotifier(center: center, hostId: "studio", desk: AlertDesk(center: center, now: { 0 }))
+        notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
+        await notifier.receive(alert("n:1", thread: "a"))
+        await notifier.receive(alert("n:2", status: "failed", thread: "b"))
+        await notifier.receive(alert("n:3", status: "needs_you", thread: "c"))
+        #expect(center.delivered.count == 3)
+    }
+
+    @Test func openingAThreadOnThePhoneWithdrawsItsNotification() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"done","backgroundCount":0,"actions":[]}}"#)
+        try await until("the alert posted") { center.delivered.count == 1 }
+        coordinator.model?.open("thread")
+        #expect(center.delivered.isEmpty)
+    }
+
+    @Test func aRequestAnsweredElsewhereTakesItsNotificationWithItOnceTheRowMovesOn() async throws {
+        let (coordinator, center, session) = try await connected()
+        await coordinator.setEnabled(true)
+        session.patch(#"{"type":"notifications.alert","notification":{"id":"n:1","threadId":"thread","title":"Fix","status":"needs_you","interactionId":"push","backgroundCount":0,"actions":[]}}"#)
+        try await until("the alert posted") { center.delivered.count == 1 }
+        session.patch(#"{"type":"inbox.row","id":"thread","row":{"id":"thread","title":"Fix","state":"working","attention":null,"project":"ace","branch":"","machine":"","provider":"codex","model":"","agents":1,"snoozedUntil":null,"updatedAt":1,"canSteer":true,"status":{"label":"Working","token":"working"},"machineId":"host","activityAt":1,"confirmed":true,"generation":0,"look":{"level":"active","state":"working","tone":"working","muted":true,"settled":false,"subagents":0}}}"#)
+        try await until("the answered request's notification goes") { center.delivered.isEmpty }
+    }
+
     @Test func aRetractionAlsoWithdrawsTheBareIdAnOlderBuildPosted() async throws {
         let center = FakeCenter()
         await center.post(AlertContent(alert("n:1")))
@@ -149,6 +214,70 @@ import Testing
         notifier.bind(LedgerStore(scope: "studio", defaults: try defaults()))
         await notifier.catchUp(cursor: 1, entries: [], retracted: ["n:1"])
         #expect(center.delivered.isEmpty)
+    }
+
+    @Test func aNeedsYouAlertSaysWhoAsksAndAShortQuestionGetsItsOptionsAsButtons() {
+        var ask = alert("n:1", status: "needs_you")
+        ask = AlertNotification(id: ask.id, threadId: ask.threadId, title: "Review the blog", status: "needs_you", interactionId: "ask",
+                                backgroundCount: 0, actions: [], preview: nil, message: nil,
+                                request: .init(kind: "question", sentence: "Claude Code has a question", detail: "Include the archive?", code: false,
+                                               questionId: "scope", choices: [.init(id: "yes", label: "Include it"), .init(id: "no", label: "Skip it")], reply: true))
+        let content = AlertContent(ask)
+        #expect(content.title == "Claude Code has a question")
+        #expect(content.body == "Review the blog · Include the archive?")
+        #expect(content.category == NotificationCategories.choiceId(["Include it", "Skip it"], reply: true))
+        #expect(content.choices.map(\.id) == ["yes", "no"])
+        #expect(content.takesWords)
+        // A finished thread takes a reply; an unknown status stays a plain tap.
+        #expect(AlertContent(alert("n:2", status: "done")).category == AlertContent.replyCategory)
+        #expect(AlertContent(alert("n:3", status: "something_new")).category == AlertContent.threadCategory)
+    }
+
+    @Test func anOptionTappedOnTheNotificationAnswersThatOptionAndTheAlertGoesOnceConfirmed() async throws {
+        let (coordinator, center, session) = try await connected()
+        var info = approvalInfo
+        info[NotificationKeys.questionId] = "scope"
+        info[NotificationKeys.choices] = "yes\u{1F}no"
+        let response = Task { await coordinator.respond(action: NotificationActionID.choice(1), notificationId: "n:8", info: info) }
+        let answer = try await session.waitFor("notifications.answer")
+        #expect(answer["value"] as? String == "no")
+        #expect(answer["questionId"] as? String == "scope")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"confirmed"}"#)
+        await response.value
+        #expect(center.withdrawn == ["n:8"])
+        #expect(center.posted.isEmpty)
+    }
+
+    @Test func aReplyTheMachineRefusesComesBackQuietlyWithTheWordsSoTheyArentLost() async throws {
+        let (coordinator, center, session) = try await connected()
+        let response = Task {
+            await coordinator.respond(action: NotificationActionID.reply, notificationId: "n:9", info: [NotificationKeys.threadId: "thread"],
+                                      text: "  Also run the linter ")
+        }
+        let reply = try await session.waitFor("notifications.reply")
+        #expect(reply["text"] as? String == "Also run the linter")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"refused"}"#)
+        await response.value
+        #expect(center.posted.map(\.title) == ["Message not sent"])
+        #expect(center.posted.first?.body.contains("“Also run the linter”") == true)
+        #expect(center.posted.first?.level == .passive)
+    }
+
+    @Test func anApprovalAnsweredElsewhereSaysSoInsteadOfGoingSilent() async throws {
+        let (coordinator, center, session) = try await connected()
+        let response = Task { await coordinator.respond(action: NotificationActionID.approve, notificationId: "n:7", info: approvalInfo) }
+        _ = try await session.waitFor("notifications.resolve")
+        session.patch(#"{"type":"notifications.action","id":"tap-1","outcome":"stale"}"#)
+        await response.value
+        #expect(center.withdrawn == ["n:7"])
+        #expect(center.posted.map(\.title) == ["Already answered"])
+    }
+
+    @Test func anEmptyReplyOpensTheThreadInsteadOfSendingNothing() async throws {
+        let (coordinator, _, session) = try await connected()
+        await coordinator.respond(action: NotificationActionID.reply, notificationId: "n:9", info: [NotificationKeys.threadId: "thread"], text: "  ")
+        #expect(session.actions("notifications.reply").isEmpty)
+        #expect(coordinator.model?.deepLink == "thread")
     }
 
     // MARK: Support
@@ -172,8 +301,9 @@ import Testing
     private func target(_ host: String = "host") throws -> ConnectionTarget {
         ConnectionTarget(endpoint: try #require(URL(string: "ws://127.0.0.1:9841")), hostId: host, deviceId: "phone", pin: nil, credential: { "{}" })
     }
-    private func alert(_ id: String, status: String = "done", actions: Bool = false) -> AlertNotification {
-        AlertNotification(id: id, threadId: "thread", title: "Fix the flaky queue test", status: status,
+    private func alert(_ id: String, status: String = "done", actions: Bool = false, thread: String = "thread",
+                       title: String = "Fix the flaky queue test") -> AlertNotification {
+        AlertNotification(id: id, threadId: thread, title: title, status: status,
                           interactionId: actions ? "push" : nil, backgroundCount: 0,
                           actions: actions ? [.init(action: "approve", optionId: "allow"), .init(action: "deny", optionId: "deny")] : [],
                           preview: nil, message: nil)

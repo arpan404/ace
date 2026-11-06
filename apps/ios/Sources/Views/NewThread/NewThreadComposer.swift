@@ -1,198 +1,153 @@
 import SwiftUI
 
 @MainActor enum NewThreadStyle {
-    /// The question the sheet asks is the place's name; the chips under it are row text.
-    static let hero = AceTheme.Typography.largeTitle
+    /// The pills' and suggestions' words: row text.
     static let chip = AceTheme.Typography.label
-    /// The quiet ⌄ after the hero question that says it opens a picker.
-    static var disclosure: Text {
-        Text(" \(Image(systemName: "chevron.down"))").font(.title3.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
-    }
 }
 
-/// "⑂ New worktree ⌄" and "From main ⌄": where the thread works, as chips over the composer.
-struct NewThreadWorktreeChips: View {
-    let drafts: NewThreadDraftModel
-    let branches: (state: String, bases: [ComposeBase], start: ComposeBaseRef?, noWorktree: String?)?
-    private var draft: NewThreadDraft { drafts.draft }
-    private var worktree: Bool { draft.worktree && branches?.noWorktree == nil }
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AceTheme.Spacing.sm) {
-                Menu {
-                    Picker("Where it works", selection: Binding(get: { worktree }, set: { on in drafts.edit { $0.worktree = on } })) {
-                        Label("Local checkout", systemImage: "folder").tag(false)
-                        Label("New worktree", systemImage: "arrow.triangle.branch").tag(true)
-                    }
-                } label: {
-                    chip(worktree ? "New worktree" : "Local checkout", systemImage: worktree ? "arrow.triangle.branch" : "folder")
-                }
-                .disabled(branches?.noWorktree != nil || branches?.state != "ready")
-                .accessibilityHint(branches?.noWorktree ?? "")
-                .accessibilityIdentifier("newThread.worktree")
-                if worktree, let branches, !branches.bases.isEmpty {
-                    let selected = draft.base ?? branches.start
-                    Menu {
-                        Picker("Starts from", selection: Binding<ComposeBaseRef?>(get: { selected }, set: { base in drafts.edit { $0.base = base } })) {
-                            ForEach(branches.bases) { base in
-                                let tag: ComposeBaseRef? = base.base
-                                Text(base.title).tag(tag)
-                            }
-                        }
-                    } label: {
-                        chip("From \(branches.bases.first { $0.base == selected }?.label ?? "default")", systemImage: nil)
-                    }
-                    .accessibilityIdentifier("newThread.base")
-                }
-            }
-            .padding(.horizontal, AceTheme.Spacing.xxs)
-        }
-        .scrollClipDisabled()
-    }
-    private func chip(_ title: String, systemImage: String?) -> some View {
-        HStack(spacing: AceDesign.Space.tight) {
-            if let systemImage { Image(systemName: systemImage).imageScale(.small) }
-            Text(title).lineLimit(1)
-            Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.mutedForeground)
-        }
-        .aceFont(NewThreadStyle.chip, relativeTo: .subheadline)
-        .foregroundStyle(AceTheme.Colours.foreground)
-        .padding(.horizontal, AceDesign.Space.row)
-        .frame(minHeight: AceDesign.Size.tap)
-        .background(AceTheme.Colours.fill, in: AceShape.capsule)
-        .contentShape(AceShape.capsule)
-    }
-}
-
-/// The first message: its files, the words, then + · access · the model and its effort · send.
+/// The first message: the field taking the sheet's height, the `@` and `/` lists over it, the
+/// suggestions, then + · mic · Send in one row.
 struct NewThreadComposer: View {
     let drafts: NewThreadDraftModel
     let client: ClientModel?
     let files: [AttachmentFile]
-    let choice: NewThreadChoice
-    let agentsState: String?
     let sending: Bool
     let blocker: String?
     @Binding var attachProblem: String?
-    let chooseModel: () -> Void
-    /// Opens effort and speed for the first turn.
-    let chooseTune: () -> Void
     let send: () -> Void
     /// The first message's `@`, `/` and + lists.
     let suggester: ComposerSuggester
     /// A builtin picked from `/` or + that the sheet runs (plan, model, project).
     let run: (String) -> Void
+    /// The suggestions row, when it has anything to offer.
+    let suggestions: NewThreadSuggestions?
+    /// A skill was picked from `/`: the sheet remembers it for this project.
+    let pickedSkill: (NewThreadSkill) -> Void
+    /// Where the caret goes after a suggestion changed the words.
+    @Binding var place: CaretPlacement?
     @State private var focused = false
-    @State private var place: CaretPlacement?
     @State private var askAttach = false
     @State private var notice: String?
-    @Environment(\.aceReduceMotion) private var reduceMotion
+    @State private var dictation = NewThreadDictation()
+    /// The words before the mic was tapped; the transcript goes after them.
+    @State private var beforeDictation = ""
     private var draft: NewThreadDraft { drafts.draft }
 
     private var text: Binding<String> { Binding(get: { draft.text }, set: { text in drafts.edit { $0.text = text } }) }
     private func pick(_ row: SuggestionRow) {
+        if let skill = NewThreadSkill(row) { pickedSkill(skill) }
         suggester.choose(row, text: text, place: $place, keep: { drafts.add($0) }, notice: { notice = $0 }) { action in
             if action == "attach" { askAttach = true } else { run(action) }
         }
     }
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            if suggester.trigger != nil {
-                ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() })
+            field
+                .overlay(alignment: .bottom) {
+                    if suggester.trigger != nil {
+                        ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() })
+                            .padding(.horizontal, AceDesign.Space.margin - AceDesign.Space.tight)
+                    }
+                }
+            if !files.isEmpty {
+                ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceDesign.Space.margin) { id in
+                    client?.composeDetach(id)
+                    drafts.remove(id)
+                }
+                .padding(.bottom, AceDesign.Space.related)
             }
-            if let notice {
-                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            if let note = notice ?? dictation.problem {
+                Text(note).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, AceTheme.Spacing.sm).padding(.bottom, AceTheme.Spacing.xs)
+                    .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
             }
-            surface
+            if let suggestions { suggestions }
+            actions
         }
         .onChange(of: draft.text) { _, _ in notice = nil }
         .modifier(ComposerSuggestHost(suggester: suggester, text: text, place: $place, keep: { drafts.add($0) }))
         .onAppear { suggester.active = true }
-        .onDisappear { suggester.active = false }
+        .onDisappear { suggester.active = false; dictation.stop() }
     }
-    private var surface: some View {
-        ComposerDock {
+
+    /// The words, on the sheet itself: no box around them, the page is the field.
+    private var field: some View {
+        NativeTextInput(text: text, inputBegan: {},
+                        submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
+                        onFocus: { focus, duration in
+                            if !focus { suggester.close() } else { suggester.readAhead() }
+                            withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
+                        },
+                        identifier: "newThread.message", focusOnAppear: true,
+                        onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) },
+                        place: place, fills: true)
+            .overlay(alignment: .topLeading) {
+                if draft.text.isEmpty {
+                    Text(draft.isChat ? "Ask anything" : "Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                        .padding(.top, AceDesign.Space.row)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .accessibilityLabel(draft.isChat ? "Message" : "Describe a task")
+            .padding(.horizontal, AceDesign.Space.margin)
+            .frame(maxHeight: .infinity)
+    }
+
+    /// + on the leading edge, the mic and Send on the trailing one.
+    private var actions: some View {
+        HStack(spacing: AceDesign.Space.related) {
             AttachMenu(stage: { staged in
                 guard let client, let project = draft.projectId else { drafts.staging.discard(staged.localId); return }
                 drafts.picked(staged, workspaceId: project)
                 client.composeAttach(staged, workspaceId: project)
             }, problem: $attachProblem, identifier: "newThread.attach", staging: drafts.staging,
                more: suggester.adding, pickMore: pick, ask: $askAttach)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .tint(AceTheme.Colours.foreground)
+            .background { NewThreadRound(fill: AceTheme.Colours.fill) }
             // The new thread takes only the files it was sent with: none joins while it starts.
             .disabled(draft.projectId == nil || client?.canOperate != true || sending)
-        } content: {
-            ComposerSurface {
-                if !files.isEmpty {
-                    ComposerMediaStrip(files: files, staging: drafts.staging, inset: AceTheme.Spacing.md) { id in
-                        client?.composeDetach(id)
-                        drafts.remove(id)
-                    }
+            Spacer(minLength: AceDesign.Space.related)
+            if dictation.available { mic }
+            ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: draft.isChat ? "Start chat" : "Start thread", action: send)
+                .fixedSize()
+                .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
+        }
+        .padding(.horizontal, AceDesign.Space.margin - AceDesign.Space.tight)
+        .padding(.top, AceDesign.Space.tight)
+        .padding(.bottom, AceDesign.Space.related)
+    }
+
+    private var mic: some View {
+        Button {
+            if dictation.listening { dictation.stop(); return }
+            beforeDictation = draft.text
+            Task<Void, Never> {
+                await dictation.start { heard in
+                    drafts.edit { $0.text = DictationText.join(beforeDictation, heard: heard) }
                 }
-                // The thread composer's text view: a few lines tall while focused, and it grows to five
-                // lines, then scrolls.
-                NativeTextInput(text: text, inputBegan: {},
-                                submit: { if blocker == nil && !sending { send() } }, card: true, focused: focused,
-                                onFocus: { focus, duration in
-                                    if !focus { suggester.close() } else { suggester.readAhead() }
-                                    // Moves with the keyboard, so it takes the keyboard's own duration.
-                                    withAnimation(reduceMotion ? AceDesign.Motion.reduced : .spring(duration: duration, bounce: 0)) { focused = focus }
-                                },
-                                identifier: "newThread.message", focusOnAppear: true,
-                                onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) }, place: place)
-                    .overlay(alignment: .topLeading) {
-                        if draft.text.isEmpty {
-                            Text("Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                                .padding(.top, AceTheme.Spacing.md)
-                                .allowsHitTesting(false).accessibilityHidden(true)
-                        }
-                    }
-                    .accessibilityLabel("Describe a task")
-                    .padding(.horizontal, AceTheme.Spacing.lg)
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    ViewThatFits(in: .horizontal) {
-                        accessChip.fixedSize()
-                        accessChip.environment(\.composerRoomy, false)
-                    }
-                    Spacer(minLength: AceTheme.Spacing.xs)
-                    ModelEffortChip(provider: choice.agent?.provider, model: modelName, effort: tune,
-                                    loading: agentsState != "ready" && agentsState != "failed",
-                                    modelID: "newThread.agent", effortID: "newThread.tune",
-                                    openModel: chooseModel, openEffort: chooseTune)
-                    ComposerActionButton(saving: sending, disabled: blocker != nil || sending, label: "Start thread", action: send)
-                        .fixedSize().layoutPriority(1)
-                        .accessibilityHint(blocker ?? "").accessibilityIdentifier("newThread.start")
-                }
-                .padding(.horizontal, AceTheme.Spacing.sm)
             }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("newThread.surface")
+        } label: {
+            Group {
+                if dictation.listening {
+                    AceShape.stopGlyph.frame(width: AceDesign.Size.stopGlyph, height: AceDesign.Size.stopGlyph)
+                } else {
+                    AceIcon(.microphone, size: AceDesign.Size.sendGlyph, weight: .bold, relativeTo: .body)
+                }
+            }
+            .foregroundStyle(dictation.listening ? AceTheme.Colours.background : AceTheme.Colours.foreground)
+            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+            .background { NewThreadRound(fill: dictation.listening ? AceTheme.Colours.foreground : AceTheme.Colours.fill) }
+            // The whole 44-point square answers, not just the round drawn in it.
+            .contentShape(Rectangle())
         }
-    }
-    private var modelName: String { choice.model?.label ?? (agentsState == "failed" ? "Couldn't read agents" : "Choose model") }
-    private var tune: String? {
-        guard let model = choice.model else { return nil }
-        let speeds = model.speeds ?? []
-        let effort = model.efforts.first { $0.id == choice.effort }
-        let speedID = draft.speed ?? model.defaultSpeed ?? "standard"
-        let speed = speeds.first { $0.speed == speedID && $0.speed != "standard" }
-        return TuneSummary.text(effort: effort.map { short($0.label) }, speed: speed?.label,
-                                hasLevels: model.efforts.count > 1, hasSpeeds: speeds.count > 1)
-    }
-    /// "Medium" reads "Med" on the chip, as the thread composer's does.
-    private func short(_ label: String) -> String { label == "Medium" ? "Med" : label }
-    /// Access for the chosen agent (`newThreadAccess` in `@ace/ui-core`), with what each mode does.
-    @ViewBuilder private var accessChip: some View {
-        if let access = client?.compose.access, access.provider == choice.agent?.provider,
-           !access.choices.isEmpty || access.state == "loading" {
-            AccessChip(label: access.choices.first { $0.mode == access.selected }?.label ?? "Access", selected: access.selected,
-                       items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
-                       note: access.problem ?? access.stricter, loading: access.choices.isEmpty,
-                       identifier: "newThread.access") { mode in drafts.edit { $0.access = mode } }
-        }
+        .buttonStyle(.plain)
+        .disabled(sending)
+        .sensoryFeedback(.selection, trigger: dictation.listening)
+        .accessibilityLabel(dictation.listening ? "Stop dictating" : "Dictate")
+        .accessibilityIdentifier("newThread.mic")
     }
 }
 
@@ -226,4 +181,10 @@ struct NewThreadInstructionsView: View {
         .onAppear(perform: reloadProfiles)
         .navigationTitle("Instructions").navigationBarTitleDisplayMode(.inline)
     }
+}
+
+/// The round behind + and the mic: Send's size, inside the same full tap.
+struct NewThreadRound: View {
+    let fill: Color
+    var body: some View { Circle().fill(fill).frame(width: AceDesign.Size.send, height: AceDesign.Size.send) }
 }

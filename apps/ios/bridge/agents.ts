@@ -58,6 +58,10 @@ export function followAgents(
         row.name = preview(row.name, 128);
         row.model = preview(row.model, 128);
         row.activity = preview(row.activity, 256);
+        row.modelLabel = preview(row.modelLabel, 128);
+        row.role = preview(row.role, 128);
+        if (row.reason !== null) row.reason = preview(row.reason, 256);
+        if (row.machine !== null) row.machine = preview(row.machine, 128);
       }
       for (const task of sheet.tasks) task.title = preview(task.title, 512);
       return { type: "agents.sheet", threadId, epoch, sheet };

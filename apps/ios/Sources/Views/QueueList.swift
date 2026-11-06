@@ -19,7 +19,6 @@ struct QueueList: View {
     @State private var removing: QueueRow.Message?
     @State private var acting = false
     @State private var toggled = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var busy: String?
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
@@ -83,7 +82,7 @@ struct QueueList: View {
                 .accessibilityElement(children: .contain)
             }
             if queue.more > 0 {
-                Button("Show \(queue.more) more") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { showMore() } }
+                Button("Show \(queue.more) more") { withAnimation { showMore() } }
                     .buttonStyle(StripTextButtonStyle())
                     .monospacedDigit()
                     .padding(.leading, -AceDesign.Space.related)
@@ -92,8 +91,8 @@ struct QueueList: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("queue.strip")
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: queue.messages.map(\.id))
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: queue.control)
+        .animation(.default, value: queue.messages.map(\.id))
+        .animation(.default, value: queue.control)
         .sensoryFeedback(.impact(weight: .light), trigger: toggled)
         .sheet(item: $editor) { MessageEditSheet(editor: $0) }
         .confirmationDialog("Remove this message?", isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),

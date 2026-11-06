@@ -83,7 +83,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "-ace.appearance", "dark"]
         app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let allow = springboard.alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 4) { allow.tap() }

@@ -2601,39 +2601,14 @@ Example:
 ```json
 {
   "state": {
-    "capabilities": {
-      "background": false,
-      "capture": {
-        "changeDriven": true,
-        "displays": true,
-        "windows": true
-      },
-      "codecs": [
-        "jpeg"
-      ],
-      "input": {
-        "keyboard": true,
-        "pointer": true,
-        "scroll": false,
-        "text": false
-      },
-      "maxSessions": 4,
-      "permissionEvents": true,
-      "permissions": {
-        "input": "granted",
-        "screen": "denied"
-      },
-      "platform": "windows",
-      "semanticActions": [],
-      "uiTree": true,
-      "version": 2
-    },
     "controller": "none",
     "error": "example",
     "indicator": true,
     "lifecycle": "stopping",
     "permissions": {
       "accessibility": false,
+      "platform": "example",
+      "requirements": [],
       "screenRecording": true
     },
     "sessionId": "pWF_fUIJQu0kX3NARCT3IFHn1ivbdSLVKG_sNiUq0",

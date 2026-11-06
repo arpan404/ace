@@ -3,45 +3,25 @@ import XCTest
 @MainActor final class ParityUITests: XCTestCase, @unchecked Sendable {
     override func setUp() { continueAfterFailure = false }
 
-    func testTaskEntryIsTheBottomToolbarComposeButtonAndOpensTheNativeDraft() {
+    func testTaskEntryIsTheRoundComposeButtonAndOpensTheNativeDraft() {
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
-        let filter = app.buttons["inbox.projects"]
-        XCTAssertTrue(filter.exists)
-        // The scope menu sits under the title; New thread is the tab bar's round trailing button.
-        XCTAssertLessThan(filter.frame.maxY, app.frame.midY)
-        XCTAssertGreaterThan(start.frame.minY, app.frame.midY)
+        // New thread is the header's round trailing button (the tab bar's prominent one on iOS 27).
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))
         capture("start-task")
     }
 
-    func testHeaderPullRequestsButtonOpensPullRequestsAndMoreNoLongerListsThem() {
+    func testSearchsPullRequestsPlaceOpensPullRequestsDirectly() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.pulls"].waitForExistence(timeout: 30))
-        app.buttons["inbox.pulls"].tap()
+        app.openPulls()
         XCTAssertTrue(app.buttons["Issues"].waitForExistence(timeout: 10))
-        // Opened directly: the sheet closes, with no Back to More.
+        // Opened directly: the sheet closes, with no Back to another list.
+        XCTAssertFalse(app.navigationBars.buttons["BackButton"].exists)
         app.buttons["settings.close"].tap()
-        app.buttons["inbox.settings"].tap()
-        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons["more.pulls"].exists)
-    }
-
-    func testChatsTabListsChatsAndComposeThereStartsAChat() {
-        let app = launch()
-        let chats = app.buttons["threads.tab.chats"]
-        XCTAssertTrue(chats.waitForExistence(timeout: 30))
-        chats.tap()
-        XCTAssertTrue(app.buttons["chat.row"].firstMatch.waitForExistence(timeout: 10))
-        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread.ios-'")).firstMatch.exists)
-        let compose = app.newThreadButton
-        XCTAssertTrue(compose.waitForExistence(timeout: 5))
-        XCTAssertEqual(compose.label, "New chat")
-        compose.tap()
-        XCTAssertEqual(app.buttons["newThread.project"].waitForExistence(timeout: 10) ? app.buttons["newThread.project"].label : nil, "Project, none")
+        XCTAssertTrue(app.buttons["search.place.pulls"].waitForExistence(timeout: 10))
     }
 
     func testCanonicalApprovalLabelsAndKeyboardKeepComposerVisible() {
@@ -126,7 +106,7 @@ import XCTest
 
     func testMachineSettingsAndUsageLoadThroughTheSharedSdk() {
         let app = launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30)); app.openBrowseDestination("library.usage")
         XCTAssertTrue(app.buttons["Tokens"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["62% left"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.descendants(matching: .any)["service.problem"].exists)

@@ -9,7 +9,6 @@ struct MediaViewer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var image: UIImage?
     @State private var failed = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
             AceDesign.Surface.media.ignoresSafeArea()
@@ -31,7 +30,7 @@ struct MediaViewer: View {
                     .transition(.opacity)
             }
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: image != nil)
+        .animation(.default, value: image != nil)
         .environment(\.colorScheme, .dark)
         // VoiceOver's scrub gesture closes it too.
         .accessibilityAction(.escape) { dismiss() }

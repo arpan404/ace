@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClientCore, ThreadSource } from "@ace/client";
+import type { ClientCore } from "@ace/client";
 import {
   AppState,
   InteractionId,
@@ -10,9 +10,16 @@ import {
 } from "@ace/protocol";
 import { submitCommand } from "./commands.ts";
 import {
+  alertAnswer,
+  alertRequest,
+  confirmedState,
+  type AlertRequest,
+} from "./notification-request.ts";
+import { sendPayload } from "./thread-controls.ts";
+import {
   PhoneNotificationPrefs,
+  alertDelivery,
   defaultPhonePrefs,
-  phoneDelivery,
   type PhoneDelivery,
 } from "./notification-delivery.ts";
 
@@ -40,10 +47,31 @@ export const NotificationAction = z.discriminatedUnion("type", [
     interactionId: InteractionId.and(boundedId),
     optionId: boundedId,
   }),
+  /** A question's answer from its notification: an offered option's id, or the person's words. */
+  z.object({
+    type: z.literal("notifications.answer"),
+    requestId: z.string().min(1).max(64),
+    threadId: ThreadId.and(boundedId),
+    interactionId: InteractionId.and(boundedId),
+    questionId: boundedId,
+    value: z.string().min(1).max(8192),
+  }),
+  /** Reply from a notification: the words go to the thread as the next message. */
+  z.object({
+    type: z.literal("notifications.reply"),
+    requestId: z.string().min(1).max(64),
+    threadId: ThreadId.and(boundedId),
+    text: z.string().min(1).max(8192),
+  }),
 ]);
 export type NotificationAction = z.infer<typeof NotificationAction>;
 /** What a notification action ended as. Only `confirmed` means the daemon accepted the answer. */
 export type ActionOutcome = "stale" | "unreachable" | "unsaved" | "saved" | "confirmed" | "refused";
+
+/** Alerts as Swift receives them: how this phone shows each, and the request it asks about. */
+type Delivered = Notification & { delivery: PhoneDelivery; request?: AlertRequest };
+/** Most needs-you entries in one catch-up page whose request is read; the rest post plainly. */
+const enrichLimit = 8;
 
 type Put = (key: string, read: () => Record<string, unknown>) => void;
 type Schedule = (delayMs: number, run: () => void) => () => void;
@@ -73,6 +101,8 @@ export class NotificationBridge {
   #stop: (() => void)[] = [];
   /** How long an action waits for this thread's confirmed state before giving up. */
   readonly detailsMs: number;
+  /** How long an alert waits to read its request before posting without it. */
+  readonly requestMs: number;
 
   constructor(
     client: ClientCore,
@@ -80,7 +110,9 @@ export class NotificationBridge {
     schedule: Schedule,
     minuteOfDay: MinuteOfDay,
     detailsMs = 8000,
+    requestMs = 1500,
   ) {
+    this.requestMs = requestMs;
     this.#client = client;
     this.#minuteOfDay = minuteOfDay;
     this.#put = put;
@@ -130,6 +162,12 @@ export class NotificationBridge {
         return;
       case "notifications.resolve":
         void this.#resolve(action).catch(() => this.#outcome(action.requestId, "unsaved"));
+        return;
+      case "notifications.answer":
+        void this.#answer(action).catch(() => this.#outcome(action.requestId, "unsaved"));
+        return;
+      case "notifications.reply":
+        void this.#reply(action).catch(() => this.#outcome(action.requestId, "unsaved"));
     }
   }
   async #connected(): Promise<void> {
@@ -191,26 +229,70 @@ export class NotificationBridge {
       return;
     }
     this.#cursor = feed.cursor;
+    let asking = 0;
+    const entries = await Promise.all(
+      feed.entries.map((entry) =>
+        entry.notification.interactionId && asking++ < enrichLimit
+          ? this.#withRequest(entry.notification)
+          : this.#delivered(entry.notification),
+      ),
+    );
     this.#put("notifications:feed", () => ({
       type: "notifications.feed",
       cursor: feed.cursor,
-      entries: feed.entries.map((entry) => this.#delivered(entry.notification)),
+      entries,
       retracted: feed.retracted,
     }));
   }
   #alert(notification: Notification): void {
-    this.#put(`notifications:alert:${notification.id}`, () => ({
-      type: "notifications.alert",
-      notification: this.#delivered(notification),
-    }));
+    void this.#withRequest(notification).then((delivered) =>
+      this.#put(`notifications:alert:${notification.id}`, () => ({
+        type: "notifications.alert",
+        notification: delivered,
+      })),
+    );
   }
   /** The alert with how this phone shows it now (`notification-delivery.ts`). */
-  #delivered(notification: Notification): Notification & { delivery: PhoneDelivery } {
-    const delivery = phoneDelivery(notification.status, this.#phone, {
+  #delivered(notification: Notification): Delivered {
+    const facts = {
+      status: notification.status,
+      delegated: this.#delegated(notification.threadId),
+    };
+    const delivery = alertDelivery(facts, this.#phone, {
       foreground: this.#appState === "foreground",
       minuteOfDay: this.#minuteOfDay(),
     });
     return { ...notification, delivery };
+  }
+  /** The thread list says an agent delegated this thread; unknown reads as the person's own. */
+  #delegated(threadId: string): boolean {
+    const list = this.#client.threads();
+    try {
+      const entry = list.store.thread(threadId);
+      return entry?.delegatedBy !== undefined || entry?.delegatedFrom !== undefined;
+    } finally {
+      list.release();
+    }
+  }
+  /**
+   * A needs-you alert says what is asked ("Claude Code wants to run a command") and offers a
+   * short question's options, read from the thread's confirmed state. Past `requestMs`, or once
+   * the request is gone, it posts as the daemon sent it.
+   */
+  async #withRequest(notification: Notification): Promise<Delivered> {
+    const delivered = this.#delivered(notification);
+    const interactionId = notification.interactionId;
+    if (notification.status !== "needs_you" || !interactionId) return delivered;
+    const lease = this.#client.thread(notification.threadId);
+    try {
+      if (!(await confirmedState(lease.store, this.#schedule, this.requestMs))) return delivered;
+      const request = alertRequest(lease.store.interaction(interactionId), lease.store);
+      return request ? { ...delivered, request } : delivered;
+    } catch {
+      return delivered;
+    } finally {
+      lease.release();
+    }
   }
   async #config(): Promise<void> {
     try {
@@ -233,7 +315,7 @@ export class NotificationBridge {
   async #resolve(action: Extract<NotificationAction, { type: "notifications.resolve" }>) {
     const lease = this.#client.thread(action.threadId);
     try {
-      if (!(await this.#confirmed(lease.store)))
+      if (!(await confirmedState(lease.store, this.#schedule, this.detailsMs)))
         return this.#outcome(action.requestId, "unreachable");
       const interaction = lease.store.interaction(action.interactionId);
       const option =
@@ -241,47 +323,62 @@ export class NotificationBridge {
           ? interaction.request.options.find((candidate) => candidate.id === action.optionId)
           : undefined;
       if (!option) return this.#outcome(action.requestId, "stale");
-      // One patch key per action: a receipt can land before admission returns, and must win.
-      let receipted = false;
-      await submitCommand(
-        this.#client,
-        {
-          type: "interaction.resolve",
-          interactionId: action.interactionId,
-          resolution: { kind: "approval", optionId: option.id },
-        },
-        () => {
-          if (!receipted) this.#outcome(action.requestId, "saved");
-        },
-        (result) => {
-          receipted = true;
-          this.#outcome(action.requestId, result.ok ? "confirmed" : "refused");
-        },
+      await this.#submit(action.requestId, {
+        type: "interaction.resolve",
+        interactionId: action.interactionId,
+        resolution: { kind: "approval", optionId: option.id },
+      });
+    } finally {
+      lease.release();
+    }
+  }
+  /** A question answered from its notification: only the question pending now, as it asks. */
+  async #answer(action: Extract<NotificationAction, { type: "notifications.answer" }>) {
+    const lease = this.#client.thread(action.threadId);
+    try {
+      if (!(await confirmedState(lease.store, this.#schedule, this.detailsMs)))
+        return this.#outcome(action.requestId, "unreachable");
+      const interaction = lease.store.interaction(action.interactionId);
+      const resolution = alertAnswer(interaction, action.questionId, action.value);
+      if (!resolution) return this.#outcome(action.requestId, "stale");
+      await this.#submit(action.requestId, {
+        type: "interaction.resolve",
+        interactionId: action.interactionId,
+        resolution,
+      });
+    } finally {
+      lease.release();
+    }
+  }
+  /** Reply: the next message for the thread, delivered the way its composer would send it. */
+  async #reply(action: Extract<NotificationAction, { type: "notifications.reply" }>) {
+    const text = action.text.trim();
+    if (!text) return this.#outcome(action.requestId, "refused");
+    const lease = this.#client.thread(action.threadId);
+    try {
+      if (!(await confirmedState(lease.store, this.#schedule, this.detailsMs)))
+        return this.#outcome(action.requestId, "unreachable");
+      await this.#submit(
+        action.requestId,
+        sendPayload(lease.store, action.threadId, text, { opposite: false, setting: undefined }),
       );
     } finally {
       lease.release();
     }
   }
-  /** True once the store holds daemon-confirmed state; false on error or timeout. */
-  #confirmed(store: ThreadSource): Promise<boolean> {
-    const state = () =>
-      store.error ? false : store.thread && !store.syncing && !store.unconfirmed ? true : undefined;
-    const now = state();
-    if (now !== undefined) return Promise.resolve(now);
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (value: boolean) => {
-        if (done) return;
-        done = true;
-        stop();
-        cancel();
-        resolve(value);
-      };
-      const stop = store.observe(() => {
-        const value = state();
-        if (value !== undefined) finish(value);
-      });
-      const cancel = this.#schedule(this.detailsMs, () => finish(false));
-    });
+  /** Durable admission, then the daemon's receipt; a receipt that beats admission wins. */
+  async #submit(id: string, payload: Parameters<typeof submitCommand>[1]) {
+    let receipted = false;
+    await submitCommand(
+      this.#client,
+      payload,
+      () => {
+        if (!receipted) this.#outcome(id, "saved");
+      },
+      (result) => {
+        receipted = true;
+        this.#outcome(id, result.ok ? "confirmed" : "refused");
+      },
+    );
   }
 }

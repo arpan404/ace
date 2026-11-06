@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Inside the composer, above the message: the files on the next message with their upload
-/// progress, the bridge's notice and a pick that couldn't be read. Effort and speed live in the
-/// model sheet. Every check (size, what the agent can read, which levels exist) is the bridge's;
-/// this view draws what the bridge says.
+/// Just above the capsule, on the field's words' left edge: the files on the next message with
+/// their upload progress, then its chips (line comments, drawings) as one row of plain capsules,
+/// then the bridge's notice and a pick that couldn't be read. The capsule's own shape never
+/// changes for any of them. Every check (size, what the agent can read, which levels exist) is
+/// the bridge's; this view draws what the bridge says.
 struct ComposerAccessories: View {
     @Bindable var model: ClientModel
     let screen: ThreadScreenModel
@@ -14,43 +15,54 @@ struct ComposerAccessories: View {
         guard screen.controls?.continues == true, let note = screen.controls?.note, !note.isEmpty else { return nil }
         return note
     }
+    private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty }
     var body: some View {
-        if !screen.attachments.isEmpty || !screen.annotations.isEmpty || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
+        if !screen.attachments.isEmpty || hasChips || screen.attachmentsLocked != nil || notice != nil || continues != nil || problem != nil {
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !screen.attachments.isEmpty {
                     ComposerMediaStrip(files: screen.attachments) { model.detach($0) }
                 }
-                if !screen.annotations.isEmpty {
-                    AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })
-                        .transition(.opacity)
+                if hasChips {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: AceDesign.Space.related) {
+                            if let chip = model.sheets.chip {
+                                CommentChip(chip: chip) { model.clearComments() }
+                                    .transition(.opacity)
+                            }
+                            if !screen.annotations.isEmpty {
+                                AnnotationChips(items: screen.annotations, remove: { model.removeAnnotation($0) }, clear: { model.clearAnnotations() })
+                                    .transition(.opacity)
+                            }
+                        }
+                    }
+                    .scrollClipDisabled()
                 }
-                if let locked = screen.attachmentsLocked {
-                    Text(locked).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .lineLimit(2).accessibilityIdentifier("composer.attachLocked")
+                Group {
+                    if let locked = screen.attachmentsLocked {
+                        Text(locked).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .lineLimit(2).accessibilityIdentifier("composer.attachLocked")
+                    }
+                    if let continues {
+                        Text(continues).foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .lineLimit(2).accessibilityIdentifier("composer.continues")
+                    }
+                    if let notice {
+                        Text(notice).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)
+                    }
                 }
-                if let continues {
-                    Text(continues).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground)
-                        .lineLimit(2).accessibilityIdentifier("composer.continues")
-                }
-                if let notice {
-                    Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(2)
-                }
+                .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                 ServiceProblem(message: problem)
             }
-            .padding(.horizontal, AceDesign.Space.related).padding(.top, AceDesign.Space.related)
+            // One edge with the field's words: past +, the gap and the field's own inset.
+            .padding(.leading, ComposerCapsuleMetrics.aboveInset).padding(.trailing, AceDesign.Space.related)
+            .padding(.bottom, AceDesign.Space.tight)
         }
     }
 }
 
-/// The thread composer's model control: the model (opens the model sheet) and its effort and
-/// speed in brief (opens their panel), "◎ Opus 5.5 · Med ⌄".
-struct ComposerModelButton: View {
-    let screen: ThreadScreenModel
-    let open: () -> Void
-    let openTune: () -> Void
-    private var name: String { Self.name(screen) }
-    private var tune: String? { Self.tune(screen) }
-    /// The model's name; until the agent reports one, the provider's name stands in.
+/// The thread's model in words, for its title's line: the model's name and its effort and speed
+/// in brief. Until the agent reports a model, the provider's name stands in.
+@MainActor enum ThreadModelWords {
     static func name(_ screen: ThreadScreenModel) -> String {
         guard let controls = screen.controls else { return "Choose model" }
         if !controls.model.isEmpty { return controls.model }
@@ -65,93 +77,11 @@ struct ComposerModelButton: View {
         return TuneSummary.text(effort: effort.map { $0.short ?? $0.label }, speed: speed?.label,
                                 hasLevels: !tune.efforts.isEmpty, hasSpeeds: tune.speeds.count > 1)
     }
-    var body: some View {
-        // A switch not in effect yet (sent from here, queued for the next turn, or a continuation)
-        // shows a clock and says why to assistive tech.
+    /// The title's model line; a switch not in effect yet (sent from here, queued for the next
+    /// turn, or a continuation) carries why.
+    static func line(_ screen: ThreadScreenModel) -> ThreadTitleMenu.ModelLine {
         let note = screen.controls?.note.flatMap { $0.isEmpty ? nil : $0 }
-        ModelEffortChip(provider: screen.controls?.provider, model: name, effort: tune,
-                        queued: screen.controls?.switching == "queued" || note != nil, note: note,
-                        modelID: "composer.model", effortID: "composer.effort", openModel: open, openEffort: openTune)
-    }
-}
-
-/// The thread composer's access control, when the thread reports access it can change.
-struct ThreadAccessChip: View {
-    let access: ThreadAccessRow?
-    let set: (String) -> Void
-    var body: some View {
-        if let access, access.state != "none", access.state != "failed" || !access.choices.isEmpty {
-            AccessChip(label: access.label ?? "Access", selected: access.selected,
-                       items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
-                       note: access.pending == true ? "Applies at the agent's next turn" : access.stricter,
-                       loading: access.state == "loading" && access.choices.isEmpty,
-                       identifier: "composer.access", select: set)
-        }
-    }
-}
-
-/// The composer's settings, from its settings button while it is one line: the model and its
-/// effort (each opens its own sheet) and the access modes as rows to choose from.
-struct ComposerSettingsSheet: View {
-    let screen: ThreadScreenModel
-    let openModel: () -> Void
-    let openTune: () -> Void
-    let setAccess: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    private var name: String { ComposerModelButton.name(screen) }
-
-    /// Effort and speed, always listed: it opens their panel when the model offers either, and
-    /// otherwise says why there is nothing to change.
-    @ViewBuilder private var effortRow: some View {
-        let summary = ComposerModelButton.tune(screen)
-        let reason = [screen.tune?.effortReason, screen.tune?.speedReason].compactMap { $0 }.first { !$0.isEmpty }
-        Button(action: openTune) {
-            InsetRow(systemImage: nil, title: "Effort and speed",
-                     subtitle: summary == nil ? (reason ?? "This model has no levels or speeds to choose") : nil) {
-                HStack(spacing: AceDesign.Space.tight) {
-                    if let summary { InsetValue(text: summary) }
-                    if summary != nil {
-                        Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
-                    }
-                }
-            }
-        }
-        .buttonStyle(.plain).insetRowBackground()
-        .disabled(summary == nil)
-        .accessibilityIdentifier("composer.settings.effort")
-    }
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button(action: openModel) {
-                        InsetRow(systemImage: nil, title: name, subtitle: screen.controls?.providerName.flatMap { $0 == name ? nil : $0 }) {
-                            Image(systemName: "chevron.right").font(AceDesign.Typeface.meta.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.subtleForeground)
-                        }
-                    }
-                    .buttonStyle(.plain).insetRowBackground()
-                    .accessibilityIdentifier("composer.settings.model")
-                    effortRow
-                } header: { InsetHeader("Model") }
-                if let access = screen.access, !access.choices.isEmpty {
-                    Section {
-                        AccessRows(selected: access.selected,
-                                   items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
-                                   identifier: "composer.access") { mode in
-                            if mode != access.selected { setAccess(mode) }
-                            dismiss()
-                        }
-                    } header: { InsetHeader("Access") } footer: {
-                        if let note = access.pending == true ? "Applies at the agent's next turn" : access.stricter { Text(note) }
-                    }
-                }
-            }
-            .insetGroupedList()
-            .navigationTitle("This thread")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        return ThreadTitleMenu.ModelLine(provider: screen.controls?.provider, name: name(screen), tune: tune(screen),
+                                         note: note, queued: screen.controls?.switching == "queued" || note != nil)
     }
 }

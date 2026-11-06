@@ -63,7 +63,6 @@ struct ProviderAccountsView: View {
     @State private var adding = false
     @State private var signingIn: AccountSignInTarget?
     @State private var changed = 0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         List {
             Group {
@@ -90,7 +89,7 @@ struct ProviderAccountsView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: screen)
+        .animation(.default, value: screen)
         .disabled(busy)
         .navigationTitle("\(name) accounts").navigationBarTitleDisplayMode(.inline)
         .readWhenConnected(model) { await read() }.refreshable { await read() }

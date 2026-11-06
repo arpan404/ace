@@ -19,6 +19,7 @@ private struct TerminalReply: Decodable {
 struct TerminalView: View {
     let model: ClientModel
     let threadId: String
+    @Environment(\.threadPage) private var threadPage
     /// The terminal to show first, such as the one a script just started.
     var initial: String? = nil
     @State private var terminals: [TerminalRow] = []
@@ -42,7 +43,6 @@ struct TerminalView: View {
     @State private var selecting = false
     @State private var namesVersion = 0
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
-    @Environment(\.aceReduceMotion) private var reduceMotion
     private var output: TerminalScreenModel { model.terminal }
 
     var body: some View {
@@ -78,8 +78,8 @@ struct TerminalView: View {
             }
             keys
         }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: finding)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: output.exited)
+        .animation(.default, value: finding)
+        .animation(.default, value: output.exited)
         .background(AceTheme.Colours.background)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
@@ -138,16 +138,23 @@ struct TerminalView: View {
         .opacity(canType ? 1 : AceDesign.Ink.dimmedOpacity)
     }
 
+    /// The sessions to pick from, and a new one.
+    @ViewBuilder private var sessions: some View {
+        Picker("Terminal", selection: Binding(get: { selected ?? "" }, set: { select($0) })) {
+            ForEach(terminals) { row in
+                Text(label(row) + (row.exited ? " · Exited" : "")).tag(row.id)
+            }
+        }
+        Divider()
+        Button("New terminal", systemImage: "plus") { Task { await create() } }.disabled(!model.canOperate || busy)
+    }
+
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        // On a thread's page the title is the thread's: the sessions move into the ⋯ menu.
+        if !threadPage {
         ToolbarItem(placement: .principal) {
             Menu {
-                Picker("Terminal", selection: Binding(get: { selected ?? "" }, set: { select($0) })) {
-                    ForEach(terminals) { row in
-                        Text(label(row) + (row.exited ? " · Exited" : "")).tag(row.id)
-                    }
-                }
-                Divider()
-                Button("New terminal", systemImage: "plus") { Task { await create() } }.disabled(!model.canOperate || busy)
+                sessions
             } label: {
                 HStack(spacing: AceTheme.Spacing.xs) {
                     Text(selected == nil ? "Terminal" : currentName).fontWeight(.semibold).lineLimit(1)
@@ -157,10 +164,14 @@ struct TerminalView: View {
             }
             .accessibilityIdentifier("terminal.sessions")
         }
+        }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button { finding ? closeFind() : (finding = true) } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel("Find").accessibilityIdentifier("terminal.find").disabled(selected == nil)
             Menu {
+                if threadPage {
+                    Section(currentName) { sessions }
+                }
                 Button("Rename…", systemImage: "pencil") { newName = TerminalNames.name(thread: threadId, terminal: selected ?? "") ?? ""; renaming = true }
                 Button("Clear terminal", systemImage: "eraser") { output.clear(); UIImpactFeedbackGenerator(style: .light).impactOccurred() }
                 Button("Copy all output", systemImage: "doc.on.doc") { UIPasteboard.general.string = output.text }

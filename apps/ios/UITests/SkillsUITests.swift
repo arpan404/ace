@@ -143,7 +143,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         app.openBrowseDestination("library.skills")
         XCTAssertTrue(app.buttons["skills.row.research"].waitForExistence(timeout: 20))
         return app

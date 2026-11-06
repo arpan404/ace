@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   PhoneNotificationPrefs,
+  alertDelivery,
   defaultPhonePrefs,
   phoneCategory,
   phoneDelivery,
@@ -17,8 +18,8 @@ const all = (value: boolean) => ({
 });
 
 describe("phone notification delivery", () => {
-  it("shows every category as a banner while open and a notification while away, by default", () => {
-    for (const status of ["needs_you", "failed", "done", "agent_says"]) {
+  it("shows requests, failures and finishes as a banner while open and a notification while away, by default", () => {
+    for (const status of ["needs_you", "failed", "done"]) {
       expect(phoneDelivery(status, defaultPhonePrefs, open)).toEqual({
         post: true,
         interrupt: true,
@@ -30,6 +31,13 @@ describe("phone notification delivery", () => {
         banner: false,
       });
     }
+  });
+
+  it("leaves agent messages out unless the person turned them on", () => {
+    expect(phoneDelivery("agent_says", defaultPhonePrefs, away).post).toBe(false);
+    expect(phoneDelivery("agent_says", defaultPhonePrefs, open).post).toBe(false);
+    const optedIn = prefs({ system: all(true) });
+    expect(phoneDelivery("agent_says", optedIn, away).post).toBe(true);
   });
 
   it("files an alert quietly in the list while open when only its system notification is on", () => {
@@ -91,5 +99,31 @@ describe("phone notification delivery", () => {
         quietHours: { start: 9999, end: 1 },
       }),
     ).toMatchObject({ inApp: { needsYou: true, failures: true }, quietHours: null });
+  });
+});
+
+const own = (status: string) => ({ status, delegated: false });
+const delegated = (status: string) => ({ status, delegated: true });
+
+describe("which alerts the phone posts at all", () => {
+  it("a background task finishing never alerts, whatever the settings", () => {
+    const everything = prefs({ inApp: all(true), system: all(true) });
+    expect(alertDelivery(own("background_done"), everything, away).post).toBe(false);
+    expect(alertDelivery(own("background_done"), everything, open).post).toBe(false);
+  });
+
+  it("a delegated thread alerts only for a request of its own, never for finishing or failing", () => {
+    expect(alertDelivery(delegated("done"), defaultPhonePrefs, away).post).toBe(false);
+    expect(alertDelivery(delegated("failed"), defaultPhonePrefs, away).post).toBe(false);
+    expect(alertDelivery(delegated("needs_you"), defaultPhonePrefs, away).post).toBe(true);
+  });
+
+  it("the person's own thread finishing, failing or asking alerts", () => {
+    for (const status of ["done", "failed", "needs_you"])
+      expect(alertDelivery(own(status), defaultPhonePrefs, away)).toEqual({
+        post: true,
+        interrupt: true,
+        banner: false,
+      });
   });
 });

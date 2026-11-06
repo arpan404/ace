@@ -13,7 +13,6 @@ enum BrowserSheet: String, Identifiable {
 struct BrowserScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @Bindable var model: ClientModel
     /// The thread's open browser request, if the agent asked the person for help.
@@ -65,10 +64,10 @@ struct BrowserScreen: View {
             }
         }
         .overlay(alignment: .top) { BrowserDoneNote(model: model) }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: editingAddress)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: annotating)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: splitTab)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: state?.recording)
+        .animation(.default, value: editingAddress)
+        .animation(.default, value: annotating)
+        .animation(.default, value: splitTab)
+        .animation(.default, value: state?.recording)
         .background(AceDesign.Surface.background)
         .modifier(PageTitle(title: title, subtitle: shownTab?.host ?? ""))
         .navigationBarTitleDisplayMode(.inline)
@@ -124,15 +123,6 @@ struct BrowserScreen: View {
             }
             .accessibilityIdentifier("browser.ask")
         }
-        if model.canOperate, let annotate {
-            Button(annotating ? "Stop annotating" : "Annotate", ace: .pencilSimpleLine) {
-                model.browserAnnotate(!annotating, dark: colorScheme == .dark)
-            }
-            .disabled(!annotating && annotate.unavailable != nil)
-            .accessibilityValue(annotating ? "On" : "Off")
-            .accessibilityHint(annotate.unavailable ?? "")
-            .accessibilityIdentifier("browser.annotate")
-        }
     }
 
     private var openPicker: BrowserPageInfo.Picker? {
@@ -187,6 +177,14 @@ struct BrowserScreen: View {
                 }
                 BrowserPageState(model: model, openAddress: { editingAddress = true })
             }
+            .overlay(alignment: .bottomTrailing) {
+                if model.canOperate, let annotate, state?.closed == false {
+                    DrawButton(on: annotating, unavailable: annotate.unavailable) {
+                        model.browserAnnotate(!annotating, dark: colorScheme == .dark)
+                    }
+                    .padding(AceDesign.Space.margin)
+                }
+            }
         }
         .clipped()
     }
@@ -207,7 +205,8 @@ struct BrowserScreen: View {
             }
             .disabled(model.approvalSubmissions[help.id] != nil || !model.canOperate)
         }
-        if let shown = state?.shown, let tabId = state?.activeTabId {
+        // While drawing, the drawing strip is the one sentence; who has the page comes back after.
+        if !annotating, let shown = state?.shown, let tabId = state?.activeTabId {
             if shown.private {
                 BrowserStrip(sentence: "Agents are kept out of this page") {
                     if model.canOperate {
@@ -255,9 +254,47 @@ struct BrowserScreen: View {
 extension BrowserScreen {
     /// The annotate strip's one sentence: how many comments are pinned, or that it starts.
     fileprivate var annotationSentence: String {
-        if annotate?.mode == "starting" { return "Starting to annotate…" }
+        if annotate?.mode == "starting" { return "Getting the page ready to draw on…" }
         let count = model.thread?.screen.annotations.count ?? 0
-        return count == 0 ? "Annotating this page" : count == 1 ? "1 annotation on the message" : "\(count) annotations on the message"
+        return count == 0 ? "Circle what to change" : "Draw another"
+    }
+}
+
+/// The round pen over the live page. Off, it is glass like every floating button; on, it is a
+/// solid accent disc with a rim in the background colour, so on reads as on over any page.
+struct DrawButton: View {
+    let on: Bool
+    let unavailable: String?
+    let toggle: () -> Void
+    var body: some View {
+        Button(action: toggle) {
+            AceIcon(.pencilSimpleLine, size: AceDesign.Size.barIcon, relativeTo: .title3)
+                .foregroundStyle(on ? AceDesign.Ink.onAccent : AceDesign.Ink.primary)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                .modifier(PenSurface(on: on))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!on && unavailable != nil)
+        .sensoryFeedback(.selection, trigger: on)
+        .accessibilityLabel(on ? "Stop drawing" : "Draw on the page")
+        .accessibilityValue(on ? "On" : "Off")
+        .accessibilityHint(unavailable ?? "Circle what to change; the drawing goes with your message")
+        .accessibilityIdentifier("browser.annotate")
+    }
+}
+
+/// Glass while the pen is off; the accent's solid fill, ringed, while it is on (never glass under a fill).
+private struct PenSurface: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View {
+        if on {
+            content
+                .background(AceTheme.Colours.accent, in: Circle())
+                .overlay { Circle().strokeBorder(AceTheme.Colours.background, lineWidth: AceDesign.Size.inkStroke) }
+        } else {
+            content.aceGlass(in: Circle(), interactive: true)
+        }
     }
 }
 
@@ -327,18 +364,17 @@ struct BrowserStrip<Actions: View>: View {
 
 /// Where the agent last pointed: a cursor that glides there and never takes a touch.
 private struct AgentCursor: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let name: String
     let at: CGPoint
     var body: some View {
-        // The cursor is drawn on the page: its halo keeps it legible on any content, and the
-        // offset puts its tip, not its centre, on the point.
-        AceIcon(.cursor, size: AceDesign.Size.barIcon, relativeTo: .title3)
-            .foregroundStyle(AceDesign.Ink.primary)
-            .shadow(color: AceDesign.Surface.background, radius: 1)
-            .offset(x: 7, y: 9)
+        // The Pebble, as the web draws it over pages: its outline and shadow keep it legible on
+        // any content, and the offset puts its tip, not its centre, on the point.
+        let size = AceDesign.Size.pageCursor
+        PebbleMark(size: size, relativeTo: .title3)
+            .offset(x: size / 2 - AceGlyphs.cursorTip.x * size / AceGlyphs.box,
+                    y: size / 2 - AceGlyphs.cursorTip.y * size / AceGlyphs.box)
             .position(at)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: at)
+            .animation(.default, value: at)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(name) is pointing here")

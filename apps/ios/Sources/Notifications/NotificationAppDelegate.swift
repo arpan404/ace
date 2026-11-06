@@ -5,12 +5,12 @@ import BackgroundTasks
 /// Installs the notification delegate, categories and the background refresh task at launch,
 /// which iOS requires before launch finishes.
 final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    let coordinator = NotificationCoordinator()
+    let coordinator = NotificationCoordinator(lockScreenEdges: .system)
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        center.setNotificationCategories(NotificationActionID.categories)
+        center.setNotificationCategories(NotificationCategories.remember(nil, defaults: .standard))
         BackgroundRefresh.register(coordinator)
         return true
     }
@@ -29,7 +29,8 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
             if let key = key as? String, let value = value as? String { info[key] = value }
         }
         let values = info
-        await coordinator.respond(action: action, notificationId: id, info: values)
+        let text = (response as? UNTextInputNotificationResponse)?.userText
+        await coordinator.respond(action: action, notificationId: id, info: values, text: text)
     }
 }
 

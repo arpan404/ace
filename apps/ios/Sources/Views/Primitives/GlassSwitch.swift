@@ -16,7 +16,6 @@ struct CapsuleSegments<Value: Hashable>: View {
     let selection: Value?
     var disabled = false
     let select: (Value) -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
     @Namespace private var thumb
 
@@ -24,6 +23,8 @@ struct CapsuleSegments<Value: Hashable>: View {
         HStack(spacing: AceDesign.Size.segmentInset - 1) {
             ForEach(choices, id: \.value) { choice in segment(choice) }
         }
+        // Only the thumb slides; what the control switches changes at once.
+        .animation(.default, value: selection)
         .padding(AceDesign.Size.segmentInset)
         .frame(height: AceDesign.Size.segment)
         .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
@@ -35,7 +36,7 @@ struct CapsuleSegments<Value: Hashable>: View {
         let chosen = selection == choice.value
         return Button {
             guard !chosen, !disabled else { return }
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { select(choice.value) }
+            select(choice.value)
         } label: {
             ViewThatFits(in: .horizontal) {
                 Text(choice.title)

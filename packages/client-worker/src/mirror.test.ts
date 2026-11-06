@@ -176,11 +176,51 @@ test("an answer cut to the client's text limit mid-stream reaches a tab exactly 
   } as EventPayload);
   // 270 chunks of 240 characters: just under the 64 K limit, one frame each.
   for (let n = 0; n < 270; n++) deliver(delta(n));
-  // Then one frame that passes the limit (the client keeps the newest 32 K) and grows the text
-  // back past the length the tab last saw: 32,768 + 134 × 240 = 64,928 characters.
+  // Then one frame of many deltas that passes the limit: the client keeps the newest 64 K.
   deliverAll(Array.from({ length: 138 }, (_, n) => delta(270 + n)));
   expect(mirror.item("long")).toEqual(store.item("long"));
   expect(mirror.truncated("long")).toBe(true);
+});
+
+test("an answer past the client's text limit keeps reaching a tab as small slides of its newest text", () => {
+  const { store, mirror, deliver, forwarded } = linked();
+  deliver({ type: "item.created", item: { ...answer(""), id: "long" } } as EventPayload);
+  for (let n = 0; n < 400; n++) {
+    deliver(delta(n));
+    expect(text(mirror.item("long"))).toBe(text(store.item("long")));
+  }
+  expect(text(mirror.item("long"))).toHaveLength(defaultLimits.text);
+  expect(text(mirror.item("long"))?.endsWith(`0399 ${"x".repeat(234)}\n`)).toBe(true);
+  // Past the limit each frame still carries about one delta, not the whole 64 K text.
+  expect(Math.max(...forwarded.slice(-50))).toBeLessThan(240 + 400);
+});
+
+test("a preview the daemon marked as its tail streams to a tab with its source moving on", () => {
+  const { store, mirror, deliver, forwarded } = linked();
+  const tail = "p".repeat(4096);
+  deliver({
+    type: "item.created",
+    item: {
+      ...answer(""),
+      id: "long",
+      parts: [
+        {
+          type: "text",
+          text: tail,
+          source: {
+            streamId: "text:long",
+            bytes: 40_000,
+            encoding: "utf-16le",
+            offset: 40_000 - 8192,
+          },
+        },
+      ],
+    },
+  } as EventPayload);
+  for (let n = 0; n < 20; n++) deliver(delta(n));
+  expect(mirror.item("long")).toEqual(store.item("long"));
+  expect(text(mirror.item("long"))?.startsWith(tail)).toBe(true);
+  expect(Math.max(...forwarded.slice(-10))).toBeLessThan(240 + 400);
 });
 
 test("streamed messages retain their provenance in the live store and every tab", () => {
@@ -227,7 +267,8 @@ test("streamed messages retain their provenance in the live store and every tab"
     expect(reattached.item("answer")).toEqual(mirror.item("answer"));
   }
   expect(store.truncated("answer")).toBe(true);
-  expect(text(store.item("answer"))).toBe("x".repeat(Math.floor(defaultLimits.text / 2)));
+  // The newest `text` units, all of them the long delta's.
+  expect(text(store.item("answer"))).toBe("x".repeat(defaultLimits.text));
 });
 
 test("removing provenance while appending text reaches an already attached tab", () => {

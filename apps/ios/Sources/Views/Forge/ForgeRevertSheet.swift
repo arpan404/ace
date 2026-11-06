@@ -44,7 +44,7 @@ struct ForgeRevertSheet: View {
                 .padding(AceTheme.Spacing.lg)
             }
             .background(AceTheme.Colours.background)
-            .animation(AceMotion.smooth, value: outcome)
+            .animation(.default, value: outcome)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { primary }
             .navigationTitle("Revert #\(number)")
             .navigationBarTitleDisplayMode(.inline)

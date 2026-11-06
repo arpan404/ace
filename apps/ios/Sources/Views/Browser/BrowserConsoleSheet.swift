@@ -26,7 +26,7 @@ struct BrowserConsoleSheet: View {
                     EmptyState(icon: .terminal, title: section == "console" ? "No messages" : "No requests")
                 }
             }
-            .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+            .pinnedTopBar {
                 Picker("Log", selection: $section) {
                     Text("Console").tag("console")
                     Text("Network").tag("network")

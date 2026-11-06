@@ -106,6 +106,10 @@ import QuartzCore
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// What each needs-you inbox row waits on, by thread id, and the agent's last words for the
+    /// needs-you run (`ClientModel+Needs.swift`).
+    var needs: [String: InboxNeeds] = [:]
+    var needsWords: [String: String] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
     /// What the phone keeps of this machine's chats, once asked (`readCache`).
@@ -128,6 +132,8 @@ import QuartzCore
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// Told when the person opens a thread, so its notification goes (`NotificationCoordinator`).
+    @ObservationIgnored var onOpenThread: ((String) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
     /// Each thread's side panel on iPad.
@@ -459,6 +465,8 @@ import QuartzCore
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
             case .pending(let id, let row): pending[id] = row
+            case .needs(let id, let value): receiveNeeds(id, value)
+            case .needsWords(let id, let words): needsWords[id] = words
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
             case .words(let id, let ok, let text, let message, let revision):
@@ -667,6 +675,7 @@ import QuartzCore
         }
     }
     func open(_ id: String, isSnapshotRetry: Bool = false) {
+        if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
         sheets.reset()

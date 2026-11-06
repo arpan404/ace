@@ -59,7 +59,7 @@ import XCTest
         // A snooze that starts now, however long the fixture has been running.
         try post("/review/nap", #"{"ms":45000}"#)
         let app = launch()
-        app.buttons["threads.tab.snoozed"].firstMatch.tap()
+        app.tapThreadsTab(app.buttons["threads.tab.snoozed"].firstMatch)
         let nap = app.buttons["thread.ios-nap"]
         for _ in 0..<6 where !nap.exists { app.swipeUp() }
         XCTAssertTrue(nap.waitForExistence(timeout: 10))
@@ -70,7 +70,7 @@ import XCTest
         // the row leaving the Snoozed tab for the tab its state puts it in, with no "Until".
         XCTAssertTrue(nap.waitForNonExistence(timeout: 200), "the snooze ends on the phone's clock")
         for tab in ["inbox", "settled"] where !nap.exists {
-            app.buttons["threads.tab.\(tab)"].firstMatch.tap()
+            app.tapThreadsTab(app.buttons["threads.tab.\(tab)"].firstMatch)
             for _ in 0..<6 where !nap.exists { app.swipeUp() }
         }
         XCTAssertTrue(nap.exists)
@@ -91,7 +91,7 @@ import XCTest
         app.buttons["projects.close"].tap()
         XCTAssertTrue(app.buttons["newThread.close"].waitForExistence(timeout: 5))
         app.buttons["newThread.close"].tap()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 10))
         open("ios-plan", in: app)
         XCTAssertTrue(app.buttons["plan.approve"].waitForExistence(timeout: 25))
         try audit(app, "plan-card")
@@ -248,7 +248,7 @@ import XCTest
         }
         app.launch()
         // At accessibility text sizes the first rows can already fill the screen.
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         return app
     }
     /// Every audit issue is listed in an attachment. Missing descriptions and small hit areas fail
@@ -298,7 +298,7 @@ import XCTest
     private func back(_ app: XCUIApplication) {
         let button = app.buttons["BackButton"].firstMatch
         if button.waitForExistence(timeout: 5) { button.tap() }
-        _ = app.buttons["inbox.settings"].waitForExistence(timeout: 10)
+        _ = app.inboxReady.waitForExistence(timeout: 10)
     }
     private func audit(_ app: XCUIApplication, _ name: String) throws {
         screenshot("audit-\(name)")

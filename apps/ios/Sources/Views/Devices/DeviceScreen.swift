@@ -24,7 +24,6 @@ struct DeviceScreen: View {
     /// Opened on its own (from a transcript step): leaving closes the Devices view too.
     var closesView = false
     @Environment(\.scenePhase) private var scene
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var typing = false
     @State private var text = ""
     @State private var sheet: DeviceSheet?
@@ -61,8 +60,8 @@ struct DeviceScreen: View {
                 guard showStats, info?.live == true, scene == .active else { return }
                 await sampleStats()
             }
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: screenOnly)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: showStats)
+            .animation(.default, value: screenOnly)
+            .animation(.default, value: showStats)
             .onChange(of: info?.running == true && info?.live == false && info?.busy == false) { _, idle in autoStart(idle) }
             .onChange(of: info?.activity?.sequence) { _, _ in showActivity() }
             .onAppear { seen = info?.activity?.sequence }
@@ -212,11 +211,11 @@ struct DeviceScreen: View {
     private func showActivity() {
         guard let activity = info?.activity, activity.sequence != seen else { return }
         seen = activity.sequence
-        withAnimation(AceDesign.Motion.arriving(reduceMotion)) { caption = activity }
+        withAnimation { caption = activity }
         Task {
             try? await Task.sleep(for: .seconds(2))
             if caption?.sequence == activity.sequence {
-                withAnimation(AceDesign.Motion.leaving(reduceMotion)) { caption = nil }
+                withAnimation { caption = nil }
             }
         }
     }

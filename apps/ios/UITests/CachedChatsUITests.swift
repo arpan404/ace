@@ -9,11 +9,7 @@ import XCTest
     func testAThreadReloadsFromItsMachineAndSettingsClearsWhatIsKept() {
         // Other fixture tests may already have opened chats on this simulator.
         var app = launch([])
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
-        app.buttons["inbox.settings"].tap()
-        // Settings is one step into More.
-        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
-        app.buttons["more.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         XCTAssertTrue(app.buttons["settings.cache"].waitForExistence(timeout: 10))
         app.buttons["settings.cache"].tap()
         clearKeptChats(in: app)
@@ -41,12 +37,7 @@ import XCTest
 
         // Settings → Cached chats: what is kept, then cleared.
         app = launch([])
-        let settings = app.buttons["inbox.settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 30))
-        settings.tap()
-        // Settings is one step into More.
-        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
-        app.buttons["more.settings"].tap()
+        app.openBrowseDestination("inbox.settings")
         let cache = app.buttons["settings.cache"]
         XCTAssertTrue(cache.waitForExistence(timeout: 10))
         cache.tap()

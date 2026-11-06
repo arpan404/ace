@@ -20,19 +20,18 @@ import XCTest
         feedback.typeText("Also cover zombie processes")
         screenshot("plan-revise")
         app.buttons["plan.close"].tap()
-        // The model pill's long press offers effort and speed, the levels in words.
-        app.threadModelPill(timeout: 25).press(forDuration: 1)
-        app.buttons["Effort and speed"].firstMatch.tap()
-        let high = app.buttons["composer.tune.high"]
-        XCTAssertTrue(high.waitForExistence(timeout: 25))
-        high.tap()
-        XCTAssertTrue(app.buttons["composer.tune.high"].waitForExistence(timeout: 10))
-        let selected = NSPredicate(format: "isSelected == true")
-        expectation(for: selected, evaluatedWith: app.buttons["composer.tune.high"])
-        waitForExpectations(timeout: 10)
+        // The title's menu offers effort as a submenu, the levels in words; the line under the
+        // title follows the pick.
+        app.threadTitle(timeout: 25).tap()
+        let effort = app.titleMenuItem("thread.title.effort", label: "Effort")
+        XCTAssertTrue(effort.waitForExistence(timeout: 10))
+        effort.tap()
+        let high = app.buttons["High"].firstMatch
+        XCTAssertTrue(high.waitForExistence(timeout: 10))
         screenshot("tune-effort")
-        app.otherElements["tunePanel"].swipeDown(velocity: .fast)
-        XCTAssertTrue(app.buttons["composer.tune.high"].waitForNonExistence(timeout: 10))
+        high.tap()
+        expectation(for: NSPredicate(format: "value CONTAINS 'High'"), evaluatedWith: app.threadTitle())
+        waitForExpectations(timeout: 10)
         XCTAssertTrue(app.buttons["composer.attach"].waitForExistence(timeout: 10))
         app.buttons["composer.attach"].tap()
         XCTAssertTrue(app.buttons["Photo Library"].waitForExistence(timeout: 10))

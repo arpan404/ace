@@ -12,7 +12,8 @@ import UIKit
 /// - Type: SF Pro with Dynamic Type, five roles on the system's own text styles, two weights.
 /// - Surfaces: background, glass (only what floats), raised (sheets).
 /// - Colour: grey ink in four tiers; status hues only on status icons; one accent.
-/// - Motion: the system's spring; things leave faster than they came; nothing loops.
+/// - Motion: the system's own: navigation, sheets, lists, scroll-edge bars and its default
+///   spring; ace adds motion only where the system has none, and nothing loops.
 @MainActor enum AceDesign {
 
     // MARK: Shape
@@ -205,23 +206,20 @@ import UIKit
 
     // MARK: Motion
 
-    enum Motion {
-        /// Things arrive with the system's spring.
-        static let arrive = Animation.spring
-        /// …and leave faster than they came.
-        static let leave = Animation.spring(duration: 0.25)
-        /// Under Reduce Motion: a short fade only.
-        static let reduced = Animation.easeInOut(duration: 0.15)
-        static func arriving(_ reduce: Bool) -> Animation { reduce ? reduced : arrive }
-        static func leaving(_ reduce: Bool) -> Animation { reduce ? reduced : leave }
-    }
+    /// Motion is the system's: views animate with `.default` (its spring) or not at all. These are
+    /// the few places the system has no motion of its own to lend.
+    enum Motion {}
 
-    /// Haptics confirm what the person did: send, approve, tab change, pull to refresh.
+    /// Haptics confirm what the person did: send, stop, approve, tab change, pull to refresh.
     enum Haptic {
         static let send = SensoryFeedback.impact(weight: .light)
+        /// Stopping the tree: a firmer tap than Send, so the two never feel alike.
+        static let stop = SensoryFeedback.impact(weight: .medium)
         static let approve = SensoryFeedback.success
         static let tab = SensoryFeedback.selection
         static let refresh = SensoryFeedback.impact(weight: .light)
+        /// A row's swipe action taken (pin, snooze, settle).
+        static let rowAction = SensoryFeedback.impact(weight: .light)
     }
 }
 
@@ -317,6 +315,16 @@ extension AceDesign.Size {
     static let rowGlyph11: CGFloat = 11
     /// The mockup's 13pt mark frame draws its glyph inset; ours fill their box, so 11 matches.
     static let rowMark: CGFloat = 11
+    /// A one-line row's lead: the provider's mark in a box this wide, bubble or not, as the
+    /// web's 18px lead, so every title starts in line.
+    static let rowLineLead: CGFloat = 18
+    /// The agent cursor marking computer use on a row. The web's is 13px on a 12px line; the
+    /// phone's line is larger, so the cursor is too, or it reads as a stray arrow.
+    static let rowPebble: CGFloat = 16
+    /// The agent cursor over a page, as the web's 22px.
+    static let pageCursor: CGFloat = 22
+    /// The person's avatar at the end of a home list's bar: a bar button's size.
+    static let barAvatar: CGFloat = 36
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.
     static let settingsRow: CGFloat = 48
     static let groupGlyph: CGFloat = 18
@@ -361,6 +369,11 @@ extension AceDesign.Size {
     static let sendGlyph: CGFloat = 15
     /// A strip's line of words.
     static let stripAction: CGFloat = 24
+    /// The request line a needs-you inbox row shows in its third line's place, and the command
+    /// capsule on it.
+    static let rowNeedLine: CGFloat = 20
+    /// The needs-you run's progress track under its title.
+    static let runTrack: CGFloat = 3
 }
 
 extension AceDesign.Space {
@@ -438,6 +451,10 @@ enum AceShadow {
     static let tabRadius: CGFloat = 1
     static let tabY: CGFloat = 1
     static let tabOpacity: Double = 0.25
+    /// Under the agent cursor (the web's `drop-shadow-sm`): soft, a point below.
+    static let pebbleRadius: CGFloat = 1
+    static let pebbleY: CGFloat = 1
+    static let pebbleOpacity: Double = 0.15
 }
 
 extension AceDesign.Surface {
@@ -473,10 +490,6 @@ extension AceDesign.Ink {
 }
 
 extension AceDesign.Motion {
-    /// A pressed control shrinks this little, so the press reads without moving the layout.
-    static let pressScale: CGFloat = 0.98
-    /// A pill grows into place from this scale as it fades in.
-    static let arrivalScale: CGFloat = 0.94
     /// Follows the keyboard: the system hands its own duration, ace adds no bounce.
     static func keyboard(_ duration: Double) -> Animation { .spring(duration: duration, bounce: 0) }
 }
@@ -604,7 +617,12 @@ extension AceDesign.Size {
     static let slimControl: CGFloat = 32
 }
 
+/// Drawing on the live page: the finger's accent ink, how long it stays once the finger lifts
+/// (the page's numbered marker takes over), and how long it takes to fade.
+extension AceDesign.Size {
+    static let inkStroke: CGFloat = 3
+}
 extension AceDesign.Motion {
-    /// A press answers at once.
-    static let press = Animation.easeOut(duration: 0.1)
+    static let inkHold: Double = 0.6
+    static let inkFade: Double = 0.25
 }

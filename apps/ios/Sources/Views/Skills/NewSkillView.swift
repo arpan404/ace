@@ -6,7 +6,6 @@ import SwiftUI
 struct NewSkillView: View {
     /// Content geometry: the placeholder starts where the editor's text does, past its line numbers.
     private static let pastGutter: CGFloat = 52
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let project: NativeProject?
     let created: (SkillRoute) -> Void
@@ -98,8 +97,8 @@ struct NewSkillView: View {
             }
             .insetRowBackground()
             .insetGroupedList()
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: agents)
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
+            .animation(.default, value: agents)
+            .animation(.default, value: problem)
             .sensoryFeedback(.selection, trigger: agents)
             .sensoryFeedback(.selection, trigger: scope)
             .navigationTitle("New skill").navigationBarTitleDisplayMode(.inline)

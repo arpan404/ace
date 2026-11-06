@@ -20,12 +20,17 @@ export const previewUnits = 16 * 1024;
 function bounded(item: Item): Item {
   const clip = (text: string, part: number, source: TextSource | undefined) => {
     if (text.length <= previewUnits) return { text, source };
+    let start = text.length - previewUnits;
+    const first = text.charCodeAt(start);
+    if (first >= 0xdc00 && first <= 0xdfff) start++;
     return {
-      text: text.slice(-previewUnits),
+      text: text.slice(start),
+      // Marked as the tail, so a client keeps appending this stream's deltas to it.
       source: {
         streamId: source?.streamId ?? `text:${JSON.stringify([item.id, part])}`,
         bytes: text.length * 2,
         encoding: "utf-16le" as const,
+        offset: start * 2,
       },
     };
   };

@@ -132,6 +132,37 @@ struct ChangesNotice: Codable, Sendable, Equatable {
     let message: String
 }
 
+/// A finished turn ready to review (`bridge/thread-review.ts`): only while the daemon reports the
+/// thread's whole tree done and the checkout holds changes. Swift never decides it.
+struct ReviewReadyRow: Codable, Sendable, Equatable {
+    struct PullRequest: Codable, Sendable, Equatable {
+        let number: Int
+        /// `open`, `draft`, `merged` or `closed`.
+        let state: String
+        let url: String
+        let repo: ForgeRepository
+    }
+    let files: Int
+    let additions: Int
+    let deletions: Int
+    /// "9 files · +214 −61 · checks passed".
+    let line: String
+    /// "checks passed", "checks failed" or "checks running", when the forge reported them.
+    let checks: String?
+    let branch: String
+    let pr: PullRequest?
+    /// The thread's project, for its pull request page.
+    let project: String
+}
+
+/// The thread's unsent line comments as the composer's one chip: "2 comments on wires.ts".
+struct CommentChipRow: Codable, Sendable, Equatable {
+    let count: Int
+    let label: String
+    /// Where the newest comment is.
+    let path: String
+}
+
 /// Everything but the summary, which keeps its own case for the sheet's open trace.
 enum ChangesPatch: Sendable {
     case tree([ChangesTreeRow])
@@ -141,9 +172,12 @@ enum ChangesPatch: Sendable {
     case review(ChangesReview)
     case replies(ChangesReplies)
     case notice(ChangesNotice)
+    case ready(ReviewReadyRow?)
+    case chip(CommentChipRow?)
 
-    static let types: Set<String> = ["changes.tree", "changes.file", "changes.page", "changes.line", "changes.review", "changes.replies", "changes.notice"]
-    private enum Keys: String, CodingKey { case rows }
+    static let types: Set<String> = ["changes.tree", "changes.file", "changes.page", "changes.line", "changes.review", "changes.replies", "changes.notice",
+                                     "changes.ready", "changes.chip"]
+    private enum Keys: String, CodingKey { case rows, ready, chip }
 
     init(type: String, from decoder: any Decoder) throws {
         switch type {
@@ -153,6 +187,8 @@ enum ChangesPatch: Sendable {
         case "changes.line": self = .line(try ChangesWholeLine(from: decoder))
         case "changes.review": self = .review(try ChangesReview(from: decoder))
         case "changes.replies": self = .replies(try ChangesReplies(from: decoder))
+        case "changes.ready": self = .ready(try decoder.container(keyedBy: Keys.self).decodeIfPresent(ReviewReadyRow.self, forKey: .ready))
+        case "changes.chip": self = .chip(try decoder.container(keyedBy: Keys.self).decodeIfPresent(CommentChipRow.self, forKey: .chip))
         default: self = .notice(try ChangesNotice(from: decoder))
         }
     }

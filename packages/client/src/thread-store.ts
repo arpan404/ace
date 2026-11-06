@@ -148,8 +148,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   truncated(id: string) {
     return this.#clipped.has(id);
   }
-  appended(previous: Item, next: Item) {
-    return this.#messageDeltas.appended(previous, next);
+  edited(previous: Item, next: Item) {
+    return this.#messageDeltas.edit(previous, next);
   }
   #own<T>(record: Record<string, T> | undefined, id: string): T | undefined {
     return record && Object.hasOwn(record, id) ? record[id] : undefined;

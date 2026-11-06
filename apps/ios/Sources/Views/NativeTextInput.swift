@@ -14,8 +14,11 @@ struct NativeTextInput: UIViewRepresentable {
     var onWrap: ((Bool) -> Void)? = nil
     /// The composer shows the text as a card right now (focused or wrapped).
     var card = false
-    /// Whether the text has the keyboard; it opens to the writing height.
+    /// Whether the text has the keyboard; it opens to the writing height unless `holdsOneLine`.
     var focused = false
+    /// The thread's capsule stays one line tall with the keyboard up and grows only as the words
+    /// wrap, as Messages does; New thread's card opens to its writing height.
+    var holdsOneLine = false
     /// The text took (true) or gave up the keyboard, with the keyboard's animation duration.
     var onFocus: ((Bool, Double) -> Void)? = nil
     var identifier = "composer.input"
@@ -28,6 +31,8 @@ struct NativeTextInput: UIViewRepresentable {
     var place: CaretPlacement? = nil
     /// Images and files pasted in; nil pastes only words.
     var pasteFiles: (([NSItemProvider]) -> Void)? = nil
+    /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
+    var fills = false
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -67,10 +72,11 @@ struct NativeTextInput: UIViewRepresentable {
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
+        if fills, let height = proposal.height, height.isFinite { return CGSize(width: width, height: max(height, AceDesign.Size.tap)) }
         let line = UIFontMetrics(forTextStyle: .body).scaledValue(for: AceDesign.TextRole.rowTitle.lineHeight, compatibleWith: uiView.traitCollection)
         let content = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
         let fit = ComposerFit(line: line, inset: AceDesign.Space.row * 2, minimum: AceDesign.Size.tap)
-        return CGSize(width: width, height: fit.height(content: content, focused: focused))
+        return CGSize(width: width, height: fit.height(content: content, focused: focused && !holdsOneLine))
     }
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
     @MainActor final class Coordinator: NSObject, UITextViewDelegate {

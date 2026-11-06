@@ -4,7 +4,6 @@ import SwiftUI
 /// plugin), what it ships, and updating or removing it. A switch shows its new state at once;
 /// the machine's answer settles it once every change in flight has landed.
 struct PluginPageView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let components: [PluginComponentRow]
     @State private var plugin: PluginAgents
@@ -75,8 +74,8 @@ struct PluginPageView: View {
             }
         }
         .insetGroupedList()
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: plugin)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
+        .animation(.default, value: plugin)
+        .animation(.default, value: problem)
         .sensoryFeedback(.selection, trigger: toggled)
         .navigationTitle(plugin.name).navigationBarTitleDisplayMode(.inline)
         .sheet(item: $review) { PluginReviewView(model: model, request: $0) }

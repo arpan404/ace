@@ -6,7 +6,6 @@ import SwiftUI
 /// (`bridge/provider-page-view.ts`); this draws them. `extra` takes more sections (ACP
 /// registry, MCP servers) between Behaviour and Advanced.
 struct ProviderPageView<Extra: View>: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let provider: String
     let name: String
@@ -61,7 +60,7 @@ struct ProviderPageView<Extra: View>: View {
             }
         }
         .insetGroupedList()
-        .onChange(of: install?.title) { if install?.idle == false { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { proxy.scrollTo("install", anchor: .top) } } }
+        .onChange(of: install?.title) { if install?.idle == false { withAnimation { proxy.scrollTo("install", anchor: .top) } } }
         }
         .smoothChange(page)
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
@@ -81,7 +80,7 @@ struct ProviderPageView<Extra: View>: View {
     private func read() async {
         do {
             let next = try await model.read(ProviderPageData.read(provider, admin: model.canAdmin == true), as: ProviderPageData.self)
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { page = next; problem = nil }
+            withAnimation { page = next; problem = nil }
         } catch {
             // The last page this phone saw stays; the problem shows only when there is none.
             if page == nil { problem = "Couldn't read \(name) on this computer. Check the connection and retry." }
@@ -94,7 +93,7 @@ struct ProviderPageView<Extra: View>: View {
             defer { busy = false }
             do {
                 let next = try await ProviderInstallSection.plan(model, provider: provider, action: action)
-                withAnimation(AceDesign.Motion.arriving(reduceMotion)) { install = next }
+                withAnimation { install = next }
             } catch { editProblem = error.localizedDescription }
         }
     }

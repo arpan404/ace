@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The machines the inbox can't reach right now, as the header names them. Built from each
 /// session's own connection state; the rows keep their own confirmation and never read fresh.
-struct InboxConnectionProblem: Equatable {
+struct InboxConnectionProblem: Hashable {
     /// The machine's name when one is out, else how many.
     let text: String
     /// Still trying (spinner) rather than out of reach (wifi.slash).
@@ -23,103 +23,6 @@ struct InboxConnectionProblem: Equatable {
             : out.count > 1 ? "\(subject) offline" : inbox.showsMachineNames ? "\(named) is offline" : "Your machine is offline"
         let identifier = inbox.showsMachineNames && out.count == 1 ? "inbox.connection.\(inbox.name(first.hostId))" : "inbox.connection"
         return InboxConnectionProblem(text: text, trying: trying && !fatal, identifier: identifier)
-    }
-}
-
-/// The list's title in the bar's leading slot: "Threads ⌄" or "Pull requests ⌄" opening the
-/// list's scope menu, and under it the scope, or what is wrong with the connection while it lasts.
-/// With no `choices` the title has no menu.
-struct InboxHeading<Choices: View>: View {
-    let title: String
-    let scope: String?
-    let problem: InboxConnectionProblem?
-    let openMachines: () -> Void
-    var identifier = "inbox.projects"
-    let choices: Choices?
-
-    init(title: String, scope: String?, problem: InboxConnectionProblem?, openMachines: @escaping () -> Void,
-         identifier: String = "inbox.projects", @ViewBuilder choices: () -> Choices?) {
-        self.title = title
-        self.scope = scope
-        self.problem = problem
-        self.openMachines = openMachines
-        self.identifier = identifier
-        self.choices = choices()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            if let choices {
-                Menu { choices } label: {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        label(chevron: true)
-                        if problem == nil { InboxTitle(scope: scope, problem: nil, openMachines: openMachines) }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(identifier)
-                .accessibilityHint("Chooses what the list shows")
-                if problem != nil { InboxTitle(scope: scope, problem: problem, openMachines: openMachines) }
-            } else {
-                label(chevron: false)
-                InboxTitle(scope: scope, problem: problem, openMachines: openMachines)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func label(chevron: Bool) -> some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            HStack(alignment: .center, spacing: AceDesign.Space.tight + 1) {
-                Text(title).accessibilityIdentifier("inbox.heading.title").aceFont(AceDesign.TextRole.header, relativeTo: .headline)
-                    .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-                if chevron {
-                    AceIcon(.caretDown, size: AceDesign.Size.titleChevron, weight: .bold, relativeTo: .headline)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground)
-                }
-            }
-            .accessibilityAddTraits(.isHeader)
-        }
-    }
-}
-
-/// The line under the title: the scope the list shows ("All projects", "ace"), always, so a
-/// filtered list never looks like the whole inbox; and what is wrong with the connection after
-/// it, once a problem has lasted 800ms. With a problem showing, tapping the line opens Machines.
-struct InboxTitle: View {
-    let scope: String?
-    let problem: InboxConnectionProblem?
-    let openMachines: () -> Void
-    @State private var shown: InboxConnectionProblem?
-
-    var body: some View {
-        Group {
-            if let shown {
-                Button(action: openMachines) {
-                    HStack(spacing: AceDesign.Space.related) {
-                        if shown.trying { ProgressView().controlSize(.small) } else { Image(systemName: "wifi.slash") }
-                        Text([scope, shown.text].compactMap { $0 }.joined(separator: " · ")).lineLimit(1)
-                    }
-                    .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel([scope, shown.text].compactMap { $0 }.joined(separator: " · "))
-                .accessibilityHint("Opens Machines")
-                .accessibilityIdentifier(shown.identifier)
-            } else if let scope {
-                Text(scope).accessibilityIdentifier("inbox.heading.scope").aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
-            }
-        }
-        .task(id: problem) {
-            guard let problem else { shown = nil; return }
-            // An already-visible problem updates at once; a new one waits out a brief blip.
-            if shown == nil { try? await Task.sleep(for: .milliseconds(800)) }
-            if !Task.isCancelled { shown = problem }
-        }
     }
 }
 
@@ -198,13 +101,44 @@ struct InboxChip: View {
 }
 
 extension View {
-    /// Pins `bar` under the navigation bar. On iOS 26 it joins the bar's scroll-edge effect, so
-    /// rows pass under it; iOS 18 gives it the page colour.
-    @ViewBuilder func inboxTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+    /// Pins `bar` under the navigation title, as Mail and Files pin a control there: on iOS 26 a
+    /// system bar with the hard scroll-edge effect Apple uses under a pinned control, so rows blur
+    /// away under the title and the bar together and nothing prints through; iOS 18 gives it the
+    /// page colour.
+    func pinnedTopBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        modifier(PinnedTopBar(bar: bar()))
+    }
+}
+
+/// `pinnedTopBar`. The edge shows once rows pass under the bar: at rest it would blur the large
+/// title above it. It turns on only after the large title has handed over to the small one and
+/// off only back near the top, so the wobble of the scroll position during that hand-over can't
+/// flip it every frame (`ScrollEdgeHold`).
+private struct PinnedTopBar<Bar: View>: ViewModifier {
+    let bar: Bar
+    @State private var hold = ScrollEdgeHold()
+    func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
+            content
+                .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
+                    hold.update(offset)
+                }
+                .scrollEdgeEffectStyle(.hard, for: .top)
+                .scrollEdgeEffectHidden(!hold.shown, for: .top)
+                .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none) { bar }
         } else {
-            safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }
+            content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar.background(AceTheme.Colours.background) }
         }
+    }
+}
+
+/// Whether a pinned bar's scroll edge shows, from how far the list has scrolled: on past `on`
+/// (about a large title's height, so the title has collapsed), off again only under `off`. Pure.
+struct ScrollEdgeHold: Equatable {
+    static let on: CGFloat = 52
+    static let off: CGFloat = 8
+    private(set) var shown = false
+    mutating func update(_ offset: CGFloat) {
+        if shown { if offset < Self.off { shown = false } } else if offset > Self.on { shown = true }
     }
 }

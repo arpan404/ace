@@ -40,9 +40,10 @@ final class NativeHost: @unchecked Sendable {
         let call: @convention(block) (String, String, JSValue, JSValue) -> Void = { [weak self] operation, json, body, value in
             // The body is the operation's large text, sent unescaped; absent unless a string.
             let text = body.isString ? body.toString() : nil
-            self?.call(HostRequest(operation, input: Data(json.utf8), body: text), callback: Callback(value))
+            self?.call(HostRequest(operation, input: Data(json.utf8), body: text), value: value)
         }
         let emit: @convention(block) (String) -> Void = { [weak self] json in
+            self?.runtime?.vm.check("aceHost.emit")
             guard let data = HostTrace.measure("host.emit", { json.data(using: .utf8) }), data.count <= 32768 else { return }
             HostTrace.add("host.emit.bytes", seconds: 0, bytes: data.count)
             ThreadOpenTrace.emitted()
@@ -50,18 +51,23 @@ final class NativeHost: @unchecked Sendable {
         }
         let socket: @convention(block) (String, String, String) -> Void = { [weak self] id, action, text in self?.socket(id, action: action, text: text) }
         let timer: @convention(block) (String, Double, JSValue) -> Void = { [weak self] id, delay, value in
-            self?.setTimer(id, delay: delay, callback: Callback(value))
+            guard let self else { return }
+            self.setTimer(id, delay: delay, callback: Callback(value, runtime: self.runtime))
         }
-        let cancel: @convention(block) (String) -> Void = { [weak self] id in self?.timers.removeValue(forKey: id)?.invalidate() }
+        let cancel: @convention(block) (String) -> Void = { [weak self] id in
+            self?.runtime?.vm.check("aceHost.cancelTimer")
+            self?.timers.removeValue(forKey: id)?.invalidate()
+        }
         let own: [String: Any] = ["call": call, "emit": emit, "socket": socket, "timer": timer, "cancelTimer": cancel]
         HostContract.install(HostContract.stateless().merging(own) { _, runtime in runtime }, in: context)
     }
     /// Inputs past this are refused before any work; bodies have each operation's own cap.
     private static let inputLimit = 1024 * 1024
     private static let bodyLimit = 9 * 1024 * 1024
-    private func call(_ request: HostRequest, callback: Callback) {
+    private func call(_ request: HostRequest, value: JSValue) {
         let operation = request.operation
-        let callback = HostTrace.enabled ? Callback(callback.value, traced: operation, began: CACurrentMediaTime()) : callback
+        let callback = HostTrace.enabled ? Callback(value, runtime: runtime, traced: operation, began: CACurrentMediaTime())
+            : Callback(value, runtime: runtime)
         guard request.input.count <= Self.inputLimit, (request.body?.utf8.count ?? 0) <= Self.bodyLimit else {
             reply(.failure(HostError.storage), to: callback); return
         }
@@ -120,8 +126,8 @@ final class NativeHost: @unchecked Sendable {
         callback.finish()
         runtime?.execute { _ in HostTrace.measure("js.reply") {
             switch result {
-            case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-            case .failure(let error): callback.value.call(withArguments: [HostError.code(of: error), ""])
+            case .success(let text): callback.call([NSNull(), text])
+            case .failure(let error): callback.call([HostError.code(of: error), ""])
             }
         } }
     }
@@ -134,8 +140,8 @@ final class NativeHost: @unchecked Sendable {
             }
             runtime?.execute { _ in
                 switch encoded {
-                case .success(let text): callback.value.call(withArguments: [NSNull(), text])
-                case .failure(let reason): callback.value.call(withArguments: [reason.rawValue, ""])
+                case .success(let text): callback.call([NSNull(), text])
+                case .failure(let reason): callback.call([reason.rawValue, ""])
                 }
             }
         }
@@ -151,6 +157,7 @@ final class NativeHost: @unchecked Sendable {
         }
     }
     private func socket(_ id: String, action: String, text: String) {
+        runtime?.vm.check("aceHost.socket")
         switch action {
         case "open":
             let runtime = runtime
@@ -181,11 +188,12 @@ final class NativeHost: @unchecked Sendable {
         }
     }
     private func setTimer(_ id: String, delay: Double, callback: Callback) {
+        runtime?.vm.check("aceHost.timer")
         guard delay.isFinite, delay >= 0, timers.count < 4096 else { return }
         let timer = Timer(timeInterval: delay / 1000, repeats: false) { [weak self] _ in
             self?.timers.removeValue(forKey: id)
             let began = CACurrentMediaTime()
-            HostTrace.measure("js.timer") { _ = callback.value.call(withArguments: []) }
+            HostTrace.measure("js.timer") { callback.call([]) }
             let spent = CACurrentMediaTime() - began
             ThreadOpenTrace.scriptBusy.withLock { $0 += spent }
         }

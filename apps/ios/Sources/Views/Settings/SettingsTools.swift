@@ -44,7 +44,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .providers: .plugsConnected
         case .sourceControl: .gitBranch
         case .prompts: .textAlignLeft
-        case .computer: .monitor
+        case .computer: .aceComputerUse
         case .devices: .deviceMobile
         }
     }

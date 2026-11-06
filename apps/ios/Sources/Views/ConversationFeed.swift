@@ -166,6 +166,8 @@ struct ConversationFeed: View {
                     }
                     // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
                 }
+                // A finished turn with changes: one quiet line to review them (`ReviewReadyLine`).
+                ReviewReadyLine(model: model)
                 // Room for the composer, its strip and the keyboard, and under the last row so it
                 // clears the strip tucked above the composer. The feed itself never changes size as
                 // they move: resizing a long lazy transcript re-estimates its height and throws the
@@ -177,7 +179,7 @@ struct ConversationFeed: View {
             .modifier(TranscriptTextSize())
             .padding(.top, AceDesign.Space.related)
             // A message that wasn't sent fades in and out where it was written.
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: thread.screen.queue?.notSent?.id)
+            .animation(.default, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
             .frame(maxWidth: ReadingColumn.maxWidth)
             .frame(maxWidth: .infinity)
@@ -252,12 +254,18 @@ struct ConversationFeed: View {
                 viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            let opened = intent.opened
             if intent.opened, new.height != old.height {
                 // What opened grows under the row the person tapped, which stays put; the feed
                 // follows the end again only if the end is still in view.
                 intent.opened = false
                 if reading.thread == nil { setFollowing(new.bottom <= AceDesign.Space.group) }
             }
+            // Following, an end that grew past the bottom (a streaming answer) is followed from
+            // here: the lazy tail row that also scrolls on each change isn't built once the end
+            // is a screen away, so one burst of growth would otherwise leave it behind for good.
+            if !opened, pinned, thread.loaded, !intent.active, !keyboardMoving,
+               new.height > old.height, new.bottom > 1 { toEnd(proxy) }
             // Geometry is an observation, not a new scroll request. The bounded correction
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
@@ -434,7 +442,7 @@ struct ConversationFeed: View {
         }
         .onChange(of: barHeight) { old, new in
             // The composer opening as it takes the keyboard moves on the keyboard's spring.
-            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : AceDesign.Motion.arrive
+            let motion = keyboardMoving ? AceDesign.Motion.keyboard(keyboardDuration) : .default
             roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidChangeFrameNotification)) { _ in
@@ -791,13 +799,13 @@ private struct TapPutsKeyboardAway: ViewModifier {
     }
 }
 
-/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own, and rows
-/// fade softly under its buttons as the system's bars do (no band, no hairline). Before, the bar
-/// is opaque in the page colour.
+/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
+/// thread's header bar sets the system's scroll-edge effect (`ThreadHeaderBar`). Before, the bar is
+/// opaque in the page colour.
 private struct TranscriptTopEdge: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
-            content.scrollEdgeEffectStyle(.soft, for: .top)
+            content
         } else {
             content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
                 .toolbarBackgroundVisibility(.visible, for: .navigationBar)

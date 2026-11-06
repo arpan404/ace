@@ -16,6 +16,23 @@ struct AlertNotification: Codable, Sendable, Equatable, Identifiable {
     /// older runtimes: posted and shown as before.
     var delivery: Delivery? = nil
     struct Delivery: Codable, Sendable, Equatable { let post: Bool; let interrupt: Bool; let banner: Bool }
+    /// What a needs-you alert asks, read from the pending request (bridge/notification-request.ts).
+    /// Nil when it couldn't be read in time, and from older runtimes: the alert posts plainly.
+    var request: Request? = nil
+    struct Request: Codable, Sendable, Equatable {
+        struct Choice: Codable, Sendable, Equatable { let id: String; let label: String }
+        /// "approval", "question" or "other".
+        let kind: String
+        /// "Claude Code wants to run a command".
+        let sentence: String
+        let detail: String
+        let code: Bool
+        let questionId: String?
+        /// A short question's options, offered as buttons.
+        let choices: [Choice]
+        /// The person's own words answer it.
+        let reply: Bool
+    }
 }
 
 struct QuietHours: Codable, Sendable, Equatable {

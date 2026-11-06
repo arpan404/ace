@@ -13,7 +13,6 @@ struct AutomationsView: View {
     @State private var made: String?
     @State private var restored = 0
     @Environment(\.automationLinks) private var links
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var zone: String { TimeZone.current.identifier }
     private var request: [String: Any] { ["type": "automations.page", "zone": zone] }
 
@@ -78,10 +77,10 @@ struct AutomationsView: View {
         }
         .insetGroupedList()
         .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { undoStrip }
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: links?.undo.deleted)
+        .animation(.default, value: links?.undo.deleted)
         .sensoryFeedback(.success, trigger: restored)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: page?.person ?? [])
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: loading)
+        .animation(.default, value: page?.person ?? [])
+        .animation(.default, value: loading)
         .nativeTitle("Automations")
         // The new automation opens once the editor has gone, so the push never races its dismissal.
         .sheet(isPresented: $creating, onDismiss: {

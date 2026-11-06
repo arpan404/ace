@@ -9,11 +9,9 @@ import XCTest
 
     override func setUp() { continueAfterFailure = false }
 
-    func testTheBranchLineOpensWorkAndSwitchesTheBranch() throws {
+    func testWorkOpensFromTheTitleMenuAndSwitchesTheBranch() throws {
         let app = try open("clean")
-        let subtitle = app.buttons["thread.subtitle"]
-        XCTAssertTrue(subtitle.waitForExistence(timeout: 15))
-        subtitle.tap()
+        app.openWork()
         let branch = app.buttons["work.branch"]
         XCTAssertTrue(branch.waitForExistence(timeout: 15))
         XCTAssertTrue(app.descendants(matching: .any)["work.place.local"].exists)
@@ -52,7 +50,7 @@ import XCTest
 
     func testALinkedPullRequestOpensItsPageInTheApp() throws {
         let app = try open("clean")
-        app.buttons["thread.subtitle"].tap()
+        app.openWork()
         let pull = app.descendants(matching: .any)["work.pr.233"].firstMatch
         XCTAssertTrue(pull.waitForExistence(timeout: 15))
         pull.tap()
@@ -64,7 +62,7 @@ import XCTest
 
     func testLinkingAndUnlinkingAPullRequest() throws {
         let app = try open("clean")
-        app.buttons["thread.subtitle"].tap()
+        app.openWork()
         XCTAssertTrue(app.descendants(matching: .any)["work.pr.233"].waitForExistence(timeout: 15))
         // The sheet opens at half height; Link a PR sits below the fold.
         let link = app.buttons["work.link"]
@@ -95,7 +93,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["Setup script failed"].exists)
         screenshot("setup-line")
         // The same problem in Work, with the script's output.
-        app.buttons["thread.subtitle"].tap()
+        app.openWork()
         XCTAssertTrue(app.descendants(matching: .any)["work.problem"].waitForExistence(timeout: 15))
         screenshot("setup-sheet")
         app.buttons["work.problem.setup-continue"].tap()
@@ -123,7 +121,7 @@ import XCTest
     func testWorkOffersClearingTheLockToo() throws {
         let app = try open("locked")
         XCTAssertTrue(app.buttons["thread.work.lock.clear"].waitForExistence(timeout: 15))
-        app.buttons["thread.subtitle"].tap()
+        app.openWork()
         XCTAssertTrue(app.buttons["work.clearLock"].waitForExistence(timeout: 15), "Work offers the same way out")
         screenshot("lock-sheet")
     }
