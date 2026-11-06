@@ -42,6 +42,19 @@ export class CommandReceipts {
       ? CommandResult.parse(JSON.parse(String(row.result)))
       : undefined;
   }
+  /**
+   * The device id a command's receipt is stored under, when `deviceId` is that device or the
+   * same device under its other id (ADR 0115). Settling and releasing go by this owner, so a
+   * retry through the other id reaches the receipt the lookup found.
+   */
+  commandOwner(commandId: CommandId, deviceId: DeviceId): DeviceId | undefined {
+    const row = this.source
+      .statement("SELECT device_id FROM command_receipts WHERE command_id=?")
+      .get(commandId);
+    if (!row) return undefined;
+    const owner = DeviceId.parse(row.device_id);
+    return this.source.sameDevice(owner, deviceId) ? owner : undefined;
+  }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
     const result = CommandResult.parse(input);
     if (result.commandId !== id) throw new Error("Command result id mismatch");
@@ -55,22 +68,26 @@ export class CommandReceipts {
     });
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
+    const owner = this.commandOwner(commandId, deviceId);
+    if (!owner) return;
     this.source
       .statement(
         "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
       )
-      .run(commandId, deviceId);
+      .run(commandId, owner);
   }
   /**
    * Forgets a command's final refusal so the same id can run again. An accepted command, and one
    * still waiting on a review or client action, stays as it is.
    */
   releaseRefusedCommand(commandId: CommandId, deviceId: DeviceId): void {
+    const owner = this.commandOwner(commandId, deviceId);
+    if (!owner) return;
     this.source
       .statement(
         "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.ok') = 0 AND coalesce(json_extract(result, '$.error'), '') NOT IN ('review_pending', 'client_action_pending')",
       )
-      .run(commandId, deviceId);
+      .run(commandId, owner);
   }
   completeReviewCommand(
     commandId: CommandId,
@@ -80,11 +97,13 @@ export class CommandReceipts {
     const result = CommandResult.parse(input);
     if (result.commandId !== commandId) throw new Error("Command result id mismatch");
     return this.source.atomic(() => {
+      const owner = this.commandOwner(commandId, deviceId);
+      if (!owner) return { commandId, ok: false, error: "forbidden" };
       this.source
         .statement(
           "UPDATE command_receipts SET result = ? WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
         )
-        .run(JSON.stringify(result), commandId, deviceId);
+        .run(JSON.stringify(result), commandId, owner);
       const row = this.source
         .statement("SELECT result FROM command_receipts WHERE command_id = ?")
         .get(commandId);

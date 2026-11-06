@@ -151,8 +151,6 @@ The same phone showed up as several devices, and the same machine as several mac
   credential. A hello alone, without a code, takes nothing over. A pairing code is already the owner's grant of a
   device, and the code chooses the scopes; a signed challenge per install would close this and
   is a follow-up.
-- The daemon's paired device ids are no longer all daemon-minted: a new install's is its install
-  id. Device ids were already opaque to every reader.
 - The account backend still lists machines by relay host id only. Listing the daemon id there
   too would merge a machine before its paired entry has ever learned its paths; that needs a
   relay migration and is a follow-up.

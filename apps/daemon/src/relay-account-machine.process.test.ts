@@ -596,6 +596,45 @@ it("a command the pairing ran is answered from its receipt through the account o
   });
 });
 
+it("a proof from a replaced credential, or one made for another account device, links nothing", async () => {
+  const machine = await accountMachine();
+  const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+  const first = await pairPhone(machine, installId);
+  const again = await pairPhone(machine, installId);
+  expect(again.device.id).toBe(first.device.id);
+  for (const id of ["stale-proof", "other-account", "current-proof"])
+    machine.f.store.recordCommand(CommandId.parse(id), again.device.id, () => ({
+      commandId: CommandId.parse(id),
+      ok: true,
+    }));
+  const replay = async (link: () => Promise<PairingLinkProof>, id: string) => {
+    const client = await machine.device(installId, link).connect();
+    expect(client.state).toBe("ready");
+    await client.enqueue({ type: "thread.archive", threadId: machine.f.thread.id }, id);
+    await expect
+      .poll(() => client.intent(id).getSnapshot()?.result, { timeout: 10_000 })
+      .toBeDefined();
+    const result = client.intent(id).getSnapshot()?.result;
+    await client.close();
+    return result;
+  };
+  const proof = (token: string, account: string) => () =>
+    pairingLinkProof(token, again.device.id, DeviceId.parse(account), crypto.subtle);
+
+  expect(await replay(proof(first.token, installId), "stale-proof")).toMatchObject({
+    ok: false,
+    error: "forbidden",
+  });
+  // The current credential, but bound to a different account device id than the hello's.
+  expect(
+    await replay(proof(again.token, "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0f"), "other-account"),
+  ).toMatchObject({ ok: false, error: "forbidden" });
+  expect(await replay(proof(again.token, installId), "current-proof")).toMatchObject({
+    commandId: "current-proof",
+    ok: true,
+  });
+});
+
 it("pairing the install again leaves its account connection open", async () => {
   const machine = await accountMachine();
   const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";

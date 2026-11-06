@@ -1116,6 +1116,10 @@ export class Store {
   commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
     return this.receipts.commandReceipt(commandId, deviceId);
   }
+  /** The id `deviceId`'s receipt for `commandId` is stored under, if it is that device's. */
+  commandOwner(commandId: CommandId, deviceId: DeviceId): DeviceId | undefined {
+    return this.receipts.commandOwner(commandId, deviceId);
+  }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
     return this.receipts.completeAsyncCommand(id, input);
   }

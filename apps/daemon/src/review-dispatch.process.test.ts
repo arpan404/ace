@@ -4,6 +4,9 @@ import { createDevThread } from "./commands.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
+import { pairingLinkProof } from "@ace/client/link-proof";
+import { Command, CommandId, DeviceId } from "@ace/protocol";
+import { dispatchReviewCommand } from "./review.ts";
 
 it("a saturated retry cannot replace the successful receipt of a waiting reviewer", async () => {
   const entered = Promise.withResolvers<void>();
@@ -113,6 +116,58 @@ it("findings never reach an executor for another repository with identical filen
     expect(received).toMatchObject([
       { source: { workspaceId: f.a.workspaceId, threadId: f.a.thread.id, worktree: f.a.root } },
     ]);
+  } finally {
+    await f.close();
+  }
+});
+
+it("the linked account device recovers the pairing's pending review after a restart and settles its receipt", async () => {
+  const f = await reviewFixture({
+    async fix() {},
+    async review() {
+      return { comments: [] };
+    },
+  });
+  try {
+    const paired = f.store.devices.create("Phone", ["read", "operate"], 1000);
+    const account = DeviceId.parse("account-phone");
+    expect(
+      f.store.devices.link(
+        account,
+        await pairingLinkProof(paired.token, paired.device.id, account, crypto.subtle),
+        1000,
+      ),
+    ).toBe(true);
+    const id = CommandId.parse("listed-over-lan");
+    const payload = { type: "review.list", sessionId: f.sessionId };
+    // The pairing reserved the command and the worker ran it, then the daemon stopped before
+    // the receipt was settled.
+    f.store.recordCommand(id, paired.device.id, () => ({
+      commandId: id,
+      ok: false,
+      error: "review_pending",
+    }));
+    const ran = await f.review.handle(
+      Command.parse({ id, deviceId: paired.device.id, payload }),
+    );
+    expect(ran.ok).toBe(true);
+
+    // The same install retries through its account entry.
+    const retried = await dispatchReviewCommand(
+      f.review,
+      f.store,
+      Command.parse({ id, deviceId: account, payload }),
+    );
+    expect(retried).toMatchObject({ commandId: id, ok: true });
+    expect(f.store.commandReceipt(id, paired.device.id)).toEqual(retried);
+    // A device that is not the pairing gets nothing from it.
+    expect(
+      await dispatchReviewCommand(
+        f.review,
+        f.store,
+        Command.parse({ id, deviceId: "stranger", payload }),
+      ),
+    ).toMatchObject({ ok: false, error: "forbidden" });
   } finally {
     await f.close();
   }

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { expect, test } from "vitest";
-import { Agent, Item, type EventPayload } from "@ace/protocol";
+import { pairingLinkProof } from "@ace/client/link-proof";
+import { Agent, DeviceId, InstallId, Item, type EventPayload } from "@ace/protocol";
 import { Store, createDevThread } from "@ace/daemon";
 import { schemaVersion } from "./migrations.ts";
 
@@ -219,6 +220,54 @@ test("paired devices keep working credentials through the upgrade to install ids
       } finally {
         reopened.close();
       }
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a populated schema 28 database keeps credentials, install ids and folded records through the account link upgrade", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-upgrade-account-link-"));
+  const path = join(home, "events.sqlite");
+  const install = InstallId.parse("01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e");
+  try {
+    const store = new Store(path);
+    // A record the install left before it had an id, then the install pairing again.
+    const left = store.devices.create("Phone", ["read"], 1000);
+    const phone = store.devices.create("Phone", ["read", "operate"], 1100, null, install);
+    store.devices.recognize(phone.device.id, install, 1200);
+    expect(store.devices.list().map((device) => device.id)).toEqual([phone.device.id]);
+    store.close();
+    // The release before account links: schema 28, with installs and folds but no link column.
+    const db = new DatabaseSync(path);
+    db.exec(
+      `ALTER TABLE devices DROP COLUMN account_link; UPDATE schema_version SET version=${schemaVersion - 1} WHERE id=1`,
+    );
+    db.close();
+
+    const reopened = new Store(path);
+    try {
+      expect(reopened.devices.authenticate(phone.token, 2000)).toMatchObject({
+        id: phone.device.id,
+        scopes: ["read", "operate"],
+      });
+      expect(reopened.devices.heldBy(install, 2000)).toBe(phone.device.id);
+      // The folded record stays under the install's record and comes back when it is used.
+      expect(reopened.devices.list().map((device) => device.id)).toEqual([phone.device.id]);
+      expect(reopened.devices.authenticate(left.token, 2000)).toMatchObject({ id: left.device.id });
+      // Nothing is linked by the upgrade; a proof made with the current credential links.
+      const account = DeviceId.parse(install);
+      expect(reopened.sameDevice(phone.device.id, account)).toBe(false);
+      expect(
+        reopened.devices.link(
+          account,
+          await pairingLinkProof(phone.token, phone.device.id, account, crypto.subtle),
+          2000,
+        ),
+      ).toBe(true);
+      expect(reopened.sameDevice(phone.device.id, account)).toBe(true);
+    } finally {
+      reopened.close();
     }
   } finally {
     await rm(home, { recursive: true, force: true });
