@@ -78,6 +78,26 @@ import XCTest
         }
     }
 
+    func testWordsTypedJustBeforeLeavingTheAppSurviveItBeingKilled() {
+        let app = launch()
+        XCTAssertTrue(app.newThreadButton.waitForExistence(timeout: 25))
+        app.newThreadButton.tap()
+        let message = app.descendants(matching: .any)["newThread.message"].firstMatch
+        XCTAssertTrue(message.waitForExistence(timeout: 15))
+        app.typeText("Keep these words")
+        // Straight to the home screen, then killed from the app switcher.
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+        let relaunched = XCUIApplication()
+        relaunched.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841", "--spike-keep-state"]
+        relaunched.launch()
+        XCTAssertTrue(relaunched.newThreadButton.waitForExistence(timeout: 25))
+        relaunched.newThreadButton.tap()
+        let restored = relaunched.descendants(matching: .any)["newThread.message"].firstMatch
+        XCTAssertTrue(restored.waitForExistence(timeout: 15))
+        XCTAssertEqual(restored.value as? String, "Keep these words")
+    }
+
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
