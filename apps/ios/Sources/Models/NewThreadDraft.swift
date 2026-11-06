@@ -70,9 +70,11 @@ struct NewThreadIssue: Codable, Equatable, Sendable {
 }
 
 /// The draft as a small JSON file, written atomically and protected until first unlock, with its
-/// picked files' copies in a folder beside it.
+/// picked files' copies in a folder beside it. Reads and writes go through `writer`, off the main
+/// thread and in order.
 struct NewThreadDraftStore: Sendable {
     let url: URL
+    var writer = NewThreadDraftWriter.shared
     var files: AttachmentStaging { AttachmentStaging(root: url.deletingPathExtension().appendingPathExtension("files")) }
     static func standard() -> NewThreadDraftStore {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -90,7 +92,8 @@ struct NewThreadDraftStore: Sendable {
         for url in [store.url, store.asideURL, store.files.root] { try? FileManager.default.removeItem(at: url) }
     }()
     func load() -> NewThreadDraft {
-        DraftFile<NewThreadDraft>(url: url).load() ?? NewThreadDraft()
+        let file = DraftFile<NewThreadDraft>(url: url)
+        return writer.run { file.load() } ?? NewThreadDraft()
     }
     /// New thread from an issue: its machine, project, first message and link, keeping the
     /// person's agent and model choices. Files picked for another draft let go when it opens.
@@ -128,13 +131,23 @@ struct NewThreadDraftStore: Sendable {
         draft.files.removeAll { $0.workspaceId != projectId }
         save(draft)
     }
-    func save(_ draft: NewThreadDraft) {
-        try? DraftFile<NewThreadDraft>(url: url).save(draft)
+    /// Queues `draft` to be written; `discarding` names copies to let go once it is on disk, so a
+    /// crash never leaves a draft naming a copy that is gone.
+    func save(_ draft: NewThreadDraft, discarding: Set<String> = []) {
+        let file = DraftFile<NewThreadDraft>(url: url)
+        let staging = files
+        writer.write {
+            try? file.save(draft)
+            for localId in discarding { staging.discard(localId) }
+        }
     }
     /// Drafts waiting while a handoff has the sheet, oldest first: each is set aside whole and
     /// comes back whole, never merged with another.
     private var asideURL: URL { url.deletingPathExtension().appendingPathExtension("aside.json") }
-    var aside: [NewThreadDraft] { DraftFile<[NewThreadDraft]>(url: asideURL).load() ?? [] }
+    var aside: [NewThreadDraft] {
+        let file = DraftFile<[NewThreadDraft]>(url: asideURL)
+        return writer.run { file.load() } ?? []
+    }
     /// A handoff takes the sheet. Whatever was there with words or files goes on top of the
     /// drafts set aside, to be sent by hand; it comes back once a start is saved, or when the
     /// sheet next opens empty.
@@ -144,7 +157,9 @@ struct NewThreadDraftStore: Sendable {
             var kept = current
             kept.commandId = nil
             kept.autoSend = false
-            try? DraftFile<[NewThreadDraft]>(url: asideURL).save(aside + [kept])
+            let file = DraftFile<[NewThreadDraft]>(url: asideURL)
+            let waiting = aside
+            writer.run { try? file.save(waiting + [kept]) }
         }
         save(handoff)
     }
@@ -152,33 +167,54 @@ struct NewThreadDraftStore: Sendable {
     func takeAside() -> NewThreadDraft? {
         var kept = aside
         guard let last = kept.popLast() else { return nil }
-        if kept.isEmpty { try? FileManager.default.removeItem(at: asideURL) }
-        else { try? DraftFile<[NewThreadDraft]>(url: asideURL).save(kept) }
+        let url = asideURL, rest = kept
+        writer.run {
+            if rest.isEmpty { try? FileManager.default.removeItem(at: url) }
+            else { try? DraftFile<[NewThreadDraft]>(url: url).save(rest) }
+        }
         return last
     }
 }
 
-/// The sheet's draft: every change is saved at once, so killing the app loses nothing. A picked
-/// file's copy lives as long as the draft names it: removing it, choosing another project or
-/// machine, or a saved start lets the copy go.
+/// The sheet's draft. Typing is saved once it pauses (and at once when the sheet closes, the app
+/// leaves the screen or a handoff takes the sheet); every other change is saved at once. Writes
+/// run off the main thread. A picked file's copy lives as long as the draft names it: removing
+/// it, choosing another project or machine, or a saved start lets the copy go.
+///
+/// Making one only reads the draft; `open()` does the sheet's once-per-opening upkeep, so a model
+/// SwiftUI makes and throws away changes nothing.
 @MainActor @Observable final class NewThreadDraftModel {
     private(set) var draft: NewThreadDraft
     @ObservationIgnored private let store: NewThreadDraftStore
-    init(store: NewThreadDraftStore) {
+    @ObservationIgnored private let timer: any DraftSaveTimer
+    /// Typing not yet handed to the writer.
+    @ObservationIgnored private var unsaved = false
+    @ObservationIgnored private var opened = false
+    init(store: NewThreadDraftStore, timer: any DraftSaveTimer = DraftPauseTimer()) {
         self.store = store
+        self.timer = timer
         var loaded = store.load()
-        // A copy the system or a crash took can't be sent; a copy no draft names is left over.
+        // A copy the system or a crash took can't be sent.
         let staging = store.files
         loaded.files.removeAll { !staging.holds($0.localId) }
-        let aside = store.aside
-        staging.sweep(keeping: Set((loaded.files + aside.flatMap(\.files)).map(\.localId)))
         draft = loaded
-        // A draft set aside is never hidden behind an empty sheet.
-        if !loaded.hasContent, loaded.handoff == nil, let kept = store.takeAside() { commit(kept) }
+    }
+    /// The sheet opened on this draft: copies no draft names are cleared, and a draft set aside
+    /// comes back rather than hiding behind an empty sheet. Only the first call does anything.
+    func open() {
+        guard !opened else { return }
+        opened = true
+        let aside = store.aside
+        store.files.sweep(keeping: Set((draft.files + aside.flatMap(\.files)).map(\.localId)))
+        if !draft.hasContent, draft.handoff == nil, let kept = store.takeAside() { commit(kept) }
     }
 
-    /// The draft as saved, after something outside the sheet wrote it (a handoff).
-    func reload() { draft = store.load() }
+    /// A handoff may take the sheet: `take` sees the draft as typed so far, and the sheet then
+    /// shows whatever it left there.
+    func takeHandoff(_ take: (NewThreadDraftStore) -> Bool) {
+        flush()
+        if take(store) { draft = store.load() }
+    }
     /// Where the draft is kept.
     var file: NewThreadDraftStore { store }
 
@@ -196,7 +232,22 @@ struct NewThreadDraftStore: Sendable {
         }
         guard next != draft else { return }
         next.commandId = nil
-        commit(next)
+        guard NewThreadDraftChange.isTyping(from: draft, to: next) else { return commit(next) }
+        draft = next
+        unsaved = true
+        timer.schedule { [weak self] in self?.flush() }
+    }
+    /// Hands typing not yet saved to the writer now, without waiting for a pause.
+    func flush() {
+        timer.cancel()
+        guard unsaved else { return }
+        unsaved = false
+        store.save(draft)
+    }
+    /// The sheet closes or the app leaves the screen: the draft is on disk before this returns.
+    func leave() {
+        flush()
+        store.writer.settle()
     }
     /// Where the sheet stages a file picked for the first message.
     var staging: AttachmentStaging { store.files }
@@ -211,12 +262,14 @@ struct NewThreadDraftStore: Sendable {
     func remove(_ localId: String) { edit { $0.files.removeAll { $0.localId == localId } } }
     /// The chosen project's files as the bridge takes them, to put back on the message.
     var restorable: [StagedAttachment] { draft.files.filter { $0.workspaceId == draft.projectId }.map(\.staged) }
-    /// The id this send goes out under, saved before it is dispatched.
+    /// The id this send goes out under, on disk before it is dispatched.
     func reserveCommand(make: () -> String) -> String {
         if let id = draft.commandId { return id }
         let id = make()
-        draft.commandId = id
-        store.save(draft)
+        var next = draft
+        next.commandId = id
+        commit(next)
+        store.writer.settle()
         return id
     }
     /// The start was saved by the SDK with its files already uploaded: the words and files go,
@@ -235,12 +288,15 @@ struct NewThreadDraftStore: Sendable {
         if let kept = store.takeAside() { next = kept }
         commit(next)
     }
-    /// Saves the draft first, then lets go of the copies it no longer names.
+    /// Saves the draft, then lets go of the copies it no longer names: a copy let go is gone once
+    /// this returns (rare: removing a file, another project, a saved start).
     private func commit(_ next: NewThreadDraft) {
         let dropped = Set(draft.files.map(\.localId)).subtracting(next.files.map(\.localId))
         draft = next
-        store.save(next)
-        for localId in dropped { store.files.discard(localId) }
+        timer.cancel()
+        unsaved = false
+        store.save(next, discarding: dropped)
+        if !dropped.isEmpty { store.writer.settle() }
     }
 }
 

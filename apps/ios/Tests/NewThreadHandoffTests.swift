@@ -165,7 +165,28 @@ import Foundation
         file.seed(NewThreadHandoff.draft(handoff(text: "Shared"), on: "mac", memory: NewThreadMemory(), files: []))
         // The person cleared the handed-over words and closed the sheet.
         NewThreadDraftModel(store: file).edit { $0.text = ""; $0.autoSend = false; $0.handoff = nil }
-        #expect(NewThreadDraftModel(store: file).draft.text == "Mine")
+        let reopened = NewThreadDraftModel(store: file)
+        reopened.open()
+        #expect(reopened.draft.text == "Mine")
+    }
+    @Test func aHandoffNeverDiscardsOrMergesTheWordsThePersonIsStillTyping() {
+        let file = NewThreadDraftStore(url: temp("drafts").appendingPathComponent("new-thread-draft.json"), writer: NewThreadDraftWriter())
+        let pause = HeldDraftPause()
+        let sheet = NewThreadDraftModel(store: file, timer: pause)
+        sheet.open()
+        sheet.edit { $0.machineId = "mac"; $0.projectId = "ace"; $0.text = "My idea" }
+        // Typing that hasn't paused yet when a share arrives.
+        sheet.edit { $0.text = "My idea, half written" }
+        let shared = NewThreadHandoff.draft(handoff(text: "Shared link"), on: "mac", memory: NewThreadMemory(), files: [])
+        sheet.takeHandoff { store in store.seed(shared); return true }
+        #expect(sheet.draft.text == "Shared link" && sheet.draft.autoSend)
+        #expect(file.aside.map(\.text) == ["My idea, half written"])
+        // The pause the person's typing was waiting for ends later; it writes nothing over the share.
+        pause.end()
+        sheet.leave()
+        #expect(NewThreadDraftModel(store: file).draft.text == "Shared link")
+        sheet.admitted()
+        #expect(sheet.draft.text == "My idea, half written" && sheet.draft.handoff == nil && file.aside.isEmpty)
     }
     @Test func typingInAHandedOverDraftStopsItStartingByItself() {
         let file = NewThreadDraftStore(url: temp("drafts").appendingPathComponent("new-thread-draft.json"))
