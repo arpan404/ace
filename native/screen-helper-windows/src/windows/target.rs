@@ -9,7 +9,7 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::{Dwm::*, Gdi::*},
-        System::{StationsAndDesktops::*, Threading::*},
+        System::{RemoteDesktop::ProcessIdToSessionId, StationsAndDesktops::*, Threading::*},
         UI::{HiDpi::*, WindowsAndMessaging::*},
     },
 };
@@ -98,8 +98,20 @@ impl Target {
             dpi: unsafe { GetDpiForWindow(hwnd) },
         })
     }
+    pub fn check_integrity(&self) -> Result<()> {
+        let hwnd = self.window()?;
+        let mut pid = 0;
+        unsafe {
+            GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        }
+        if crate::computer::desktop::elevated_above_us(pid) {
+            return Err(Error::new(Code::PermissionDenied, "Windows UIPI blocks this elevated target. Run the target app without administrator privileges, then retry."));
+        }
+        Ok(())
+    }
     pub fn foreground(&self) -> Result<()> {
         desktop_available()?;
+        self.check_integrity()?;
         let hwnd = self.window()?;
         if unsafe { GetForegroundWindow() } != hwnd {
             return Err(Error::new(
@@ -150,8 +162,13 @@ pub fn identity(hwnd: HWND) -> Result<String> {
 }
 pub fn desktop_available() -> Result<()> {
     unsafe {
+        let mut session = 0;
+        ProcessIdToSessionId(GetCurrentProcessId(), &mut session)?;
+        if session == 0 {
+            return Err(Error::new(Code::Busy, "Windows session 0 cannot access the person's desktop. Run ace in the signed-in user's interactive session."));
+        }
         let desktop = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
-            .map_err(|_| Error::new(Code::Busy, "Secure or unavailable input desktop"))?;
+            .map_err(|_| Error::new(Code::Busy, "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry."))?;
         let mut name = [0u16; 128];
         let result = GetUserObjectInformationW(
             HANDLE(desktop.0),
@@ -164,7 +181,7 @@ pub fn desktop_available() -> Result<()> {
         result?;
         let end = name.iter().position(|c| *c == 0).unwrap_or(name.len());
         if !String::from_utf16_lossy(&name[..end]).eq_ignore_ascii_case("default") {
-            return Err(Error::new(Code::Busy, "Secure desktop or UAC active"));
+            return Err(Error::new(Code::Busy, "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry."));
         }
         Ok(())
     }

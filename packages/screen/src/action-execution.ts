@@ -1,3 +1,4 @@
+import { desktopAccessFailure } from "./permission-model.ts";
 import { type ScreenState } from "@ace/protocol";
 import { HelperCommandError } from "./helper.ts";
 import type { HelperHost } from "./helper-host.ts";
@@ -51,9 +52,9 @@ export function executeSessionAction<T>(
           runtime.emit(session);
         }
         if (!permissions.screenRecording)
-          runtime.fail(session, new Error("Screen Recording permission revoked"));
+          runtime.fail(session, new Error(desktopAccessFailure(permissions)));
         if (!permissions.accessibility || !permissions.screenRecording)
-          throw new HelperCommandError("permission_denied", "macOS permission denied");
+          throw new HelperCommandError("permission_denied", desktopAccessFailure(permissions));
         validate();
         if (
           actor === "agent" &&

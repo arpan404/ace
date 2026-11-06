@@ -315,6 +315,10 @@ const Envelope = z.object({
 export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   Envelope.extend({ op: z.literal("hello") }),
   Envelope.extend({ op: z.literal("permissions") }),
+  Envelope.extend({
+    op: z.literal("permissions.request"),
+    permission: z.enum(["screenRecording", "accessibility"]),
+  }),
   Envelope.extend({ op: z.literal("targets") }),
   Envelope.extend({
     op: z.literal("open.url"),

@@ -1,9 +1,22 @@
 import { z } from "zod";
 export const ScreenId = z.string().regex(/^[\w-]{1,64}$/);
 export const ScreenBundle = z.string().min(1).max(256);
+/** Additive host facts. Unknown kinds, states and fields survive newer helpers. */
+export const ScreenRequirement = z.looseObject({
+  kind: z.string().min(1).max(128),
+  state: z.string().min(1).max(64),
+  title: z.string().max(256),
+  message: z.string().max(2048),
+  action: z.string().max(256).optional(),
+  permission: z.enum(["screenRecording", "accessibility"]).optional(),
+});
+export type ScreenRequirement = z.infer<typeof ScreenRequirement>;
 export const ScreenPermissions = z.object({
   screenRecording: z.boolean(),
   accessibility: z.boolean(),
+  /** Absent on older daemons. Never infer the remote OS from the client OS. */
+  platform: z.string().max(64).optional(),
+  requirements: z.array(ScreenRequirement).max(64).optional(),
 });
 /** What the person shared through a sharing dialog: a window (and its app, when known) or a screen. */
 export const ScreenChooserPick = z.object({

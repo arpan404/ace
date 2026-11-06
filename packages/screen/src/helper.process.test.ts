@@ -89,3 +89,32 @@ it("a liveness deadline terminates a silent helper and rejects outstanding work"
     await helper.close();
   }
 });
+
+it.runIf(process.platform !== "win32")(
+  "helper permission replies retain platform requirements across the process boundary",
+  async () => {
+    const helper = await Helper.open({
+      ...fakeCommand,
+      platform: "linux",
+      env: { HOST_REQUIREMENTS: "1" },
+      nextId: ids(),
+      onFrame: () => {},
+      onFailure: () => {},
+    });
+    try {
+      expect(await helper.request({ op: "permissions" })).toMatchObject({
+        platform: "linux",
+        requirements: [
+          {
+            kind: "futureBus",
+            state: "blocked",
+            message: "Enable the desktop bus.",
+            futureFact: true,
+          },
+        ],
+      });
+    } finally {
+      await helper.close();
+    }
+  },
+);

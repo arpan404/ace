@@ -16,6 +16,16 @@ use windows::Win32::{
 /// run on other desktops, where ace never sends input.
 pub fn input_on_default_desktop() -> bool {
     unsafe {
+        let mut session = 0;
+        if windows::Win32::System::RemoteDesktop::ProcessIdToSessionId(
+            GetCurrentProcessId(),
+            &mut session,
+        )
+        .is_err()
+            || session == 0
+        {
+            return false;
+        }
         let Ok(desktop) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
         else {
             return false;

@@ -1,3 +1,8 @@
+import {
+  hostPermissions,
+  unavailablePermissions,
+  desktopAccessFailure,
+} from "./permission-model.ts";
 import { selectSessionWindow, performAppOperation, type AppOperation } from "./app-session.ts";
 import { AppWindows } from "./app-windows.ts";
 import { ScreenMeasurementOptions } from "@ace/protocol";
@@ -86,7 +91,7 @@ export class ScreenManager {
           session.state.permissions = permissions;
           this.emit(session);
           if (!permissions.screenRecording)
-            this.fail(session, new Error("Screen Recording permission revoked"));
+            this.fail(session, new Error(desktopAccessFailure(permissions)));
         }
         options.onPermissionsChanged?.(permissions);
       },
@@ -170,12 +175,17 @@ export class ScreenManager {
    * only to processes started after it, so an idle helper is replaced before asking.
    */
   async currentPermissions(): Promise<ScreenPermissions> {
-    if (!this.policy.enabled) return { screenRecording: false, accessibility: false };
+    if (!this.policy.enabled)
+      return hostPermissions(
+        { screenRecording: false, accessibility: false },
+        this.options.platform ?? process.platform,
+      );
     return this.inspectDevicePermissions();
   }
   /** OS grants for an explicit human device view, independent of agent access policy. */
   async inspectDevicePermissions(): Promise<ScreenPermissions> {
     if (
+      (this.options.platform ?? process.platform) === "darwin" &&
       this.sessions.size === 0 &&
       !this.lifecycle.pendingCount &&
       !this.launches.pendingCount &&
@@ -196,6 +206,15 @@ export class ScreenManager {
       const helper = await this.host.open();
       return ScreenPermissions.parse(
         await helper.request({ op: "permissions.request", permission }),
+      );
+    } catch (error) {
+      const platform = this.options.platform ?? process.platform;
+      if (platform === "darwin") throw error;
+      return unavailablePermissions(
+        platform,
+        error instanceof Error
+          ? error.message
+          : "Desktop access could not be requested. Check the requirements on this machine.",
       );
     } finally {
       this.reservations--;
@@ -440,7 +459,18 @@ export class ScreenManager {
     return (await this.host.open()).negotiate();
   }
   async permissions(): Promise<ScreenPermissions> {
-    return ScreenPermissions.parse(await this.inspect("permissions"));
+    try {
+      return ScreenPermissions.parse(await this.inspect("permissions"));
+    } catch (error) {
+      const platform = this.options.platform ?? process.platform;
+      if (platform === "darwin") throw error;
+      return unavailablePermissions(
+        platform,
+        error instanceof Error
+          ? error.message
+          : "Desktop connection failed. Sign in on this machine and check again.",
+      );
+    }
   }
   /** Simulator windows, which belong to the Devices switch rather than to computer use. */
   async deviceTargets(): Promise<ScreenInventory> {

@@ -56,21 +56,21 @@ impl Host {
     }
     pub fn command(&mut self, request: &Request) -> Result<Value> {
         match request.op.as_str() {
-            "hello" => {
-                target::desktop_available()?;
-                Ok(json!({"version":2,"platform":"windows",
+            "hello" => Ok(json!({"version":2,"platform":"windows",
                 "capture":{"windows":true,"displays":true,"changeDriven":true},
                 "input":{"pointer":true,"keyboard":true,"scroll":true,"text":true},
                 "uiTree":true,"semanticActions":["press","focus","setValue","scroll","expand","select"],
-                "codecs":["jpeg"],"permissions":{"screen":"n/a","input":"granted"}}))
-            }
-            "permissions" => {
-                target::desktop_available()?;
-                Ok(if request.version == 1 {
-                    json!({"screenRecording":true,"accessibility":true})
-                } else {
-                    json!({"screen":"n/a","input":"granted"})
-                })
+                "codecs":["jpeg"],"permissions":{"screen":"n/a","input":"granted"}})),
+            "permissions" | "permissions.request" => {
+                let desktop = target::desktop_available().is_ok();
+                Ok(
+                    json!({"platform":"win32", "screen":if desktop {"n/a"} else {"denied"}, "input":if desktop {"granted"} else {"denied"}, "screenRecording":desktop,"accessibility":desktop,
+                    "requirements":[
+                      {"kind":"interactiveDesktop", "state":if desktop {"ready"} else {"blocked"}, "title":"Interactive Windows desktop", "message":if desktop {"The helper can access the interactive input desktop."} else {"Sign in to Windows, unlock the workstation and dismiss any UAC prompt. Run ace in your interactive session, not as a service in session 0."}},
+                      {"kind":"targetIntegrity", "state":"unknown", "title":"Target integrity level", "message":"Windows UIPI prevents a non-elevated helper from controlling elevated apps. Run the target app without administrator privileges. This is checked when interacting with the target."},
+                      {"kind":"desktopCapture", "state":"unknown", "title":"Windows desktop capture", "message":"Capture availability is checked when a view starts. If Windows requests screen capture access, allow it on this machine, then retry."}
+                    ]}),
+                )
             }
             "targets" => target::inventory(),
             "start" => {
@@ -163,6 +163,7 @@ impl Host {
             }
             "ui.act" => {
                 let target = self.target()?.clone();
+                target.check_integrity()?;
                 let reference: String = request.get("ref")?;
                 let action: String = request.get("action")?;
                 self.automation

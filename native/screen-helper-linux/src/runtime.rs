@@ -6,6 +6,7 @@ use crate::{
     writer::Writer,
 };
 use serde_json::{Value, json};
+use std::time::Duration;
 use std::{
     io::Write,
     os::fd::{AsRawFd, OwnedFd},
@@ -17,7 +18,6 @@ use std::{
     },
     thread::JoinHandle,
 };
-use std::time::Duration;
 
 pub(crate) struct Capture {
     stop: Arc<AtomicBool>,
@@ -61,13 +61,18 @@ impl Runtime {
     /// Whether anyone watches: nobody, and new pictures wait unencoded; someone again, and the
     /// current picture is published at once under the new generation.
     fn watch(&mut self, r: &Request) -> Result<Value> {
-        let active = r.active.ok_or_else(|| Fault::new("bounds", "Missing active"))?;
+        let active = r
+            .active
+            .ok_or_else(|| Fault::new("bounds", "Missing active"))?;
         let capture = self
             .capture
             .as_mut()
             .ok_or_else(|| Fault::new("target_gone", "No capture session"))?;
         if let Some(generation) = r.capture_generation {
-            capture.control.generation.store(generation, Ordering::Release);
+            capture
+                .control
+                .generation
+                .store(generation, Ordering::Release);
         }
         capture.control.watching.store(active, Ordering::Release);
         if active {
@@ -91,7 +96,9 @@ impl Runtime {
             .filter(|s| valid_id(s))
             .ok_or_else(|| Fault::new("bounds", "Invalid session id"))?;
         let fps = r.fps.unwrap_or(10);
-        let control = Arc::new(crate::pipewire::Control::new(r.capture_generation.unwrap_or(0)));
+        let control = Arc::new(crate::pipewire::Control::new(
+            r.capture_generation.unwrap_or(0),
+        ));
         let capture_control = control.clone();
         let (read, wake) = UnixStream::pair().map_err(internal)?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -129,7 +136,12 @@ impl Runtime {
                 .picked
                 .as_ref()
                 .and_then(|picked| picked.app.as_ref().map(|app| app.app_id.clone()))
-                .or_else(|| target.bundle_id.clone().filter(|_| choice == Choice::Window));
+                .or_else(|| {
+                    target
+                        .bundle_id
+                        .clone()
+                        .filter(|_| choice == Choice::Window)
+                });
             if !self.view_only {
                 if let (Some(ui), Some(identity)) = (&mut self.ui, &scope) {
                     match ui.scope_application(identity).await {
@@ -175,17 +187,43 @@ impl Runtime {
             .map(crate::portal_choice::Picked::json);
         Ok(json!({"capabilities":self.capabilities(),"picked":picked}))
     }
+    async fn permissions(&self) -> Value {
+        let sharing = self.portal.session.is_some();
+        let enabled = match zbus::Connection::session().await {
+            Ok(session) => crate::a11y_status::enabled(&session).await,
+            Err(_) => None,
+        };
+        let ui = self.ui.is_some() && enabled == Some(true);
+        json!({"platform":"linux", "screenRecording":true, "accessibility":ui,
+        "requirements":[
+          {"kind":"waylandSession", "state":"ready", "title":"Wayland session", "message":"Connected to the Linux Wayland desktop."},
+          {"kind":"accessibilityBus", "state":if ui {"ready"} else {"blocked"}, "title":"AT-SPI accessibility", "message":if ui {"The accessibility bus is available."} else {"Enable toolkit accessibility and the org.a11y.Status IsEnabled property on this Linux machine, then retry."}, "action":"Enable accessibility", "permission":"accessibility"},
+          {"kind":"screenCastPortal", "state":"ready", "title":"Screen sharing portal", "message":"Connected to the desktop's ScreenCast portal."},
+          {"kind":"remoteDesktopPortal", "state":if self.portal.offer.remote_desktop.is_some() {"ready"} else {"n/a"}, "title":"Remote desktop input", "message":if self.portal.offer.remote_desktop.is_some() {"The desktop advertises a RemoteDesktop portal. Input still depends on the sharing dialog's grant."} else {"This desktop offers screen sharing without portal input. App accessibility actions remain separate from the live view."}},
+          {"kind":"portalConsent", "state":if sharing {"ready"} else {"prompt"}, "title":"Screen sharing consent", "message":if sharing {"The desktop sharing session is active."} else {"Choose Share a window or screen in the live view, then approve the dialog on this Linux machine. The desktop may reuse a saved restore token."}}
+        ]})
+    }
     async fn command(&mut self, r: &Request) -> Result<Value> {
         match r.op.as_str() {
             "hello" => Ok(self.capabilities()),
-            "permissions" => Ok(
-                json!({"screenRecording":true,"accessibility":self.portal.session.is_some()}),
-            ),
+            "permissions" => Ok(self.permissions().await),
+            "permissions.request" => {
+                if let Ok(session) = zbus::Connection::session().await {
+                    crate::a11y_status::enable(&session).await;
+                }
+                // Reconnect also enables org.a11y.Status, using the same path as startup.
+                if self.ui.is_none() {
+                    self.ui = Accessibility::connect().await.ok();
+                }
+                Ok(self.permissions().await)
+            }
             "targets" => {
                 // Nothing to list: the sharing dialog on this desktop picks the source.
                 let p = &self.portal;
                 let policy = crate::policy::portal_policy(&p.offer, p.route());
-                Ok(json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}))
+                Ok(
+                    json!({"windows":[],"displays":[],"chooser":{"windows":policy.windows,"displays":policy.displays}}),
+                )
             }
             "start" => self.start(r).await,
             "watch" => self.watch(r),

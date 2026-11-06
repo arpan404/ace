@@ -1,8 +1,9 @@
+import { hostPermissions } from "./permission-model.ts";
 import { PermissionFacts } from "./permission-facts.ts";
 import { z } from "zod";
 import { ScreenPermissions, ScreenError } from "@ace/protocol";
 import { frameChannel } from "./transport.ts";
-import { ScreenHelperRequestV2, ScreenPermissionsV2 } from "@ace/protocol";
+import { ScreenHelperRequestV2 } from "@ace/protocol";
 import { createServer, type Socket } from "node:net";
 import {
   lineReader,
@@ -288,14 +289,10 @@ export class Helper {
     const revision = this.permissionFacts.version();
     const dispatched = this.dispatch(command, beforeDispatch);
     const result =
-      command.op === "permissions" && this.capabilities?.platform === "windows"
-        ? dispatched.then((data) => {
-            const permissions = ScreenPermissionsV2.parse(data);
-            return {
-              screenRecording: ["granted", "n/a"].includes(permissions.screen),
-              accessibility: ["granted", "n/a"].includes(permissions.input),
-            };
-          })
+      command.op === "permissions" || command.op === "permissions.request"
+        ? dispatched.then((data) =>
+            hostPermissions(data, this.options.platform ?? process.platform),
+          )
         : dispatched;
     if (command.op !== "permissions" && command.op !== "permissions.request") return result;
     return result.then((data) => {
