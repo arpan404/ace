@@ -10,7 +10,7 @@ import {
   type Scheduler,
   type Transport,
 } from "@ace/client";
-import { MachineEntry } from "@ace/client/machines";
+import { MachineEntry, pinnedFingerprint } from "@ace/client/machines";
 import type { MachineCodeRefusal, MachinePath } from "@ace/protocol";
 
 /** A machine the ace account backend lists (`GET /v1/machines`). */
@@ -206,13 +206,15 @@ export function pairedEntryFor(
 export function pairedAddress(
   entry: MachineEntry,
 ): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined {
-  if (entry.target.kind !== "direct" || !entry.target.fingerprint) return undefined;
+  if (entry.target.kind !== "direct") return undefined;
+  // Saved by a browser pairing, the address has no fingerprint of its own: the one the daemon
+  // gave for that address over its authenticated connection pins it.
+  const fingerprint = entry.target.fingerprint ?? pinnedFingerprint(entry.target.url, entry.paths);
   const url = URL.parse(entry.target.url);
-  if (!url) return undefined;
+  if (!url || !fingerprint) return undefined;
   if (url.protocol === "wss:") url.protocol = "https:";
-  if (url.protocol !== "https:" || !/^[0-9a-f]{64}$/.test(entry.target.fingerprint))
-    return undefined;
+  if (url.protocol !== "https:" || !/^[0-9a-f]{64}$/.test(fingerprint)) return undefined;
   const known = (entry.paths ?? []).find((path) => URL.parse(path.url)?.host === url.host)?.kind;
   const kind = known === "loopback" || known === "tailscale" ? known : "lan";
-  return { kind, url: url.origin, fingerprint: entry.target.fingerprint };
+  return { kind, url: url.origin, fingerprint };
 }
