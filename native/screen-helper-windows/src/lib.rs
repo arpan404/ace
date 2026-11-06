@@ -8,6 +8,7 @@ pub mod input;
 pub mod mailbox;
 pub mod references;
 pub mod semantic;
+pub mod session;
 pub mod stream;
 pub mod tiles;
 pub mod tree;

@@ -66,7 +66,7 @@ impl Host {
                 Ok(
                     json!({"platform":"win32", "screen":if desktop {"n/a"} else {"denied"}, "input":if desktop {"granted"} else {"denied"}, "screenRecording":desktop,"accessibility":desktop,
                     "requirements":[
-                      {"kind":"interactiveDesktop", "state":if desktop {"ready"} else {"blocked"}, "title":"Interactive Windows desktop", "message":if desktop {"The helper can access the interactive input desktop."} else {"Sign in to Windows, unlock the workstation and dismiss any UAC prompt. Run ace in your interactive session, not as a service in session 0."}},
+                      {"kind":"interactiveDesktop", "state":if desktop {"ready"} else {"blocked"}, "title":"Interactive Windows desktop", "message":if desktop {"The helper can access the interactive input desktop."} else {"Sign in to Windows or reconnect to this session, unlock the workstation and dismiss any UAC prompt. Run ace in your interactive session, not as a service in session 0."}},
                       {"kind":"targetIntegrity", "state":"unknown", "title":"Target integrity level", "message":"Windows UIPI prevents a non-elevated helper from controlling elevated apps. Run the target app without administrator privileges. This is checked when interacting with the target."},
                       {"kind":"desktopCapture", "state":"unknown", "title":"Windows desktop capture", "message":"Capture availability is checked when a view starts. If Windows requests screen capture access, allow it on this machine, then retry."}
                     ]}),

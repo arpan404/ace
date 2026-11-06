@@ -16,14 +16,7 @@ use windows::Win32::{
 /// run on other desktops, where ace never sends input.
 pub fn input_on_default_desktop() -> bool {
     unsafe {
-        let mut session = 0;
-        if windows::Win32::System::RemoteDesktop::ProcessIdToSessionId(
-            GetCurrentProcessId(),
-            &mut session,
-        )
-        .is_err()
-            || session == 0
-        {
+        if !crate::session::active() {
             return false;
         }
         let Ok(desktop) = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
@@ -50,7 +43,7 @@ pub fn input_on_default_desktop() -> bool {
 pub fn locked_error() -> CuError {
     CuError::new(
         "screen_locked",
-        "Windows is locked or showing a secure screen (sign-in or an administrator prompt), so ace sends no input. Controls by id may still work; otherwise wait until the person unlocks, then look again.",
+        "Windows is locked, disconnected, or showing a secure screen (sign-in or an administrator prompt), so ace sends no input. Controls by id may still work; otherwise wait until the person reconnects or unlocks, then look again.",
     )
 }
 

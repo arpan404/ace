@@ -9,7 +9,7 @@ use windows::{
     Win32::{
         Foundation::*,
         Graphics::{Dwm::*, Gdi::*},
-        System::{RemoteDesktop::ProcessIdToSessionId, StationsAndDesktops::*, Threading::*},
+        System::{StationsAndDesktops::*, Threading::*},
         UI::{HiDpi::*, WindowsAndMessaging::*},
     },
 };
@@ -162,10 +162,8 @@ pub fn identity(hwnd: HWND) -> Result<String> {
 }
 pub fn desktop_available() -> Result<()> {
     unsafe {
-        let mut session = 0;
-        ProcessIdToSessionId(GetCurrentProcessId(), &mut session)?;
-        if session == 0 {
-            return Err(Error::new(Code::Busy, "Windows session 0 cannot access the person's desktop. Run ace in the signed-in user's interactive session."));
+        if !crate::session::active() {
+            return Err(Error::new(Code::Busy, "Windows session is not actively connected. Sign in or reconnect to this session; run ace in the person's interactive session, not session 0."));
         }
         let desktop = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, DESKTOP_READOBJECTS)
             .map_err(|_| Error::new(Code::Busy, "Windows input desktop is unavailable. Unlock the workstation and dismiss any UAC prompt, then retry."))?;
