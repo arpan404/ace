@@ -1,6 +1,11 @@
 import type { ScreenState } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { screenProblem, screenSession, visibleSessions } from "./computer-use.ts";
+import {
+  screenProblem,
+  screenSession,
+  visibleSessions,
+  requirementStatus,
+} from "./computer-use.ts";
 
 const state = (overrides: Partial<ScreenState> & { bundleId?: string } = {}): ScreenState => {
   const { bundleId = "com.apple.TextEdit", ...rest } = overrides;
@@ -91,4 +96,32 @@ test("human takeover stays a live session and says who is in control", () => {
   const human = state({ controller: "human", indicator: false });
   expect(screenSession(human).status).toBe("You're in control");
   expect(visibleSessions([human]).map((entry) => entry.sessionId)).toEqual([human.sessionId]);
+});
+
+test.each([
+  ["ready", "Ready", true],
+  ["granted", "Ready", true],
+  ["n/a", "Ready", true],
+  ["prompt", "Needs your approval", false],
+  ["blocked", "Needs attention", false],
+  ["denied", "Needs attention", false],
+  ["future", "Not checked", false],
+])("requirement state %s is shown without assuming a grant", (requirementState, label, ready) => {
+  expect(requirementStatus(String(requirementState))).toEqual({ label, ready });
+});
+
+test.each(["linux", "win32", undefined])(
+  "permission failures for %s offer host requirements without macOS settings",
+  (platform) => {
+    const problem = screenProblem("permission_denied", "Host access denied", undefined, platform);
+    expect(problem.title).not.toContain("macOS");
+    expect(problem.hint).toContain("Check the requirements");
+  },
+);
+
+test("macOS permission failures retain the privacy settings instructions", () => {
+  expect(screenProblem("permission_denied", "Denied", undefined, "darwin")).toEqual({
+    title: "macOS hasn't granted a permission",
+    hint: "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
+  });
 });

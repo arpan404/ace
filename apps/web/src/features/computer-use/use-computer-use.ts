@@ -16,11 +16,12 @@ export interface ScreenProblem {
 export function describeProblem(
   error: unknown,
   holderName?: (sessionId: string) => string | undefined,
+  platform?: string,
 ): ScreenProblem {
   if (error instanceof ScreenClientError) {
     const holder = error.holder ? holderName?.(error.holder.sessionId) : undefined;
     return {
-      ...screenProblem(error.errorCode, error.message, holder),
+      ...screenProblem(error.errorCode, error.message, holder, platform),
       code: error.errorCode,
       sessionId: error.holder?.sessionId,
     };
@@ -69,7 +70,11 @@ export function useComputerUse() {
     try {
       return (await session.request(operation, options.timeoutMs)) ?? null;
     } catch (error) {
-      const problem = describeProblem(error);
+      const problem = describeProblem(
+        error,
+        undefined,
+        snapshot.permissions ? (snapshot.permissions.platform ?? "darwin") : undefined,
+      );
       if (options.sessionId) setProblem(options.sessionId, problem);
       else if (!options.inline)
         toast.error({ title: options.failure, description: problem.hint ?? problem.title });
@@ -91,7 +96,7 @@ export function useComputerUse() {
         { failure: enabled ? "Couldn't turn on computer use" : "Couldn't turn off computer use" },
       ),
     requestPermission: (permission: "screenRecording" | "accessibility") =>
-      run({ op: "permissions.request", permission }, { failure: "Couldn't ask macOS" }),
+      run({ op: "permissions.request", permission }, { failure: "Couldn't update desktop access" }),
     refreshPermissions: () =>
       run({ op: "permissions" }, { failure: "Couldn't read permissions", inline: true }),
     takeover: (sessionId: string) =>

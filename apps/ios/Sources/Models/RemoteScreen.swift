@@ -55,7 +55,21 @@ private struct ScreenRefusal: LocalizedError {
     let code: String?
     var errorDescription: String? { message }
 }
-struct RemoteScreenPermissions: Decodable { let screenRecording: Bool; let accessibility: Bool }
+struct RemoteScreenRequirement: Decodable, Identifiable {
+    let kind: String
+    let state: String
+    let title: String
+    let message: String
+    let action: String?
+    let permission: String?
+    var id: String { kind }
+}
+struct RemoteScreenPermissions: Decodable {
+    let screenRecording: Bool
+    let accessibility: Bool
+    let platform: String?
+    let requirements: [RemoteScreenRequirement]?
+}
 struct RemoteScreenStatus: Decodable { let enabled: Bool; let permissions: RemoteScreenPermissions; let sessions: Int }
 struct RemoteScreenInventory: Decodable {
     struct Window: Decodable, Identifiable {

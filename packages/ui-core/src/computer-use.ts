@@ -229,6 +229,7 @@ export function screenProblem(
   code: string | undefined,
   fallback: string,
   holder?: string,
+  platform?: string,
 ): { title: string; hint: string | undefined } {
   switch (code) {
     case "target_busy":
@@ -244,6 +245,16 @@ export function screenProblem(
     case "screen_disabled":
       return { title: "Computer use is off", hint: "Turn it on in Settings › Computer use." };
     case "permission_denied":
+      if (platform !== "darwin")
+        return {
+          title:
+            platform === "win32"
+              ? "Windows desktop access needs attention"
+              : platform === "linux"
+                ? "Linux desktop access needs attention"
+                : "Desktop access needs attention",
+          hint: `${fallback}. Check the requirements in Settings › Computer use on the machine running ace.`,
+        };
       return {
         title: "macOS hasn't granted a permission",
         hint: "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
@@ -338,3 +349,12 @@ export function permissionsReading(input: {
 }
 
 export { appName } from "./app-names.ts";
+
+/** Requirement words are supplied by the remote host; unknown states stay unverified. */
+export function requirementStatus(state: string): { label: string; ready: boolean } {
+  if (state === "ready" || state === "granted" || state === "n/a")
+    return { label: "Ready", ready: true };
+  if (state === "prompt") return { label: "Needs your approval", ready: false };
+  if (state === "blocked" || state === "denied") return { label: "Needs attention", ready: false };
+  return { label: "Not checked", ready: false };
+}

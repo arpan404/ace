@@ -342,3 +342,28 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   expect(seen).not.toContain("true");
   expect(appsSwitch().getAttribute("aria-checked")).toBe("false");
 });
+
+test.each(["linux", "win32"])(
+  "%s remote requirements replace macOS settings actions",
+  async (platform) => {
+    const { app } = await openSettings();
+    app.daemon.screen.enabled = true;
+    Object.assign(app.daemon.screen.permissions, {
+      platform,
+      requirements: [
+        {
+          kind: "desktopSession",
+          state: "blocked",
+          title: "Desktop session",
+          message: "Sign in on the remote machine.",
+        },
+      ],
+    });
+    await app.open("/settings/computer-use");
+    const permissions = await screen.findByRole("region", { name: "Permissions" });
+    expect(await within(permissions).findByText("Sign in on the remote machine.")).toBeTruthy();
+    expect(within(permissions).getByText("Needs attention")).toBeTruthy();
+    expect(within(permissions).queryByText("Screen Recording")).toBeNull();
+    expect(within(permissions).queryByRole("button", { name: /Grant .* access/ })).toBeNull();
+  },
+);
