@@ -34,7 +34,6 @@ import {
   type ScreenState,
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
-import { type Helper } from "./helper.ts";
 import { ScreenPolicy, bundles, replaceableSession } from "./policy.ts";
 import { actOnElement } from "./semantic.ts";
 import { shutdownFailure } from "./shutdown-failure.ts";
@@ -202,9 +201,8 @@ export class ScreenManager {
     permission: "screenRecording" | "accessibility",
   ): Promise<ScreenPermissions> {
     this.reservations++;
-    let helper: Helper | undefined;
     try {
-      helper = await this.host.open();
+      const helper = await this.host.open();
       return ScreenPermissions.parse(
         await helper.request({ op: "permissions.request", permission }),
       );
@@ -218,8 +216,7 @@ export class ScreenManager {
           : "Desktop access could not be requested. Check the requirements on this machine.",
       );
     } finally {
-      this.reservations--;
-      if (this.reservations === 0 && helper?.capabilities?.inspectionOnly) await this.host.close();
+      await this.releaseReservation();
     }
   }
   configureAccess(access: ScreenAccess): void {
@@ -242,7 +239,7 @@ export class ScreenManager {
     try {
       return await this.acquireAgentApp(bundleId, caller, signal, windowId);
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
   }
   private async acquireAgentApp(
@@ -329,7 +326,7 @@ export class ScreenManager {
     try {
       return await this.windows.list(bundleId);
     } finally {
-      this.reservations--;
+      await this.releaseReservation();
     }
   }
   async selectWindow(id: string, windowId: number, owner: string, beforeDispatch: () => void) {
@@ -443,17 +440,18 @@ export class ScreenManager {
     if (errors.length || releaseErrors.length)
       throw shutdownFailure([...releaseErrors, ...errors], results.length);
   }
+  private async releaseReservation(): Promise<void> {
+    this.reservations--;
+    if (this.reservations === 0) await this.host.releaseInspection(() => this.reservations === 0);
+  }
   private async inspect(op: "permissions" | "targets"): Promise<unknown> {
     if (this.reservations >= 4) throw new Error("Helper inspection limit");
     this.reservations++;
-    let helper: Helper | undefined;
     try {
-      helper = await this.host.open();
+      const helper = await this.host.open();
       return await helper.request({ op });
     } finally {
-      this.reservations--;
-      // Reprobe on the next inspection so a reconnected session can initialize its desktop.
-      if (this.reservations === 0 && helper?.capabilities?.inspectionOnly) await this.host.close();
+      await this.releaseReservation();
     }
   }
   isWindowsHost(): boolean {

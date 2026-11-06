@@ -1,8 +1,9 @@
 import { access } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { spawnSupervised } from "@ace/provider-kit/process";
 import { expect, it, vi } from "vitest";
 import { Helper, type Frame } from "./index.ts";
-import { deferred, fakeCommand, ids, target, manager } from "./testing/support.ts";
+import { deferred, fakeCommand, ids, target, manager, helperFixture } from "./testing/support.ts";
 it("the supervised helper correlates concurrent commands and receives fragmented binary frames", async () => {
   const received = deferred<Frame>();
   const errors: Error[] = [];
@@ -212,6 +213,103 @@ it("Windows non-interactive requirements are readable without a frame pipe", asy
     await fixture.screen.enable(true);
     await expect(fixture.screen.targets()).rejects.toThrow("signed-in session");
   } finally {
+    await fixture.close();
+  }
+});
+
+it.each(["open_app", "windows"] as const)(
+  "%s retries with an interactive helper after a blocked reservation finishes",
+  async (operation) => {
+    let interactive = false;
+    const fixture = await helperFixture("win32", {
+      env: { TARGET_BUNDLE: target.bundleId },
+      launch: async () => ({
+        args: [
+          fileURLToPath(
+            new URL(
+              interactive ? "./testing/fake-helper-v2.ts" : "./testing/fake-helper-inspection.ts",
+              import.meta.url,
+            ),
+          ),
+        ],
+      }),
+    });
+    const attempt = () =>
+      operation === "open_app"
+        ? fixture.manager.openAgentApp(
+            target.bundleId,
+            { threadId: "thread", agentId: "agent" },
+            new AbortController().signal,
+          )
+        : fixture.manager.listAppWindows(target.bundleId);
+    try {
+      await expect(attempt()).rejects.toThrow("signed-in session");
+      interactive = true;
+      expect(await attempt()).toMatchObject({
+        windows: [{ windowId: 1, bundleId: target.bundleId }],
+        selectedWindowId: 1,
+      });
+    } finally {
+      await fixture.close();
+    }
+  },
+);
+
+it("the last overlapping window reservation releases a blocked helper for retry", async () => {
+  let interactive = false;
+  const launch = deferred<void>();
+  const fixture = await helperFixture("win32", {
+    env: { TARGET_BUNDLE: target.bundleId },
+    launch: async () => {
+      await launch.promise;
+      return {
+        args: [
+          fileURLToPath(
+            new URL(
+              interactive ? "./testing/fake-helper-v2.ts" : "./testing/fake-helper-inspection.ts",
+              import.meta.url,
+            ),
+          ),
+        ],
+      };
+    },
+  });
+  const open = () =>
+    fixture.manager.openAgentApp(
+      target.bundleId,
+      { threadId: "thread", agentId: "agent" },
+      new AbortController().signal,
+    );
+  try {
+    const results = Promise.allSettled([
+      open(),
+      fixture.manager.listAppWindows(target.bundleId),
+      fixture.manager.permissions(),
+    ]);
+    launch.resolve();
+    const [opening, listing, permissions] = await results;
+    expect(opening).toMatchObject({
+      status: "rejected",
+      reason: { message: expect.stringContaining("signed-in session") },
+    });
+    expect(listing).toMatchObject({
+      status: "rejected",
+      reason: { message: expect.stringContaining("signed-in session") },
+    });
+    expect(permissions).toMatchObject({
+      status: "fulfilled",
+      value: { requirements: [{ kind: "interactiveDesktop", state: "blocked" }] },
+    });
+    interactive = true;
+    expect(await fixture.manager.listAppWindows(target.bundleId)).toMatchObject({
+      selectedWindowId: 1,
+    });
+    expect(await open()).toMatchObject({
+      lifecycle: "live",
+      target: { kind: "window", windowId: 1 },
+    });
+  } finally {
+    launch.resolve();
     await fixture.close();
   }
 });
