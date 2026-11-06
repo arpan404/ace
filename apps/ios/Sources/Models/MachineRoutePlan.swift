@@ -17,6 +17,9 @@ struct MachineRoutePlan: Equatable, Sendable {
         case open(Route)
         /// Check whether the direct address opens a socket, then report it to `probed`.
         case probeDirect
+        /// Asked to look again inside the hold or cooldown: look again (`networkChanged`) at this
+        /// time (ms), even if nothing else happens by then.
+        case reconsider(at: Double)
     }
     /// The least time on the relay before moving back (ms), as ADR 0114's switch hold.
     static let hold: Double = 10_000
@@ -78,6 +81,7 @@ struct MachineRoutePlan: Equatable, Sendable {
         }
     }
     /// The phone woke, or came online on another network: the direct address may answer again.
+    /// Inside the hold or cooldown, the plan says when to look again instead.
     mutating func networkChanged(at now: Double) -> Step { probe(at: now) }
     /// What the probe found. Only an answer while still on the relay, past the hold, moves back.
     mutating func probed(answered: Bool, at now: Double) -> Step {
@@ -96,7 +100,9 @@ struct MachineRoutePlan: Equatable, Sendable {
         return .open(route)
     }
     private mutating func probe(at now: Double) -> Step {
-        guard current == .relay, hasDirect, !probing, now >= heldUntil else { return .stay }
+        guard current == .relay, hasDirect, !probing else { return .stay }
+        // Dropping the request would leave the machine on the relay until the next event.
+        guard now >= heldUntil else { return .reconsider(at: heldUntil) }
         probing = true
         return .probeDirect
     }

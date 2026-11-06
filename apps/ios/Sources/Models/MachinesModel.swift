@@ -42,6 +42,11 @@ import Observation
     /// Account machines whose daemon said, over the relay, which paired machine it is: account
     /// host id → daemon id.
     @ObservationIgnored private var daemons: [String: String]
+    /// Each machine's latest open, by host id: an open that waited (on notifications binding)
+    /// goes on only if no later open, turn-off or removal came meanwhile.
+    @ObservationIgnored private var openings: [String: Int] = [:]
+    /// A look at a machine's route its plan asked for later (`MachineRoutePlan`).
+    @ObservationIgnored private var retries: RouteRetries
     /// Runs before each machine's connection opens, so notifications bind to that runtime.
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
@@ -55,9 +60,11 @@ import Observation
     init(access: any MachineAccess, account: (any AccountDirectory)? = nil, storage: URL, defaults: UserDefaults = .standard,
          itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
+         schedule: @escaping RouteScheduler = RouteRetries.sleeping,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
+        retries = RouteRetries(schedule: schedule)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
         off = Self.turnedOff(in: defaults)
@@ -142,7 +149,8 @@ import Observation
                 continue
             }
             // Gone from the directory, or reachable another way now: this runtime stops.
-            plans[entry.hostId] = nil
+            dropPlan(entry.hostId)
+            supersedeOpening(entry.hostId)
             guard let client = inbox.detach(entry.hostId) else { continue }
             unsupported.remove(entry.hostId)
             await client.disconnectAndWait()
@@ -160,11 +168,18 @@ import Observation
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            if let listed = outcome.machines { paired = listed; machines = merged() }
+            // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
+            if let listed = outcome.machines { paired = listed; await follow(merged()) }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
             grants.set(paired.scopes, for: entry)
             saveGrants()
-            await connect(entry)
+            // Paired again while connected: the daemon closed the old credential's sockets, so the
+            // runtime opens again with the new credential and grants.
+            if let client = inbox.client(entry.hostId) {
+                if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+            } else {
+                await connect(entry)
+            }
             return nil
         }
     }
@@ -178,7 +193,7 @@ import Observation
         switch await access.perform(.rename(hostId: hostId, name: String(trimmed.prefix(256)))) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            if let listed = outcome.machines { paired = listed; machines = merged() }
+            if let listed = outcome.machines { paired = listed; await follow(merged()) }
             if let entry = entry(hostId) { inbox.rename(hostId, to: entry.displayName) }
             return nil
         }
@@ -189,13 +204,14 @@ import Observation
         guard let entry = entry(hostId) else { return }
         let known = aliases(of: hostId)
         let client = inbox.client(hostId)
+        supersedeOpening(hostId)
         await client?.disconnectAndWait()
         if let notice = await forgetOrUnpair(entry) {
             problem = notice
             if let client, let target = target(for: entry) { await open(client, entry: entry, target: target) }
             return
         }
-        plans[hostId] = nil
+        dropPlan(hostId)
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
         if !off.isDisjoint(with: known) { off.subtract(known); saveOff() }
         // Removed on purpose: what this phone remembers of the machine goes too. A machine that
@@ -247,7 +263,7 @@ import Observation
             do { try await account?.forget(entry.hostId) }
             catch { return ProblemNotice(code: "account", message: "Couldn't forget this machine. Check your connection and try again.") }
             accountMachines.removeAll { $0.hostId == entry.hostId }
-            machines = merged()
+            await follow(merged())
             return nil
         }
         switch await access.perform(.remove(hostId: entry.hostId)) {
@@ -255,7 +271,7 @@ import Observation
         case .success(let outcome):
             paired = outcome.machines ?? paired.filter { $0.hostId != entry.hostId }
             // Also on the account: it comes back with the next account listing, through the relay.
-            machines = merged().filter { $0.hostId != entry.hostId }
+            await follow(merged().filter { $0.hostId != entry.hostId })
             return nil
         }
     }
@@ -309,13 +325,27 @@ import Observation
         guard let step, let entry = entry(hostId), let client = inbox.client(hostId) else { return }
         switch step {
         case .stay: return
-        case .open: if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        case .open:
+            retries.cancel(hostId)
+            if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        case .reconsider(let at):
+            retries.set(hostId, after: at - clock()) { [weak self] in
+                Task { @MainActor in
+                    guard let self else { return }
+                    await self.take(self.plans[hostId]?.networkChanged(at: self.clock()), hostId)
+                }
+            }
         case .probeDirect:
             var answered = false
             if let direct = targets(for: entry).direct { answered = await probe(direct) }
             guard inbox.client(hostId) === client else { return }
             await take(plans[hostId]?.probed(answered: answered, at: clock()), hostId)
         }
+    }
+    /// The machine's route plan ends, and any look at its route it asked for later with it.
+    private func dropPlan(_ hostId: String) {
+        plans[hostId] = nil
+        retries.cancel(hostId)
     }
     private func reconsiderRoutes() {
         for hostId in plans.keys where plans[hostId]?.current == .relay {
@@ -378,7 +408,8 @@ import Observation
     /// A machine turned off lets its runtime go, and what it showed outside the app under any
     /// of its ids goes too.
     private func stopTurnedOff(_ hostId: String, _ ids: Set<String>) async {
-        plans[hostId] = nil
+        dropPlan(hostId)
+        supersedeOpening(hostId)
         if let client = inbox.detach(hostId) {
             await client.disconnectAndWait()
             afterRemove?(client, hostId)
@@ -400,11 +431,22 @@ import Observation
     nonisolated static func turnedOff(in defaults: UserDefaults) -> Set<String> {
         Set(defaults.stringArray(forKey: Keys.off) ?? [])
     }
+    /// Binds notifications, then connects, unless while they bound the machine was turned off,
+    /// removed, given another runtime or opened again: then the later change stands.
     private func open(_ client: ClientModel, entry: MachineEntry, target: ConnectionTarget) async {
+        let hostId = entry.hostId
+        let opening = supersedeOpening(hostId)
         client.canOperate = canOperate(entry)
         client.canAdmin = grants.scopes(for: entry).map { Grants(scopes: $0).canAdmin }
         await beforeConnect?(client, target)
+        guard openings[hostId] == opening, inbox.client(hostId) === client, !isOff(hostId) else { return }
         await client.connect(target: target, directory: storage, itemLimit: itemLimit)
+    }
+    /// Any open of this machine still waiting goes no further. Returns the new latest.
+    @discardableResult private func supersedeOpening(_ hostId: String) -> Int {
+        let next = (openings[hostId] ?? 0) &+ 1
+        openings[hostId] = next
+        return next
     }
     private nonisolated enum Keys {
         static let grants = "ace.machines.grants", known = "ace.machines.known"

@@ -14,6 +14,8 @@ import Testing
     let model: MachinesModel
     /// The model's clock (ms), moved by the test.
     let clock = TestClock()
+    /// The model's scheduler for later looks at a route; nothing runs until the test moves it.
+    let scheduler: FakeScheduler
     /// `defaults` from an earlier fixture plays the same phone relaunched.
     init(machines: [MachineEntry], account: (any AccountDirectory)? = nil, defaults shared: UserDefaults? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = { _ in false }) throws {
@@ -23,8 +25,11 @@ import Testing
         defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
         let clock = self.clock
+        let scheduler = FakeScheduler(clock: clock)
+        self.scheduler = scheduler
         model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { clock.now },
                               installId: "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b", probe: probe,
+                              schedule: { scheduler.schedule($0, $1) },
                               makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
     func cleanUp() {
@@ -40,12 +45,34 @@ final class TestClock: @unchecked Sendable {
     func advance(_ ms: Double) { lock.withLock { value += ms } }
 }
 
+/// Work scheduled for later, run only when the test moves the clock past it.
+@MainActor final class FakeScheduler {
+    private let clock: TestClock
+    private var jobs: [(id: Int, at: Double, work: @MainActor () -> Void)] = []
+    private var issued = 0
+    init(clock: TestClock) { self.clock = clock }
+    var pending: Int { jobs.count }
+    func schedule(_ delay: Double, _ work: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        issued += 1
+        let id = issued
+        jobs.append((id, clock.now + delay, work))
+        return { [weak self] in self?.jobs.removeAll { $0.id == id } }
+    }
+    /// Moves the clock and runs what has come due.
+    func advance(_ ms: Double) {
+        clock.advance(ms)
+        let due = jobs.filter { $0.at <= clock.now }
+        jobs.removeAll { $0.at <= clock.now }
+        for job in due { job.work() }
+    }
+}
+
 final class FakeAccountDirectory: AccountDirectory, @unchecked Sendable {
     private let lock = NSLock()
     private var listed: [AceMachine]?
     private(set) var forgotten: [String] = []
-    init(_ machines: [AceMachine]) { listed = machines }
-    let deviceId = "ios-account-device"
+    init(_ machines: [AceMachine], deviceId: String = "ios-account-device") { listed = machines; self.deviceId = deviceId }
+    let deviceId: String
     let relayURL: URL? = URL(string: "wss://ace.example.com")
     func signOut() { lock.withLock { listed = nil } }
     /// The account lists these machines from now on.
@@ -100,6 +127,8 @@ final class FakeMachineAccess: MachineAccess, @unchecked Sendable {
                 switch pairing {
                 case .failure(let notice): return .failure(notice)
                 case .success(let entry, let scopes):
+                    // Pairing a machine again replaces its entry, as the SDK directory does.
+                    machines.removeAll { $0.hostId == entry.hostId }
                     machines.append(entry)
                     return .success(AccessOutcome(ok: true, machines: machines, paired: .init(hostId: entry.hostId, scopes: scopes), problem: nil))
                 }
