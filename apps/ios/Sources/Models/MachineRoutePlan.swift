@@ -9,6 +9,11 @@ import Foundation
 /// Moving back is held off so a working relay isn't thrown away for a direct route that only
 /// half works: never sooner than `hold` after taking the relay, and after a move back that
 /// failed again before it was ready, not for a cooldown that doubles each time (`cooldown`).
+///
+/// While `linking`, the machine holds sends its account runtime saved, which may already have
+/// run under the account's device id: they go over the relay, whose hello proves the pairing and
+/// links the two ids on the daemon, before any goes direct under the paired id (ADR 0115).
+/// Until the relay has been ready once, the plan stays on it.
 struct MachineRoutePlan: Equatable, Sendable {
     enum Route: String, Sendable { case direct, relay }
     enum Step: Equatable, Sendable {
@@ -40,10 +45,19 @@ struct MachineRoutePlan: Equatable, Sendable {
     /// Back on direct after the relay, and not yet ready there.
     private var trying = false
     private var nextCooldown = Self.cooldown
+    /// Waiting for the relay to be ready once, so the daemon links the two device ids.
+    private(set) var linking: Bool
 
-    init(direct: Bool, relay: Bool) {
-        hasDirect = direct; hasRelay = relay
-        current = direct || !relay ? .direct : .relay
+    init(direct: Bool, relay: Bool, linking: Bool = false) {
+        hasDirect = direct; hasRelay = relay; self.linking = linking
+        current = (direct && !linking) || !relay ? .direct : .relay
+    }
+
+    /// Sends that may have run under the account's id arrived, with the routes the machine has
+    /// now: the relay, until it links.
+    mutating func needsLink(direct: Bool, relay: Bool, at now: Double) -> Step {
+        hasDirect = direct; hasRelay = relay; linking = true
+        return current == .direct && relay ? use(.relay, at: now) : .stay
     }
 
     /// The machine's routes changed (the account listed it, or stopped). A route that went away
@@ -52,7 +66,7 @@ struct MachineRoutePlan: Equatable, Sendable {
     mutating func routes(direct: Bool, relay: Bool, at now: Double) -> Step {
         hasDirect = direct; hasRelay = relay
         switch current {
-        case .direct where relay && (!direct || state == "reconnecting"): return use(.relay, at: now)
+        case .direct where relay && (!direct || linking || state == "reconnecting"): return use(.relay, at: now)
         case .relay where !relay && direct: return use(.direct, at: now)
         default: return .stay
         }
@@ -66,6 +80,8 @@ struct MachineRoutePlan: Equatable, Sendable {
             trying = false
             nextCooldown = Self.cooldown
         }
+        // Linked: the direct route may be taken again, so look for it.
+        if current == .relay, state == "ready", linking { linking = false; return probe(at: now) }
         guard state == "reconnecting" else { return .stay }
         switch current {
         case .direct where hasRelay:
@@ -87,7 +103,7 @@ struct MachineRoutePlan: Equatable, Sendable {
     mutating func probed(answered: Bool, at now: Double) -> Step {
         guard probing else { return .stay }
         probing = false
-        guard answered, current == .relay, hasDirect, now >= heldUntil else { return .stay }
+        guard answered, current == .relay, hasDirect, !linking, now >= heldUntil else { return .stay }
         trying = true
         return use(.direct, at: now)
     }
@@ -100,7 +116,7 @@ struct MachineRoutePlan: Equatable, Sendable {
         return .open(route)
     }
     private mutating func probe(at now: Double) -> Step {
-        guard current == .relay, hasDirect, !probing else { return .stay }
+        guard current == .relay, hasDirect, !linking, !probing else { return .stay }
         // Dropping the request would leave the machine on the relay until the next event.
         guard now >= heldUntil else { return .reconsider(at: heldUntil) }
         probing = true

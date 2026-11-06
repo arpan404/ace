@@ -204,10 +204,11 @@ private let fingerprint = DaemonCertificate.pin
         await settle { accountRuntime.stopped }
         accountRuntime.finishShutdown()
         await settle { fixture.model.machines.count == 1 && fixture.sessions.started.count > startedBefore }
-        // The paired runtime opened again on its own store, which now holds the send, once.
+        // The paired runtime opened again on its own store, which now holds the send, once: over
+        // the relay, whose hello links the account's id to the pairing before anything is sent.
         let reopened = try #require(fixture.sessions.started.last)
-        #expect(reopened.storage == direct.storage && reopened.target.relay == nil)
-        #expect(reopened.target.deviceAliases == ["ios-account-device"])
+        #expect(reopened.storage == direct.storage && reopened.target.relay?.hostId == relayKey)
+        #expect(reopened.target.deviceAliases == ["phone-1"])
         #expect(try records(direct.storage) == [send])
         #expect(try records(accountRuntime.storage) == [other])
         #expect(fixture.model.inbox.sessions.map(\.hostId) == ["studio"])

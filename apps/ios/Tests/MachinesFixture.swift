@@ -16,11 +16,12 @@ import Testing
     let clock = TestClock()
     /// The model's scheduler for later looks at a route; nothing runs until the test moves it.
     let scheduler: FakeScheduler
-    /// `defaults` from an earlier fixture plays the same phone relaunched.
+    /// `defaults` (and `storage`) from an earlier fixture plays the same phone relaunched.
     init(machines: [MachineEntry], account: (any AccountDirectory)? = nil, defaults shared: UserDefaults? = nil,
-         probe: @escaping (ConnectionTarget) async -> Bool = { _ in false }) throws {
+         storage sharedStorage: URL? = nil, probe: @escaping (ConnectionTarget) async -> Bool = { _ in false },
+         moveSends: @escaping SendAdoptions.Move = SendAdoptions.durable) throws {
         access = FakeMachineAccess(machines)
-        storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        storage = sharedStorage ?? FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         suite = "ace.tests.\(UUID().uuidString)"
         defaults = try shared ?? #require(UserDefaults(suiteName: suite))
         let sessions = self.sessions
@@ -29,7 +30,7 @@ import Testing
         self.scheduler = scheduler
         model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { clock.now },
                               installId: "0190a8b2-7c3d-7e4f-8a1b-2c3d4e5f6a7b", probe: probe,
-                              schedule: { scheduler.schedule($0, $1) },
+                              schedule: { scheduler.schedule($0, $1) }, moveSends: moveSends,
                               makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
     }
     func cleanUp() {

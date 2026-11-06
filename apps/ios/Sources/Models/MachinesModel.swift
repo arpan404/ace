@@ -47,6 +47,8 @@ import Observation
     @ObservationIgnored private var openings: [String: Int] = [:]
     /// A look at a machine's route its plan asked for later (`MachineRoutePlan`).
     @ObservationIgnored private var retries: RouteRetries
+    /// Account runtimes' saved sends moving into the paired machines they turned out to be.
+    @ObservationIgnored private let adoptions: SendAdoptions
     /// Runs before each machine's connection opens, so notifications bind to that runtime.
     @ObservationIgnored var beforeConnect: ((ClientModel, ConnectionTarget) async -> Void)?
     /// Runs once a removed machine's runtime has stopped, so nothing keeps routing to it.
@@ -61,10 +63,12 @@ import Observation
          itemLimit: Int = 200, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 }, installId: String? = nil,
          probe: @escaping (ConnectionTarget) async -> Bool = DirectProbe.answers,
          schedule: @escaping RouteScheduler = RouteRetries.sleeping,
+         moveSends: @escaping SendAdoptions.Move = SendAdoptions.durable,
          makeClient: @escaping @MainActor () -> ClientModel) {
         self.access = access; self.account = account; self.storage = storage; self.defaults = defaults; self.itemLimit = itemLimit; self.makeClient = makeClient
         self.installId = installId; self.probe = probe; clock = now
         retries = RouteRetries(schedule: schedule)
+        adoptions = SendAdoptions(defaults: defaults, storage: storage, move: moveSends)
         inbox = MachineInbox(defaults: defaults, now: now)
         grants = GrantBook(defaults.dictionary(forKey: Keys.grants) as? [String: [String]] ?? [:])
         off = Self.turnedOff(in: defaults)
@@ -92,6 +96,8 @@ import Observation
                 (entry.isAccountMachine ? entry.hostId : entry.accountHostId).map { AceMachine(hostId: $0, name: entry.displayName, platform: "", lastSeenAt: 0) }
             }
             loaded = true
+            // A move of saved sends cut short last time is done before anything reads them.
+            await replayAdoptions()
             for entry in known { await connect(entry) }
         }
         let listing = LaunchTrace.begin("machines.list")
@@ -140,6 +146,13 @@ import Observation
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
         let previous = machines
+        // An account machine now known to be a paired one: what its runtime saved to send goes
+        // into the machine's own store. Written down before the list that drops it is saved.
+        adoptions.record(previous.compactMap { gone in
+            guard !listed.contains(where: { $0.hostId == gone.hostId }),
+                  let survivor = listed.first(where: { $0.hostId != gone.hostId && $0.accountHostId == gone.hostId }) else { return nil }
+            return SendAdoptions.Adoption(sourceHost: gone.hostId, sourceDevice: gone.deviceId, host: survivor.hostId, device: survivor.deviceId)
+        })
         machines = listed
         for entry in previous {
             let current = listed.first { $0.hostId == entry.hostId }
@@ -151,18 +164,13 @@ import Observation
             // Gone from the directory, or reachable another way now: this runtime stops.
             dropPlan(entry.hostId)
             supersedeOpening(entry.hostId)
-            let client = inbox.detach(entry.hostId)
-            if let client {
-                unsupported.remove(entry.hostId)
-                await client.disconnectAndWait()
-                afterRemove?(client, entry.hostId)
-            }
-            // An account machine now known to be a paired one: what its runtime saved to send
-            // goes with it, into the machine's own store, before that runtime reads it again.
-            if let survivor = listed.first(where: { $0.hostId != entry.hostId && $0.accountHostId == entry.hostId }) {
-                await adoptSends(of: entry, into: survivor)
-            }
+            guard let client = inbox.detach(entry.hostId) else { continue }
+            unsupported.remove(entry.hostId)
+            await client.disconnectAndWait()
+            afterRemove?(client, entry.hostId)
         }
+        // Their runtimes have stopped: their saved sends move now.
+        await replayAdoptions()
         await followOff()
         // A machine that gained or lost its account route keeps its runtime, on a route it still has.
         for entry in listed where plans[entry.hostId] != nil {
@@ -170,16 +178,21 @@ import Observation
             await take(plans[entry.hostId]?.routes(direct: routes.direct != nil, relay: routes.relay != nil, at: clock()), entry.hostId)
         }
     }
-    /// Moves the sends `gone`'s runtime saved into `survivor`'s store (ADR 0074 durable sends,
-    /// ADR 0115): each keeps its command id and its daemon. A survivor runtime already running
-    /// opens again, so it reads and sends them; an off one finds them when turned on.
-    private func adoptSends(of gone: MachineEntry, into survivor: MachineEntry) async {
-        let source = ClientModel.database(hostId: gone.hostId, deviceId: gone.deviceId, in: storage)
-        let destination = ClientModel.database(hostId: survivor.hostId, deviceId: survivor.deviceId, in: storage)
-        let daemon = survivor.hostId
-        let moved = await Task.detached { (try? DurableStore.adopt(from: source, into: destination, daemon: daemon)) ?? 0 }.value
-        guard moved > 0, let client = inbox.client(survivor.hostId), let target = target(for: survivor) else { return }
-        await open(client, entry: survivor, target: target)
+    /// Moves the sends account runtimes saved into the stores of the paired machines they turned
+    /// out to be (ADR 0074 durable sends, ADR 0115), each under its command id and daemon, once
+    /// their runtimes have stopped and left the list. A machine that took sends in sends them
+    /// over its relay first, so one that already ran under the account's id is answered from
+    /// its receipt; a runtime already running opens again to read them, an off one finds them
+    /// when turned on.
+    private func replayAdoptions() async {
+        let gained = await adoptions.replay(inUse: { [inbox] hostId in inbox.client(hostId) != nil || self.entry(hostId) != nil })
+        for hostId in gained {
+            guard let entry = entry(hostId), let client = inbox.client(hostId) else { continue }
+            let routes = targets(for: entry)
+            let step = plans[hostId]?.needsLink(direct: routes.direct != nil, relay: routes.relay != nil, at: clock())
+            if case .open = step { await take(step, hostId) }
+            else if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        }
     }
     /// Redeem a confirmed link, store the device, then connect it beside the others.
     func pair(_ link: PairingLink, name: String) async -> ProblemNotice? {
@@ -231,6 +244,7 @@ import Observation
         }
         dropPlan(hostId)
         if let client = inbox.detach(hostId) { afterRemove?(client, hostId) }
+        adoptions.forget(hostId)
         if !off.isDisjoint(with: known) { off.subtract(known); saveOff() }
         // Removed on purpose: what this phone remembers of the machine goes too. A machine that
         // only left the list (signed out, another account) keeps it for when it comes back.
@@ -324,14 +338,19 @@ import Observation
         let routes = targets(for: entry)
         guard routes.direct != nil || routes.relay != nil else { unsupported.insert(entry.hostId); return }
         if isOff(entry.hostId) || inbox.client(entry.hostId) != nil { return }
-        plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil)
+        plans[entry.hostId] = MachineRoutePlan(direct: routes.direct != nil, relay: routes.relay != nil,
+                                               linking: adoptions.linking.contains(entry.hostId))
         guard let target = target(for: entry) else { return }
         let client = makeClient()
         let hostId = entry.hostId
         client.onConnection = { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
-                await self.take(self.plans[hostId]?.connection(state, at: self.clock()), hostId)
+                let wasLinking = self.plans[hostId]?.linking == true
+                let step = self.plans[hostId]?.connection(state, at: self.clock())
+                // Ready on the relay with sends taken in: the daemon has linked the two ids.
+                if wasLinking, self.plans[hostId]?.linking == false { self.adoptions.linked(hostId) }
+                await self.take(step, hostId)
             }
         }
         client.onMachineIdentity = { [weak self] identity in Task { @MainActor in await self?.learned(identity, from: hostId) } }
