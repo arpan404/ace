@@ -507,6 +507,20 @@ export class MachinePool {
     this.supersede(paired.hostId, hostId);
   }
   /**
+   * Paired paths just learned may name account machines already open (ADR 0115): each one that
+   * now has its paired entry adopts it, so the paired entry steps aside and the account machine
+   * gains its direct address and paths, and it looks for a better route now.
+   */
+  private reconcileAccounts(): void {
+    for (const [hostId, live] of this.live) {
+      if (live.state.entry.target.kind !== "account" || this.pairedAs.has(hostId)) continue;
+      this.adoptPaired(hostId, this.options.directory.machines);
+      if (!this.pairedAs.has(hostId) || !this.current(live)) continue;
+      live.paths?.networkChanged();
+      live.client?.reconnectNow();
+    }
+  }
+  /**
    * `daemonId`'s paired entry, if any, steps aside for the account machine `by` that reached
    * the same daemon: a signed-in device is admin on that machine, whatever scopes its pairing
    * gave (ADR 0114). It comes back when the account machine closes.
@@ -725,10 +739,13 @@ export class MachinePool {
                 reply.identity.displayName,
                 reply.identity.icon,
               );
-              if (reply.paths)
+              if (reply.paths) {
                 await this.options.directory.remember(live.state.entry.hostId, {
                   paths: knownPaths(reply.paths),
                 });
+                // Those paths may name an account machine already open: it is this daemon.
+                this.reconcileAccounts();
+              }
             } else if (reply.paths)
               this.accountPaths.set(live.state.entry.hostId, knownPaths(reply.paths));
             if (!this.current(live) || live.verification !== epoch) return;
