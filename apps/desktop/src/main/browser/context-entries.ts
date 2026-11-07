@@ -1,5 +1,7 @@
 /** What the page reported under the pointer, and what the tab can do now. */
 export interface ContextFacts {
+  /** The page's own address. */
+  pageURL: string;
   linkURL: string;
   srcURL: string;
   mediaType: string;
@@ -18,6 +20,8 @@ export type ContextCommand =
   | "forward"
   | "reload"
   | "openLink"
+  | "openLinkOutside"
+  | "openPageOutside"
   | "copyLink"
   | "cut"
   | "copy"
@@ -35,7 +39,8 @@ export interface ContextEntry {
   enabled: boolean;
 }
 
-const web = (url: string) => /^https?:\/\//i.test(url);
+/** Whether an address is a web page's: the only kind ace opens in a new tab or outside ace. */
+export const web = (url: string) => /^https?:\/\//i.test(url);
 const entry = (command: ContextCommand, label: string, enabled = true): ContextEntry => ({
   command,
   label,
@@ -52,6 +57,7 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
   if (facts.linkURL)
     groups.push([
       entry("openLink", "Open link in new tab", web(facts.linkURL)),
+      ...(web(facts.linkURL) ? [entry("openLinkOutside", "Open link in your browser")] : []),
       entry("copyLink", "Copy link address"),
     ]);
   const image = facts.mediaType === "image" && facts.srcURL !== "";
@@ -73,6 +79,7 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
       entry("back", "Back", facts.canGoBack),
       entry("forward", "Forward", facts.canGoForward),
       entry("reload", "Reload"),
+      ...(web(facts.pageURL) ? [entry("openPageOutside", "Open page in your browser")] : []),
     ]);
   groups.push([entry("annotate", "Annotate this element")]);
   groups.push([entry("viewSource", "View page source"), entry("inspect", "Inspect")]);
