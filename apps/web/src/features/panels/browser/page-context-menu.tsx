@@ -2,6 +2,7 @@ import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowSquareOutIcon,
   CameraIcon,
   ClipboardTextIcon,
   CodeIcon,
@@ -21,6 +22,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { outsideAddress } from "./open-outside.tsx";
 
 /** What a right click landed on: the link it is in and the image it is. */
 export interface PageTarget {
@@ -35,6 +37,10 @@ export interface PageMenu {
   /** A right click at this page point: find what is under it. */
   locate(point: { x: number; y: number }): void;
   openLink(url: string): void;
+  /** Opens a web address in this device's own browser. */
+  openOutside(url: string): void;
+  /** The page's own address, when it is one that opens outside ace. */
+  page: string | undefined;
   copyLink(url: string): void;
   copyImage(url: string): void;
   saveImage(url: string): void;
@@ -64,7 +70,9 @@ const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 export function PageContextMenu(props: { menu: PageMenu; children: ReactElement }) {
   const { menu } = props;
   const link = menu.target?.link;
+  const outsideLink = outsideAddress(link);
   const image = menu.target?.image;
+  const page = menu.page;
   return (
     <ContextMenu>
       <ContextMenuTrigger render={props.children} />
@@ -74,6 +82,14 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
             <MenuItem icon={icon(PlusSquareIcon)} onClick={() => menu.openLink(link)}>
               Open link in new tab
             </MenuItem>
+            {outsideLink && (
+              <MenuItem
+                icon={icon(ArrowSquareOutIcon)}
+                onClick={() => menu.openOutside(outsideLink)}
+              >
+                Open link in your browser
+              </MenuItem>
+            )}
             <MenuItem icon={icon(LinkIcon)} onClick={() => menu.copyLink(link)}>
               Copy link
             </MenuItem>
@@ -100,6 +116,11 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
         <MenuItem icon={icon(ArrowClockwiseIcon)} onClick={menu.reload}>
           Reload
         </MenuItem>
+        {page && (
+          <MenuItem icon={icon(ArrowSquareOutIcon)} onClick={() => menu.openOutside(page)}>
+            Open page in your browser
+          </MenuItem>
+        )}
         <MenuSeparator />
         <MenuItem icon={icon(CopyIcon)} onClick={menu.copy}>
           Copy

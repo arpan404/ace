@@ -1,15 +1,11 @@
-import { ArrowSquareOutIcon, BrowserIcon } from "@phosphor-icons/react";
+import { BrowserIcon } from "@phosphor-icons/react";
 import { PreviewGatewayStatus } from "@ace/protocol";
 import { addressHost, displayAddress, type BrowserFailure } from "@ace/ui-core";
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { LoadFailed } from "../browser/page-states.tsx";
-import { toolbarButton } from "../browser/page-toolbar.tsx";
 
 export type FramePhase = "loading" | "loaded" | "blank" | "failed";
 
@@ -218,30 +214,5 @@ export function DevServerFrame(props: {
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * The address in this device's own browser. With `address`, what opens is asked for on the
- * click (a preview's fresh sign-in link), and `url` is only what the button names.
- */
-export function OpenOutside(props: { url: string; address?: (() => Promise<string>) | undefined }) {
-  const toast = useToast();
-  return (
-    <IconButton
-      icon={ArrowSquareOutIcon}
-      label="Open in your browser"
-      className={toolbarButton}
-      onClick={() =>
-        void (
-          props.address ? openExternalWhenReady(props.address()) : openExternal(props.url)
-        ).catch((error: unknown) =>
-          toast.error({
-            title: "Couldn't open the page",
-            description: error instanceof Error ? error.message : undefined,
-          }),
-        )
-      }
-    />
   );
 }

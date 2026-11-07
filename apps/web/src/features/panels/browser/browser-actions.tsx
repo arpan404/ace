@@ -24,7 +24,7 @@ import {
   TerminalWindowIcon,
   XCircleIcon,
 } from "@phosphor-icons/react";
-import { openExternal, revealer } from "@/boot/open-external.ts";
+import { revealer } from "@/boot/open-external.ts";
 import {
   Menu,
   MenuCheckboxItem,
@@ -50,6 +50,7 @@ import { ZoomRow } from "./zoom-controls.tsx";
 import { AskAgentItem } from "./ask-agent-item.tsx";
 import { LatencyItem } from "./latency-item.tsx";
 import { EngineMenu } from "./engine-menu.tsx";
+import { useOpenOutside } from "./open-outside.tsx";
 
 const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 
@@ -95,6 +96,7 @@ export function BrowserActions(props: {
   onLeaveSplit: (() => void) | undefined;
 }) {
   const toast = useToast();
+  const openOutside = useOpenOutside();
   const { shownUrl, external, browser, tab, tools, actions } = props;
   const recording = useLocal(recordingThreads, (threads) => threads.has(props.threadId));
   const hidden = useLocal(extensionsHidden, (value) => value);
@@ -131,14 +133,6 @@ export function BrowserActions(props: {
         : {}),
     });
   };
-  const openOutside = () =>
-    external &&
-    void openExternal(external).catch((error: unknown) =>
-      toast.error({
-        title: "Couldn't open the page",
-        description: error instanceof Error ? error.message : undefined,
-      }),
-    );
   const pageTool = usable && actions.available;
   // The in-app browser lives in the desktop app only; elsewhere there is nothing to pick.
   const desktop = desktopBrowserViews() !== undefined;
@@ -266,7 +260,11 @@ export function BrowserActions(props: {
         >
           Copy address
         </MenuItem>
-        <MenuItem icon={icon(ArrowSquareOutIcon)} disabled={!external} onClick={openOutside}>
+        <MenuItem
+          icon={icon(ArrowSquareOutIcon)}
+          disabled={!external}
+          onClick={() => external && openOutside(external)}
+        >
           Open in your browser
         </MenuItem>
         <AskAgentItem threadId={props.threadId} tab={tab} />

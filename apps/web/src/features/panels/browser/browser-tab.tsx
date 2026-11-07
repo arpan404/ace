@@ -67,6 +67,7 @@ import { rememberPageSize } from "./page-size.ts";
 import { WatchButton, useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
+import { OpenOutside, outsideAddress } from "./open-outside.tsx";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
@@ -123,7 +124,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
-  const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
+  const external = outsideAddress(shownUrl);
   // In the desktop app the page itself is a native view drawn over this tab's page area (or
   // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
@@ -408,6 +409,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                 open={chrome.downloads.open}
                 onOpenChange={chrome.downloads.setOpen}
               />
+              {external && <OpenOutside url={external} />}
             </ToolPill>
             <BrowserActions
               threadId={threadId}
