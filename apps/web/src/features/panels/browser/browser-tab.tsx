@@ -64,10 +64,10 @@ import { ZoomBadge } from "./zoom-controls.tsx";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 import { rememberPageSize } from "./page-size.ts";
-import { WatchButton, useWatchToggle } from "./watch-button.tsx";
+import { useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
-import { OpenOutside, outsideAddress } from "./open-outside.tsx";
+import { AddressOpenOutside, outsideAddress } from "./open-outside.tsx";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
@@ -386,6 +386,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                   video={page.frame !== undefined}
                   muteTab={(tabId, muted) => void browser.muteTab(tabId, muted)}
                 />
+                {external && <AddressOpenOutside url={external} />}
               </>
             }
           />
@@ -393,7 +394,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         actions={
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
-            {watch.watching !== undefined && <WatchButton {...watch} />}
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu
@@ -409,7 +409,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                 open={chrome.downloads.open}
                 onOpenChange={chrome.downloads.setOpen}
               />
-              {external && <OpenOutside url={external} />}
             </ToolPill>
             <BrowserActions
               threadId={threadId}

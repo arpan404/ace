@@ -39,8 +39,6 @@ export interface PageMenu {
   openLink(url: string): void;
   /** Opens a web address in this device's own browser. */
   openOutside(url: string): void;
-  /** The page's own address, when it is one that opens outside ace. */
-  page: string | undefined;
   copyLink(url: string): void;
   copyImage(url: string): void;
   saveImage(url: string): void;
@@ -72,7 +70,6 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
   const link = menu.target?.link;
   const outsideLink = outsideAddress(link);
   const image = menu.target?.image;
-  const page = menu.page;
   return (
     <ContextMenu>
       <ContextMenuTrigger render={props.children} />
@@ -116,11 +113,6 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
         <MenuItem icon={icon(ArrowClockwiseIcon)} onClick={menu.reload}>
           Reload
         </MenuItem>
-        {page && (
-          <MenuItem icon={icon(ArrowSquareOutIcon)} onClick={() => menu.openOutside(page)}>
-            Open page in your browser
-          </MenuItem>
-        )}
         <MenuSeparator />
         <MenuItem icon={icon(CopyIcon)} onClick={menu.copy}>
           Copy

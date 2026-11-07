@@ -36,29 +36,23 @@ async function showPage() {
   return { panel, browser: app.daemon.browser, opens };
 }
 
-test("the toolbar opens the page shown, with its path, query and fragment, in the person's own browser", async () => {
+test("the address field opens the page shown, with its path, query and fragment, in the person's own browser", async () => {
   const { panel, opens } = await showPage();
-  await userEvent.click(within(panel).getByRole("button", { name: "Open in your browser" }));
+  const field = within(panel).getByRole("combobox", { name: "Address" }).closest("div");
+  if (!field) throw new Error("The address field has no pill around it");
+  await userEvent.click(within(field).getByRole("button", { name: "Open in your browser" }));
   expect(opens()).toEqual([page]);
 });
 
-test("right-clicking the page offers to open it, or the link under the pointer, in the person's own browser", async () => {
+test("right-clicking a link offers to open it in the person's own browser", async () => {
   const { panel, browser, opens } = await showPage();
-  browser.contextTarget = {};
-  fireEvent.contextMenu(within(panel).getByRole("application"), { clientX: 20, clientY: 30 });
-  let menu = await screen.findByRole("menu");
-  await userEvent.click(
-    await within(menu).findByRole("menuitem", { name: "Open page in your browser" }),
-  );
-  expect(opens()).toEqual([page]);
-
   browser.contextTarget = { link: "https://docs.example/next?a=1#b" };
   fireEvent.contextMenu(within(panel).getByRole("application"), { clientX: 20, clientY: 30 });
-  menu = await screen.findByRole("menu");
+  const menu = await screen.findByRole("menu");
   await userEvent.click(
     await within(menu).findByRole("menuitem", { name: "Open link in your browser" }),
   );
-  expect(opens()).toEqual([page, "https://docs.example/next?a=1#b"]);
+  expect(opens()).toEqual(["https://docs.example/next?a=1#b"]);
 });
 
 test("a link that isn't a web page is never offered outside ace", async () => {

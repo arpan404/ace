@@ -1,4 +1,4 @@
-import { ArrowSquareOutIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import { openExternal, openExternalWhenReady } from "@/boot/open-external.ts";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -37,6 +37,24 @@ export function OpenOutside(props: { url: string; address?: (() => Promise<strin
       label="Open in your browser"
       className={toolbarButton}
       onClick={() => open(props.url, props.address)}
+    />
+  );
+}
+
+/**
+ * "Open in your browser" at the end of the address field: a top-right arrow that shows while
+ * the pointer is over the field (or the button has keyboard focus). It keeps its room when
+ * hidden, so the site's name stays centred and nothing shifts on hover.
+ */
+export function AddressOpenOutside(props: { url: string }) {
+  const open = useOpenOutside();
+  return (
+    <IconButton
+      icon={ArrowUpRightIcon}
+      label="Open in your browser"
+      size="sm"
+      className="size-6 rounded-full opacity-0 group-hover/address:opacity-100 hover:bg-foreground/8 focus-visible:opacity-100"
+      onClick={() => open(props.url)}
     />
   );
 }

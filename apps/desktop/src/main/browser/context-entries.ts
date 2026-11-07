@@ -1,7 +1,5 @@
 /** What the page reported under the pointer, and what the tab can do now. */
 export interface ContextFacts {
-  /** The page's own address. */
-  pageURL: string;
   linkURL: string;
   srcURL: string;
   mediaType: string;
@@ -21,7 +19,6 @@ export type ContextCommand =
   | "reload"
   | "openLink"
   | "openLinkOutside"
-  | "openPageOutside"
   | "copyLink"
   | "cut"
   | "copy"
@@ -79,7 +76,6 @@ export function contextEntries(facts: ContextFacts): (ContextEntry | "separator"
       entry("back", "Back", facts.canGoBack),
       entry("forward", "Forward", facts.canGoForward),
       entry("reload", "Reload"),
-      ...(web(facts.pageURL) ? [entry("openPageOutside", "Open page in your browser")] : []),
     ]);
   groups.push([entry("annotate", "Annotate this element")]);
   groups.push([entry("viewSource", "View page source"), entry("inspect", "Inspect")]);

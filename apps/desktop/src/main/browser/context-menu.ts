@@ -20,7 +20,6 @@ export function contextFacts(params: ContextMenuParams, contents: WebContents): 
     entries: history.getAllEntries().map((entry, id) => ({ id, url: entry.url })),
   });
   return {
-    pageURL: contents.getURL(),
     linkURL: params.linkURL,
     srcURL: params.srcURL,
     mediaType: params.mediaType,
@@ -47,7 +46,7 @@ const appActions: Partial<Record<ContextCommand, BrowserContextAction["action"]>
 
 /**
  * Shows the menu at the pointer and carries out the pick: editing and clipboard commands in
- * the page itself, the page or a link in the system browser, a saved image through the page's
+ * the page itself, a link in the system browser, a saved image through the page's
  * own download (so it passes the daemon's download consent), Inspect through `inspect`, the
  * rest through `app`.
  */
@@ -63,9 +62,8 @@ export function popupContextMenu(options: {
     const action = appActions[command];
     if (action) return options.app(action, command === "openLink" ? params.linkURL : undefined);
     if (contents.isDestroyed()) return;
-    if (command === "openLinkOutside" || command === "openPageOutside") {
-      const url = command === "openLinkOutside" ? params.linkURL : contents.getURL();
-      if (web(url)) void shell.openExternal(url).catch(() => {});
+    if (command === "openLinkOutside") {
+      if (web(params.linkURL)) void shell.openExternal(params.linkURL).catch(() => {});
     } else if (command === "copyLink") clipboard.writeText(params.linkURL);
     else if (command === "copyImageAddress") clipboard.writeText(params.srcURL);
     else if (command === "copyImage") contents.copyImageAt(params.x, params.y);

@@ -12,7 +12,7 @@ import type { PageMenu } from "./page-context-menu.tsx";
 import { pageKey, type PageKey } from "./page-keys.ts";
 import { usePageActions } from "./use-page-actions.ts";
 import { usePageTarget } from "./use-page-target.ts";
-import { outsideAddress, useOpenOutside } from "./open-outside.tsx";
+import { useOpenOutside } from "./open-outside.tsx";
 import type { PageTools } from "./use-page-tools.ts";
 import { reason } from "./use-browser-features.ts";
 import { zoomIn, zoomOut } from "@ace/ui-core";
@@ -125,7 +125,6 @@ export function usePageChrome(input: {
     locate: pointed.locate,
     openLink: pointed.openLink,
     openOutside,
-    page: outsideAddress(shownUrl),
     copyLink: pointed.copyLink,
     copyImage: pointed.copyImage,
     saveImage: pointed.saveImage,
