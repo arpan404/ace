@@ -152,9 +152,12 @@ export type WindowBackground = z.infer<typeof WindowBackground>;
 /**
  * A chat visualization for its own window: the sandboxed `data:` document the transcript shows.
  */
-/** Largest image the renderer may put on the clipboard, in bytes before base64. */
-export const clipboardImageLimit = 8 * 1024 * 1024;
-/** An image for the system clipboard (an annotated page's screenshot): PNG or JPEG bytes. */
+/**
+ * Largest image the renderer may put on the clipboard, in bytes before base64: the largest
+ * original the image viewer loads, so any image it shows at full size can be copied.
+ */
+export const clipboardImageLimit = 32 * 1024 * 1024;
+/** An image for the system clipboard (a viewed image or a page screenshot): PNG or JPEG bytes. */
 export const ClipboardImage = z.object({
   mimeType: z.enum(["image/png", "image/jpeg"]),
   data: z

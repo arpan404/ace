@@ -55,6 +55,14 @@ test("an annotated page's screenshot crosses to the clipboard as PNG or JPEG byt
   expect(target.written[0]?.subarray(1, 4).toString()).toBe("PNG");
 });
 
+test("a full-resolution screenshot well over 8 MiB still crosses to the clipboard", async () => {
+  const { ace, sent } = main();
+  // 12 MiB of image bytes as base64, the size of a 3000×2000 PNG.
+  const large = "A".repeat(Math.ceil((12 * 1024 * 1024) / 3) * 4);
+  await ace.clipboard.writeImage({ mimeType: "image/png", data: large });
+  expect(sent).toHaveLength(1);
+});
+
 test("the bridge never sends an oversized, non-image or malformed clipboard write", async () => {
   const { ace, sent } = main();
   const over = "A".repeat(Math.ceil(clipboardImageLimit / 3) * 4 + 4);

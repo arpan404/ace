@@ -1,4 +1,5 @@
 import { desktopImageClipboard } from "@/boot/desktop.ts";
+import { formatBytes } from "@ace/ui-core/byte-size";
 
 /** Clipboards take PNG everywhere; a browser's clipboard takes nothing else. */
 async function asPng(blob: Blob): Promise<Blob> {
@@ -24,7 +25,8 @@ async function base64(blob: Blob): Promise<string> {
 /**
  * Put an image on this device's clipboard. The desktop app writes it natively (no focus or
  * gesture needed, PNG or JPEG kept as they are); a browser gets a PNG `ClipboardItem`, handed a
- * pending blob so Safari keeps the click's activation while the bytes are read.
+ * pending blob so Safari keeps the click's activation while the bytes are read. A failure
+ * rejects with a sentence the person can act on, such as the image being too large.
  */
 export async function copyImageToClipboard(
   image: Promise<Blob>,
@@ -35,6 +37,10 @@ export async function copyImageToClipboard(
     const blob = await image;
     const ready = blob.type === "image/jpeg" ? blob : await asPng(blob);
     const mimeType = ready.type === "image/jpeg" ? "image/jpeg" : "image/png";
+    if (desktop.limit !== undefined && ready.size > desktop.limit)
+      throw new Error(
+        `This image is ${formatBytes(ready.size)}; the clipboard takes images up to ${formatBytes(desktop.limit)}. Download it instead.`,
+      );
     await desktop.writeImage({ mimeType, data: await base64(ready) });
     return;
   }

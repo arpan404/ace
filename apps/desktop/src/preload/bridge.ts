@@ -11,7 +11,7 @@ import {
   type RequestOf,
   type ResultOf,
 } from "../shared/channels.ts";
-import { AbsolutePath, type AppInfo } from "../shared/contract.ts";
+import { AbsolutePath, clipboardImageLimit, type AppInfo } from "../shared/contract.ts";
 
 /** The slice of `ipcRenderer` the bridge needs; injected so it can be tested without Electron. */
 export interface BridgeIpc {
@@ -137,7 +137,9 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       },
     },
     clipboard: {
-      /** A PNG or JPEG (base64, at most 8 MiB) onto the system clipboard. */
+      /** The most image bytes `writeImage` takes, so the page can refuse more in words. */
+      imageLimit: clipboardImageLimit,
+      /** A PNG or JPEG (base64 of at most `imageLimit` bytes) onto the system clipboard. */
       writeImage: (image: RequestOf<"clipboard.writeImage">) => call("clipboard.writeImage", image),
     },
     notifications: {
