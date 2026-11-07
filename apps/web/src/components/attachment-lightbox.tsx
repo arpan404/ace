@@ -129,7 +129,12 @@ function PopupFocus() {
 function Actions(props: { image: ShownImage; full: ImageState }) {
   const full = props.full;
   const toast = useToast();
-  const { copied, track } = useCopy(() => toast.error({ title: "Couldn't copy the image" }));
+  const { copied, track } = useCopy((error) =>
+    toast.error({
+      title: "Couldn't copy the image",
+      description: error instanceof Error && error.message ? error.message : undefined,
+    }),
+  );
   const url = full.state === "ready" ? full.url : undefined;
   return (
     <>
