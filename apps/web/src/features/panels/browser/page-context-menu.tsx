@@ -2,6 +2,7 @@ import {
   ArrowClockwiseIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowSquareOutIcon,
   CameraIcon,
   ClipboardTextIcon,
   CodeIcon,
@@ -21,6 +22,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
+import { outsideAddress } from "./open-outside.tsx";
 
 /** What a right click landed on: the link it is in and the image it is. */
 export interface PageTarget {
@@ -35,6 +37,8 @@ export interface PageMenu {
   /** A right click at this page point: find what is under it. */
   locate(point: { x: number; y: number }): void;
   openLink(url: string): void;
+  /** Opens a web address in this device's own browser. */
+  openOutside(url: string): void;
   copyLink(url: string): void;
   copyImage(url: string): void;
   saveImage(url: string): void;
@@ -64,6 +68,7 @@ const icon = (glyph: typeof CopyIcon) => <Icon icon={glyph} />;
 export function PageContextMenu(props: { menu: PageMenu; children: ReactElement }) {
   const { menu } = props;
   const link = menu.target?.link;
+  const outsideLink = outsideAddress(link);
   const image = menu.target?.image;
   return (
     <ContextMenu>
@@ -74,6 +79,14 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
             <MenuItem icon={icon(PlusSquareIcon)} onClick={() => menu.openLink(link)}>
               Open link in new tab
             </MenuItem>
+            {outsideLink && (
+              <MenuItem
+                icon={icon(ArrowSquareOutIcon)}
+                onClick={() => menu.openOutside(outsideLink)}
+              >
+                Open link in your browser
+              </MenuItem>
+            )}
             <MenuItem icon={icon(LinkIcon)} onClick={() => menu.copyLink(link)}>
               Copy link
             </MenuItem>
@@ -123,7 +136,6 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
         <MenuItem
           icon={icon(CodeIcon)}
           disabled={typeof menu.inspect === "string"}
-          reason={typeof menu.inspect === "string" ? menu.inspect : undefined}
           onClick={typeof menu.inspect === "function" ? menu.inspect : undefined}
         >
           Inspect
