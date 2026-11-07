@@ -136,7 +136,6 @@ export function PageContextMenu(props: { menu: PageMenu; children: ReactElement 
         <MenuItem
           icon={icon(CodeIcon)}
           disabled={typeof menu.inspect === "string"}
-          reason={typeof menu.inspect === "string" ? menu.inspect : undefined}
           onClick={typeof menu.inspect === "function" ? menu.inspect : undefined}
         >
           Inspect

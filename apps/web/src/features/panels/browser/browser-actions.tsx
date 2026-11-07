@@ -210,7 +210,6 @@ export function BrowserActions(props: {
           keys="mod+alt+i"
           resolve={false}
           disabled={!usable || actions.devtoolsReason !== undefined}
-          reason={live ? actions.devtoolsReason : undefined}
           onClick={() => actions.devtools()}
         >
           Developer tools
