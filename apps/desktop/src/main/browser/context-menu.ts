@@ -47,8 +47,9 @@ const appActions: Partial<Record<ContextCommand, BrowserContextAction["action"]>
 
 /**
  * Shows the menu at the pointer and carries out the pick: editing and clipboard commands in
- * the page itself, a page or link opened outside ace through the system browser, a saved image through the page's own download (so it passes the daemon's
- * download consent), Inspect through `inspect`, the rest through `app`.
+ * the page itself, the page or a link in the system browser, a saved image through the page's
+ * own download (so it passes the daemon's download consent), Inspect through `inspect`, the
+ * rest through `app`.
  */
 export function popupContextMenu(options: {
   window: BaseWindow;
