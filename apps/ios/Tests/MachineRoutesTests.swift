@@ -93,6 +93,34 @@ private let fingerprint = DaemonCertificate.pin
         #expect(fixture.model.plans["studio"]?.current == .direct)
     }
 
+    @Test func aRelayThatAsksForTheMachineCodeGivesWayToADirectRouteThatAnswersAndTheCodeIsNotAskedThere() async throws {
+        let answers = Answers()
+        let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])
+        let fixture = try MachinesFixture(machines: [studio(paths: allPaths)], account: account, probe: { _ in answers.next() })
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let direct = try #require(fixture.sessions.started.first)
+        direct.finishShutdownWhenStopped()
+        direct.emit(row(connection: "reconnecting", thread: "t1"))
+        await settle { fixture.sessions.started.count == 2 }
+        let relay = try #require(fixture.sessions.started.last)
+        relay.finishShutdownWhenStopped()
+        // The relay's daemon wants this install's code: the relay stops and asks for it.
+        relay.emit(#"[{"type":"machine.code","asking":"machine_code_required"},{"type":"connection","state":"fatal"}]"#)
+        await settle { fixture.model.inbox.client("studio")?.machineCodeAsk == .required }
+        // Reachable and waiting for the person: the header says so, never that it can't be reached.
+        #expect(InboxConnectionProblem.of(fixture.model.inbox)?.text == "Your machine needs its machine code")
+        // Once the hold is over, the LAN answers: the machine opens there with its pairing.
+        answers.queue = [true]
+        fixture.scheduler.advance(MachineRoutePlan.hold)
+        await settle { fixture.sessions.started.count == 3 }
+        #expect(fixture.sessions.started.last?.target.relay == nil)
+        #expect(fixture.model.inbox.client("studio")?.machineCodeAsk == nil)
+        fixture.sessions.started[2].emit(row(connection: "ready", thread: "t1"))
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
+        #expect(fixture.model.inbox.client("studio")?.machineCodeAsk == nil)
+    }
+
     @Test func aLaterLookAtTheRouteIsCancelledWhenTheMachineIsTurnedOff() async throws {
         let answers = Answers()
         let account = FakeAccountDirectory([AceMachine(hostId: relayKey, name: "studio", platform: "darwin", lastSeenAt: 1)])

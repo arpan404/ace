@@ -226,7 +226,16 @@ struct InboxList: View {
         if inbox.sessions.isEmpty, let pair {
             NoComputerPaired(pair: pair).padding(.top, AceDesign.Space.section * 2)
         } else if !inbox.anyLoaded || !inbox.allReady {
-            if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
+            if let asking = inbox.sessions.first(where: { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }) {
+                // Reachable and waiting for its code: say so, and open the code prompt again.
+                EmptyState(icon: .lock, title: "Enter the machine code",
+                           line: asking.client.machineCodeAsk?.message(lockedUntil: asking.client.machineCodeLockedUntil) ?? "") {
+                    if asking.client.machineCodeAsk?.canEnter == true {
+                        Button("Enter code") { asking.client.machineCodeDeferred = false }
+                    }
+                }
+                .padding(.top, AceDesign.Space.section * 2)
+            } else if inbox.sessions.contains(where: { ["fatal", "offline", "reconnecting"].contains($0.client.connection) }) {
                 EmptyState(icon: .wifiSlash, title: inbox.showsMachineNames ? "Can't reach your machines" : "Can't reach your machine",
                            line: "Your threads appear once it's back.") {
                     Button("Retry") { for session in inbox.sessions { session.client.retry() } }
