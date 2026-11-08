@@ -33,8 +33,9 @@ final class ScannerController: UIViewController, @preconcurrency AVCaptureMetada
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized: configure()
         case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                Task { @MainActor [weak self] in
+            // The answer arrives on a system queue: the callback must not belong to the main actor.
+            AVCaptureDevice.requestAccess(for: .video) { @Sendable [weak self] granted in
+                Task { @MainActor in
                     if granted { self?.configure() } else { self?.unavailable?("Camera access is off. Allow it in Settings, or paste the link instead.") }
                 }
             }
