@@ -1,10 +1,12 @@
 import SwiftUI
 
 /// The thread's title and the line under it as one tap target that opens one system menu, as a
-/// document's title does in the system's own apps. The line reads the model and its effort
-/// ("◎ Opus 5.5 · Med ⌄", the provider's mark at 80%); without a model to change (view only,
-/// archived) it reads "project · branch". The menu: "project · branch" as its quiet header, then
-/// Model (the picker sheet), Effort and Access as submenus, then the thread's own actions.
+/// document's title does in the system's own apps. The line reads where the thread is and what
+/// runs it: the project's mark and name, then the model and its effort ("▣ ace-next · Opus 5.5 ·
+/// Med ⌄"); the project's name is cut first, so the model always reads. A chat has no project and
+/// shows the model alone; without a model to change (view only, archived) it reads "project ·
+/// branch". The menu: the project's mark, name and branch first (opening Work), then Model (the
+/// picker sheet), Effort and Access as submenus, then the thread's own actions.
 ///
 /// It redraws only when what it shows changes (`==`): a menu rebuilt while open drops the item
 /// under the finger, and the thread's row changes many times a second while it works.
@@ -20,6 +22,9 @@ struct ThreadTitleMenu: View, Equatable {
     }
     let title: String
     let place: String
+    /// The thread's project and its mark; empty for a chat.
+    var project = ""
+    var projectLook: ProjectMarkLook? = nil
     let status: String?
     var width: CGFloat
     /// Nil where the model can't be changed here.
@@ -75,15 +80,19 @@ struct ThreadTitleMenu: View, Equatable {
     @ViewBuilder private func subtitle(chevron: Bool) -> some View {
         HStack(spacing: AceDesign.Space.tight) {
             if let model {
-                if let provider = model.provider, !provider.isEmpty {
-                    ProviderMark(provider: provider, size: AceDesign.Size.rowMark).opacity(AceDesign.Ink.markOpacity)
+                if !project.isEmpty {
+                    ProjectMark(initials: "", look: projectLook)
+                    Text(project).lineLimit(1).truncationMode(.tail)
+                        .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize()
                 }
-                Text(model.name).lineLimit(1).truncationMode(.middle)
+                Text(model.name).lineLimit(1).truncationMode(.middle).layoutPriority(1)
                 if let tune = model.tune { Text("· \(tune)").lineLimit(1).fixedSize() }
                 if model.queued {
                     AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
                 }
             } else if !place.isEmpty {
+                if !project.isEmpty { ProjectMark(initials: "", look: projectLook) }
                 Text(place).lineLimit(1).truncationMode(.middle)
             }
             if chevron {
@@ -97,6 +106,18 @@ struct ThreadTitleMenu: View, Equatable {
     }
 
     @ViewBuilder private var items: some View {
+        // Where the thread is, first: the project's mark, its name and the branch under it,
+        // opening the checkout's sheet. A menu's header draws no image, so this is its row.
+        if let openWork, !place.isEmpty {
+            Section {
+                Button(action: openWork) {
+                    Text(project.isEmpty ? place : project)
+                    if !placeDetail.isEmpty { Text(placeDetail) }
+                    projectImage
+                }
+                .accessibilityIdentifier("thread.title.work")
+            }
+        }
         if let model {
             Section {
                 // A menu row's title, subtitle and icon: the model in effect under "Model".
@@ -107,14 +128,7 @@ struct ThreadTitleMenu: View, Equatable {
                 if let tune, !tune.efforts.isEmpty || tune.speeds.count > 1 { effortMenu(tune) }
                 if let access, access.state != "none", !access.choices.isEmpty { accessMenu(access) }
             } header: {
-                if !place.isEmpty { Text(place) }
-            }
-        }
-        // Where the thread runs and what can move it, under the checkout's own header.
-        if let openWork {
-            Section {
-                Button(action: openWork) { Text("Work"); Image(ace: .gitBranch) }
-                    .accessibilityIdentifier("thread.title.work")
+                if openWork == nil, !place.isEmpty { Text(place) }
             }
         }
         if canRename || canRetitle {
@@ -123,7 +137,7 @@ struct ThreadTitleMenu: View, Equatable {
                 if canRetitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
             } header: {
                 // Where there is no model section, the checkout still heads the menu.
-                if model == nil, !place.isEmpty { Text(place) }
+                if model == nil, openWork == nil, !place.isEmpty { Text(place) }
             }
         }
         Section {
@@ -136,6 +150,18 @@ struct ThreadTitleMenu: View, Equatable {
                     .accessibilityIdentifier("thread.title.settle")
             }
         }
+    }
+
+    /// What follows the project in "project · branch": the branch, or the machine.
+    private var placeDetail: String {
+        let lead = "\(project) · "
+        guard !project.isEmpty, place.hasPrefix(lead) else { return "" }
+        return String(place.dropFirst(lead.count))
+    }
+    /// The project's mark as a menu can draw it: its image, its glyph, else the folder.
+    private var projectImage: Image {
+        if let image = projectLook?.artwork?.image { return Image(uiImage: image) }
+        return Image(ace: projectLook?.glyph ?? .folderSimple)
     }
 
     /// Effort and speed as the system's own pickers; a level the provider can't change now is
@@ -193,7 +219,8 @@ struct ThreadTitleMenu: View, Equatable {
     }
 
     nonisolated static func == (lhs: ThreadTitleMenu, rhs: ThreadTitleMenu) -> Bool {
-        lhs.title == rhs.title && lhs.place == rhs.place && lhs.status == rhs.status && lhs.width == rhs.width
+        lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
+            && lhs.status == rhs.status && lhs.width == rhs.width
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
             && (lhs.openWork == nil) == (rhs.openWork == nil)

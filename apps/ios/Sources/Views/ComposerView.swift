@@ -254,6 +254,8 @@ enum ComposerCapsuleMetrics {
     static let fieldInset = AceDesign.Space.row
     /// From the + row's leading edge to the field's words: past the +, the gap and the field's inset.
     static let aboveInset = AceDesign.Size.tap + AceDesign.Space.related + fieldInset
+    /// From the column's edge to the capsule's left edge, past the + and the gap.
+    static func fieldEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) + AceDesign.Size.tap + AceDesign.Space.related }
     /// From the column's edge to the field's words.
     static func textEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) + aboveInset }
 }

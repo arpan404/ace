@@ -233,10 +233,14 @@ struct ConversationFeed: View {
                     // pre-gesture target can never pull the reader back.
                     needsPostGestureCapture = viewport.mode != .following
                     endRead(moving: false)
+                } else if TranscriptEndButton.leftByOtherScroll(following: pinned, fromEnd: Double(intent.metrics.bottom),
+                                                                viewport: Double(intent.metrics.viewport),
+                                                                settling: settle.isRunning || keyboardMoving) {
+                    // A scroll that wasn't the person's drag (the status bar's tap to the top,
+                    // VoiceOver) left the end far behind: stop following, as a drag would.
+                    setFollowing(false)
                 }
-                // Scroll to end appears and goes only at rest: mid-fling it would resize the
-                // composer's room under the moving rows.
-                if behind != !pinned { behind = !pinned }
+                updateBehind()
                 pageIfNeeded(proxy)
             case .animating: break
             @unknown default: break
@@ -269,6 +273,9 @@ struct ConversationFeed: View {
             // Geometry is an observation, not a new scroll request. The bounded correction
             // already handles lazy-row remeasurement after a content or composer change.
             if thread.loaded, new.bottom <= 1 { ThreadOpenTrace.shared.settled(thread.id) }
+            // Scroll to end follows the end's distance as it changes, mid-drag included: it floats
+            // over the composer, so showing it moves nothing under the rows.
+            defer { updateBehind() }
             if intent.active {
                 // Leaving the end stops following at once; the bridge is told to hold the rows
                 // once the reader is a screen away (`endRead`). The viewport is view state:
@@ -460,13 +467,26 @@ struct ConversationFeed: View {
         }
         // Away from the end, or reading a window apart from it: following a joined window is at
         // the end, so Scroll to end isn't offered there.
-        .onChange(of: !pinned, initial: true) { _, away in if !intent.active, behind != away { behind = away } }
+        .onChange(of: !pinned, initial: true) { _, _ in updateBehind() }
+        // A history window that catches up with the live end while the reader sits at its end
+        // follows it again, so Scroll to end goes.
+        .onChange(of: reading.joined) { _, joined in
+            if joined, reading.thread != nil, !intent.active, intent.metrics.bottom <= AceDesign.Space.group { setFollowing(true) }
+            updateBehind()
+        }
         .onChange(of: jumps) { _, _ in
             reading.toEnd(model: model, thread: thread)
             setFollowing(true)
             toEnd(proxy)
         }
         .modifier(TranscriptTopEdge())
+    }
+    /// Shows or hides Scroll to end by where the end is now (`TranscriptEndButton`); writes only
+    /// on a change, so a scroll's frames don't re-evaluate the thread.
+    private func updateBehind() {
+        let shows = TranscriptEndButton.shows(.init(fromEnd: Double(intent.metrics.bottom), slack: Double(AceDesign.Space.group),
+                                                    following: following, windowApart: reading.thread != nil && !reading.joined))
+        if behind != shows { behind = shows }
     }
     /// The room at the end changed (the keyboard, the composer or its strip). Following the end,
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and

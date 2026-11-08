@@ -26,30 +26,54 @@ enum ComposerPlaceholder {
     }
 }
 
-/// The live line above the capsule, read from the bridge's pill (`PillRow`): the status and any
-/// other live parts as one sentence, and at most one text action on the right (the queue, else
-/// the goal). Every part the bridge sends stays in the line, so nothing live is dropped.
-struct LiveLineParts: Equatable {
-    let status: PillRow.Status?
-    /// Muted words after the status in the sentence: "2 subagents", "1 command".
-    let extras: [PillRow.Segment]
-    /// The one text action on the right.
-    let action: PillRow.Segment?
-    /// What tapping the sentence opens; empty when it opens nothing.
+/// The live pills above the capsule, read from the bridge's pill (`PillRow`): the thread's status
+/// first, then every other live part (subagents, commands, the queue, the goal) in the bridge's
+/// order, each its own pill opening what it names. Every part the bridge sends is a pill, so
+/// nothing live is dropped; a part that opens nothing is not a button.
+struct LivePill: Equatable, Identifiable {
+    enum Part: Equatable {
+        case status(PillRow.Status)
+        case segment(PillRow.Segment)
+    }
+    let part: Part
+    /// What tapping it opens (`agents`, `queue`, `goal`); empty when it opens nothing.
     let opens: String
-
-    /// Kinds that may take the action's place, in order.
-    static let actionKinds = ["queue", "goal"]
-
-    static func of(_ pill: PillRow) -> LiveLineParts {
-        let action = actionKinds.lazy.compactMap { kind in pill.segments.first { $0.kind == kind && !$0.opens.isEmpty } }.first
-        let extras = pill.segments.filter { $0.id != action?.id }
-        // Nothing to lead with: the lone part is the sentence itself, not an action on the right.
-        if pill.status == nil, extras.isEmpty, let action {
-            return LiveLineParts(status: nil, extras: [action], action: nil, opens: action.opens)
+    var id: String {
+        switch part {
+        case .status: "status"
+        case .segment(let segment): segment.kind
         }
-        let opens = pill.status.map(\.opens).flatMap { $0.isEmpty ? nil : $0 }
-            ?? extras.first { !$0.opens.isEmpty }?.opens ?? ""
-        return LiveLineParts(status: pill.status, extras: extras, action: action, opens: opens)
+    }
+
+    static func of(_ pill: PillRow) -> [LivePill] {
+        let status = pill.status.map { LivePill(part: .status($0), opens: $0.opens) }
+        return (status.map { [$0] } ?? []) + pill.segments.map { LivePill(part: .segment($0), opens: $0.opens) }
+    }
+}
+
+/// When the transcript offers Scroll to end: whenever its end is out of view by more than the
+/// slack, or the rows held stop short of the live end (a history window not joined to it). A
+/// feed that follows the end keeps itself there, so streaming never flickers the button.
+enum TranscriptEndButton {
+    struct Facts: Equatable {
+        /// How far the end is below the viewport's bottom edge, in points.
+        let fromEnd: Double
+        let slack: Double
+        let following: Bool
+        /// The rows shown are a history window that hasn't reached the live end.
+        let windowApart: Bool
+    }
+
+    static func shows(_ facts: Facts) -> Bool {
+        if facts.windowApart { return true }
+        if facts.following { return false }
+        return facts.fromEnd > facts.slack
+    }
+
+    /// A feed still following the end at rest, but more than a screen from it, was moved by
+    /// something other than the person's own drag (a tap on the status bar, VoiceOver): it stops
+    /// following, so the button shows and the next streamed line doesn't pull the reader back.
+    static func leftByOtherScroll(following: Bool, fromEnd: Double, viewport: Double, settling: Bool) -> Bool {
+        following && !settling && viewport > 0 && fromEnd > viewport
     }
 }

@@ -45,6 +45,63 @@ import XCTest
         assertAtTheEnd(app, "after reading a few screens up")
     }
 
+    /// Scrolled a little way up while the answer streams: Scroll to end shows above the composer
+    /// and stays, still, through the streaming; tapping it reaches the end and it goes.
+    func testScrollToEndShowsWhileScrolledUpAndStaysThroughTheStream() {
+        let app = open("ios-stream")
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        let jump = app.buttons["Scroll to end"]
+        XCTAssertFalse(jump.exists, "no Scroll to end at the end")
+        transcript.swipeDown()
+        XCTAssertTrue(jump.waitForExistence(timeout: 5), "scrolled up shows Scroll to end")
+        let input = app.textViews["composer.input"]
+        XCTAssertLessThanOrEqual(jump.frame.maxY, input.frame.minY, "it sits above the composer")
+        let live = app.descendants(matching: .any)["composer.live"]
+        if live.exists { XCTAssertLessThanOrEqual(jump.frame.maxY, live.frame.minY + 1, "and above the pills") }
+        // The fixture keeps streaming: the button stays put the whole time.
+        let place = jump.frame
+        for _ in 0..<6 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            XCTAssertTrue(jump.exists, "Scroll to end stays while the tail streams")
+            XCTAssertEqual(jump.frame.minY, place.minY, accuracy: 1, "and doesn't move")
+        }
+        screenshot("scrolled-up-streaming")
+        jump.tap()
+        assertAtTheEnd(app, "after tapping it while streaming")
+    }
+
+    /// The keyboard coming and going leaves Scroll to end as it was: shown while reading up the
+    /// transcript, above the composer as it rides the keyboard, and away at the end.
+    func testScrollToEndStaysRightThroughTheKeyboard() {
+        let app = open("ios-stream")
+        let transcript = app.scrollViews["transcript"]
+        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        let jump = app.buttons["Scroll to end"]
+        let input = app.textViews["composer.input"]
+        // At the end, the keyboard alone never brings it.
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        sleep(1)
+        XCTAssertFalse(jump.exists, "the keyboard at the end doesn't offer Scroll to end")
+        // Reading up: shown; the drag also puts the keyboard away.
+        transcript.swipeDown()
+        XCTAssertTrue(jump.waitForExistence(timeout: 5))
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        sleep(1)
+        XCTAssertTrue(jump.exists, "the keyboard keeps Scroll to end while reading up")
+        XCTAssertLessThanOrEqual(jump.frame.maxY, input.frame.minY, "above the composer on the keyboard")
+        screenshot("scrolled-up-keyboard")
+        // A tap on the transcript puts the keyboard away; the reader is still up the transcript.
+        transcript.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        sleep(1)
+        XCTAssertTrue(jump.exists, "Scroll to end stays after the keyboard goes")
+        jump.tap()
+        assertAtTheEnd(app, "after the keyboard came and went")
+    }
+
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
     /// the newest lines stay drawn just above the composer, never scrolled off into empty space.
     func testFollowingTheEndThroughToolBurstsKeepsTheNewestLinesInView() throws {
