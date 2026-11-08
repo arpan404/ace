@@ -20,10 +20,12 @@ struct ThreadView: View {
     @State private var showModels = false
     @State private var showTune = false
     @State private var lane: BlockRow.Agents.Entry?
-    /// The page showing on a phone (`ThreadPager`), and the one last asked for, which stays in
-    /// the pill row while it shows even before the thread has something for it.
+    /// The page showing on a phone (`ThreadPager`), and the one last asked for, which keeps its
+    /// bar button while it shows even before the thread has something for it.
     @State private var page: ThreadPageKind = .chat
     @State private var requestedPage: ThreadPageKind?
+    /// The screen a phone pushed over the thread from ⋯ (Files, Terminal, Browser, Agents).
+    @State private var pushedTool: ThreadPushedTool?
     /// A native subagent opened from the Agents page, pushed over the thread.
     @State private var agentRoute: SubagentRoute?
     /// The file Changes opens at, when something named one (the review sheet's file rows).
@@ -83,7 +85,6 @@ struct ThreadView: View {
         guard panelPlace == .none else { return ThreadPages(ThreadPageFacts(chat: true)) }
         let row = model.inbox[thread.id] ?? metadata
         return ThreadPages(ThreadPageFacts(chat: row?.chat == true, changedFiles: row?.diff?.files ?? 0,
-                                           hasBrowser: model.threadHasBrowser, agents: row?.agents ?? 1,
                                            requested: requestedPage))
     }
     private var shownPage: ThreadPageKind { pages.shown(page) }
@@ -111,29 +112,27 @@ struct ThreadView: View {
             .markdownShelf(threadId: thread.id)
     }
 
-    /// Chat alone, or the thread's pages a swipe apart with Chat first (a phone).
+    /// Chat alone, or Chat and Changes a swipe apart (a phone, a thread with changes).
     @ViewBuilder private var pager: some View {
         let pages = pages
         if pages.kinds.count < 2 {
             feed
         } else {
-            ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) }), holdsSwipe: shownPage == .browser) { kind in
+            ThreadPager(pages: pages, shown: Binding(get: { shownPage }, set: { select($0) })) { kind in
                 if kind == .chat {
                     feed
                 } else {
-                    ThreadPageBody(kind: kind, model: model, thread: thread, title: metadata?.title ?? "", subtitle: subtitle, changesFile: changesFile,
-                                   barHeight: barHeight, openThread: openThread, openAgent: { agentRoute = $0 },
-                                   openChat: { select(.chat) }, mention: model.canOperate ? { mention = $0 } : nil)
+                    ThreadPageBody(model: model, title: metadata?.title ?? "", changesFile: changesFile,
+                                   barHeight: barHeight, openChat: { select(.chat) })
                 }
             }
         }
     }
 
-    /// The pages under the header's lower part (the status at accessibility sizes, the page
-    /// pills), drawn once so it stays put while they swipe, as the navigation bar's own accessory
-    /// (`ThreadHeaderBar`).
+    /// The pages under the status at accessibility sizes, drawn once so it stays put while they
+    /// swipe, as the navigation bar's own accessory (`ThreadHeaderBar`).
     private var headed: some View {
-        pager.modifier(ThreadHeaderBar(pinned: pages.kinds.count > 1 || headerStatus != nil) { header })
+        pager.modifier(ThreadHeaderBar(pinned: headerStatus != nil) { header })
     }
 
     private func content(pageWidth: CGFloat) -> some View {
@@ -150,7 +149,7 @@ struct ThreadView: View {
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
                                                leave: leave),
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
-                              pageButtons: shownPage.barButtons)
+                              pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil)
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
@@ -158,6 +157,8 @@ struct ThreadView: View {
             // own view, so the row it reads redraws only it, never the transcript.
             .background { ThreadKeysPublisher(model: model, thread: thread, open: open, leave: leave) }
             .threadSheets(model: model, thread: thread, work: $showWork, logs: $showLogs)
+            .modifier(ThreadPushedTools(model: model, thread: thread, pushed: $pushedTool, openThread: openThread,
+                                        openAgent: { agentRoute = $0 }, mention: model.canOperate ? { mention = $0 } : nil))
             .navigationDestination(item: $agentRoute) { route in
                 SubagentView(route: route, model: model, thread: thread, push: { agentRoute = $0 },
                              openThread: { child in agentRoute = nil; openThread(child) })
@@ -211,7 +212,8 @@ struct ThreadView: View {
                 NavigationStack { ConversationSearchView(model: model, threadId: thread.id, openThread: { id in showSearch = false; if id != thread.id { openThread(id) } }) }
             }
             .modifier(MessageAttachmentRoutes(model: model, threadId: thread.id))
-            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle, showFiles: .constant(false),
+            .modifier(ThreadFileRoutes(model: model, threadId: thread.id, subtitle: subtitle,
+                                       showFiles: Binding(get: { pushedTool == .files }, set: { if !$0, pushedTool == .files { pushedTool = nil } }),
                                        mention: model.canOperate ? { mention = $0 } : nil))
             .sheet(isPresented: $showModels) {
                 ModelPickerSheet(model: model, screen: screen)
@@ -275,21 +277,15 @@ struct ThreadView: View {
             #endif
     }
 
-    /// The status at accessibility sizes, then the page pills.
+    /// The status under the title at accessibility sizes.
     @ViewBuilder private var header: some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            if let status = headerStatus {
-                StateLabel(status: status)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
-            }
-            let pages = pages
-            if pages.kinds.count > 1 {
-                ThreadPageBar(pages: pages, shown: shownPage) { select($0) }
-            }
+        if let status = headerStatus {
+            StateLabel(status: status)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
+                // Read before the page under it.
+                .accessibilitySortPriority(1)
         }
-        // Read before the page under it.
-        .accessibilitySortPriority(1)
     }
     private var headerStatus: StatusDisplay? {
         typeSize.isAccessibilitySize ? model.headerStatus(of: thread) : nil
@@ -479,9 +475,14 @@ struct ThreadView: View {
             panel(["op": "open", "kind": tool.rawValue])
             return
         }
-        // On a phone the thread's tools are its pages.
+        // On a phone Changes is a page beside Chat; the other tools push over the thread.
         if panelPlace == .none, let page = destination.page {
+            pushedTool = nil
             select(page)
+            return
+        }
+        if panelPlace == .none, let tool = destination.pushed {
+            pushedTool = tool
             return
         }
         switch destination {
@@ -520,10 +521,9 @@ struct ThreadView: View {
         }
         return actions
     }
-    /// The requests the strip above the composer shows. On the Agents page each is answered from
-    /// its agent's node in the tree, so the strip steps aside: one place per request.
-    private var stripRequests: [ApprovalRow] { shownPage == .agents ? [] : thread.approvals }
-    /// Shows a page; asking for one keeps its pill while it shows.
+    /// The requests the strip above the composer shows.
+    private var stripRequests: [ApprovalRow] { thread.approvals }
+    /// Shows a page; asking for one keeps its bar button while it shows.
     private func select(_ next: ThreadPageKind) {
         requestedPage = next == .chat ? nil : next
         guard page != next else { return }

@@ -1,18 +1,15 @@
 import Foundation
 
-/// One page of a thread on a phone: the conversation, and each of the web's side panels.
+/// One page of a thread on a phone, a swipe apart: the conversation, and its changes. The
+/// thread's other screens (Files, Terminal, Browser, Agents) are pushed from its ⋯ menu.
 enum ThreadPageKind: String, CaseIterable, Identifiable, Sendable {
-    case chat, changes, files, terminal, browser, agents
+    case chat, changes
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .chat: "Chat"
         case .changes: "Changes"
-        case .files: "Files"
-        case .terminal: "Terminal"
-        case .browser: "Browser"
-        case .agents: "Agents"
         }
     }
 }
@@ -23,57 +20,57 @@ struct ThreadPageFacts: Equatable, Sendable {
     var chat = false
     /// Files changed in its checkout, when the daemon counted them.
     var changedFiles = 0
-    var hasBrowser = false
-    /// Agents in the tree, the main agent included.
-    var agents = 1
-    /// The page the person asked for (a command, a deep link, a pill): it stays while it shows,
-    /// so a browser that is still opening doesn't bounce the person back to Chat.
+    /// The page the person asked for (a command, a deep link, a bar button): it stays while it
+    /// shows, so committing the last change doesn't bounce the person back to Chat mid-read.
     var requested: ThreadPageKind?
 }
 
-/// The pages a thread offers, in the pill row's order, and where the person is among them.
-/// A page shows only when the thread has something for it; Chat is always first.
+/// The pages a thread offers, in the bar's order, and where the person is among them. Changes
+/// shows only when the thread has changes; Chat is always first.
 struct ThreadPages: Equatable, Sendable {
     let kinds: [ThreadPageKind]
     let changedFiles: Int
+    /// The thread has a checkout: Files and Terminal are there to open.
+    let checkout: Bool
 
     init(_ facts: ThreadPageFacts) {
         changedFiles = facts.changedFiles
+        checkout = !facts.chat
         kinds = ThreadPageKind.allCases.filter { kind in
             if kind == facts.requested { return true }
             switch kind {
             case .chat: return true
             case .changes: return !facts.chat && facts.changedFiles > 0
-            case .files, .terminal: return !facts.chat
-            case .browser: return facts.hasBrowser
-            case .agents: return facts.agents > 1
             }
         }
     }
 
-    /// The page shown for a selection: itself while the thread has it, otherwise Chat (a
-    /// browser closed, the changes committed).
+    /// The page shown for a selection: itself while the thread has it, otherwise Chat (the
+    /// changes committed).
     func shown(_ selected: ThreadPageKind) -> ThreadPageKind {
         kinds.contains(selected) ? selected : .chat
     }
 
-    /// The page beside `page`, a step to the left (-1) or right (1); nil at either end.
-    func neighbour(of page: ThreadPageKind, step: Int) -> ThreadPageKind? {
-        guard let index = kinds.firstIndex(of: page), kinds.indices.contains(index + step) else { return nil }
-        return kinds[index + step]
-    }
-
-    /// The pill's words for VoiceOver and its count: "Changes, 6 files".
-    func count(of kind: ThreadPageKind) -> Int? {
-        kind == .changes && changedFiles > 0 ? changedFiles : nil
+    /// The page's words for VoiceOver: "Changes, 6 files".
+    func label(of kind: ThreadPageKind) -> String {
+        guard kind == .changes, changedFiles > 0 else { return kind.title }
+        return "\(kind.title), \(changedFiles) \(changedFiles == 1 ? "file" : "files")"
     }
 }
 
+/// A thread screen a phone pushes over the thread from its ⋯ menu.
+enum ThreadPushedTool: String, Identifiable, Sendable {
+    case files, terminal, browser, agents
+    var id: String { rawValue }
+}
+
 extension ThreadDestination {
-    /// The page this opens as on a phone; nil for what still opens over the thread.
-    var page: ThreadPageKind? {
+    /// The page this opens as on a phone; nil for what opens over the thread.
+    var page: ThreadPageKind? { self == .changes ? .changes : nil }
+
+    /// The screen a phone pushes for this; nil for what isn't one.
+    var pushed: ThreadPushedTool? {
         switch self {
-        case .changes: .changes
         case .files: .files
         case .terminal: .terminal
         case .browser: .browser

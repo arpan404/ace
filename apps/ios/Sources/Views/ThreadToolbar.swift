@@ -25,10 +25,23 @@ struct PanelToggle {
     let toggle: () -> Void
 }
 
+/// The thread's pages as its bar shows them on a phone: Chat and Changes beside ⋯, only when the
+/// thread has Changes.
+struct ThreadPageSwitch {
+    let pages: ThreadPages
+    let shown: ThreadPageKind
+    let select: (ThreadPageKind) -> Void
+    /// It shows only when there is a page to switch to.
+    var shows: Bool { pages.kinds.count > 1 }
+    /// The width it takes in the bar: a glyph per page and the glass's inset around them.
+    var width: CGFloat { shows ? CGFloat(pages.kinds.count) * (AceDesign.Size.pill + 2) + AceDesign.Space.related : 0 }
+}
+
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title
-/// centred with the model and its effort under it, both one menu (`ThreadTitleMenu`), then ⋯.
-/// Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// centred with the model and its effort under it, both one menu (`ThreadTitleMenu`), then on a
+/// phone with changes Chat and Changes, then ⋯, one glass group. The thread's other screens
+/// (Files, Terminal, Browser, Agents) are entries in ⋯, never their own controls.
 struct ThreadToolbar: ToolbarContent {
     /// The title and the line under it; its width is the toolbar's to give.
     let heading: ThreadTitleMenu
@@ -37,24 +50,32 @@ struct ThreadToolbar: ToolbarContent {
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
     var coveredByDrawer = false
-    /// Buttons the page showing adds to the bar (a thread's Browser or Terminal page).
-    var pageButtons = 0
+    /// Chat and Changes beside ⋯ (a phone); nil beside the side panel.
+    var pages: ThreadPageSwitch? = nil
 
+    /// The title is centred, so it gets the width between the wider side's buttons, mirrored:
+    /// ⋯, the page switch and the panel's toggle on the right, one button on the left.
     private var headingWidth: CGFloat {
-        max(0, min(AceDesign.Size.tap * 5,
-                   pageWidth - CGFloat((panel == nil ? 0 : 2) + 2 * max(1, pageButtons)) * AceDesign.Size.tap - 2 * AceDesign.Space.margin))
+        let trailing = CGFloat(1 + (panel == nil ? 0 : 1)) * AceDesign.Size.tap + (pages?.width ?? 0)
+        return max(0, min(AceDesign.Size.tap * 5, pageWidth - 2 * trailing - 2 * AceDesign.Space.margin))
     }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
             ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
-            if pageButtons == 0 {
-                ToolbarItem(placement: .topBarTrailing) { displayedMenu }
+            // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
+            if let pages, pages.shows {
+                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
                     .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
             }
+            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
+                .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
             ToolbarItem(placement: .principal) { title }
-            if pageButtons == 0 { ToolbarItem(placement: .topBarTrailing) { displayedMenu } }
+            if let pages, pages.shows {
+                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
+            }
+            ToolbarItem(placement: .topBarTrailing) { displayedMenu }
         }
         if let panel {
             ToolbarItem(placement: .topBarTrailing) {
@@ -68,6 +89,12 @@ struct ThreadToolbar: ToolbarContent {
         var heading = heading
         heading.width = headingWidth
         return EquatableView(content: heading).clipped()
+    }
+    private func pageButtons(_ pages: ThreadPageSwitch) -> some View {
+        ThreadPageButtons(pages: pages.pages, shown: pages.shown, select: pages.select)
+            .opacity(coveredByDrawer ? 0 : 1)
+            .allowsHitTesting(!coveredByDrawer)
+            .accessibilityHidden(coveredByDrawer)
     }
     private var displayedMenu: some View {
         EquatableView(content: menu)

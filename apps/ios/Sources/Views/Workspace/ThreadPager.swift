@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// The thread's header under its title (the page pills) as the navigation bar's own accessory:
-/// on iOS 26 a `safeAreaBar` with the system's scroll-edge effect, so rows blur away under the
-/// title and the pills together as they do under Mail's. Pinned pills take the hard edge Apple
-/// uses under a pinned control; the transcript alone keeps the soft one. Before iOS 26 it sits on
-/// the page colour.
+/// The thread's header under its title (its status at accessibility sizes) as the navigation
+/// bar's own accessory: on iOS 26 a `safeAreaBar` with the system's scroll-edge effect, so rows
+/// blur away under the title and the status together as they do under Mail's. A pinned status
+/// takes the hard edge Apple uses under a pinned control; the transcript alone keeps the soft
+/// one. Before iOS 26 it sits on the page colour.
 struct ThreadHeaderBar<Bar: View>: ViewModifier {
     let pinned: Bool
     @ViewBuilder let bar: () -> Bar
@@ -19,18 +19,14 @@ struct ThreadHeaderBar<Bar: View>: ViewModifier {
     }
 }
 
-/// The thread's pages side by side, a swipe apart, one screen wide each. Chat is always built, so
-/// the transcript keeps its place and its reading position while another page shows. Every
-/// other page is built only while some of it is on screen (the one showing, and its neighbour
-/// during a swipe); off screen it is an empty page, so nothing it follows (a terminal, a live
-/// browser, the agent tree) keeps streaming. A page that takes sideways touches of its own (the
-/// live browser) holds the swipe; the pill row still moves between pages.
+/// The thread's pages side by side (Chat, then Changes), a swipe apart, one screen wide each. Chat
+/// is always built, so the transcript keeps its place and its reading position while Changes
+/// shows. Changes is built only while some of it is on screen (showing, or during a swipe); off
+/// screen it is an empty page, so its diff isn't followed while nobody reads it.
 struct ThreadPager<Page: View>: View {
     let pages: ThreadPages
-    /// The page showing once a swipe settles; a pill or a command sets it too.
+    /// The page showing once a swipe settles; a bar button or a command sets it too.
     @Binding var shown: ThreadPageKind
-    /// The page takes sideways drags itself: no swiping away from it.
-    let holdsSwipe: Bool
     @ViewBuilder let page: (ThreadPageKind) -> Page
     @State private var position: ThreadPageKind?
     /// Pages with any part on screen right now.
@@ -61,7 +57,7 @@ struct ThreadPager<Page: View>: View {
         .scrollPosition(id: $position)
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .scrollDisabled(holdsSwipe || pages.kinds.count < 2)
+        .scrollDisabled(pages.kinds.count < 2)
         .onScrollGeometryChange(for: [Int].self) { geometry in
             let width = geometry.containerSize.width
             guard width > 0 else { return [] }
@@ -76,11 +72,11 @@ struct ThreadPager<Page: View>: View {
         }
         .onChange(of: shown) { _, page in
             guard position != page else { return }
-            // A pill or a command shows its page at once, as a segmented control swaps what it
+            // A bar button or a command shows its page at once, as a segmented control swaps what it
             // shows: never a slide through the pages between. A swipe stays the finger's.
             position = page
         }
-        // A page that went away (a browser closed) leaves the pager on Chat.
+        // A page that went away (the changes committed) leaves the pager on Chat.
         .onChange(of: pages.kinds) { _, kinds in
             if !kinds.contains(shown) { shown = .chat }
         }
