@@ -267,7 +267,7 @@ async function start(json: string): Promise<void> {
     report: (event) =>
       pump.put("connection.event", () => ({
         type: "connection.event",
-        text: `${event.event} ${Object.entries(event.data)
+        text: `${event.event} ${Object.entries(event.data ?? {})
           .map(([key, value]) => `${key}=${String(value)}`)
           .join(" ")}`,
       })),
