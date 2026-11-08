@@ -202,6 +202,8 @@ import QuartzCore
         browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
+        // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
+        machineCodeAsk = nil; machineCodeLockedUntil = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
@@ -450,6 +452,8 @@ import QuartzCore
                 let changed = state != connection
                 if changed { LaunchTrace.mark("connection", state) }
                 connection = state
+                // An admitted connection needs no code, whatever an earlier attempt was asked.
+                if state == "ready" { machineCodeAsk = nil; machineCodeLockedUntil = nil }
                 if changed { onConnection?(state) }
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
