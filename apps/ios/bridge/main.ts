@@ -263,6 +263,14 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    // Every drop and recovery, with its close code and reason, goes to the device log.
+    report: (event) =>
+      pump.put("connection.event", () => ({
+        type: "connection.event",
+        text: `${event.event} ${Object.entries(event.data)
+          .map(([key, value]) => `${key}=${String(value)}`)
+          .join(" ")}`,
+      })),
   });
   const connection = client.connectionState();
   notifications = new NotificationBridge(
@@ -565,7 +573,7 @@ function action(json: string): void {
       case "machine.code":
         try {
           gate?.enter(value.code);
-          client.reconnectNow();
+          client.codeEntered();
         } catch {
           pump.put("machine.code", () => ({
             type: "machine.code",

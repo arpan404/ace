@@ -445,6 +445,7 @@ import QuartzCore
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
+            case .connectionEvent(let text): LaunchTrace.mark("connection.event", text)
             case .connection(let state, let generation):
                 let changed = state != connection
                 if changed { LaunchTrace.mark("connection", state) }

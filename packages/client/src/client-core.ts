@@ -499,6 +499,10 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
   reconnectNow(): void {
     this.connection.reconnectNow();
   }
+  /** The machine code the daemon asked for was entered: connect again with it now. */
+  codeEntered(): void {
+    this.connection.codeEntered();
+  }
   /** Let `paths` keep this connection on the machine's fastest working path (ADR 0114). */
   usePaths(paths: Multipath): void {
     this.#paths = paths;
