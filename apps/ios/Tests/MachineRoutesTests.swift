@@ -108,6 +108,8 @@ private let fingerprint = DaemonCertificate.pin
         // The relay's daemon wants this install's code: the relay stops and asks for it.
         relay.emit(#"[{"type":"machine.code","asking":"machine_code_required"},{"type":"connection","state":"fatal"}]"#)
         await settle { fixture.model.inbox.client("studio")?.machineCodeAsk == .required }
+        // Reachable and waiting for the person: the header says so, never that it can't be reached.
+        #expect(InboxConnectionProblem.of(fixture.model.inbox)?.text == "Your machine needs its machine code")
         // Once the hold is over, the LAN answers: the machine opens there with its pairing.
         answers.queue = [true]
         fixture.scheduler.advance(MachineRoutePlan.hold)

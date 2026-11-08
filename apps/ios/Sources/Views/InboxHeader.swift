@@ -17,7 +17,11 @@ struct InboxConnectionProblem: Hashable {
         let named = inbox.showsMachineNames ? inbox.name(first.hostId) : "your machine"
         let subject = out.count > 1 ? "\(out.count) machines" : named
         let fatal = out.contains { $0.client.connection == "fatal" }
-        let text = fatal ? "Can't reach \(subject)"
+        // Stopped only to be asked for its machine code: reachable, waiting for the person.
+        let asking = out.allSatisfy { $0.client.connection == "fatal" && $0.client.machineCodeAsk != nil }
+        let text = asking ? (out.count > 1 ? "\(subject) need their machine codes"
+                             : inbox.showsMachineNames ? "\(named) needs its machine code" : "Your machine needs its machine code")
+            : fatal ? "Can't reach \(subject)"
             : out.allSatisfy({ ["connecting", "starting"].contains($0.client.connection) }) ? "Connecting to \(subject)"
             : trying ? "Reconnecting to \(subject)"
             : out.count > 1 ? "\(subject) offline" : inbox.showsMachineNames ? "\(named) is offline" : "Your machine is offline"
