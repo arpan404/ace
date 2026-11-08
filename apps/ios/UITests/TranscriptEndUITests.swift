@@ -84,8 +84,8 @@ import XCTest
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         sleep(1)
         XCTAssertFalse(jump.exists, "the keyboard at the end doesn't offer Scroll to end")
-        // Reading up: shown; the drag also puts the keyboard away.
-        transcript.swipeDown()
+        // Reading up: shown. The first drag may only put the keyboard away.
+        for _ in 0..<3 where !jump.exists { transcript.swipeDown(); sleep(1) }
         XCTAssertTrue(jump.waitForExistence(timeout: 5))
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
