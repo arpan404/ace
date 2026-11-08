@@ -33,6 +33,9 @@ struct NativeTextInput: UIViewRepresentable {
     var pasteFiles: (([NSItemProvider]) -> Void)? = nil
     /// Takes all the height it is offered (New thread's page-sized field) and scrolls past it.
     var fills = false
+    /// Shown while there are no words, drawn by the text view itself so it leaves in the same
+    /// frame as the first typed character and never sits under it.
+    var placeholder = ""
     @AppStorage("ace.keyboard.returnSends") private var returnSends = false
     @Environment(\.escape) private var escape
     func makeUIView(context: Context) -> ComposerTextView {
@@ -51,6 +54,7 @@ struct NativeTextInput: UIViewRepresentable {
         if focusOnAppear { Task { @MainActor in view.becomeFirstResponder() } }
         view.accessibilityLabel = "Steer or follow up"
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.placeholder = placeholder
         return view
     }
     func updateUIView(_ view: ComposerTextView, context: Context) {
@@ -69,6 +73,7 @@ struct NativeTextInput: UIViewRepresentable {
         view.font = AceTheme.uiFont(AceDesign.TextRole.rowTitle, relativeTo: .body, traits: view.traitCollection)
         view.textColor = UIColor(AceTheme.Colours.foreground)
         view.typingAttributes = AceDesign.inputAttributes(traits: view.traitCollection)
+        view.placeholder = placeholder
     }
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerTextView, context: Context) -> CGSize? {
         guard let width = proposal.width else { return nil }
@@ -118,6 +123,7 @@ struct NativeTextInput: UIViewRepresentable {
             return true
         }
         func textViewDidChange(_ textView: UITextView) {
+            (textView as? ComposerTextView)?.showPlaceholder()
             parent.text = textView.text
             measure(textView)
             textView.invalidateIntrinsicContentSize()
@@ -182,6 +188,41 @@ struct CaretPlacement: Equatable {
     var laidOut: (ComposerTextView) -> Void = { _ in }
     override func layoutSubviews() {
         super.layoutSubviews()
+        let inset = textContainerInset
+        placeholderLabel.frame = CGRect(x: inset.left, y: inset.top,
+                                        width: max(bounds.width - inset.left - inset.right, 0),
+                                        height: placeholderLabel.font.lineHeight)
         laidOut(self)
+    }
+
+    /// The words shown while the field is empty. UIKit draws it in the same pass as the typed
+    /// text, so the two never overlap and nothing fades out under a new character.
+    private let placeholderLabel: UILabel = {
+        let label = UILabel()
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.adjustsFontForContentSizeCategory = true
+        label.isAccessibilityElement = false
+        label.isUserInteractionEnabled = false
+        return label
+    }()
+    var placeholder = "" {
+        didSet {
+            guard placeholder != oldValue || placeholderLabel.superview == nil else { return }
+            if placeholderLabel.superview == nil { addSubview(placeholderLabel) }
+            placeholderLabel.text = placeholder
+            showPlaceholder()
+        }
+    }
+    override var font: UIFont? {
+        didSet { placeholderLabel.font = font; setNeedsLayout() }
+    }
+    override var text: String! {
+        didSet { showPlaceholder() }
+    }
+    /// Hidden as soon as there are words, or while a word is being composed (marked text).
+    func showPlaceholder() {
+        placeholderLabel.textColor = UIColor(AceTheme.Colours.subtleForeground)
+        placeholderLabel.isHidden = placeholder.isEmpty || hasText || markedTextRange != nil
     }
 }

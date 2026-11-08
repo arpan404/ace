@@ -329,8 +329,8 @@ struct ThreadView: View {
     }
 
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
-    /// request, what holds the queue, a message that didn't go, ...) as the only glass there, or
-    /// else the quiet live pills; then the composer capsule with the chips on the next message
+    /// request, what holds the queue, a message that didn't go, ...), or else the glass live
+    /// pills; then the composer capsule with the chips on the next message
     /// just above it. Nothing below it. Scroll to end floats over the foot while the person reads
     /// away from the end of the Chat page; it is no part of the foot's height, so showing it
     /// never moves the transcript's end.
@@ -347,9 +347,8 @@ struct ThreadView: View {
             }
             composer
         }
-        // The transcript fades out under the foot, as under the system's own bars, so the
-        // pills never sit on the transcript's words.
-        .background { ComposerFade() }
+        // No band behind the foot: the transcript scrolls on under the glass pills, strip and
+        // capsule and shows through them, as it does under the system's own glass.
         .overlay(alignment: .top) {
             ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
@@ -570,26 +569,6 @@ private struct FloatingBar<Bar: View>: ViewModifier {
                 .background(alignment: .bottom) { BarFloor() }
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         }
-    }
-}
-
-/// The transcript's soft edge under the composer's foot: rows fade into the page colour above the
-/// strip or live line and stay under the capsule, so the live line's plain words never sit on the
-/// transcript's. The composer floats in its own layer that follows the keyboard, outside the
-/// pages' scroll views, so the system's bottom edge effect can't reach it. Never a box.
-private struct ComposerFade: View {
-    private let fade = AceDesign.Space.fade
-    var body: some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            LinearGradient(colors: [AceTheme.Colours.background.opacity(0), AceTheme.Colours.background], startPoint: .top, endPoint: .bottom)
-                .frame(height: fade)
-            AceTheme.Colours.background
-            LinearGradient(colors: [AceTheme.Colours.background, AceTheme.Colours.background.opacity(0)], startPoint: .top, endPoint: .bottom)
-                .frame(height: fade)
-        }
-        .padding(.vertical, -fade)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
 

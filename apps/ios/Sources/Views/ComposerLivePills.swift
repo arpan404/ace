@@ -18,7 +18,7 @@ struct ComposerFloaters: View {
 /// The thread's live state as quiet pills just above the capsule, in one row that scrolls
 /// sideways, starting at the field's left edge: the status first ("Working · 4m 12s", "Waiting on
 /// 2"), then what else is live ("2 subagents", "1 command", "2 queued", "Pursuing goal"). Each is
-/// a capsule on the quiet fill, never glass; colour only on its still icon. A pill that opens
+/// a glass capsule floating over the transcript; colour only on its still icon. A pill that opens
 /// something (the agent tree, the queue, the goal) is a button. Nothing when idle: the bridge
 /// sends no pill then. Words, timer origins and what each opens are the bridge's (`PillRow`).
 struct ComposerLivePills: View {
@@ -36,6 +36,9 @@ struct ComposerLivePills: View {
             .padding(.leading, ComposerCapsuleMetrics.fieldEdge(sizeClass))
             .padding(.trailing, ComposerCapsuleMetrics.side(sizeClass))
             .animation(.default, value: LivePill.of(pill).map(\.id))
+            // One glass container for the row, so neighbouring pills read as one material
+            // rather than separate blurs, as the system draws grouped glass controls.
+            .composerGlassGroup()
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .frame(minHeight: AceDesign.Size.tap)
@@ -73,7 +76,7 @@ struct ComposerLivePills: View {
     }
 }
 
-/// One pill: its still icon in the state's colour, then its words, on the quiet fill.
+/// One pill: its still icon in the state's colour, then its words, on glass.
 private struct LivePillLabel: View {
     let item: LivePill
     var body: some View {
@@ -90,7 +93,7 @@ private struct LivePillLabel: View {
         .lineLimit(1)
         .padding(.horizontal, AceDesign.Space.chip)
         .frame(height: AceDesign.Size.chip)
-        .background(AceDesign.Surface.fill, in: AceDesign.Shape.control)
+        .aceGlass(in: AceDesign.Shape.control)
         .contentShape(AceDesign.Shape.control)
     }
 

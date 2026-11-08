@@ -80,15 +80,7 @@ struct NewThreadComposer: View {
                         },
                         identifier: "newThread.message", focusOnAppear: true,
                         onCaret: { text, caret in suggester.caretMoved(text: text, caret: caret, held: (draft.picks ?? ComposerPicks()).held) },
-                        place: place, fills: true)
-            .overlay(alignment: .topLeading) {
-                if draft.text.isEmpty {
-                    Text(draft.isChat ? "Ask anything" : "Describe a task").aceFont(AceTheme.Typography.body, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                        .padding(.top, AceDesign.Space.row)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-            }
+                        place: place, fills: true, placeholder: draft.isChat ? "Ask anything" : "Describe a task")
             .accessibilityLabel(draft.isChat ? "Message" : "Describe a task")
             .padding(.horizontal, AceDesign.Space.margin)
             .frame(maxHeight: .infinity)
