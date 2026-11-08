@@ -178,6 +178,8 @@ import UIKit
         static var accent: Color { AceTheme.Colours.foreground }
         /// Provider marks in lists keep their colours at this strength.
         static let markOpacity: Double = 0.8
+        /// A project's tint under its initials or glyph, as the web's `bg-(--tint)/12`.
+        static let projectWash: Double = 0.12
     }
 
     /// The status hues, only on status icons and the one sentence that states a state.

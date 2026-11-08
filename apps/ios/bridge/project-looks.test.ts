@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "vitest";
 import "./test-host.ts";
 import { CommandId, DeviceId, WorkspaceId, type CommandPayload } from "@ace/protocol";
 import { facts, type FakeDaemon } from "@ace/fake-daemon";
+import { projectTint } from "@ace/ui-core";
 import { followInbox } from "./inbox.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
@@ -71,6 +72,13 @@ test("a row names its project, and the project's own image, chosen glyph or favi
     thread(daemon, "t-docs", "docs");
     thread(daemon, "t-site", "site", { defaultIcon: favicon });
     thread(daemon, "t-scratch", "scratch");
+    thread(daemon, "t-billing", "billing");
+    command(daemon, {
+      type: "workspace.update",
+      workspaceId: WorkspaceId.parse("billing"),
+      name: "billing",
+      badge: { color: "green" },
+    });
     command(daemon, {
       type: "workspace.update",
       workspaceId: WorkspaceId.parse("docs"),
@@ -79,13 +87,20 @@ test("a row names its project, and the project's own image, chosen glyph or favi
     });
   });
   await until(() => look(sink, "site") !== undefined, "project looks");
-  expect(look(sink, "relay")).toEqual({ image, glyph: null });
-  expect(look(sink, "docs")).toEqual({ image: null, glyph: "rocket" });
-  expect(look(sink, "site")).toEqual({ image: favicon, glyph: null });
-  // Initials-only projects need nothing beyond the row's own badge.
+  expect(look(sink, "relay")).toEqual({ image, glyph: null, color: null });
+  expect(look(sink, "docs")).toEqual({ image: null, glyph: "rocket", color: "violet" });
+  expect(look(sink, "site")).toEqual({ image: favicon, glyph: null, color: null });
+  // Initials in a chosen colour send the colour; plain initials need nothing beyond the row.
+  await until(() => look(sink, "billing") !== undefined, "billing look");
+  expect(look(sink, "billing")).toEqual({ image: null, glyph: null, color: "green" });
   expect(sink.counts.has("project:scratch")).toBe(false);
   const row = sink.read("inbox:t-relay")?.row as Record<string, unknown>;
   expect(row.workspaceId).toBe("relay");
+  // The row carries its project's initials and the tint that stays with the project's id.
+  expect(row.badge).toBe("RE");
+  expect(row.tint).toBe(projectTint("relay"));
+  const scratch = sink.read("inbox:t-scratch")?.row as Record<string, unknown>;
+  expect(scratch.tint).toBe(projectTint("scratch"));
   expect(JSON.stringify(row)).not.toContain(image);
 });
 

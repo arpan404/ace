@@ -25,6 +25,10 @@ struct ThreadTitleMenu: View, Equatable {
     /// The thread's project and its mark; empty for a chat.
     var project = ""
     var projectLook: ProjectMarkLook? = nil
+    /// The project's initials and its tint (1 to 12) from its row, drawn as the web draws them.
+    var projectInitials = ""
+    var projectTint: Int? = nil
+    @Environment(\.colorScheme) private var scheme
     let status: String?
     var width: CGFloat
     /// Nil where the model can't be changed here.
@@ -81,7 +85,7 @@ struct ThreadTitleMenu: View, Equatable {
         HStack(spacing: AceDesign.Space.tight) {
             if let model {
                 if !project.isEmpty {
-                    ProjectMark(initials: "", look: projectLook)
+                    mark
                     Text(project).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                     Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
@@ -92,7 +96,7 @@ struct ThreadTitleMenu: View, Equatable {
                     AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
                 }
             } else if !place.isEmpty {
-                if !project.isEmpty { ProjectMark(initials: "", look: projectLook) }
+                if !project.isEmpty { mark }
                 Text(place).lineLimit(1).truncationMode(.middle)
             }
             if chevron {
@@ -158,10 +162,18 @@ struct ThreadTitleMenu: View, Equatable {
         guard !project.isEmpty, place.hasPrefix(lead) else { return "" }
         return String(place.dropFirst(lead.count))
     }
-    /// The project's mark as a menu can draw it: its image, its glyph, else the folder.
+    /// The project's own mark, sized to the subtitle's line.
+    private var mark: some View {
+        ProjectMark(initials: projectInitials, look: projectLook,
+                    tint: ProjectTint.of(look: projectLook, tint: projectTint), size: AceDesign.Size.glyphMeta)
+    }
+    /// The same mark as a menu row draws it: rendered to a picture in its own colours.
     private var projectImage: Image {
-        if let image = projectLook?.artwork?.image { return Image(uiImage: image) }
-        return Image(ace: projectLook?.glyph ?? .folderSimple)
+        if let image = ProjectMark.image(initials: projectInitials, look: projectLook,
+                                         tint: ProjectTint.of(look: projectLook, tint: projectTint), scheme: scheme) {
+            return Image(uiImage: image)
+        }
+        return Image(ace: .folderSimple)
     }
 
     /// Effort and speed as the system's own pickers; a level the provider can't change now is
@@ -220,6 +232,7 @@ struct ThreadTitleMenu: View, Equatable {
 
     nonisolated static func == (lhs: ThreadTitleMenu, rhs: ThreadTitleMenu) -> Bool {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
+            && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
             && lhs.status == rhs.status && lhs.width == rhs.width
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
