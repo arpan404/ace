@@ -33,6 +33,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
     var chat: Bool? = nil
     var badge: String? = nil
+    /// The project's tint, 1 to 12, that stays with its id (`projectBadge`); nil for a chat.
+    var tint: Int? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
     /// The pull request the thread's card names, and whether it is still in review.

@@ -47,7 +47,7 @@ struct ThreadView: View {
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
     @State private var goalSheet: GoalPresentation?
-    /// The person reads away from the live end: Scroll to end floats beside the pill.
+    /// The person reads away from the live end: Scroll to end floats over the composer's foot.
     @State private var behind = false
     /// Each Scroll to end the person taps.
     @State private var jumps = 0
@@ -301,7 +301,12 @@ struct ThreadView: View {
         let operable = model.canOperate && !archived
         let model = model
         let changesModel = operable && screen.controls != nil
-        return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle, status: model.headerStatus(of: thread)?.label,
+        let row = model.inbox[thread.id] ?? metadata
+        let project = row?.chat == true ? "" : row?.project ?? ""
+        return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle,
+                               project: project, projectLook: row?.workspaceId.flatMap { model.projectLooks[$0] },
+                               projectInitials: row?.badge ?? "", projectTint: row?.tint,
+                               status: model.headerStatus(of: thread)?.label,
                                width: 0,
                                model: changesModel ? ThreadModelWords.line(screen) : nil,
                                tune: changesModel ? screen.tune : nil, access: changesModel ? screen.access : nil,
@@ -323,32 +328,34 @@ struct ThreadView: View {
             || model.transfers.thread(thread.id)?.line != nil || screen.work != nil
     }
 
-    /// What sits at the thread's foot, from the top: Scroll to end while the person reads away
-    /// from the end; then one thing above the capsule, a strip (a request, what holds the queue, a
-    /// message that didn't go, ...) as the only glass there, or else the quiet live line; then
-    /// the composer capsule with the chips on the next message just above it. Nothing below it.
+    /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
+    /// request, what holds the queue, a message that didn't go, ...) as the only glass there, or
+    /// else the quiet live pills; then the composer capsule with the chips on the next message
+    /// just above it. Nothing below it. Scroll to end floats over the foot while the person reads
+    /// away from the end of the Chat page; it is no part of the foot's height, so showing it
+    /// never moves the transcript's end.
     @ViewBuilder private var bottomBar: some View {
         let request = thread.approvals.first
-        VStack(spacing: AceTheme.Spacing.none) {
-            ComposerFloaters(behind: behind) { jumps += 1 }
-                .padding(.bottom, AceDesign.Space.related)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                if hasStrip {
-                    strip
-                        // A strip rises out of the composer and fades; with Reduce Motion it only fades.
-                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-                } else if let pill = screen.pill {
-                    ComposerLiveLine(pill: pill, open: openPill)
-                        .transition(.opacity)
-                }
-                composer
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            if hasStrip {
+                strip
+                    // A strip rises out of the composer and fades; with Reduce Motion it only fades.
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            } else if let pill = screen.pill {
+                ComposerLivePills(pill: pill, open: openPill)
+                    .transition(.opacity)
             }
-            // The transcript fades out under the foot, as under the system's own bars, so the
-            // live line's plain words never sit on the transcript's.
-            .background { ComposerFade() }
+            composer
         }
-        // Only a strip, the live line or the fork strip arriving or leaving animates, with the
-        // system's spring; the live line's words and a strip's counts change in place, so a
+        // The transcript fades out under the foot, as under the system's own bars, so the
+        // pills never sit on the transcript's words.
+        .background { ComposerFade() }
+        .overlay(alignment: .top) {
+            ComposerFloaters(behind: behind && shownPage == .chat) { jumps += 1 }
+                .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
+        }
+        // Only a strip, the pills or the fork strip arriving or leaving animates, with the
+        // system's spring; the pills' words and a strip's counts change in place, so a
         // streaming turn never moves the foot.
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)

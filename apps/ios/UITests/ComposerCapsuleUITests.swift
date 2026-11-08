@@ -55,6 +55,28 @@ import XCTest
         shot("working")
     }
 
+    func testAWorkingTreeWithAQueueAndAGoalShowsEachAsItsOwnPillInOneRow() {
+        let app = launch(into: "thread.ios-queue-long")
+        let status = app.descendants(matching: .any)["pill.status"].firstMatch
+        XCTAssertTrue(status.waitForExistence(timeout: 25))
+        let queue = app.buttons["pill.queue"]
+        let goal = app.buttons["pill.goal"]
+        XCTAssertTrue(queue.waitForExistence(timeout: 10))
+        XCTAssertTrue(goal.exists)
+        XCTAssertEqual(queue.label, "40 queued")
+        // One row, status first, each its own capsule, starting at the field's left edge.
+        XCTAssertEqual(status.frame.midY, queue.frame.midY, accuracy: 1)
+        XCTAssertLessThan(status.frame.maxX, queue.frame.minX)
+        XCTAssertLessThan(queue.frame.maxX, goal.frame.minX)
+        // The capsule starts one gap past the +.
+        let attach = app.buttons["composer.attach"]
+        XCTAssertEqual(status.frame.minX, attach.frame.maxX + 8, accuracy: 2, "the pills start at the field's left edge")
+        XCTAssertLessThanOrEqual(status.frame.maxY, attach.frame.minY)
+        shot("working-queue-goal")
+        queue.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["queue.strip"].waitForExistence(timeout: 10), "the queue pill opens the queue")
+    }
+
     func testAnApprovalTakesTheLiveLinesPlaceAndThePlaceholderAsksForAReply() {
         let app = launch(into: "thread.ios-approval")
         let strip = app.descendants(matching: .any)["request.approval"].firstMatch

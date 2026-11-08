@@ -62,16 +62,14 @@ export function threadRow(thread: Thread | ThreadListEntry) {
   const workspace =
     thread.details?.workspace?.id === thread.workspaceId ? thread.details.workspace : undefined;
   const name = workspace?.name ?? thread.workspaceId;
+  const badge = projectBadge({ id: thread.workspaceId, name });
   return {
     id: thread.id,
     workspaceId: thread.workspaceId,
     chat,
-    badge: chat
-      ? ""
-      : projectBadge({
-          id: thread.workspaceId,
-          name,
-        }).initials,
+    badge: chat ? "" : badge.initials,
+    // The project's tint by its id (`projectBadge`), as the web colours its initials.
+    tint: chat ? null : badge.tint,
     diff: thread.details?.diff ?? null,
     testsRunning: thread.status.state === "working" && thread.live?.step === "tests",
     title: preview(thread.title),
