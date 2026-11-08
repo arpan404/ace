@@ -28,7 +28,7 @@ struct NewThreadComposer: View {
     @State private var focused = false
     @State private var askAttach = false
     @State private var notice: String?
-    @State private var dictation = NewThreadDictation()
+    @State private var dictation = ComposerDictation()
     /// The words before the mic was tapped; the transcript goes after them.
     @State private var beforeDictation = ""
     private var draft: NewThreadDraft { drafts.draft }

@@ -146,6 +146,26 @@ import XCTest
         shot("comment-chip")
     }
 
+    func testAllowingTheMicrophoneAndSpeechFromTheComposerKeepsTheAppRunning() {
+        // The system answers the permission prompts on its own queue; a main-actor callback there
+        // stopped the app the moment the person allowed access.
+        let app = launch(into: "thread.ios-done")
+        app.resetAuthorizationStatus(for: .microphone)
+        let mic = app.buttons["composer.dictate"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 25))
+        mic.tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for _ in 0..<3 {
+            let alert = springboard.alerts.firstMatch
+            guard alert.waitForExistence(timeout: 5) else { break }
+            let allow = alert.buttons.matching(NSPredicate(format: "label == 'Allow' OR label == 'OK'")).firstMatch
+            if allow.exists { allow.tap() } else { break }
+        }
+        sleep(2)
+        XCTAssertEqual(app.state, .runningForeground, "allowing access never stops the app")
+        XCTAssertTrue(app.otherElements["composer.surface"].firstMatch.exists)
+    }
+
     // MARK: - Fixture
 
     private func button(_ app: XCUIApplication, _ identifier: String, _ label: String) -> XCUIElement {

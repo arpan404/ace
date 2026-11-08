@@ -14,14 +14,21 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         BackgroundRefresh.register(coordinator)
         return true
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+    // The completion-handler forms, called back on the main thread: UIKit's handlers update the
+    // app's snapshot and must run there. The async forms are resumed off the main thread when the
+    // method isn't on the main actor, and UIKit stops the app (a tapped notification crashed it).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let info = notification.request.content.userInfo
         let threadId = info[NotificationKeys.threadId] as? String
         let hostId = info[NotificationKeys.hostId] as? String
         let banner = info[NotificationKeys.banner] as? String != "0"
-        return await MainActor.run { coordinator.presentation(for: threadId, hostId: hostId, banner: banner) }
+        Task { @MainActor in
+            completionHandler(coordinator.presentation(for: threadId, hostId: hostId, banner: banner))
+        }
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping @Sendable () -> Void) {
         let action = response.actionIdentifier
         let id = response.notification.request.identifier
         var info: [String: String] = [:]
@@ -30,7 +37,10 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         }
         let values = info
         let text = (response as? UNTextInputNotificationResponse)?.userText
-        await coordinator.respond(action: action, notificationId: id, info: values, text: text)
+        Task { @MainActor in
+            await coordinator.respond(action: action, notificationId: id, info: values, text: text)
+            completionHandler()
+        }
     }
 }
 
