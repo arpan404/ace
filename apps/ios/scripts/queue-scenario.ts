@@ -81,7 +81,13 @@ export function seedQueues(
       `Then migrate settings page ${at} and check its tests`,
     );
   daemon.updateThread("ios-queue-long", {
-    goal: { objective: "every settings page uses the form kit", status: "active", tokensUsed: 64_000, timeUsedSeconds: 900, checks: 1 },
+    goal: {
+      objective: "every settings page uses the form kit",
+      status: "active",
+      tokensUsed: 64_000,
+      timeUsedSeconds: 900,
+      checks: 1,
+    },
   });
 
   thread(
