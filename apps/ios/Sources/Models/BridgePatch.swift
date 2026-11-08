@@ -321,6 +321,8 @@ enum BridgePatch: Decodable, Sendable {
     /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
     case snapshotBegin(String, Int, Int, Int?)
     case connection(String, Int?)
+    /// A connection drop or recovery as the client reported it, for the device log.
+    case connectionEvent(String)
     case pending(String, PendingRow?)
     case error(String)
     case receipt(String, Bool, String)
@@ -438,6 +440,7 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.snapshot.begin":
             let (id, epoch) = try scope()
             self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
+        case "connection.event": self = .connectionEvent(try box.decode(String.self, forKey: .text))
         case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))

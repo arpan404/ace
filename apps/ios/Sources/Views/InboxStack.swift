@@ -96,8 +96,9 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .task(id: InboxConnectionProblem.of(inbox)) {
                     let now = InboxConnectionProblem.of(inbox)
                     guard let now else { problem = nil; return }
-                    // An already-visible problem updates at once; a new one waits out a brief blip.
-                    if problem == nil { try? await Task.sleep(for: .milliseconds(800)) }
+                    // An already-visible problem updates at once; a new one waits out a brief blip,
+                    // longer while the machine is only reconnecting, which usually recovers by itself.
+                    if problem == nil { try? await Task.sleep(for: .milliseconds(now.trying ? 4_000 : 800)) }
                     if !Task.isCancelled { problem = now }
                 }
                 .onChange(of: selectAsks) { if !chats { startSelecting() } }

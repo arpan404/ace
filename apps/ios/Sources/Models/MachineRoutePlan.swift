@@ -71,9 +71,10 @@ struct MachineRoutePlan: Equatable, Sendable {
         default: return .stay
         }
     }
-    /// The runtime on the current route changed state. Only `reconnecting` (it couldn't reach the
-    /// machine) moves anything: offline means the phone has no network, and every other state is
-    /// the route working or a problem a route change doesn't fix.
+    /// The runtime on the current route changed state. `reconnecting` (it couldn't reach the
+    /// machine) moves it, and so does a relay that stopped (a machine code to enter, an account
+    /// refusal) while a direct route may work: offline means the phone has no network, and every
+    /// other state is the route working or a problem a route change doesn't fix.
     mutating func connection(_ state: String, at now: Double) -> Step {
         self.state = state
         if current == .direct, state == "ready", trying {
@@ -82,6 +83,9 @@ struct MachineRoutePlan: Equatable, Sendable {
         }
         // Linked: the direct route may be taken again, so look for it.
         if current == .relay, state == "ready", linking { linking = false; return probe(at: now) }
+        // The relay stopped for something only the person can fix there (its machine code, the
+        // account): a direct route that answers opens with this phone's own pairing instead.
+        if current == .relay, state == "fatal" { return probe(at: now) }
         guard state == "reconnecting" else { return .stay }
         switch current {
         case .direct where hasRelay:

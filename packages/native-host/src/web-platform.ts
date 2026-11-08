@@ -170,6 +170,17 @@ function absoluteURL(host: NativeHost) {
     toString(): string {
       return this.href;
     }
+    /** WHATWG `URL.parse`: the URL, or null where the constructor would throw. */
+    static parse(input: string, base?: string): AbsoluteURL | null {
+      try {
+        return new AbsoluteURL(input, base);
+      } catch {
+        return null;
+      }
+    }
+    static canParse(input: string, base?: string): boolean {
+      return AbsoluteURL.parse(input, base) !== null;
+    }
   };
 }
 
