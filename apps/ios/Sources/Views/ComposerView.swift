@@ -78,16 +78,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                     .padding(.bottom, AceDesign.Space.tight)
             }
             top()
-            HStack(alignment: .bottom, spacing: AceDesign.Space.related) {
-                leading(pick)
-                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .tint(AceTheme.Colours.foreground)
-                    .buttonStyle(.plain)
-                    .aceGlass(in: Circle(), interactive: true)
-                capsule
-            }
-            .composerGlassGroup()
+            capsule
         }
         .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
         .animation(.default, value: wraps)
@@ -117,10 +108,16 @@ struct ComposerView<Top: View, Leading: View>: View {
         .onDisappear { draft.flush(); dictation.stop() }
     }
 
-    /// The field and its one button in a glass capsule; wrapped words make it a rounded shape
-    /// whose corners stay concentric with the button's.
+    /// + , the field and its one button in one glass capsule spanning the column, so the words
+    /// get the whole width, as the web's composer holds its + inside; wrapped words make it a
+    /// rounded shape whose corners stay concentric with the buttons'.
     private var capsule: some View {
         HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+            leading(pick)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .tint(AceTheme.Colours.foreground)
+                .buttonStyle(.plain)
             input
             action
         }
@@ -240,14 +237,14 @@ struct ComposerView<Top: View, Leading: View>: View {
 /// Where the capsule sits and where its words start, so what rides above it (the live line, the
 /// chips, a notice) shares the field text's left edge.
 enum ComposerCapsuleMetrics {
-    /// From the column's edge to the + and the capsule.
+    /// From the column's edge to the capsule, which holds the + inside it.
     static func side(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { ReadingColumn.bar(sizeClass).composer }
-    /// From the capsule's left edge to its words.
-    static let fieldInset = AceDesign.Space.row
-    /// From the + row's leading edge to the field's words: past the +, the gap and the field's inset.
-    static let aboveInset = AceDesign.Size.tap + AceDesign.Space.related + fieldInset
-    /// From the column's edge to the capsule's left edge, past the + and the gap.
-    static func fieldEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) + AceDesign.Size.tap + AceDesign.Space.related }
+    /// From the + to the field's words.
+    static let fieldInset = AceDesign.Space.tight
+    /// From the capsule's leading edge to the field's words: past the + and the field's inset.
+    static let aboveInset = AceDesign.Size.tap + fieldInset
+    /// From the column's edge to the capsule's left edge: the pills and chips line up with it.
+    static func fieldEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) }
     /// From the column's edge to the field's words.
     static func textEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) + aboveInset }
 }

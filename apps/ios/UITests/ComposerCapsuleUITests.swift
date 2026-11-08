@@ -14,7 +14,10 @@ import XCTest
         XCTAssertTrue(input.waitForExistence(timeout: 25))
         XCTAssertTrue(app.buttons["composer.dictate"].exists, "an empty idle composer offers the microphone")
         XCTAssertFalse(app.buttons["composer.send"].exists)
-        XCTAssertLessThan(app.buttons["composer.attach"].frame.maxX, field.frame.minX, "+ sits outside the capsule")
+        // + sits inside the capsule, before the words, so the field gets the column's width.
+        let attach = app.buttons["composer.attach"].frame
+        XCTAssertGreaterThanOrEqual(attach.minX, field.frame.minX - 1, "+ sits inside the capsule")
+        XCTAssertLessThanOrEqual(attach.maxX, input.frame.minX + 1, "+ comes before the words")
         XCTAssertFalse(app.descendants(matching: .any)["composer.live"].exists, "nothing live when idle")
         let oneLine = field.frame.height
         XCTAssertGreaterThanOrEqual(oneLine, 44)
@@ -68,10 +71,10 @@ import XCTest
         XCTAssertEqual(status.frame.midY, queue.frame.midY, accuracy: 1)
         XCTAssertLessThan(status.frame.maxX, queue.frame.minX)
         XCTAssertLessThan(queue.frame.maxX, goal.frame.minX)
-        // The capsule starts one gap past the +.
-        let attach = app.buttons["composer.attach"]
-        XCTAssertEqual(status.frame.minX, attach.frame.maxX + 8, accuracy: 2, "the pills start at the field's left edge")
-        XCTAssertLessThanOrEqual(status.frame.maxY, attach.frame.minY)
+        // The pills start at the capsule's left edge, the + inside it.
+        let capsule = app.otherElements["composer.surface"].firstMatch
+        XCTAssertEqual(status.frame.minX, capsule.frame.minX, accuracy: 2, "the pills start at the capsule's left edge")
+        XCTAssertLessThanOrEqual(status.frame.maxY, capsule.frame.minY)
         shot("working-queue-goal")
         queue.tap()
         XCTAssertTrue(app.descendants(matching: .any)["queue.strip"].waitForExistence(timeout: 10), "the queue pill opens the queue")
