@@ -171,15 +171,7 @@ struct ComposerView<Top: View, Leading: View>: View {
                             withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place, pasteFiles: intake)
-            .overlay(alignment: .topLeading) {
-                if draft.text.isEmpty {
-                    Text(shownPlaceholder).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
-                        .padding(.top, AceDesign.Space.row)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-            }
+                        place: place, pasteFiles: intake, placeholder: shownPlaceholder)
             .accessibilityLabel(placeholder)
             .padding(.leading, ComposerCapsuleMetrics.fieldInset)
     }
