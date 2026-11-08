@@ -132,6 +132,13 @@ describe("Web APIs backed by the host", () => {
     expect(() => new URL("/v1/socket")).toThrow(TypeError);
   });
 
+  it("answers URL.parse with the URL, or null where the constructor throws", () => {
+    const { URL } = platform();
+    expect(URL.parse("wss://relay.example.test/client")?.host).toBe("relay.example.test");
+    expect(URL.parse("/v1/socket")).toBeNull();
+    expect(URL.canParse("https://192.168.1.4:7443")).toBe(true);
+  });
+
   it("round-trips binary strings through base64", () => {
     const { atob, btoa } = platform();
     const binary = String.fromCharCode(0, 127, 128, 255);
