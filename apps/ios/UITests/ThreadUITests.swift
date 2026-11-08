@@ -16,7 +16,7 @@ import XCTest
         let options = app.buttons["thread.menu"]
         XCTAssertTrue(options.waitForExistence(timeout: 10))
         options.tap()
-        XCTAssertTrue(app.buttons["thread.changes"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["thread.files"].waitForExistence(timeout: 10))
     }
 
     func testWorkedTurnSubagentsChildThreadAndModelPicker() {
@@ -179,9 +179,10 @@ import XCTest
         XCTAssertTrue(status.label.hasPrefix("Waiting on"), "the main agent only waits: \(status.label)")
         XCTAssertFalse(app.descendants(matching: .any)["thread.live"].exists, "no live line in the transcript")
         app.buttons["pill.status"].tap()
-        // On a phone the agent tree is the thread's Agents page.
+        // On a phone the agent tree is pushed over the thread.
         XCTAssertTrue(app.descendants(matching: .any)["agents.summary"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
-        app.buttons["thread.page.chat"].tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["pill.status"].waitForExistence(timeout: 10), "back returns to the thread")
         app.navigationBars.buttons.firstMatch.tap()
 
         app.revealRow("thread.ios-goal").tap()
