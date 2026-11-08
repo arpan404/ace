@@ -50,7 +50,7 @@ import XCTest
     func testScrollToEndShowsWhileScrolledUpAndStaysThroughTheStream() {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]
-        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        waitForReady(transcript)
         let jump = app.buttons["Scroll to end"]
         XCTAssertFalse(jump.exists, "no Scroll to end at the end")
         transcript.swipeDown()
@@ -68,7 +68,7 @@ import XCTest
         }
         screenshot("scrolled-up-streaming")
         jump.tap()
-        assertAtTheEnd(app, "after tapping it while streaming")
+        assertEndInView(app, "after tapping it while streaming")
     }
 
     /// The keyboard coming and going leaves Scroll to end as it was: shown while reading up the
@@ -76,7 +76,7 @@ import XCTest
     func testScrollToEndStaysRightThroughTheKeyboard() {
         let app = open("ios-stream")
         let transcript = app.scrollViews["transcript"]
-        XCTAssertTrue(newest(in: app).waitForExistence(timeout: 30))
+        waitForReady(transcript)
         let jump = app.buttons["Scroll to end"]
         let input = app.textViews["composer.input"]
         // At the end, the keyboard alone never brings it.
@@ -99,7 +99,7 @@ import XCTest
         sleep(1)
         XCTAssertTrue(jump.exists, "Scroll to end stays after the keyboard goes")
         jump.tap()
-        assertAtTheEnd(app, "after the keyboard came and went")
+        assertEndInView(app, "after the keyboard came and went")
     }
 
     /// Following the live end while the agent runs tools in bursts, each ending in a few lines:
@@ -180,6 +180,27 @@ import XCTest
         wait(for: [done], timeout: 10)
         return reply
     }
+    /// The thread opened with its rows drawn at the live end.
+    private func waitForReady(_ transcript: XCUIElement) {
+        XCTAssertTrue(transcript.waitForExistence(timeout: 30))
+        let ready = expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
+        wait(for: [ready], timeout: 30)
+        sleep(1)
+    }
+    /// The streaming answer's end sits just above the composer and Scroll to end has gone.
+    private func assertEndInView(_ app: XCUIApplication, _ when: String) {
+        let jump = app.buttons["Scroll to end"]
+        XCTAssertTrue(jump.waitForNonExistence(timeout: 5), "Scroll to end goes at the end \(when)")
+        sleep(1)
+        let answers = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'message.answer.ios-stream'"))
+        XCTAssertTrue(answers.firstMatch.waitForExistence(timeout: 5), "the answer is drawn \(when)")
+        let answer = answers.allElementsBoundByIndex.max { $0.frame.maxY < $1.frame.maxY }
+        let input = app.textViews["composer.input"]
+        guard let answer else { return XCTFail("no answer drawn \(when)") }
+        XCTAssertLessThanOrEqual(answer.frame.maxY, input.frame.minY, "the end clears the composer \(when)")
+        XCTAssertGreaterThan(answer.frame.maxY, input.frame.minY - 200, "the end is just above the composer \(when)")
+        XCTAssertFalse(jump.exists, "and Scroll to end stays away \(when)")
+    }
     /// The live end is drawn and on screen within a moment, and stays there.
     private func assertAtTheEnd(_ app: XCUIApplication, _ when: String) {
         let transcript = app.scrollViews["transcript"]
@@ -213,5 +234,8 @@ import XCTest
         attachment.name = "ios-\(name)"
         attachment.lifetime = .keepAlways
         add(attachment)
+        if let folder = ProcessInfo.processInfo.environment["ACE_IOS_SHOTS"] {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: folder).appendingPathComponent("\(name).png"))
+        }
     }
 }

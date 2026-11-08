@@ -4,7 +4,8 @@ import { CommandId, DeviceId, ThreadId } from "@ace/protocol";
 /*
  * Threads whose queue is held or long, for the composer's strip, the queue sheet and the
  * transcript's message that wasn't sent. No provider process runs.
- * - ios-queue-long: a working thread with 40 follow-ups queued (the sheet lists 32, Show more).
+ * - ios-queue-long: a working thread with 40 follow-ups queued (the sheet lists 32, Show more),
+ *   pursuing a goal, so its pills show the status, the queue and the goal together.
  * - ios-queue-paused: the person paused the queue with two waiting (Resume queue).
  * - ios-held-send: a session start failed: the message is kept as not sent, one more waits.
  * - ios-held-long: a not-sent message longer than the phone's 8,192-character preview.
@@ -79,6 +80,9 @@ export function seedQueues(
       `ios-long-${at}`,
       `Then migrate settings page ${at} and check its tests`,
     );
+  daemon.updateThread("ios-queue-long", {
+    goal: { objective: "every settings page uses the form kit", status: "active", tokensUsed: 64_000, timeUsedSeconds: 900, checks: 1 },
+  });
 
   thread(
     daemon,

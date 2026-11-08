@@ -84,7 +84,7 @@ struct ThreadTitleMenu: View, Equatable {
                     ProjectMark(initials: "", look: projectLook)
                     Text(project).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize()
+                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
                 }
                 Text(model.name).lineLimit(1).truncationMode(.middle).layoutPriority(1)
                 if let tune = model.tune { Text("· \(tune)").lineLimit(1).fixedSize() }
