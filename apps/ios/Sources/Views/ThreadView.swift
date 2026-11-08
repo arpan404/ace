@@ -306,6 +306,7 @@ struct ThreadView: View {
         return ThreadTitleMenu(title: metadata?.title ?? "Thread", place: subtitle,
                                project: project, projectLook: row?.workspaceId.flatMap { model.projectLooks[$0] },
                                projectInitials: row?.badge ?? "", projectTint: row?.tint,
+                               provider: row?.provider ?? "", providerAccount: row?.account,
                                status: model.headerStatus(of: thread)?.label,
                                width: 0,
                                model: changesModel ? ThreadModelWords.line(screen) : nil,

@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The thread's title and the line under it as one tap target that opens one system menu, as a
 /// document's title does in the system's own apps. The line reads where the thread is and what
-/// runs it: the project's mark and name, then the model and its effort ("▣ ace-next · Opus 5.5 ·
-/// Med ⌄"); the project's name is cut first, so the model always reads. A chat has no project and
+/// runs it: the project's mark and name, then the provider's mark (with its account badge) and
+/// the model and its effort ("▣ ace-next · ✳ Opus 5.5 · Med ⌄"); the project's name is cut
+/// first, then the model's words, so the line never runs past its width. A chat has no project and
 /// shows the model alone; without a model to change (view only, archived) it reads "project ·
 /// branch". The menu: the project's mark, name and branch first (opening Work), then Model (the
 /// picker sheet), Effort and Access as submenus, then the thread's own actions.
@@ -28,6 +29,10 @@ struct ThreadTitleMenu: View, Equatable {
     /// The project's initials and its tint (1 to 12) from its row, drawn as the web draws them.
     var projectInitials = ""
     var projectTint: Int? = nil
+    /// The provider that runs the thread, and its account's short mark when the provider has
+    /// more than one account (the inbox row's badge); nil draws the plain mark.
+    var provider = ""
+    var providerAccount: String? = nil
     @Environment(\.colorScheme) private var scheme
     let status: String?
     var width: CGFloat
@@ -84,27 +89,33 @@ struct ThreadTitleMenu: View, Equatable {
     @ViewBuilder private func subtitle(chevron: Bool) -> some View {
         HStack(spacing: AceDesign.Space.tight) {
             if let model {
+                // What gives way first when the line is short: the project's name, then the
+                // model's words. The marks, the dot and the chevron always show, so the line
+                // never runs past its width.
                 if !project.isEmpty {
                     mark
                     Text(project).lineLimit(1).truncationMode(.tail)
                         .foregroundStyle(AceTheme.Colours.subtleForeground)
                     Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
                 }
-                Text(model.name).lineLimit(1).truncationMode(.middle).layoutPriority(1)
-                if let tune = model.tune { Text("· \(tune)").lineLimit(1).fixedSize() }
+                providerMark(model.provider)
+                Text(Self.modelWords(model)).lineLimit(1).truncationMode(.tail).layoutPriority(1)
                 if model.queued {
-                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption)
+                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption).fixedSize()
                 }
             } else if !place.isEmpty {
                 if !project.isEmpty { mark }
+                providerMark(nil)
                 Text(place).lineLimit(1).truncationMode(.middle)
             }
             if chevron {
                 AceIcon(.caretDown, size: AceDesign.Size.rowPin, weight: .bold, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.subtleForeground)
+                    .fixedSize()
                     .accessibilityHidden(true)
             }
         }
+        .frame(maxWidth: width)
         .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
         .foregroundStyle(model == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.mutedForeground)
     }
@@ -226,6 +237,18 @@ struct ThreadTitleMenu: View, Equatable {
         .accessibilityIdentifier("thread.title.access")
     }
 
+    /// The provider's mark, wearing its account's badge when there are several accounts.
+    @ViewBuilder private func providerMark(_ fromModel: String?) -> some View {
+        let kind = fromModel.flatMap { $0.isEmpty ? nil : $0 } ?? provider
+        if !kind.isEmpty {
+            ProviderMark(provider: kind, size: AceDesign.Size.glyphMeta, account: providerAccount).fixedSize()
+        }
+    }
+    /// "Opus 5.5 · Med": the model and its tuning as one run of words, cut at its end.
+    private static func modelWords(_ model: ModelLine) -> String {
+        model.tune.map { "\(model.name) · \($0)" } ?? model.name
+    }
+
     private static func spoken(_ model: ModelLine) -> String {
         [model.name, model.tune, model.note].compactMap { $0 }.joined(separator: ", ")
     }
@@ -233,6 +256,7 @@ struct ThreadTitleMenu: View, Equatable {
     nonisolated static func == (lhs: ThreadTitleMenu, rhs: ThreadTitleMenu) -> Bool {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
             && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
+            && lhs.provider == rhs.provider && lhs.providerAccount == rhs.providerAccount
             && lhs.status == rhs.status && lhs.width == rhs.width
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
