@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { ForgeAccount, SourceControlReadiness, type SourceControlPreferences } from "@ace/protocol";
+import {
+  ForgeAccount,
+  SourceControlReadiness,
+  originApiHost,
+  type SourceControlPreferences,
+} from "@ace/protocol";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
 
@@ -34,7 +39,7 @@ export async function originReadiness(
   preferences: SourceControlPreferences,
   signal: AbortSignal,
 ): Promise<SourceControlReadiness> {
-  if (preferences.host !== "origin.cursor.com") throw new ForgeError("unsupported");
+  if (preferences.host !== originApiHost) throw new ForgeError("unsupported");
   const status: SourceControlReadiness = {
     preferences,
     cli: "unavailable",

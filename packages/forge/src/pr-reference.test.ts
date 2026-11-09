@@ -59,3 +59,47 @@ test("GitLab subgroup links keep their namespace and use the configured host", a
     prFromUrl("https://git.example.com/team/subgroup/repo/-/merge_requests/17", [fallback.host]),
   ).toEqual({ repository: { ...fallback, owner: "team/subgroup" }, number: 17 });
 });
+
+test("an address reads by its host's provider, not by its path shape", async () => {
+  const { prFromUrl } = await import("./pr-reference.ts");
+  // gitlab.com is GitLab: a /pull/ path there is not a GitHub pull request.
+  expect(() => prFromUrl("https://gitlab.com/team/repo/pull/7")).toThrow("invalid_data");
+  // A configured GitHub Enterprise host never turns a merge request path into GitLab.
+  expect(() =>
+    prFromUrl("https://ghe.example.com/team/repo/-/merge_requests/7", [
+      { host: "ghe.example.com", forge: "github" },
+    ]),
+  ).toThrow("invalid_data");
+  // A host saved without a provider before providers existed keeps reading as GitHub.
+  expect(
+    prFromUrl("https://ghe.example.com/team/repo/pull/7", [{ host: "ghe.example.com" }]),
+  ).toEqual({
+    repository: { forge: "github", host: "ghe.example.com", owner: "team", name: "repo" },
+    number: 7,
+  });
+  // gitlab.com saved without a provider is GitLab.
+  expect(
+    prFromUrl("https://gitlab.com/group/sub/repo/-/merge_requests/3", [{ host: "gitlab.com" }]),
+  ).toEqual({
+    repository: { forge: "gitlab", host: "gitlab.com", owner: "group/sub", name: "repo" },
+    number: 3,
+  });
+  expect(() => prFromUrl("https://unlisted.example.com/team/repo/pull/7")).toThrow("invalid_data");
+});
+
+test("a cross-host repository takes that host's provider", async () => {
+  const { prRepository } = await import("./pr-reference.ts");
+  const fallback = { forge: "github" as const, host: "github.com", owner: "a", name: "b" };
+  expect(prRepository("gitlab.com/team/repo", fallback)).toEqual({
+    forge: "gitlab",
+    host: "gitlab.com",
+    owner: "team",
+    name: "repo",
+  });
+  expect(
+    prRepository("git.example.com/team/repo", fallback, [
+      { host: "git.example.com", forge: "gitlab" },
+    ]),
+  ).toEqual({ forge: "gitlab", host: "git.example.com", owner: "team", name: "repo" });
+  expect(() => prRepository("unknown.example.com/team/repo", fallback)).toThrow("invalid_data");
+});

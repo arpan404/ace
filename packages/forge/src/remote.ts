@@ -1,18 +1,14 @@
 import { z } from "zod";
-import { ForgeRepository, type ForgeRepository as Repository } from "@ace/protocol/forge";
+import {
+  ForgeRepository,
+  originApiHost,
+  publicForgeHosts,
+  type ForgeRepository as Repository,
+} from "@ace/protocol/forge";
 import { ForgeError } from "./errors.ts";
 
 /** GitHub's documented SSH-over-HTTPS endpoint names the same host. */
 const hostEquivalents: Readonly<Record<string, string>> = { "ssh.github.com": "github.com" };
-
-/** Self-hosted installations must be mapped explicitly, never guessed from a hostname. */
-const publicForges: Readonly<Record<string, Repository["forge"]>> = {
-  "github.com": "github",
-  "gitlab.com": "gitlab",
-  "bitbucket.org": "bitbucket",
-  "codeberg.org": "forgejo",
-  "origin.cursor.com": "origin",
-};
 
 /**
  * `aliases` maps SSH host aliases (`~/.ssh/config` `Host` entries) to the real host name,
@@ -44,8 +40,9 @@ export function repositoryFromRemote(
   host = host.toLowerCase();
   host = aliases[host]?.toLowerCase() ?? host;
   host = hostEquivalents[host] ?? host;
-  const forge = publicForges[host] ?? hosts[host];
-  if (forge === "origin" && host !== "origin.cursor.com") throw new ForgeError("unsupported");
+  // Self-hosted installations must be mapped explicitly, never guessed from a hostname.
+  const forge = publicForgeHosts[host] ?? hosts[host];
+  if (forge === "origin" && host !== originApiHost) throw new ForgeError("unsupported");
   if (forge === "origin") path = path.replace(/^git\//, "");
   if (!forge) throw new ForgeError("unsupported");
   const parts = path
