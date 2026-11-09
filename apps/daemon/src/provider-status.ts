@@ -36,6 +36,8 @@ export interface ProviderStatusOptions extends DiscoveryOptions {
     row: Status,
     signal: AbortSignal,
   ): Promise<Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">>>;
+  /** Drops cached update answers (registries, agent catalog) before the person's own Refresh. */
+  forgetVersions?(): Promise<void>;
   checked?(rows: readonly Status[]): void;
   modelsAvailable?(provider: Status["provider"]): boolean;
   antigravity?(signal: AbortSignal): Promise<DiscoveryResult>;
@@ -254,12 +256,17 @@ export class ProviderStatuses {
           ...providerStatusRow(row, probed && discovery(probed), this.runtime.now()),
           ...(instanceId ? { instanceId } : {}),
         };
+        // An update or account-info check that fails leaves the installation as discovered.
         const versions =
           result.installed && this.options.versions
-            ? await this.options.versions(result, this.controller.signal)
+            ? await this.options
+                .versions(result, this.controller.signal)
+                .catch(() => previousVersionFacts(row, result))
             : {};
         assertSelection(row);
-        const authInfo = await this.options.authInfo?.(result, this.controller.signal);
+        const authInfo = await this.options
+          .authInfo?.(result, this.controller.signal)
+          .catch(() => undefined);
         assertSelection(row);
         return {
           ...result,
@@ -328,6 +335,12 @@ export class ProviderStatuses {
     this.rows = updated;
     this.publish();
   }
+  /** The person's Refresh: asks the registries again instead of reusing their cached answers. */
+  async recheck(): Promise<void> {
+    await this.flight;
+    await this.options.forgetVersions?.().catch(() => {});
+    await this.refresh();
+  }
   async refreshAfterMutation(): Promise<void> {
     await this.flight;
     await this.refresh();
@@ -338,6 +351,23 @@ export class ProviderStatuses {
     await this.flight;
     this.listeners.clear();
   }
+}
+
+/** The last update facts, while they describe the same installed version. */
+function previousVersionFacts(
+  previous: Status,
+  current: Status,
+): Partial<Pick<Status, "latestVersion" | "versionCheckedAt" | "updateAvailable">> {
+  if (!previous.latestVersion || previous.version !== current.version) return {};
+  return {
+    latestVersion: previous.latestVersion,
+    ...(previous.versionCheckedAt !== undefined
+      ? { versionCheckedAt: previous.versionCheckedAt }
+      : {}),
+    ...(previous.updateAvailable !== undefined
+      ? { updateAvailable: previous.updateAvailable }
+      : {}),
+  };
 }
 
 function discovery({

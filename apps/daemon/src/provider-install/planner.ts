@@ -1,6 +1,6 @@
 import { registryPrerequisites } from "./prerequisites.ts";
 import { constants } from "node:fs";
-import { access, realpath } from "node:fs/promises";
+import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { findExecutable, findOpenCodeExecutable, parseVersion } from "@ace/provider-kit/discovery";
 import { probeOutput } from "@ace/provider-kit/process";
@@ -17,6 +17,7 @@ import {
   installCommand,
   type Installer,
 } from "@ace/provider-kit/installers";
+import { brewName, claudeChannel } from "./release.ts";
 
 export interface InstallEnvironment {
   env: NodeJS.ProcessEnv;
@@ -25,6 +26,21 @@ export interface InstallEnvironment {
   probe?: typeof probeOutput;
   registry?: RegistryInstaller;
   writable?: (path: string) => Promise<boolean>;
+  /** The computer releases are checked for. Defaults to this process's. */
+  host?: { platform: NodeJS.Platform; arch: string };
+  /** Claude Code's managed settings file, which outranks the person's own settings. */
+  claudeManagedSettings?: string;
+}
+/** Where Claude Code reads organization-managed settings on each platform. */
+function managedClaudeSettings(platform: NodeJS.Platform): string | undefined {
+  if (platform === "darwin") return "/Library/Application Support/ClaudeCode/managed-settings.json";
+  if (platform === "linux") return "/etc/claude-code/managed-settings.json";
+  if (platform === "win32") return "C:\\Program Files\\ClaudeCode\\managed-settings.json";
+  return undefined;
+}
+/** A settings file's text; undefined when it is absent or unreadable. */
+function readSettings(path: string | undefined): Promise<string | undefined> {
+  return path ? readFile(path, "utf8").catch(() => undefined) : Promise.resolve(undefined);
 }
 export interface RegistryInstaller {
   plan(
@@ -84,6 +100,21 @@ export class InstallPlanner {
   get env(): NodeJS.ProcessEnv {
     return this.options.env;
   }
+  get host(): { platform: NodeJS.Platform; arch: string } {
+    return this.options.host ?? { platform: process.platform, arch: process.arch };
+  }
+  /**
+   * Claude Code's release channel when it is `stable`: managed settings first, then the
+   * person's own. Its updater follows that channel, so ace checks and installs the same one.
+   */
+  async claudeChannel(): Promise<"stable" | undefined> {
+    const configDir = this.env["CLAUDE_CONFIG_DIR"] || join(this.options.home, ".claude");
+    const [managed, own] = await Promise.all([
+      readSettings(this.options.claudeManagedSettings ?? managedClaudeSettings(this.host.platform)),
+      readSettings(join(configDir, "settings.json")),
+    ]);
+    return (claudeChannel(managed) ?? claudeChannel(own)) === "stable" ? "stable" : undefined;
+  }
   async probe(
     binary: string,
     args: readonly string[],
@@ -129,7 +160,12 @@ export class InstallPlanner {
         message: "The agent catalog is unavailable. Reconnect and try Install again.",
       };
     }
-    const spec = installer(target.provider, target.agent);
+    const listed = installer(target.provider, target.agent);
+    const channel =
+      listed && !listed.manual && target.provider === "claude"
+        ? await this.claudeChannel()
+        : undefined;
+    let spec = listed && channel ? { ...listed, channel } : listed;
     const base: ProviderInstallPlan = {
       provider: target.provider,
       ...(target.agent ? { agent: target.agent } : {}),
@@ -181,6 +217,9 @@ export class InstallPlanner {
       bun && this.probe(bun, ["pm", "bin", "-g"], signal),
     ]);
     const resolved = binary ? await realpath(binary).catch(() => binary) : undefined;
+    // Update the Homebrew package the binary came from (`claude-code` or `claude-code@latest`).
+    const installedBrew = spec.brew && resolved ? brewName(spec, resolved) : undefined;
+    if (spec.brew && installedBrew) spec = { ...spec, brew: { ...spec.brew, name: installedBrew } };
     const existing = resolved
       ? this.detect(spec, resolved, binary ?? resolved, { npmRoot, brewPrefix, bunBin })
       : undefined;
@@ -322,11 +361,13 @@ export class InstallPlanner {
       bunBin: string | undefined;
     },
   ): InstallMethod | undefined {
+    const brewNames = spec.brew ? [spec.brew.name, ...(spec.brew.alternates ?? [])] : [];
     if (
-      spec.brew &&
       roots.brewPrefix &&
       ["Cellar", "Caskroom"].some((dir) =>
-        within(path, join(roots.brewPrefix ?? "", dir, spec.brew?.name.split("/").at(-1) ?? "")),
+        brewNames.some((name) =>
+          within(path, join(roots.brewPrefix ?? "", dir, name.split("/").at(-1) ?? name)),
+        ),
       )
     )
       return "brew";
