@@ -59,7 +59,9 @@ scripts/brand-marks/ and turned into path data by scripts/provider-icons.ts:
   logo/forgejo-monochrome.svg), licensed under CC BY-SA 4.0
   (https://creativecommons.org/licenses/by-sa/4.0/), as forgejo.svg and forgejo-monochrome.svg.
   packages/ui-core/src/brand-art/forgejo.gen.ts adapts it (its strokes outlined as fills, unchanged
-  in shape) and is shared under the same CC BY-SA 4.0 license, not ace's license.
+  in shape) and is shared under the same CC BY-SA 4.0 license, not ace's license. The iPhone app's
+  apps/ios/Resources/Assets.xcassets/ForgeMarks/forge-forgejo.imageset/forgejo.svg is generated
+  from that file by apps/ios/scripts/generate-provider-marks.ts and is under the same license.
 
 Icons, device art and browser filmstrips use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and
 contributors, Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
