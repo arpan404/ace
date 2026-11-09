@@ -364,6 +364,19 @@ describe("gitlab reader", () => {
     ).toBe(12);
   });
 
+  it("keeps the detail when GitLab gives no file count, naming the count unavailable", async () => {
+    for (const headers of [{}, { "x-total": "" }, { "x-total": "many" }]) {
+      const f = runner({
+        "*mr": { status: "200 OK", body: mr({ changes_count: null }) },
+        "*diffs": { status: "200 OK", headers, body: [] },
+      });
+      const detail = await new GitLabReader({ repository, runner: f.runner }).prDetail(7, signal());
+      expect(detail.body).toBe("body text");
+      expect(detail.unavailableResources).toContain("fileCount");
+      expect(detail.unavailableResources).not.toContain("files");
+    }
+  });
+
   it("nulls fork head repositories instead of inventing same-repo ones", async () => {
     const same = runner({
       "*mr": {

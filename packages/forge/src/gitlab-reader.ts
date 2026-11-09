@@ -303,11 +303,18 @@ export class GitLabReader implements ForgeReader {
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
     const mr = parsed.data;
     const changed = changesCount(mr) ?? (await this.#diffCount(number, signal, budget));
-    // Commits are never read: their count stays a placeholder named in unavailableResources.
+    // Commits are never read: their count stays a placeholder named in unavailableResources,
+    // as does a file count GitLab didn't give; the files themselves still read page by page.
     return must(
       ForgePrDetail.safeParse({
         readOnly: true,
-        unavailableResources: ["comments", "checks", "reviews", "commits"],
+        unavailableResources: [
+          "comments",
+          "checks",
+          "reviews",
+          "commits",
+          ...(changed ? [] : ["fileCount" as const]),
+        ],
         status: this.#statusOf(mr),
         ...(mr.updated_at ? { updatedAt: mr.updated_at } : {}),
         ...(mr.created_at ? { createdAt: mr.created_at } : {}),
@@ -321,26 +328,28 @@ export class GitLabReader implements ForgeReader {
         reviewers: [],
         reviewDecision: null,
         commits: 0,
-        changedFiles: changed.count,
+        changedFiles: changed?.count ?? 0,
         relatedThreads: [],
         relatedThreadsTruncated: false,
       }),
     );
   }
 
-  /** The diff file count from one per_page=1 page's x-total, when GitLab hasn't counted yet. */
+  /** The diff file count from one per_page=1 page's x-total, when GitLab hasn't counted yet;
+   * undefined when that page doesn't carry a count (GitLab omits it for very large results). */
   async #diffCount(
     number: number,
     signal: AbortSignal,
     budget: ReadBudget,
-  ): Promise<{ count: number; capped: boolean }> {
+  ): Promise<{ count: number; capped: boolean } | undefined> {
     const { headers } = await this.#get(
       `projects/${this.#project}/merge_requests/${number}/diffs?per_page=1&page=1`,
       signal,
       budget,
     );
-    const total = Number(headers["x-total"]);
-    if (!Number.isInteger(total) || total < 0) throw new ForgeError("invalid_data");
+    const header = headers["x-total"];
+    const total = header === undefined || header.trim() === "" ? Number.NaN : Number(header);
+    if (!Number.isInteger(total) || total < 0) return undefined;
     return { count: total, capped: false };
   }
 

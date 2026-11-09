@@ -76,7 +76,10 @@ export function HostedPrReader(props: {
     (reference: { kind: string; target: string }) => hostedReferenceAddress(reference, repository),
     [repository],
   );
-  const count = filesUnavailable ? 0 : detail.changedFiles;
+  // A count the host didn't give is no number at all, never "0".
+  const countKnown =
+    !filesUnavailable && detail.unavailableResources?.includes("fileCount") !== true;
+  const count = countKnown ? detail.changedFiles : 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4 pb-3">

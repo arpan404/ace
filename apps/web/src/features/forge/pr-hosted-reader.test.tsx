@@ -23,7 +23,13 @@ const gitlab = {
 function hosted(
   repository: ForgeRepository,
   number: number,
-  patch: { title?: string; body?: string; changedFiles?: number; files?: boolean } = {},
+  patch: {
+    title?: string;
+    body?: string;
+    changedFiles?: number;
+    files?: boolean;
+    fileCount?: boolean;
+  } = {},
 ) {
   const url =
     repository.forge === "origin"
@@ -37,6 +43,7 @@ function hosted(
       "reviews",
       "commits",
       ...(patch.files === false ? ["files"] : []),
+      ...(patch.fileCount === false ? ["fileCount"] : []),
     ],
     status: {
       ref: { repository, number },
@@ -136,6 +143,17 @@ test("a merge request whose host reports its files lists them under Code with th
   const code = within(tabs).getByRole("tab", { name: /^Code/ });
   expect(code.textContent).toBe("Code3");
   expect(screen.getByRole("link", { name: "Open on GitLab" })).toBeTruthy();
+  await userEvent.click(code);
+  expect(await screen.findByText("hosted-change.ts")).toBeTruthy();
+});
+
+test("a merge request whose host gives no file count shows Code without a number and still lists files", async () => {
+  // Whatever placeholder the count carries, the page never shows it as a number.
+  const app = withDetails(hosted(gitlab, 9, { fileCount: false, changedFiles: 4 }));
+  await app.open(page(gitlab, 9));
+  const tabs = await screen.findByRole("tablist", { name: "Merge request detail" });
+  const code = within(tabs).getByRole("tab", { name: /^Code/ });
+  expect(code.textContent).toBe("Code");
   await userEvent.click(code);
   expect(await screen.findByText("hosted-change.ts")).toBeTruthy();
 });
