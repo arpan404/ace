@@ -36,5 +36,5 @@
     "remote"
   ],
   "type": "object",
-  "x-ace-constraint": "Hosts are unique and the selected host must be configured"
+  "x-ace-constraint": "Hosts are unique, the selected host must be configured, and a public host keeps its own provider"
 }

@@ -31678,7 +31678,7 @@ Example:
 
 [JSON Schema](schema/SourceControlPreferences.json), input validation.
 
-Semantic rule: Hosts are unique and the selected host must be configured
+Semantic rule: Hosts are unique, the selected host must be configured, and a public host keeps its own provider
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
