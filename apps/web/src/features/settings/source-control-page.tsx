@@ -10,6 +10,7 @@ import {
   forgeNames,
   forgeOrder,
   hostForge,
+  preferencesProblem,
 } from "@ace/ui-core";
 import { originApiHost, type ForgeKind } from "@ace/protocol/forge";
 import {
@@ -116,7 +117,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     setError(undefined);
     const parsed = SourceControlPreferences.safeParse(next);
     if (!parsed.success) {
-      setError("Enter a valid hostname, account and remote name.");
+      setError(preferencesProblem(parsed.error));
       return;
     }
     setSaving(true);

@@ -6,7 +6,13 @@ import {
   type SourceControlReadiness,
 } from "@ace/protocol";
 import { originApiHost, publicForgeHosts } from "@ace/protocol/forge";
-import { defaultForgeHost, forgeNames, forgeOrder, hostForge } from "@ace/ui-core";
+import {
+  defaultForgeHost,
+  forgeNames,
+  forgeOrder,
+  hostForge,
+  preferencesProblem,
+} from "@ace/ui-core";
 import { z } from "zod";
 
 /*
@@ -202,8 +208,8 @@ export function changedPreferences(
   }
   // A provider this build doesn't know is left for the machine to judge.
   const judged = next.hosts.every((entry) => known(entry.forge ?? "") !== undefined);
-  if (judged && !SourceControlPreferences.safeParse(next).success)
-    return { problem: "Enter a valid hostname, account and remote name." };
+  const parsed = judged ? SourceControlPreferences.safeParse(next) : undefined;
+  if (parsed && !parsed.success) return { problem: preferencesProblem(parsed.error) };
   return { value: next };
 }
 

@@ -104,6 +104,16 @@ test("a public host can't be saved under another provider, nor a host twice", ()
   ).toEqual({ problem: "github.com is already saved." });
 });
 
+test("saved hosts whose provider contradicts the host are refused with that reason", () => {
+  const saved = {
+    hosts: [{ host: "github.com" }, { host: "git.example.com", forge: "origin" }],
+    host: "github.com",
+    remote: "origin",
+  };
+  const result = changedPreferences(saved, { kind: "remote", remote: "upstream" });
+  expect(result).toEqual({ problem: expect.stringContaining("provider must match the host") });
+});
+
 test("hosts read under their provider, and the active GitLab host is browse-only with glab", async () => {
   const { ask } = await open({
     hosts: [

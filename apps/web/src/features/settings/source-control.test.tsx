@@ -90,6 +90,22 @@ test("adding a host saves it without changing which host's status is shown", asy
   });
 });
 
+test("a provider that contradicts its public host is refused with that reason, and nothing is saved", async () => {
+  const app = harness({ throughWorker: true });
+  await app.open("/settings/source-control");
+  await screen.findByText("Signed in as ada");
+  await userEvent.click(screen.getByRole("button", { name: "Add Gitea host" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Gitea host" }), "gitlab.com");
+  await userEvent.click(screen.getByRole("button", { name: "Add host" }));
+  expect(
+    await screen.findByText(/provider must match the host: github\.com is GitHub/),
+  ).toBeTruthy();
+  expect(screen.queryByText("Enter a valid hostname, account and remote name.")).toBeNull();
+  expect(app.daemon.services.settings.get("sourceControl.preferences")).toMatchObject({
+    hosts: [{ host: "github.com" }],
+  });
+});
+
 test("showing a GitLab host's status reads it through GitLab and keeps GitLab selected on rescan", async () => {
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");

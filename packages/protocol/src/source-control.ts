@@ -31,6 +31,10 @@ export const SourceControlHost = z.object({
 });
 export type SourceControlHost = z.infer<typeof SourceControlHost>;
 
+/** The refusal for a provider that contradicts its host, which clients show as written. */
+export const providerMismatchMessage =
+  "A host's provider must match the host: github.com is GitHub, gitlab.com is GitLab, and Cursor Origin is only origin.cursor.com";
+
 /** An explicit provider must agree with a public host's fixed one; Origin has one host. */
 function providerMatchesHost(entry: { host: string; forge?: ForgeKind | undefined }): boolean {
   const fixed = publicForgeHosts[entry.host];
@@ -52,10 +56,7 @@ export const SourceControlPreferences = z
       new Set(value.hosts.map((entry) => entry.host)).size === value.hosts.length,
     "Select a configured, unique host",
   )
-  .refine(
-    (value) => value.hosts.every(providerMatchesHost),
-    "A host's provider must match the host: github.com is GitHub, gitlab.com is GitLab, and Cursor Origin is only origin.cursor.com",
-  )
+  .refine((value) => value.hosts.every(providerMatchesHost), providerMismatchMessage)
   .refine(
     (value) =>
       value.hosts.every(
