@@ -49,8 +49,9 @@ struct ForgeHostedPullView: View {
 
     private struct FilesKey: Hashable { let page: Int; let head: String; let generation: Int }
 
+    /// What a refresh puts out of date; the head shown is left out, so learning it reads nothing again.
     private var filesRequest: [String: Any] {
-        ClientModel.forgeHostedFilesRead(project: route.project, number: route.number, repository: page.repository, page: filesPage, headSha: files?.headSha)
+        ClientModel.forgeHostedFilesRead(project: route.project, number: route.number, repository: page.repository, page: filesPage, headSha: nil)
     }
 
     private var header: some View {
