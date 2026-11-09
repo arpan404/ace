@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { ForgeRepository } from "./forge.ts";
+import {
+  ForgeRepository,
+  configuredForge,
+  originApiHost,
+  publicForgeHosts,
+  type ForgeKind,
+} from "./forge.ts";
 import { WorkspaceId } from "./ids.ts";
 
 export const GitHubHost = z
@@ -19,10 +25,18 @@ export const ForgeAccount = z.union([
 ]);
 export const SourceControlHost = z.object({
   host: GitHubHost,
-  /** Absent in existing settings means GitHub. */
+  /** Absent: the public host's provider, else GitHub (settings saved before providers existed). */
   forge: ForgeRepository.shape.forge.optional(),
   account: ForgeAccount.optional(),
 });
+export type SourceControlHost = z.infer<typeof SourceControlHost>;
+
+/** An explicit provider must agree with a public host's fixed one; Origin has one host. */
+function providerMatchesHost(entry: { host: string; forge?: ForgeKind | undefined }): boolean {
+  const fixed = publicForgeHosts[entry.host];
+  const forge = configuredForge(entry);
+  return (!fixed || forge === fixed) && (forge !== "origin" || entry.host === originApiHost);
+}
 export const SourceControlPreferences = z
   .object({
     hosts: z.array(SourceControlHost).min(1).max(32),
@@ -35,27 +49,26 @@ export const SourceControlPreferences = z
   .refine(
     (value) =>
       value.hosts.some((entry) => entry.host === value.host) &&
-      new Set(value.hosts.map((entry) => entry.host)).size === value.hosts.length &&
-      value.hosts.every((entry) => {
-        const known: Record<string, string> = {
-          "github.com": "github",
-          "gitlab.com": "gitlab",
-          "bitbucket.org": "bitbucket",
-          "codeberg.org": "forgejo",
-          "origin.cursor.com": "origin",
-        };
-        return (
-          (!known[entry.host] || (entry.forge ?? "github") === known[entry.host]) &&
-          (entry.forge !== "origin" || entry.host === "origin.cursor.com") &&
-          ((entry.forge ?? "github") !== "github" ||
-            !entry.account ||
-            GitHubAccount.safeParse(entry.account).success)
-        );
-      }),
+      new Set(value.hosts.map((entry) => entry.host)).size === value.hosts.length,
     "Select a configured, unique host",
   )
+  .refine(
+    (value) => value.hosts.every(providerMatchesHost),
+    "A host's provider must match the host: github.com is GitHub, gitlab.com is GitLab, and Cursor Origin is only origin.cursor.com",
+  )
+  .refine(
+    (value) =>
+      value.hosts.every(
+        (entry) =>
+          configuredForge(entry) !== "github" ||
+          !entry.account ||
+          GitHubAccount.safeParse(entry.account).success,
+      ),
+    "Enter a valid GitHub account name",
+  )
   .meta({
-    "x-ace-constraint": "Hosts are unique and the selected host must be configured",
+    "x-ace-constraint":
+      "Hosts are unique, the selected host must be configured, and a public host keeps its own provider",
     examples: [{ hosts: [{ host: "github.com" }], host: "github.com", remote: "origin" }],
   });
 export type SourceControlPreferences = z.infer<typeof SourceControlPreferences>;

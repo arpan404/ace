@@ -27,8 +27,26 @@ export const publicForgeHosts: Readonly<Record<string, ForgeKind>> = {
   "codeberg.org": "forgejo",
   "origin.cursor.com": "origin",
 };
+/**
+ * The provider a saved host entry names: its explicit `forge`, else the public host's fixed
+ * provider, else GitHub (settings saved before providers existed). The one rule settings
+ * validation and every reader of settings share.
+ */
+export function configuredForge(entry: { host: string; forge?: ForgeKind | undefined }): ForgeKind {
+  return entry.forge ?? publicForgeHosts[entry.host] ?? "github";
+}
+/** Each configured host's provider, by host. */
+export function configuredForges(
+  hosts: readonly { host: string; forge?: ForgeKind | undefined }[],
+): Record<string, ForgeKind> {
+  return Object.fromEntries(hosts.map((entry) => [entry.host, configuredForge(entry)]));
+}
+
 /** Cursor Origin is one hosted service: its API host is the only host it can have. */
 export const originApiHost = "origin.cursor.com";
+/** Providers ace can read pull requests from: GitHub through gh, GitLab through glab and
+ * Cursor Origin through origin. Others are saved hosts with no pull request reads yet. */
+export const readableForges: readonly ForgeKind[] = ["github", "gitlab", "origin"];
 export const ForgeRepository = z.object({
   forge: ForgeKind,
   host: z
