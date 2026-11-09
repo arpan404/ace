@@ -27,6 +27,18 @@ export const DeviceRevokedClose = z.object({
 export type DeviceRevokedClose = z.infer<typeof DeviceRevokedClose>;
 
 /**
+ * The close a paired device's sockets get when the same install pairs the machine again and its
+ * old credential is replaced (ADR 0115): code 4001 with exactly this reason. Unlike any other
+ * 4001 it is not a final refusal: the client connects again with the credential it holds now,
+ * and if that is still the replaced one the daemon refuses it with a plain 4001.
+ */
+export const CredentialReplacedClose = z.object({
+  code: z.literal(4001),
+  reason: z.literal("Credential replaced"),
+});
+export type CredentialReplacedClose = z.infer<typeof CredentialReplacedClose>;
+
+/**
  * Redeem a pairing code through a relay (ADR 0070), as the first and only message of a relay
  * channel, in place of a hello. The daemon answers with `pair.result` and closes the channel.
  * Only self-hosted relays carry it: ace's hosted relay admits signed-in account devices only.

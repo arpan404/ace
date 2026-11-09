@@ -1,8 +1,10 @@
 import { afterEach, expect, test } from "vitest";
-import { Worker } from "node:worker_threads";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openHistory } from "./index.ts";
+import { ReaderProcess, systemReaderRuntime } from "./reader-process.ts";
 import { environment, jsonl, claudeRecords } from "./test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -22,15 +24,20 @@ test("an index in an older format is refused once, untouched, instead of restart
   const indexPath = join(env.root, "ace/index.sqlite");
   const older = new DatabaseSync(indexPath);
   older.prepare("UPDATE catalog_settings SET value='4' WHERE key='format'").run();
-  const sources = older.prepare("SELECT count(*) AS n FROM sources").get()?.n;
   older.close();
+  // The catalog uses WAL, so a write may sit in the -wal file rather than the index itself.
+  const walPath = `${indexPath}-wal`;
+  const wal = async () => (existsSync(walPath) ? readFile(walPath) : Buffer.alloc(0));
+  const before = await readFile(indexPath);
+  const walBefore = await wal();
   let launches = 0;
   await expect(
     openHistory(
       { indexPath, instances: homes },
+      // The real reader process: its refusal has to cross a process boundary intact.
       (url, options) => {
         launches++;
-        return new Worker(url, options);
+        return new ReaderProcess(url, options, systemReaderRuntime());
       },
       {
         delay: (run) => {
@@ -46,13 +53,7 @@ test("an index in an older format is refused once, untouched, instead of restart
   });
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(launches).toBe(1);
-  const after = new DatabaseSync(indexPath, { readOnly: true });
-  try {
-    expect(
-      after.prepare("SELECT value FROM catalog_settings WHERE key='format'").get()?.value,
-    ).toBe("4");
-    expect(after.prepare("SELECT count(*) AS n FROM sources").get()?.n).toBe(sources);
-  } finally {
-    after.close();
-  }
+  // Byte for byte: the refusal neither migrated nor rewrote the index.
+  expect((await readFile(indexPath)).equals(before)).toBe(true);
+  expect((await wal()).equals(walBefore)).toBe(true);
 });

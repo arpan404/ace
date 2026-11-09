@@ -96,6 +96,8 @@ const Patch = z.object({
   k: z.string(),
   v: z.optional(z.unknown()),
   append: z.optional(z.string()),
+  drop: z.optional(z.number().check(z.int(), z.nonnegative())),
+  source: z.optional(z.unknown()),
   cut: z.optional(z.boolean()),
   deleted: z.optional(z.boolean()),
   s: z.optional(z.number()),

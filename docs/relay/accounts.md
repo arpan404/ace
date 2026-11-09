@@ -103,8 +103,9 @@ VITE_ACE_ACCOUNT_URL=https://YOUR_RELAY_DOMAIN bun run desktop:build
 
 The web and desktop apps open machines on the account through ace's hosted relay on the
 same domain: `VITE_ACE_ACCOUNT_URL` as `wss://` (`ws://` for a loopback origin). Set
-`VITE_ACE_HOSTED_RELAY_URL=wss://…` only when the relay runs elsewhere. Each app keeps a
-random device id for its device grants (`ace.account.deviceId` in local storage).
+`VITE_ACE_HOSTED_RELAY_URL=wss://…` only when the relay runs elsewhere. Each app's device
+grants name its install id, made once and kept for good (`ace.install.id` in local
+storage; [ADR 0115](../adr/0115-one-device-one-machine.md)).
 
 For iOS, set the Xcode build setting `ACE_ACCOUNT_URL`. No API key belongs in any
 client build.

@@ -272,6 +272,8 @@ describe("inbox attention", () => {
       mode: "icon",
       meaning: "Needs approval",
       strong: true,
+      // The design-language state the lock screen counts it under.
+      state: "needs-you",
     });
     await until(() => look(sink, "busy")?.level === "active", "the working row");
     expect(look(sink, "busy")).toMatchObject({
@@ -284,6 +286,7 @@ describe("inbox attention", () => {
       iconTone: "working",
       mode: "elapsed",
       strong: false,
+      state: "working",
     });
     expect(look(sink, "busy")?.since).toEqual(expect.any(Number));
     // Finished before the phone started following: read, so it claims no word, only its age.

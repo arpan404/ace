@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { _electron as electron } from "playwright-core";
 import { expect, it } from "vitest";
 import { WebSocketServer } from "ws";
-import { appEnvironment, desktop, electronBinary } from "../scripts/common.ts";
+import { appEnvironment, desktop, e2eSwitches, electronBinary } from "../scripts/common.ts";
 
 const enabled = process.env.ACE_E2E_ELECTRON === "1";
 
@@ -94,7 +94,7 @@ it.skipIf(!enabled)(
       );
       const app = await electron.launch({
         executablePath: await electronBinary(),
-        args: [join(out, "main.mjs")],
+        args: [...e2eSwitches(process.platform), join(out, "main.mjs")],
         env: {
           ...appEnvironment(process.env),
           ACE_E2E_USER_DATA: join(out, "user-data"),

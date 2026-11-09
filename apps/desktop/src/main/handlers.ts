@@ -3,6 +3,7 @@ import { accountSecrets } from "./account-secrets.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
 import { aceAccountClient } from "@ace/client/ace-account";
+import type { Toolchain } from "@ace/protocol";
 import { machineAccount } from "./machine-account.ts";
 import {
   app,
@@ -36,7 +37,6 @@ import { appIdentities, systemApplication, systemApplicationIcon } from "./os/ap
 import { editorIcons } from "./os/editor-icon.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
 import type { SettingsStore } from "./settings-store.ts";
-import { detectToolchains } from "./system/toolchains.ts";
 import { reducedTransparency, windowState } from "./window/main-window.ts";
 
 export function appearance(): NativeAppearance {
@@ -61,7 +61,8 @@ export function createHandlers(options: {
   settings: SettingsStore;
   background: Background;
   window(): BrowserWindow | undefined;
-  env: NodeJS.ProcessEnv;
+  /** Git, Xcode and the Android tools on this machine (system/toolchains.ts). */
+  toolchains(): Promise<Toolchain[]>;
   /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
   connection(): Promise<DaemonConnection>;
   authorizeDaemon(url: string): void;
@@ -156,7 +157,7 @@ export function createHandlers(options: {
     "daemon.showLogs": () => options.showLogs(),
     "daemon.pause": (paused) => runtime.pause(paused),
     "onboarding.providers": () => runtime.providers(),
-    "system.toolchains": () => detectToolchains(options.env),
+    "system.toolchains": () => options.toolchains(),
     "shell.openInEditor": (request) => openInEditor(request),
     "shell.reveal": (request) => reveal(request.path),
     "shell.appIdentity": (request) => appIdentity(request.bundleId),

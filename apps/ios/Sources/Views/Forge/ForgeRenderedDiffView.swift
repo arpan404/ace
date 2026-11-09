@@ -38,7 +38,7 @@ struct ForgeRenderedDiffView: View {
                 SkeletonPage()
             }
         }
-        .animation(AceMotion.smooth, value: blocks == nil)
+        .animation(.default, value: blocks == nil)
         .task(id: ForgeSidesKey(route: route, revisions: revisions)) { await load() }
     }
 

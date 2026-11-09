@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewReport, type PreviewMeasurement } from "./preview.ts";
+import { measuredLayoutProblems, previewReport, type PreviewMeasurement } from "./preview.ts";
 
 const fits = { view: 360, pageWidth: 360, outside: [], clipped: [], texts: [], runs: 4 };
 const at = (facts: unknown, extra: Partial<PreviewMeasurement> = {}): PreviewMeasurement => ({
@@ -108,5 +108,47 @@ describe("the preview report names each layout problem an agent must fix", () =>
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^360px: .*div\.row 616px wide, 256px past the edge/);
     expect(lines[1]).toMatch(/^760px: height 300px; no sideways overflow/);
+  });
+});
+
+const codes = (facts: unknown) => measuredLayoutProblems(facts).map((entry) => entry.code);
+
+describe("publishing refuses what breaks once the page is laid out on a phone", () => {
+  it("a page that fits and reads at 360px publishes", () => {
+    expect(codes({ ...fits, texts: [{ text: "Axis", size: 11 }] })).toEqual([]);
+  });
+
+  it("an element past the edge is refused, naming it and how far it reaches", () => {
+    const [problem] = measuredLayoutProblems({
+      ...fits,
+      pageWidth: 616,
+      outside: [{ element: "div.card.after", left: 316, width: 300 }],
+    });
+    expect(problem?.code).toBe("overflow");
+    expect(problem?.message).toContain("div.card.after 256px past the edge");
+  });
+
+  it("a page wider than the column is refused even when no single element is named", () => {
+    expect(codes({ ...fits, pageWidth: 420 })).toEqual(["overflow"]);
+  });
+
+  it("text drawn under 9px is refused with the smallest first; 9px and up is only reported", () => {
+    const problems = measuredLayoutProblems({
+      ...fits,
+      texts: [
+        { text: "legend", size: 9 },
+        { text: "tick", size: 8.5 },
+        { text: "Q1", size: 4.2 },
+      ],
+    });
+    expect(problems.map((entry) => entry.code)).toEqual(["text-too-small"]);
+    expect(problems[0]?.message).toContain(
+      '2 text runs render under 9px ("Q1" 4.2px, "tick" 8.5px)',
+    );
+    expect(problems[0]?.message).not.toContain("legend");
+  });
+
+  it("facts a page script mangled count as a page that fits", () => {
+    expect(codes({ view: "wide", outside: "everything", texts: null })).toEqual([]);
   });
 });

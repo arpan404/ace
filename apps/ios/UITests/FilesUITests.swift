@@ -115,7 +115,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--spike", "--spike-port", ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"]
         app.launch()
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 25))
         let row = app.buttons["thread.ios-files"]
         for _ in 0..<12 where !row.isHittable { app.swipeUp() }
         row.tap()

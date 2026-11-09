@@ -5,11 +5,15 @@ import {
   type Storage,
   type Transport,
 } from "@ace/client";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, InstallId } from "@ace/protocol";
 
 /** Browser defaults for the SDK's injected time, randomness and ids. Boundary code only. */
 export function browserClientOptions(options: {
   deviceId: string;
+  /** This app install (`install-id.ts`), named in each hello (ADR 0115). */
+  installId?: string | undefined;
+  /** This install's other device ids on the same machine, whose saved sends are its own. */
+  deviceAliases?: readonly string[] | undefined;
   transport(): Transport;
   credential(): Promise<Credential>;
   /** An account device's fresh grant, to keep its sockets open (ADR 0114). */
@@ -23,6 +27,10 @@ export function browserClientOptions(options: {
 }): ClientOptions {
   return {
     deviceId: DeviceId.parse(options.deviceId),
+    ...(options.installId ? { installId: InstallId.parse(options.installId) } : {}),
+    ...(options.deviceAliases?.length
+      ? { deviceAliases: options.deviceAliases.map((id) => DeviceId.parse(id)) }
+      : {}),
     ...(options.expectedHostId ? { expectedHostId: HostId.parse(options.expectedHostId) } : {}),
     transport: options.transport,
     credential: options.credential,

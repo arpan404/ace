@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, createServer as createTlsServer } from "node:tls";
 import { afterEach, expect, test } from "vitest";
-import { PairingResponse } from "@ace/protocol";
+import { PairingResponse, RemoteAccessStatus } from "@ace/protocol";
+import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { accessRequest, pinnedAgent } from "./client-access.ts";
 import { readConfig } from "./config.ts";
@@ -15,6 +16,8 @@ import { tlsFixtureHome } from "./process-test-support.ts";
 import { fixture, token } from "./socket-test-support.ts";
 import { loadIdentity, publicKeyFingerprint } from "./tls-identity.ts";
 import { trustedCertificate } from "./tailscale-certificate.ts";
+import { sniListener } from "./sni-listener.ts";
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { X509Certificate } from "node:crypto";
 
 const tailnet = "studio.tail1234.ts.net";
@@ -183,7 +186,13 @@ async function tailnetDaemon(certificate: (name: string) => Promise<string>) {
         await accessRequest(f.server.httpUrl, "/v1/pairings", { token, method: "POST", body: {} }),
       ).url,
     );
-  return { identity, link };
+  const tailscaleStatus = async () =>
+    RemoteAccessStatus.parse(
+      z
+        .object({ remoteAccess: z.unknown() })
+        .parse(await accessRequest(f.server.httpUrl, "/v1/status", { token })).remoteAccess,
+    ).networks?.tailscale;
+  return { identity, link, tailscaleStatus };
 }
 
 test("over Tailscale, a pairing link names the ts.net host once browsers asking for it get Tailscale's certificate", async () => {
@@ -223,6 +232,31 @@ test("when the tailnet can't issue a certificate, pairing links keep the 100.x a
   expect(await presented(Number(url.port), tailnet)).toBe(identity.fingerprint);
 });
 
+test("a certificate Linux refuses says how to fix it, and the next pairing link fetches it again", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  let operator = false;
+  let asked = 0;
+  // Linux tailscaled answers only root or its operator.
+  const { link, tailscaleStatus } = await tailnetDaemon(async () => {
+    asked++;
+    if (!operator)
+      throw new Error("Command failed: tailscale cert\nAccess denied: cert access denied");
+    return `${leaf.cert}${ca.root}${leaf.key}`;
+  });
+
+  await expect.poll(() => asked, { timeout: 5000 }).toBeGreaterThan(0);
+  const refused = await tailscaleStatus();
+  expect(refused?.state).toBe("on");
+  expect(refused?.warning).toContain("sudo tailscale set --operator=$USER");
+  expect((await link()).hostname).toBe("127.0.0.1");
+
+  // The person runs the command; making a link doesn't wait ten minutes for the next try.
+  operator = true;
+  expect((await link()).hostname).toBe(tailnet);
+  expect((await tailscaleStatus())?.warning).toBeUndefined();
+});
+
 test("a Tailscale certificate that expires while renewals fail stops being offered", async () => {
   const ca = await authority();
   const leaf = await ca.leaf(tailnet);
@@ -246,6 +280,47 @@ test("a Tailscale certificate that expires while renewals fail stops being offer
   now = new X509Certificate(leaf.cert).validToDate.getTime();
   expect(certificate.active()).toBe(false);
   expect(certificate.select(tailnet)).toBeUndefined();
+});
+
+test("a renewed Tailscale certificate is served to new connections without restarting the listener", async () => {
+  const ca = await authority();
+  const first = await ca.leaf(tailnet);
+  const renewed = await ca.leaf(tailnet);
+  let issued = first;
+  let refresh: (() => void) | undefined;
+  const certificate = trustedCertificate({
+    name: tailnet,
+    fetch: async () => `${issued.cert}${issued.key}`,
+    now: Date.now,
+    delay: (callback) => {
+      refresh = callback;
+      return () => {};
+    },
+  });
+  cleanups.push(() => certificate.stop());
+  const pinned = loadIdentity(tlsFixtureHome());
+  const listener = sniListener({
+    tls: {
+      ...pinned,
+      SNICallback: (servername, done) => done(null, certificate.select(servername)),
+    },
+    requests: (_request, response) => response.writeHead(204).end(),
+    delay: systemDeliveryRuntime.delay,
+    log: () => {},
+  });
+  const port = await listener.listen("127.0.0.1", 0);
+  cleanups.push(() => listener.close());
+  await certificate.ready;
+  expect(await presented(port, tailnet)).toBe(publicKeyFingerprint(first.cert));
+  expect(await presented(port, "studio.local")).toBe(pinned.fingerprint);
+
+  issued = renewed;
+  refresh?.();
+  await expect
+    .poll(() => presented(port, tailnet), { timeout: 5000 })
+    .toBe(publicKeyFingerprint(renewed.cert));
+  expect(await presented(port)).toBe(pinned.fingerprint);
+  expect(await pinnedGet(port, tailnet, pinned.fingerprint, [ca.root])).toBe(204);
 });
 
 test("the pin gives way only to a trusted certificate for the exact ts.net name asked for", async () => {

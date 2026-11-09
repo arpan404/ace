@@ -52,28 +52,29 @@ final class BrowserPageToolsUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [asked], timeout: 10), .completed, "the page's title never reached the message")
         screenshot("browser-tools-2-asked")
 
-        // Annotate: the strip says so, two pins join the message as chips.
+        // Draw: the pen over the page turns drawing on; two drawings join the message as one chip.
         app.buttons["thread.menu"].tap()
         app.threadMenuItem("thread.browser").tap()
-        let annotate = item(app, "browser.annotate", "Annotate")
-        XCTAssertTrue(annotate.waitForExistence(timeout: 10))
-        annotate.tap()
+        let pen = app.buttons["browser.annotate"]
+        XCTAssertTrue(pen.waitForExistence(timeout: 10))
+        pen.tap()
         XCTAssertTrue(app.buttons["browser.annotate.done"].waitForExistence(timeout: 10))
         try await control("pin")
         try await control("region")
-        let sentence = app.staticTexts["2 annotations on the message"]
-        XCTAssertTrue(sentence.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Draw another"].waitForExistence(timeout: 10))
         screenshot("browser-tools-3-annotating")
         app.buttons["browser.annotate.message"].tap()
-        XCTAssertTrue(app.buttons["composer.annotation.2"].waitForExistence(timeout: 10))
+        let chip = app.buttons["composer.annotations"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 10))
+        XCTAssertEqual(chip.label, "2 drawings attached")
         sleep(1)
         screenshot("browser-tools-4-chips")
-        app.buttons["composer.annotation.1"].tap()
-        let remove = app.buttons["Remove"]
+        chip.tap()
+        let remove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Remove 2'")).firstMatch
         XCTAssertTrue(remove.waitForExistence(timeout: 5))
         remove.tap()
-        XCTAssertTrue(app.buttons["composer.annotation.2"].waitForNonExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["composer.annotation.1"].exists)
+        let one = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == 'Drawing 1 attached'"), object: chip)
+        XCTAssertEqual(XCTWaiter.wait(for: [one], timeout: 10), .completed)
     }
 
     @MainActor func testTheMenusSheetsShowWhatThePageHas() {

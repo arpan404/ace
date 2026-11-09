@@ -58,6 +58,11 @@ export async function connectHostToRelay(options: {
   account?: { grant(signal: AbortSignal): Promise<string>; name?: string; platform?: string };
   /** The relay refused a host that had registered before; the connection has stopped. */
   onRefused?: (error: RelayRefusedError) => void;
+  /**
+   * Registration came or went: `true` each time the relay confirms this host, `false` once when
+   * a confirmed registration is lost and the connection starts registering again.
+   */
+  onRegistration?: (registered: boolean) => void;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -158,6 +163,7 @@ export async function connectHostToRelay(options: {
     while (!controller.signal.aborted) {
       let socket: WebSocket | undefined;
       let expire: () => void = noop;
+      let registeredHere = false;
       try {
         const account = options.account;
         const grant = account ? await account.grant(controller.signal) : undefined;
@@ -201,7 +207,9 @@ export async function connectHostToRelay(options: {
             throw new Error("Invalid registration");
           expire();
           generation++;
+          registeredHere = true;
           retryMs = limits.retryInitialMs;
+          options.onRegistration?.(true);
           for (const waiter of waiters.splice(0)) {
             if (generation > waiter.after) waiter.resolve(generation);
             else waiters.push(waiter);
@@ -242,6 +250,7 @@ export async function connectHostToRelay(options: {
       } finally {
         expire();
         socket?.terminate();
+        if (registeredHere && !controller.signal.aborted) options.onRegistration?.(false);
       }
       await delay(clock, Math.round(retryMs * (0.5 + random() * 0.5)), controller.signal);
       retryMs = Math.min(retryMs * 2, limits.retryMaxMs);

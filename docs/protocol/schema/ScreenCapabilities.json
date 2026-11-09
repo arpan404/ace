@@ -60,6 +60,9 @@
       ],
       "type": "object"
     },
+    "inspectionOnly": {
+      "type": "boolean"
+    },
     "maxSessions": {
       "maximum": 8,
       "minimum": 1,

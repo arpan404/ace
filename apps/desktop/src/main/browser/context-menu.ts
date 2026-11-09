@@ -1,6 +1,7 @@
 import {
   clipboard,
   Menu,
+  shell,
   type BaseWindow,
   type ContextMenuParams,
   type MenuItemConstructorOptions,
@@ -8,7 +9,7 @@ import {
 } from "electron";
 import { historySteps } from "@ace/browser/history";
 import type { BrowserContextAction } from "../../shared/contract.ts";
-import { contextEntries, type ContextCommand, type ContextFacts } from "./context-entries.ts";
+import { contextEntries, web, type ContextCommand, type ContextFacts } from "./context-entries.ts";
 
 /** The facts Electron's `context-menu` event gives, as `contextEntries` reads them. */
 export function contextFacts(params: ContextMenuParams, contents: WebContents): ContextFacts {
@@ -45,8 +46,9 @@ const appActions: Partial<Record<ContextCommand, BrowserContextAction["action"]>
 
 /**
  * Shows the menu at the pointer and carries out the pick: editing and clipboard commands in
- * the page itself, a saved image through the page's own download (so it passes the daemon's
- * download consent), Inspect through `inspect`, the rest through `app`.
+ * the page itself, a link in the system browser, a saved image through the page's
+ * own download (so it passes the daemon's download consent), Inspect through `inspect`, the
+ * rest through `app`.
  */
 export function popupContextMenu(options: {
   window: BaseWindow;
@@ -60,7 +62,9 @@ export function popupContextMenu(options: {
     const action = appActions[command];
     if (action) return options.app(action, command === "openLink" ? params.linkURL : undefined);
     if (contents.isDestroyed()) return;
-    if (command === "copyLink") clipboard.writeText(params.linkURL);
+    if (command === "openLinkOutside") {
+      if (web(params.linkURL)) void shell.openExternal(params.linkURL).catch(() => {});
+    } else if (command === "copyLink") clipboard.writeText(params.linkURL);
     else if (command === "copyImageAddress") clipboard.writeText(params.srcURL);
     else if (command === "copyImage") contents.copyImageAt(params.x, params.y);
     else if (command === "saveImage") contents.downloadURL(params.srcURL);

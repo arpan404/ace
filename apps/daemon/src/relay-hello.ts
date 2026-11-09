@@ -1,12 +1,13 @@
 import type { ClientMessage, DeviceId, ServerMessage } from "@ace/protocol";
 import type { MachineAccount } from "./account-access/machine-account.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
-import type { Device } from "./devices.ts";
+import type { SessionActor } from "./devices.ts";
 
 type Hello = Extract<ClientMessage, { type: "hello" }>;
 export type RelayAdmission =
   | {
-      device: { id: DeviceId };
+      /** For a paired device: the generation of the credential it used. */
+      device: { id: DeviceId; generation?: string };
       /** For an account device: whether it still holds access (account, machine code). */
       stillAdmitted?: () => boolean;
       /** For an account device: the ace account its grant names. */
@@ -27,7 +28,11 @@ export async function relayHello(
   options: { auth: RemoteAuth; account?: MachineAccount | undefined },
 ): Promise<RelayAdmission> {
   // An account grant wins over a paired token: a signed-in device is admin (ADR 0114).
-  if (hello.grant !== undefined) return accountHello(hello, hello.grant, options.account);
+  if (hello.grant !== undefined) {
+    const admitted = await accountHello(hello, hello.grant, options.account);
+    if (admitted.device) options.auth.accountDeviceSeen(admitted.device.id, hello.link);
+    return admitted;
+  }
   const device =
     hello.ticket !== undefined
       ? options.auth.consume(hello.ticket)
@@ -37,7 +42,9 @@ export async function relayHello(
   // As on a direct socket: the client stops instead of retrying a credential that won't work.
   if (!device || device.id !== hello.deviceId)
     return { refusal: { type: "error", code: "unauthorized", message: "Valid hello required" } };
-  return { device };
+  // The same install over the LAN, Tailscale or a relay is one device (ADR 0115).
+  options.auth.recognize(device, hello.installId);
+  return { device: { id: device.id, generation: device.generation } };
 }
 
 /**
@@ -82,7 +89,7 @@ export async function accountHello(
 }
 
 /** An admitted account device: admin while it stays admitted, never revoked by device id. */
-export function accountDeviceActor(id: DeviceId, now: number): Device & { revocable: boolean } {
+export function accountDeviceActor(id: DeviceId, now: number): SessionActor {
   return {
     id,
     name: "ace account device",

@@ -1,5 +1,5 @@
 import { flakyCheckout } from "@ace/fake-daemon";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { deviceBrowser } from "@/test/device-browser.ts";
@@ -48,23 +48,6 @@ test("apps the person lists are saved as the apps agents can't use, each once", 
     ]),
   );
   expect((field as HTMLInputElement).value).toBe("Messages, com.apple.mail");
-});
-
-test("Show emulator window starts off and the person's choice is what the daemon keeps", async () => {
-  const { app } = await openSettings();
-  await app.open("/settings/computer-use");
-  const toggle = await screen.findByRole("switch", { name: "Show emulator window" });
-  await waitFor(() => expect(toggle.getAttribute("aria-disabled")).not.toBe("true"));
-  expect(toggle.getAttribute("aria-checked")).toBe("false");
-
-  await userEvent.click(toggle);
-  await waitFor(() =>
-    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(true),
-  );
-  await userEvent.click(toggle);
-  await waitFor(() =>
-    expect(app.daemon.services.settings.get("devices.emulatorWindow")).toBe(false),
-  );
 });
 
 test("secure input says what it is from the session menu, and once allowed, on the card", async () => {
@@ -358,4 +341,121 @@ test("once the daemon says apps are off, a dropped channel doesn't bring back th
   observer.disconnect();
   expect(seen).not.toContain("true");
   expect(appsSwitch().getAttribute("aria-checked")).toBe("false");
+});
+
+test.each(["linux", "win32"])(
+  "%s remote requirements replace macOS settings actions",
+  async (platform) => {
+    const { app } = await openSettings();
+    app.daemon.screen.enabled = true;
+    Object.assign(app.daemon.screen.permissions, {
+      platform,
+      requirements: [
+        {
+          kind: "desktopSession",
+          state: "blocked",
+          title: "Desktop session",
+          message: "Sign in on the remote machine.",
+        },
+      ],
+    });
+    await app.open("/settings/computer-use");
+    const permissions = await screen.findByRole("region", { name: "Permissions" });
+    expect(await within(permissions).findByText("Sign in on the remote machine.")).toBeTruthy();
+    expect(within(permissions).getByText("Needs attention")).toBeTruthy();
+    expect(within(permissions).queryByText("Screen Recording")).toBeNull();
+    expect(within(permissions).queryByRole("button", { name: /Grant .* access/ })).toBeNull();
+  },
+);
+
+test("unknown and already satisfied requirements never send a permission request", async () => {
+  const { app } = await openSettings();
+  app.daemon.screen.enabled = true;
+  Object.assign(app.daemon.screen.permissions, {
+    platform: "linux",
+    requirements: [
+      {
+        kind: "future",
+        state: "blocked",
+        title: "Future access",
+        message: "Future access instructions",
+        action: "Request future access",
+        permission: "inputMonitoring",
+      },
+      {
+        kind: "ready",
+        state: "ready",
+        title: "Ready access",
+        message: "Already enabled",
+        action: "Enable ready access",
+        permission: "accessibility",
+      },
+      {
+        kind: "missing",
+        state: "blocked",
+        title: "AT-SPI",
+        message: "Enable AT-SPI",
+        action: "Enable accessibility",
+        permission: "accessibility",
+      },
+    ],
+  });
+  await app.open("/settings/computer-use");
+  const permissions = await screen.findByRole("region", { name: "Permissions" });
+  expect(await within(permissions).findByText("Future access instructions")).toBeTruthy();
+  expect(within(permissions).queryByRole("button", { name: "Request future access" })).toBeNull();
+  expect(within(permissions).queryByRole("button", { name: "Enable ready access" })).toBeNull();
+  await userEvent.click(within(permissions).getByRole("button", { name: "Enable accessibility" }));
+  await waitFor(() => expect(app.daemon.screen.requested).toEqual(["accessibility"]));
+});
+
+test.each(["linux", undefined])(
+  "live input on %s retains the host's permission guidance",
+  async (platform) => {
+    const { app, world } = await openSettings();
+    await world.agentApp("com.apple.TextEdit");
+    Object.assign(app.daemon.screen.permissions, { platform });
+    await app.open("/settings/computer-use");
+    const card = await screen.findByRole("article", { name: "TextEdit" });
+    await userEvent.click(within(card).getByRole("button", { expanded: false }));
+    await userEvent.click(within(card).getByRole("button", { name: "Take over" }));
+    expect(await within(card).findByText("You're in control")).toBeTruthy();
+    app.daemon.screen.permissions.accessibility = false;
+    fireEvent.keyDown(within(card).getByRole("img", { name: "TextEdit live view" }), {
+      key: "Enter",
+    });
+    expect(
+      await within(card).findByText(
+        platform === "linux"
+          ? /^Linux desktop access needs attention/
+          : /^macOS hasn't granted a permission/,
+      ),
+    ).toBeTruthy();
+    if (!platform)
+      expect(within(card).getByRole("alert").textContent).toContain(
+        "Grant Screen Recording and Accessibility to Ace Screen Helper, then try again.",
+      );
+  },
+);
+
+test("share-picker permission failures use the remote Windows platform", async () => {
+  const { app } = await openSettings();
+  app.daemon.screen.enabled = true;
+  Object.assign(app.daemon.screen.permissions, { platform: "win32", screenRecording: false });
+  await app.open("/t/thread-checkout");
+  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  if (!within(panel).queryByRole("button", { name: "Share an app or window…" })) {
+    await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
+    const tools = await within(panel).findByRole("list", { name: "Tools" });
+    await userEvent.click(within(tools).getByRole("button", { name: /^Computer use/ }));
+  }
+  await userEvent.click(
+    await within(panel).findByRole("button", { name: "Share an app or window…" }),
+  );
+  const dialog = await screen.findByRole("dialog", { name: "Share an app or window" });
+  await userEvent.click(await within(dialog).findByRole("button", { name: "TextEdit · Untitled" }));
+  await userEvent.click(within(dialog).getByRole("button", { name: "Share with agent" }));
+  expect(await within(dialog).findByText(/Windows desktop access needs attention/)).toBeTruthy();
+  expect(within(dialog).queryByText(/macOS hasn't granted/)).toBeNull();
 });

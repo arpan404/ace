@@ -224,7 +224,6 @@ export default defineConfig({
       "packages/provider-kit/src/process-owner.process.test.ts",
       "packages/provider-kit/src/process-inventory.restart.process.test.ts",
       "packages/provider-kit/src/process-interactive.native.process.test.ts",
-      "tools/release/src/pty-assets.test.ts",
       "tools/release/src/daemon-runtime.test.ts",
       "tools/release/src/archive-paths.process.test.ts",
       // Cursor SDK staging: x64 ships its rg.exe helper, ARM64 ships no helper.

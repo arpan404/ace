@@ -1,4 +1,4 @@
-import { cardDetails, rowStatusLook, threadCard, threadGlyph } from "@ace/ui-core";
+import { cardDetails, rowStatusLook, rowStatusState, threadCard, threadGlyph } from "@ace/ui-core";
 import { inboxGroup, type InboxThread } from "@ace/ui-core/mobile";
 
 /**
@@ -36,6 +36,11 @@ export function inboxLook(thread: InboxThread, baseline: number, now: number) {
     tone,
     muted,
     glyph: word === undefined || bare ? null : threadGlyph({ tone, mark: card.status.mark }),
+    /**
+     * The design language's status state (`rowStatusState`), the one word the lock screen
+     * counts by: only `working` is work under way; waits and usage limits are their own.
+     */
+    state: rowStatusState(card.attention, status),
     /** Start of the live stretch, for the elapsed time beside an active row's word. */
     since: level === "active" ? (card.status.since ?? null) : null,
     settled,

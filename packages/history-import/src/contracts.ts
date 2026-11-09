@@ -33,6 +33,10 @@ export const Options = z.object({
       minFreeRatio: z.number().min(0).max(1).optional(),
     })
     .optional(),
+  /** Set by the daemon on a restart: how the reader before this one ended (crash-ledger.ts). */
+  lastExit: z.enum(["crash", "memory-limit"]).optional(),
+  /** The reader process's memory limit; past three quarters of it the reader collects garbage. */
+  memoryLimitBytes: z.number().int().positive().optional(),
 });
 export type HistoryOptions = z.input<typeof Options>;
 export const ImportInit = z.object({
@@ -105,6 +109,18 @@ export const Reply = z.object({
   id: z.number().int(),
   value: z.unknown().optional(),
   error: z.string().optional(),
+});
+/**
+ * The worker refusing its index as incompatible data. Sent as a message, not left to the
+ * worker's uncaught error: Bun keeps only an error's `code` across a worker boundary, not its
+ * `path` or name.
+ */
+export const Refusal = z.object({
+  refused: z.object({
+    code: z.literal("incompatible-data"),
+    path: z.string(),
+    message: z.string(),
+  }),
 });
 export const SessionOrNull = HistorySession.nullable();
 

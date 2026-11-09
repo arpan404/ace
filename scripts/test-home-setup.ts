@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { afterAll, expect, inject, vi } from "vitest";
 import { verifyEnclosingRepository } from "./enclosing-repository-guard.ts";
 import { testHomeEnvironment } from "./test-home-environment.ts";
+import { dropNativeFrames } from "./bun-native-frames.ts";
 import type { TestHomeContext } from "./test-home-global-setup.ts";
 
 // Bun's os.homedir() keeps the HOME it started with, while Node's follows process.env, and the
@@ -15,6 +16,8 @@ vi.mock("node:os", async (importOriginal) => {
     (process.platform === "win32" ? process.env.USERPROFILE : process.env.HOME) || os.homedir();
   return { ...os, homedir, default: { ...os, homedir } };
 });
+
+dropNativeFrames();
 
 // setupFiles runs before test module evaluation. Each worker/file gets a fresh home;
 // global teardown owns cleanup, after every test's process and server cleanup has run.

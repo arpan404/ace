@@ -1,3 +1,4 @@
+import { browserInstallId } from "./install-id.ts";
 import { browserReadSnapshots } from "./read-snapshots.ts";
 import { daemonRoute } from "./daemon-route.ts";
 import type { ClientApi } from "@ace/client";
@@ -16,6 +17,7 @@ export function createPageClient(
   return createBrowserClient({
     report: diagnosticsReporter(),
     deviceId: device.deviceId,
+    installId: browserInstallId(),
     ...daemonRoute(target),
     storage: localOutbox(device.outboxKey),
     readSnapshots: browserReadSnapshots({ ...target, deviceId: device.deviceId }),

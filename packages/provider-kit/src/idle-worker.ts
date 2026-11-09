@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { Worker, type WorkerOptions, type Transferable } from "node:worker_threads";
+import type { WorkerOptions, Transferable } from "node:worker_threads";
+import { startWorker } from "./worker.ts";
 import { nextIdleWindow, type IdleWindowPolicy } from "./idle-window.ts";
 
 /** Node watch-mode infrastructure shares the worker message channel with application RPC. */
@@ -25,7 +26,7 @@ export interface WorkerPort {
   terminate(): Promise<number>;
 }
 const systemRuntime: IdleWorkerRuntime = {
-  spawn: (entry, options) => new Worker(entry, options),
+  spawn: (entry, options) => startWorker(entry, options),
   delay(callback, milliseconds) {
     const timer = setTimeout(callback, milliseconds);
     timer.unref();
@@ -102,6 +103,7 @@ export class IdleWorker extends EventEmitter {
           if (this.closing) return;
           const deferred = this.deferred.splice(0);
           if (!deferred.length) return;
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })
@@ -140,6 +142,8 @@ export class IdleWorker extends EventEmitter {
           const deferred = this.deferred;
           this.deferred = [];
           if (!deferred.length) return;
+          // Requests queued during terminate() mean this was not a useful idle retirement.
+          this.retiredAt = undefined;
           this.start();
           for (const call of deferred) this.worker?.postMessage(call.message, call.transfer);
         })

@@ -158,6 +158,8 @@ import Testing
         #expect(links.waiting == [thread])
         #expect(OpenedLink.withoutMachine(settings) == OpenedLink(kind: "settings", page: "appearance"))
         #expect(OpenedLink.withoutMachine(URL(string: "ace://new")!) == OpenedLink(kind: "new-thread"))
+        #expect(OpenedLink.withoutMachine(URL(string: "ace://inbox")!) == OpenedLink(kind: "inbox"))
+        #expect(OpenedLink.withoutMachine(URL(string: "ace://inbox/elsewhere")!) == nil)
         #expect(OpenedLink.withoutMachine(thread) == nil)
     }
 

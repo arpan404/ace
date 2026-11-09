@@ -11,7 +11,7 @@ export type LaunchedTree = {
   members(leader: TreeLeader): readonly WindowsTreeMember[];
 };
 
-/** The real lookups. Imported only on Windows: provider-kit binds kernel32 through koffi. */
+/** The real lookups. Imported only on Windows: provider-kit binds kernel32 through bun:ffi. */
 export async function nativeLaunchedTree(): Promise<LaunchedTree> {
   const kit = await import("@ace/provider-kit/process-identity");
   return {

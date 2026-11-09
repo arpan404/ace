@@ -32,3 +32,35 @@ test("a restore cut short by a remount still ends, signed in", async () => {
   expect(account.get().restoring).toBe(false);
   expect(account.get().session?.account.email).toBe("arpan@example.com");
 });
+
+/** The app's saved copy, refusing every write with `message`. */
+const failing = (message: string) => ({
+  read: async () => null,
+  write: async () => {
+    throw new Error(message);
+  },
+});
+
+test("a sign-in the app can't save stays signed in and says why it won't last", async () => {
+  const storage = memoryKeyValue();
+  const backend = fakeAccountBackend(storage, Date.now);
+  const session = store(true).get().session;
+  if (!session) throw new Error("the fake account has a session");
+
+  const noKeyring = aceAccountStore({
+    ...backend,
+    secure: failing(
+      "Error invoking remote method 'account.write': Error: Secure account storage is unavailable",
+    ),
+  });
+  await noKeyring.signedIn(session);
+  expect(noKeyring.get().session?.account.email).toBe("arpan@example.com");
+  expect(noKeyring.get().error).toContain("Install GNOME Keyring or KWallet");
+
+  const other = aceAccountStore({ ...backend, secure: failing("disk full") });
+  await other.signedIn(session);
+  expect(other.get().session).not.toBeNull();
+  expect(other.get().error).toBe(
+    "Signed in until ace closes: ace couldn't save your sign-in on this computer.",
+  );
+});

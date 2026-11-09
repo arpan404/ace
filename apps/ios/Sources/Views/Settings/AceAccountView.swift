@@ -4,7 +4,10 @@ import SwiftUI
 struct AceAccountView: View {
     /// Nil for the debug fixture, which has no account machines.
     var machines: MachinesModel?
-    @State private var model = AceAccountModel()
+    /// The app's account (the header's avatar shows the same), else this page's own.
+    @Environment(AceAccountModel.self) private var shared: AceAccountModel?
+    @State private var own = AceAccountModel()
+    private var model: AceAccountModel { shared ?? own }
     @State private var forgetting: AceMachine?
     @State private var notice: ProblemNotice?
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
@@ -13,10 +16,8 @@ struct AceAccountView: View {
         List {
             Section {
                 HStack(spacing: 12) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
+                    // The same disc as the header's avatar.
+                    AccountAvatar(name: model.account?.name ?? "", picture: model.picture, size: AceDesign.Size.tap)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(model.account.map { $0.name.isEmpty ? $0.email : $0.name } ?? "Your profile")
                             .fontWeight(.medium)

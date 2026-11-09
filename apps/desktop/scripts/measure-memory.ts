@@ -6,7 +6,14 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import { build, type BuildOptions, type Metafile } from "esbuild";
-import { appEnvironment, desktop, electronBinary, electronBundles, repo } from "./common.ts";
+import {
+  appEnvironment,
+  desktop,
+  e2eSwitches,
+  electronBinary,
+  electronBundles,
+  repo,
+} from "./common.ts";
 import { serveTestPage } from "./measure/browser-page.ts";
 import { table } from "./measure/report.ts";
 import type { Sample } from "./measure/sample.ts";
@@ -102,7 +109,7 @@ interface Run {
 async function run(mainFile: string, config: ScenarioConfig): Promise<Run> {
   const userData = await mkdtemp(join(tmpdir(), "ace-measure-"));
   const result: Run = { samples: [], marks: undefined, streamingRate: undefined };
-  const child = spawn(await electronBinary(), [mainFile], {
+  const child = spawn(await electronBinary(), [...e2eSwitches(process.platform), mainFile], {
     stdio: ["ignore", "pipe", "inherit"],
     env: {
       ...appEnvironment(process.env),

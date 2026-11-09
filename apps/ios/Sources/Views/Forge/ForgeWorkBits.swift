@@ -28,7 +28,7 @@ struct ForgeTextAction: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, AceTheme.Spacing.lg)
-        .animation(AceMotion.smooth, value: busy)
+        .animation(.default, value: busy)
     }
 }
 
@@ -50,7 +50,7 @@ struct ForgeOutcomeLine: View {
                     .accessibilityIdentifier(identifier)
             }
         }
-        .animation(AceMotion.smooth, value: outcome)
+        .animation(.default, value: outcome)
     }
 
     private func text(_ outcome: ForgeWorkOutcome) -> String {
@@ -108,20 +108,10 @@ struct ForgeWordButtonStyle: ButtonStyle {
                 .frame(minHeight: AceDesign.Size.tap)
                 .contentShape(Rectangle())
                 .opacity(!enabled ? AceDesign.Ink.dimmedOpacity : configuration.isPressed ? AceDesign.Ink.settledOpacity : 1)
-                .animation(AceMotion.smooth, value: configuration.isPressed)
         }
     }
 }
 
 extension ButtonStyle where Self == ForgeWordButtonStyle {
     static var forgeWord: ForgeWordButtonStyle { ForgeWordButtonStyle() }
-}
-
-/// The forge and Work pages' state changes: the system's smooth spring, or under Reduce Motion
-/// a short ease with no overshoot, so things fade in place rather than travel.
-enum AceMotion {
-    @MainActor static var smooth: Animation {
-        // Reduce Motion as ace applies it: the system's, or ace's own (Settings › Appearance).
-        AceDesign.Motion.arriving(UIAccessibility.isReduceMotionEnabled || UserDefaults.standard.bool(forKey: PhoneLook.reduceMotionKey))
-    }
 }

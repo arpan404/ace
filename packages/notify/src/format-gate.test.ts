@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import { expect, it } from "vitest";
 import { setup } from "./notify.test-helper.ts";

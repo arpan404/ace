@@ -64,9 +64,10 @@ import { ZoomBadge } from "./zoom-controls.tsx";
 import { ConsoleDrawer, drawerHeights } from "./console-drawer.tsx";
 import { ResponsiveScreenshotDialog } from "./responsive-screenshot.tsx";
 import { rememberPageSize } from "./page-size.ts";
-import { WatchButton, useWatchToggle } from "./watch-button.tsx";
+import { useWatchToggle } from "./watch-button.tsx";
 import { SplitBrowser, openSplit, splits, type SplitPane } from "./split-view.tsx";
 import { useSplitDrop } from "./split-drop.tsx";
+import { AddressOpenOutside, outsideAddress } from "./open-outside.tsx";
 
 /**
  * One of the thread's browser tabs, as a panel tab (each daemon tab is its own panel tab, the
@@ -123,7 +124,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
   const shownUrl = page.shownUrl;
   const blank = !shownUrl || shownUrl === "about:blank";
   const offline = online ? undefined : "ace is offline";
-  const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
+  const external = outsideAddress(shownUrl);
   // In the desktop app the page itself is a native view drawn over this tab's page area (or
   // over the device toolbar's frame).
   const pageArea = useRef<HTMLDivElement>(null);
@@ -385,6 +386,7 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
                   video={page.frame !== undefined}
                   muteTab={(tabId, muted) => void browser.muteTab(tabId, muted)}
                 />
+                {external && <AddressOpenOutside url={external} />}
               </>
             }
           />
@@ -392,7 +394,6 @@ function Browser(props: TabViewProps & { pane?: SplitPane | undefined }) {
         actions={
           <>
             <RecordingIndicator source={source} threadId={threadId} view={live} />
-            {watch.watching !== undefined && <WatchButton {...watch} />}
             <ToolPill>
               {!extensionsOff && (
                 <ExtensionsMenu

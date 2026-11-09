@@ -320,7 +320,14 @@ export class TargetThreads {
         title: raced.title,
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
-    const instance = engine.targetInstance(call.provider, accountId ? { accountId } : {});
+    let instance: string;
+    try {
+      instance = engine.targetInstance(call.provider, accountId ? { accountId } : {});
+    } catch (error) {
+      // A provider this machine can't run is refused with its reason, before anything is made.
+      const reason = error instanceof Error ? error.message : "provider not ready";
+      throw new TargetRefusal("unavailable", `This machine could not start it: ${reason}`);
+    }
     const refusal = this.freeModel(call.provider, instance, model)
       ? undefined
       : accountLaunchRefusal(

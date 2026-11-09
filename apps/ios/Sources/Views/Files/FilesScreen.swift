@@ -96,6 +96,8 @@ struct FilesScreen: View {
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
+                    // A tree reads by its indent, not lines: no hairline under every row.
+                    .listRowSeparator(.hidden)
                     .contextMenu { rowMenu(path: row.path, folder: row.folder) }
                     .swipeActions(edge: .trailing) {
                         if actions.canChange, row.mark != "D" {
@@ -300,13 +302,12 @@ struct FilesScreen: View {
 struct FileTreeRowView: View {
     let row: FileTreeRow
     let open: Bool
-    @Environment(\.aceReduceMotion) private var reduceMotion
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             Color.clear.frame(width: CGFloat(row.depth) * AceDesign.Space.treeLevel, height: AceDesign.Size.hairline)
             Image(systemName: "chevron.right").font(.caption2.weight(.semibold))
                 .rotationEffect(.degrees(open ? 90 : 0))
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: open)
+                .animation(.default, value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
             Image(systemName: row.folder ? "folder" : "doc")

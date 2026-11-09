@@ -73,6 +73,7 @@ function AddMenu(props: { onPick(adding: Adding): void }) {
         ref={trigger}
         id="remote.pair"
         data-flash={flashing || undefined}
+        // While it flashes, the button's focus-ring shows (styles/index.css).
         className={cn(buttonVariants({ size: "sm", variant: "primary" }), "gap-1")}
       >
         Add

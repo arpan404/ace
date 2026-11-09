@@ -131,7 +131,6 @@ struct ReviewComposer: View {
     let current: String
     var editing: ChangesReview.Draft?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var text = ""
     @State private var suggesting = false
     @State private var suggestion = ""
@@ -151,7 +150,7 @@ struct ReviewComposer: View {
                 } header: { Text("\((path as NSString).lastPathComponent) · \(start == end ? "line \(start)" : "lines \(start)–\(end)")") }
                 if side == "new" {
                     Section {
-                        Toggle("Suggest a change", isOn: $suggesting.animation(AceDesign.Motion.arriving(reduceMotion)))
+                        Toggle("Suggest a change", isOn: $suggesting.animation())
                             .accessibilityIdentifier("review.suggest")
                         if suggesting {
                             TextField("Replacement", text: $suggestion, axis: .vertical)
@@ -254,15 +253,13 @@ struct ReviewBar: View {
     @Binding var selection: LineSelection?
     let comment: () -> Void
     let list: () -> Void
-    @Environment(\.aceReduceMotion) private var reduceMotion
 
     private var review: ChangesReview? { model.sheets.review }
-    @Environment(\.changesCommentable) private var commentable
+    @Environment(\.threadPage) private var inPage
     /// A line to show when there is no pick and no review yet: why comments can't go here, or
     /// why the phone can't keep them.
     private var note: (String, Bool)? {
         if let storage = review?.storage, !storage.isEmpty { return (storage, true) }
-        if !commentable { return (model.sheets.changes?.review?.reason ?? "", false) }
         return nil
     }
 
@@ -293,7 +290,8 @@ struct ReviewBar: View {
                             .contentShape(Rectangle())
                     }
                     .accessibilityIdentifier("review.list")
-                    if review.pending > 0 {
+                    // As a page the composer sits below with the comments on its chip; Send is there.
+                    if review.pending > 0, !inPage {
                         Button("Send \(review.pending)") {
                             model.reviewAction("review.send")
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -313,7 +311,7 @@ struct ReviewBar: View {
         .padding(.horizontal, AceTheme.Spacing.lg)
         .padding(.bottom, AceTheme.Spacing.sm)
         .opacity(selection == nil && note == nil && (review?.drafts.isEmpty ?? true) && review?.session == nil ? 0 : 1)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: selection)
+        .animation(.default, value: selection)
     }
 
     private func summary(_ review: ChangesReview) -> String {
@@ -321,6 +319,7 @@ struct ReviewBar: View {
         if let status = review.session?.status, status != "open" { parts.append(status == "approved" ? "Approved" : "Changes requested") }
         let count = review.drafts.count
         parts.append(count == 0 ? "Review" : "\(count) \(count == 1 ? "comment" : "comments")")
+        if inPage, review.pending > 0 { parts.append("\(review.pending) on your next message") }
         return parts.joined(separator: " · ")
     }
 }

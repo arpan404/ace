@@ -44,6 +44,7 @@ import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
   applyDelta,
+  holdsTail,
   outputDeltas,
   outputStreamId,
   summarizeOutput,

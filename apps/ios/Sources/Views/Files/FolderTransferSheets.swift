@@ -110,7 +110,6 @@ struct FolderDownloadSheet: View {
 /// Upload: the picked files go into a folder of the checkout, one after another, asking before
 /// anything already there is replaced.
 struct UploadSheet: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let threadId: String
     let folders: [String]
@@ -166,7 +165,7 @@ struct UploadSheet: View {
                     if upload?.phase == "waiting" { Text("Waiting for the connection. It carries on by itself.") }
                 }
             }
-            .animation(AceDesign.Motion.arriving(reduceMotion), value: upload)
+            .animation(.default, value: upload)
             .navigationTitle(staged.count == 1 ? "Upload file" : "Upload \(staged.count) files").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

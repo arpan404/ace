@@ -13,7 +13,7 @@
  */
 import { performance } from "node:perf_hooks";
 import { statSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { randomUUID } from "node:crypto";
 import { AgentItem, ThreadId, type EventPayload, type ServerMessage } from "@ace/protocol";
 import { Store, createDevThread } from "../src/index.ts";

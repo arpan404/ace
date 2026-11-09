@@ -67,10 +67,11 @@ export interface ThreadReader {
   /** An explicit canonical deletion, distinct from bounded tail eviction. */
   deleted?(id: string): boolean;
   /**
-   * Whether the client made message `next` from `previous` by appending text alone, so the
-   * text it gained is known without comparing the two (false when it can't tell).
+   * How the client made message `next` from `previous` by deltas alone: its last text part lost
+   * `dropped` units from the front (a long text slides) and gained the rest at the end, so the
+   * change is known without comparing the two. Undefined when it can't tell.
    */
-  appended?(previous: Item, next: Item): boolean;
+  edited?(previous: Item, next: Item): { dropped: number } | undefined;
 }
 /** Change keys of the thread list. */
 /**

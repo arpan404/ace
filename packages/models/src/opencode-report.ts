@@ -3,6 +3,7 @@ import type { ModelSource, ModelSourceStatus, CatalogModel } from "@ace/protocol
 import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { freeOpenCodeModel } from "./opencode-free.ts";
 import { providerSource, modelSource } from "./model-source.ts";
+import { impliedOpenCodeProviders } from "./opencode-connections.ts";
 import { discoveryFailureReason } from "@ace/provider-kit/discovery-failure";
 import { discoveryError } from "./discovery-errors.ts";
 import type { DiscoveryDiagnostics, DiscoveryReport, ModelInstance } from "./types.ts";
@@ -33,13 +34,16 @@ export function normalizeOpenCodeReport(
   const grouped = new Map<string, unknown[]>();
   const metadataIds = new Set<string>();
   const available = new Map(connected);
+  const implied = impliedOpenCodeProviders(connected);
   for (const raw of envelope.data) {
     const model = ReportModelIdentity.safeParse(raw);
     if (model.success) metadataIds.add(`${model.data.providerID}/${model.data.modelID}`);
     const identity = ReportProviderIdentity.safeParse(raw);
     if (!identity.success) continue;
     const id = identity.data.providerID;
-    if (!connected.has(id)) {
+    const candidate = implied.get(id);
+    if (candidate) available.set(id, candidate);
+    else if (!connected.has(id)) {
       if (!freeOpenCodeModel(raw) && providerSource(id).kind !== "local") continue;
       available.set(id, { ...providerSource(id), requiresAuth: false });
     }

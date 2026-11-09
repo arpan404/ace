@@ -14,6 +14,8 @@ extension EnvironmentValues {
     /// Whether the scope shown takes line comments (Uncommitted only: a turn's line numbers
     /// aren't the checkout's, so a comment there couldn't be anchored).
     @Entry var changesCommentable = true
+    /// A line tapped where comments can't go: show this file on Uncommitted, where they can.
+    @Entry var changesToUncommitted: ((String) -> Void)? = nil
 }
 
 /// Lines picked for a comment: one side of one file, `start...end`.
@@ -43,23 +45,27 @@ struct ChangesLineRow: View {
 
     var body: some View {
         if row.kind == "fold" {
+            // A quiet note in the code's column, no band: the diff reads as one column.
             Text(row.count.map { "\($0) unchanged \($0 == 1 ? "line" : "lines")" } ?? "Unchanged lines")
                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                .foregroundStyle(AceTheme.Colours.subtleForeground)
-                .padding(.leading, FileDiffStyle.gutter + AceTheme.Spacing.xs)
+                .foregroundStyle(AceDesign.Ink.subtle)
+                .padding(.leading, FileDiffStyle.gutter)
                 .frame(maxWidth: .infinity, minHeight: FileDiffStyle.rowHeight, alignment: .leading)
-                .background(AceDesign.Surface.band)
         } else {
-            Button(action: { if commentable { tap() } }) {
+            Button(action: tap) {
                 HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
                     Text(number).foregroundStyle(numberColour)
                         .frame(width: FileDiffStyle.gutter - AceTheme.Spacing.md, alignment: .trailing)
                         .padding(.trailing, AceTheme.Spacing.md)
-                    Text(row.text)
-                        .foregroundStyle(AceTheme.Colours.foreground)
-                        .lineLimit(wrap ? nil : 1)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.trailing, AceTheme.Spacing.lg)
+                    // The line's own indent stays put, so wrapped text hangs at the code's column.
+                    HStack(alignment: .firstTextBaseline, spacing: AceTheme.Spacing.none) {
+                        if !indent.isEmpty { Text(indent).fixedSize() }
+                        Text(code)
+                            .foregroundStyle(AceTheme.Colours.foreground)
+                            .lineLimit(wrap ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.trailing, AceTheme.Spacing.lg)
                     if row.clipped {
                         Spacer(minLength: AceTheme.Spacing.none)
                         Button("Whole line", action: wholeLine)
@@ -79,15 +85,20 @@ struct ChangesLineRow: View {
             }
             .buttonStyle(.plain)
             .contextMenu {
-                if commentable { Button("Comment on this line", systemImage: "text.bubble", action: tap) }
+                Button(commentable ? "Comment on this line" : "Comment on Uncommitted", systemImage: "text.bubble", action: tap)
                 Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = row.text }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(row.kind == "add" ? "Added" : row.kind == "del" ? "Removed" : "Unchanged") line \(number): \(row.text)")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityHint(commentable ? "Picks the line for a comment" : "")
+            .accessibilityHint(commentable ? "Picks the line for a comment" : "Shows this file on Uncommitted, where lines take comments")
         }
     }
+    /// The line's leading whitespace (tabs as four spaces) and the code after it.
+    private var indent: String {
+        String(row.text.prefix { $0 == " " || $0 == "\t" }).replacingOccurrences(of: "\t", with: "    ")
+    }
+    private var code: String { String(row.text.drop { $0 == " " || $0 == "\t" }) }
     private var number: String { String(row.kind == "del" ? row.old ?? 0 : row.new ?? row.old ?? 0) }
     private var bar: Color? {
         row.kind == "add" ? AceTheme.StatusText.done : row.kind == "del" ? AceTheme.StatusText.failed : nil

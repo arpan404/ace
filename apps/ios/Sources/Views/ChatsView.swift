@@ -61,6 +61,8 @@ struct ChatsList: View {
         let labels = inbox.mergedChats.menuLabels.isEmpty ? inbox.merged.menuLabels : inbox.mergedChats.menuLabels
         Button { actions.open(key) } label: { ChatRow(row: row) }
             .buttonStyle(.row)
+            // Named by machine and chat, as the Threads list's rows are: two machines may share an id.
+            .accessibilityIdentifier(inbox.showsMachineNames ? "chat.\(key.machineId).\(row.id)" : "chat.\(row.id)")
             .listRowInsets(EdgeInsets(top: 0, leading: AceDesign.Size.listInset, bottom: 0, trailing: AceDesign.Size.listInset))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -111,33 +113,14 @@ struct ChatsList: View {
     }
 }
 
-/// One chat: its title on one line and, at the right edge, at most one mark: the row's status
-/// icon for a request, a fresh failure, unseen finished work or work still under way. Semibold
-/// while it needs the person; a settled chat's title is subtle with no mark.
+/// One chat: the shared one-line row (`InboxLineRow`) ending with its status mark. Semibold
+/// while it needs the person; a settled chat's title is subtle, keeping its mark while unread.
 private struct ChatRow: View {
     let row: ThreadRow
     var body: some View {
         let look = row.look
-        HStack(spacing: AceDesign.Space.row) {
-            // The provider leads, as the desktop's chat row does, with its account's bubble.
-            ProviderMark(provider: row.provider, size: AceDesign.Size.rowMark, account: row.account, quiet: look?.settled == true)
-                .opacity(look?.settled == true ? 1 : AceDesign.Ink.markOpacity)
-            Text(row.title)
-                .aceFont(InboxRowType.title, relativeTo: .callout)
-                .fontWeight(look?.strong == true ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-                .foregroundStyle(look?.settled == true ? AceTheme.Colours.subtleForeground : AceTheme.Colours.foreground)
-                .lineLimit(1)
-            Spacer(minLength: AceDesign.Space.related)
-            // A settled chat keeps its mark while it is unread, as the desktop's.
-            if let icon = look?.icon, icon != "none", look?.settled != true || look?.unread == true {
-                RowStatusIcon(kind: icon, tone: look?.iconTone ?? "idle", count: look?.count)
-            }
-        }
-        .padding(.horizontal, AceDesign.Size.rowInset)
-        .frame(minHeight: AceDesign.Size.tap)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel([row.title, look?.meaning, look?.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityIdentifier("chat.row")
+        InboxLineRow(row: row, end: .status, dimmed: look?.settled == true)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([row.title, look?.meaning, look?.unread == true ? "unread" : nil].compactMap { $0 }.joined(separator: ", "))
     }
 }

@@ -29,8 +29,13 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
+    # The ace account backend sign-in reaches (`AceAccountURL` in Info.plist): none in
+    # development and fixture builds, ace's own in Release, as the web and desktop releases do
+    # (`ACE_HOSTED_ACCOUNT_ORIGIN`). Set it on the command line to point a build elsewhere.
     ACE_ACCOUNT_URL: ""
   configs:
+    Release:
+      ACE_ACCOUNT_URL: https://relay.acehq.dev
     Debug:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ACE_FIXTURE
     Perf:
@@ -43,8 +48,16 @@ targets:
     sources:
       - path: Sources
       - path: Shared
+      # The handoff queue the share extension and the intents write and the app sends from.
+      - path: Handoff
       - path: Resources
         buildPhase: resources
+    # One app group for the widgets' lock-screen snapshot (`LockSnapshotStore`) and the
+    # share extension and intents' handoff queue.
+    entitlements:
+      path: .build/Ace.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
     info:
       path: .build/Info.plist
       properties:
@@ -75,7 +88,17 @@ targets:
           - CFBundleURLName: app.ace.link
             CFBundleURLSchemes: [ace]
         NSFaceIDUsageDescription: Unlock your paired machines.
+        # Long-press the app icon: New thread and New chat (`QuickActions`).
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: app.ace.new-thread
+            UIApplicationShortcutItemTitle: New thread
+            UIApplicationShortcutItemIconSymbolName: square.and.pencil
+          - UIApplicationShortcutItemType: app.ace.new-chat
+            UIApplicationShortcutItemTitle: New chat
+            UIApplicationShortcutItemIconSymbolName: bubble.left
         NSCameraUsageDescription: Scan the pairing code shown by ace on your computer, or take a photo for an agent.
+        NSMicrophoneUsageDescription: Dictate a message to an agent.
+        NSSpeechRecognitionUsageDescription: Turn what you say into the words of your message, on this iPhone where it can.
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [app.ace.ios.notifications.refresh]
         NSAppTransportSecurity:
@@ -90,6 +113,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: AceActivity
+      - target: AceShare
       - package: Markit
       - sdk: JavaScriptCore.framework
       - sdk: libsqlite3.tbd
@@ -108,9 +132,45 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: .build/Activity.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios.activity
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+  # The share sheet's ace: queues a start in the app group and opens the app (`ShareExtension`).
+  AceShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Handoff
+      - path: Shared
+      - path: Sources/Views/AceTheme.generated.swift
+    entitlements:
+      path: .build/Share.entitlements
+      properties:
+        com.apple.security.application-groups: [group.app.ace.ios]
+    info:
+      path: .build/Share-Info.plist
+      properties:
+        CFBundleDisplayName: ace
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 4
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.ace.ios.share
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
   AceTests:

@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { setImmediate } from "node:timers/promises";
@@ -62,6 +63,33 @@ test("ctrl-C interrupts a foreground sleep and returns control to the shell", as
   // Bash 5 abandons the interrupted command line, so query on the next line.
   terminal.write("printf 'STATUS:%s\\n' $?\r");
   expect(await until(attachment, "STATUS:130\r\n")).toContain("STATUS:130");
+});
+
+test("a shell that writes a lot just before exiting loses none of it", async () => {
+  const { terminal } = await open({ scrollbackBytes: 8 * 1024 * 1024 });
+  const before = terminal.snapshot().nextOffset;
+  terminal.write("head -c 2000000 /dev/zero | tr '\\0' x; printf TAIL_MARK; exit 4\r");
+  expect(await terminal.exited).toEqual({ code: 4, signal: null });
+  const { nextOffset } = terminal.snapshot();
+  // The echoed command line adds a little; every byte the shell wrote arrives before the exit.
+  expect(nextOffset - before).toBeGreaterThanOrEqual(2_000_000 + "TAIL_MARK".length);
+  const tail = text(await collect(terminal.attach({ fromOffset: nextOffset - 64 })));
+  expect(tail).toMatch(/x+TAIL_MARK(?:logout\r\n)?$/);
+});
+
+test("a 256 KB paste reaches the program byte for byte", async () => {
+  const { terminal, attachment, home } = await open();
+  const file = join(home, "paste.txt");
+  terminal.write(
+    `stty raw -echo; printf 'PASTE_READY\\n'; head -c 262144 > ${quote(file)}; stty sane; printf 'PASTE_DONE\\n'\r`,
+  );
+  await until(attachment, "PASTE_READY");
+  const payload = Array.from({ length: 262_144 }, (_, index) =>
+    String.fromCharCode(97 + (index % 26)),
+  ).join("");
+  terminal.write(payload);
+  await until(attachment, "PASTE_DONE");
+  expect(await readFile(file, "utf8")).toBe(payload);
 });
 
 test("late attachers receive final output and the retained exit code", async () => {

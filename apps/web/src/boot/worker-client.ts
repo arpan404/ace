@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { RemoteClient, type PortLike, type WorkerHandle } from "@ace/client-worker";
 import type { DaemonTarget } from "./connection-settings.ts";
 import { diagnosticsReporter } from "./diagnostics.ts";
+import { browserInstallId } from "./install-id.ts";
 import { tabLiveness } from "./web-locks.ts";
 import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 
@@ -15,7 +16,12 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   const worker = workerPort();
   if (!worker) return undefined;
   const key = outboxKey({ ...target, deviceId });
-  const config: WorkerTarget = { ...target, deviceId, seed: readLegacy(key) };
+  const config: WorkerTarget = {
+    ...target,
+    deviceId,
+    installId: browserInstallId(),
+    seed: readLegacy(key),
+  };
   const liveness = tabLiveness();
   return new RemoteClient(worker.port, config, {
     workerFailure: worker.failure,

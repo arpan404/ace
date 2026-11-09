@@ -159,14 +159,29 @@ export function reloadApp(
  * The desktop's clipboard for images (PNG or JPEG as base64), which works without the page
  * having focus or a user gesture; undefined in a browser or a desktop build that predates it.
  */
-export function desktopImageClipboard(
-  scope: object = globalThis,
-):
-  | { writeImage(image: { mimeType: "image/png" | "image/jpeg"; data: string }): Promise<void> }
+export function desktopImageClipboard(scope: object = globalThis):
+  | {
+      /** The most image bytes the desktop clipboard takes, when the bridge says. */
+      limit: number | undefined;
+      writeImage(image: { mimeType: "image/png" | "image/jpeg"; data: string }): Promise<void>;
+    }
   | undefined {
-  const write = call(record(record(Reflect.get(scope, "ace"))?.clipboard), "writeImage");
+  const clipboard = record(record(Reflect.get(scope, "ace"))?.clipboard);
+  const write = call(clipboard, "writeImage");
   if (!write) return undefined;
-  return { writeImage: async (image) => void (await write(image)) };
+  const limit = clipboard?.imageLimit;
+  return {
+    limit: typeof limit === "number" && limit > 0 ? limit : undefined,
+    writeImage: async (image) => {
+      try {
+        await write(image);
+      } catch (error) {
+        throw new Error(bridgeMessage(error) || "The desktop app couldn't copy the image", {
+          cause: error,
+        });
+      }
+    },
+  };
 }
 
 /** A bridge method, bound to its object, if the bridge has it. */

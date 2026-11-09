@@ -16,6 +16,15 @@
     "scheme": {
       "$ref": "https://ace.local/protocol/v1/HtmlColorScheme.json",
       "description": "The app theme to draw it in. Default: dark."
+    },
+    "widths": {
+      "description": "Phone 360, chat column 760, full-screen side panel 1200. Default: 360 and 760.",
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HtmlPreviewWidth.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
     }
   },
   "required": [

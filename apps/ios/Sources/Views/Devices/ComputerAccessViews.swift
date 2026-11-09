@@ -50,7 +50,7 @@ struct LockedUseRow: View {
             }
         }
         .padding(.vertical, AceDesign.Space.related)
-        .animation(AceTheme.Motion.standardCurve, value: locked)
+        .animation(.default, value: locked)
         .sensoryFeedback(.selection, trigger: locked.on)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("computer.locked")
@@ -156,7 +156,7 @@ struct UseMyChromeView: View {
             }
         }
         .insetGroupedList()
-        .animation(AceTheme.Motion.standardCurve, value: access)
+        .animation(.default, value: access)
         .navigationTitle("Use my Chrome").navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("Revoke every browser?", isPresented: $revoking, titleVisibility: .visible) {
             Button("Revoke", role: .destructive) { model.useMyChrome("revoke") }

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { access, writeFile, rm } from "node:fs/promises";
@@ -73,7 +74,7 @@ for (const dirty of [false, true]) {
         expect(
           d.runtime.creationDrafts.get("interrupted-0", DeviceId.parse("device"))?.progress,
         ).toMatchObject({ state: "failed", cleanupComplete: false, actions: [] });
-        await expect(access(join(orphan, "personal-edit.txt"))).resolves.toBeUndefined();
+        expect(existsSync(join(orphan, "personal-edit.txt"))).toBe(true);
         await rm(join(orphan, "personal-edit.txt"));
         return;
       }

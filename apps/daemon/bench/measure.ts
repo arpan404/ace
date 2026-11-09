@@ -1,7 +1,7 @@
 import { writeSync } from "node:fs";
 import { fork, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { once } from "node:events";
@@ -12,6 +12,10 @@ import { ServerMessage } from "@ace/protocol";
 import { readWorkerSnapshot, measureWithCleanup, TimingFailure } from "@ace/perf-kit";
 import { Telemetry, Response } from "./telemetry-schema.ts";
 import { writeMeasurement } from "./output.ts";
+import { bunBinary } from "../../../scripts/runtimes.ts";
+import { workerPreloadVariable } from "@ace/provider-kit/worker";
+import { threadCensus } from "./threads.ts";
+import { observedWorkers, settledWorkerViolations } from "./budgets.ts";
 
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
@@ -35,6 +39,8 @@ function mark(next: string) {
   phase = next;
   if (progress) process.stderr.write(`${phase}\n`);
 }
+/** The kinds of worker that may stay, one each, once the workload ended (the gate's own). */
+const settleKinds = argument("settle-workers", "").split(",").filter(Boolean);
 const warmupCycles = z.coerce.number().int().min(0).max(128).parse(argument("warmup-cycles", "0"));
 const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 // Beside the home, not in it: a non-empty unversioned ACE_HOME is backed up to `<home>-v0` at
@@ -45,7 +51,8 @@ const child = fork(
   resolve(argument("entry", join(import.meta.dirname, "entry.ts"))),
   idleOnly ? ["start"] : [],
   {
-    execPath: resolve(argument("node", process.execPath)),
+    // Bun, the daemon's runtime, unless --node names another (a release's bin/node is Bun too).
+    execPath: resolve(argument("node", bunBinary())),
     execArgv: [
       ...(collect ? ["--expose-gc"] : []),
       "--import",
@@ -53,6 +60,7 @@ const child = fork(
     ],
     env: {
       ...process.env,
+      BUN_OPTIONS: undefined,
       HOME: home,
       USERPROFILE: home,
       PATH: "",
@@ -65,6 +73,8 @@ const child = fork(
       ACE_RELAY_URL: undefined,
       ACE_WORKSPACE_ROOT: home,
       ACE_PERF_TELEMETRY: telemetry,
+      // Bun gives a worker no preload of its parent's: ace's workers take this one by name.
+      [workerPreloadVariable]: join(import.meta.dirname, "telemetry.mjs"),
       ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
       ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
     },
@@ -104,6 +114,7 @@ function request(
     | { op: "sessions"; count: number }
     | { op: "cycle"; count: number; fresh?: boolean }
     | { op: "emit"; thread: string; count: number }
+    | { op: "finish"; threads: string[] }
     | { op: "memory" | "plans" },
 ) {
   const id = ++nextId;
@@ -120,24 +131,50 @@ async function sample() {
     pause: () => delay(10),
     timeoutMs: 4000,
   });
-  const pid = child.pid;
-  if (!pid) throw new Error("Missing child PID");
-  const threads =
-    process.platform === "linux"
-      ? (await readdir(`/proc/${pid}/task`)).length
-      : (await run("ps", ["-M", "-p", String(pid)])).stdout.trim().split("\n").length - 1;
   return {
     runtime: main.runtime,
     memory: main.memory,
     cpu: main.cpu,
-    threads,
-    workers: workers.map(({ threadId, entry, memory, collection }) => ({
+    workers: observedWorkers(main, workers).map(({ threadId, kind, memory, collection }) => ({
       threadId,
-      entry,
+      kind,
       memory,
       collection,
     })),
   };
+}
+/**
+ * A sample with the process's threads by owner, which take seconds to read. Workers start and
+ * retire meanwhile, so it is taken again until the OS counts the same workers before and after
+ * the telemetry read; the last try stands either way, and the gate compares the two counts.
+ */
+async function censusSample() {
+  const pid = child.pid;
+  if (!pid) throw new Error("Missing child PID");
+  let taken;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const before = await threadCensus(pid);
+    const observed = await sample();
+    const census = await threadCensus(pid);
+    taken = { ...observed, threads: census.total, census };
+    if (before.workers === census.workers && census.workers === observed.workers.length) break;
+    await delay(500);
+  }
+  if (!taken) throw new Error("No thread sample");
+  return taken;
+}
+/**
+ * The fewest JS workers alive across five seconds of idle. Idle workers retire after five idle
+ * seconds and some wake on a timer, so one reading may catch one; a worker that never retires
+ * raises the floor.
+ */
+async function idleWorkerFloor() {
+  let floor = Infinity;
+  for (let reading = 0; reading < 10; reading++) {
+    floor = Math.min(floor, (await sample()).workers.length);
+    await delay(500);
+  }
+  return floor;
 }
 async function memoryRegions() {
   const pid = child.pid;
@@ -163,7 +200,9 @@ async function collectMemory() {
 const deadline = setTimeout(
   () =>
     aborted.reject(new TimingFailure(`Daemon measurement timed out during ${phase}: ${stderr}`)),
-  idleMs + soakMs + 55000,
+  // The thread censuses (seconds each on macOS), idle floors and up to 130 s of waiting for the
+  // workload's workers to retire.
+  idleMs + soakMs + 320000,
 );
 const interrupt = () => aborted.reject(new TimingFailure("Daemon measurement interrupted"));
 process.on("SIGTERM", interrupt);
@@ -185,6 +224,8 @@ async function measure() {
   await delay(Math.max(0, idleMs - Math.min(10000, idleMs)));
   const idle60 = idleMs >= 60000 ? await sample() : null;
   const idleEnd = idle60 ?? (await sample());
+  // After the idle CPU window: reading thread names pauses the process to sample it.
+  const idleThreads = { ...(await censusSample()), workerFloor: await idleWorkerFloor() };
   const idleRegions = regions ? await memoryRegions() : undefined;
   const idleCpuPercent =
     (idleEnd.cpu.user + idleEnd.cpu.system - (idle10.cpu.user + idle10.cpu.system)) /
@@ -205,6 +246,7 @@ async function measure() {
       idleSampleMs: idleMs,
       idle10,
       idle60,
+      idleThreads,
       idleCpuPercent,
       idleRegions,
       stderr,
@@ -217,7 +259,7 @@ async function measure() {
   mark("sessions");
   const active = await request({ op: "sessions", count });
   await delay(1000);
-  const activeSample = await sample();
+  const activeSample = await censusSample();
   mark("websocket");
   socket = new WebSocket(endpoint.replace("http:", "ws:"));
   await once(socket, "open");
@@ -318,6 +360,22 @@ async function measure() {
       clearTimeout(timeout);
     }
   }
+  // The workload's sessions end; the workers it started must retire with them, down to the
+  // kinds --settle-workers allows, one each. A busy idle worker stays longer: its idle window
+  // doubles while it is reused, up to two minutes. Anything else is waited for that long.
+  mark("settle");
+  await request({ op: "finish", threads: active.threads });
+  const settling = performance.now();
+  const unsettled = async () =>
+    settledWorkerViolations(
+      (await sample()).workers.map((worker) => worker.kind),
+      settleKinds,
+    ).length > 0;
+  while ((await unsettled()) && performance.now() - settling < 130_000) await delay(1000);
+  const settledThreads = {
+    ...(await censusSample()),
+    settleMs: Math.round(performance.now() - settling),
+  };
   const queryPlans = (await request({ op: "plans" })).queryPlans;
   mark("shutdown");
   const shuttingDown = performance.now();
@@ -334,9 +392,11 @@ async function measure() {
     idleSampleMs: idleMs,
     idle10,
     idle60,
+    idleThreads,
     idleCpuPercent,
     activeSessions: count,
     active: activeSample,
+    settledThreads,
     events,
     eventsPerSecond: throughput,
     p99Ms: latencies[Math.ceil(latencies.length * 0.99) - 1],

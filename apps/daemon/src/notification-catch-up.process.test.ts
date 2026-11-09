@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { HostId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { desktopDaemon, notificationFixture } from "./notification-test-support.ts";

@@ -15,7 +15,7 @@ import XCTest
         app.launchArguments = ["--spike", "--spike-machines", ports, "-ace.appearance", "dark"]
         app.launch()
         defer { app.terminate() }
-        XCTAssertTrue(app.buttons["inbox.settings"].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.inboxReady.waitForExistence(timeout: 30))
         app.openBrowseDestination("library.agents")
 
         let limit = element("setting.threads.limitPolicy", in: app)

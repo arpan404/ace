@@ -71,7 +71,6 @@ struct KeyboardSettingsView: View {
 /// One shortcut's keys: pressed on a hardware keyboard, or set with the modifier switches and
 /// the key menu. A clash or a key the system keeps is named under the keys and Save waits.
 struct ShortcutEditor: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let entry: PhoneKeymapTable.Entry
     @AppStorage(PhoneKeymap.storageKey) private var stored = ""
     @Environment(\.dismiss) private var dismiss
@@ -105,20 +104,20 @@ struct ShortcutEditor: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AceDesign.Space.row)
-                .background { KeyCapture { mods, pressed in withAnimation(AceDesign.Motion.arriving(reduceMotion)) { modifiers = mods; key = pressed } } }
+                .background { KeyCapture { mods, pressed in withAnimation { modifiers = mods; key = pressed } } }
                 .listRowBackground(Color.clear)
             }
             Section {
                 ForEach(Self.modifierRows, id: \.0) { id, name, symbol in
                     InsetRow(systemImage: symbol, title: name) {
                         Toggle(name, isOn: Binding(get: { modifiers.contains(id) }, set: { on in
-                            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { if on { modifiers.insert(id) } else { modifiers.remove(id) } }
+                            withAnimation { if on { modifiers.insert(id) } else { modifiers.remove(id) } }
                         })).labelsHidden()
                         .accessibilityIdentifier("shortcut.modifier.\(id)")
                     }
                 }
                 InsetRow(systemImage: "keyboard", title: "Key") {
-                    Picker("Key", selection: Binding(get: { key }, set: { next in withAnimation(AceDesign.Motion.arriving(reduceMotion)) { key = next } })) {
+                    Picker("Key", selection: Binding(get: { key }, set: { next in withAnimation { key = next } })) {
                         ForEach(PhoneKeymapTable.keyOrder, id: \.self) { value in Text(PhoneKeymapTable.keyNames[value] ?? value).tag(value) }
                     }
                     .labelsHidden().pickerStyle(.menu)

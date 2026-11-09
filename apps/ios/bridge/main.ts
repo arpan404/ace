@@ -4,7 +4,7 @@ import { forgetNativeTurnSteps } from "./read-snapshots.ts";
 import type { TurnStepsStore } from "@ace/client/turn-steps";
 import { ClientCore } from "@ace/client";
 import { z } from "zod";
-import { DeviceId, HostId, SettingsValues } from "@ace/protocol";
+import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
 import { ProjectManage } from "./project-manage.ts";
@@ -32,6 +32,7 @@ import { HostCare } from "./host-care.ts";
 import { followMachineIdentity } from "./machine-identity.ts";
 import { followProjectLooks } from "./project-looks.ts";
 import { NotificationAction, NotificationBridge } from "./notifications.ts";
+import { NeedsAction, followNeeds, type NeedsFollow } from "./inbox-needs.ts";
 import { Sheets } from "./sheets.ts";
 import { ChangesKept } from "./changes-kept.ts";
 import { keptValue } from "./kept-value.ts";
@@ -66,12 +67,19 @@ import { NativeWorkspace, WorkspaceAction } from "./workspace.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
+  /** This app install (ADR 0115), sent in every hello so the machine sees one device. */
+  installId: InstallId.optional().catch(undefined),
+  /** This install's other device id on the same machine (ADR 0115): its saved sends are ours. */
+  deviceAliases: z.array(DeviceId).max(4).optional().catch(undefined),
   hostId: HostId,
   itemLimit: z.number().int().min(200).max(2200),
   /** A paired machine: each socket attempt exchanges the Keychain token for a fresh ticket. */
   paired: z.strictObject({ secretKey: z.string().min(1).max(1024) }).optional(),
-  /** A machine on the phone's ace account, through ace's relay: device grants (ADR 0111). */
-  account: z.strictObject({}).optional(),
+  /**
+   * A machine on the phone's ace account, through ace's relay: device grants (ADR 0111), and
+   * the proof of this install's pairing with it (`link`, ADR 0115); a malformed proof is dropped.
+   */
+  account: z.strictObject({ link: PairingLinkProof.optional().catch(undefined) }).optional(),
   /** The sort the inbox checkpoint was drawn in, so the live list opens in the same order. */
   inboxSort: SettingsValues.shape["threads.sortBy"].optional().catch(undefined),
 });
@@ -127,6 +135,8 @@ let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 let inbox: InboxFollow | undefined;
+/** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
+let needs: NeedsFollow | undefined;
 let terminal: NativeTerminal | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
@@ -158,6 +168,7 @@ const visit = new ThreadVisit(
       transfers?.follow(undefined);
     },
     opened(threadId, epoch, store) {
+      if (client) sheets.follow({ owner: client, store, threadId, epoch });
       browser?.probe(threadId, epoch);
       transfers?.follow({ threadId, epoch, store });
     },
@@ -194,7 +205,7 @@ async function start(json: string): Promise<void> {
   const credential = paired
     ? pairedCredential(nativeHttp, () => call("secret.get", paired.secretKey), trust)
     : account
-      ? accountCredential(account)
+      ? accountCredential(account, config.account?.link)
       : async () =>
           z
             .union([z.strictObject({ token: z.string() }), z.strictObject({ ticket: z.string() })])
@@ -217,6 +228,8 @@ async function start(json: string): Promise<void> {
   }
   client = new ClientCore({
     deviceId: config.deviceId,
+    ...(config.installId ? { installId: config.installId } : {}),
+    ...(config.deviceAliases ? { deviceAliases: config.deviceAliases } : {}),
     // An account machine's key is pinned by the relay handshake; its welcome names the
     // daemon's own id, not the relay host id this runtime is keyed by.
     ...(account ? {} : { expectedHostId: config.hostId }),
@@ -250,6 +263,14 @@ async function start(json: string): Promise<void> {
     id: () => host.uuid(),
     random: () => host.random(),
     now: () => host.now(),
+    // Every drop and recovery, with its close code and reason, goes to the device log.
+    report: (event) =>
+      pump.put("connection.event", () => ({
+        type: "connection.event",
+        text: `${event.event} ${Object.entries(event.data ?? {})
+          .map(([key, value]) => `${key}=${String(value)}`)
+          .join(" ")}`,
+      })),
   });
   const connection = client.connectionState();
   notifications = new NotificationBridge(
@@ -292,6 +313,8 @@ async function start(json: string): Promise<void> {
     config.inboxSort,
     dismissed,
   );
+  needs?.stop();
+  needs = followNeeds(client, pump);
   // Each project's mark, sent once and referenced by the rows (`project-looks.ts`).
   followProjectLooks(client, pump);
   followMachine(client, pump, trust);
@@ -488,6 +511,12 @@ function action(json: string): void {
       else error();
       return;
     }
+    const need = NeedsAction.safeParse(raw);
+    if (need.success) {
+      if (needs) needs.handle(need.data);
+      else error();
+      return;
+    }
     const notice = NotificationAction.safeParse(raw);
     if (notice.success) {
       if (notifications) notifications.handle(notice.data);
@@ -544,7 +573,7 @@ function action(json: string): void {
       case "machine.code":
         try {
           gate?.enter(value.code);
-          client.reconnectNow();
+          client.codeEntered();
         } catch {
           pump.put("machine.code", () => ({
             type: "machine.code",

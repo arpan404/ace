@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { close, fchmod, fstat, fsync, read, write, type Stats } from "node:fs";
-import { promisify } from "node:util";
 import { basename, dirname } from "node:path";
 import {
   createCommandFile,
@@ -19,27 +17,23 @@ import {
 } from "./posix.ts";
 import { commandEntryIsLink } from "./posix.ts";
 import { exchangeCommandEntriesThrough } from "./posix.ts";
-import { commandEntryExists } from "./posix.ts";
+import { DirectoryListingTruncated, commandEntryExists, commandRootSettled } from "./posix.ts";
 import { skillFolderLimits } from "./limits.ts";
 import type { FolderFile } from "./skill-source.ts";
 import { SkillError } from "./skill-errors.ts";
+import {
+  rootLane,
+  chmodCommandFd,
+  closeCommandFd,
+  readCommandFd,
+  statCommandFd,
+  syncCommandFd,
+  writeCommandFd,
+  type CommandCalls,
+  type CommandStat,
+} from "./posix-calls.ts";
+import { writeOutcomeUnknown } from "./posix-ops.ts";
 
-const closeFd = promisify(close),
-  statFd = promisify(fstat),
-  syncFd = promisify(fsync),
-  chmodFd = promisify(fchmod);
-const readFd = (fd: number, buffer: Buffer, position: number) =>
-  new Promise<number>((accept, reject) =>
-    read(fd, buffer, 0, buffer.length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
-const writeFd = (fd: number, buffer: Buffer, offset: number, length: number, position: number) =>
-  new Promise<number>((accept, reject) =>
-    write(fd, buffer, offset, length, position, (error, bytes) =>
-      error ? reject(error) : accept(bytes),
-    ),
-  );
 const chunk = 64 * 1024;
 const tooLarge = () =>
   new SkillError(
@@ -65,12 +59,31 @@ interface Budget {
  */
 export class SkillDisk {
   private readonly openChild: OpenCommandChild;
-  constructor(openChild: OpenCommandChild = openCommandChild) {
-    this.openChild = openChild;
+  private readonly rawOpenChild: OpenCommandChild;
+  /** Whose calls these are: cancelling the owner fails its queued calls at once. */
+  readonly calls: CommandCalls | undefined;
+  constructor(openChild: OpenCommandChild = openCommandChild, calls?: CommandCalls) {
+    this.rawOpenChild = openChild;
+    this.calls = calls;
+    this.openChild = (directory, name, flags) => openChild(directory, name, flags, calls);
+  }
+  // Every descriptor call, close included, runs on its root's thread with a deadline.
+  private closeFd(fd: number): Promise<void> {
+    return closeCommandFd(fd, this.calls);
+  }
+  private statFd(fd: number): Promise<CommandStat> {
+    return statCommandFd(fd, this.calls);
+  }
+  private readFd(fd: number, buffer: Buffer, position: number): Promise<number> {
+    return readCommandFd(fd, buffer, 0, buffer.length, position, this.calls);
+  }
+  private writeFd(fd: number, buffer: Buffer, offset: number, length: number, position: number) {
+    return writeCommandFd(fd, buffer, offset, length, position, this.calls);
   }
   /** A resolved directory, or `undefined` when any component is missing or is a link. */
-  async openPath(real: string): Promise<number | undefined> {
-    return openResolvedDirectory(this.openChild, real).catch(() => undefined);
+  /** `lane` defaults to the folder's skill root's, the one every skill call on it shares. */
+  async openPath(real: string, lane = rootLane(real)): Promise<number | undefined> {
+    return openResolvedDirectory(this.openChild, real, this.calls, lane).catch(() => undefined);
   }
   /**
    * Whether a resolved path is confirmed gone: its parent opens (pinned, no links) and its
@@ -84,7 +97,7 @@ export class SkillDisk {
     } catch {
       return false;
     } finally {
-      await closeFd(parent);
+      await this.closeFd(parent);
     }
   }
   /** A child directory that is not a link, or `undefined`. */
@@ -97,8 +110,9 @@ export class SkillDisk {
     rootReal: string,
     name: string,
     work: (root: number, folder: number) => Promise<T>,
+    lane = rootLane(rootReal),
   ): Promise<T> {
-    const root = await this.openPath(rootReal);
+    const root = await this.openPath(rootReal, lane);
     if (root === undefined)
       throw new SkillError("read_only", "This skill's folder moved. Reload the list.");
     try {
@@ -108,25 +122,26 @@ export class SkillDisk {
       try {
         return await work(root, folder);
       } finally {
-        await closeFd(folder);
+        await this.closeFd(folder);
       }
     } finally {
-      await closeFd(root);
+      await this.closeFd(root);
     }
   }
   async names(directory: number): Promise<string[]> {
     const fd = await this.openChild(directory, ".", directoryFlags);
-    const reader = await directoryReader(fd).catch(async (error: unknown) => {
-      await closeFd(fd);
-      throw error;
-    });
+    // The reader takes the descriptor in every case, including when it fails.
+    const limit = skillFolderLimits.files * 2;
+    const reader = await directoryReader(fd, this.calls, limit);
     const names: string[] = [];
     try {
       for (let name = await reader.read(); name !== undefined; name = await reader.read()) {
         if (name === "." || name === "..") continue;
-        if (names.length >= skillFolderLimits.files * 2) throw tooLarge();
+        if (names.length >= limit) throw tooLarge();
         names.push(name);
       }
+    } catch (error) {
+      throw error instanceof DirectoryListingTruncated ? tooLarge() : error;
     } finally {
       await reader.close();
     }
@@ -137,53 +152,57 @@ export class SkillDisk {
     const fd = await this.openChild(directory, name, fileFlags).catch(() => undefined);
     if (fd === undefined) return undefined;
     try {
-      const info = await statFd(fd);
+      const info = await this.statFd(fd);
       if (!info.isFile()) return undefined;
       if (info.size > limit) throw new SkillError("limit", "SKILL.md can be up to 256 KB.");
       const buffer = Buffer.alloc(limit + 1);
       let offset = 0;
       for (;;) {
-        const count = await readFd(fd, buffer.subarray(offset), offset);
+        const count = await this.readFd(fd, buffer.subarray(offset), offset);
         if (!count) break;
         offset += count;
         if (offset > limit) throw new SkillError("limit", "SKILL.md can be up to 256 KB.");
       }
       return buffer.subarray(0, offset);
     } finally {
-      await closeFd(fd);
+      await this.closeFd(fd);
     }
   }
   /** Write `bytes` to a new file (exclusive create, no links) and flush it. */
   async writeNew(directory: number, name: string, bytes: Buffer, mode: number): Promise<void> {
-    const fd = await createCommandFile(directory, name).catch(() => {
-      throw new SkillError("unavailable", "Couldn't write this skill. Check its permissions.");
+    const fd = await createCommandFile(directory, name, this.calls).catch((error: unknown) => {
+      // A create that timed out may still land; that isn't a permissions problem.
+      throw (
+        writeOutcomeUnknown(error) ??
+        new SkillError("unavailable", "Couldn't write this skill. Check its permissions.")
+      );
     });
     try {
       let at = 0;
       while (at < bytes.length) {
-        const count = await writeFd(fd, bytes, at, bytes.length - at, at);
+        const count = await this.writeFd(fd, bytes, at, bytes.length - at, at);
         if (!count) throw new SkillError("unavailable", "Couldn't write this skill.");
         at += count;
       }
-      await chmodFd(fd, mode);
-      await syncFd(fd);
+      await chmodCommandFd(fd, mode, this.calls);
+      await syncCommandFd(fd, this.calls);
     } finally {
-      await closeFd(fd);
+      await this.closeFd(fd);
     }
   }
   async rename(fromDirectory: number, from: string, toDirectory: number, to: string) {
-    if (!(await renameCommandEntry(fromDirectory, from, toDirectory, to)))
+    if (!(await renameCommandEntry(fromDirectory, from, toDirectory, to, this.calls)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
   /** Move `from` to `to` in one pinned directory, only while `to` is free. */
   async move(directory: number, from: string, to: string): Promise<void> {
-    if (!(await renameCommandEntryAs("noReplace", directory, from, directory, to)))
+    if (!(await renameCommandEntryAs("noReplace", directory, from, directory, to, this.calls)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
   /** Swap two entries of one pinned directory atomically: there is no moment without either. */
   async exchange(directory: number, first: string, second: string): Promise<void> {
     if (process.platform === "win32") return this.exchangeOnWindows(directory, first, second);
-    if (!(await renameCommandEntryAs("exchange", directory, first, directory, second)))
+    if (!(await renameCommandEntryAs("exchange", directory, first, directory, second, this.calls)))
       throw new SkillError("unavailable", "Couldn't move this skill's files.");
   }
   /** Windows only: the free name each swap backup trades places through, from its journal. */
@@ -196,8 +215,8 @@ export class SkillDisk {
   private async openWindowsDirectory(parent: number, name: string): Promise<number | undefined> {
     const fd = await this.openChild(parent, name, directoryFlags).catch(() => undefined);
     if (fd === undefined) return undefined;
-    if ((await statFd(fd).catch(() => undefined))?.isDirectory()) return fd;
-    await closeFd(fd);
+    if ((await this.statFd(fd).catch(() => undefined))?.isDirectory()) return fd;
+    await this.closeFd(fd);
     return undefined;
   }
   /**
@@ -214,7 +233,7 @@ export class SkillDisk {
   }
   /** Device and inode of an open descriptor: exactly the directory that will be acted on. */
   async identityOf(fd: number): Promise<DirectoryIdentity> {
-    const info = await statFd(fd);
+    const info = await this.statFd(fd);
     return { dev: info.dev, ino: info.ino };
   }
   /** Device and inode of a child directory that isn't a link, or `undefined`. */
@@ -222,15 +241,15 @@ export class SkillDisk {
     const fd = await this.openDirectory(parent, name);
     if (fd === undefined) return undefined;
     try {
-      const info = await statFd(fd);
+      const info = await this.statFd(fd);
       return { dev: info.dev, ino: info.ino };
     } finally {
-      await closeFd(fd);
+      await this.closeFd(fd);
     }
   }
   /** A child link's stored text; `undefined` when `name` is missing or isn't a link. */
   async readLink(parent: number, name: string): Promise<string | undefined> {
-    return readCommandLink(parent, name).catch(() => undefined);
+    return readCommandLink(parent, name, this.calls).catch(() => undefined);
   }
   /** Windows: whether `name` is a link, through the pinned handle even after the folder moved. */
   async windowsLink(parent: number, name: string): Promise<boolean> {
@@ -242,26 +261,26 @@ export class SkillDisk {
     if ((await this.readLink(parent, name)) !== undefined) return true;
     const fd = await this.openChild(parent, name, fileFlags).catch(() => undefined);
     if (fd === undefined) return false;
-    await closeFd(fd);
+    await this.closeFd(fd);
     return true;
   }
   /** symlinkat in the pinned directory; false when `name` already exists. */
   async symlink(parent: number, target: string, name: string): Promise<boolean> {
-    return linkCommandEntry(target, parent, name);
+    return linkCommandEntry(target, parent, name, this.calls);
   }
   closeDirectory(fd: number): Promise<void> {
-    return closeFd(fd);
+    return this.closeFd(fd);
   }
   /** rmdir of an empty child; a link or a different entry of that name fails. */
   async removeEmptyDirectory(parent: number, name: string): Promise<void> {
-    if (!(await removeCommandEntry(parent, name, true)))
+    if (!(await removeCommandEntry(parent, name, true, this.calls)))
       throw new SkillError("unavailable", "Couldn't remove this skill's folder.");
   }
   async makeDirectory(parent: number, name: string): Promise<boolean> {
-    return makeCommandDirectory(parent, name, 0o755);
+    return makeCommandDirectory(parent, name, 0o755, this.calls);
   }
   async removeFile(directory: number, name: string): Promise<void> {
-    await removeCommandEntry(directory, name, false);
+    await removeCommandEntry(directory, name, false, this.calls);
   }
   /** Everything inside a pinned directory; links are removed, never followed. */
   async empty(directory: number, depth = 0): Promise<void> {
@@ -272,27 +291,46 @@ export class SkillDisk {
         try {
           await this.empty(child, depth + 1);
         } finally {
-          await closeFd(child);
+          await this.closeFd(child);
         }
-        if (!(await removeCommandEntry(directory, name, true)))
+        if (!(await removeCommandEntry(directory, name, true, this.calls)))
           throw new SkillError("unavailable", "Couldn't remove this skill's files.");
-      } else if (!(await removeCommandEntry(directory, name, false)))
+      } else if (!(await removeCommandEntry(directory, name, false, this.calls)))
         throw new SkillError("unavailable", "Couldn't remove this skill's files.");
     }
+  }
+  /**
+   * In the background, once nothing abandoned under `rootReal` can still land, remove `name`
+   * from it, reopening the root by path since an abandoned thread's handles are gone.
+   */
+  removeWhenSettled(rootReal: string, name: string, lane = rootLane(rootReal)): void {
+    // Cleanup, not the owner's work: it runs even after the owner is cancelled.
+    const disk = new SkillDisk(this.rawOpenChild);
+    void commandRootSettled(lane)
+      .then(async () => {
+        const root = await disk.openPath(rootReal, lane);
+        if (root === undefined) return;
+        try {
+          await disk.remove(root, name);
+        } finally {
+          await closeCommandFd(root);
+        }
+      })
+      .catch(() => {});
   }
   /** Remove `name` from a pinned parent: a directory's contents first, a link only as itself. */
   async remove(parent: number, name: string): Promise<void> {
     const child = await this.openDirectory(parent, name);
     if (child === undefined) {
-      await removeCommandEntry(parent, name, false);
+      await removeCommandEntry(parent, name, false, this.calls);
       return;
     }
     try {
       await this.empty(child);
     } finally {
-      await closeFd(child);
+      await this.closeFd(child);
     }
-    await removeCommandEntry(parent, name, true);
+    await removeCommandEntry(parent, name, true, this.calls);
   }
   /**
    * Every file below a pinned directory with its SHA-256, streamed in bounded chunks. Links are
@@ -319,7 +357,7 @@ export class SkillDisk {
         try {
           await this.visit(child, path, depth + 1, files, budget);
         } finally {
-          await closeFd(child);
+          await this.closeFd(child);
         }
         continue;
       }
@@ -331,26 +369,26 @@ export class SkillDisk {
   private async fileEntry(directory: number, name: string, budget: Budget): Promise<FolderFile> {
     const fd = await this.openChild(directory, name, fileFlags).catch(() => undefined);
     if (fd === undefined) {
-      const target = await readCommandLink(directory, name).catch(() => {
+      const target = await readCommandLink(directory, name, this.calls).catch(() => {
         throw new SkillError("unavailable", "Couldn't read this skill's files.");
       });
       return { hash: `link:${target}`, executable: false };
     }
     try {
-      const info = await statFd(fd);
+      const info = await this.statFd(fd);
       if (!info.isFile()) return { hash: `special:${info.mode}`, executable: false };
       return { hash: await this.hash(fd, info, budget), executable: (info.mode & 0o111) !== 0 };
     } finally {
-      await closeFd(fd);
+      await this.closeFd(fd);
     }
   }
-  private async hash(fd: number, info: Stats, budget: Budget): Promise<string> {
+  private async hash(fd: number, info: CommandStat, budget: Budget): Promise<string> {
     if (info.size > skillFolderLimits.fileBytes) throw tooLarge();
     const digest = createHash("sha256");
     const buffer = Buffer.alloc(chunk);
     let size = 0;
     for (;;) {
-      const count = await readFd(fd, buffer, size);
+      const count = await this.readFd(fd, buffer, size);
       if (!count) break;
       size += count;
       budget.bytes += count;
@@ -375,10 +413,10 @@ export class SkillDisk {
           try {
             await this.copy(child, target, depth + 1);
           } finally {
-            await closeFd(target);
+            await this.closeFd(target);
           }
         } finally {
-          await closeFd(child);
+          await this.closeFd(child);
         }
         continue;
       }
@@ -388,27 +426,27 @@ export class SkillDisk {
   private async copyFile(from: number, to: number, name: string): Promise<void> {
     const source = await this.openChild(from, name, fileFlags);
     try {
-      const info = await statFd(source);
+      const info = await this.statFd(source);
       if (!info.isFile()) throw new SkillError("update_failed", "Staged entry isn't a file.");
-      const target = await createCommandFile(to, name);
+      const target = await createCommandFile(to, name, this.calls);
       try {
         const buffer = Buffer.alloc(chunk);
         let at = 0;
         for (;;) {
-          const count = await readFd(source, buffer, at);
+          const count = await this.readFd(source, buffer, at);
           if (!count) break;
           let written = 0;
           while (written < count)
-            written += await writeFd(target, buffer, written, count - written, at + written);
+            written += await this.writeFd(target, buffer, written, count - written, at + written);
           at += count;
         }
-        await chmodFd(target, (info.mode & 0o111) !== 0 ? 0o755 : 0o644);
-        await syncFd(target);
+        await chmodCommandFd(target, (info.mode & 0o111) !== 0 ? 0o755 : 0o644, this.calls);
+        await syncCommandFd(target, this.calls);
       } finally {
-        await closeFd(target);
+        await this.closeFd(target);
       }
     } finally {
-      await closeFd(source);
+      await this.closeFd(source);
     }
   }
 }

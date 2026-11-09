@@ -82,12 +82,20 @@ export function summarizeOutput(
     truncated: bytes > encoder.encode(tail).length,
   };
 }
+/**
+ * Whether a text carries its stream's end, so a delta extends it: a whole text, or a preview
+ * marked as the tail. An unmarked preview starts at the head and is whole only when it is as long
+ * as the stream.
+ */
+export function holdsTail(text: string, source: TextSource | undefined): boolean {
+  return !source || (source.offset ?? 0) + text.length * 2 === source.bytes;
+}
 function appendText(
   target: { text: string; source?: TextSource | undefined },
   append: string,
 ): void {
   const source = target.source;
-  if (!source || source.bytes === target.text.length * 2) target.text += append;
+  if (holdsTail(target.text, source)) target.text += append;
   if (source) target.source = { ...source, bytes: source.bytes + append.length * 2 };
 }
 /** Text and reasoning both append to reasoning/notice; messages accept only text.

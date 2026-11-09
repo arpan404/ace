@@ -38,6 +38,7 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
   const machine = useHostIdentity()?.displayName;
   const toast = useToast();
   const session = props.use.session;
+  const platform = props.use.snapshot.permissions?.platform;
   /** Whether this machine's own sharing dialog picks what is shared, from its last listing. */
   const [dialogPicks, setDialogPicks] = useState(false);
   const chooser = inventory
@@ -80,14 +81,14 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
       })
       .catch((cause: unknown) => {
         if (active) {
-          const problem = describeProblem(cause);
+          const problem = describeProblem(cause, undefined, platform);
           setError(`${problem.title}. ${problem.hint ?? "Try again."}`);
         }
       });
     return () => {
       active = false;
     };
-  }, [open, session, attempt]);
+  }, [open, session, attempt, platform]);
   const share = async (chosen: ScreenTarget | undefined) => {
     if (!session || !agentId || !chosen || chosen.kind === "display") return;
     setBusy(true);
@@ -115,10 +116,10 @@ export function SharePicker(props: { use: ComputerUse; threadId: string }) {
     } catch (cause) {
       if (started) await session.request({ op: "stop", sessionId: started }).catch(() => {});
       if (cancelled.current) return;
-      const problem = describeProblem(cause);
+      const problem = describeProblem(cause, undefined, platform);
       const sentence =
         chosen.kind === "chooser" && cause instanceof ScreenClientError
-          ? chooserFailure(cause.errorCode, cause.message)
+          ? chooserFailure(cause.errorCode, cause.message, platform)
           : `${problem.title}. ${problem.hint ?? "Try again."}`;
       setError(sentence);
       // The person closed this while the machine's dialog waited: say how it ended anyway.

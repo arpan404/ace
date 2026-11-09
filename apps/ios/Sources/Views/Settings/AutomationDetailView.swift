@@ -24,7 +24,7 @@ struct AutomationDetailView: View {
     @Environment(\.automationLinks) private var links
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var zone: String { TimeZone.current.identifier }
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
 
     /// Opens on the row the list last read, so its words show in the first frame.
     init(model: ClientModel, id: String) {
@@ -342,7 +342,7 @@ struct AutomationRunView: View {
                         .accessibilityIdentifier("automation.run.again.\(run.id)")
                 }
                 if (run.body?.count ?? 0) > 220 {
-                    Button(expanded ? "Show less" : "Show all") { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { expanded.toggle() } }
+                    Button(expanded ? "Show less" : "Show all") { withAnimation { expanded.toggle() } }
                 }
             }
             .buttonStyle(.borderless)

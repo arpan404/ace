@@ -165,7 +165,12 @@ export async function accessRequest(
     agent?.destroy();
   }
 }
-export async function redeemPairing(url: string, name: string): Promise<DeviceCredential> {
+/** `installId`: the redeeming install (ADR 0115); pairing it again keeps its one device. */
+export async function redeemPairing(
+  url: string,
+  name: string,
+  installId?: string,
+): Promise<DeviceCredential> {
   const link = parsePairingLink(url);
   if (!link.daemon.startsWith("https:"))
     throw new Error("Pairing requires an HTTPS URL with credentials in its fragment");
@@ -173,7 +178,7 @@ export async function redeemPairing(url: string, name: string): Promise<DeviceCr
     await accessRequest(new URL(link.daemon).origin, "/v1/pair", {
       method: "POST",
       fingerprint: link.fingerprint,
-      body: { code: link.code, name },
+      body: { code: link.code, name, ...(installId ? { installId } : {}) },
     }),
   );
 }

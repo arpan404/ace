@@ -21,7 +21,8 @@ struct ForkStrip: View {
                     .accessibilityIdentifier("composer.fork.cancel")
             }
         }
-        .padding(.leading, AceDesign.Space.margin).padding(.trailing, AceDesign.Space.tight)
-        .padding(.top, AceDesign.Space.tight)
+        // On the field's words' left edge, just above the capsule.
+        .padding(.leading, ComposerCapsuleMetrics.aboveInset)
+        .padding(.bottom, AceDesign.Space.tight)
     }
 }

@@ -36,12 +36,16 @@ describe("the native page's context menu", () => {
   });
 
   it("on a link offers opening and copying it instead of history", () => {
-    expect(menu({ linkURL: "https://example.com/a" }).slice(0, 3)).toEqual([
+    expect(menu({ linkURL: "https://example.com/a" }).slice(0, 4)).toEqual([
       "Open link in new tab",
+      "Open link in your browser",
       "Copy link address",
       "—",
     ]);
-    expect(menu({ linkURL: "mailto:a@example.com" })[0]).toBe("Open link in new tab (off)");
+    expect(menu({ linkURL: "mailto:a@example.com" }).slice(0, 2)).toEqual([
+      "Open link in new tab (off)",
+      "Copy link address",
+    ]);
     expect(menu({ linkURL: "https://example.com/a" })).not.toContain("Back");
   });
 

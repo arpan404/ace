@@ -26,6 +26,12 @@
       "portable": false
     },
     {
+      "metric": "idle.cpuPercent",
+      "relative": 0.35,
+      "absolute": 0.2,
+      "portable": false
+    },
+    {
       "metric": "startup.heapUsed",
       "relative": 0.1,
       "absolute": 4194304,
@@ -64,7 +70,7 @@
   ],
   "platforms": {
     "darwin-arm64": {
-      "node": "v26.8.1",
+      "node": "bun 1.4.4",
       "runs": 3,
       "workload": {
         "version": 1,
@@ -84,25 +90,26 @@
         }
       },
       "metrics": {
-        "idle.cpuPerMinute": 10.177456490431691,
-        "startup.heapUsed": 65407808,
-        "startup.rss": 229736448,
-        "startup.footprint": 192668248,
-        "phases.newThreads.cpuPerTurn": 6.41396645967352,
-        "phases.newThreads.transactionsPerTurn": 138.85,
-        "phases.newThreads.heapUsed": 81371608,
-        "phases.newThreads.rss": 266043392,
-        "phases.newThreads.footprint": 236896536,
-        "phases.sameThread.cpuPerTurn": 3.6494273602796268,
-        "phases.sameThread.transactionsPerTurn": 100.025,
-        "phases.sameThread.heapUsed": 83244216,
-        "phases.sameThread.rss": 272302080,
-        "phases.sameThread.footprint": 232081344,
-        "phases.longText.cpuPerTurn": 73.35177679445705,
-        "phases.longText.transactionsPerTurn": 2119,
-        "phases.longText.heapUsed": 85185472,
-        "phases.longText.rss": 265977856,
-        "phases.longText.footprint": 224495648
+        "idle.cpuPerMinute": 22.997572271484383,
+        "idle.cpuPercent": 1.0913114628561722,
+        "startup.heapUsed": 73214773,
+        "startup.rss": 250906064,
+        "startup.footprint": 229017016,
+        "phases.newThreads.cpuPerTurn": 6.511063500983421,
+        "phases.newThreads.transactionsPerTurn": 117,
+        "phases.newThreads.heapUsed": 106572212,
+        "phases.newThreads.rss": 296011432,
+        "phases.newThreads.footprint": 296011432,
+        "phases.sameThread.cpuPerTurn": 4.193580535262713,
+        "phases.sameThread.transactionsPerTurn": 78.8,
+        "phases.sameThread.heapUsed": 109735406,
+        "phases.sameThread.rss": 248825512,
+        "phases.sameThread.footprint": 248825512,
+        "phases.longText.cpuPerTurn": 65.83792263744498,
+        "phases.longText.transactionsPerTurn": 331.6666666666667,
+        "phases.longText.heapUsed": 110881497,
+        "phases.longText.rss": 248137384,
+        "phases.longText.footprint": 248137384
       }
     }
   }

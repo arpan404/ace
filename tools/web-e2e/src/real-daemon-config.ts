@@ -1,7 +1,8 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { defaultTmpRoot, e2eLayout } from "./real-daemon-layout.ts";
 
-/** Shared by the launcher (src/real-daemon.ts) and the smoke test. */
+/** Shared by the launcher (src/real-daemon-launcher.ts), the daemon it starts and the specs. */
 /** `ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` let two checkouts run their e2e side by side. */
 export const daemonPort = Number(process.env.ACE_E2E_DAEMON_PORT ?? 4391);
 /**
@@ -12,7 +13,17 @@ export const webPort = Number(process.env.ACE_E2E_WEB_PORT ?? 5191);
 export const webOrigin = `http://127.0.0.1:${webPort}`;
 /** A phone paired before the run, so the remote settings journey can list and revoke it. */
 export const pairedDeviceName = "E2E phone";
-export const daemonHome = join(tmpdir(), process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon");
+/**
+ * The fixture layout as the launcher and the specs see it: from the system temporary root and
+ * the fixture name only, never from paths in the environment. The daemon process gets its
+ * layout from the launcher's arguments instead (its own temporary directory is inside its home),
+ * so it must not use `layout` or the paths below.
+ */
+export const layout = e2eLayout(
+  defaultTmpRoot(process.platform, tmpdir()),
+  process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon",
+);
+export const daemonHome = layout.daemonHome;
 export const daemonTokenPath = join(daemonHome, "daemon-token");
 export const workspaceName = "e2e-project";
 export const seededTitle = "Smoke test on a real daemon";
@@ -26,7 +37,8 @@ export const workspaceTitle = "Workspace actions on a real daemon";
 /** What the project's `greet` script prints when the Run button starts it. */
 export const scriptOutput = "ace e2e script ran";
 /** A local git repository with a plugin marketplace, for installing a plugin end to end. */
-export const pluginMarketPath = join(daemonHome, "plugin-market");
+export const pluginMarketIn = (home: string) => join(home, "plugin-market");
+export const pluginMarketPath = pluginMarketIn(daemonHome);
 export const pluginName = "e2e-tools";
 /** A message carrying this keeps its turn working until the person steers into it or stops it. */
 export const holdMarker = "[hold]";
@@ -51,15 +63,8 @@ export const previewTitle = "Preview on a real daemon";
 export const longTitle = "Long thread on a real daemon";
 export const longTurns = Number(process.env.ACE_E2E_LONG_TURNS ?? 110);
 export const longAsk = (n: number) => `Checkpoint ${n}: audit migration shard alpha${n}x.`;
-/**
- * Where the project journeys add, create and clone projects: the daemon's only allowed root.
- * Outside the system temp directory on macOS, whose real path sits under /private/var, a
- * folder the daemon never opens.
- */
-export const projectsRoot = join(
-  process.platform === "win32" ? tmpdir() : "/tmp",
-  `${process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon"}-projects`,
-);
+/** Where the project journeys add, create and clone projects: the daemon's only allowed root. */
+export const projectsRoot = layout.projectsRoot;
 /** A folder already in the root, for Open folder. */
 export const existingFolder = "proj-existing";
 /** A folder for the deep link journey. */

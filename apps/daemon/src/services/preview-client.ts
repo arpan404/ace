@@ -6,7 +6,7 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import { PreviewClient } from "../preview-client.ts";
-import { hostPreviewIdentity } from "../preview.ts";
+import { hostPreviewIdentity, pairedPreviewIdentity } from "../preview.ts";
 import { createPreviewSuggestions } from "../preview-suggestions/service.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -71,6 +71,7 @@ export function createPreviewClientSession({
   authorize,
   canReadThread,
   hostCredential,
+  credentialGeneration,
   device,
   send,
   connected,
@@ -109,9 +110,15 @@ export function createPreviewClientSession({
       }
       try {
         if (operation.op === "link") {
-          // The session is bound to who asked: the host credential, or this paired device,
-          // whose revocation then ends the session too.
-          const identity = hostCredential?.() ? hostPreviewIdentity : device();
+          // The session is bound to who asked: the host credential, or this paired device's
+          // current credential, whose revocation or replacement then ends the session too.
+          const id = device();
+          const generation = credentialGeneration?.();
+          const identity = hostCredential?.()
+            ? hostPreviewIdentity
+            : id && generation
+              ? pairedPreviewIdentity(id, generation)
+              : undefined;
           if (!identity) throw new Error("forbidden");
           const link = await preview.link(threadId, operation.port, identity);
           send({ ...result, ok: true, link });

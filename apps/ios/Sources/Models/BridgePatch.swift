@@ -33,6 +33,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     /// A chat with no project (ADR 0099): marked as a chat, left out of project filters.
     var chat: Bool? = nil
     var badge: String? = nil
+    /// The project's tint, 1 to 12, that stays with its id (`projectBadge`); nil for a chat.
+    var tint: Int? = nil
     var diff: Diff? = nil
     var testsRunning: Bool? = nil
     /// The pull request the thread's card names, and whether it is still in review.
@@ -103,6 +105,10 @@ struct RowLook: Codable, Sendable, Equatable {
     var meaning: String? = nil
     /// Only a thread that needs the person sets its title in semibold.
     var strong: Bool? = nil
+    /// The design language's status state (`rowStatusState`): "needs-you", "failed", "working",
+    /// "waiting", "limited", "background", "finished", "idle" or "syncing". The lock screen
+    /// counts by it. Nil from older bridges.
+    var state: String? = nil
     /// The word takes its tone's colour unless the row mutes; waiting never does.
     var loud: Bool { !muted && tone != "waiting" }
 }
@@ -232,6 +238,9 @@ struct InboxLayout: Codable, Sendable, Equatable {
         var total: Int? = nil
         /// Chats only: the section's rows are settled and draw dimmed.
         var settled: Bool? = nil
+        /// The Threads tab that lists the section ("inbox", "snoozed", "settled"); nil from older
+        /// bridges and checkpoints, which `tabs` places instead.
+        var tab: String? = nil
         var id: String { key }
     }
     struct SnoozeOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
@@ -295,6 +304,10 @@ enum BridgePatch: Decodable, Sendable {
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
     case inboxReset([String]?)
     case inbox(String, ThreadRow?)
+    /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
+    case needs(String, InboxNeeds)
+    /// The agent's last words for the needs-you run's page of a thread.
+    case needsWords(String, String)
     case threadReset(String, Int, Int?, Int?)
     case position(String, Int, String, Int?)
     case item(String, Int, String, TranscriptRow?, ItemRemoval?)
@@ -310,6 +323,8 @@ enum BridgePatch: Decodable, Sendable {
     /// `threadReset` (with revision); warm reopens diffing against the ledger use this.
     case snapshotBegin(String, Int, Int, Int?)
     case connection(String, Int?)
+    /// A connection drop or recovery as the client reported it, for the device log.
+    case connectionEvent(String)
     case pending(String, PendingRow?)
     case error(String)
     case receipt(String, Bool, String)
@@ -337,8 +352,9 @@ enum BridgePatch: Decodable, Sendable {
     case machineAppUpdate(MachineAppUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
-    /// The icon name of the mark this runtime's machine chose (`bridge/machine-identity.ts`).
-    case machineIdentity(String)
+    /// The mark this runtime's machine chose, its own id and the paths it serves
+    /// (`bridge/machine-identity.ts`).
+    case machineIdentity(MachineIdentityPatch)
     /// An account machine asks for its machine code: `machine_code_required`, `_wrong` or `_locked`; nil once answered.
     case machineCode(String?, lockedUntil: Double?)
     case notification(NotificationPatch)
@@ -378,7 +394,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -394,6 +410,8 @@ enum BridgePatch: Decodable, Sendable {
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
+        case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
+        case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))
         case "thread.reset":
             let (id, epoch) = try scope()
             self = .threadReset(id, epoch, try box.decodeIfPresent(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
@@ -424,6 +442,7 @@ enum BridgePatch: Decodable, Sendable {
         case "thread.snapshot.begin":
             let (id, epoch) = try scope()
             self = .snapshotBegin(id, epoch, try box.decode(Int.self, forKey: .revision), try box.decodeIfPresent(Int.self, forKey: .before))
+        case "connection.event": self = .connectionEvent(try box.decode(String.self, forKey: .text))
         case "connection": self = .connection(try box.decode(String.self, forKey: .state), try box.decodeIfPresent(Int.self, forKey: .generation))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
@@ -460,7 +479,7 @@ enum BridgePatch: Decodable, Sendable {
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))
-        case "machine.identity": self = .machineIdentity(try box.decode(String.self, forKey: .glyph))
+        case "machine.identity": self = .machineIdentity(try MachineIdentityPatch(from: decoder))
         case "machine.code": self = .machineCode(try box.decodeIfPresent(String.self, forKey: .asking),
                                                     lockedUntil: try box.decodeIfPresent(Double.self, forKey: .lockedUntil))
         case let kind where kind.hasPrefix("notifications."): self = .notification(try NotificationPatch(from: decoder))
@@ -491,4 +510,20 @@ enum BridgePatch: Decodable, Sendable {
         default: throw DecodingError.dataCorruptedError(forKey: .type, in: box, debugDescription: "Unknown bridge patch")
         }
     }
+}
+
+/// What a machine's runtime read from `host.identity`: the icon name of its mark, the daemon's
+/// own id, and the paths it serves (absent from older daemons and bridges).
+struct MachineIdentityPatch: Decodable, Equatable, Sendable {
+    let glyph: String
+    let hostId: String?
+    let paths: [MachinePath]?
+    init(glyph: String, hostId: String? = nil, paths: [MachinePath]? = nil) { self.glyph = glyph; self.hostId = hostId; self.paths = paths }
+    init(from decoder: any Decoder) throws {
+        let box = try decoder.container(keyedBy: Keys.self)
+        glyph = try box.decode(String.self, forKey: .glyph)
+        hostId = try? box.decodeIfPresent(String.self, forKey: .hostId)
+        paths = MachinePath.lenient(box, forKey: .paths)
+    }
+    private enum Keys: String, CodingKey { case glyph, hostId, paths }
 }

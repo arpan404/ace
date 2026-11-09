@@ -1,6 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { findExecutable } from "@ace/provider-kit/discovery";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { z } from "zod";
 import { expect, test } from "vitest";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
@@ -31,13 +31,19 @@ test.each(["acp", "antigravity"] as const)(
       await expect(
         newPluginAcpSession(launched.sessionConfig, peer, { cwd: "relative" }),
       ).rejects.toThrow("absolute");
+      // The plugin's server runs on `node`. Bun's folder has none, so the session's PATH holds
+      // one naming whichever runtime runs the tests.
+      const bin = join(f.root, "bin");
+      await mkdir(bin);
+      await symlink(process.execPath, join(bin, "node"));
+      const node = await findExecutable("node", { PATH: bin });
       const base = { name: "ace", type: "http", url: "http://127.0.0.1:1234/mcp", headers: [] };
       expect(
         await newPluginAcpSession(
           launched.sessionConfig,
           peer,
           { cwd: f.repo, mcpServers: [base] },
-          (command) => findExecutable(command, { PATH: dirname(process.execPath) }),
+          (command) => findExecutable(command, { PATH: bin }),
         ),
       ).toEqual({ sessionId: "session-1", extension: "preserved" });
       const observed = z
@@ -51,7 +57,7 @@ test.each(["acp", "antigravity"] as const)(
       expect(observed.params.mcpServers).toContainEqual(base);
       expect(observed.params.mcpServers).toContainEqual({
         name: "ace-sample__tools",
-        command: process.execPath,
+        command: node,
         args: [join(root, "generated/plugins/sample/payload/scripts/server.js"), 'a quote: "'],
         env: [{ name: "MODE", value: "local" }],
       });

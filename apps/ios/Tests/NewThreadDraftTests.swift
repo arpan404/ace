@@ -41,6 +41,84 @@ import Foundation
         #expect(next.text.isEmpty && next.commandId == nil)
         #expect(next.projectId == "ace" && next.provider == "claude" && next.machineId == "host-a")
     }
+    private func held() -> (store: NewThreadDraftStore, writer: NewThreadDraftWriter) {
+        let writer = NewThreadDraftWriter()
+        return (NewThreadDraftStore(url: FileManager.default.temporaryDirectory.appendingPathComponent("new-thread-\(UUID().uuidString).json"), writer: writer), writer)
+    }
+    /// What the file on disk holds now, read past the writer.
+    private func onDisk(_ store: NewThreadDraftStore) -> NewThreadDraft? { DraftFile<NewThreadDraft>(url: store.url).load() }
+
+    @Test func typingAHundredCharactersWritesTheDraftABoundedNumberOfTimes() {
+        let (file, writer) = held()
+        let pause = HeldDraftPause()
+        let drafts = NewThreadDraftModel(store: file, timer: pause)
+        drafts.open()
+        drafts.edit { $0.projectId = "ace" }
+        let typed = String(repeating: "Fix the map. ", count: 8).prefix(100)
+        for (index, character) in typed.enumerated() {
+            drafts.edit { $0.text.append(character) }
+            // The person pauses four times along the way.
+            if index % 25 == 24 { pause.end() }
+        }
+        drafts.leave()
+        // One write for the project, one per pause; never one per keystroke.
+        #expect(writer.writes <= 5)
+        #expect(onDisk(file)?.text == String(typed))
+    }
+    @Test func leavingTheAppWritesTheLatestDraft() {
+        let (file, writer) = held()
+        let drafts = NewThreadDraftModel(store: file, timer: HeldDraftPause())
+        drafts.open()
+        drafts.edit { $0.projectId = "ace"; $0.text = "Half" }
+        drafts.edit { $0.text = "Half a thought" }
+        writer.settle()
+        #expect(onDisk(file)?.text == "Half")
+        // The app leaves the screen before typing paused: the words are on disk once leave returns.
+        drafts.leave()
+        #expect(onDisk(file)?.text == "Half a thought")
+        #expect(NewThreadDraftModel(store: file).draft.text == "Half a thought")
+    }
+    @Test func aChoiceOrAReservedCommandIsOnDiskWithoutWaitingForAPause() {
+        let (file, writer) = held()
+        let drafts = NewThreadDraftModel(store: file, timer: HeldDraftPause())
+        drafts.edit { $0.projectId = "ace"; $0.text = "Go" }
+        writer.settle()
+        #expect(onDisk(file)?.projectId == "ace")
+        drafts.edit { $0.text = "Go now" }
+        // Sending saves the words with the command id before it is dispatched.
+        let id = drafts.reserveCommand { "command-1" }
+        #expect(onDisk(file)?.commandId == id && onDisk(file)?.text == "Go now")
+    }
+    @Test func aDraftSurvivesTheSheetBeingRebuilt() throws {
+        let (file, _) = held()
+        file.save(NewThreadDraft(projectId: "ace", text: "Set aside earlier"))
+        file.seed(NewThreadDraft(projectId: "ace", text: "Handed over", handoff: "handoff-1"))
+        let sheet = NewThreadDraftModel(store: file, timer: HeldDraftPause())
+        sheet.open()
+        sheet.edit { $0.text = "Handed over, and mine" }
+        // A photo is still being copied in, and the words aren't saved yet, when SwiftUI rebuilds
+        // the sheet and makes (and throws away) another model over the same draft.
+        let photo = try sheet.staging.stage(data: Data("photo".utf8), name: "photo.png", mimeType: "image/png")
+        sheet.edit { $0.text = "Handed over, and mine too" }
+        _ = NewThreadDraftModel(store: file, timer: HeldDraftPause())
+        sheet.picked(photo, workspaceId: "ace")
+        sheet.leave()
+        #expect(sheet.staging.holds(photo.localId))
+        #expect(onDisk(file)?.text == "Handed over, and mine too" && onDisk(file)?.files.map(\.localId) == [photo.localId])
+        #expect(file.aside.map(\.text) == ["Set aside earlier"])
+    }
+    @Test func openingTheSheetTwiceTakesBackOneDraftSetAside() {
+        let (file, _) = held()
+        file.save(NewThreadDraft(projectId: "ace", text: "First"))
+        file.seed(NewThreadDraft(projectId: "ace", text: "Second", handoff: "handoff-1"))
+        file.seed(NewThreadDraft(projectId: "ace", handoff: "handoff-2"))
+        file.save(NewThreadDraft(projectId: "ace"))
+        let sheet = NewThreadDraftModel(store: file)
+        sheet.open()
+        sheet.open()
+        #expect(sheet.draft.text == "Second")
+        #expect(file.aside.map(\.text) == ["First"])
+    }
     @Test func aViewOnlyMachineCanBrowseButCannotStartAThread() async {
         var draft = NewThreadDraft()
         draft.projectId = "ace"; draft.text = "Go"

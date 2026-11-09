@@ -11,6 +11,20 @@ struct ConnectionTarget: Sendable {
     let credential: @Sendable () throws -> String
     /// An account machine (ADR 0111): reached through ace's hosted relay with device grants.
     let relay: RelayRoute?
+    /// This app install (ADR 0115), sent in every hello.
+    var installId: String?
+    /// This install's other device id on the same machine (ADR 0115): a paired machine also on
+    /// the account is one device under its pairing's id and its account device's. Sends saved
+    /// under either one are this runtime's, so none is lost when the route changes.
+    var deviceAliases: [String] = []
+    /// An account route to a machine this install also paired: its account hello proves the
+    /// pairing (`PairingLinkProof`), so both device ids are one device on the daemon.
+    var linkedPairing: LinkedPairing?
+    /// The machine this target reaches, as the phone keys it, when that isn't this target's own
+    /// host and device: a paired machine reached through its account relay keeps its paired
+    /// identity, so it is one machine with one cache and one set of notifications on any route.
+    var machineScope: MachineScope?
+    var scope: MachineScope { machineScope ?? MachineScope(hostId: hostId, deviceId: deviceId) }
 
     /// Debug loopback fixture only: a fixed fake credential, never a paired device.
     init(endpoint: URL, hostId: String, deviceId: String, pin: String?, credential: @escaping @Sendable () throws -> String) {
@@ -51,6 +65,9 @@ struct ConnectionTarget: Sendable {
         #endif
     }
 }
+
+/// The host and device a machine's cache, outbox and notifications are bound to on this phone.
+struct MachineScope: Sendable, Equatable { let hostId: String; let deviceId: String }
 
 /// What a socket event carries: text, or a binary message's own bytes.
 enum SocketPayload: Sendable { case text(String), bytes(Data) }

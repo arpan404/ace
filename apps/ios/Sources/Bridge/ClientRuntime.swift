@@ -20,6 +20,8 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     private var early: String?
     /// How the VM thread competes for the CPU: below the machines' runtimes for background reads.
     private let priority: QualityOfService
+    /// The VM's thread; every JavaScriptCore call checks it in debug builds.
+    let vm = VMThread()
     /// Browser stream messages this runtime's sockets decode natively, for the live view.
     let browserStreams: BrowserStreamHub? = BrowserStreamHub()
 
@@ -71,18 +73,27 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
     func start(itemLimit: Int = 200) { start(itemLimit: itemLimit, inboxSort: nil) }
     func start(itemLimit: Int, inboxSort: String?) {
-        guard let target = lock.withLock({ binding.target }) else { fail("Could not load the shared client"); return }
-        let config = RuntimeConfig(deviceId: target.deviceId, hostId: target.hostId, itemLimit: itemLimit,
-                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) },
-                                   account: target.relay.map { _ in AccountConfig() }, inboxSort: inboxSort)
-        guard let json = try? JSONEncoder().encode(config) else { fail("Could not load the shared client"); return }
-        let entry = (name: "aceStart", json: String(decoding: json, as: UTF8.self))
+        guard let target = lock.withLock({ binding.target }),
+              let json = Self.startConfig(target, itemLimit: itemLimit, inboxSort: inboxSort) else { fail("Could not load the shared client"); return }
+        let entry = (name: "aceStart", json: json)
         if lock.withLock({ thread == nil }) { boot(then: entry); return }
         // Warm: the bundle is evaluated (or evaluating) on its thread; the entry runs after it.
         execute { [weak self] context in self?.run(entry, in: context) }
     }
+    /// What the client bundle's entry starts with. An account route to a machine this install
+    /// also paired carries the pairing's proof, read once from the Keychain; never its token.
+    static func startConfig(_ target: ConnectionTarget, itemLimit: Int, inboxSort: String?,
+                            secrets: any SecretStore = KeychainSecrets()) -> String? {
+        let config = RuntimeConfig(deviceId: target.deviceId, installId: target.installId,
+                                   deviceAliases: target.deviceAliases.isEmpty ? nil : target.deviceAliases, hostId: target.hostId, itemLimit: itemLimit,
+                                   paired: target.secretKey.map { PairedConfig(secretKey: $0) },
+                                   account: target.relay.map { _ in AccountConfig(link: PairingLinkProof.of(target, secrets: secrets)) },
+                                   inboxSort: inboxSort)
+        return (try? JSONEncoder().encode(config)).map { String(decoding: $0, as: UTF8.self) }
+    }
     func startAccess(_ json: String) { boot(then: (name: "aceAccess", json: json)) }
     private func run(_ entry: (name: String, json: String), in context: JSContext) {
+        vm.check("entry \(entry.name)")
         let starting = LaunchTrace.begin("script.start", entry.name)
         defer { starting.end() }
         guard let function = context.objectForKeyedSubscript(entry.name), !function.isUndefined else {
@@ -140,6 +151,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         worker.name = "ace.client.javascript"
         worker.qualityOfService = priority
         lock.withLock { thread = worker }
+        vm.adopt(worker)
         worker.start()
         ready.wait()
     }
@@ -148,6 +160,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
         guard let runLoop else { return }
         CFRunLoopPerformBlock(runLoop, CFRunLoopMode.defaultMode.rawValue) { [weak self] in
             guard let self, !self.lock.withLock({ self.stopped }), let context = self.context else { return }
+            self.vm.check("execute")
             let began = CACurrentMediaTime()
             HostTrace.measure("js.run") { autoreleasepool { work(context) } }
             let spent = CACurrentMediaTime() - began
@@ -176,18 +189,10 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
     }
 }
 private struct PairedConfig: Encodable { let secretKey: String }
-/// An account machine: each connection presents a device grant (`account.grant`).
-private struct AccountConfig: Encodable {}
+/// An account machine: each connection presents a device grant (`account.grant`), and the
+/// proof of this install's pairing with it when it has one (`link`).
+private struct AccountConfig: Encodable { let link: PairingLinkProof? }
 private struct RuntimeConfig: Encodable {
-    let deviceId: String; let hostId: String; let itemLimit: Int
+    let deviceId: String; let installId: String?; let deviceAliases: [String]?; let hostId: String; let itemLimit: Int
     let paired: PairedConfig?; let account: AccountConfig?; let inboxSort: String?
-}
-/// The value is retained across an async native operation, then read/released only on the VM thread.
-final class Callback: @unchecked Sendable {
-    let value: JSValue
-    private let traced: String?
-    private let began: Double
-    init(_ value: JSValue, traced: String? = nil, began: Double = 0) { self.value = value; self.traced = traced; self.began = began }
-    /// Adds the operation's time, request to native reply, to the host totals when traced.
-    func finish() { if let traced { HostTrace.add("host.call:" + traced, seconds: CACurrentMediaTime() - began) } }
 }

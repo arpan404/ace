@@ -28,6 +28,8 @@ export interface Host {
   readonly version?: string;
   /** The OS host.identity reports; absent, as an older daemon's. */
   readonly platform?: string | undefined;
+  /** How else the machine says it is reached (`host.identity` paths); absent, none said. */
+  readonly paths?: readonly import("@ace/protocol").MachinePath[] | undefined;
   readonly head: number;
   readonly duplicateEvents: boolean;
   /**
@@ -39,6 +41,12 @@ export interface Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
+  /** One thread's agents, runs, interactions or background tasks, newest last, one page. */
+  entities?(
+    threadId: string,
+    collection: import("@ace/protocol").EntityCollection,
+    limit: number,
+  ): import("@ace/protocol").EntitiesPage | undefined;
   /** Full shell output for `output.read`; a host without a stream store answers not_found. */
   output?(
     streamId: string,
@@ -186,6 +194,7 @@ export class Connection {
             version: this.host.version ?? "fake",
             ...(this.host.platform ? { platform: this.host.platform } : {}),
           },
+          ...(this.host.paths ? { paths: [...this.host.paths] } : {}),
         });
         return;
       }
@@ -237,6 +246,12 @@ export class Connection {
       case "unsubscribe":
         this.subscriptions.delete(message.subscriptionId);
         return;
+      case "entities.page": {
+        const page = this.host.entities?.(message.threadId, message.collection, message.limit);
+        if (page) this.send({ type: "entities.page", requestId: message.requestId, page });
+        else this.error("not_found", { requestId: message.requestId });
+        return;
+      }
       case "items.page": {
         const page = this.host.page(message.threadId, message.before, message.limit);
         if (page) this.send({ type: "items.page", requestId: message.requestId, ...page });

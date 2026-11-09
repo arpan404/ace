@@ -30,6 +30,7 @@ struct SystemAuthorizer: NotificationAuthorizer {
     private enum Keys {
         static let enabled = "ace.notifications.enabled", asked = "ace.notifications.asked"
         static let muted = "ace.notifications.mutedMachines"
+        static let liveActivity = "ace.lockScreen.liveActivity"
     }
 
     private(set) var enabled: Bool
@@ -48,9 +49,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
     var model: ClientModel? { machines.first?.model }
     /// Local notices (an action that couldn't finish) and withdrawals; no ledger of its own.
     @ObservationIgnored let notifier: LocalNotifier
+    /// Every machine's alerts land here: one per thread, bursts of finishes folded into one.
+    @ObservationIgnored let desk: AlertDesk
     @ObservationIgnored private let center: any NotificationCenterPort
     @ObservationIgnored private let authorizer: any NotificationAuthorizer
-    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let now: () -> Double
     @ObservationIgnored private(set) var foreground = true
     @ObservationIgnored private var outcomes: [String: Waiter<NotificationPatch.ActionOutcome>] = [:]
@@ -62,19 +65,34 @@ struct SystemAuthorizer: NotificationAuthorizer {
     @ObservationIgnored var transient: [ClientModel] = []
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
+    /// The one Live Activity and the widgets' snapshot, across every attached machine.
+    @ObservationIgnored let lockScreen: LockScreenHub
+    /// Approvals the daemon alerted about, by host and thread, for the Live Activity's
+    /// Allow/Deny; and which alert raised each, so a retraction drops it.
+    @ObservationIgnored var approvals: [String: LockRequest] = [:]
+    @ObservationIgnored var approvalAlerts: [String: String] = [:]
+    /// Settings › Notifications › Live Activity.
+    private(set) var liveActivity: Bool
 
     init(center: any NotificationCenterPort = SystemNotificationCenter(), authorizer: any NotificationAuthorizer = SystemAuthorizer(),
          defaults: UserDefaults = .standard, now: @escaping () -> Double = { Date().timeIntervalSince1970 * 1000 },
          sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
          makeId: @escaping () -> String = { UUID().uuidString.lowercased() },
-         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect) {
-        notifier = LocalNotifier(center: center)
+         connectInBackground: @escaping @MainActor (NotificationCoordinator) async -> [ClientModel] = BackgroundConnection.connect,
+         lockScreenEdges: LockScreenHub.Edges? = nil) {
+        desk = AlertDesk(center: center, defaults: defaults, now: now)
+        notifier = LocalNotifier(center: center, desk: desk)
         self.center = center
         self.authorizer = authorizer; self.defaults = defaults; self.now = now; self.sleep = sleep
         self.makeId = makeId; self.connectInBackground = connectInBackground
         enabled = defaults.bool(forKey: Keys.enabled)
         muted = Set(defaults.stringArray(forKey: Keys.muted) ?? [])
         phone = PhoneNotificationPrefs.load(defaults)
+        liveActivity = defaults.object(forKey: Keys.liveActivity) as? Bool ?? true
+        self.lockScreen = LockScreenHub(edges: lockScreenEdges ?? .inert, now: { Date(timeIntervalSince1970: now() / 1000) }, sleep: sleep)
+        self.lockScreen.allowed = liveActivity
+        self.lockScreen.read = { [weak self] in self?.lockScreenInput() ?? ([], [:]) }
+        LockScreenActions.handler = { [weak self] request, allow in await self?.answer(request, allow: allow) }
     }
 
     /// Call before `model.connect`: patches from that runtime reach this coordinator, bound to that
@@ -82,13 +100,20 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// never share one machine's storage.
     func attach(_ model: ClientModel, target: ConnectionTarget) async {
         if transient.contains(where: { $0 !== model }) { await releaseTransient() }
-        let scope = SHA256.hash(data: Data("\(target.hostId)\u{0}\(target.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
-        let ledger = LocalNotifier(center: center, hostId: target.hostId)
+        // The machine as the phone keys it, whichever route this connection takes.
+        let machine = target.scope
+        let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let ledger = LocalNotifier(center: center, hostId: machine.hostId, desk: desk)
         ledger.bind(LedgerStore(scope: scope, defaults: defaults))
-        machines.removeAll { $0.hostId == target.hostId || $0.model === model }
-        machines.append((target.hostId, model, ledger))
-        let hostId = target.hostId
+        machines.removeAll { $0.hostId == machine.hostId || $0.model === model }
+        machines.append((machine.hostId, model, ledger))
+        let hostId = machine.hostId
         model.notificationSink = { [weak self] patch in self?.receive(patch, from: hostId) }
+        model.liveActivity.onChange = { [weak self] in self?.lockScreen.changed() }
+        model.liveActivity.onShow = { [weak self] in try self?.lockScreen.show() }
+        // Opening a thread here is reading it: its notification goes.
+        model.onOpenThread = { [weak self] threadId in self?.desk.clear(threadId: threadId, hostId: hostId) }
+        lockScreen.changed()
         if let link = pendingLink, link.hostId == nil || link.hostId == hostId { model.deepLink = link.threadId; pendingLink = nil }
         // Read once the runtime is starting, never before it: the permission's sync goes to that
         // runtime, and asking the system must not hold back a launch's first connection.
@@ -98,7 +123,24 @@ struct SystemAuthorizer: NotificationAuthorizer {
         guard let index = machines.firstIndex(where: { $0.model === model }) else { return }
         model.notificationSink = nil
         feeds.removeValue(forKey: machines[index].hostId)?.forEach { $0.finish(false) }
+        machines[index].notifier.invalidate()
         machines.remove(at: index)
+        model.liveActivity.onChange = nil
+        model.liveActivity.onShow = nil
+        model.onOpenThread = nil
+        lockScreen.changed()
+    }
+    /// A machine turned off on this phone: its notifications are withdrawn, its approvals leave
+    /// the Live Activity, and the lock screen and widgets rebuild without it, not even "as of".
+    func turnedOff(_ hostId: String) {
+        // Alerts it already handed over don't land after the clear, whenever their task runs.
+        for entry in machines where entry.hostId == hostId { entry.notifier.invalidate() }
+        desk.clear(hostId: hostId)
+        approvals = approvals.filter { $0.value.hostId != hostId }
+        approvalAlerts = approvalAlerts.filter { approvals[$0.value] != nil }
+        if pendingLink?.hostId == hostId { pendingLink = nil }
+        lockScreen.forgetHeld()
+        lockScreen.rebuild()
     }
     func client(_ hostId: String?) -> ClientModel? {
         guard let hostId else { return model }
@@ -110,9 +152,12 @@ struct SystemAuthorizer: NotificationAuthorizer {
         let entry = machines.first { $0.hostId == hostId }
         switch patch {
         case .alert(let alert):
+            note(alert, from: hostId)
             guard delivering(hostId), let ledger = entry?.notifier else { return }
             Task { await ledger.receive(alert) }
         case .feed(let cursor, let entries, let retracted):
+            for alert in entries { note(alert, from: hostId) }
+            forget(retracted, from: hostId)
             guard let ledger = entry?.notifier else { return }
             let posting = delivering(hostId)
             Task {
@@ -141,6 +186,8 @@ struct SystemAuthorizer: NotificationAuthorizer {
     func scene(active: Bool) {
         guard foreground != active else { return }
         foreground = active
+        lockScreen.foreground = active
+        lockScreen.changed()
         sync()
         if !active, delivering { BackgroundRefresh.schedule() }
     }
@@ -194,6 +241,14 @@ struct SystemAuthorizer: NotificationAuthorizer {
         phone = next
         next.save(defaults)
         sync()
+    }
+    /// The Live Activity on the Lock Screen and in the Dynamic Island; on unless turned off here.
+    func setLiveActivity(_ on: Bool) {
+        guard on != liveActivity else { return }
+        liveActivity = on
+        defaults.set(on, forKey: Keys.liveActivity)
+        lockScreen.allowed = on
+        lockScreen.rebuild()
     }
     func snoozes(for hostId: String) -> [String: Double] { snoozesByMachine[hostId] ?? [:] }
     func snooze(_ threadId: String, until: Double?, hostId: String? = nil) {

@@ -53,7 +53,7 @@ export async function submitCommand(
 
 /** Admission resolves at the SDK's persistence boundary; receipts stay SDK-owned. */
 export async function dispatchCommand(
-  owner: ClientCore,
+  owner: Parameters<typeof submitCommand>[0],
   raw: unknown,
   requestId: string,
   pump: PatchSink,

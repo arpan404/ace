@@ -1,12 +1,21 @@
 import type { Credential } from "./credentials.ts";
-import type { DeviceId, HostId } from "@ace/protocol";
+import type { DeviceId, HostId, InstallId } from "@ace/protocol";
 
+/** A refusal one path heard (a 4xxx close from the relay or the daemon). */
+export interface PathRefusal {
+  code: number;
+  reason: string;
+}
 export interface TransportEvents {
   open(): void;
   message(text: string): void;
   binary?(bytes: Uint8Array): void;
-  /** The socket closed, with its close code and the peer's reason when it gave one. */
-  close(code: number, reason?: string): void;
+  /**
+   * The socket closed, with its close code and the peer's reason when it gave one. A race of
+   * paths that ends as a drop passes `refused` when a path was refused: why it can't connect
+   * while it retries.
+   */
+  close(code: number, reason?: string, refused?: PathRefusal): void;
 }
 export interface Transport {
   readonly supportsBinary?: boolean;
@@ -86,6 +95,17 @@ export interface DiagnosticEvent {
 }
 export interface ClientOptions {
   deviceId: DeviceId;
+  /**
+   * This app install's id (ADR 0115), sent in each hello so the machine knows every path and
+   * every credential of this install as one device. Older daemons ignore it.
+   */
+  installId?: InstallId;
+  /**
+   * This install's other device ids on this machine (ADR 0115): a paired machine also reached
+   * through the ace account is one device under two ids, its pairing's and its account
+   * device's. Work saved under either one is this connection's.
+   */
+  deviceAliases?: readonly DeviceId[];
   /** Pin a directory entry before subscriptions or durable intents can replay. */
   expectedHostId?: HostId;
   transport(): Transport;

@@ -65,6 +65,8 @@ export function machineState(
       return { tone: "on", words: "Online" };
     case "connecting":
       return { tone: "off", words: "Connecting" };
+    case "off":
+      return { tone: "off", words: "Off on this device" };
     case "machine_code":
       return { tone: "warn", words: "Asks for its machine code" };
     case "auth_failed":
@@ -109,11 +111,12 @@ export function directLine(
   live: RemoteNetworks[DirectNetwork] | undefined,
 ): { tone: Tone; words: string } {
   if (!on) return { tone: "off", words: offWords[network] };
-  if (live?.state === "on")
-    return {
-      tone: "on",
-      words: live.address ? `On at ${addressWords(live.address)}.` : "On.",
-    };
+  if (live?.state === "on") {
+    const serving = live.address ? `On at ${addressWords(live.address)}.` : "On.";
+    return live.warning
+      ? { tone: "warn", words: `${serving} ${live.warning}` }
+      : { tone: "on", words: serving };
+  }
   if (live?.error) return { tone: "warn", words: live.error };
   if (live && live.state !== "off") return { tone: "warn", words: "Starting." };
   return { tone: "on", words: "On." };

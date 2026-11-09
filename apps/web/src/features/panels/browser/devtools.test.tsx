@@ -232,7 +232,7 @@ test("right-clicking the page offers browser commands; View page source shows th
   const menu = await screen.findByRole("menu");
   for (const name of ["Back", "Forward", "Reload", "Copy", "Paste", "Take a screenshot"])
     expect(within(menu).getByRole("menuitem", { name })).toBeTruthy();
-  // Developer tools open for the desktop app's own pages; here the item says why not.
+  // Developer tools open for the desktop app's own pages only; here Inspect is off.
   expect(
     within(menu)
       .getByRole("menuitem", { name: /Inspect/ })

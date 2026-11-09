@@ -48,11 +48,17 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         didSet {
             guard annotating != oldValue else { return }
             stroke = AnnotateStroke()
+            drawInk(fading: false)
             if let input = tracker.cancelled() { onInput([input]) }
             setNeedsLayout()
         }
     }
     private var stroke = AnnotateStroke()
+    /// The finger's ink while drawing, in the accent; it fades once the page's marker is there.
+    private let inkLayer = CAShapeLayer()
+    /// A rim in the app's background colour under the ink, so it reads on any page, light or dark.
+    private let inkHalo = CAShapeLayer()
+    private let inkGroup = CALayer()
     /// The picture last drawn and the tab it showed, for the still an iPad's split keeps of a
     /// tab once another shows.
     private(set) var lastPicture: (image: CVPixelBuffer, tabId: String)?
@@ -67,6 +73,14 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         isMultipleTouchEnabled = true
         videoLayer.videoGravity = .resizeAspect
         layer.addSublayer(videoLayer)
+        for (shape, width) in [(inkHalo, AceDesign.Size.inkStroke * 2), (inkLayer, AceDesign.Size.inkStroke)] {
+            shape.fillColor = nil
+            shape.lineWidth = width
+            shape.lineCap = .round
+            shape.lineJoin = .round
+            inkGroup.addSublayer(shape)
+        }
+        layer.addSublayer(inkGroup)
         addSubview(textField)
         claim.isEnabled = interactive
         for recognizer in [pinch, pan] as [UIGestureRecognizer] {
@@ -91,6 +105,9 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         videoLayer.frame = pageSize == .zero ? bounds : geometry.box
+        inkGroup.frame = bounds
+        inkLayer.frame = bounds
+        inkHalo.frame = bounds
         CATransaction.commit()
         let movable = geometry.movable
         pinch.isEnabled = movable || pageSize.width > bounds.width
@@ -206,6 +223,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
             for touch in touches {
                 send(stroke.began(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self)), fingers: fingers))
             }
+            drawInk(fading: false)
             return
         }
         if let input = tracker.began(points(touches)) { onInput([input]) }
@@ -215,6 +233,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
         if annotating {
             guard (event?.allTouches?.count ?? touches.count) == 1, let touch = touches.first else { return }
             send(stroke.moved(view: touch.location(in: self), page: geometry.pagePoint(touch.location(in: self))))
+            drawInk(fading: false)
             return
         }
         guard let input = tracker.moved(points(touches)) else { return }
@@ -223,6 +242,7 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if annotating {
             send(stroke.ended())
+            drawInk(fading: true)
             return
         }
         if let input = tracker.ended(touches.map { ObjectIdentifier($0) }) { onInput([input]) }
@@ -230,9 +250,36 @@ final class BrowserSurfaceView: UIView, UIGestureRecognizerDelegate {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if annotating {
             send(stroke.cancelled())
+            drawInk(fading: true)
             return
         }
         if let input = tracker.cancelled() { onInput([input]) }
+    }
+    /// Draws the stroke's ink; once the finger lifts it stays a moment, then fades.
+    private func drawInk(fading: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        inkLayer.strokeColor = UIColor(AceTheme.Colours.accent).resolvedColor(with: traitCollection).cgColor
+        inkHalo.strokeColor = UIColor(AceTheme.Colours.background).resolvedColor(with: traitCollection).cgColor
+        inkGroup.removeAnimation(forKey: "fade")
+        let points = annotating ? stroke.ink : []
+        let path = UIBezierPath()
+        if let first = points.first {
+            path.move(to: first)
+            for point in points.dropFirst() { path.addLine(to: point) }
+        }
+        inkLayer.path = path.cgPath
+        inkHalo.path = path.cgPath
+        inkGroup.opacity = fading ? 0 : 1
+        CATransaction.commit()
+        guard fading, !points.isEmpty else { return }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.beginTime = CACurrentMediaTime() + AceDesign.Motion.inkHold
+        fade.duration = AceDesign.Motion.inkFade
+        fade.fillMode = .backwards
+        inkGroup.add(fade, forKey: "fade")
     }
     private func send(_ inputs: [RemoteInput]) {
         guard !inputs.isEmpty else { return }

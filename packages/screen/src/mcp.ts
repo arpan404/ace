@@ -149,6 +149,7 @@ function permissionGap(manager: ScreenManager, sessionId: string | undefined) {
   if (!sessionId) return undefined;
   try {
     const permissions = manager.state(sessionId).permissions;
+    if (permissions.platform && permissions.platform !== "darwin") return undefined;
     return !permissions.screenRecording
       ? "screenRecording"
       : !permissions.accessibility

@@ -54,6 +54,7 @@ import Testing
         // Killed after copying a pick but before the draft named it.
         let orphan = try drafts.staging.stage(data: Data("orphan".utf8), name: "orphan.txt", mimeType: "text/plain")
         let relaunched = NewThreadDraftModel(store: file)
+        relaunched.open()
         #expect(relaunched.draft.files.isEmpty)
         #expect(!relaunched.staging.holds(orphan.localId))
     }

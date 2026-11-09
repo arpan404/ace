@@ -18,6 +18,7 @@ import { providerConfiguration } from "@ace/models/preferences";
 import { SettingsValues, ProviderConfigurations, ProjectCommand } from "@ace/protocol";
 import { stricterOffer } from "@ace/provider-kit/access-modes";
 import { ItemId } from "@ace/protocol";
+import { EntitiesPage, type EntityCollection } from "@ace/protocol";
 import type { AccessMode, AccessModeOffer } from "@ace/protocol";
 import {
   fakePermissionCapabilities,
@@ -116,6 +117,8 @@ export class FakeDaemon implements Host {
   readonly version: string;
   /** The OS host.identity reports; tests change it, undefined reads as an older daemon. */
   platform: string | undefined;
+  /** The paths `host.identity` reports (ADR 0114); tests set them. */
+  paths: readonly import("@ace/protocol").MachinePath[] | undefined;
   /** Fault injection: deliver every event frame twice. */
   duplicateEvents = false;
   /**
@@ -968,6 +971,23 @@ export class FakeDaemon implements Host {
   page(threadId: string, before: number, limit: number): ItemsPage | undefined {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
+  }
+  entities(
+    threadId: string,
+    collection: EntityCollection,
+    limit: number,
+  ): EntitiesPage | undefined {
+    const host = this.threads.get(threadId);
+    if (!host) return undefined;
+    const all: { createdAt?: number }[] = Object.values(host.view[collection]);
+    const entries = all.toSorted((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-limit);
+    return EntitiesPage.parse({
+      collection,
+      entries,
+      seq: this.seq,
+      threadId,
+      entitiesBefore: entries.length < all.length ? 1 : null,
+    });
   }
   private canManageProjects(device: string): boolean {
     const scopes = this.options.deviceScopes?.[device];

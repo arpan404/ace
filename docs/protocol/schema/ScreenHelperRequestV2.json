@@ -56,6 +56,38 @@
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },
         "op": {
+          "const": "permissions.request",
+          "type": "string"
+        },
+        "permission": {
+          "enum": [
+            "screenRecording",
+            "accessibility"
+          ],
+          "type": "string"
+        },
+        "person": {
+          "type": "boolean"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "permission"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
           "const": "targets",
           "type": "string"
         },

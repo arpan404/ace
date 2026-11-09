@@ -149,6 +149,11 @@ test("installer failure retains its exit and sanitized error without declaring s
     const end = await f.wait((event) => event.state === "failed");
     expect(end.exit).toBe(7);
     expect(JSON.stringify(end)).not.toContain("not-for-clients");
+    // The daemon log says why, redacted like the client's copy.
+    expect(f.failures).toHaveLength(1);
+    expect(f.failures[0]?.message).toContain("exited 7");
+    expect(f.failures[0]?.output).toEqual(["<SECRET>"]);
+    expect(JSON.stringify(f.failures)).not.toContain("not-for-clients");
     expect(f.statuses.list().find((row) => row.provider === "codex")?.installed).not.toBe(true);
   } finally {
     await f.close();

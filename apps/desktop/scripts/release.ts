@@ -51,7 +51,7 @@ import {
  * On Linux (inside the Debian 12 build container, ADR 0093) `build` packages the AppImage,
  * deb and tar.gz with `latest-linux*.yml` for this host's architecture, unsigned; the
  * AppImage updates itself, the deb and tar.gz are offered the release page. `--with-daemon`
- * there builds node-pty and the archive for this host's Linux target only.
+ * there builds the archive for this host's Linux target only.
  */
 const usage = `Usage:
   bun run release:doctor
@@ -158,19 +158,7 @@ async function build(version: string): Promise<void> {
 
   if (withDaemon && publicKey && privateKey)
     for (const target of daemonTargets) {
-      // Linux has no node-pty prebuilds: build it on this host and pass the pinned input.
-      const native =
-        target === "linux-arm64" || target === "linux-x64"
-          ? join(daemonOutput, "native", `${target}.json`)
-          : undefined;
-      if (native) run(process.execPath, [join(repo, "tools/release/src/native.ts"), target]);
-      run(process.execPath, [
-        join(repo, "tools/release/src/build.ts"),
-        version,
-        target,
-        publicKey,
-        ...(native ? [native] : []),
-      ]);
+      run(process.execPath, [join(repo, "tools/release/src/build.ts"), version, target, publicKey]);
       run(process.execPath, [
         join(repo, "tools/release/src/sign.ts"),
         join(daemonOutput, `${target}.json`),

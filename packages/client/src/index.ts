@@ -12,6 +12,7 @@ export type {
   DiagnosticEvent,
   Transport,
   TransportEvents,
+  PathRefusal,
   Storage,
   IntentRecords,
   Scheduler,

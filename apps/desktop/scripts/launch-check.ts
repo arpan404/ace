@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { launchVerdict } from "../src/packaging/launch-verdict.ts";
+import { e2eSwitches } from "./common.ts";
 
 const launchTimeoutMs = 90_000;
 const quitTimeoutMs = 20_000;
@@ -23,7 +24,7 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
   env.ACE_HOME = join(scratch, "home");
   env.ACE_DESKTOP_USER_DATA = join(scratch, "electron");
   env.ACE_PORT = String(await freePort());
-  const child = spawn(join(app, "Contents/MacOS/ace"), [], {
+  const child = spawn(join(app, "Contents/MacOS/ace"), e2eSwitches(process.platform), {
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });

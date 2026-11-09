@@ -109,6 +109,33 @@ test("a JPEG keeps its bytes through the desktop bridge", async () => {
   expect(image?.mimeType).toBe("image/jpeg");
 });
 
+test("an image larger than the desktop clipboard takes is refused in words before it is sent", async () => {
+  const writeImage = vi.fn(async (): Promise<void> => undefined);
+  const big = new Blob([new Uint8Array(2_000_001)], { type: "image/png" });
+  await expect(
+    copyImageToClipboard(Promise.resolve(big), {
+      ace: { clipboard: { imageLimit: 1_000_000, writeImage } },
+    }),
+  ).rejects.toThrow("This image is 2.0 MB; the clipboard takes images up to 1.0 MB.");
+  expect(writeImage).not.toHaveBeenCalled();
+});
+
+test("a desktop refusal reads as its reason, without Electron's prefix", async () => {
+  await expect(
+    copyImageToClipboard(Promise.resolve(png()), {
+      ace: {
+        clipboard: {
+          writeImage: async () => {
+            throw new Error(
+              "Error invoking remote method 'ace:clipboard.writeImage': Error: The image couldn't be read",
+            );
+          },
+        },
+      },
+    }),
+  ).rejects.toThrow(/^The image couldn't be read$/);
+});
+
 test("a bridge refusal rejects so the lightbox can show its failure toast", async () => {
   await expect(
     copyImageToClipboard(Promise.resolve(png()), {

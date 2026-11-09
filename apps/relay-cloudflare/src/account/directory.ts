@@ -14,6 +14,8 @@ import type { ActiveSession, SessionReader } from "./session.ts";
 export function directoryRoutes(deps: {
   sessions: SessionReader;
   machines: ReturnType<typeof machineStore>;
+  /** Runs after a machine is forgotten, so one still on the relay can list itself again. */
+  forgotten?: (hostId: string, accountId: string) => Promise<void>;
   keys: GrantKeySet;
   signingKey: GrantSigningKey;
   now: () => number;
@@ -51,12 +53,16 @@ export function directoryRoutes(deps: {
         json(200, { machines: await machines.list(account.id) }),
       ),
 
-    /** DELETE /v1/machines/:hostId — this account's machines only. */
+    /**
+     * DELETE /v1/machines/:hostId — this account's machines only. The list names the machines
+     * signed in to the account, so one still registered on the relay registers again and comes
+     * back; forgetting is for machines that are gone.
+     */
     forget: (request: Request, hostId: string) =>
-      authenticated(request, async ({ account }) =>
-        (await machines.forget(hostId, account.id))
-          ? json(200, { ok: true })
-          : fail(404, "not_found"),
-      ),
+      authenticated(request, async ({ account }) => {
+        if (!(await machines.forget(hostId, account.id))) return fail(404, "not_found");
+        await deps.forgotten?.(hostId, account.id);
+        return json(200, { ok: true });
+      }),
   };
 }

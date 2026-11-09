@@ -31,6 +31,12 @@ import {
   signInLandingStatus,
 } from "./features/connect/index.ts";
 import { StartupPending } from "./features/startup/index.ts";
+// Named, not `import()`: the app already loads this module at startup, and a dynamic import
+// would keep every export of it (dialogs, settings rows) in the startup chunk.
+import {
+  AceAccountBackendContext,
+  AccountMachineConnectorContext,
+} from "./features/ace-account/index.ts";
 import { createStartup } from "./lib/startup/startup.tsx";
 import { watchVisibleHeight } from "./lib/visible-height.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
@@ -196,15 +202,13 @@ function fakeElsewhere(): Promise<never> {
  * Studio asks for its code, 2468) and a reload opens it again. Kept in this tab only.
  */
 async function fakeNoMachine(signedOut: boolean): Promise<ReactNode> {
-  const [{ fakeNoMachineAccount }, { fakeAccountConnector }, { fakeAccountRoutes }, account, fake] =
+  const [{ fakeNoMachineAccount }, { fakeAccountConnector }, { fakeAccountRoutes }, fake] =
     await Promise.all([
       import("./boot/fake-no-machine.ts"),
       import("./boot/fake-account.ts"),
       import("./boot/fake-account-main.ts"),
-      import("./features/ace-account/index.ts"),
       import("./boot/fake.ts"),
     ]);
-  const { AceAccountBackendContext, AccountMachineConnectorContext } = account;
   const { daemon } = fake.bootFake();
   const routes = fakeAccountRoutes({ daemon, session, now: Date.now });
   return (
@@ -245,8 +249,6 @@ async function content(): Promise<ReactNode> {
     await client.start();
     const machines = await fake.machines;
     const { fakeAccountBackend, fakeAccountConnector } = await import("./boot/fake-account.ts");
-    const { AceAccountBackendContext, AccountMachineConnectorContext } =
-      await import("./features/ace-account/index.ts");
     return (
       <DaemonConnectionContext.Provider value={fake.connection}>
         <AceAccountBackendContext value={() => fakeAccountBackend(session, Date.now)}>

@@ -25,8 +25,8 @@ import Testing
         // The same thread id on both machines: one waits on the person, one is done.
         studio.emit(patches(connection: "ready", row: ("t1", "needs-you", "Needs you", "needsYou"), rank: "1"))
         laptop.emit(patches(connection: "ready", row: ("t1", "done", "Done", "done"), rank: "2"))
-        await drain()
         let inbox = fixture.model.inbox
+        await settle { inbox.merged.sections.count == 2 }
         #expect(inbox.merged.sections.map(\.key) == ["needs-you", "done"])
         #expect(inbox.row(InboxKey(machineId: "studio", id: "t1"))?.status.label == "Needs you")
         #expect(inbox.row(InboxKey(machineId: "laptop", id: "t1"))?.status.label == "Done")
@@ -34,7 +34,7 @@ import Testing
         // The laptop drops; its runtime reports its copy as unconfirmed. The studio is unaffected.
         laptop.emit(patches(connection: "reconnecting", row: ("t1", "syncing", "Syncing", "neutral"), rank: "2",
                             problem: #"{"code":"unreachable","message":"Can't reach"}"#))
-        await drain()
+        await settle { inbox.client("laptop")?.problem != nil }
         #expect(inbox.merged.sections.map { $0.rows } == [[InboxKey(machineId: "studio", id: "t1")], [InboxKey(machineId: "laptop", id: "t1")]])
         #expect(inbox.merged.sections.map(\.key) == ["needs-you", "syncing"])
         #expect(inbox.client("studio")?.connection == "ready")
@@ -201,10 +201,10 @@ import Testing
         await fixture.model.load()
         let studio = fixture.sessions.started[0]
         studio.emit(#"[{"type":"connection","state":"ready"}]"#)
-        await drain()
+        await settle { fixture.model.inbox.client("studio")?.connection == "ready" }
         #expect(fixture.model.inbox.lastSeen("studio") == 5_000)
         studio.emit(#"[{"type":"connection","state":"reconnecting"},{"type":"machine.status","status":{"label":"Can't reach","token":"neutral"},"seenAt":4000}]"#)
-        await drain()
+        await settle { fixture.model.inbox.client("studio")?.machineStatus != nil }
         #expect(fixture.model.inbox.lastSeen("studio") == 4_000)
         fixture.model.inbox.recordSeen()
         let relaunched = MachineInbox(defaults: fixture.defaults, now: { 9_000 })
@@ -331,130 +331,5 @@ import Testing
     }
 }
 
-@MainActor private struct Fixture {
-    let sessions = FakeSessions()
-    let access: FakeAccess
-    let storage: URL
-    let defaults: UserDefaults
-    let suite: String
-    let model: MachinesModel
-    /// `defaults` from an earlier fixture plays the same phone relaunched.
-    init(machines: [MachineEntry], account: (any AccountDirectory)? = nil, defaults shared: UserDefaults? = nil) throws {
-        access = FakeAccess(machines)
-        storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        suite = "ace.tests.\(UUID().uuidString)"
-        defaults = try shared ?? #require(UserDefaults(suiteName: suite))
-        let sessions = self.sessions
-        model = MachinesModel(access: access, account: account, storage: storage, defaults: defaults, now: { 5_000 },
-                              makeClient: { ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make) })
-    }
-    func cleanUp() {
-        defaults.removePersistentDomain(forName: suite)
-        try? FileManager.default.removeItem(at: storage)
-    }
-}
-
-private final class FakeAccount: AccountDirectory, @unchecked Sendable {
-    private let lock = NSLock()
-    private var listed: [AceMachine]?
-    private(set) var forgotten: [String] = []
-    init(_ machines: [AceMachine]) { listed = machines }
-    let deviceId = "ios-account-device"
-    let relayURL: URL? = URL(string: "wss://ace.example.com")
-    func signOut() { lock.withLock { listed = nil } }
-    func machines() async throws(AccountGrantError) -> [AceMachine]? { lock.withLock { listed } }
-    func forget(_ hostId: String) async throws(AccountGrantError) {
-        lock.withLock { forgotten.append(hostId); listed?.removeAll { $0.hostId == hostId } }
-    }
-    func route(hostId: String) -> RelayRoute? {
-        relayURL.map { RelayRoute(relayURL: $0, hostId: hostId, grants: AccountGrants { () async throws(AccountGrantError) -> AceGrant in throw .signedOut }) }
-    }
-}
-
-private final class FakeAccess: MachineAccess, @unchecked Sendable {
-    enum Pairing { case success(MachineEntry, scopes: [String]), failure(ProblemNotice) }
-    private let lock = NSLock()
-    private var machines: [MachineEntry]
-    var pairing: Pairing = .failure(.unknown)
-    var removal: Result<Void, ProblemNotice> = .success(())
-    private(set) var removed: [String] = []
-    private(set) var renamed: [String] = []
-    private let listGate = Gate()
-    init(_ machines: [MachineEntry]) { self.machines = machines }
-    /// The directory's runtime answers only once released.
-    func holdList() { listGate.close() }
-    func releaseList() { listGate.open() }
-    func perform(_ request: AccessRequest) async -> Result<AccessOutcome, ProblemNotice> {
-        if case .list = request { await listGate.wait() }
-        return lock.withLock {
-            switch request {
-            case .list: return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .remove(let host):
-                if case .failure(let notice) = removal { return .failure(notice) }
-                removed.append(host)
-                machines.removeAll { $0.hostId == host }
-                return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .rename(let host, let name):
-                renamed.append(name)
-                machines = machines.map { $0.hostId == host ? MachineEntry(hostId: $0.hostId, displayName: name, icon: $0.icon, target: $0.target, deviceId: $0.deviceId) : $0 }
-                return .success(AccessOutcome(ok: true, machines: machines, paired: nil, problem: nil))
-            case .pair:
-                switch pairing {
-                case .failure(let notice): return .failure(notice)
-                case .success(let entry, let scopes):
-                    machines.append(entry)
-                    return .success(AccessOutcome(ok: true, machines: machines, paired: .init(hostId: entry.hostId, scopes: scopes), problem: nil))
-                }
-            }
-        }
-    }
-}
-
-private final class Gate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var closed = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-    func close() { lock.withLock { closed = true } }
-    func open() {
-        let resumed = lock.withLock { closed = false; let all = waiters; waiters = []; return all }
-        for waiter in resumed { waiter.resume() }
-    }
-    func wait() async {
-        await withCheckedContinuation { continuation in
-            let ready = lock.withLock { if closed { waiters.append(continuation); return false }; return true }
-            if ready { continuation.resume() }
-        }
-    }
-}
-
-@MainActor private final class FakeSessions {
-    var started: [FakeSession] = []
-    func make(_ target: ConnectionTarget, _ storage: URL, _ receive: @escaping @Sendable (Data) -> Void,
-              _ fail: @escaping @Sendable (String) -> Void) -> any ClientSession {
-        let session = FakeSession(target: target, storage: storage, receive: receive)
-        started.append(session)
-        return session
-    }
-}
-private final class FakeSession: ClientSession, @unchecked Sendable {
-    let target: ConnectionTarget
-    let storage: URL
-    private let receive: @Sendable (Data) -> Void
-    private let lock = NSLock()
-    private var completion: (@Sendable () -> Void)?
-    private var stopRequested = false
-    private var calls: [String] = []
-    init(target: ConnectionTarget, storage: URL, receive: @escaping @Sendable (Data) -> Void) {
-        self.target = target; self.storage = storage; self.receive = receive
-    }
-    var stopped: Bool { lock.withLock { stopRequested } }
-    var invoked: [String] { lock.withLock { calls } }
-    func start(itemLimit: Int) {}
-    /// Commands and inbox organization the model handed to the VM.
-    var submitted: [String] { lock.withLock { calls.filter { $0.contains("\"type\":\"command\"") || $0.contains("\"type\":\"inbox\"") || $0.contains("\"type\":\"thread\"") } } }
-    func invoke(_ name: String, json: String) { lock.withLock { calls.append(json) } }
-    func acknowledge(accepted: Bool) {}
-    func stop(completion: @escaping @Sendable () -> Void) { lock.withLock { stopRequested = true; self.completion = completion } }
-    func finishShutdown() { let done = lock.withLock { let value = completion; completion = nil; return value }; done?() }
-    func emit(_ json: String) { receive(Data(json.utf8)) }
-}
+private typealias Fixture = MachinesFixture
+private typealias FakeAccount = FakeAccountDirectory

@@ -38,7 +38,6 @@ struct DockStrip: View {
     var sentenceIdentifier = "strip.sentence"
     @State private var expanded = false
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.inGlassBlock) private var inBlock
 
     /// Details first, then the answers in the bridge's order.
@@ -72,8 +71,7 @@ struct DockStrip: View {
         .padding(.top, AceDesign.Space.row)
         .padding(.bottom, AceDesign.Space.stripBottom)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The top section of the composer's glass block (`GlassBlock`); standing alone (a
-        // subagent's view), its own glass.
+        // Its own glass, the only glass above the composer capsule (and on a subagent's view).
         .modifier(StripSurfaceGlass(inBlock: inBlock))
         .contentShape(Rectangle())
         .gesture(swipe)
@@ -96,7 +94,7 @@ struct DockStrip: View {
 
     private var payload: some View {
         Button {
-            if let openPayload { openPayload() } else { withAnimation(AceDesign.Motion.arriving(reduceMotion)) { expanded.toggle() } }
+            if let openPayload { openPayload() } else { withAnimation { expanded.toggle() } }
         } label: {
             Text(line.payload)
                 .aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)

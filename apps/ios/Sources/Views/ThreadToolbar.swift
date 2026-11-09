@@ -25,39 +25,76 @@ struct PanelToggle {
     let toggle: () -> Void
 }
 
+/// The thread's pages as its bar shows them on a phone: Chat and Changes beside ⋯, only when the
+/// thread has Changes.
+struct ThreadPageSwitch {
+    let pages: ThreadPages
+    let shown: ThreadPageKind
+    let select: (ThreadPageKind) -> Void
+    /// It shows only when there is a page to switch to.
+    var shows: Bool { pages.kinds.count > 1 }
+    /// The width it takes in the bar: a glyph per page and the glass's inset around them.
+    var width: CGFloat { shows ? CGFloat(pages.kinds.count) * (AceDesign.Size.pill + 2) + AceDesign.Space.related : 0 }
+}
+
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
-/// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title centred
-/// with a small "project · branch" line under it (a button that opens Work), then ⋯. Agents are secondary: the agent tree is one entry in ⋯, never its own control.
+/// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title
+/// with the model and its effort under it, both one menu (`ThreadTitleMenu`), then on a phone with
+/// changes Chat and Changes, then ⋯, one glass group. In a compact width the title leads, beside
+/// the back button, as the system's own apps place it next to trailing buttons, so it gets every
+/// point between the two; in a regular width it is centred. The thread's other screens
+/// (Files, Terminal, Browser, Agents) are entries in ⋯, never their own controls.
 struct ThreadToolbar: ToolbarContent {
-    let title: String
-    /// "project · branch" (or the machine where there is no branch).
-    let subtitle: String
-    let status: StatusDisplay?
-    /// A chat (ADR 0099) leads its line with a bubble; a project thread with its folder.
-    var chat = false
+    /// The title and the line under it; its width is the toolbar's to give.
+    let heading: ThreadTitleMenu
     let pageWidth: CGFloat
-    /// Rename and name-again from the title's own menu; nil where the thread can't be renamed.
-    var rename: (() -> Void)? = nil
-    var retitle: (() -> Void)? = nil
     let menu: ThreadMenu
-    /// Opens the thread's Work sheet from the "project · branch" line.
-    let openWork: () -> Void
     /// Nil where the panel has no room: a phone, a narrow window.
     var panel: PanelToggle? = nil
     var coveredByDrawer = false
+    /// Chat and Changes beside ⋯ (a phone); nil beside the side panel.
+    var pages: ThreadPageSwitch? = nil
+    /// A compact width: the title leads, beside the back button, instead of being centred.
+    var leadingTitle = false
 
+    /// The trailing buttons' width: ⋯, the page switch with the inset of the glass that groups
+    /// it with ⋯, and the panel's toggle.
+    private var trailingWidth: CGFloat {
+        let switchWidth = pages.map { $0.shows ? $0.width + AceDesign.Space.related : 0 } ?? 0
+        return CGFloat(1 + (panel == nil ? 0 : 1)) * AceDesign.Size.tap + switchWidth
+    }
+    /// Leading, the title takes everything between the one leading button and the trailing
+    /// buttons, a gap from each. Centred, it gets the width between the wider side's buttons,
+    /// mirrored, and no more than five buttons' worth.
     private var headingWidth: CGFloat {
-        max(0, min(AceDesign.Size.tap * 5,
-                   pageWidth - (panel == nil ? 2 : 4) * AceDesign.Size.tap - 2 * AceDesign.Space.margin))
+        let margins = 2 * AceDesign.Space.margin
+        if leadingTitle {
+            // The bar insets a leading item from the back button and from the trailing group;
+            // wider, it folds the trailing buttons into its own overflow menu.
+            return max(0, pageWidth - margins - AceDesign.Size.tap - trailingWidth - 4 * AceDesign.Space.related)
+        }
+        return max(0, min(AceDesign.Size.tap * 5, pageWidth - 2 * trailingWidth - margins))
     }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            ToolbarItem(placement: .principal) { heading }.sharedBackgroundVisibility(.hidden)
+            if leadingTitle {
+                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
+            }
+            // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
+            if let pages, pages.shows {
+                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
+                    .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
+            }
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
                 .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
-            ToolbarItem(placement: .principal) { heading }
+            ToolbarItem(placement: leadingTitle ? .topBarLeading : .principal) { title }
+            if let pages, pages.shows {
+                ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
+            }
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
         }
         if let panel {
@@ -68,59 +105,37 @@ struct ThreadToolbar: ToolbarContent {
             }
         }
     }
+    private var title: some View {
+        var heading = heading
+        heading.width = headingWidth
+        heading.leading = leadingTitle
+        return EquatableView(content: heading).clipped()
+    }
+    private func pageButtons(_ pages: ThreadPageSwitch) -> some View {
+        ThreadPageButtons(pages: pages.pages, shown: pages.shown, select: pages.select)
+            .opacity(coveredByDrawer ? 0 : 1)
+            .allowsHitTesting(!coveredByDrawer)
+            .accessibilityHidden(coveredByDrawer)
+    }
     private var displayedMenu: some View {
         EquatableView(content: menu)
             .opacity(coveredByDrawer ? 0 : 1)
             .allowsHitTesting(!coveredByDrawer)
             .accessibilityHidden(coveredByDrawer)
     }
-    /// The title opens its own menu, Rename first, as the system's documents do; a small chevron
-    /// beside it says so. The "project · branch" line under it opens Work.
-    private var heading: some View {
-        VStack(spacing: AceTheme.Spacing.none) {
-            titleRow
-            if !subtitle.isEmpty {
-                // The checkout's line opens Work: where the thread runs and what can move it.
-                Button(action: openWork) {
-                    Text(subtitle).lineLimit(1).truncationMode(.middle)
-                        .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(width: headingWidth)
-                    .frame(minHeight: AceDesign.Space.margin).contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(subtitle)
-                .accessibilityHint("Opens Work")
-                .accessibilityIdentifier("thread.subtitle")
-            }
-        }
-        // UIKit measures principal items at their ideal size. Reserve equal space
-        // for the controls on either side before proposing a width to the text.
-        .frame(width: headingWidth)
-        .clipped()
-        .accessibilityElement(children: .contain)
-    }
-    @ViewBuilder private var titleRow: some View {
-        if let rename {
-            Menu {
-                Button("Rename…", ace: .pencilSimple, action: rename).accessibilityIdentifier("thread.rename")
-                if let retitle { Button("Name from first message", ace: .sparkle, action: retitle).accessibilityIdentifier("thread.retitle") }
-            } label: { titleText(chevron: true) }
-            .accessibilityIdentifier("thread.title")
-            .accessibilityHint("Rename this thread")
-        } else {
-            titleText(chevron: false).accessibilityIdentifier("thread.title")
-        }
-    }
-    private func titleText(chevron: Bool) -> some View {
-        HStack(spacing: AceTheme.Spacing.xxs) {
-            Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
-                .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
-        }
-        .frame(width: headingWidth)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityValue(status?.label ?? "")
+}
+
+/// What the title's menu offers beyond its name, each nil where it can't be done now.
+struct ThreadTitleActions: Equatable {
+    struct Settle { let label: String; let settled: Bool; let run: () -> Void }
+    var fork: (() -> Void)? = nil
+    var copyLink: (() -> Void)? = nil
+    var settle: Settle? = nil
+    var isEmpty: Bool { fork == nil && copyLink == nil && settle == nil }
+    /// The same actions offered under the same words; what they run is not compared.
+    nonisolated static func == (lhs: ThreadTitleActions, rhs: ThreadTitleActions) -> Bool {
+        (lhs.fork == nil) == (rhs.fork == nil) && (lhs.copyLink == nil) == (rhs.copyLink == nil)
+            && lhs.settle?.label == rhs.settle?.label && lhs.settle?.settled == rhs.settle?.settled
     }
 }
 
@@ -133,15 +148,12 @@ struct ThreadMenu: View, Equatable {
     /// The thread's title, as Continue on… names it.
     var title = ""
     let archived: Bool
-    /// Whether the thread has a row to start a Lock Screen activity from.
-    let hasActivity: Bool
-    /// That row, read when the item is picked.
-    let activityRow: () -> ThreadRow?
     let open: (ThreadDestination) -> Void
     /// Where `open` sends a tool now (the iPad side panel, or over the thread): it is part of
     /// what the menu is, so a change rebuilds the menu with a fresh `open`.
     var opensInPanel = false
-    let problem: (String) -> Void
+    /// The thread's pages on a phone; nil beside the side panel.
+    var pages: ThreadPages? = nil
     /// Leaves the thread after it was snoozed or archived.
     let leave: () -> Void
     @State private var showing = false
@@ -160,8 +172,7 @@ struct ThreadMenu: View, Equatable {
         .accessibilityIdentifier("thread.menu")
         .popover(isPresented: $showing) {
             ThreadMenuPanel(model: model, thread: thread, title: title, archived: archived,
-                            hasActivity: hasActivity, activityRow: activityRow, open: open,
-                            problem: problem, leave: leave)
+                            open: open, leave: leave, pages: pages)
                 .presentationCompactAdaptation(.sheet)
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -171,7 +182,8 @@ struct ThreadMenu: View, Equatable {
     /// What the menu shows from its inputs; the model's own state it reads redraws it as it changes.
     nonisolated static func == (lhs: ThreadMenu, rhs: ThreadMenu) -> Bool {
         lhs.model === rhs.model && lhs.thread === rhs.thread && lhs.title == rhs.title
-            && lhs.archived == rhs.archived && lhs.hasActivity == rhs.hasActivity && lhs.opensInPanel == rhs.opensInPanel
+            && lhs.archived == rhs.archived && lhs.opensInPanel == rhs.opensInPanel
+            && lhs.pages == rhs.pages
     }
 }
 

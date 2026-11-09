@@ -4,6 +4,7 @@ import { keyPair } from "@ace/secure-channel";
 import { parsePairingLink } from "@ace/client/access";
 import {
   Command,
+  DeviceCredential,
   DeviceId,
   PairingResponse,
   type ClientMessage,
@@ -246,4 +247,89 @@ it("a device pairs through a self-hosted relay with a single-use code and the ho
   expect(await client.until(ofType("machine.code.result"))).toMatchObject({
     result: { ok: false, error: "forbidden" },
   });
+});
+
+it("the same install paired on the LAN and again through a relay stays one device", async () => {
+  const { f, open } = await relayedDaemon();
+  const installId = "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e";
+  const code = async () =>
+    parsePairingLink(
+      PairingResponse.parse(
+        await accessRequest(f.server.httpUrl, "/v1/pairings", {
+          method: "POST",
+          token,
+          body: { scopes: ["read", "operate"] },
+        }),
+      ).url,
+    ).code;
+  const lan = DeviceCredential.parse(
+    await accessRequest(f.server.httpUrl, "/v1/pair", {
+      method: "POST",
+      body: { code: await code(), name: "Phone", installId },
+    }),
+  );
+  const pairing = await open();
+  await pairing.send({ type: "pair.redeem", code: await code(), name: "Phone", installId });
+  const relayed = (await pairing.until(ofType("pair.result"))).result;
+  if (!relayed.ok) throw new Error("Pairing was refused");
+
+  expect(relayed.device.id).toBe(lan.device.id);
+  const listed = await accessRequest(f.server.httpUrl, "/v1/devices", { token });
+  expect(listed).toEqual([expect.objectContaining({ id: lan.device.id, name: "Phone" })]);
+  // The install holds one credential: the one it paired with last.
+  const hello = async (credential: string) => {
+    const client = await open();
+    await client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: lan.device.id,
+      token: credential,
+      installId,
+    });
+    return client.channel.receive();
+  };
+  expect(await hello(lan.token)).toMatchObject({ type: "error", code: "unauthorized" });
+  expect(await hello(relayed.token)).toMatchObject({ type: "welcome" });
+});
+
+it("removing an install closes the relayed channels of a record folded into it", async () => {
+  const { f, open } = await relayedDaemon();
+  // Left behind by an older app, still connected through the relay on its main and files channels.
+  const left = f.store.devices.create("Phone", ["read"], Date.now());
+  const hello = async (channel?: "files") => {
+    const client = await open();
+    await client.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: left.device.id,
+      token: left.token,
+      ...(channel ? { channel } : {}),
+    });
+    await client.until(ofType("welcome"));
+    return client;
+  };
+  const main = await hello();
+  const files = await hello("files");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  // The same app, paired again, says which install it is: the old record folds into it.
+  const used = f.store.devices.create("Phone", ["read"], Date.now());
+  const survivor = await open();
+  await survivor.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: used.device.id,
+    token: used.token,
+    installId: "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e",
+  });
+  await survivor.until(ofType("welcome"));
+  expect(await accessRequest(f.server.httpUrl, "/v1/devices", { token })).toEqual([
+    expect.objectContaining({ id: used.device.id }),
+  ]);
+
+  await accessRequest(f.server.httpUrl, `/v1/devices/${used.device.id}`, {
+    method: "DELETE",
+    token,
+  });
+  await expect(main.channel.closed).resolves.toBeDefined();
+  await expect(files.channel.closed).resolves.toBeDefined();
 });

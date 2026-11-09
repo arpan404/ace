@@ -77,7 +77,8 @@ export function spawnInteractive(options: {
       release();
       resolve({
         code,
-        signal,
+        // After a failed spawn Bun reports no signal at all, where Node reports null.
+        signal: signal ?? null,
         reason: failed ? "spawn-error" : stopped ? "stopped" : signal ? "signal" : "exit",
       });
     }),

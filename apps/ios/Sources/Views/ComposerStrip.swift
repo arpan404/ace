@@ -76,7 +76,6 @@ struct GroupedValue: View {
 /// `prominent` is the strip's way on that carries the work on ("Continue"): full ink, a step bolder.
 struct StripTextButtonStyle: ButtonStyle {
     var prominent = false
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
@@ -88,10 +87,8 @@ struct StripTextButtonStyle: ButtonStyle {
             .frame(minHeight: AceDesign.Size.stripAction)
             .tapBand(drawn: AceDesign.Size.stripAction)
             .background(configuration.isPressed ? AceTheme.Colours.fill : .clear, in: AceShape.capsule)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? AceDesign.Motion.pressScale : 1)
             // Disabled reads as disabled (DESIGN.md §5): dimmed, not hidden.
             .opacity(enabled ? 1 : AceTheme.Opacity.disabled(scheme))
-            .animation(configuration.isPressed ? AceDesign.Motion.arriving(reduceMotion) : AceDesign.Motion.leaving(reduceMotion), value: configuration.isPressed)
             .contentShape(Rectangle())
     }
 }

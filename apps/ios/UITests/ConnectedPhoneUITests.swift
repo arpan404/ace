@@ -60,7 +60,7 @@ import XCTest
     }
     func testSearchFindsConversationContentOnThePairedMachine() {
         let app = launch()
-        app.buttons["inbox.search"].tap()
+        app.openSearch()
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap(); field.typeText("ios")
@@ -90,30 +90,27 @@ import XCTest
         capture("new-task-keyboard", app)
         app.navigationBars.buttons["Close"].tap()
     }
-    func testThreadKeepsTheModelOnTopAndFilesAndSendInTheComposer() {
+    func testThreadKeepsTheModelInTheTitleAndFilesAndSendInTheComposer() {
         let app = launch()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "thread.")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 30)); row.tap()
-        let model = app.threadModelPill(timeout: 30)
+        let title = app.threadTitle(timeout: 30)
         waitForConversation(app)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         let inputBeforeKeyboard = app.textViews["composer.input"]
-        // The model sits just above the composer, on its left; the composer keeps only +, its
-        // field and Send.
-        XCTAssertLessThanOrEqual(model.frame.maxY, inputBeforeKeyboard.frame.minY)
-        XCTAssertLessThan(model.frame.minX, app.frame.width * 0.2)
-        XCTAssertFalse(app.buttons["composer.model"].exists)
-        XCTAssertGreaterThan(inputBeforeKeyboard.frame.width, app.frame.width * 0.8)
+        // The model lives in the title's line; the composer keeps only +, its field and one button.
+        XCTAssertLessThan(title.frame.maxY, app.frame.height * 0.2)
+        XCTAssertGreaterThan(inputBeforeKeyboard.frame.width, app.frame.width * 0.6)
         capture("thread-idle", app)
         let input = app.textViews["composer.input"]
         XCTAssertTrue(input.isHittable); input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         capture("thread-keyboard", app)
-        XCTAssertTrue(model.isHittable)
+        XCTAssertTrue(title.isHittable)
         XCTAssertTrue(app.buttons["composer.attach"].isHittable)
         XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY)
         capture("thread-keyboard", app)
-        model.tap()
+        app.openModelPicker()
         XCTAssertTrue(app.navigationBars["Model"].waitForExistence(timeout: 15))
         capture("thread-model-picker", app)
         app.closeSheet()
@@ -275,7 +272,7 @@ import XCTest
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
         app.launch()
-        if !app.buttons["inbox.settings"].waitForExistence(timeout: 45) {
+        if !app.inboxReady.waitForExistence(timeout: 45) {
             capture("launch-needs-attention", app)
             XCTFail("Unlock ace on the connected iPhone and check its paired-machine connection")
         }

@@ -58,7 +58,6 @@ struct ProviderBehaviourSection: View {
 /// Every model the provider lists, to star, hide or show; deprecated and favourites-only
 /// switches; models the CLI knows that discovery doesn't list; and Refresh.
 struct ProviderModelsView: View {
-    @Environment(\.aceReduceMotion) private var reduceMotion
     let model: ClientModel
     let provider: String
     @State private var models: ProviderModelsData?
@@ -179,7 +178,7 @@ struct ProviderModelsView: View {
     private func read() async {
         do {
             let page = try await model.read(ProviderPageData.read(provider, admin: model.canAdmin == true), as: ProviderPageData.self)
-            withAnimation(AceDesign.Motion.arriving(reduceMotion)) { models = page.models; problem = page.models == nil ? "This provider lists no models yet." : nil }
+            withAnimation { models = page.models; problem = page.models == nil ? "This provider lists no models yet." : nil }
         } catch { if models == nil { problem = error.localizedDescription } }
     }
     private func add() {

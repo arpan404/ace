@@ -1,17 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setFlagsFromString } from "node:v8";
-import { runInNewContext } from "node:vm";
+import { fullGc } from "./full-gc.ts";
 import { ThreadId } from "@ace/protocol";
 import { Store } from "../store.ts";
 import { EngineRepository } from "../engine/repository.ts";
 import { createEngineThread } from "../engine/create-thread.ts";
 
-// Run in a fresh Node process: reports the heap still held after a thread's snapshot is
+// Run in a fresh process: reports the heap still held after a thread's snapshot is
 // dropped and reloaded many times, the way restarts, rollbacks and trims reload it in the daemon.
-setFlagsFromString("--expose-gc");
-const gc = runInNewContext("gc") as () => void;
+const gc = fullGc();
 const reloads = Number(process.argv[2] ?? 1500);
 
 const home = await mkdtemp(join(tmpdir(), "snapshot-retention-"));

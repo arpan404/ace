@@ -2,7 +2,6 @@
 import { execFileSync } from "node:child_process";
 import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
@@ -24,18 +23,20 @@ import {
   repo,
   targetArch,
 } from "./common.ts";
+import { mainProcessNeedsKoffi, stageMainProcessNatives } from "./koffi.ts";
 import { stageLockedUse } from "./locked-use.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * Builds everything the packaged app ships, into `apps/desktop/dist`:
  * - `app/`: main, preload, the web renderer and the app's package.json (becomes app.asar);
+ * - `node_modules/` (Windows only): koffi with this target's prebuilt binary, for the main
+ *   process (scripts/koffi.ts; the standalone daemon ships none);
  * - `daemon/`: the daemon bundle from `@ace/release`, its worker bundles, staged runtime
- *   packages (koffi, playwright-core, the Claude SDK), `descriptor.node`, node-pty and
- *   `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
+ *   packages (playwright-core, the Claude SDK), `descriptor.node` and `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
- * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
+ * - `runtime/`: the pinned Bun runtime the daemon runs on.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
  * finishes, every staged native binary is checked against the target architecture.
@@ -55,6 +56,9 @@ await mkdir(app, { recursive: true });
 
 log("main and preload");
 await Promise.all(electronBundles(app, process.env).map((options) => build(options)));
+
+if (mainProcessNeedsKoffi(process.platform)) log("koffi");
+await stageMainProcessNatives(dist, process.platform, arch);
 
 log("renderer (apps/web)");
 run(
@@ -95,7 +99,6 @@ const daemon = join(dist, "daemon");
 await mkdir(daemon, { recursive: true });
 await bundleDaemon(repo, daemon, releasePublicKey(process.env));
 await cp(join(app, "renderer"), join(daemon, "web"), { recursive: true });
-await stageNodePty(daemon);
 await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
 // The bundled CLI's `ace update` hands the update to the app instead (ADR 0091).
 await writeFile(
@@ -162,42 +165,6 @@ if (
 log(`native code for ${process.platform}-${arch}`);
 await verifyNatives(arch);
 log(`done: ${dist}`);
-
-/**
- * node-pty is external to the bundle. It is a Node-API addon, so one binary serves Node and
- * Electron's Node alike; a binary rebuilt by `desktop:rebuild-native` (build/Release) wins
- * over the npm prebuild, and is the only option on Linux, which has no prebuilds.
- */
-async function stageNodePty(root: string): Promise<void> {
-  const require = createRequire(join(repo, "packages/terminal/package.json"));
-  const source = dirname(require.resolve("node-pty/package.json"));
-  if (process.platform === "win32") {
-    const { stageWindowsPty } = await import("@ace/release/pty-assets");
-    await stageWindowsPty(source, join(root, "node_modules/node-pty"), `win32-${arch}`);
-    return;
-  }
-  const target = join(root, "node_modules/node-pty");
-  await mkdir(target, { recursive: true });
-  for (const name of ["lib", "package.json", "LICENSE"])
-    await cp(join(source, name), join(target, name), { recursive: true });
-  const rebuilt = join(source, "build/Release");
-  const prebuild = join(source, "prebuilds", `${process.platform}-${process.arch}`);
-  const from = existsSync(join(rebuilt, "pty.node")) ? rebuilt : prebuild;
-  const to =
-    from === rebuilt
-      ? join(target, "build/Release")
-      : join(target, "prebuilds", `${process.platform}-${process.arch}`);
-  if (!existsSync(join(from, "pty.node")))
-    throw new Error(
-      "No node-pty binary for this platform; run `bun run desktop:rebuild-native` first",
-    );
-  await mkdir(to, { recursive: true });
-  await copyFile(join(from, "pty.node"), join(to, "pty.node"));
-  if (existsSync(join(from, "spawn-helper"))) {
-    await copyFile(join(from, "spawn-helper"), join(to, "spawn-helper"));
-    await chmod(join(to, "spawn-helper"), 0o755);
-  }
-}
 
 async function stageRipgrep(bin: string): Promise<void> {
   const { rgPath } = await import("@vscode/ripgrep");

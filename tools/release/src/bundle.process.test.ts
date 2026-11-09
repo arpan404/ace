@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { checked, runProcess } from "@ace/service";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";

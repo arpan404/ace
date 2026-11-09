@@ -33,16 +33,17 @@ import XCTest
         open("thread.ios-form", in: app)
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 20))
         // No tab bar beside the list: its places sit at the sidebar's foot, New thread in its bar.
-        XCTAssertFalse(app.tabBars.buttons["Spade"].reachable)
-        let threads = app.buttons["sidebar.threads"], pulls = app.buttons["sidebar.pulls"]
+        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
+        let threads = app.buttons["sidebar.threads"], chats = app.buttons["sidebar.chats"]
         XCTAssertTrue(threads.reachable)
         XCTAssertTrue(threads.isSelected)
-        // Pull requests show their own list and page, and Threads comes back to its open thread.
-        pulls.tap()
-        XCTAssertTrue(app.staticTexts["No pull request open"].waitForExistence(timeout: 10))
-        XCTAssertTrue(pulls.isSelected)
+        XCTAssertFalse(app.buttons["sidebar.spade"].exists)
+        // Chats shows its own list, and Threads comes back to its open thread.
+        chats.tap()
+        XCTAssertTrue(app.staticTexts["No chat open"].waitForExistence(timeout: 10))
+        XCTAssertTrue(chats.isSelected)
         XCTAssertFalse(title("Deploy the preview", in: app).exists)
-        screenshot("ipad-sidebar-pulls")
+        screenshot("ipad-sidebar-chats")
         threads.tap()
         XCTAssertTrue(title("Deploy the preview", in: app).waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["thread.ios-form"].isSelected)
@@ -76,17 +77,14 @@ import XCTest
         XCTAssertTrue(close.waitForExistence(timeout: 10))
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(close.waitForNonExistence(timeout: 10))
-        app.buttons["inbox.settings"].tap()
-        // Settings is one step into More.
-        XCTAssertTrue(app.buttons["more.settings"].waitForExistence(timeout: 10))
-        app.buttons["more.settings"].tap()
+        app.buttons["sidebar.place.settings"].tap()
         let settings = app.buttons["settings.close"]
         XCTAssertTrue(settings.waitForExistence(timeout: 10))
         app.typeKey(".", modifierFlags: .command)
         XCTAssertTrue(settings.waitForNonExistence(timeout: 10))
-        // ⌘F searches the list.
+        // ⌘F goes to Search.
         app.typeKey("f", modifierFlags: .command)
-        XCTAssertTrue(app.searchFields.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["search.place.settings"].waitForExistence(timeout: 10))
     }
 
     func testNarrowingAnIPadWindowBringsTheTabBarBackAndKeepsTheThreadAndItsDraft() throws {
@@ -108,13 +106,13 @@ import XCTest
         guard app.windows.firstMatch.frame.width < full.width - 100 else { throw XCTSkip("the window did not resize: windowed apps are off") }
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["sidebar.threads"].reachable)
-        XCTAssertFalse(app.tabBars.buttons["ace"].reachable, "as on a phone, the tab bar steps aside for a thread")
+        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable, "as on a phone, the tab bar steps aside for a thread")
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("ipad-narrow-window-thread")
         // Back returns to the full-screen list and its tab bar.
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(app.buttons["thread.ios-approval"].waitForHittable(timeout: 10))
-        XCTAssertTrue(app.tabBars.buttons["ace"].reachable)
+        XCTAssertTrue(app.tabBars.buttons["Threads"].reachable)
         screenshot("ipad-narrow-window")
         app.buttons["thread.ios-approval"].tap()
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
@@ -122,7 +120,7 @@ import XCTest
         // Wide again: the sidebar and its places are back, the tab bar gone, nothing lost.
         resize(app, toWidth: full.width, height: full.height)
         XCTAssertTrue(app.buttons["sidebar.threads"].waitForHittable(timeout: 10))
-        XCTAssertFalse(app.tabBars.buttons["ace"].reachable)
+        XCTAssertFalse(app.tabBars.buttons["Threads"].reachable)
         XCTAssertTrue(app.buttons["thread.ios-approval"].isSelected)
         XCTAssertEqual(input.value as? String, "Keep this draft")
     }
@@ -151,17 +149,17 @@ import XCTest
         XCTAssertEqual(input.value as? String, "Keep this draft")
         screenshot("phone-landscape-split")
 
-        // Beside the list the tab bar's places are the sidebar's; Pull requests stays chosen as
-        // the window turns compact, where the tab bar is back.
-        XCTAssertFalse(app.tabBars.buttons["Spade"].reachable)
-        app.buttons["sidebar.pulls"].tap()
-        XCTAssertTrue(app.buttons["sidebar.pulls"].isSelected)
+        // Beside the list the tab bar's places are the sidebar's; Chats stays chosen as the
+        // window turns compact, where the tab bar is back.
+        XCTAssertFalse(app.tabBars.buttons["Chats"].reachable)
+        app.buttons["sidebar.chats"].tap()
+        XCTAssertTrue(app.buttons["sidebar.chats"].isSelected)
         XCUIDevice.shared.orientation = .portrait
-        let pullsTab = app.tabBars.buttons["Spade"]
-        XCTAssertTrue(pullsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
-        XCTAssertTrue(pullsTab.isSelected)
-        XCTAssertFalse(app.buttons["sidebar.pulls"].reachable)
-        app.tabBars.buttons["ace"].tap()
+        let chatsTab = app.tabBars.buttons["Chats"]
+        XCTAssertTrue(chatsTab.waitForHittable(timeout: 10), "a compact window has the tab bar back")
+        XCTAssertTrue(chatsTab.isSelected)
+        XCTAssertFalse(app.buttons["sidebar.chats"].reachable)
+        app.tabBars.buttons["Threads"].tap()
         XCTAssertTrue(list.waitForNotHittable(timeout: 10), "back to compact, the thread stays on top")
         XCTAssertTrue(title("Fix the flaky queue test", in: app).waitForExistence(timeout: 10))
         XCTAssertEqual(input.value as? String, "Keep this draft")

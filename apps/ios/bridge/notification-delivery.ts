@@ -12,9 +12,11 @@ export const phoneCategories = ["needsYou", "failures", "finished", "agentSays"]
 export type PhoneCategory = (typeof phoneCategories)[number];
 
 const on = z.boolean().catch(true);
+/** Agent messages are opt-in on the phone: by default it alerts only for requests, failures and finishes. */
+const optIn = z.boolean().catch(false);
 const Categories = z
-  .object({ needsYou: on, failures: on, finished: on, agentSays: on })
-  .catch({ needsYou: true, failures: true, finished: true, agentSays: true });
+  .object({ needsYou: on, failures: on, finished: on, agentSays: optIn })
+  .catch({ needsYou: true, failures: true, finished: true, agentSays: false });
 const minute = z.number().int().min(0).max(1439);
 
 export const PhoneNotificationPrefs = z.object({
@@ -84,4 +86,29 @@ export function phoneDelivery(
       context.minuteOfDay,
     );
   return { post: true, interrupt: !quiet, banner: false };
+}
+
+/** What the phone knows about an alert's thread beyond the alert itself. */
+export interface AlertFacts {
+  status: string;
+  /** An agent delegated the thread (here, or from a paired machine): it reports to its parent. */
+  delegated: boolean;
+}
+
+const never: PhoneDelivery = { post: false, interrupt: false, banner: false };
+
+/**
+ * Whether the phone posts an alert at all, then how (`phoneDelivery`). It alerts only when the
+ * person is needed, a failure stops a thread, or a thread of their own finishes: background
+ * commands finishing never alert (the thread's own finish says it), and a delegated thread
+ * alerts only for a request of its own, never for finishing or failing (its parent reports).
+ */
+export function alertDelivery(
+  alert: AlertFacts,
+  prefs: PhoneNotificationPrefs,
+  context: DeliveryContext,
+): PhoneDelivery {
+  if (alert.status === "background_done") return never;
+  if (alert.delegated && alert.status !== "needs_you") return never;
+  return phoneDelivery(alert.status, prefs, context);
 }

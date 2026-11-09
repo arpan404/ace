@@ -15,11 +15,15 @@ struct AnnotateStroke {
     private var last: CGPoint = .zero
     /// The stroke was given up (a second finger): nothing more until every finger lifts.
     private var abandoned = false
+    /// The drawing so far in view points, from where the drag began: the ink the screen shows
+    /// under the finger. Empty for a tap; kept after the finger lifts until the next touch.
+    private(set) var ink: [CGPoint] = []
 
     /// A finger touched down at `view` (view points), which is `page` in CSS pixels.
     mutating func began(view: CGPoint, page: CGPoint, fingers: Int) -> [RemoteInput] {
         if fingers > 1 || start != nil { return abandon() }
         abandoned = false
+        ink = []
         start = (view, page)
         last = page
         dragging = false
@@ -28,9 +32,13 @@ struct AnnotateStroke {
     mutating func moved(view: CGPoint, page: CGPoint) -> [RemoteInput] {
         guard let start, !abandoned else { return [] }
         last = page
-        if dragging { return [.mouse(event: "mouseMoved", x: page.x, y: page.y, held: true)] }
+        if dragging {
+            ink.append(view)
+            return [.mouse(event: "mouseMoved", x: page.x, y: page.y, held: true)]
+        }
         guard hypot(view.x - start.view.x, view.y - start.view.y) >= Self.dragDistance else { return [] }
         dragging = true
+        ink = [start.view, view]
         return [
             .mouse(event: "mouseMoved", x: start.page.x, y: start.page.y, held: false),
             .mouse(event: "mousePressed", x: start.page.x, y: start.page.y, held: true),
@@ -58,6 +66,7 @@ struct AnnotateStroke {
     private mutating func abandon() -> [RemoteInput] {
         let release: [RemoteInput] = dragging && !abandoned ? [.mouse(event: "mouseReleased", x: last.x, y: last.y, held: false)] : []
         abandoned = true
+        ink = []
         return release
     }
     private mutating func reset() {

@@ -34,7 +34,7 @@ struct RemoteScreenView: View {
         .onAppear { model.followComputerAccess(mac: !screen.dialogPicks) }
         .onDisappear { model.unfollowComputerAccess() }
         .onChange(of: screen.dialogPicks) { _, dialog in model.computerAccessMac(!dialog) }
-        .animation(AceTheme.Motion.standardCurve, value: model.computerAccess.state)
+        .animation(.default, value: model.computerAccess.state)
         .task(id: model.connection) {
             if model.connection == "ready" { await screen.refresh(model); await screen.targets(model) } else { screen.disconnected() }
         }
@@ -88,8 +88,18 @@ struct RemoteScreenView: View {
                         .accessibilityIdentifier("screen.row")
                 }
             }
-            permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
-            permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
+            if let requirements = status.permissions.requirements {
+                ForEach(requirements) { requirement in
+                    DeviceNote(sentence: requirement.message, action: model.canOperate && requirement.requestPermission != nil ? requirement.action : nil) {
+                        if let key = requirement.requestPermission {
+                            Task { _ = await screen.perform(model, ["op": "permissions.request", "permission": key]); await screen.refresh(model) }
+                        }
+                    }
+                }
+            } else {
+                permission("Screen Recording", allowed: status.permissions.screenRecording, key: "screenRecording")
+                permission("Accessibility", allowed: status.permissions.accessibility, key: "accessibility")
+            }
         } else if screen.problem == nil {
             SkeletonRows(count: 2, label: "Loading computer use").listRowInsets(EdgeInsets()).listRowSeparator(.hidden)
         }

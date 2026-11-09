@@ -135,6 +135,7 @@ extension AceIcon {
         case magnifyingGlassMinus = "magnifying-glass-minus"
         case magnifyingGlassPlus = "magnifying-glass-plus"
         case mapPin = "map-pin"
+        case microphone = "microphone"
         case minus = "minus"
         case minusCircle = "minus-circle"
         case monitor = "monitor"
@@ -219,5 +220,6 @@ extension AceIcon {
         case x = "x"
         case xCircle = "x-circle"
         case xSquare = "x-square"
+        case aceComputerUse = "ace-computer-use"
     }
 }

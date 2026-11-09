@@ -69,7 +69,6 @@ struct MessageEditSheet: View {
     @State var editor: MessageEditor
     @State private var saved = 0
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @FocusState private var focused: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
@@ -118,9 +117,9 @@ struct MessageEditSheet: View {
         .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.related)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(AceTheme.Colours.background)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.loaded)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.problem)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: editor.newer)
+        .animation(.default, value: editor.loaded)
+        .animation(.default, value: editor.problem)
+        .animation(.default, value: editor.newer)
         .task {
             await editor.load()
             focused = editor.loaded

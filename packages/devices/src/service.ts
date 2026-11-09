@@ -13,6 +13,7 @@ import {
   DeviceOperation,
   DeviceState,
   type DeviceActivity,
+  type DevicePermissions,
 } from "@ace/protocol/devices";
 import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
@@ -667,7 +668,7 @@ export class DevicesService {
   private async permissions(
     operation: Extract<DeviceOperation, { op: "permissions" | "permissions.request" }>,
     actor: Actor,
-  ): Promise<{ screenRecording: boolean; accessibility: boolean }> {
+  ): Promise<DevicePermissions> {
     const screen = this.options.screen;
     if (!screen)
       throw new DeviceError(

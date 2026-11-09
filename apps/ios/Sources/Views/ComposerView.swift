@@ -1,10 +1,13 @@
 import SwiftUI
 
-/// The thread's composer with a separate add-menu button on its left. The message field
-/// expands to show access, model and effort controls while the add-menu presenter stays put.
-/// An empty composer's action stops the working tree; a typed message steers or queues as the
-/// bridge directs. Files on the next message sit above the field.
-struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Settings: View>: View {
+/// The thread's composer, one Liquid Glass capsule as Messages draws it: a round glass + on its
+/// left, then the capsule holding the field and one trailing round button (`ComposerTrailing`):
+/// the microphone while there is nothing to send or stop, Send once there are words or chips, Stop
+/// while the tree works and the field is empty. A typed message steers or queues as the bridge
+/// directs. The words wrap and the capsule grows into a rounded shape concentric with its button,
+/// up to five lines, then scrolls. What rides above it (the files and chips on the next message)
+/// is `top`; the model lives in the thread's title, never here.
+struct ComposerView<Top: View, Leading: View>: View {
     let controls: ControlsRow?
     let stopping: Bool
     let placeholder: String
@@ -18,12 +21,11 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var intake: (([NSItemProvider]) -> Void)? = nil
     /// An earlier message the person sent, `older` 0 the latest; nil where there is none to recall.
     var recall: ((Int) async -> String?)? = nil
-    /// Previous message's walk back through what was sent.
-    @State private var recaller = ComposerRecaller()
-    /// Something is being dragged over the composer.
-    @State private var dropping = false
     /// Files on the next message: with any, the message can go without words.
     var files = 0
+    /// Chips on the next message (line comments, drawings): with any, the message can go without
+    /// words. They sit above the capsule; its shape never changes for them.
+    var chips = 0
     /// Where this composer's unsent words are kept (`ThreadDrafts.key`); nil keeps them only on screen.
     var draftKey: String? = nil
     /// The `@` and `/` lists, and the + list's builtins; nil offers none.
@@ -34,110 +36,55 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
     var run: (String) -> Void = { _ in }
     /// Each new value brings the keyboard up with the caret at the end of the words.
     var focusRequest = 0
+    /// What sits just above the capsule: the files and chips on the next message, the fork.
     @ViewBuilder var top: () -> Top
     /// The + at the row's start; it is handed what picking one of the + list's rows does.
     @ViewBuilder var leading: (_ pick: @escaping (SuggestionRow) -> Void) -> Leading
-    /// The access mode, beside +.
-    @ViewBuilder var access: () -> Access
-    /// The model and its effort, before Send.
-    @ViewBuilder var model: () -> Model
-    /// The button that opens the model, effort and access while the composer is one line.
-    @ViewBuilder var settings: () -> Settings
-    /// False where the model sits elsewhere (a thread's pill on top): the composer keeps +,
-    /// its field and Send or Stop only, so it has room to type.
-    var showsOptions = true
+    /// Previous message's walk back through what was sent.
+    @State private var recaller = ComposerRecaller()
+    /// Something is being dragged over the composer.
+    @State private var dropping = false
     @State private var draft = ComposerDraft()
+    @State private var dictation = ComposerDictation()
+    /// What the field held as dictation began; spoken words follow it.
+    @State private var spokenAfter = ""
     @State private var feedback = 0
+    @State private var stopped = 0
     @State private var wraps = false
     @State private var focused = false
     @State private var place: CaretPlacement?
     /// Why the last pick couldn't be made, until the words change.
     @State private var notice: String?
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @Environment(\.threadDrafts) private var drafts
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var sizeClass
-    private var empty: Bool { files == 0 && draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var card: Bool { ComposerFit.card(focused: focused, wraps: wraps) }
-    /// Big: the web's layout, with the controls row under the message.
-    private var big: Bool { card || !empty }
-    private var stops: Bool { empty && controls?.busy == true && controls?.canStop == true }
-    @Environment(\.inGlassBlock) private var inBlock
+    private var words: Bool { !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var empty: Bool { files == 0 && chips == 0 && !words }
+    private var trailing: ComposerTrailing {
+        ComposerTrailing.of(hasContent: !empty, busy: controls?.busy == true, canStop: controls?.canStop == true,
+                            listening: dictation.listening)
+    }
+
     var body: some View {
-        let bar = ReadingColumn.bar(sizeClass)
         VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
             if let suggester, suggester.trigger != nil {
                 ComposerSuggestionList(list: suggester.shown, pick: pick, retry: { suggester.retry() }, maxHeight: suggestionHeight)
                     .transition(.opacity)
             }
-            if let notice {
-                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            if let words = notice ?? dictation.problem {
+                Text(words).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.tight)
+                    .padding(.leading, ComposerCapsuleMetrics.aboveInset).padding(.trailing, AceDesign.Space.margin)
+                    .padding(.bottom, AceDesign.Space.tight)
             }
             top()
-            ComposerDock { leading(pick) } content: {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                    HStack(alignment: .center, spacing: AceTheme.Spacing.none) {
-                        input
-                        if !big {
-                            if showsOptions {
-                                settingsButton
-                                    .padding(.trailing, AceTheme.Spacing.xxs)
-                            }
-                            action
-                        }
-                    }
-                    .padding(.horizontal, big ? AceTheme.Spacing.none : AceDesign.Space.tight)
-                    .frame(minHeight: AceDesign.Size.tap + AceDesign.Space.tight)
-                    if big {
-                        HStack(spacing: AceTheme.Spacing.none) {
-                            Group {
-                                if showsOptions {
-                                    ViewThatFits(in: .horizontal) {
-                                        expandedOptions
-                                        expandedOptions.environment(\.composerRoomy, false)
-                                        settingsButton
-                                    }
-                                } else {
-                                    Spacer(minLength: AceTheme.Spacing.none)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            action.fixedSize().layoutPriority(1)
-                        }
-                        .padding(.horizontal, AceDesign.Space.tight)
-                        .padding(.bottom, AceTheme.Spacing.xxs)
-                        // The row keeps its height when a tall request and the keyboard leave little room.
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                    }
-                }
-                .aceContainerShape(AceShape.field)
-                .composerGlass(in: AceShape.field)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("composer.surface")
-                // A file dragged over the composer: its edge brightens where it will land.
-                .overlay {
-                    if dropping {
-                        AceShape.field.strokeBorder(AceDesign.Ink.faint, lineWidth: AceTheme.Dimensions.border * 2)
-                            .allowsHitTesting(false).transition(.opacity)
-                    }
-                }
-                .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
-                    guard let intake else { return false }
-                    intake(providers)
-                    feedback += 1
-                    return true
-                }
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: dropping)
-                .animation(AceDesign.Motion.arriving(reduceMotion), value: big)
-            }
+            capsule
         }
-        // In the glass block the block keeps the edges.
-        .padding(.horizontal, inBlock ? AceTheme.Spacing.none : bar.composer).padding(.bottom, inBlock ? AceTheme.Spacing.none : bar.bottom)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: wraps)
+        .padding(.horizontal, ComposerCapsuleMetrics.side(sizeClass)).padding(.bottom, ReadingColumn.bar(sizeClass).bottom)
+        .animation(.default, value: wraps)
+        .animation(.default, value: trailing)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: feedback)
+        .sensoryFeedback(AceDesign.Haptic.stop, trigger: stopped)
         .onChange(of: mention) { _, picked in
             guard let picked else { return }
             if let tab = picked.tab {
@@ -155,21 +102,46 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
         .onDisappear { suggester?.active = false }
         .onChange(of: draftKey, initial: true) { _, key in draft.follow(key, in: drafts) }
         .onChange(of: focusRequest) { _, _ in place = CaretPlacement(offset: (draft.text as NSString).length, focus: true) }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { draft.flush() } }
-        .onDisappear { draft.flush() }
-    }
-    private var expandedOptions: some View {
-        HStack(spacing: AceDesign.Space.tight) {
-            access()
-            model()
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { draft.flush(); dictation.stop() }
         }
-        .fixedSize(horizontal: true, vertical: true)
+        .onDisappear { draft.flush(); dictation.stop() }
     }
-    private var settingsButton: some View {
-        settings()
-            .frame(width: ComposerControlRow.height, height: ComposerControlRow.height)
-            .background(AceTheme.Colours.fill, in: Circle())
+
+    /// + , the field and its one button in one glass capsule spanning the column, so the words
+    /// get the whole width, as the web's composer holds its + inside; wrapped words make it a
+    /// rounded shape whose corners stay concentric with the buttons'.
+    private var capsule: some View {
+        HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+            leading(pick)
+                .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .tint(AceTheme.Colours.foreground)
+                .buttonStyle(.plain)
+            input
+            action
+        }
+        .frame(minHeight: AceDesign.Size.tap)
+        .aceContainerShape(AceShape.field)
+        .composerGlass(in: AceShape.field)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("composer.surface")
+        // A file dragged over the composer: its edge brightens where it will land.
+        .overlay {
+            if dropping {
+                AceShape.field.strokeBorder(AceDesign.Ink.faint, lineWidth: AceTheme.Dimensions.border * 2)
+                    .allowsHitTesting(false).transition(.opacity)
+            }
+        }
+        .onDrop(of: intake == nil ? [] : [.item], isTargeted: $dropping) { providers in
+            guard let intake else { return false }
+            intake(providers)
+            feedback += 1
+            return true
+        }
+        .animation(.default, value: dropping)
     }
+
     private func pick(_ row: SuggestionRow) {
         if row.action == "recall" { recallPrevious(); return }
         suggester?.choose(row, text: $draft.text, place: $place, keep: { draft.add($0) }, notice: { notice = $0 }, run: run)
@@ -187,30 +159,27 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
         }
     }
+    private var shownPlaceholder: String { dictation.listening ? "Listening…" : placeholder }
     private var input: some View {
-        NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && !stops { submit(alternate: false) } },
-                        wraps: wraps, onWrap: { wraps = $0 }, card: card, focused: focused,
+        NativeTextInput(text: $draft.text, inputBegan: inputBegan, submit: { if !disabled && trailing == .send { submit(alternate: false) } },
+                        wraps: wraps, onWrap: { wraps = $0 }, card: wraps, focused: focused, holdsOneLine: true,
                         onFocus: { focus, duration in
                             if !focus { suggester?.close() } else { suggester?.readAhead() }
-                            withAnimation(reduceMotion ? nil : AceDesign.Motion.keyboard(duration)) { focused = focus }
+                            withAnimation(AceDesign.Motion.keyboard(duration)) { focused = focus }
                         },
                         onCaret: suggester.map { suggester in { text, caret in suggester.caretMoved(text: text, caret: caret, held: draft.picks.held) } },
-                        place: place, pasteFiles: intake)
-            .overlay(alignment: .topLeading) {
-                if draft.text.isEmpty {
-                    Text(placeholder).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .body)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
-                        .padding(.top, AceDesign.Space.row)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-            }
+                        place: place, pasteFiles: intake, placeholder: shownPlaceholder)
             .accessibilityLabel(placeholder)
-            .padding(.horizontal, big ? AceDesign.Space.margin : AceDesign.Space.tight)
+            .padding(.leading, ComposerCapsuleMetrics.fieldInset)
     }
     private var action: some View {
-        ComposerActionButton(stopping: stops, saving: draft.saving, disabled: disabled, label: label, glyph: glyph, size: ComposerControlRow.height + AceDesign.Space.tight) {
-            feedback += 1
-            if stops { stop() } else { submit(alternate: false) }
+        ComposerTrailingButton(state: trailing, saving: draft.saving, disabled: disabled, label: label, sendGlyph: sendGlyph) {
+            switch trailing {
+            case .dictate: startDictation()
+            case .listening: dictation.stop()
+            case .stop: stopped += 1; stop()
+            case .send: feedback += 1; submit(alternate: false)
+            }
         }
         .contextMenu {
             if !empty, let alternate = controls?.alternate {
@@ -218,32 +187,66 @@ struct ComposerView<Top: View, Leading: View, Access: View, Model: View, Setting
             }
         }
         // ⌘↩ sends from a hardware keyboard; it never stops a running tree.
-        .phoneShortcut("send", enabled: !stops)
-        .accessibilityIdentifier("composer.send")
+        .phoneShortcut("send", enabled: trailing == .send)
+        .accessibilityIdentifier(trailing == .send || trailing == .stop ? "composer.send" : "composer.dictate")
     }
-    private var disabled: Bool { draft.saving || (stops ? stopping : empty) }
+    private func startDictation() {
+        spokenAfter = draft.text
+        Task {
+            await dictation.start { spoken in draft.text = DictationText.join(spokenAfter, heard: spoken) }
+        }
+    }
+    private var disabled: Bool {
+        if draft.saving { return true }
+        switch trailing {
+        case .stop: return stopping
+        case .send: return empty
+        case .dictate, .listening: return false
+        }
+    }
     private var label: String {
         if draft.saving { return "Sending your message" }
-        if stops { return stopping ? "Stopping the agent tree" : "Stop whole agent tree" }
-        if controls?.busy == true { return controls?.delivery == "steer" ? "Steer the running turn" : "Queue for after this turn" }
-        return "Send message"
+        switch trailing {
+        case .dictate: return "Dictate"
+        case .listening: return "Stop dictating"
+        case .stop: return stopping ? "Stopping the agent tree" : "Stop whole agent tree"
+        case .send:
+            if controls?.busy == true { return controls?.delivery == "steer" ? "Steer the running turn" : "Queue for after this turn" }
+            return "Send message"
+        }
     }
     /// What a typed message does now, in the web's glyphs: Steer or Queue while the agent works.
-    private var glyph: AceIcon.Name {
+    private var sendGlyph: AceIcon.Name {
         guard controls?.busy == true else { return .arrowUp }
         return controls?.delivery == "steer" ? .arrowBendUpRight : .queue
     }
     private func submit(alternate: Bool) {
+        dictation.stop()
         let suggester = suggester
         let draft = draft
         Task {
-            await draft.submit(delivery: alternate ? "alternate" : "follow", files: files) { text, delivery in
+            await draft.submit(delivery: alternate ? "alternate" : "follow", files: files + chips) { text, delivery in
                 let saved = await send(text, delivery == "alternate", draft.picks.payload)
                 if saved { suggester?.sent() }
                 return saved
             }
         }
     }
+}
+
+/// Where the capsule sits and where its words start, so what rides above it (the live line, the
+/// chips, a notice) shares the field text's left edge.
+enum ComposerCapsuleMetrics {
+    /// From the column's edge to the capsule, which holds the + inside it.
+    static func side(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { ReadingColumn.bar(sizeClass).composer }
+    /// From the + to the field's words.
+    static let fieldInset = AceDesign.Space.tight
+    /// From the capsule's leading edge to the field's words: past the + and the field's inset.
+    static let aboveInset = AceDesign.Size.tap + fieldInset
+    /// From the column's edge to the capsule's left edge: the pills and chips line up with it.
+    static func fieldEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) }
+    /// From the column's edge to the field's words.
+    static func textEdge(_ sizeClass: UserInterfaceSizeClass?) -> CGFloat { side(sizeClass) + aboveInset }
 }
 
 /// Words handed back to the composer. They follow what is already typed after a blank line, as
@@ -254,14 +257,5 @@ struct ComposerRestore: Equatable {
     func merged(into current: String) -> String {
         let typed = current.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
         return typed.isEmpty ? text : "\(typed)\n\n\(text)"
-    }
-}
-
-extension ComposerView {
-    /// The composer without its model, access and settings controls.
-    func showsOptions(_ shown: Bool) -> Self {
-        var copy = self
-        copy.showsOptions = shown
-        return copy
     }
 }

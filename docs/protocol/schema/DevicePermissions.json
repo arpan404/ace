@@ -5,6 +5,53 @@
     "accessibility": {
       "type": "boolean"
     },
+    "platform": {
+      "maxLength": 64,
+      "type": "string"
+    },
+    "requirements": {
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "action": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "kind": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "permission": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "state",
+          "title",
+          "message"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "screenRecording": {
       "type": "boolean"
     }

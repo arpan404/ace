@@ -15,6 +15,7 @@ import {
 import type { PathStandby } from "./multipath.ts";
 import { supportedWireTrims, WireRestorer } from "@ace/projection/wire-trim";
 import {
+  CredentialReplacedClose,
   DeviceRevokedClose,
   MachineCodeRefusal,
   type ClientMessage,
@@ -28,6 +29,7 @@ import {
   type ConnectionInfo,
   type ConnectionState,
   type Limits,
+  type PathRefusal,
   type Transport,
 } from "./types.ts";
 
@@ -168,6 +170,23 @@ export class Connection {
     this.#connect();
   }
   /**
+   * The person typed the machine code the daemon asked for: open again now, from a fresh
+   * backoff, so the next hello carries it. A connection stopped for any other reason stays
+   * stopped (a refused or revoked credential can't be fixed by trying again); one still
+   * retrying skips its wait, as `reconnectNow`.
+   */
+  codeEntered(): void {
+    if (!this.#active) return;
+    if (this.state !== "fatal") {
+      this.reconnectNow();
+      return;
+    }
+    if (this.error?.code !== "machine_code") return;
+    this.error = undefined;
+    this.#attempt = 0;
+    this.#connect();
+  }
+  /**
    * The app came back to the foreground. A socket that sat suspended may be dead without having
    * closed, and a reconnect may be waiting out a long backoff: a ready socket must answer a ping
    * within a few seconds or is replaced, and a waiting reconnect runs now.
@@ -236,7 +255,7 @@ export class Connection {
   #lost(code: number, reason: string, error?: ClientError): void {
     const at = this.#options.now?.();
     this.#lastClose = { code, reason, ...(at === undefined ? {} : { at }) };
-    const decision = disconnectDecision(this.#active, this.#online, code);
+    const decision = disconnectDecision(this.#active, this.#online, code, reason);
     const closed = {
       code,
       // Close reasons are short protocol phrases; bounded so a log line stays one line.
@@ -327,7 +346,7 @@ export class Connection {
               else this.fail(new ClientError("auth"));
             });
         },
-        close: (code, reason) => this.#closed(epoch, code, reason ?? ""),
+        close: (code, reason, refused) => this.#closed(epoch, code, reason ?? "", refused),
         message: (text) => this.#receiveFrame(text, epoch),
         binary: (bytes) => this.#receiveFrame(bytes, epoch),
       });
@@ -340,6 +359,7 @@ export class Connection {
       type: "hello",
       protocolVersion: 1,
       deviceId: this.#options.deviceId,
+      ...(this.#options.installId ? { installId: this.#options.installId } : {}),
       trims: [...supportedWireTrims],
       ...(transport.compression?.length ? { compression: [...transport.compression] } : {}),
       ...(transport.flowControl?.length ? { flowControl: [...transport.flowControl] } : {}),
@@ -379,10 +399,16 @@ export class Connection {
   }
   /** A server frame's JSON, decoded; `null` once an unreadable one has dropped the socket. */
   #decode(text: string): Message | undefined | null {
+    let value: unknown;
     try {
-      return this.#codec.decode(JSON.parse(text));
-    } catch {
-      this.#broken("Undecodable server message", versionMismatch());
+      value = JSON.parse(text);
+      return this.#codec.decode(value);
+    } catch (error) {
+      // The frame's type and the first issue say which message didn't read, for the log.
+      const type =
+        typeof value === "object" && value !== null && "type" in value ? String(value.type) : "";
+      const issue = error instanceof Error ? error.message.replace(/\s+/g, " ").slice(0, 160) : "";
+      this.#broken(`Undecodable server message ${type} ${issue}`.trim(), versionMismatch());
       return null;
     }
   }
@@ -535,8 +561,14 @@ export class Connection {
       missed: () => this.#lost(1006, heartbeatMissed),
     });
   }
-  #closed(epoch: number, code: number, reason: string): void {
-    if (epoch === this.#epoch) this.#lost(code, reason);
+  #closed(epoch: number, code: number, reason: string, refused?: PathRefusal): void {
+    // A drop whose paths were partly refused retries, and says why while it does.
+    if (epoch === this.#epoch)
+      this.#lost(
+        code,
+        reason,
+        refused && new ClientError("offline", refused.reason || `Path refused (${refused.code})`),
+      );
     else if (epoch === this.#draining?.epoch) this.#finishDrain();
   }
 
@@ -717,7 +749,14 @@ export class Connection {
   }
   #failover(code: number, reason: string): boolean {
     // Access changed on every path at once: the standby can't carry on either.
-    if (this.state !== "ready" || this.#draining || code === ACCESS_CHANGED_CLOSE) return false;
+    // A replaced credential: the standby said hello with it too, and closes with it.
+    if (
+      this.state !== "ready" ||
+      this.#draining ||
+      code === ACCESS_CHANGED_CLOSE ||
+      CredentialReplacedClose.safeParse({ code, reason }).success
+    )
+      return false;
     const standby = this.#standby?.path();
     if (!standby || !this.swap(standby, "failover")) return false;
     this.#standby?.used(code);

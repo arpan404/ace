@@ -37,15 +37,33 @@ private struct ChangesActions<Header: View>: ViewModifier {
     private var method: MergeMethodOption? { methods.first { $0.method == savedMethod } ?? methods.first }
     private func label(_ step: ChangesSummary.Step) -> String { step.kind == "merge" ? method?.label ?? step.label : step.label }
 
+    @Environment(\.threadPage) private var inPage
+
+    /// A step that can't run yet stays in the menu with its reason, never greyed here.
+    @ViewBuilder private var trailing: some View {
+        menu
+        if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
+    }
+
     func body(content: Content) -> some View {
-        content
-            .screenBar {
-                header
-            } actions: {
-                menu
-                // A step that can't run yet stays in the menu with its reason, never greyed here.
-                if let step, step.kind != "none", step.blocked == nil, model.canOperate { stepButton(step) }
+        Group {
+            if inPage {
+                // A page of the thread: the thread's own bar stays the thread's, so the scope and
+                // the actions ride one row at the page's top.
+                content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) {
+                    HStack(spacing: AceDesign.Space.related) {
+                        header
+                        Spacer(minLength: AceDesign.Space.related)
+                        trailing.frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .background(AceTheme.Colours.background)
+                }
+            } else {
+                content.screenBar { header } actions: { trailing }
             }
+        }
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) { status }
             .sheet(isPresented: $editing) {
                 if let step { GitMessageSheet(model: model, kind: step.kind, submitLabel: step.label, initialTitle: title) { send($0) } }

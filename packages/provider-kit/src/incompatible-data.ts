@@ -34,8 +34,21 @@ const Fields = z.object({
   message: z.string(),
 });
 
-/** Recognises the error after a worker boundary, which keeps its fields but not its class. */
+/**
+ * Recognises the error after a worker boundary. Node's worker `error` event keeps the error's
+ * fields but not its class; Bun's keeps only `message` and `code`, so a worker that may refuse
+ * its store sends these fields itself (see `revivedIncompatibleData`).
+ */
 export function incompatibleData(error: unknown): { path: string; message: string } | undefined {
   const fields = Fields.safeParse(error);
   return fields.success ? { path: fields.data.path, message: fields.data.message } : undefined;
+}
+
+/** The error rebuilt from fields a worker sent across its boundary. */
+export function revivedIncompatibleData(fields: { path: string; message: string }): Error {
+  return Object.assign(new Error(fields.message), {
+    name: "IncompatibleDataError",
+    code: "incompatible-data" as const,
+    path: fields.path,
+  });
 }

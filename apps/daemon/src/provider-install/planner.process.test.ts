@@ -103,7 +103,15 @@ test("latest version checks cache registry replies, compare numeric versions, an
     });
     await f.installs.plan({ provider: "codex" }, "update");
     expect((await f.calls()).filter((call) => call[1] === "view")).toEqual([
-      ["npm", "view", "@openai/codex", "version", "--registry=https://registry.npmjs.org"],
+      [
+        "npm",
+        "view",
+        "@openai/codex@latest",
+        "version",
+        "optionalDependencies",
+        "--json",
+        "--registry=https://registry.npmjs.org",
+      ],
     ]);
     f.tick(3_600_001);
     await writeFile(join(f.home, "latest"), "offline");
@@ -297,6 +305,161 @@ test("OpenCode install verification skips earlier v1 and uninstall ignores remai
     const uninstall = await f.installs.plan({ provider: "opencode" }, "uninstall");
     await unlink(join(f.bin, "opencode"));
     expect(await f.installs.planner.verify(uninstall)).toBe("removed");
+  } finally {
+    await f.close();
+  }
+});
+
+test("an update is offered only once this computer's binary is published", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await f.existing("codex");
+    await writeFile(
+      join(f.home, "optional"),
+      JSON.stringify({
+        "@openai/codex-linux-x64": "npm:@openai/codex@2.0.0-linux-x64",
+        "@openai/codex-darwin-arm64": "npm:@openai/codex@2.0.0-darwin-arm64",
+      }),
+    );
+    await writeFile(join(f.home, "unpublished"), "@openai/codex@2.0.0-darwin-arm64");
+    const early = await f.installs.plan({ provider: "codex" }, "update");
+    expect(early.updateAvailable).toBeUndefined();
+    expect(early.latestVersion).toBeUndefined();
+
+    await writeFile(join(f.home, "unpublished"), "");
+    f.tick(300_001);
+    expect(await f.installs.plan({ provider: "codex" }, "update")).toMatchObject({
+      latestVersion: "2.0.0",
+      updateAvailable: true,
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("Refresh asks the registry again instead of reusing the cached latest version", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await f.existing("codex");
+    const codex = () => f.statuses.list().find((row) => row.provider === "codex");
+    await f.statuses.refreshAfterMutation();
+    expect(codex()).toMatchObject({ latestVersion: "2.0.0", updateAvailable: true });
+
+    await writeFile(join(f.home, "latest"), "3.0.0");
+    await f.statuses.refreshAfterMutation();
+    expect(codex()?.latestVersion).toBe("2.0.0");
+
+    await f.statuses.recheck();
+    expect(codex()).toMatchObject({ latestVersion: "3.0.0", updateAvailable: true });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an installed CLI newer than the cached latest version rechecks the registry", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await f.existing("codex");
+    await writeFile(join(f.home, "latest"), "1.0.0");
+    expect(await f.installs.plan({ provider: "codex" }, "update")).toMatchObject({
+      latestVersion: "1.0.0",
+      updateAvailable: false,
+    });
+    // The CLI updated itself past the cached answer, and the registry has moved on too.
+    await writeFile(join(f.home, "installed-version"), "1.5.0");
+    await writeFile(join(f.home, "latest"), "2.0.0");
+    f.tick(60_001);
+    expect(await f.installs.plan({ provider: "codex" }, "update")).toMatchObject({
+      installedVersion: "1.5.0",
+      latestVersion: "2.0.0",
+      updateAvailable: true,
+    });
+  } finally {
+    await f.close();
+  }
+});
+
+test("Claude on the stable channel is checked and updated on stable unless managed settings say latest", async () => {
+  const f = await installFixture({ managers: ["npm"] });
+  try {
+    await symlink("/bin/bash", join(f.bin, "bash"));
+    await symlink("/usr/bin/true", join(f.bin, "curl"));
+    await f.existing("claude", "script");
+    await mkdir(join(f.home, ".claude"));
+    await writeFile(
+      join(f.home, ".claude", "settings.json"),
+      JSON.stringify({ autoUpdatesChannel: "stable" }),
+    );
+    await writeFile(join(f.home, "latest-stable"), "1.5.0");
+    const stable = await f.installs.plan({ provider: "claude" }, "update");
+    expect(stable).toMatchObject({
+      method: "script",
+      latestVersion: "1.5.0",
+      updateAvailable: true,
+    });
+    expect(stable.commands[0]?.display).toContain("bash -s stable");
+
+    await writeFile(
+      join(f.home, "managed-settings.json"),
+      JSON.stringify({ autoUpdatesChannel: "latest" }),
+    );
+    const latest = await f.installs.plan({ provider: "claude" }, "update");
+    expect(latest).toMatchObject({ latestVersion: "2.0.0", updateAvailable: true });
+    expect(latest.commands[0]?.display).not.toContain("stable");
+  } finally {
+    await f.close();
+  }
+});
+
+test("Claude from the claude-code@latest cask updates that cask", async () => {
+  const f = await installFixture({ managers: ["brew"] });
+  try {
+    const target = join(f.brewRoot, "Caskroom", "claude-code@latest", "1.0.0", "claude");
+    await f.existing("claude", "brew");
+    await mkdir(join(target, ".."), { recursive: true });
+    await writeFile(target, await readFile(join(f.bin, "claude")), { mode: 0o755 });
+    await unlink(join(f.bin, "claude"));
+    await symlink(target, join(f.bin, "claude"));
+    const plan = await f.installs.plan({ provider: "claude" }, "update");
+    expect(plan).toMatchObject({ status: "ready", method: "brew", updateAvailable: true });
+    expect(plan.commands.map((command) => command.args)).toEqual([
+      ["upgrade", "--cask", "claude-code@latest"],
+    ]);
+    expect(await f.calls()).toContainEqual([
+      "brew",
+      "info",
+      "--json=v2",
+      "--cask",
+      "claude-code@latest",
+    ]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("an ACP agent installed with Bun is updated with Bun instead of reported as unknown", async () => {
+  const f = await installFixture({ managers: ["npm", "bun"] });
+  try {
+    await f.existing("codex", "bun");
+    const target = join(
+      f.home,
+      ".bun",
+      "install",
+      "global",
+      "node_modules",
+      "@google",
+      "gemini-cli",
+      "gemini",
+    );
+    await mkdir(join(target, ".."), { recursive: true });
+    await writeFile(target, await readFile(join(f.bin, "codex")), { mode: 0o755 });
+    await symlink(target, join(f.bunRoot, "gemini"));
+    await symlink(join(f.bunRoot, "gemini"), join(f.bin, "gemini"));
+    const plan = await f.installs.plan({ provider: "acp", agent: "gemini" }, "update");
+    expect(plan).toMatchObject({ status: "ready", method: "bun", updateAvailable: true });
+    expect(plan.commands.map((command) => command.args)).toEqual([
+      ["install", "-g", "--trust", "@google/gemini-cli"],
+    ]);
   } finally {
     await f.close();
   }

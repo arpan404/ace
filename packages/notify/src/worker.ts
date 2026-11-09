@@ -1,5 +1,7 @@
 import { replayGap } from "./replay-gap.ts";
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import type { Worker, WorkerOptions } from "node:worker_threads";
+import { startWorker } from "@ace/provider-kit/worker";
+import { revivedIncompatibleData } from "@ace/provider-kit/incompatible-data";
 import {
   NotificationAddress,
   NotificationFeed,
@@ -106,7 +108,7 @@ export class NotificationWorker {
     // Worker failure can precede the first RPC. Retain it without an unhandled rejection.
     void this.ready.catch(() => {});
     const spawn =
-      options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
+      options.spawn ?? ((entry: URL, config: WorkerOptions) => startWorker(entry, config));
     const worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
       workerData: WorkerConfig.parse(options),
     });
@@ -150,6 +152,7 @@ export class NotificationWorker {
             ),
           );
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
+      else if (message.type === "incompatible") this.fail(revivedIncompatibleData(message));
       else if (message.type === "state")
         options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {

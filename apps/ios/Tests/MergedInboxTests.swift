@@ -66,6 +66,26 @@ import Testing
         #expect(MergedInbox.merge([("old", layout([section("done", order: 4, ["x": "0001"])]))]).sections[0].tab == "inbox")
     }
 
+    @Test func anotherMachinesSettledRowsStayInSettledWhenTheFirstMachineHasLoadedNoneOfItsOwn() {
+        // The studio's settled threads are all on older pages: a section with a count and no rows.
+        var paged = section("settled", order: 6, [:]); paged.total = 12
+        var studio = layout([section("needs-you", order: 0, ["a": "0001"]), paged], more: true)
+        studio.tabs = .init(inbox: ["a"], snoozed: [], settled: [])
+        var laptop = layout([section("settled", order: 6, ["s": "0002"])])
+        laptop.tabs = .init(inbox: [], snoozed: [], settled: ["s"])
+        let merged = MergedInbox.merge([("studio", studio), ("laptop", laptop)])
+        let settled = merged.sections.first { $0.key == "settled" }
+        #expect(settled?.tab == "settled")
+        #expect(merged.sections.filter { $0.tab == "inbox" }.flatMap(\.rows) == [key("studio", "a")])
+    }
+
+    @Test func theTabASectionNamesPlacesItEvenWithNoRowLoaded() {
+        var paged = section("settled", order: 6, [:]); paged.total = 4; paged.tab = "settled"
+        let merged = MergedInbox.merge([("studio", layout([paged], more: true))])
+        #expect(merged.sections.map(\.tab) == ["settled"])
+        #expect(merged.sections[0].count == 4)
+    }
+
     private func key(_ machine: String, _ id: String) -> InboxKey { InboxKey(machineId: machine, id: id) }
     private func section(_ key: String, order: Int, _ rows: KeyValuePairs<String, String>) -> InboxLayout.Section {
         InboxLayout.Section(key: key, label: key, ids: rows.map(\.key), ranks: rows.map(\.value), order: order)

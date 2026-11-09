@@ -1,9 +1,8 @@
-import { createServer } from "node:https";
 import type { RequestListener, Server } from "node:http";
 import { SettingsError } from "@ace/settings";
 import { remoteListener, systemNetwork, urlHost, type RemoteListener } from "./network.ts";
 import { trustedCertificate, type TrustedCertificate } from "./tailscale-certificate.ts";
-import { bindListener, closeListener } from "./listener.ts";
+import { sniListener, type SniListener } from "./sni-listener.ts";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import type { ServerOptions } from "./server-options.ts";
 import type { DirectPlan } from "./remote-policy.ts";
@@ -34,7 +33,7 @@ export function remoteDirect(deps: {
   clearPending: () => void;
 }) {
   const { options } = deps;
-  let listener: Server | undefined;
+  let listener: SniListener | undefined;
   let bindHost: string | undefined;
   let port: number | undefined;
   let trusted: TrustedCertificate | undefined;
@@ -64,7 +63,7 @@ export function remoteDirect(deps: {
     if (open && withdrawLinks) deps.clearPending();
     if (open) deps.disconnect();
     stopTrusted();
-    if (open) await closeListener(open);
+    if (open) await open.close();
     bindHost = undefined;
     port = undefined;
     advertised = undefined;
@@ -121,22 +120,22 @@ export function remoteDirect(deps: {
       if (!listener) {
         // Browsers asking for the ts.net name get Tailscale's trusted certificate; every other
         // client (and every client until it arrives) gets ace's own, pinned certificate.
-        const server = createServer(
-          {
+        const server = sniListener({
+          tls: {
             ...target.identity,
             minVersion: "TLSv1.2",
             SNICallback: (servername, done) => done(null, trusted?.select(servername)),
           },
-          deps.http,
-        );
-        server.requestTimeout = 0;
-        server.headersTimeout = 10_000;
-        deps.attach(server);
+          requests: deps.http,
+          delay: options.runtime?.delay ?? systemDeliveryRuntime.delay,
+          log: (error) => options.log?.(error),
+        });
+        deps.attach(server.http);
         try {
-          port = await bindListener(server, target.host, target.port);
+          port = await server.listen(target.host, target.port);
         } catch {
           // The port is taken or the address went away: these networks fail; relays go on.
-          await closeListener(server);
+          await server.close();
           stopTrusted();
           for (const network of ["lan", "tailscale"] as const)
             if (target.serves[network])
@@ -168,6 +167,20 @@ export function remoteDirect(deps: {
       const name = network === "tailscale" && trusted?.active() ? trusted.name : undefined;
       return `https://${name ?? urlHost(read.advertisedHost)}:${port}`;
     },
+    /**
+     * What the person can fix on a network that serves: browsers won't trust the Tailscale
+     * address until Tailscale issues its certificate, and why it hasn't.
+     */
+    warnings(): Partial<Record<DirectNetwork, string>> {
+      const problem = serving.tailscale ? trusted?.problem() : undefined;
+      return problem ? { tailscale: problem.slice(0, 256) } : {};
+    },
+    /**
+     * Before a pairing link is made: fetch a Tailscale certificate that failed again now, waiting
+     * up to `waitMs`, so the link names the ts.net host as soon as the person fixed the cause.
+     */
+    refreshCertificate: (waitMs: number) =>
+      serving.tailscale && trusted ? trusted.retry(waitMs) : Promise.resolve(),
     serving: () => serving,
     errors: () => errors,
     open: () => listener !== undefined,

@@ -27,7 +27,14 @@ const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
  */
 export function accountApi(
   setup: AccountSetup,
-  deps: { db: D1Database; fetch: typeof fetch; now: () => number; random: RandomBytes },
+  deps: {
+    db: D1Database;
+    fetch: typeof fetch;
+    now: () => number;
+    random: RandomBytes;
+    /** A machine left the account's list: one still registered on the relay lists itself again. */
+    forgotten?: (hostId: string, accountId: string) => Promise<void>;
+  },
 ) {
   if (setup.status !== "ready")
     return {
@@ -53,6 +60,7 @@ export function accountApi(
   const directory = directoryRoutes({
     sessions: reader,
     machines: machineStore(deps.db),
+    ...(deps.forgotten ? { forgotten: deps.forgotten } : {}),
     keys,
     signingKey: config.grantKey,
     now,

@@ -10,7 +10,6 @@ struct SettingsPageView: View {
     let page: String
     let fallbackTitle: String
     @Environment(\.settingsScope) private var scope
-    @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var data: SettingsPageData?
     @State private var others: [String: SettingsPageData] = [:]
     @State private var problem: String?
@@ -29,7 +28,7 @@ struct SettingsPageView: View {
 
     private var request: [String: Any] { SettingsPageData.request(page) }
     private var spreading: Bool { scope?.all == true && scope?.several == true }
-    private var motion: Animation { AceDesign.Motion.arriving(reduceMotion) }
+    private var motion: Animation { .default }
 
     var body: some View {
         List {

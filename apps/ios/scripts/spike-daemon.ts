@@ -30,6 +30,7 @@ import { seedReading } from "./reading-scenario.ts";
 import { seedGoal } from "./goal-scenario.ts";
 import { seedQueues } from "./queue-scenario.ts";
 import { busyInbox } from "./busy-inbox-scenario.ts";
+import { seedRouting } from "./routing-scenario.ts";
 import { seedSettled } from "./settled-scenario.ts";
 import { servePeer, transferPace } from "./transfer-peer.ts";
 import { seedForks } from "./fork-scenario.ts";
@@ -264,6 +265,8 @@ seedProjects(daemon);
 seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
+// Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
+if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
 seedForgeBrowse(daemon, Date.now());
 // PR page work: #229's check runs, #226's linked thread with conflicts and its stack (`pr-work.ts`).

@@ -32,6 +32,7 @@ export const DiagnosticsHealth = z.object({
     maxMs: z.number().nonnegative().nullable(),
   }),
   memory: z.object({ rssBytes: count, heapUsedBytes: count, heapTotalBytes: count }),
+  /** Node: active handles and requests. Bun: open file descriptors (0 on Windows, unmeasured). */
   openHandles: count,
   sqlite: z.object({ pageBytes: count.nullable(), walBytes: count.nullable() }),
   activeSessions: count.nullable(),

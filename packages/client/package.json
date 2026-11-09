@@ -21,7 +21,9 @@
     "./turn-steps": "./src/turn-steps.ts",
     "./tool-icons": "./src/tool-icons.ts",
     "./terminal-keys": "./src/terminal-keys.ts",
-    "./ace-account": "./src/ace-account.ts"
+    "./ace-account": "./src/ace-account.ts",
+    "./install-id": "./src/install-id.ts",
+    "./link-proof": "./src/link-proof.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace",

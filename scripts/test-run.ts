@@ -1,12 +1,17 @@
 // Runs one test tier through Vitest, records per-file timings and checks the time budgets.
 //
-//   node scripts/test-run.ts full|fast|process|slow [vitest args]
-//   node scripts/test-run.ts changed [--with-process] [--with-slow] [--base <ref>] [vitest args]
+//   bun scripts/test-run.ts full|fast|process|slow [vitest args]
+//   bun scripts/test-run.ts changed [--with-process] [--with-slow] [--base <ref>] [vitest args]
+//
+// Run with bun (the package scripts do), Vitest runs on Bun, the daemon's runtime, except the
+// projects in nodeProjects (scripts/test-tiers.ts): the Node-only suites and the web and
+// client-react jsdom projects follow in a second pass on the first real Node on PATH, and the
+// timings are merged. Run with node, every project runs on Node.
 //
 // Every run writes test-timings/last.json. A run with no extra arguments also writes
 // test-timings/<tier>.json, so the latest unfiltered run of each tier is kept.
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,13 +20,25 @@ import {
   budgetFailures,
   budgetMs,
   budgetTable,
+  combinedExit,
   failsOnFastBudget,
   overBudget,
   parseRunArgs,
   projectsFor,
+  splitByRuntime,
+  type PassResult,
 } from "./test-tiers.ts";
+import { bunMismatch, realNode } from "./runtimes.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const mismatch = bunMismatch(
+  readFileSync(join(root, "package.json"), "utf8"),
+  process.versions.bun,
+);
+if (mismatch) {
+  console.error(mismatch);
+  process.exit(1);
+}
 const options = parseRunArgs(process.argv.slice(2));
 
 const git = (...args: string[]) => {
@@ -30,33 +47,120 @@ const git = (...args: string[]) => {
   return result.stdout.trim();
 };
 
-const args = ["run", ...projectsFor(options).flatMap((name) => ["--project", name])];
+const shared: string[] = [];
 if (options.tier === "changed") {
   // Diff from where this branch left main, so main's own later changes don't count.
   const base = options.base ?? git("merge-base", "HEAD", "origin/main");
   console.log(`Running tests affected by changes since ${base.slice(0, 12)}`);
-  args.push("--changed", base);
+  shared.push("--changed", base);
 }
-args.push(...options.vitestArgs);
+shared.push(...options.vitestArgs);
 
 const timingsDir = join(root, "test-timings");
 const lastRun = join(timingsDir, "last.json");
+const nodeRun = join(timingsDir, "last-node.json");
 rmSync(lastRun, { force: true });
+rmSync(nodeRun, { force: true });
 const require = createRequire(import.meta.url);
 const vitestBin = join(dirname(require.resolve("vitest/package.json")), "vitest.mjs");
-const child = spawn(process.execPath, [vitestBin, ...args], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, ACE_TEST_TIMINGS_FILE: lastRun },
-});
-for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, () => child.kill(signal));
-const exitCode = await new Promise<number>((resolve) =>
-  child.on("close", (code, signal) => resolve(code ?? (signal ? 1 : 0))),
-);
 
-const timingsSchema = z.object({
-  files: z.array(z.object({ file: z.string(), project: z.string(), ownMs: z.number() })),
+const timingsSchema = z.looseObject({
+  files: z.array(z.looseObject({ file: z.string(), project: z.string(), ownMs: z.number() })),
 });
+
+const projectArgs = (projects: readonly string[]) =>
+  projects.flatMap((name) => ["--project", name]);
+
+let interrupted = false;
+type Exit = { code: number; signal: NodeJS.Signals | null };
+function vitest(runtime: string, args: string[], timingsFile: string): Promise<Exit> {
+  const child = spawn(runtime, [vitestBin, "run", ...args], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, ACE_TEST_TIMINGS_FILE: timingsFile },
+  });
+  const forward = (signal: NodeJS.Signals) => {
+    interrupted = true;
+    child.kill(signal);
+  };
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.on(signal, forward);
+  return new Promise<Exit>((resolve) => {
+    const settle = (exit: Exit) => {
+      for (const name of ["SIGINT", "SIGTERM"] as const) process.off(name, forward);
+      resolve(exit);
+    };
+    child.once("error", (error) => {
+      console.error(`Could not start ${runtime}: ${error.message}`);
+      settle({ code: 1, signal: null });
+    });
+    child.once("close", (code, signal) => settle({ code: code ?? (signal ? 1 : 0), signal }));
+  });
+}
+
+/** Test files a pass ran, from the timings file it wrote. */
+function filesRun(timingsFile: string) {
+  if (!existsSync(timingsFile)) return 0;
+  return timingsSchema.parse(JSON.parse(readFileSync(timingsFile, "utf8"))).files.length;
+}
+
+const projects = projectsFor(options);
+const filtered = options.vitestArgs.length > 0;
+let exitCode = 0;
+if ("bun" in process.versions) {
+  // Suites for code that doesn't run on Bun in production run on Node, in a second pass.
+  const passes = splitByRuntime(projects);
+  const results: PassResult[] = [];
+  let stopped = false;
+  // A filter may select only one runtime's suites, so either pass may be empty; combinedExit
+  // fails a filtered run that selected nothing at all.
+  if (passes.bun) {
+    const exit = await vitest(
+      process.execPath,
+      [...projectArgs(passes.bun), "--passWithNoTests", ...shared],
+      lastRun,
+    );
+    results.push({ exitCode: exit.code, files: filesRun(lastRun) });
+    stopped = exit.signal !== null;
+  }
+  if (passes.node && (stopped || interrupted)) console.log("\nInterrupted: skipping the Node pass");
+  else if (passes.node) {
+    const node = realNode();
+    if (!node) {
+      console.error(
+        "\nThe Node pass needs Node on PATH (a `node` that is not Bun); none was found.",
+      );
+      results.push({ exitCode: 1, files: 0 });
+    } else {
+      console.log(`\nRunning ${passes.node.join(", ")} on Node (${node})`);
+      const exit = await vitest(
+        node,
+        [...projectArgs(passes.node), "--passWithNoTests", ...shared],
+        nodeRun,
+      );
+      results.push({ exitCode: exit.code, files: filesRun(nodeRun) });
+      mergeTimings(lastRun, nodeRun);
+    }
+  }
+  exitCode = combinedExit(results, filtered);
+  if (interrupted || stopped) exitCode ||= 130;
+  else if (exitCode !== 0 && results.every((result) => result.exitCode === 0))
+    console.error(`\nNo test files matched ${options.vitestArgs.join(" ")}.`);
+} else
+  exitCode = (await vitest(process.execPath, [...projectArgs(projects), ...shared], lastRun)).code;
+
+/** Appends the Node pass's file timings to the main run's, so budgets see both. */
+function mergeTimings(into: string, from: string) {
+  if (!existsSync(from)) return;
+  const extra = timingsSchema.parse(JSON.parse(readFileSync(from, "utf8")));
+  rmSync(from, { force: true });
+  if (!existsSync(into)) return writeFileSync(into, `${JSON.stringify(extra, null, 1)}\n`);
+  const main = timingsSchema.parse(JSON.parse(readFileSync(into, "utf8")));
+  writeFileSync(
+    into,
+    `${JSON.stringify({ ...main, files: [...main.files, ...extra.files] }, null, 1)}\n`,
+  );
+}
+
 const allowlistSchema = z.object({
   fast: z.record(z.string(), z.string()),
   process: z.record(z.string(), z.string()),

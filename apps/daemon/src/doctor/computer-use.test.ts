@@ -22,15 +22,15 @@ async function verdicts(context: DoctorContext, feature: DoctorFeature) {
 const running = (facts: ScreenFacts) =>
   computerUseFeature({ screen: async () => facts, helper: computerUsePorts.helper });
 
-it("computer use on Windows needs no permission grants", async () => {
+it("Windows requirements stay unverified when the helper cannot report them", async () => {
   const { context, cleanup } = await doctorTestContext({ platform: "win32" });
   cleanups.push(cleanup);
   const checks = computerUseFeature().checks(context);
   expect(checks.map((check) => check.id)).toEqual(["computer.grants"]);
   const [grants] = checks;
   expect(await grants?.run(new AbortController().signal)).toMatchObject({
-    status: "ok",
-    fix: "Nothing to do.",
+    status: "warn",
+    message: expect.stringContaining("could not be checked"),
   });
 });
 
@@ -115,4 +115,62 @@ it("a daemon started without the helper warns that computer use is unavailable",
     message: "ace is running without Ace Screen Helper, so computer use is unavailable",
   });
   expect(results.get("computer.accessibility")?.status).toBe("ok");
+});
+
+it("Windows doctor reports a blocked interactive desktop with the host fix", async () => {
+  const { context, cleanup } = await doctorTestContext({ platform: "win32" });
+  cleanups.push(cleanup);
+  const result = await verdicts(
+    context,
+    running({
+      kind: "known",
+      enabled: true,
+      permissions: {
+        screenRecording: false,
+        accessibility: false,
+        platform: "win32",
+        requirements: [
+          {
+            kind: "interactiveDesktop",
+            state: "blocked",
+            title: "Interactive desktop",
+            message: "Unlock Windows and dismiss UAC.",
+          },
+        ],
+      },
+    }),
+  );
+  expect(result.get("computer.grants")).toMatchObject({
+    status: "warn",
+    message: "Unlock Windows and dismiss UAC.",
+  });
+});
+
+it("an older Windows helper cannot make an unverified desktop look ready", async () => {
+  const { context, cleanup } = await doctorTestContext({ platform: "win32" });
+  cleanups.push(cleanup);
+  const result = await verdicts(
+    context,
+    running({
+      kind: "known",
+      enabled: true,
+      permissions: {
+        screenRecording: true,
+        accessibility: true,
+        platform: "win32",
+        requirements: [
+          {
+            kind: "helperRequirements",
+            state: "unknown",
+            title: "Requirements",
+            message: "Update the helper.",
+          },
+        ],
+      },
+    }),
+  );
+  expect(result.get("computer.grants")).toMatchObject({
+    status: "warn",
+    message: expect.stringContaining("have not been verified"),
+  });
 });

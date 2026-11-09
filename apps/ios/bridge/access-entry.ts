@@ -1,6 +1,6 @@
 import { ClientCore, ClientError } from "@ace/client";
 import { MachineDirectory } from "@ace/client/machines";
-import { DeviceId, type HostIdentity } from "@ace/protocol";
+import { DeviceId, type HostIdentity, type InstallId } from "@ace/protocol";
 import { z } from "zod";
 import { call, host, scheduler } from "./host.ts";
 import { pairedCredential, type PinnedHttp, type TrustMonitor } from "./access.ts";
@@ -31,9 +31,11 @@ async function readIdentity(
   deviceId: string,
   token: string,
   trust: TrustMonitor,
+  installId?: InstallId,
 ): Promise<HostIdentity> {
   const client = new ClientCore({
     deviceId: DeviceId.parse(deviceId),
+    ...(installId ? { installId } : {}),
     transport: () => nativeTransport(trust),
     credential: pairedCredential(nativeHttp, async () => token, trust),
     storage: { load: async () => null, save: async () => {} },

@@ -699,10 +699,11 @@ test("a refused copy says what happened instead of failing silently", async () =
       const img = within(dialog).getByRole("img", { name: "big.png" });
       expect(objectUrls.get(img.getAttribute("src") ?? "")?.size).toBe(fullBytes.length);
     });
-    vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(new Error("denied"));
+    vi.spyOn(navigator.clipboard, "write").mockRejectedValueOnce(
+      new Error("Document is not focused."),
+    );
     await user.click(await within(dialog).findByRole("button", { name: "Copy image" }));
-    expect(
-      await screen.findByRole("alertdialog", { name: "Couldn't copy the image" }),
-    ).toBeTruthy();
+    const toast = await screen.findByRole("alertdialog", { name: "Couldn't copy the image" });
+    expect(within(toast).getByText("Document is not focused.")).toBeTruthy();
   });
 });

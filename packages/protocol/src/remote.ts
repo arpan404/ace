@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DeviceId } from "./ids.ts";
+import { DeviceId, InstallId } from "./ids.ts";
 import { MachineAccountStatus } from "./machine-access.ts";
 
 /**
@@ -64,6 +64,11 @@ export type PendingPairing = z.infer<typeof PendingPairing>;
 export const PairingRedemption = z.object({
   code: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
+  /**
+   * The redeeming app's install id (ADR 0115). Pairing the same install again keeps its one
+   * device record and id. Older apps send none; older daemons ignore it.
+   */
+  installId: InstallId.optional(),
 });
 export const PairingResponse = z.object({
   url: z.url(),
@@ -91,6 +96,8 @@ export const SocketTicket = z.object({
 export const RemoteNetworkStatus = z.object({
   state: z.union([z.enum(["off", "on", "waiting", "failed"]), z.string().max(64)]),
   error: z.string().max(256).optional(),
+  /** Serving, with something the person can fix, such as browsers not trusting its address. */
+  warning: z.string().max(256).optional(),
   /** Where it's reached: `https://host:port` for LAN and Tailscale, the relay's URL for a relay. */
   address: z.string().max(2048).optional(),
 });

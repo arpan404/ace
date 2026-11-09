@@ -1,3 +1,5 @@
+import { DeviceRevokedClose } from "@ace/protocol";
+import { disconnectDecision } from "./lifecycle.ts";
 import type { PathRoute } from "./path-handshake.ts";
 import { pathTiming, type PlannedPath } from "./path-plan.ts";
 import type { Scheduler, Transport, TransportEvents } from "./types.ts";
@@ -23,11 +25,21 @@ export interface RaceOptions {
   failed(route: MachineRoute): void;
 }
 
+/** A refusal another attempt can't change, on that path at least. */
+const final = (code: number) => disconnectDecision(true, true, code) === "fatal";
+/** The owner revoked this device: true on every path. */
+const isRevocation = ([code, reason]: [number, string]) =>
+  DeviceRevokedClose.safeParse({ code, reason }).success;
+
 /**
  * One connection attempt over every path at once, happy-eyeballs style (ADR 0114): the first
  * path starts at once and each next one 150 ms after, or as soon as the one before it fails.
  * The first to open its secure transport (a pinned TLS socket, or a relay's pinned handshake)
- * carries the attempt; the rest close. When every path fails, the attempt closes as a drop.
+ * carries the attempt; the rest close. When every path fails, the attempt closes as a drop, and
+ * a refusal one path heard (a 4xxx close, such as the relay's "Not your machine") is the drop's
+ * reason, so the person sees why while it retries: another path may work from elsewhere. Only
+ * when every path was refused does the attempt close with the refusal itself, and the owner's
+ * revocation of the device, which holds on every path, always does.
  */
 export function racingTransport(options: RaceOptions): Transport {
   let winner: Transport | undefined;
@@ -63,12 +75,27 @@ export function racingTransport(options: RaceOptions): Transport {
     },
     open(events: TransportEvents) {
       let next = 0;
+      /** The refusal paths closed with before any path won: a final one is never replaced. */
+      let refusal: [number, string] | undefined;
+      /** A path ended without a refusal: unreachable, dropped, or not dialable. */
+      let dropped = false;
+      const refused = (code: number, reason: string) => {
+        if (refusal && (isRevocation(refusal) || (final(refusal[0]) && !final(code)))) return;
+        refusal = [code, reason];
+      };
+      const revoked = () => refusal !== undefined && isRevocation(refusal);
       const exhausted = () =>
         !winner && next >= options.routes.length && started.every((entry) => entry.failed);
       const lost = () => {
         if (!closed && exhausted()) {
           closed = true;
-          events.close(1006, "No path answered");
+          if (refusal && (!dropped || revoked())) events.close(...refusal);
+          else if (refusal)
+            events.close(1006, refusal[1] || "No path answered", {
+              code: refusal[0],
+              reason: refusal[1],
+            });
+          else events.close(1006, "No path answered");
         }
       };
       const start = () => {
@@ -83,14 +110,17 @@ export function racingTransport(options: RaceOptions): Transport {
         try {
           transport = route.transport();
         } catch {
+          dropped = true;
           options.failed(route);
           start();
           return;
         }
         const entry = { route, transport, failed: false };
         started.push(entry);
-        const fail = () => {
+        const fail = (code?: number, reason?: string) => {
           if (entry.failed || winner === transport) return;
+          if (code !== undefined && code >= 4000) refused(code, reason ?? "");
+          else dropped = true;
           entry.failed = true;
           options.failed(route);
           // A path that fails fast lets the next one start without waiting out its stagger.
@@ -119,7 +149,7 @@ export function racingTransport(options: RaceOptions): Transport {
           },
           close: (code, reason) => {
             if (winner === transport) events.close(code, reason);
-            else fail();
+            else fail(code, reason);
           },
         });
         if (!winner && next < options.routes.length)

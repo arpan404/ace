@@ -29,16 +29,16 @@ export function providerSource(
     types.includes("local") ||
     (!info.baseURL && ["ollama", "lmstudio", "llama.cpp"].includes(id))
       ? "local"
-      : ["opencode-go", "github-copilot", "openai-codex", "openai-chatgpt"].includes(id) ||
-          info.authType === "oauth" ||
-          types.includes("oauth")
+      : ["opencode-go", "github-copilot", "openai-codex", "openai-chatgpt"].includes(id)
         ? "subscription"
-        : ["opencode", "opencode-zen"].includes(id) ||
-            info.authType === "api_key" ||
-            types.includes("env") ||
-            types.includes("api_key")
+        : // Zen bills per request even when the Console login itself is OAuth.
+          ["opencode", "opencode-zen"].includes(id)
           ? "api_key"
-          : "other";
+          : info.authType === "oauth" || types.includes("oauth")
+            ? "subscription"
+            : info.authType === "api_key" || types.includes("env") || types.includes("api_key")
+              ? "api_key"
+              : "other";
   return {
     kind,
     id,

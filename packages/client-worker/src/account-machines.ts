@@ -10,7 +10,7 @@ import {
   type Scheduler,
   type Transport,
 } from "@ace/client";
-import { MachineEntry } from "@ace/client/machines";
+import { MachineEntry, pinnedFingerprint } from "@ace/client/machines";
 import type { MachineCodeRefusal, MachinePath } from "@ace/protocol";
 
 /** A machine the ace account backend lists (`GET /v1/machines`). */
@@ -52,6 +52,11 @@ export interface AccountMachineOptions {
   directRoute?(
     path: Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }>,
     credential: () => Promise<Credential>,
+    /**
+     * The address this app paired the same daemon at (ADR 0115): it checked that certificate
+     * when it paired, so even a browser can use it.
+     */
+    paired?: boolean,
   ): (PathRoute & { probe?(): Promise<number> }) | undefined;
   /**
    * The machine's client, in this thread: `new Client({ deviceId, transport, credential, … })`
@@ -69,6 +74,12 @@ export interface AccountMachineOptions {
     credential(): Promise<Credential>;
     /** A fresh device grant, sent on each open socket before its grant runs out (ADR 0114). */
     grant(): Promise<string>;
+    /**
+     * This install's pairing of the same daemon, when the account machine stands in for it
+     * (ADR 0115): sends its outbox still holds are this client's to take over
+     * (`adoptedOutbox`), and its device id is one of this client's aliases.
+     */
+    paired?: MachineEntry;
   }): ClientApi;
 }
 
@@ -125,6 +136,15 @@ export function accountMachineState(
   return { kind: "connecting" };
 }
 
+/** Whether two readings of an account machine say the same thing. Pure. */
+export function sameAccountMachineState(a: AccountMachineState, b: AccountMachineState): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "asking" && b.kind === "asking")
+    return a.reason === b.reason && a.lockedUntil === b.lockedUntil;
+  if (a.kind === "failed" && b.kind === "failed") return a.message === b.message;
+  return true;
+}
+
 /**
  * Every path to an account machine this app can use (ADR 0114): ace's relay always, then what
  * the machine said over a verified connection. Relays pin the machine's relay host key; a
@@ -136,11 +156,15 @@ export function accountRoutes(input: {
   hostId: string;
   account: AccountMachineOptions;
   gate: MachineCodeGate;
+  /** What each hello presents: the gate's grant and code, and any pairing proof with them. */
+  credential?(): Promise<Credential>;
   scheduler: Scheduler;
   paths(): readonly MachinePath[];
+  /** The address this app paired the same daemon at, if it did (ADR 0115). */
+  paired?(): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined;
 }): () => MachineRoute[] {
   const { account, gate, hostId } = input;
-  const credential = () => gate.credential();
+  const credential = input.credential ?? (() => gate.credential());
   const relay = (url: string, kind: "relay" | "account"): MachineRoute => ({
     path: { key: `${kind} ${url}`, kind },
     ...relayRoute({
@@ -158,12 +182,17 @@ export function accountRoutes(input: {
   const built = new Map<string, MachineRoute>([[home.path.key, home]]);
   return () => {
     const usable = [home];
-    for (const path of input.paths()) {
+    const paired = input.paired?.();
+    const pairedKey = paired && `${paired.kind} ${paired.url}`;
+    const paths = paired
+      ? [paired, ...input.paths().filter((path) => `${path.kind} ${path.url}` !== pairedKey)]
+      : input.paths();
+    for (const path of paths) {
       const key = `${path.kind} ${path.url}`;
       let route = built.get(key);
       if (!route) {
         if (isDirect(path.kind) && "fingerprint" in path) {
-          const direct = account.directRoute?.(path, credential);
+          const direct = account.directRoute?.(path, credential, key === pairedKey);
           route = direct && { path: { key, kind: path.kind }, ...direct };
         } else if ("relayHostId" in path && path.relayHostId === hostId)
           route = relay(path.url, path.kind === "account" ? "account" : "relay");
@@ -173,4 +202,36 @@ export function accountRoutes(input: {
     }
     return usable;
   };
+}
+
+/**
+ * A paired entry that is the account machine `relayHostId` (ADR 0115): the daemon told this app,
+ * over its own pinned connection, that ace's relay (or a relay) knows it by that host key. Pure.
+ */
+export function pairedEntryFor(
+  entries: readonly MachineEntry[],
+  relayHostId: string,
+): MachineEntry | undefined {
+  return entries.find(
+    (entry) =>
+      entry.target.kind !== "account" &&
+      (entry.paths ?? []).some((path) => "relayHostId" in path && path.relayHostId === relayHostId),
+  );
+}
+
+/** The paired entry's own pinned address as a direct path, ranked by what it is. Pure. */
+export function pairedAddress(
+  entry: MachineEntry,
+): Extract<MachinePath, { kind: "loopback" | "lan" | "tailscale" }> | undefined {
+  if (entry.target.kind !== "direct") return undefined;
+  // Saved by a browser pairing, the address has no fingerprint of its own: the one the daemon
+  // gave for that address over its authenticated connection pins it.
+  const fingerprint = entry.target.fingerprint ?? pinnedFingerprint(entry.target.url, entry.paths);
+  const url = URL.parse(entry.target.url);
+  if (!url || !fingerprint) return undefined;
+  if (url.protocol === "wss:") url.protocol = "https:";
+  if (url.protocol !== "https:" || !/^[0-9a-f]{64}$/.test(fingerprint)) return undefined;
+  const known = (entry.paths ?? []).find((path) => URL.parse(path.url)?.host === url.host)?.kind;
+  const kind = known === "loopback" || known === "tailscale" ? known : "lan";
+  return { kind, url: url.origin, fingerprint };
 }

@@ -45,7 +45,12 @@ export function Lightbox(props: {
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && props.onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="ace-backdrop fixed inset-0 z-[100]" style={backdrop} />
+        {/* no-drag: the app header under this is a window drag region, and Electron would
+            take clicks on the lightbox's own header (Copy image, Download, Close) as drags. */}
+        <DialogPrimitive.Backdrop
+          className="ace-backdrop fixed inset-0 z-[100] [-webkit-app-region:no-drag]"
+          style={backdrop}
+        />
         <DialogPrimitive.Popup
           ref={popup}
           tabIndex={-1}
@@ -56,7 +61,7 @@ export function Lightbox(props: {
             event.preventDefault();
             step(event.key === "ArrowLeft" ? -1 : 1);
           }}
-          className="fixed inset-0 z-[101] flex flex-col text-foreground outline-none"
+          className="fixed inset-0 z-[101] flex flex-col text-foreground outline-none [-webkit-app-region:no-drag]"
         >
           <PopupFocus />
           <header className="flex items-center gap-3 px-4 py-3">
@@ -129,7 +134,12 @@ function PopupFocus() {
 function Actions(props: { image: ShownImage; full: ImageState }) {
   const full = props.full;
   const toast = useToast();
-  const { copied, track } = useCopy(() => toast.error({ title: "Couldn't copy the image" }));
+  const { copied, track } = useCopy((error) =>
+    toast.error({
+      title: "Couldn't copy the image",
+      description: error instanceof Error && error.message ? error.message : undefined,
+    }),
+  );
   const url = full.state === "ready" ? full.url : undefined;
   return (
     <>

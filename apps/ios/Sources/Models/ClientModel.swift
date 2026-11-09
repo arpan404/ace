@@ -56,6 +56,11 @@ import QuartzCore
     let inbox = InboxRowStore()
     var pending: [String: PendingRow] = [:]
     var connection = "connecting"
+    /// Each change of the runtime's connection state, after it applies; the machine list uses
+    /// it to move a machine between its routes (`MachineRoutePlan`).
+    @ObservationIgnored var onConnection: ((String) -> Void)?
+    /// What the machine said about itself on each ready connection (`MachineIdentityPatch`).
+    @ObservationIgnored var onMachineIdentity: ((MachineIdentityPatch) -> Void)?
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
@@ -106,6 +111,10 @@ import QuartzCore
     /// The Chats tab's sections from this machine's runtime (`chats.sections`).
     var chatLayout = InboxLayout.empty
     var approvalSubmissions: [String: ApprovalSubmission] = [:]
+    /// What each needs-you inbox row waits on, by thread id, and the agent's last words for the
+    /// needs-you run (`ClientModel+Needs.swift`).
+    var needs: [String: InboxNeeds] = [:]
+    var needsWords: [String: String] = [:]
     /// The Machines sheet's view of this runtime's computer (`bridge/machine-info.ts`).
     var machineStatus: MachineStatusInfo?
     /// What the phone keeps of this machine's chats, once asked (`readCache`).
@@ -128,6 +137,8 @@ import QuartzCore
     /// A thread a tapped notification asked to open.
     var deepLink: String?
     @ObservationIgnored var notificationSink: ((NotificationPatch) -> Void)?
+    /// Told when the person opens a thread, so its notification goes (`NotificationCoordinator`).
+    @ObservationIgnored var onOpenThread: ((String) -> Void)?
     /// The open thread's Agents and Changes sheets (`bridge/sheets.ts`).
     let sheets = ThreadSheetsModel()
     /// Each thread's side panel on iPad.
@@ -185,18 +196,21 @@ import QuartzCore
         connectionEpoch += 1
         let epoch = connectionEpoch
         let closing = retireRuntime()
-        hostId = target.hostId
+        hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset()
         inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
+        // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
+        machineCodeAsk = nil; machineCodeLockedUntil = nil
         connection = "connecting"; error = nil; problem = nil
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
-        let database = Self.database(hostId: target.hostId, deviceId: target.deviceId, in: directory)
+        // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
+        let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
         apply(InboxCheckpoint.read(database: database))
         restoring.end()
         await closing?.value
@@ -433,9 +447,14 @@ import QuartzCore
                 activityChanged = true
             case .inboxSections(let layout): if inboxLayout != layout { inboxLayout = layout }
             case .chatSections(let layout): if chatLayout != layout { chatLayout = layout }
+            case .connectionEvent(let text): LaunchTrace.mark("connection.event", text)
             case .connection(let state, let generation):
-                if state != connection { LaunchTrace.mark("connection", state) }
+                let changed = state != connection
+                if changed { LaunchTrace.mark("connection", state) }
                 connection = state
+                // An admitted connection needs no code, whatever an earlier attempt was asked.
+                if state == "ready" { machineCodeAsk = nil; machineCodeLockedUntil = nil }
+                if changed { onConnection?(state) }
                 if let generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
@@ -457,8 +476,12 @@ import QuartzCore
             case .machineAdmission(let info): admission = info
             case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
-            case .machineIdentity(let glyph): machineGlyph = AceIcon.Name(rawValue: glyph)
+            case .machineIdentity(let identity):
+                machineGlyph = AceIcon.Name(rawValue: identity.glyph)
+                onMachineIdentity?(identity)
             case .pending(let id, let row): pending[id] = row
+            case .needs(let id, let value): receiveNeeds(id, value)
+            case .needsWords(let id, let words): needsWords[id] = words
             case .error(let message): error = message
             case .notification(let patch): notificationSink?(patch)
             case .words(let id, let ok, let text, let message, let revision):
@@ -667,6 +690,7 @@ import QuartzCore
         }
     }
     func open(_ id: String, isSnapshotRetry: Bool = false) {
+        if !isSnapshotRetry { onOpenThread?(id) }
         flushFrames()
         generation += 1
         sheets.reset()

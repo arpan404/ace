@@ -14,7 +14,6 @@ struct SubagentStatusBar: View {
     @State private var sending = false
     @State private var problem: String?
     @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let stacked = typeSize.isAccessibilitySize
@@ -41,9 +40,9 @@ struct SubagentStatusBar: View {
         .padding(.vertical, AceDesign.Space.tight)
         .frame(minHeight: AceDesign.Size.tap + AceDesign.Space.tight)
         .modifier(ComposerFrame())
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: info.retry)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: info.phase)
-        .animation(AceDesign.Motion.arriving(reduceMotion), value: problem)
+        .animation(.default, value: info.retry)
+        .animation(.default, value: info.phase)
+        .animation(.default, value: problem)
         .sensoryFeedback(.success, trigger: asked == "queued" || asked == "sent")
         .confirmationDialog(stop.asking?.title ?? "", isPresented: Binding(get: { stop.asking != nil }, set: { if !$0 { stop.cancel() } }), titleVisibility: .visible) {
             Button("Stop", role: .destructive) {
@@ -133,6 +132,5 @@ struct BarWordStyle: ButtonStyle {
             .frame(minHeight: AceDesign.Size.tap)
             .background(configuration.isPressed ? AceDesign.Surface.fill : .clear, in: AceDesign.Shape.control)
             .contentShape(AceDesign.Shape.control)
-            .smoothChange(configuration.isPressed)
     }
 }

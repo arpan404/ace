@@ -54,7 +54,7 @@ async function daemon(home: string, options: Partial<BrowserServiceOptions> = {}
     browser,
     async stop() {
       await browser.close();
-      store.close();
+      await store.close();
     },
   };
 }

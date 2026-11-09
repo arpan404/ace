@@ -1,0 +1,9 @@
+{
+  "$id": "https://ace.local/protocol/v1/InstallId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "01936d1e-3f8a-7c2b-9d4e-5f6a7b8c9d0e"
+  ],
+  "pattern": "^[A-Za-z0-9-]{8,64}$",
+  "type": "string"
+}
