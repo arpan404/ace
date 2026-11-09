@@ -111,6 +111,12 @@ export function startProviderStatuses(context: ServiceContext): void {
           ? { latestVersion: plan.latestVersion, updateAvailable: plan.updateAvailable }
           : installs.versions.check(plan, signal);
       },
+      async forgetVersions() {
+        context.services.providerInstalls?.versions.clear();
+        const catalog = context.services.agentRegistry?.catalog;
+        // The agent catalog otherwise stands for a day; Antigravity's update comes from it.
+        if (catalog) await catalog.refresh().catch(() => {});
+      },
       attention(row) {
         const registry = context.services.accountRegistry;
         const selected =
@@ -235,7 +241,7 @@ export function createProviderStatusesSession(context: SocketContext): SocketSer
         const statuses = context.options.providerStatuses;
         const task = (async () => {
           try {
-            if (message.operation === "refresh") await statuses.refresh();
+            if (message.operation === "refresh") await statuses.recheck();
             if (context.connected() && context.authorize("read"))
               reply({
                 ok: true,

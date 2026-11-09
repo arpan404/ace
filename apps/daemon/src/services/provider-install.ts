@@ -64,6 +64,19 @@ export function startProviderInstalls(context: ServiceContext): void {
       log(command) {
         context.log.log("info", "Provider installer", logFields([["command", command]]));
       },
+      failed(plan, message, output) {
+        context.log.log(
+          "warn",
+          "Provider installer failed",
+          logFields([
+            ["provider", plan.agent ? `${plan.provider}/${plan.agent}` : plan.provider],
+            ["action", plan.action],
+            ["method", plan.method ?? null],
+            ["message", message],
+            ["output", output.join("\n")],
+          ]),
+        );
+      },
       async changed(plan, version) {
         if (plan.action !== "uninstall") {
           await context.services.rediscoverProviders?.();
