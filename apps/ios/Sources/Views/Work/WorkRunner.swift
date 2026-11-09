@@ -70,22 +70,3 @@ extension View {
         modifier(WorkQuestions(runner: runner, model: model, confirmingLock: confirmingLock))
     }
 }
-
-/// A text button in ace's words: no icon, a 44pt target. Destructive ones read red.
-struct WorkWordButton: View {
-    let label: String
-    var destructive = false
-    var identifier = ""
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .padding(.horizontal, AceTheme.Spacing.sm)
-                .frame(minHeight: AceDesign.Size.tap)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(destructive ? AceTheme.StatusText.failed : AceTheme.Colours.foreground)
-        .accessibilityIdentifier(identifier)
-    }
-}

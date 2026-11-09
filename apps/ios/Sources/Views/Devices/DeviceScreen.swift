@@ -167,15 +167,14 @@ struct DeviceScreen: View {
                 idleButton("Boot") { boot() }
             }
         }
-        .font(AceDesign.Typeface.title)
+        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
         .foregroundStyle(AceDesign.Ink.muted)
         .padding(AceDesign.Space.margin)
         // Words over the device's dark screen take the dark scheme's ink.
         .environment(\.colorScheme, .dark)
     }
     private func idleButton(_ title: String, run: @escaping () -> Void) -> some View {
-        Button(title, action: run).buttonStyle(.borderless)
-            .font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+        Button(title, action: run).buttonStyle(.textAction(.prominent))
             .disabled(!model.canOperate || devices.busy)
     }
 
@@ -241,23 +240,22 @@ struct DeviceScreen: View {
             // What went wrong with the last request, in the device's words, until the next one.
             if let problem = devices.problem, problem.permission == nil || info?.live == true {
                 Text(problem.text)
-                    .font(AceDesign.Typeface.meta)
+                    .aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                     .foregroundStyle(AceDesign.Ink.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AceDesign.Space.margin).padding(.top, AceDesign.Space.tight)
                     .accessibilityIdentifier("devices.problem")
             }
             if let info, !info.control.sentence.isEmpty {
+                // Who controls it: one sentence and its one word, as a request strip reads.
                 HStack(spacing: AceDesign.Space.row) {
                     Text(info.control.sentence)
-                        .font(AceDesign.Typeface.body)
-                        .foregroundStyle(AceDesign.Ink.primary).lineLimit(2)
-                    Spacer(minLength: AceDesign.Space.related)
+                        .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     if model.canOperate, let title = controlTitle(info.control.action) {
                         Button(title) { Task { await control(info.control) } }
-                            .buttonStyle(.borderless)
-                            .font(AceDesign.Typeface.body)
-                            .foregroundStyle(AceDesign.Ink.primary).fontWeight(.semibold)
+                            .buttonStyle(.textAction(.prominent))
                             .disabled(devices.busy || model.connection != "ready")
                             .accessibilityIdentifier("devices.control")
                     }

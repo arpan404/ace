@@ -23,13 +23,13 @@ struct WorkSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xxl) {
+                VStack(alignment: .leading, spacing: AceDesign.Space.group) {
                     if let work { content(work) } else { WorkSkeleton() }
                 }
-                .padding(.vertical, AceTheme.Spacing.lg)
+                .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
                 .animation(.default, value: work)
             }
-            .background(AceTheme.Colours.background)
+            .background(AceDesign.Surface.background)
             .refreshable { model.sheet(["kind": "work.refresh"]) }
             .navigationTitle("Work")
             .navigationBarTitleDisplayMode(.inline)
@@ -72,31 +72,30 @@ struct WorkSheet: View {
     }
 
     @ViewBuilder private func content(_ work: WorkSummary) -> some View {
+        WorkHeader(work: work)
         if work.problem != nil || work.locked { problems(work).transition(.opacity) }
-        WorkSection(title: "Checkout") {
-            WorkRow(label: work.machine.isEmpty ? "This machine" : work.machine, value: work.project)
-            if !work.path.isEmpty { WorkRow(label: work.path, mono: true, quiet: true) }
-            if work.state == "error" {
-                WorkRow(label: "Couldn't read the checkout", value: work.error, failed: true)
-            } else if work.state == "none" || work.chat {
-                WorkRow(label: work.chat ? "A chat's folder" : "Not a git checkout", quiet: true)
-            } else if work.state == "loading" {
-                WorkRow(label: "Reading the checkout", quiet: true).redacted(reason: .placeholder)
-            } else {
-                place(work, mode: "local", label: "Local checkout", reason: work.switchReason)
-                place(work, mode: "worktree", label: "Worktree", reason: work.worktreeReason)
-            }
+        if work.state == "error" {
+            WorkStatus(label: "Couldn't read the checkout", detail: work.error) { EmptyView() }
         }
         if !work.chat, work.state == "ready" {
-            WorkSection(title: "Branch") {
+            QuietSection("Branch") {
                 Button { model.sheet(["kind": "work.branches"]); picking = true } label: {
-                    WorkRow(label: work.branch, value: work.baseBranch.isEmpty || work.baseBranch == work.branch ? "" : "into \(work.baseBranch)", mono: true, disclosure: true)
+                    QuietSectionRow {
+                        QuietRowText(title: work.branch, detail: work.baseBranch.isEmpty || work.baseBranch == work.branch ? nil : "Into \(work.baseBranch)", mono: true)
+                        RowCaret()
+                    }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.row)
                 .disabled(!model.canOperate)
                 .accessibilityLabel("Branch \(work.branch), switch branch")
                 .accessibilityIdentifier("work.branch")
-                if !work.note.isEmpty { WorkRow(label: work.note, quiet: true) }
+                if !work.note.isEmpty {
+                    QuietSectionRow { QuietRowText(title: work.note, tone: AceDesign.Ink.muted) }
+                }
+            }
+            QuietSection("Checkout") {
+                place(work, mode: "local", label: "Local checkout", reason: work.switchReason)
+                place(work, mode: "worktree", label: "Worktree", reason: work.worktreeReason)
             }
             pullRequests(work)
         }
@@ -104,32 +103,15 @@ struct WorkSheet: View {
 
     /// Local or a worktree: the current one is marked; the other moves there, unless it can't now.
     private func place(_ work: WorkSummary, mode: String, label: String, reason: String?) -> some View {
-        let current = work.mode == mode
-        return HStack(spacing: AceTheme.Spacing.sm) {
-            AceIcon(mode == "worktree" ? .gitFork : .folder, size: AceDesign.Size.icon, relativeTo: .body).foregroundStyle(AceTheme.Colours.subtleForeground)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(label).foregroundStyle(AceTheme.Colours.foreground)
-                if !current, let reason { Text(reason).aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.mutedForeground) }
-            }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            if current { Text("Current").foregroundStyle(AceTheme.Colours.mutedForeground) }
-            else if model.canOperate, reason == nil {
-                WorkWordButton(label: mode == "worktree" ? "Move to worktree" : "Move to local", identifier: "work.move.\(mode)") {
-                    runner.send(["kind": "move", "mode": mode], model: model)
-                }
-                .disabled(!canAct)
-            }
+        WorkPlaceRow(label: label, current: work.mode == mode, reason: reason, mode: mode, canMove: model.canOperate, enabled: canAct) {
+            runner.send(["kind": "move", "mode": mode], model: model)
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .body)
-        .padding(.horizontal, AceTheme.Spacing.lg).frame(minHeight: AceDesign.Size.tap)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("work.place.\(mode)")
     }
 
     private func pullRequests(_ work: WorkSummary) -> some View {
-        WorkSection(title: "Pull requests") {
+        QuietSection("Pull requests") {
             ForEach(work.prs) { pr in
-                HStack(spacing: AceTheme.Spacing.sm) {
+                HStack(spacing: AceDesign.Space.related) {
                     if let openPull, let project = work.workspaceId, !project.isEmpty {
                         // The phone's own pull request page, pushed on the thread's stack.
                         Button {
@@ -143,35 +125,53 @@ struct WorkSheet: View {
                             .accessibilityHint("Opens on GitHub")
                     } else { WorkPullLine(pr: pr) }
                     if model.canOperate {
-                        WorkWordButton(label: "Unlink", destructive: true, identifier: "work.unlink.\(pr.number)") { unlinking = pr }
+                        Button("Unlink") { unlinking = pr }
+                            .buttonStyle(.textAction())
                             .disabled(!canAct)
+                            .accessibilityLabel("Unlink #\(pr.number)")
+                            .accessibilityIdentifier("work.unlink.\(pr.number)")
                     }
                 }
-                .padding(.horizontal, AceTheme.Spacing.lg)
+                .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
             }
-            if work.morePrs > 0 { WorkRow(label: "\(work.morePrs) more linked on your computer", quiet: true) }
-            if work.prs.isEmpty { WorkRow(label: "None linked", quiet: true) }
+            if work.morePrs > 0 {
+                QuietSectionRow { QuietRowText(title: "\(work.morePrs) more linked on your computer", tone: AceDesign.Ink.muted) }
+            }
+            if work.prs.isEmpty, !model.canOperate {
+                QuietSectionRow { QuietRowText(title: "None linked", tone: AceDesign.Ink.muted) }
+            }
             if model.canOperate {
-                WorkWordButton(label: "Link a PR", identifier: "work.link") { reference = ""; linking = true }
-                    .disabled(!canAct).padding(.horizontal, AceTheme.Spacing.sm)
+                // The whole row answers the tap, not just its words.
+                Button { reference = ""; linking = true } label: {
+                    QuietSectionRow {
+                        Text(work.prs.isEmpty ? "Link a pull request" : "Link another")
+                            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .fontWeight(AceDesign.Typeface.strong)
+                            .foregroundStyle(AceDesign.Ink.primary)
+                    }
+                }
+                .buttonStyle(.row)
+                .disabled(!canAct)
+                .accessibilityIdentifier("work.link")
             }
         }
     }
 
-    /// What stops the checkout first: the loud part of the sheet.
+    /// What stops the checkout comes first, as one sentence with its ways out.
     @ViewBuilder private func problems(_ work: WorkSummary) -> some View {
-        WorkSection(title: "Needs attention") {
-            if let problem = work.problem {
-                WorkProblemRows(problem: problem, canAct: canAct && model.canOperate) { action in
-                    if action.id == "clear-move" { clearingMove = true }
-                    else { runner.send(["kind": "problem", "id": action.id], model: model) }
-                }
+        if let problem = work.problem {
+            WorkProblemRows(problem: problem, canAct: canAct && model.canOperate) { action in
+                if action.id == "clear-move" { clearingMove = true }
+                else { runner.send(["kind": "problem", "id": action.id], model: model) }
             }
-            if work.locked {
-                WorkRow(label: "Git is locked", value: "An earlier ace daemon left a Git lock", failed: true)
+        }
+        if work.locked {
+            WorkStatus(label: "Git is locked", detail: "An earlier ace daemon left a Git lock. Nothing can change the checkout until it's cleared.") {
                 if model.canOperate {
-                    WorkWordButton(label: "Clear stale lock", destructive: true, identifier: "work.clearLock") { confirmingLock = true }
-                        .disabled(!canAct).padding(.horizontal, AceTheme.Spacing.sm)
+                    Button("Clear stale lock") { confirmingLock = true }
+                        .buttonStyle(.textAction(.destructive))
+                        .disabled(!canAct)
+                        .accessibilityIdentifier("work.clearLock")
                 }
             }
         }
@@ -183,21 +183,21 @@ struct WorkSheet: View {
         let running = runner.running(in: model) || work?.busy == true
         let text: (String, Color)? = {
             if let result, result.ask == nil, !result.message.isEmpty {
-                return (result.message, result.ok ? AceTheme.Colours.foreground : AceTheme.StatusText.failed)
+                return (result.message, result.ok ? AceDesign.Ink.primary : AceTheme.StatusText.failed)
             }
-            if running { return ("Working on the checkout…", AceTheme.Colours.mutedForeground) }
-            if !model.canOperate, work != nil { return ("View only: this phone can't change the checkout.", AceTheme.Colours.mutedForeground) }
+            if running { return ("Working on the checkout", AceDesign.Ink.muted) }
+            if !model.canOperate, work != nil { return ("View only: this phone can't change the checkout.", AceDesign.Ink.muted) }
             return nil
         }()
         if let (message, colour) = text {
             HStack(spacing: AceTheme.Spacing.sm) {
-                if running { ProgressView().controlSize(.small) }
+                if running { WorkingMark(label: "Working on the checkout") }
                 Text(message).foregroundStyle(colour).lineLimit(3)
             }
-            .aceFont(AceTheme.Typography.label, relativeTo: .footnote)
-            .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.md)
-            .aceGlass(in: AceShape.capsule)
-            .padding(.bottom, AceTheme.Spacing.sm)
+            .aceFont(AceDesign.TextRole.action, relativeTo: .footnote)
+            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.row)
+            .aceGlass(in: AceDesign.Shape.control)
+            .padding(.horizontal, AceDesign.Space.margin).padding(.bottom, AceDesign.Space.related)
             .frame(maxWidth: .infinity)
             .transition(.opacity)
             .accessibilityIdentifier(result != nil ? "work.outcome" : running ? "work.running" : "work.readOnly")

@@ -68,15 +68,17 @@ struct TerminalView: View {
             }
             if output.exited && selected != nil {
                 HStack {
-                    Text("Process exited").foregroundStyle(AceTheme.Colours.mutedForeground)
+                    Text("Process exited").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                        .foregroundStyle(AceDesign.Ink.muted)
                     Spacer()
-                    Button("New terminal") { Task { await create() } }.disabled(!model.canOperate || busy)
+                    Button("New terminal") { Task { await create() } }
+                        .buttonStyle(.textAction(.prominent)).disabled(!model.canOperate || busy)
                 }
-                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                 .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.rowLine)
                 .transition(.opacity)
             }
-            keys
+            // Keys only while there is a terminal to type into.
+            if selected != nil { keys }
         }
         .animation(.default, value: finding)
         .animation(.default, value: output.exited)

@@ -96,6 +96,8 @@ struct FilesScreen: View {
                     .buttonStyle(.plain)
                     .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
                     .listRowBackground(AceTheme.Colours.background)
+                    // A tree reads by its indent, not lines: no hairline under every row.
+                    .listRowSeparator(.hidden)
                     .contextMenu { rowMenu(path: row.path, folder: row.folder) }
                     .swipeActions(edge: .trailing) {
                         if actions.canChange, row.mark != "D" {
