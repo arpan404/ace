@@ -130,11 +130,12 @@
           "checks",
           "reviews",
           "commits",
-          "files"
+          "files",
+          "fileCount"
         ],
         "type": "string"
       },
-      "maxItems": 5,
+      "maxItems": 6,
       "type": "array"
     },
     "updatedAt": {
