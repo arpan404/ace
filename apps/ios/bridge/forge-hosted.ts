@@ -41,7 +41,8 @@ export function hostedLinks(repository: ForgeRepository): HostedLinks {
       commit: `${base}/-/commit/{sha}`,
       mention: `https://${repository.host}/{login}`,
     };
-  if (repository.forge === "origin") return { issue: null, review: true, commit: null, mention: null };
+  if (repository.forge === "origin")
+    return { issue: null, review: true, commit: null, mention: null };
   return { issue: null, review: false, commit: null, mention: null };
 }
 
@@ -56,7 +57,9 @@ export interface HostedView {
   links: HostedLinks;
 }
 
-export function hostedView(detail: Pick<ForgePrDetail, "status" | "unavailableResources">): HostedView {
+export function hostedView(
+  detail: Pick<ForgePrDetail, "status" | "unavailableResources">,
+): HostedView {
   const { repository } = detail.status.ref;
   const provider = forgeDisplayName(repository.forge);
   const noun = reviewNoun(repository.forge);
@@ -166,7 +169,14 @@ export async function readHostedFiles(
   let page = moved ? 1 : request.page;
   const base = { type: "forge.pull.hosted-files" as const, nextPage: null, truncated: null };
   if (view.filesUnavailable)
-    return { ...base, headSha: detail.status.headSha, page: 1, moved, files: [], unavailable: view.filesUnavailable };
+    return {
+      ...base,
+      headSha: detail.status.headSha,
+      page: 1,
+      moved,
+      files: [],
+      unavailable: view.filesUnavailable,
+    };
   let value: ForgePrFiles;
   try {
     value = await filesAt(reads, request, detail, page);

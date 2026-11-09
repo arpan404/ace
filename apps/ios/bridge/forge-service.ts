@@ -247,7 +247,10 @@ export class ForgeService {
     if (!("project" in request) || signal.aborted) return undefined;
     try {
       const reads = new ForgeReads(this.#owner, this.#now, this.#cache, signal, false);
-      const value = await reads.read({ op: "forge.repository", workspaceId: request.project }, true);
+      const value = await reads.read(
+        { op: "forge.repository", workspaceId: request.project },
+        true,
+      );
       return value.resource === "repository" ? value.value.forge : undefined;
     } catch {
       return undefined;
