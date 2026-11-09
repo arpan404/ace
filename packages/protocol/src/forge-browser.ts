@@ -155,7 +155,7 @@ export const ForgePrDetailFile = z.object({
 });
 export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
-  /** Host reads are available, but Ace does not yet admit mutations for this provider. */
+  /** Host reads are available, but ace does not yet admit mutations for this provider. */
   readOnly: z.boolean().optional(),
   /** Resources this adapter cannot read; never present empty arrays as complete results. */
   unavailableResources: z

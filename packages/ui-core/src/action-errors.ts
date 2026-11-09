@@ -103,7 +103,8 @@ const copy: Record<string, string> = {
   // host refuses gets its own code so the fix names what changed.
   forge_cli:
     "Sign in to GitHub: run `gh auth login` (install `gh` first if it's missing), then retry.",
-  forge_no_remote: "This checkout has no GitHub remote: add an origin on GitHub, then retry.",
+  forge_no_remote:
+    "This checkout has no remote on a Git host ace knows: add the remote, or add its host in Source control settings, then retry.",
   forge_not_found:
     "GitHub couldn't find that repository, issue or pull request: check its number and your access to the repository.",
   forge_outcome_uncertain:

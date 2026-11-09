@@ -149,7 +149,7 @@ test("each same-numbered row opens its own provider's review", async () => {
   await userEvent.click(within(hosted).getByRole("button", { name: /^View:/ }));
   const gitlabPage = await screen.findByRole("article", { name: "Pull request #500" });
   expect(await within(gitlabPage).findByText("GitLab same number")).toBeTruthy();
-  expect(within(gitlabPage).getByText(/Read only in Ace/)).toBeTruthy();
+  expect(within(gitlabPage).getByText(/Read only in ace/)).toBeTruthy();
   expect(within(gitlabPage).getByRole("link", { name: "Open on GitLab" })).toHaveProperty(
     "href",
     "https://gitlab.example.com/acme/ace/-/merge_requests/500",
@@ -164,7 +164,7 @@ test("each same-numbered row opens its own provider's review", async () => {
   const githubPage = await screen.findByRole("article", { name: "Pull request #500" });
   expect(await within(githubPage).findByText("GitHub same number")).toBeTruthy();
   await within(githubPage).findByRole("tablist", { name: "Pull request detail" });
-  expect(within(githubPage).queryByText(/Read only in Ace/)).toBeNull();
+  expect(within(githubPage).queryByText(/Read only in ace/)).toBeNull();
   expect(within(githubPage).queryByText("GitLab same number")).toBeNull();
 });
 

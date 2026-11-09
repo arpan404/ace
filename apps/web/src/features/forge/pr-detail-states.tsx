@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { failureCode } from "@/lib/forge-read.ts";
-import { forgeDisplayName } from "@ace/ui-core";
+import { forgeDisplayName, forgeErrorText } from "@ace/ui-core";
 import { reviewNoun } from "./pr-host-words.ts";
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -42,7 +42,11 @@ export function PrFailure(props: {
           ? `${capitalized(noun)} #${props.number} not found`
           : `Couldn't load ${noun} #${props.number}`
       }
-      description={props.error.message}
+      description={
+        failureCode(props.error)
+          ? forgeErrorText(failureCode(props.error), repository?.forge)
+          : props.error.message
+      }
       action={
         <div className="flex gap-2">
           <Button size="sm" onClick={props.onRetry}>

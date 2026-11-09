@@ -8,7 +8,7 @@ import { WorkspaceRuntime } from "./workspace-runtime.ts";
 import { SourceControl } from "./source-control.ts";
 import { ForgeBackends } from "./forge-backends.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
-import { WorkspaceActionRequest, ForgeRepository } from "@ace/protocol";
+import { WorkspaceActionRequest, ForgeRepository, SourceControlPreferences } from "@ace/protocol";
 import type { CommandRequest, CommandRunner } from "@ace/forge";
 
 const head = "a".repeat(40),
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 /** A temp settings document, store and source control on one injected clock. */
-async function harness(name: string, runner: CommandRunner, preferences: object) {
+async function harness(name: string, runner: CommandRunner, preferences: unknown) {
   const root = await mkdtemp(join(tmpdir(), `ace-${name}-`));
   const settings = new SettingsService({ dataDir: root });
   const store = new Store(join(root, "store.sqlite"));
@@ -37,7 +37,9 @@ async function harness(name: string, runner: CommandRunner, preferences: object)
     store.close();
     await rm(root, { recursive: true, force: true });
   });
-  await settings.set("sourceControl.preferences", preferences, { kind: "global" });
+  await settings.set("sourceControl.preferences", SourceControlPreferences.parse(preferences), {
+    kind: "global",
+  });
   const workspaceId = store.createWorkspace(root, name);
   const read = async (repository: ForgeRepository, operation: object) =>
     runtime.read(

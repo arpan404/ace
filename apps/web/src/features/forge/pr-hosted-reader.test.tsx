@@ -116,7 +116,7 @@ const page = (repository: ForgeRepository, number: number) =>
 test("an Origin pull request shows its details and diffs without GitHub's write controls", async () => {
   const app = withDetails(hosted(origin, 42));
   await app.open(page(origin, 42));
-  await screen.findByText(/Read only in Ace/);
+  await screen.findByText(/Read only in ace/);
   expect(screen.getByRole("link", { name: "Open on Cursor Origin" })).toHaveProperty(
     "href",
     "https://cursor.com/codebase/acme/api/pull/42",
@@ -147,7 +147,7 @@ test("a merge request whose host can't share its files says so instead of an emp
   const tabs = await screen.findByRole("tablist", { name: "Merge request detail" });
   await userEvent.click(within(tabs).getByRole("tab", { name: "Code" }));
   expect(
-    await screen.findByText("GitLab doesn't share this merge request's changed files with Ace.", {
+    await screen.findByText("GitLab doesn't share this merge request's changed files with ace.", {
       exact: false,
     }),
   ).toBeTruthy();
@@ -164,5 +164,5 @@ test("#7 in an Origin description opens review 7 of the same repository here", a
   await userEvent.click(await screen.findByRole("link", { name: "#7" }));
   const next = await screen.findByRole("article", { name: "Pull request #7" });
   expect(await within(next).findByText("Earlier reconnect fix")).toBeTruthy();
-  await waitFor(() => expect(within(next).getByText(/Read only in Ace/)).toBeTruthy());
+  await waitFor(() => expect(within(next).getByText(/Read only in ace/)).toBeTruthy());
 });

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { forgeDisplayName } from "@ace/ui-core";
+import { forgeDisplayName, forgeErrorText } from "@ace/ui-core";
 import { StateWords } from "@/components/forge-marks.tsx";
 import { useBackLabel } from "@/components/back-label.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { readForge } from "@/lib/forge-read.ts";
+import { failureCode, readForge } from "@/lib/forge-read.ts";
 import { hostedReferenceAddress } from "./hosted-reference-address.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrCompareFiles } from "./pr-compare-files.tsx";
@@ -132,7 +132,7 @@ export function HostedPrReader(props: {
           }
         />
         <p className="mt-2 text-xs text-muted-foreground">
-          Read only in Ace. Reviews, comments, checks and merge actions are available on {host}.
+          Read only in ace. Reviews, comments, checks and merge actions are available on {host}.
         </p>
       </header>
       <Tabs
@@ -178,12 +178,14 @@ export function HostedPrReader(props: {
         >
           {filesUnavailable ? (
             <p className="text-ui text-muted-foreground">
-              {host} doesn't share this {noun}'s changed files with Ace. Open it on {host} to see
+              {host} doesn't share this {noun}'s changed files with ace. Open it on {host} to see
               them.
             </p>
           ) : files.isError ? (
             <div role="alert" className="flex items-center gap-2">
-              <p className="text-ui text-muted-foreground">{files.error.message}</p>
+              <p className="text-ui text-muted-foreground">
+                {forgeErrorText(failureCode(files.error), status.ref.repository.forge)}
+              </p>
               <Button size="sm" variant="ghost" onClick={() => void files.refetch()}>
                 Retry
               </Button>

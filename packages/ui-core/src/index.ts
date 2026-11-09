@@ -117,6 +117,7 @@ export type { Brand } from "./brand-art/index.gen.ts";
 export type { BrandArt, BrandGradient, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
 export * from "./forge-hosts.ts";
+export * from "./forge-error-copy.ts";
 export * from "./skill-library.ts";
 export * from "./provider-slots.ts";
 export * from "./subagent-row.ts";

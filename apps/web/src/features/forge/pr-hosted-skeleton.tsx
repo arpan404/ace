@@ -49,7 +49,7 @@ export function HostedPrSkeleton(props: {
           }
         />
         <p className="mt-2 text-xs text-muted-foreground">
-          Read only in Ace. Reviews, comments, checks and merge actions are available on {host}.
+          Read only in ace. Reviews, comments, checks and merge actions are available on {host}.
         </p>
       </header>
       <div aria-hidden className="border-y border-border py-2">
