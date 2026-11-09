@@ -27,7 +27,7 @@ function runner(
       const route =
         routes[endpoint] ??
         (endpoint.includes("merge_requests?") ? routes["*list"] : undefined) ??
-        (endpoint.endsWith("/changes") ? routes["*changes"] : undefined) ??
+        (endpoint.includes("/diffs?") ? routes["*diffs"] : undefined) ??
         routes["*mr"];
       if (!route) return { code: 1, stdout: http("404 Not Found", {}, {}), truncated: false };
       return {
@@ -143,11 +143,15 @@ describe("gitlab reader", () => {
   });
 
   it("aggregates patch truncation into the page", async () => {
-    const changes = {
-      diff_refs: { base_sha: BASE, head_sha: HEAD, start_sha: BASE },
-      changes: [{ old_path: "a.ts", new_path: "a.ts", diff: `+${"x".repeat(300_000)}` }],
-    };
-    const f = runner({ "*changes": { status: "200 OK", body: changes } });
+    const f = runner({
+      "*mr": { status: "200 OK", body: mr() },
+      "*diffs": {
+        status: "200 OK",
+        body: [
+          { old_path: "a.ts", new_path: "a.ts", diff: `@@ -0,0 +1 @@\n+${"x".repeat(300_000)}` },
+        ],
+      },
+    });
     const files = await new GitLabReader({ repository, runner: f.runner }).prFiles(
       { number: 7, page: 1, headSha: HEAD, baseSha: BASE },
       signal(),
@@ -156,17 +160,33 @@ describe("gitlab reader", () => {
     expect(files.truncated).toBe(true);
   });
 
-  it("never projects a future state as open", async () => {
+  it("never projects a future state as open, and drops it from lists as incomplete", async () => {
     const f = runner({ "*mr": { status: "200 OK", body: mr({ state: "locked" }) } });
     const reader = new GitLabReader({ repository, runner: f.runner });
     expect((await reader.status(7, signal())).state).toBe("unknown");
     const list = runner({
-      "*list": { status: "200 OK", headers: { "x-total": "1" }, body: [mr({ state: "locked" })] },
+      "*list": {
+        status: "200 OK",
+        headers: { "x-total": "2" },
+        body: [mr({ state: "locked" }), mr({ iid: 8, title: "Readable" })],
+      },
     });
-    const lister = new GitLabReader({ repository, runner: list.runner });
-    await expect(lister.listPrs(prQuery({ state: "all" }), signal())).rejects.toMatchObject({
-      kind: "unsupported",
+    const page = await new GitLabReader({ repository, runner: list.runner }).listPrs(
+      prQuery({ state: "all" }),
+      signal(),
+    );
+    expect(page.items.map((item) => item.ref.number)).toEqual([8]);
+    expect(page.incomplete).toBe(true);
+  });
+
+  it("keeps a record whose title or labels exceed protocol bounds, cut to fit", async () => {
+    const labels = Array.from({ length: 150 }, (_, index) => `label-${index}`);
+    const f = runner({
+      "*mr": { status: "200 OK", body: mr({ title: "t".repeat(70_000), labels }) },
     });
+    const detail = await new GitLabReader({ repository, runner: f.runner }).prDetail(7, signal());
+    expect(detail.status.title).toHaveLength(65_536);
+    expect(detail.labels).toHaveLength(100);
   });
 
   it("lists all states with an explicit state=all", async () => {
@@ -323,14 +343,24 @@ describe("gitlab reader", () => {
     const reader = new GitLabReader({ repository, runner: f.runner });
     const detail = await reader.prDetail(7, signal());
     expect(detail.readOnly).toBe(true);
-    expect(detail.unavailableResources).toEqual([
-      "comments",
-      "checks",
-      "reviews",
-      "commits",
-      "files",
-    ]);
+    expect(detail.unavailableResources).toEqual(["comments", "checks", "reviews", "commits"]);
     expect(detail.baseSha).toBe(BASE);
+  });
+
+  it("reports GitLab's changed-file count, reading it from the diffs when not yet counted", async () => {
+    const counted = runner({ "*mr": { status: "200 OK", body: mr({ changes_count: "1000+" }) } });
+    expect(
+      (await new GitLabReader({ repository, runner: counted.runner }).prDetail(7, signal()))
+        .changedFiles,
+    ).toBe(1000);
+    const uncounted = runner({
+      "*mr": { status: "200 OK", body: mr({ changes_count: null }) },
+      "*diffs": { status: "200 OK", headers: { "x-total": "12" }, body: [] },
+    });
+    expect(
+      (await new GitLabReader({ repository, runner: uncounted.runner }).prDetail(7, signal()))
+        .changedFiles,
+    ).toBe(12);
   });
 
   it("nulls fork head repositories instead of inventing same-repo ones", async () => {
@@ -357,17 +387,35 @@ describe("gitlab reader", () => {
   });
 
   it("pages files pinned to head/base and rejects moves", async () => {
-    const changes = {
-      diff_refs: { base_sha: BASE, head_sha: HEAD, start_sha: BASE },
-      changes: [{ old_path: "a.ts", new_path: "a.ts", diff: "@@ -1 +1 @@\n-old\n+new\n" }],
-    };
-    const f = runner({ "*changes": { status: "200 OK", body: changes } });
+    const seen: CommandRequest[] = [];
+    const f = runner(
+      {
+        "*mr": { status: "200 OK", body: mr() },
+        "*diffs": {
+          status: "200 OK",
+          headers: { "x-total": "30", "x-next-page": "3" },
+          body: [
+            {
+              old_path: "a.ts",
+              new_path: "a.ts",
+              diff: "@@ -1,2 +1,2 @@\n--- x\n+++ y\n context\n",
+            },
+          ],
+        },
+      },
+      seen,
+    );
     const reader = new GitLabReader({ repository, runner: f.runner });
     const files = await reader.prFiles(
-      { number: 7, page: 1, headSha: HEAD, baseSha: BASE },
+      { number: 7, page: 2, headSha: HEAD, baseSha: BASE },
       signal(),
     );
+    // Content lines that look like file headers still count.
     expect(files.files[0]).toMatchObject({ path: "a.ts", additions: 1, deletions: 1 });
+    expect(files.nextPage).toBe(3);
+    expect(seen.map((request) => request.args[1])).toContain(
+      "projects/acme%2Face/merge_requests/7/diffs?per_page=25&page=2",
+    );
     await expect(
       reader.prFiles({ number: 7, page: 1, headSha: "c".repeat(40), baseSha: BASE }, signal()),
     ).rejects.toMatchObject({ kind: "head_moved" });
@@ -425,13 +473,11 @@ describe("gitlab reader", () => {
     ).rejects.toMatchObject({ kind: "unsupported" });
   });
 
-  it("marks overflowed changes truncated, never complete", async () => {
-    const changes = {
-      overflow: true,
-      diff_refs: { base_sha: BASE, head_sha: HEAD, start_sha: BASE },
-      changes: [],
-    };
-    const f = runner({ "*changes": { status: "200 OK", body: changes } });
+  it("marks a capped change count truncated, never complete", async () => {
+    const f = runner({
+      "*mr": { status: "200 OK", body: mr({ changes_count: "1000+" }) },
+      "*diffs": { status: "200 OK", body: [] },
+    });
     const files = await new GitLabReader({ repository, runner: f.runner }).prFiles(
       { number: 7, page: 1, headSha: HEAD, baseSha: BASE },
       signal(),
@@ -439,12 +485,30 @@ describe("gitlab reader", () => {
     expect(files.truncated).toBe(true);
   });
 
+  it("reads a withheld diff as an unread patch, not an empty change", async () => {
+    const f = runner({
+      "*mr": { status: "200 OK", body: mr() },
+      "*diffs": {
+        status: "200 OK",
+        body: [{ old_path: "big.bin", new_path: "big.bin", diff: "", too_large: true }],
+      },
+    });
+    const files = await new GitLabReader({ repository, runner: f.runner }).prFiles(
+      { number: 7, page: 1, headSha: HEAD, baseSha: BASE },
+      signal(),
+    );
+    expect(files.files[0]).toMatchObject({ patch: null, truncated: true });
+    expect(files.truncated).toBe(true);
+  });
+
   it("fails snapshots over the 8 MiB read budget", async () => {
-    const big = {
-      diff_refs: { base_sha: BASE, head_sha: HEAD, start_sha: BASE },
-      changes: [{ old_path: "a.ts", new_path: "a.ts", diff: `+${"x".repeat(9_000_000)}` }],
-    };
-    const f = runner({ "*changes": { status: "200 OK", body: big } });
+    const f = runner({
+      "*mr": { status: "200 OK", body: mr() },
+      "*diffs": {
+        status: "200 OK",
+        body: [{ old_path: "a.ts", new_path: "a.ts", diff: `+${"x".repeat(9_000_000)}` }],
+      },
+    });
     await expect(
       new GitLabReader({ repository, runner: f.runner }).prFiles(
         { number: 7, page: 1, headSha: HEAD, baseSha: BASE },

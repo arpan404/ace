@@ -19,16 +19,18 @@ import { Buffer } from "node:buffer";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
+import { clipLabels, clipText } from "./host-text.ts";
 import { redactData } from "./redact.ts";
 import { ReadBudget } from "./read-budget.ts";
 import {
-  Changes,
+  DiffPage,
   Mr,
   MrList,
   PinnedShas,
   SourceProject,
-  canonicalMrUrl,
   changeFile,
+  changesCount,
+  mrUrl,
   headOf,
   listTotals,
   must,
@@ -102,8 +104,8 @@ export class GitLabReader implements ForgeReader {
     return must(
       ForgePrStatus.safeParse({
         ref: this.#ref(mr.iid),
-        title: mr.title,
-        url: canonicalMrUrl(this.repository, mr.iid),
+        title: clipText(mr.title),
+        url: mrUrl(this.repository, mr.iid),
         headSha: requireSha(headOf(mr)),
         state: statusState(mr),
         mergeability:
@@ -222,11 +224,13 @@ export class GitLabReader implements ForgeReader {
     // Bounded totals: one small count read per state (per_page=1, x-total header),
     // under the same search so totals match the filtered page.
     const counts = await this.#counts(q.search.trim(), signal, budget);
-    const rows = items.data.slice(0, 25).map((item) => prRow(this.repository, item));
+    const read = items.data.slice(0, 25);
+    // A row in a state lists can't express is dropped, and the list says it is incomplete.
+    const rows = read.flatMap((item) => prRow(this.repository, item) ?? []);
     const paging = listTotals({
       state: q.state,
       page: q.page,
-      rowCount: rows.length,
+      rowCount: read.length,
       headers,
       counts,
     });
@@ -237,7 +241,7 @@ export class GitLabReader implements ForgeReader {
         total: paging.total,
         ...(paging.nextPage !== undefined ? { nextPage: paging.nextPage } : {}),
         counts,
-        incomplete: paging.incomplete,
+        incomplete: paging.incomplete || rows.length < read.length,
         truncated: paging.truncated,
       }),
     );
@@ -298,30 +302,70 @@ export class GitLabReader implements ForgeReader {
     const parsed = Mr.safeParse(body);
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
     const mr = parsed.data;
-    // Commit and file counts are schema-required placeholders, never measurements:
-    // both stay named in unavailableResources until this adapter reads them.
+    const changed = changesCount(mr) ?? (await this.#diffCount(number, signal, budget));
+    // Commits are never read: their count stays a placeholder named in unavailableResources.
     return must(
       ForgePrDetail.safeParse({
         readOnly: true,
-        unavailableResources: ["comments", "checks", "reviews", "commits", "files"],
+        unavailableResources: ["comments", "checks", "reviews", "commits"],
         status: this.#statusOf(mr),
         ...(mr.updated_at ? { updatedAt: mr.updated_at } : {}),
         ...(mr.created_at ? { createdAt: mr.created_at } : {}),
-        body: typeof mr.description === "string" ? mr.description.slice(0, 65_536) : "",
-        author: mr.author?.username ?? mr.author?.name ?? "deleted user",
+        body: clipText(typeof mr.description === "string" ? mr.description : ""),
+        author: clipText(mr.author?.username ?? mr.author?.name ?? "deleted user"),
         headBranch: mr.source_branch ?? "",
         baseBranch: mr.target_branch ?? "",
         baseSha: requireSha(mr.diff_refs?.base_sha ?? ""),
         headRepository: this.#detailHeadRepository(mr),
-        labels: (mr.labels ?? []).slice(0, 100),
+        labels: clipLabels(mr.labels),
         reviewers: [],
         reviewDecision: null,
         commits: 0,
-        changedFiles: 0,
+        changedFiles: changed.count,
         relatedThreads: [],
         relatedThreadsTruncated: false,
       }),
     );
+  }
+
+  /** The diff file count from one per_page=1 page's x-total, when GitLab hasn't counted yet. */
+  async #diffCount(
+    number: number,
+    signal: AbortSignal,
+    budget: ReadBudget,
+  ): Promise<{ count: number; capped: boolean }> {
+    const { headers } = await this.#get(
+      `projects/${this.#project}/merge_requests/${number}/diffs?per_page=1&page=1`,
+      signal,
+      budget,
+    );
+    const total = Number(headers["x-total"]);
+    if (!Number.isInteger(total) || total < 0) throw new ForgeError("invalid_data");
+    return { count: total, capped: false };
+  }
+
+  /** The MR, which must still be pinned to the requested head and base. */
+  async #pinnedMr(
+    number: number,
+    pinned: { headSha: string; baseSha: string },
+    signal: AbortSignal,
+    budget: ReadBudget,
+  ): Promise<GitLabMr> {
+    const { body } = await this.#get(
+      `projects/${this.#project}/merge_requests/${number}`,
+      signal,
+      budget,
+    );
+    const parsed = Mr.safeParse(body);
+    if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
+    const head = parsed.data.diff_refs?.head_sha ?? "";
+    const base = parsed.data.diff_refs?.base_sha ?? "";
+    if (
+      head.toLowerCase() !== pinned.headSha.toLowerCase() ||
+      base.toLowerCase() !== pinned.baseSha.toLowerCase()
+    )
+      throw new ForgeError("head_moved");
+    return parsed.data;
   }
 
   async prFiles(
@@ -341,31 +385,40 @@ export class GitLabReader implements ForgeReader {
       throw new ForgeError("unsupported");
     this.#ref(input.number);
     const budget = new ReadBudget();
-    const { body } = await this.#get(
-      `projects/${this.#project}/merge_requests/${input.number}/changes`,
+    // The MR's diff_refs pin the read before and after the page; one 25-file page of /diffs
+    // (the /changes endpoint is deprecated since GitLab 15.7) is the only diff page read.
+    const mr = await this.#pinnedMr(input.number, pinned, signal, budget);
+    const { body, headers } = await this.#get(
+      `projects/${this.#project}/merge_requests/${input.number}/diffs?per_page=25&page=${input.page}`,
       signal,
       budget,
     );
-    const parsed = Changes.safeParse(body);
+    const parsed = DiffPage.safeParse(body);
     if (!parsed.success) throw new ForgeError("invalid_data");
-    const head = parsed.data.diff_refs?.head_sha ?? "";
-    const base = parsed.data.diff_refs?.base_sha ?? "";
-    if (
-      head.toLowerCase() !== pinned.headSha.toLowerCase() ||
-      base.toLowerCase() !== pinned.baseSha.toLowerCase()
-    )
-      throw new ForgeError("head_moved");
-    const all = parsed.data.changes.map((c) => changeFile(c));
-    const page = all.slice((input.page - 1) * 25, input.page * 25);
+    await this.#pinnedMr(input.number, pinned, signal, budget);
+    const page = parsed.data.slice(0, 25).map((c) => changeFile(c));
+    const total = Number(headers["x-total"]);
+    const nextHeader = headers["x-next-page"]?.trim();
+    const more =
+      nextHeader !== undefined
+        ? nextHeader !== ""
+        : Number.isInteger(total)
+          ? input.page * 25 < total
+          : parsed.data.length === 25;
+    const beyondCap = more && input.page * 25 >= 1000;
     return must(
       ForgePrFiles.safeParse({
         ref: this.#ref(input.number),
         baseSha: pinned.baseSha,
         headSha: pinned.headSha,
         files: page,
-        ...(input.page * 25 < Math.min(all.length, 1000) ? { nextPage: input.page + 1 } : {}),
+        ...(more && !beyondCap ? { nextPage: input.page + 1 } : {}),
+        // GitLab's own "1000+" count means its diff stopped short of the whole change.
         truncated:
-          parsed.data.overflow === true || all.length > 1000 || page.some((file) => file.truncated),
+          changesCount(mr)?.capped === true ||
+          beyondCap ||
+          (Number.isInteger(total) && total > 1000) ||
+          page.some((file) => file.truncated),
       }),
     );
   }

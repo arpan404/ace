@@ -1,8 +1,5 @@
 import { z } from "zod";
 
-/** Cursor Origin's API host; any other host names a different forge. */
-export const ORIGIN_API_HOST = "origin.cursor.com";
-
 export const LIST_PAGE_SIZE = 100;
 export const LIST_MAX_ITEMS = 1000;
 export const LIST_MAX_STEPS = 10;
@@ -18,26 +15,26 @@ export const OriginAuthor = z
   .object({
     user: z
       .looseObject({
-        id: z.string().max(1024),
-        email: z.string().max(1024).optional(),
-        handle: z.string().max(1024).optional(),
-        displayName: z.string().max(1024).optional(),
+        id: z.string(),
+        email: z.string().optional(),
+        handle: z.string().optional(),
+        displayName: z.string().optional(),
       })
       .optional(),
-    app: z
-      .looseObject({ id: z.string().max(1024), displayName: z.string().max(1024).optional() })
-      .optional(),
+    app: z.looseObject({ id: z.string(), displayName: z.string().optional() }).optional(),
     serviceAccount: z
       .looseObject({
-        id: z.string().max(1024),
-        type: z.string().max(1024).optional(),
-        displayName: z.string().max(1024).optional(),
+        id: z.string(),
+        type: z.string().optional(),
+        displayName: z.string().optional(),
       })
       .optional(),
   })
   .passthrough();
 
-/** One pull request snapshot; numbers and version numbers are JSON strings.
+/** One pull request snapshot; numbers and version numbers are JSON strings. Text fields have
+ * no length bound here: readers cut them to the protocol's, so one long record never fails a
+ * whole read (the response is bounded by its ReadBudget).
  * cursor.com/docs/api/origin/reference/get-pull-request; unknown fields stay via passthrough. */
 export const OriginPr = z
   .object({
@@ -45,20 +42,17 @@ export const OriginPr = z
     state: z.string().max(32),
     merged: z.boolean(),
     draft: z.boolean(),
-    title: z.string().max(65_536),
-    body: z.string().max(65_536).optional(),
-    head: z.looseObject({ ref: z.string().max(1024), sha: z.string().max(256) }),
-    base: z.looseObject({ ref: z.string().max(1024), sha: z.string().max(256) }),
+    title: z.string(),
+    body: z.string().optional(),
+    head: z.looseObject({ ref: z.string(), sha: z.string().max(256) }),
+    base: z.looseObject({ ref: z.string(), sha: z.string().max(256) }),
     author: OriginAuthor.optional(),
     createdAt: z.string().min(1).max(65_536),
     updatedAt: z.string().min(1).max(65_536),
     additions: z.number().int().nonnegative().optional(),
     deletions: z.number().int().nonnegative().optional(),
     changedFiles: z.number().int().nonnegative().optional(),
-    labels: z
-      .array(z.looseObject({ name: z.string().max(256), color: z.string().max(64).optional() }))
-      .max(1000)
-      .optional(),
+    labels: z.array(z.looseObject({ name: z.string(), color: z.string().optional() })).optional(),
     webUrl: z.string().max(4096).optional(),
     version: z
       .looseObject({
@@ -87,12 +81,12 @@ export const OriginPrList = z
  * cursor.com/docs/api/origin/reference/list-pull-request-files. */
 export const OriginFile = z
   .object({
-    filename: z.string().max(65_536),
+    filename: z.string(),
     status: z.string().max(64),
     additions: z.number().int().nonnegative(),
     deletions: z.number().int().nonnegative(),
-    patch: z.string().max(8_388_608).optional(),
-    previousFilename: z.string().max(65_536).optional(),
+    patch: z.string().optional(),
+    previousFilename: z.string().optional(),
   })
   .passthrough();
 export type OriginFile = z.infer<typeof OriginFile>;

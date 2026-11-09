@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { OriginListSnapshots } from "./origin-list-snapshots.ts";
 import { OriginReader } from "./origin-reader.ts";
 import { ForgeError } from "./errors.ts";
 import type { CommandRequest, CommandResult } from "./command.ts";
@@ -407,15 +408,50 @@ describe("origin reader", () => {
     expect(status.state).not.toBe("open");
   });
 
-  it("rejects listings that contain an unknown lifecycle state", async () => {
+  it("drops an unknown lifecycle state from listings and marks them incomplete", async () => {
     const f = runner({
       [listEndpoint()]: {
         body: { pullRequests: [pr(), pr({ number: "18", state: "queued" })], nextPageToken: "" },
       },
     });
-    await expect(
-      new OriginReader({ repository, runner: f.runner }).listPrs(query({ state: "all" }), signal()),
-    ).rejects.toMatchObject({ kind: "unsupported" });
+    const page = await new OriginReader({ repository, runner: f.runner }).listPrs(
+      query({ state: "all" }),
+      signal(),
+    );
+    expect(page.items.map((item) => item.ref.number)).toEqual([17]);
+    expect(page.incomplete).toBe(true);
+  });
+
+  it("turns list pages from one traversal within the snapshot window, then reads again", async () => {
+    const seen: CommandRequest[] = [];
+    const rows = Array.from({ length: 30 }, (_, index) => pr({ number: String(index + 1) }));
+    const f = runner(
+      { [listEndpoint()]: { body: { pullRequests: rows, nextPageToken: "" } } },
+      seen,
+    );
+    let now = 1_000;
+    const snapshots = new OriginListSnapshots(() => now);
+    const reader = () => new OriginReader({ repository, runner: f.runner, snapshots });
+    expect((await reader().listPrs(query({ state: "all" }), signal())).items).toHaveLength(25);
+    const second = await reader().listPrs(query({ state: "open", page: 2 }), signal());
+    expect(second.items).toHaveLength(5);
+    expect(seen).toHaveLength(1);
+    now += 30_000;
+    await reader().listPrs(query({ state: "all" }), signal());
+    expect(seen).toHaveLength(2);
+  });
+
+  it("keeps a pull request whose text exceeds protocol bounds, cut to fit", async () => {
+    const labels = Array.from({ length: 1_500 }, (_, index) => ({ name: `l${index}` }));
+    const f = runner({
+      [detailEndpoint]: {
+        body: pr({ body: "b".repeat(70_000), title: "t".repeat(70_000), labels }),
+      },
+    });
+    const detail = await new OriginReader({ repository, runner: f.runner }).prDetail(17, signal());
+    expect(detail.body).toHaveLength(65_536);
+    expect(detail.status.title).toHaveLength(65_536);
+    expect(detail.labels).toHaveLength(100);
   });
 
   it("treats a missing page token as a complete page", async () => {

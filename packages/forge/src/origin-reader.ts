@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { Buffer } from "node:buffer";
 import {
   ForgePrRef,
   ForgeRepository,
+  originApiHost,
   type ForgePrStatus as ForgePrStatusType,
 } from "@ace/protocol/forge";
 import {
@@ -18,6 +20,9 @@ import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
+import { clipLabels, clipText } from "./host-text.ts";
+import { OriginListSnapshots, type OriginListSnapshot } from "./origin-list-snapshots.ts";
+import { prUrl } from "./pr-reference.ts";
 import {
   FILES_MAX_ITEMS,
   FILES_MAX_STEPS,
@@ -25,7 +30,6 @@ import {
   LIST_MAX_ITEMS,
   LIST_MAX_STEPS,
   LIST_PAGE_SIZE,
-  ORIGIN_API_HOST,
   OriginError,
   OriginFilesPage,
   OriginPr,
@@ -64,13 +68,21 @@ export class OriginReader implements ForgeReader {
   readonly repository: ForgeRepository;
   readonly #runner: CommandRunner;
   readonly #base: string;
+  readonly #snapshots: OriginListSnapshots | undefined;
 
-  constructor(options: { repository: ForgeRepository; runner: CommandRunner }) {
+  /** `snapshots` lets list page turns reuse one traversal; it must be scoped to the runner's
+   * admitted account. Without it every list read traverses again. */
+  constructor(options: {
+    repository: ForgeRepository;
+    runner: CommandRunner;
+    snapshots?: OriginListSnapshots | undefined;
+  }) {
     this.repository = checked(() => ForgeRepository.parse(options.repository));
     if (this.repository.forge !== "origin") throw new ForgeError("unsupported");
-    if (this.repository.host !== ORIGIN_API_HOST) throw new ForgeError("unsupported");
+    if (this.repository.host !== originApiHost) throw new ForgeError("unsupported");
     if (!options.runner) throw new ForgeError("unsupported");
     this.#runner = options.runner;
+    this.#snapshots = options.snapshots;
     this.#base = `/repos/${encodeURIComponent(this.repository.owner)}/${encodeURIComponent(this.repository.name)}`;
   }
 
@@ -81,7 +93,7 @@ export class OriginReader implements ForgeReader {
   /** The server's web URL only when it names this pull request on cursor.com without
    * credentials; otherwise the canonical https://cursor.com/codebase/o/r/pull/17 shape. */
   #webUrl(pr: OriginPrRecord, number: number): string {
-    const canonical = `https://cursor.com/codebase/${this.repository.owner}/${this.repository.name}/pull/${number}`;
+    const canonical = prUrl({ repository: this.repository, number });
     if (typeof pr.webUrl === "string") {
       try {
         const url = new URL(pr.webUrl);
@@ -168,7 +180,7 @@ export class OriginReader implements ForgeReader {
     return checked(() =>
       ForgePrDetail.shape.status.parse({
         ref: this.#ref(number),
-        title: pr.title,
+        title: clipText(pr.title),
         url: this.#webUrl(pr, number),
         headSha,
         state: stateOf(pr),
@@ -205,6 +217,82 @@ export class OriginReader implements ForgeReader {
     });
     for (const label of labels) params.append("labels", label);
     const prefix = `${this.#base}/pulls?${params}`;
+    const { records: collected, capped } =
+      this.#snapshots?.get(prefix) ?? (await this.#collect(prefix, signal, budget));
+    const needle = q.search.trim().toLowerCase();
+    const matches = (pr: OriginPrRecord): boolean => {
+      if (needle === "") return true;
+      return `${pr.title}\n${pr.body ?? ""}\n${pr.head.ref}\n${pr.base.ref}`
+        .toLowerCase()
+        .includes(needle);
+    };
+    const wanted = (state: OriginPrState): boolean => {
+      if (q.state === "open") return state === "open";
+      if (q.state === "draft") return state === "draft";
+      if (q.state === "active") return state === "open" || state === "draft";
+      if (q.state === "closed") return state === "closed";
+      if (q.state === "merged") return state === "merged";
+      return true;
+    };
+    const counts = { open: 0, draft: 0, closed: 0, merged: 0 };
+    const filtered: { pr: OriginPrRecord; state: OriginPrState }[] = [];
+    // A state rows can't express is dropped and the list marked incomplete, never shown open.
+    let skipped = false;
+    for (const pr of collected) {
+      const state: OriginLifecycle = stateOf(pr);
+      if (state === "unknown") {
+        skipped = true;
+        continue;
+      }
+      counts[state] += 1;
+      if (wanted(state) && matches(pr)) filtered.push({ pr, state });
+    }
+    const rows = filtered
+      .slice((q.page - 1) * ROW_PAGE_SIZE, q.page * ROW_PAGE_SIZE)
+      .map(({ pr, state }) => {
+        const number = safeNumber(pr.number);
+        if (number === null) throw new ForgeError("invalid_data");
+        const headSha = lowerSha(pr.head.sha);
+        return Object.assign(
+          {
+            raw: redactData(pr),
+            ref: this.#ref(number),
+            title: clipText(pr.title),
+            url: this.#webUrl(pr, number),
+            author: clipText(authorOf(pr)),
+            state,
+            labels: clipLabels(pr.labels?.map((label) => label.name)),
+            updatedAt: pr.updatedAt,
+            createdAt: pr.createdAt,
+            headBranch: clipText(pr.head.ref),
+            baseBranch: clipText(pr.base.ref),
+          },
+          headSha === null ? {} : { headSha },
+          pr.additions !== undefined ? { additions: pr.additions } : {},
+          pr.deletions !== undefined ? { deletions: pr.deletions } : {},
+        );
+      });
+    const total = filtered.length;
+    return checked(() =>
+      ForgePrList.parse({
+        repository: this.repository,
+        items: rows,
+        total,
+        ...(q.page * ROW_PAGE_SIZE < total ? { nextPage: q.page + 1 } : {}),
+        counts,
+        incomplete: capped || skipped,
+        truncated: capped,
+      }),
+    );
+  }
+
+  /** Every pull request under one list request, up to the 1000-record bound, kept as a
+   * snapshot for page turns when the owner supplied one. */
+  async #collect(
+    prefix: string,
+    signal: AbortSignal,
+    budget: ReadBudget,
+  ): Promise<OriginListSnapshot> {
     const collected: OriginPrRecord[] = [];
     let pageToken = "";
     let capped = false;
@@ -227,66 +315,9 @@ export class OriginReader implements ForgeReader {
       if (pageToken === "") break;
       if (step === LIST_MAX_STEPS - 1) capped = true;
     }
-    const needle = q.search.trim().toLowerCase();
-    const matches = (pr: OriginPrRecord): boolean => {
-      if (needle === "") return true;
-      return `${pr.title}\n${pr.body ?? ""}\n${pr.head.ref}\n${pr.base.ref}`
-        .toLowerCase()
-        .includes(needle);
-    };
-    const wanted = (state: OriginPrState): boolean => {
-      if (q.state === "open") return state === "open";
-      if (q.state === "draft") return state === "draft";
-      if (q.state === "active") return state === "open" || state === "draft";
-      if (q.state === "closed") return state === "closed";
-      if (q.state === "merged") return state === "merged";
-      return true;
-    };
-    const counts = { open: 0, draft: 0, closed: 0, merged: 0 };
-    const filtered: { pr: OriginPrRecord; state: OriginPrState }[] = [];
-    for (const pr of collected) {
-      const state: OriginLifecycle = stateOf(pr);
-      if (state === "unknown") throw new ForgeError("unsupported");
-      counts[state] += 1;
-      if (wanted(state) && matches(pr)) filtered.push({ pr, state });
-    }
-    const rows = filtered
-      .slice((q.page - 1) * ROW_PAGE_SIZE, q.page * ROW_PAGE_SIZE)
-      .map(({ pr, state }) => {
-        const number = safeNumber(pr.number);
-        if (number === null) throw new ForgeError("invalid_data");
-        const headSha = lowerSha(pr.head.sha);
-        return Object.assign(
-          {
-            raw: redactData(pr),
-            ref: this.#ref(number),
-            title: pr.title,
-            url: this.#webUrl(pr, number),
-            author: authorOf(pr),
-            state,
-            labels: (pr.labels ?? []).slice(0, 100).map((label) => label.name),
-            updatedAt: pr.updatedAt,
-            createdAt: pr.createdAt,
-            headBranch: pr.head.ref,
-            baseBranch: pr.base.ref,
-          },
-          headSha === null ? {} : { headSha },
-          pr.additions !== undefined ? { additions: pr.additions } : {},
-          pr.deletions !== undefined ? { deletions: pr.deletions } : {},
-        );
-      });
-    const total = filtered.length;
-    return checked(() =>
-      ForgePrList.parse({
-        repository: this.repository,
-        items: rows,
-        total,
-        ...(q.page * ROW_PAGE_SIZE < total ? { nextPage: q.page + 1 } : {}),
-        counts,
-        incomplete: capped,
-        truncated: capped,
-      }),
-    );
+    const snapshot = { records: collected, capped };
+    this.#snapshots?.set(prefix, snapshot);
+    return snapshot;
   }
 
   async prDetail(number: number, signal: AbortSignal): Promise<ForgePrDetailType> {
@@ -302,13 +333,13 @@ export class OriginReader implements ForgeReader {
         createdAt: pr.createdAt,
         ...(pr.additions !== undefined ? { additions: pr.additions } : {}),
         ...(pr.deletions !== undefined ? { deletions: pr.deletions } : {}),
-        body: (pr.body ?? "").slice(0, 65_536),
-        author: authorOf(pr),
-        headBranch: pr.head.ref,
-        baseBranch: pr.base.ref,
+        body: clipText(pr.body ?? ""),
+        author: clipText(authorOf(pr)),
+        headBranch: clipText(pr.head.ref),
+        baseBranch: clipText(pr.base.ref),
         baseSha,
         headRepository: this.repository,
-        labels: (pr.labels ?? []).slice(0, 100).map((label) => label.name),
+        labels: clipLabels(pr.labels?.map((label) => label.name)),
         reviewers: [],
         reviewDecision: null,
         commits: 0,
@@ -381,7 +412,7 @@ export class OriginReader implements ForgeReader {
         return Object.assign(
           {
             raw: redactData(Object.assign({}, file, { patch: kept })),
-            path: file.filename,
+            path: clipText(file.filename),
             status: file.status,
             additions: file.additions,
             deletions: file.deletions,
@@ -389,7 +420,7 @@ export class OriginReader implements ForgeReader {
             truncated: patchTruncated || truncated,
           },
           file.previousFilename !== undefined && file.previousFilename !== file.filename
-            ? { previousPath: file.previousFilename }
+            ? { previousPath: clipText(file.previousFilename) }
             : {},
         );
       });

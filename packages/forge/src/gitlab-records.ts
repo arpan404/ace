@@ -2,6 +2,8 @@ import { z } from "zod";
 import { ForgePrRef, type ForgeRepository } from "@ace/protocol/forge";
 import { ForgePrFiles, ForgePrSearch } from "@ace/protocol/forge-browser";
 import { ForgeError } from "./errors.ts";
+import { clipLabels, clipText } from "./host-text.ts";
+import { prUrl } from "./pr-reference.ts";
 import { redactData } from "./redact.ts";
 
 export const sha = z.string().regex(/^[a-fA-F0-9]{40,64}$/);
@@ -12,7 +14,7 @@ const isoText = z.string().min(1).max(65_536);
 export const Mr = z
   .object({
     iid: z.number().int().positive(),
-    title: z.string().max(65_536),
+    title: z.string(),
     description: z.string().nullable().optional(),
     state: z.string().max(32),
     draft: z.boolean().optional(),
@@ -25,7 +27,12 @@ export const Mr = z
     author: z
       .looseObject({ username: z.string().optional(), name: z.string().optional() })
       .optional(),
-    labels: z.array(z.string()).max(100).optional(),
+    labels: z.array(z.string()).optional(),
+    /** A string such as "12", or "1000+" once GitLab stops counting; absent until computed. */
+    changes_count: z
+      .union([z.string().max(32), z.number()])
+      .nullable()
+      .optional(),
     user_notes_count: z.number().int().nonnegative().optional(),
     diff_refs: z
       .looseObject({
@@ -42,24 +49,23 @@ export const Mr = z
   })
   .passthrough();
 export const MrList = z.array(Mr).max(100);
-const Change = z
+/** One file of GET /projects/:id/merge_requests/:iid/diffs (docs.gitlab.com/api/merge_requests/,
+ * "List merge request diffs"). `collapsed` (fetchable on request) and `too_large` (never
+ * retrievable) mean `diff` is empty, not that the file is unchanged; both since GitLab 18.4. */
+const Diff = z
   .object({
-    old_path: z.string().max(65_536),
-    new_path: z.string().max(65_536),
+    old_path: z.string(),
+    new_path: z.string(),
     new_file: z.boolean().optional(),
     deleted_file: z.boolean().optional(),
     renamed_file: z.boolean().optional(),
+    collapsed: z.boolean().optional(),
+    too_large: z.boolean().optional(),
     diff: z.string(),
   })
   .passthrough();
-/** `overflow` marks a diff GitLab itself cut short: never read it as complete. */
-export const Changes = z
-  .looseObject({
-    changes: z.array(Change),
-    overflow: z.boolean().optional(),
-    diff_refs: Mr.shape.diff_refs,
-  })
-  .passthrough();
+export const DiffPage = z.array(Diff).max(100);
+export type GitLabDiff = z.infer<typeof Diff>;
 export const SourceProject = z
   .looseObject({ path_with_namespace: z.string().max(512) })
   .passthrough();
@@ -94,11 +100,16 @@ export function statusState(mr: GitLabMr): "open" | "draft" | "closed" | "merged
   return "unknown";
 }
 
-/** List rows cannot express `unknown`: a future state rejects the read outright. */
-export function rowState(mr: GitLabMr): "open" | "draft" | "closed" | "merged" {
-  const state = statusState(mr);
-  if (state === "unknown") throw new ForgeError("unsupported");
-  return state;
+/**
+ * GitLab's changed-file count: "1000+" reads as 1000 with `capped`; null when GitLab hasn't
+ * computed it yet or sent something unreadable.
+ */
+export function changesCount(mr: GitLabMr): { count: number; capped: boolean } | null {
+  const value = mr.changes_count;
+  const text = typeof value === "number" ? String(value) : (value ?? "").trim();
+  const match = /^(\d{1,9})(\+?)$/.exec(text);
+  if (!match) return null;
+  return { count: Number(match[1]), capped: match[2] === "+" };
 }
 
 /** Output schemas are ours, but a throw must still be a sanitized ForgeError. */
@@ -117,12 +128,9 @@ export function requireSha(value: string): string {
   return value;
 }
 
-/**
- * The MR's canonical web URL, built from the repository under read — never the
- * server's `web_url`, which may name another host or carry credentials.
- */
-export function canonicalMrUrl(repository: ForgeRepository, iid: number): string {
-  return `https://${repository.host}/${repository.owner}/${repository.name}/-/merge_requests/${iid}`;
+/** The MR's canonical web URL from the repository under read, never the server's `web_url`. */
+export function mrUrl(repository: ForgeRepository, iid: number): string {
+  return prUrl({ repository, number: iid });
 }
 
 /** HTTP status to ForgeError; quota evidence distinguishes rate limits from denials. */
@@ -188,17 +196,23 @@ export function listTotals(input: {
   };
 }
 
-/** One list row; a missing head is invalid data, never an omitted pin. */
-export function prRow(repository: ForgeRepository, item: GitLabMr): object {
+/**
+ * One list row, or null for a state rows can't express: a future GitLab state (`locked`, say)
+ * is dropped and the list marked incomplete, never shown as open. A missing head is invalid
+ * data, never an omitted pin.
+ */
+export function prRow(repository: ForgeRepository, item: GitLabMr): object | null {
+  const state = statusState(item);
+  if (state === "unknown") return null;
   return Object.assign(
     {
       raw: redactData(item),
       ref: ForgePrRef.parse({ repository, number: item.iid }),
-      title: item.title,
-      url: canonicalMrUrl(repository, item.iid),
-      author: item.author?.username ?? item.author?.name ?? "deleted user",
-      state: rowState(item),
-      labels: (item.labels ?? []).slice(0, 100),
+      title: clipText(item.title),
+      url: mrUrl(repository, item.iid),
+      author: clipText(item.author?.username ?? item.author?.name ?? "deleted user"),
+      state,
+      labels: clipLabels(item.labels),
       updatedAt: item.updated_at,
       headSha: requireSha(headOf(item)),
     },
@@ -209,21 +223,30 @@ export function prRow(repository: ForgeRepository, item: GitLabMr): object {
   );
 }
 
-/** One changed file; over-long patches are cut and flagged, never dropped. */
-export function changeFile(
-  c: z.infer<typeof Changes>["changes"][number],
-): { truncated: boolean } & object {
-  let added = 0;
-  let removed = 0;
-  for (const line of c.diff.split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) continue;
-    if (line.startsWith("+")) added++;
-    else if (line.startsWith("-")) removed++;
+/** A diff's added and removed lines. Only the `---`/`+++` file header before the first hunk is
+ * skipped, so a content line such as `--- x` still counts. */
+export function diffLineCounts(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  let inHunk = false;
+  for (const line of diff.split("\n")) {
+    if (line.startsWith("@@")) inHunk = true;
+    else if (!inHunk) continue;
+    else if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
   }
+  return { additions, deletions };
+}
+
+/** One changed file; over-long patches are cut and flagged, and a diff GitLab withheld
+ * (`collapsed`, `too_large`) is an unread patch, never an empty change. */
+export function changeFile(c: GitLabDiff): { truncated: boolean } & object {
+  const withheld = c.collapsed === true || c.too_large === true;
+  const { additions, deletions } = diffLineCounts(withheld ? "" : c.diff);
   return Object.assign(
     {
-      raw: redactData(c),
-      path: c.new_path,
+      raw: redactData({ ...c, diff: c.diff.slice(0, 262_144) }),
+      path: clipText(c.new_path),
       status:
         c.new_file === true
           ? "added"
@@ -232,11 +255,11 @@ export function changeFile(
             : c.renamed_file === true
               ? "renamed"
               : "modified",
-      additions: added,
-      deletions: removed,
-      patch: c.diff.slice(0, 262_144) as string | null,
-      truncated: c.diff.length > 262_144,
+      additions,
+      deletions,
+      patch: withheld ? null : (c.diff.slice(0, 262_144) as string | null),
+      truncated: withheld || c.diff.length > 262_144,
     },
-    c.old_path !== c.new_path ? { previousPath: c.old_path } : null,
+    c.old_path !== c.new_path ? { previousPath: clipText(c.old_path) } : null,
   );
 }
