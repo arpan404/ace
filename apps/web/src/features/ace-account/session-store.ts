@@ -6,6 +6,17 @@ import { browserSignIn } from "./sign-in.ts";
 
 export type AceAccountClient = ReturnType<typeof aceAccountClient>;
 
+/**
+ * Why a sign-in lasts only while the app is open: the app couldn't save it. With no keyring
+ * (Linux without GNOME Keyring or KWallet), the app refuses to keep it in plain text.
+ */
+function unsavedSession(cause: unknown): string {
+  const noKeyring = cause instanceof Error && cause.message.includes("storage is unavailable");
+  return noKeyring
+    ? "Signed in until ace closes: this computer has no keyring to save it in. Install GNOME Keyring or KWallet to stay signed in."
+    : "Signed in until ace closes: ace couldn't save your sign-in on this computer.";
+}
+
 /** Where this window's ace session lives: the backend, the window's copy and the saved copy. */
 export interface AceAccountBackend {
   origin: string;
@@ -65,7 +76,7 @@ export function aceAccountStore(backend: AceAccountBackend) {
     if (secure)
       await secure
         .write(origin, session.token)
-        .catch(() => update({ error: "Signed in for this window only." }));
+        .catch((cause: unknown) => update({ error: unsavedSession(cause) }));
   };
 
   return {
