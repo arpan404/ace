@@ -32,6 +32,8 @@ struct ForgePullRow: Decodable, Sendable, Equatable, Identifiable {
     let key: String
     let number: Int
     let repository: ForgeRepository
+    /// The host's name ("GitHub", "GitLab"); a copy kept from before it was sent has none.
+    var host: String?
     let title: String
     let url: String
     let state: ForgeMark
@@ -57,6 +59,8 @@ struct ForgeIssueRow: Decodable, Sendable, Equatable, Identifiable {
     let key: String
     let number: Int
     let repository: ForgeRepository
+    /// The host's name ("GitHub", "GitLab"); a copy kept from before it was sent has none.
+    var host: String?
     let title: String
     let url: String
     let state: ForgeMark

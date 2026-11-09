@@ -20,13 +20,15 @@ struct ForgePullsList: View {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
                 ForEach(group.rows) { row in
-                    let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number)
+                    // The full identity (provider, host, owner, name, number): a GitLab or Origin row opens
+                    // its own read-only page, never a same-numbered review elsewhere.
+                    let route = ForgeRoute(kind: .pull, machineId: scope.machineId, project: scope.project, number: row.number, repository: row.repository)
                     Button { open(route) } label: { ForgePullRowView(row: row) }
                         .buttonStyle(RowPressStyle(selected: openRow == route))
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.pull.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, host: row.host, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
             } }
         }
@@ -56,7 +58,7 @@ struct ForgeIssuesList: View {
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])
                     .accessibilityIdentifier("forge.issue.\(row.number)")
                     .forgeRowChrome()
-                    .forgeRowActions(url: row.url, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
+                    .forgeRowActions(url: row.url, host: row.host, thread: row.thread.map { InboxKey(machineId: scope.machineId, id: $0.id) }, openThread: openThread)
                 }
             } }
         }
@@ -132,15 +134,16 @@ extension View {
     /// The lists' row chrome: the inbox's insets, no rules, the page colour behind.
     func forgeRowChrome() -> some View { inboxRowChrome() }
 
-    /// A row's quick actions without opening it: GitHub on a swipe; in its menu, GitHub, the
+    /// A row's quick actions without opening it: its host on a swipe; in its menu, its host, the
     /// link, and the thread working on it.
-    func forgeRowActions(url: String, thread: InboxKey?, openThread: @escaping (InboxKey) -> Void) -> some View {
-        modifier(ForgeRowActions(url: url, thread: thread, openThread: openThread))
+    func forgeRowActions(url: String, host: String?, thread: InboxKey?, openThread: @escaping (InboxKey) -> Void) -> some View {
+        modifier(ForgeRowActions(url: url, host: host ?? "GitHub", thread: thread, openThread: openThread))
     }
 }
 
 private struct ForgeRowActions: ViewModifier {
     let url: String
+    let host: String
     let thread: InboxKey?
     let openThread: (InboxKey) -> Void
     @Environment(\.openURL) private var openURL
@@ -149,12 +152,12 @@ private struct ForgeRowActions: ViewModifier {
         content
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if let link = URL(string: url) {
-                    Button("GitHub", ace: .arrowSquareOut) { openURL(link) }.tint(Color(uiColor: .systemGray2))
+                    Button(host, ace: .arrowSquareOut) { openURL(link) }.tint(Color(uiColor: .systemGray2))
                 }
             }
             .contextMenu {
                 if let link = URL(string: url) {
-                    Button("Open on GitHub", ace: .arrowSquareOut) { openURL(link) }
+                    Button("Open on \(host)", ace: .arrowSquareOut) { openURL(link) }
                     Button("Copy link", ace: .copy) { UIPasteboard.general.url = link }
                 }
                 if let thread { Button("Open thread", ace: .chats) { openThread(thread) } }

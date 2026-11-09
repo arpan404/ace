@@ -20,6 +20,7 @@ import {
   type ShownBodies,
   type ThreadView,
 } from "./forge-conversation.ts";
+import { reviewDraftKeys } from "./forge-hosted.ts";
 import {
   lockedOut,
   prActivity,
@@ -77,6 +78,10 @@ export interface ReviewSheet {
   /** Why it can't be sent until the page is read again (a moved head, outdated drafts). */
   stale: string | null;
   headSha: string;
+  /** Where the phone keeps the unsent summary (`reviewDraftKeys`); `legacyDraftKey` is read
+   * when it holds none, so a summary saved before providers were named isn't lost. */
+  draftKey: string;
+  legacyDraftKey: string | null;
 }
 
 export interface TimelineReply {
@@ -196,6 +201,7 @@ export function reviewSheet(
   const headSha = detail.status.headSha;
   const blocked = verdictBlocked(state, detail.author, live) ?? null;
   const outdated = state.drafts.filter((draft) => draft.anchor.commit !== headSha).length;
+  const keys = reviewDraftKeys(detail.status.ref.repository, detail.status.ref.number);
   return {
     drafts: state.drafts.map((draft) => ({
       id: draft.id,
@@ -221,6 +227,8 @@ export function reviewSheet(
           ? "Some pending comments are on an older commit. Remove them to submit."
           : null,
     headSha,
+    draftKey: keys.key,
+    legacyDraftKey: keys.legacy,
   };
 }
 

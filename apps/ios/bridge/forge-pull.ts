@@ -35,6 +35,13 @@ import {
   type PrTarget as PageTarget,
 } from "./forge-pr-reads.ts";
 import { bodyKey } from "./forge-task.ts";
+import {
+  hostedView,
+  isHosted,
+  knownCommitCount,
+  knownFileCount,
+  type HostedView,
+} from "./forge-hosted.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
 
@@ -100,8 +107,11 @@ export interface PullReply {
   headSha: string;
   additions: number | null;
   deletions: number | null;
-  commits: number;
-  changedFiles: number;
+  /** Null where the host can't say: never shown as a number. */
+  commits: number | null;
+  changedFiles: number | null;
+  /** A review ace only reads (not GitHub): the page offers no writes, only this. */
+  hosted: HostedView | null;
   body: string;
   /** The description's task boxes tick and save. */
   tasks: boolean;
@@ -161,10 +171,11 @@ export async function readPull(
   shown: ShownBodies,
 ): Promise<PullReply> {
   const detail = await readDetail(reads, request);
-  const [mergeState, lifecycle] = await Promise.all([
-    readMergeState(reads, request, detail),
-    prLifecycle(reads, request),
-  ]);
+  const hosted = isHosted(detail) ? hostedView(detail) : null;
+  // A read-only review has no merge state or lifecycle to read: ace writes nothing there.
+  const [mergeState, lifecycle] = hosted
+    ? [undefined, undefined]
+    : await Promise.all([readMergeState(reads, request, detail), prLifecycle(reads, request)]);
   shown.set(bodyKey("pull", detail.status.ref.repository, detail.status.ref.number), detail.body);
   const { status } = detail;
   const state = status.state === "unknown" ? "open" : status.state;
@@ -186,6 +197,7 @@ export async function readPull(
     autoMerge: true,
     blockers,
   });
+  if (hosted) return hostedPull(detail, request, preview, hosted);
   const fenced = detail.writeState !== undefined || mergeState?.writeState !== undefined;
   const label = prPrimaryLabel(primary);
   const action: PullAction | null =
@@ -225,6 +237,7 @@ export async function readPull(
     deletions: detail.deletions ?? null,
     commits: detail.commits,
     changedFiles: detail.changedFiles,
+    hosted: null,
     body: preview(detail.body, 32_768),
     tasks: lifecycle?.snapshot.editableFields.includes("body") ?? false,
     conversation: conversationWords(status),
@@ -267,6 +280,56 @@ export async function readPull(
       archived: thread.archived,
       needsYou: live?.id === thread.id && live.needsYou,
     })),
+  };
+}
+
+/** A read-only review: its header, description and files, and none of GitHub's controls. */
+function hostedPull(
+  detail: ForgePrDetail,
+  request: Extract<ForgePullRequest, { type: "forge.pull" }>,
+  preview: Preview,
+  hosted: HostedView,
+): PullReply {
+  const { status } = detail;
+  const state = status.state === "unknown" ? "open" : status.state;
+  return {
+    type: "forge.pull",
+    number: status.ref.number,
+    repository: status.ref.repository,
+    title: preview(status.title, 400),
+    url: status.url,
+    state: { word: prWords[state], tone: prTone[state] },
+    merged: state === "merged",
+    author: preview(detail.author, 100),
+    createdAt: epoch(detail.createdAt),
+    updatedAt: epoch(detail.updatedAt),
+    headBranch: preview(detail.headBranch, 256),
+    baseBranch: preview(detail.baseBranch, 256),
+    headSha: status.headSha,
+    additions: detail.additions ?? null,
+    deletions: detail.deletions ?? null,
+    commits: knownCommitCount(detail),
+    changedFiles: knownFileCount(detail),
+    hosted,
+    body: preview(detail.body, 32_768),
+    tasks: false,
+    conversation: "",
+    labels: detail.labels.slice(0, 20).map((name) => ({
+      name: preview(name, 100),
+      color: detail.labelColors?.[name] ?? null,
+    })),
+    gates: [],
+    primary: "",
+    action: null,
+    secondary: null,
+    blockers: [],
+    methods: [],
+    method: request.method,
+    commit: null,
+    reviewers: [],
+    checks: [],
+    files: [],
+    threads: [],
   };
 }
 

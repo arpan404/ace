@@ -109,6 +109,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.timeline":
     case "forge.pull.file":
     case "forge.pull.files":
+    case "forge.pull.hosted-files":
     case "forge.pull.commits":
     case "forge.pull.reviewers":
     case "forge.inbox":

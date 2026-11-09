@@ -13,10 +13,12 @@ struct ForgeText: View {
     let scope: ForgeRichScope
     /// Ticks the box whose mark sits at an offset; nil leaves boxes showing their state only.
     var tick: ((Int, Bool) -> Void)? = nil
+    /// A review on a host ace only reads: references open by its templates (`ForgeLinks`).
+    var hosted: ForgeHostedLinks? = nil
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let links = ForgeLinks(scope.repository)
+        let links = ForgeLinks(scope.repository, hosted: hosted)
         let dark = scheme == .dark
         AceMarkdown(text: text, resolveImage: images(links), flavor: .github,
                     onTask: ticker,
