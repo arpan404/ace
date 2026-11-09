@@ -35,3 +35,22 @@ export const forgeOrder: readonly ForgeKind[] = [
   "gitea",
   "forgejo",
 ];
+
+/**
+ * The CLI ace reads each provider through. Providers without one can be saved as hosts, but ace
+ * can't check their readiness yet.
+ */
+export const forgeClis: Readonly<Record<ForgeKind, string | undefined>> = {
+  github: "gh",
+  origin: "origin",
+  gitlab: "glab",
+  gitbucket: undefined,
+  bitbucket: undefined,
+  gitea: undefined,
+  forgejo: undefined,
+};
+
+/** Whether ace can check a provider's sign-in and API through its CLI. */
+export function forgeCanCheck(forge: ForgeKind): boolean {
+  return forgeClis[forge] !== undefined;
+}
