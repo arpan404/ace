@@ -9,6 +9,7 @@ import {
   prPollInterval,
   type CodeScope,
   type GateKey,
+  isHostedReview,
 } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -529,8 +530,7 @@ export function PrDetail(props: {
       )}
     >
       {/* GitHub alone takes writes from ace: any other host's review is read only. */}
-      {context &&
-      (context.detail.readOnly || context.detail.status.ref.repository.forge !== "github") ? (
+      {context && isHostedReview(context.detail) ? (
         <HostedPrReader
           key={context.detail.status.headSha}
           context={context}

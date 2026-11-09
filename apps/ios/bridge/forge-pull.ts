@@ -24,6 +24,9 @@ import {
   reviewOutcomeLabels,
   type ForgeMark,
   type MergeMethod,
+  isHostedReview,
+  knownCommitCount,
+  knownFileCount,
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
@@ -35,13 +38,7 @@ import {
   type PrTarget as PageTarget,
 } from "./forge-pr-reads.ts";
 import { bodyKey } from "./forge-task.ts";
-import {
-  hostedView,
-  isHosted,
-  knownCommitCount,
-  knownFileCount,
-  type HostedView,
-} from "./forge-hosted.ts";
+import { hostedView, type HostedView } from "./forge-hosted.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
 import { keyOf, type ForgeLabelView } from "./forge-rows.ts";
 
@@ -171,7 +168,7 @@ export async function readPull(
   shown: ShownBodies,
 ): Promise<PullReply> {
   const detail = await readDetail(reads, request);
-  const hosted = isHosted(detail) ? hostedView(detail) : null;
+  const hosted = isHostedReview(detail) ? hostedView(detail) : null;
   // A read-only review has no merge state or lifecycle to read: ace writes nothing there.
   const [mergeState, lifecycle] = hosted
     ? [undefined, undefined]

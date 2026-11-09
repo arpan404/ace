@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { hostedReferenceAddress } from "./hosted-reference-address.ts";
+import { hostedReferenceAddress } from "./hosted-reviews.ts";
 
 const gitlab = { forge: "gitlab", host: "gitlab.example.com", owner: "acme", name: "api" } as const;
 const origin = { forge: "origin", host: "origin.cursor.com", owner: "acme", name: "api" } as const;

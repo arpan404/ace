@@ -9,6 +9,7 @@ import {
   viewedMarks,
   type HostedFileShow,
   type ViewedState,
+  isHostedReview,
 } from "@ace/ui-core";
 import { mobileFileDiff, type MobileDiffLine } from "@ace/ui-core/mobile";
 import { z } from "zod";
@@ -29,7 +30,6 @@ import {
   type PrTarget,
 } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
-import { isHosted } from "./forge-hosted.ts";
 
 /*
  * One changed file of a pull request as the phone's Code view shows it: its diff lines within
@@ -273,7 +273,7 @@ export async function readFile(
   const detail = await prDetail(reads, request);
   const shas = { headSha: detail.status.headSha, baseSha: detail.baseSha };
   // A read-only review has no review state or lifecycle: no marks, comments or drafts.
-  const hosted = isHosted(detail);
+  const hosted = isHostedReview(detail);
   const [found, state, lifecycle] = await Promise.all([
     findFile(reads, request, shas),
     hosted ? undefined : prReviewState(reads, request),

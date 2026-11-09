@@ -1,5 +1,13 @@
 import { useCallback, useState } from "react";
-import { forgeDisplayName, forgeErrorText } from "@ace/ui-core";
+import {
+  forgeDisplayName,
+  forgeErrorText,
+  hostedFilesUnavailableText,
+  hostedReferenceAddress,
+  hostedReviewLine,
+  knownFileCount,
+  reviewNoun,
+} from "@ace/ui-core";
 import { StateWords } from "@/components/forge-marks.tsx";
 import { useBackLabel } from "@/components/back-label.tsx";
 import { Prose } from "@/components/markdown/prose.tsx";
@@ -9,10 +17,8 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
-import { hostedReferenceAddress } from "./hosted-reference-address.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
 import { PrCompareFiles } from "./pr-compare-files.tsx";
-import { reviewNoun } from "./pr-host-words.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { wordTab } from "./pr-tabs.tsx";
 
@@ -77,9 +83,7 @@ export function HostedPrReader(props: {
     [repository],
   );
   // A count the host didn't give is no number at all, never "0".
-  const countKnown =
-    !filesUnavailable && detail.unavailableResources?.includes("fileCount") !== true;
-  const count = countKnown ? detail.changedFiles : 0;
+  const count = knownFileCount(detail) ?? 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4 pb-3">
@@ -134,9 +138,7 @@ export function HostedPrReader(props: {
             </>
           }
         />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Read only in ace. Reviews, comments, checks and merge actions are available on {host}.
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">{hostedReviewLine(repository.forge)}</p>
       </header>
       <Tabs
         value={code ? "code" : "summary"}
@@ -181,8 +183,7 @@ export function HostedPrReader(props: {
         >
           {filesUnavailable ? (
             <p className="text-ui text-muted-foreground">
-              {host} doesn't share this {noun}'s changed files with ace. Open it on {host} to see
-              them.
+              {hostedFilesUnavailableText(repository.forge)}
             </p>
           ) : files.isError ? (
             <div role="alert" className="flex items-center gap-2">

@@ -1,5 +1,12 @@
 import { ForgeRepository, type ForgePrDetail, type ForgePrFiles } from "@ace/protocol";
-import { forgeDisplayName } from "@ace/ui-core";
+import {
+  forgeDisplayName,
+  hostedFilesUnavailableText,
+  hostedLinks,
+  hostedReviewLine,
+  reviewNoun,
+  type HostedLinks,
+} from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { prDetail, scopeOf, type PrTarget } from "./forge-pr-reads.ts";
@@ -10,41 +17,6 @@ import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
  * says and links, in the web's words (`pr-hosted-reader.tsx`), and its changed files a page at
  * a time. Nothing here offers or sends a write: the daemon refuses them for these hosts.
  */
-
-/** Whether a review is read-only in ace: its detail says so, or it isn't on GitHub. */
-export const isHosted = (detail: Pick<ForgePrDetail, "readOnly" | "status">) =>
-  detail.readOnly === true || detail.status.ref.repository.forge !== "github";
-
-/** What the provider calls a review: GitLab's merge requests, everyone else's pull requests. */
-export const reviewNoun = (forge: ForgeRepository["forge"]) =>
-  forge === "gitlab" ? "merge request" : "pull request";
-
-/**
- * Where a reference in the review's text opens, as address templates the phone fills in
- * (`{number}`, `{sha}`, `{login}`); null leaves that kind inert. On GitLab `#12` is an issue
- * (merge requests are `!12`) and opens on GitLab. On Cursor Origin `#12` is review 12 of the
- * same repository, which `review` says ace opens as its own page.
- */
-export interface HostedLinks {
-  issue: string | null;
-  review: boolean;
-  commit: string | null;
-  mention: string | null;
-}
-
-export function hostedLinks(repository: ForgeRepository): HostedLinks {
-  const base = `https://${repository.host}/${repository.owner}/${repository.name}`;
-  if (repository.forge === "gitlab")
-    return {
-      issue: `${base}/-/issues/{number}`,
-      review: false,
-      commit: `${base}/-/commit/{sha}`,
-      mention: `https://${repository.host}/{login}`,
-    };
-  if (repository.forge === "origin")
-    return { issue: null, review: true, commit: null, mention: null };
-  return { issue: null, review: false, commit: null, mention: null };
-}
 
 export interface HostedView {
   /** The provider's name: "GitLab", "Cursor Origin". */
@@ -66,27 +38,12 @@ export function hostedView(
   return {
     provider,
     noun,
-    line: `Read only in ace. Reviews, comments, checks and merge actions are available on ${provider}.`,
+    line: hostedReviewLine(repository.forge),
     filesUnavailable: detail.unavailableResources?.includes("files")
-      ? `${provider} doesn't share this ${noun}'s changed files with ace. Open it on ${provider} to see them.`
+      ? hostedFilesUnavailableText(repository.forge)
       : null,
     links: hostedLinks(repository),
   };
-}
-
-/** How many files changed, or null when the host didn't say (never a placeholder 0). */
-export function knownFileCount(
-  detail: Pick<ForgePrDetail, "changedFiles" | "unavailableResources">,
-): number | null {
-  const missing = detail.unavailableResources ?? [];
-  return missing.includes("files") || missing.includes("fileCount") ? null : detail.changedFiles;
-}
-
-/** How many commits, or null when the host can't list them. */
-export function knownCommitCount(
-  detail: Pick<ForgePrDetail, "commits" | "unavailableResources">,
-): number | null {
-  return detail.unavailableResources?.includes("commits") ? null : detail.commits;
 }
 
 /**

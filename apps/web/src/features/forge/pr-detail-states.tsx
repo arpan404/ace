@@ -5,8 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { failureCode } from "@/lib/forge-read.ts";
-import { forgeDisplayName, forgeErrorText } from "@ace/ui-core";
-import { reviewNoun } from "./pr-host-words.ts";
+import { forgeDisplayName, forgeErrorText, reviewNoun } from "@ace/ui-core";
 
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 

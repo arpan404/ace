@@ -1,10 +1,9 @@
 import type { ForgeKind } from "@ace/protocol";
-import { forgeDisplayName } from "@ace/ui-core";
+import { hostedReviewLine, reviewNoun } from "@ace/ui-core";
 import { StateWords } from "@/components/forge-marks.tsx";
 import { useBackLabel } from "@/components/back-label.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { WorkHeading, WorkTitle } from "@/components/work-heading.tsx";
-import { reviewNoun } from "./pr-host-words.ts";
 import type { PrSeed } from "./pr-page-skeleton.tsx";
 
 /** Description lines, as widths of the column (%). */
@@ -23,7 +22,6 @@ export function HostedPrSkeleton(props: {
 }) {
   const { seed } = props;
   const backLabel = useBackLabel("Pull requests");
-  const host = forgeDisplayName(props.forge);
   return (
     <LoadingRegion label={`${reviewNoun(props.forge)} #${props.number}`} className="flex flex-col">
       <header className="px-[var(--forge-gutter,1rem)] pt-4 pb-3">
@@ -48,9 +46,7 @@ export function HostedPrSkeleton(props: {
             )
           }
         />
-        <p className="mt-2 text-xs text-muted-foreground">
-          Read only in ace. Reviews, comments, checks and merge actions are available on {host}.
-        </p>
+        <p className="mt-2 text-xs text-muted-foreground">{hostedReviewLine(props.forge)}</p>
       </header>
       <div aria-hidden className="border-y border-border py-2">
         <span className="flex items-center gap-0.5 px-[var(--forge-gutter,1rem)]">
