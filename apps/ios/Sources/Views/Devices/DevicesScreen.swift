@@ -82,9 +82,10 @@ struct DevicesScreen: View {
     @ViewBuilder private func running(_ view: DevicesView) -> some View {
         if view.running.isEmpty {
             Text("No devices running.")
-                .font(AceDesign.Typeface.title)
+                .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(AceDesign.Ink.muted)
-                .listRowSeparator(.hidden)
+                .padding(.vertical, AceDesign.Space.related)
+                .listRowSeparator(.hidden).listRowBackground(AceDesign.Surface.background)
         }
         ForEach(view.running) { tile in
             Button { opened = tile } label: { DeviceRow(tile: tile) }
@@ -162,24 +163,30 @@ enum DeviceIcon {
     }
 }
 
-/// One device: its kind, name, "iOS 26.0 · Live" and who is using it.
+/// One device: its kind, its name, "iOS 26.0 · Live", and who is using it on its own line, so
+/// the sentence is never cut short behind the version.
 struct DeviceRow: View {
     let tile: DeviceTile
     var body: some View {
         HStack(spacing: AceDesign.Space.row) {
             AceIcon(DeviceIcon.of(tile.kind), size: AceDesign.Size.icon, relativeTo: .subheadline)
-                .foregroundStyle(AceDesign.Ink.primary).frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(tile.name).font(AceDesign.Typeface.body)
+                .foregroundStyle(AceDesign.Ink.muted).frame(width: AceDesign.Size.lead).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: AceDesign.Size.rowLineGap) {
+                Text(tile.name).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                     .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
-                Text([tile.detail, tile.control].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(AceDesign.Typeface.meta)
-                    .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                if !tile.detail.isEmpty {
+                    Text(tile.detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                }
+                if !tile.control.isEmpty {
+                    Text(tile.control).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.subtle).lineLimit(2)
+                }
             }
-            Spacer(minLength: AceDesign.Space.related)
-            AceIcon(.caretRight, size: AceDesign.Size.icon, relativeTo: .footnote)
-                .foregroundStyle(AceDesign.Ink.faint).accessibilityHidden(true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            RowCaret()
         }
+        .padding(.vertical, AceDesign.Size.rowPaddingTop)
         .frame(minHeight: AceDesign.Size.rowThread)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
@@ -193,16 +200,15 @@ struct DeviceNote: View {
     let run: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            Text(sentence).font(AceDesign.Typeface.title)
+            Text(sentence).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(AceDesign.Ink.muted)
             if let action {
-                Button(action, action: run).buttonStyle(.borderless)
-                    .font(AceDesign.Typeface.body)
-                    .foregroundStyle(AceDesign.Ink.primary)
+                Button(action, action: run).buttonStyle(.textAction(.prominent))
             }
         }
         .padding(.vertical, AceDesign.Space.related)
         .listRowSeparator(.hidden)
+        .listRowBackground(AceDesign.Surface.background)
         .accessibilityIdentifier("devices.note")
     }
 }
