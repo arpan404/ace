@@ -1,17 +1,19 @@
 import SwiftUI
 
 /// The thread's header under its title (its status at accessibility sizes) as the navigation
-/// bar's own accessory: on iOS 26 a `safeAreaBar` with the system's scroll-edge effect, so rows
-/// blur away under the title and the status together as they do under Mail's. A pinned status
-/// takes the hard edge Apple uses under a pinned control; the transcript alone keeps the soft
-/// one. Before iOS 26 it sits on the page colour.
+/// bar's own accessory: on iOS 26 a `safeAreaBar`, so rows pass under the title and the status
+/// together, behind the hard edge Apple uses under a pinned control. Without a status there is
+/// no accessory: the bar alone keeps the system's soft edge over the transcript. Before iOS 26
+/// it sits on the page colour.
 struct ThreadHeaderBar<Bar: View>: ViewModifier {
-    let pinned: Bool
+    let shown: Bool
     @ViewBuilder let bar: () -> Bar
     func body(content: Content) -> some View {
-        if #available(iOS 26, *) {
+        if !shown {
             content
-                .scrollEdgeEffectStyle(pinned ? .hard : .soft, for: .top)
+        } else if #available(iOS 26, *) {
+            content
+                .scrollEdgeEffectStyle(.hard, for: .top)
                 .safeAreaBar(edge: .top, spacing: AceTheme.Spacing.none, content: bar)
         } else {
             content.safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { bar().background(AceTheme.Colours.background) }

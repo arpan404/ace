@@ -39,8 +39,10 @@ struct ThreadPageSwitch {
 
 /// The thread's header: the native back over a pushed page, or at the open thread's root the
 /// sidebar button (beside the list) or the drawer's (a compact window, `ThreadDrawer`), the title
-/// centred with the model and its effort under it, both one menu (`ThreadTitleMenu`), then on a
-/// phone with changes Chat and Changes, then ⋯, one glass group. The thread's other screens
+/// with the model and its effort under it, both one menu (`ThreadTitleMenu`), then on a phone with
+/// changes Chat and Changes, then ⋯, one glass group. In a compact width the title leads, beside
+/// the back button, as the system's own apps place it next to trailing buttons, so it gets every
+/// point between the two; in a regular width it is centred. The thread's other screens
 /// (Files, Terminal, Browser, Agents) are entries in ⋯, never their own controls.
 struct ThreadToolbar: ToolbarContent {
     /// The title and the line under it; its width is the toolbar's to give.
@@ -52,17 +54,35 @@ struct ThreadToolbar: ToolbarContent {
     var coveredByDrawer = false
     /// Chat and Changes beside ⋯ (a phone); nil beside the side panel.
     var pages: ThreadPageSwitch? = nil
+    /// A compact width: the title leads, beside the back button, instead of being centred.
+    var leadingTitle = false
 
-    /// The title is centred, so it gets the width between the wider side's buttons, mirrored:
-    /// ⋯, the page switch and the panel's toggle on the right, one button on the left.
+    /// The trailing buttons' width: ⋯, the page switch with the inset of the glass that groups
+    /// it with ⋯, and the panel's toggle.
+    private var trailingWidth: CGFloat {
+        let switchWidth = pages.map { $0.shows ? $0.width + AceDesign.Space.related : 0 } ?? 0
+        return CGFloat(1 + (panel == nil ? 0 : 1)) * AceDesign.Size.tap + switchWidth
+    }
+    /// Leading, the title takes everything between the one leading button and the trailing
+    /// buttons, a gap from each. Centred, it gets the width between the wider side's buttons,
+    /// mirrored, and no more than five buttons' worth.
     private var headingWidth: CGFloat {
-        let trailing = CGFloat(1 + (panel == nil ? 0 : 1)) * AceDesign.Size.tap + (pages?.width ?? 0)
-        return max(0, min(AceDesign.Size.tap * 5, pageWidth - 2 * trailing - 2 * AceDesign.Space.margin))
+        let margins = 2 * AceDesign.Space.margin
+        if leadingTitle {
+            // The bar insets a leading item from the back button and from the trailing group;
+            // wider, it folds the trailing buttons into its own overflow menu.
+            return max(0, pageWidth - margins - AceDesign.Size.tap - trailingWidth - 4 * AceDesign.Space.related)
+        }
+        return max(0, min(AceDesign.Size.tap * 5, pageWidth - 2 * trailingWidth - margins))
     }
 
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
+            if leadingTitle {
+                ToolbarItem(placement: .topBarLeading) { title }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .principal) { title }.sharedBackgroundVisibility(.hidden)
+            }
             // The page buttons and ⋯ share one glass background, as grouped bar buttons do.
             if let pages, pages.shows {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
@@ -71,7 +91,7 @@ struct ThreadToolbar: ToolbarContent {
             ToolbarItem(placement: .topBarTrailing) { displayedMenu }
                 .sharedBackgroundVisibility(coveredByDrawer ? .hidden : .automatic)
         } else {
-            ToolbarItem(placement: .principal) { title }
+            ToolbarItem(placement: leadingTitle ? .topBarLeading : .principal) { title }
             if let pages, pages.shows {
                 ToolbarItem(placement: .topBarTrailing) { pageButtons(pages) }
             }
@@ -88,6 +108,7 @@ struct ThreadToolbar: ToolbarContent {
     private var title: some View {
         var heading = heading
         heading.width = headingWidth
+        heading.leading = leadingTitle
         return EquatableView(content: heading).clipped()
     }
     private func pageButtons(_ pages: ThreadPageSwitch) -> some View {

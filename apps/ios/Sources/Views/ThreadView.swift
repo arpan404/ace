@@ -45,6 +45,7 @@ struct ThreadView: View {
     @State private var showQueue = false
     /// Where the iPad's side panel goes; `.none` keeps every tool over the thread, as on a phone.
     @Environment(\.panelPlace) private var panelPlace
+    @Environment(\.horizontalSizeClass) private var sizeClass
     /// The goal's sheet, named by the navigation generation it was opened on: its changes are for
     /// that one. The generation rides on the presentation itself, since a sheet keeps the content
     /// it was first built with and a value captured beside it would be the one before opening.
@@ -132,7 +133,7 @@ struct ThreadView: View {
     /// The pages under the status at accessibility sizes, drawn once so it stays put while they
     /// swipe, as the navigation bar's own accessory (`ThreadHeaderBar`).
     private var headed: some View {
-        pager.modifier(ThreadHeaderBar(pinned: headerStatus != nil) { header })
+        pager.modifier(ThreadHeaderBar(shown: headerStatus != nil) { header })
     }
 
     private func content(pageWidth: CGFloat) -> some View {
@@ -149,7 +150,8 @@ struct ThreadView: View {
                                                open: open, opensInPanel: panelPlace != .none, pages: panelPlace == .none ? pages : nil,
                                                leave: leave),
                               panel: panelPlace == .none ? nil : PanelToggle(shown: model.panels.views[thread.id]?.open == true) { panel(["op": "togglePanel"]) }, coveredByDrawer: drawerOpen,
-                              pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil)
+                              pages: panelPlace == .none ? ThreadPageSwitch(pages: pages, shown: shownPage, select: select) : nil,
+                              leadingTitle: sizeClass == .compact)
             }
             .navigationTitle(metadata?.title ?? "Thread")
             .navigationBarTitleDisplayMode(.inline)
