@@ -20,6 +20,8 @@ import {
 } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { readForge } from "@/lib/forge-read.ts";
+import { readFailureText } from "@/features/forge/index.ts";
+import { useProjectRepositories } from "./inbox-projects.ts";
 import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { freshenIssueList, readIssues } from "./issue-freshen.ts";
 
@@ -40,6 +42,8 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   loading: boolean;
   /** Every project's read failed: the first failure. */
   error: Error | undefined;
+  /** The project whose read is `error`. */
+  errorProject: string | undefined;
   /** Projects whose read failed while others answered. */
   failed: readonly string[];
   /** Another page exists after the last one read, in some project. */
@@ -86,12 +90,16 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
   let stale = false;
   let more = false;
   let error: Error | undefined;
+  let errorProject: string | undefined;
   plan.forEach(({ project, page }, index) => {
     const result = results[index];
     if (!result) return;
     if (result.isError) {
       failed.add(project);
-      error ??= result.error;
+      if (!error) {
+        error = result.error;
+        errorProject = project;
+      }
     }
     const data = result.data;
     if (!data) return;
@@ -118,10 +126,25 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
     stale,
     loading: projects.length > 0 && !answered && failed.size < projects.length,
     error: answered ? undefined : error,
+    errorProject: answered ? undefined : errorProject,
     failed: answered ? [...failed] : [],
     more,
     retry: () => void Promise.all(results.map((result) => result.refetch())),
   };
+}
+
+/**
+ * Why every project's list read failed, in the failing project's Git host's words (glab for
+ * GitLab, never gh). The project's repository is asked for only once a read has failed.
+ */
+export function useListFailure(
+  list: Pick<ListPages<ForgePrList | ForgeIssueList>, "error" | "errorProject">,
+): string | undefined {
+  const failing = list.error && list.errorProject ? [list.errorProject] : [];
+  const repositories = useProjectRepositories(failing);
+  if (!list.error) return undefined;
+  const forge = list.errorProject ? repositories.get(list.errorProject)?.forge : undefined;
+  return readFailureText(list.error, forge);
 }
 
 const withoutPage = <T extends { page: number }>(query: T) => ({ ...query, page: 0 });

@@ -232,3 +232,20 @@ test("a ranked read failure falls back to the listed rows", async () => {
     ).toBeTruthy(),
   );
 });
+
+test("a GitLab project's failed list read says to sign in with glab, never gh", async () => {
+  const app = withRepository();
+  const query = prQuery({ project: "ace", sort: "updated" }, 1);
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.repository", workspaceId: ace },
+    { resource: "repository", value: { ...gitlabRepo } },
+  );
+  app.daemon.workspace.failForgeRead(
+    { op: "forge.pr.list", workspaceId: ace, query: { ...query, page: 1 } },
+    "forge_cli",
+  );
+  await app.open("/pulls?project=ace&sort=updated");
+  await screen.findByText("Couldn't load pull requests");
+  expect(await screen.findByText(/glab auth login/)).toBeTruthy();
+  expect(screen.queryByText(/\bgh\b/)).toBeNull();
+});

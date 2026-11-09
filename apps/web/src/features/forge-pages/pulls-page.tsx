@@ -22,7 +22,7 @@ import { ForgeList } from "./forge-list.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
-import { useGroupCounts, usePrPages } from "./lists.ts";
+import { useGroupCounts, useListFailure, usePrPages } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
 import { PrRow } from "./pr-row.tsx";
 import { pullSections } from "./pull-filters.ts";
@@ -101,6 +101,7 @@ export function PullRequestsPage(props: {
   const ranked = useReadyPages(single, search, rankedActive);
   const useRanked = rankedActive && ranked.error === undefined;
   const list = useRanked ? ranked : listed;
+  const failure = useListFailure(list);
   const peopleQuery = prQuery({ ...search, who: undefined }, 1);
   const people = useGroupCounts(open ? projects : [], { by: "pr-people", query: peopleQuery });
   const linked = useLinkedThreads().pulls;
@@ -324,7 +325,7 @@ export function PullRequestsPage(props: {
         ) : list.error && !list.first ? (
           <EmptyState
             title="Couldn't load pull requests"
-            description={list.error.message}
+            description={failure}
             action={
               <Button size="sm" onClick={list.retry}>
                 Try again
