@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { HostedPrReader } from "./pr-hosted-reader.tsx";
+import { HostedPrSkeleton } from "./pr-hosted-skeleton.tsx";
 import { PrActivity } from "./pr-activity.tsx";
 import { PrHeader } from "./pr-header.tsx";
 import { PrPageHeader } from "./pr-page-header.tsx";
@@ -527,7 +528,9 @@ export function PrDetail(props: {
         props.page && "sm:[--forge-gutter:2rem]",
       )}
     >
-      {context?.detail.readOnly ? (
+      {/* GitHub alone takes writes from ace: any other host's review is read only. */}
+      {context &&
+      (context.detail.readOnly || context.detail.status.ref.repository.forge !== "github") ? (
         <HostedPrReader
           key={context.detail.status.headSha}
           context={context}
@@ -554,6 +557,13 @@ export function PrDetail(props: {
           number={props.number}
           error={query.error}
           onRetry={() => void query.refetch()}
+        />
+      ) : props.repository && props.repository.forge !== "github" ? (
+        <HostedPrSkeleton
+          forge={props.repository.forge}
+          number={props.number}
+          seed={props.seed}
+          onBack={props.page ? props.onBack : undefined}
         />
       ) : (
         <PrPageSkeleton

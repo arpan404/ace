@@ -1,4 +1,5 @@
 import { ForgeRepository } from "@ace/protocol/forge";
+import { workKey } from "@ace/ui-core";
 import * as z from "zod/mini";
 import type { OpenRequest } from "./model.ts";
 
@@ -11,12 +12,10 @@ export const PullRequestTabData = z.object({
 });
 export type PullRequestTabData = z.infer<typeof PullRequestTabData>;
 
-const repositoryPath = (data: PullRequestTabData) =>
-  data.repository ? `${data.repository.host}/${data.repository.owner}/${data.repository.name}` : "";
-
 /**
  * The side panel tab that shows pull request `number` of `repository` in a project: one tab per
- * pull request, so opening it again shows the tab already open.
+ * pull request, so opening it again shows the tab already open. The id names the provider too,
+ * so a host whose provider changes never reopens a tab read through the old one.
  */
 export function pullRequestTab(pr: Omit<PullRequestTabData, "state">): OpenRequest {
   const data: PullRequestTabData = {
@@ -26,7 +25,7 @@ export function pullRequestTab(pr: Omit<PullRequestTabData, "state">): OpenReque
   };
   return {
     kind: "pull-request",
-    id: `${data.workspaceId}/${repositoryPath(data)}/${data.number}`,
+    id: `${data.workspaceId}/${data.repository ? workKey(data.repository, data.number) : data.number}`,
     title: `#${data.number}`,
     data,
   };

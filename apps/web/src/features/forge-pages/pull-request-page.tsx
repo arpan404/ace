@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { IssuePages } from "@/components/forge-links.tsx";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
-import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
+import { HostedPrSkeleton, loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { BackLabel } from "@/components/back-label.tsx";
 import { backLabel, useBackToList } from "./back-to-list.ts";
@@ -38,7 +38,8 @@ export function PullRequestPage(props: {
   const back = useBackToList("/pulls", props.back);
   const cache = useQueryClient();
   // The list's row for this PR, if one was read: the page shows it at once while the rest loads.
-  const seed = cachedRow(cache, project, "prList", props.number, repositoryFromParam(props.repo));
+  const repository = repositoryFromParam(props.repo);
+  const seed = cachedRow(cache, project, "prList", props.number, repository);
   const seen = useRef<string | undefined>(undefined);
   // A PR that merged, closed or reopened here moves between the list's states: read it again.
   const onState = useCallback(
@@ -49,16 +50,12 @@ export function PullRequestPage(props: {
     },
     [cache, project],
   );
-  const open = (number: number, repository?: ForgeRepository) =>
+  const open = (number: number, target?: ForgeRepository) =>
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
       search: {
-        ...(repository
-          ? { repo: repositoryParam(repository) }
-          : props.repo
-            ? { repo: props.repo }
-            : {}),
+        ...(target ? { repo: repositoryParam(target) } : props.repo ? { repo: props.repo } : {}),
         ...(props.back !== undefined ? { back: props.back } : {}),
       },
     });
@@ -70,19 +67,28 @@ export function PullRequestPage(props: {
             <Suspense
               fallback={
                 <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
-                  <PrPageSkeleton
-                    number={props.number}
-                    seed={seed}
-                    onBack={back}
-                    readable="mx-auto w-full max-w-[64rem]"
-                  />
+                  {repository && repository.forge !== "github" ? (
+                    <HostedPrSkeleton
+                      forge={repository.forge}
+                      number={props.number}
+                      seed={seed}
+                      onBack={back}
+                    />
+                  ) : (
+                    <PrPageSkeleton
+                      number={props.number}
+                      seed={seed}
+                      onBack={back}
+                      readable="mx-auto w-full max-w-[64rem]"
+                    />
+                  )}
                 </div>
               }
             >
               <PrDetail
                 key={`${project}:${props.repo ?? ""}#${props.number}`}
                 workspaceId={project}
-                repository={repositoryFromParam(props.repo)}
+                repository={repository}
                 number={props.number}
                 seed={seed}
                 tab={props.tab ?? "summary"}

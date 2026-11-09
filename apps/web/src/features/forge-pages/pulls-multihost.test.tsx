@@ -1,7 +1,8 @@
 import { prQuery, readinessQueries } from "@ace/ui-core";
 import { seedForgeBrowse, workbench } from "@ace/fake-daemon";
-import { WorkspaceId, type ForgePrRow } from "@ace/protocol";
+import { ForgePrDetail, WorkspaceId, type ForgePrRow } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -71,6 +72,100 @@ test("same owner/name/number on distinct forge/host lists both rows", async () =
   expect(within(hosted).getByText("Review status unavailable")).toBeTruthy();
   expect(within(hosted).queryByText("Ready to merge")).toBeNull();
   expect(within(hosted).getByRole("button", { name: /^View:/ })).toBeTruthy();
+});
+
+const listNav = async () => screen.findByRole("navigation", { name: "Pull requests" });
+
+function detail(repository: typeof githubRepo | typeof gitlabRepo, number: number, title: string) {
+  const hosted = repository.forge !== "github";
+  return ForgePrDetail.parse({
+    ...(hosted ? { readOnly: true, unavailableResources: ["comments", "checks", "reviews"] } : {}),
+    status: {
+      ref: { repository: { ...repository }, number },
+      title,
+      url: hosted
+        ? `https://${repository.host}/acme/ace/-/merge_requests/${number}`
+        : `https://${repository.host}/acme/ace/pull/${number}`,
+      headSha: "a".repeat(40),
+      state: "open",
+      mergeability: hosted ? "unknown" : "mergeable",
+      ci: hosted ? "unknown" : "success",
+      checks: [],
+      comments: [],
+      reviewThreads: [],
+      raw: {},
+    },
+    body: "",
+    author: "sam",
+    headBranch: "fix",
+    baseBranch: "main",
+    baseSha: "b".repeat(40),
+    headRepository: { ...repository },
+    labels: [],
+    reviewers: [],
+    reviewDecision: hosted ? null : "APPROVED",
+    commits: 1,
+    changedFiles: 1,
+    relatedThreads: [],
+    relatedThreadsTruncated: false,
+  });
+}
+
+test("each same-numbered row opens its own provider's review", async () => {
+  const app = withRepository();
+  const query = prQuery({ project: "ace", sort: "updated" }, 1);
+  app.daemon.workspace.setForgeRead(
+    { op: "forge.pr.list", workspaceId: ace, query: { ...query, page: 1 } },
+    {
+      resource: "prList",
+      value: {
+        repository: { ...githubRepo },
+        items: [
+          row(githubRepo, 500, "GitHub same number"),
+          row(gitlabRepo, 500, "GitLab same number"),
+        ],
+        total: 2,
+        counts: { open: 2, draft: 0, closed: 0, merged: 0 },
+        viewer: "you",
+        incomplete: false,
+        truncated: false,
+      },
+    },
+  );
+  for (const [repository, title] of [
+    [githubRepo, "GitHub same number"],
+    [gitlabRepo, "GitLab same number"],
+  ] as const)
+    app.daemon.workspace.setForgeRead(
+      { op: "forge.pr.detail", workspaceId: ace, repository: { ...repository }, number: 500 },
+      { resource: "prDetail", value: detail(repository, 500, title) },
+    );
+  await app.open("/pulls?project=ace&sort=updated");
+  // View on the GitLab row opens the GitLab merge request, read only.
+  const hosted = within(await listNav())
+    .getAllByRole("listitem")
+    .find((item) => within(item).queryByRole("link", { name: /GitLab same number/ }) !== null);
+  if (!hosted) throw new Error("Missing hosted review row");
+  await userEvent.click(within(hosted).getByRole("button", { name: /^View:/ }));
+  const gitlabPage = await screen.findByRole("article", { name: "Pull request #500" });
+  expect(await within(gitlabPage).findByText("GitLab same number")).toBeTruthy();
+  expect(within(gitlabPage).getByText(/Read only in Ace/)).toBeTruthy();
+  expect(within(gitlabPage).getByRole("link", { name: "Open on GitLab" })).toHaveProperty(
+    "href",
+    "https://gitlab.example.com/acme/ace/-/merge_requests/500",
+  );
+  expect(within(gitlabPage).queryByRole("button", { name: /merge/i })).toBeNull();
+  expect(within(gitlabPage).queryByText("GitHub same number")).toBeNull();
+  await userEvent.click(within(gitlabPage).getByRole("button", { name: "Back to pull requests" }));
+  // The GitHub row's title opens the GitHub pull request, with GitHub's page.
+  await userEvent.click(
+    await within(await listNav()).findByRole("link", { name: /GitHub same number/ }),
+  );
+  const githubPage = await screen.findByRole("article", { name: "Pull request #500" });
+  expect(await within(githubPage).findByText("GitHub same number")).toBeTruthy();
+  await within(githubPage).findByRole("tablist", { name: "Pull request detail" });
+  expect(within(githubPage).queryByText(/Read only in Ace/)).toBeNull();
+  expect(within(githubPage).queryByText("GitLab same number")).toBeNull();
 });
 
 test("incomplete totals are suppressed and noticed instead of showing zero or complete", async () => {
