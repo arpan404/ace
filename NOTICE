@@ -39,6 +39,28 @@ OpenAI's brand kit (https://cdn.openai.com/brand/openai-logos.zip, linked from
 https://openai.com/brand/) into scripts/brand-marks/openai-blossom.svg. It is used only to identify
 OpenAI's own products and is not licensed under ace's license.
 
+Git host marks in Source control settings identify each host's own product and remain their owners'
+trademarks; none is licensed under ace's license. GitHub's mark is from LobeHub Icons, described
+above, and Cursor Origin shows Cursor's mark from the same collection (Cursor's brand kit,
+https://cursor.com/brand, has no separate Origin mark). The rest are kept unmodified in
+scripts/brand-marks/ and turned into path data by scripts/provider-icons.ts:
+- GitLab's tanuki, from GitLab's own app,
+  https://gitlab.com/gitlab-org/gitlab/-/blob/master/app/views/shared/_logo.svg, MIT licensed
+  (Copyright (c) 2011-present GitLab Inc.), as gitlab-tanuki.svg.
+- Bitbucket's mark, from Atlassian's @atlaskit/logo 23.3.1 (https://www.npmjs.com/package/@atlaskit/logo,
+  bitbucket/icon), Copyright 2019 Atlassian Pty Ltd, Apache-2.0 licensed, as bitbucket-icon.svg and
+  bitbucket-icon-themed.svg.
+- Gitea's teacup, from https://github.com/go-gitea/gitea/blob/main/assets/logo.svg, Copyright (c)
+  2016 The Gitea Authors, MIT licensed, as gitea-logo.svg.
+- GitBucket's mark, from https://github.com/gitbucket/gitbucket/blob/master/src/main/webapp/assets/common/images/gitbucket.svg,
+  Apache-2.0 licensed, as gitbucket.svg.
+- Forgejo's logo by Caesar Schinas (https://caesarschinas.com/), from
+  https://codeberg.org/forgejo/governance/src/branch/main/branding (logo/forgejo.svg and
+  logo/forgejo-monochrome.svg), licensed under CC BY-SA 4.0
+  (https://creativecommons.org/licenses/by-sa/4.0/), as forgejo.svg and forgejo-monochrome.svg.
+  packages/ui-core/src/brand-art/forgejo.gen.ts adapts it (its strokes outlined as fills, unchanged
+  in shape) and is shared under the same CC BY-SA 4.0 license, not ace's license.
+
 Icons, device art and browser filmstrips use sharp 0.34.5, Copyright (c) 2013 Lovell Fuller and
 contributors, Apache-2.0 licensed, and its distributed libvips binaries under LGPL-3.0-or-later.
 These dependencies and their bundled notices/licenses are accepted for those bounded images.
