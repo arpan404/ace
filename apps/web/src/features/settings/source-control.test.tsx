@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 test("source control explains a chosen account mismatch and lets the person recover by rescanning", async () => {
@@ -181,7 +181,21 @@ test("the Git hosts list names every provider, and the provider picker offers ea
   ]);
 });
 
+/** Rows the page scrolled to; jsdom has no scrolling of its own. */
+function recordScrolls(): Element[] {
+  const scrolled: Element[] = [];
+  const scrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element) {
+    scrolled.push(this);
+  };
+  onTestFinished(() => {
+    Element.prototype.scrollIntoView = scrollIntoView;
+  });
+  return scrolled;
+}
+
 test("searching for a Git host provider opens the Git hosts list", async () => {
+  const scrolled = recordScrolls();
   await harness().open("/settings/general");
   await userEvent.type(
     await screen.findByRole("searchbox", { name: "Search settings" }),
@@ -192,11 +206,14 @@ test("searching for a Git host provider opens the Git hosts list", async () => {
   await waitFor(() =>
     expect(document.getElementById("sourceControl.hosts")?.textContent).toContain("Bitbucket"),
   );
+  await waitFor(() => expect(scrolled).toContain(document.getElementById("sourceControl.hosts")));
 });
 
 test("the host, account and remote rows keep their search anchors", async () => {
+  const scrolled = recordScrolls();
   await harness({ throughWorker: true }).open("/settings/source-control#sourceControl.host");
   await screen.findByText("Signed in as ada");
+  await waitFor(() => expect(scrolled).toContain(document.getElementById("sourceControl.host")));
   expect(document.getElementById("sourceControl.host")?.textContent).toContain("GitHub host");
   expect(document.getElementById("sourceControl.provider")?.textContent).toContain("Git provider");
   expect(document.getElementById("sourceControl.account")?.textContent).toContain(

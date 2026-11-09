@@ -86,6 +86,7 @@ const mr = (over: Record<string, unknown> = {}) => ({
   sha: HEAD,
   diff_refs: { base_sha: BASE, head_sha: HEAD, start_sha: BASE },
   detailed_merge_status: "mergeable",
+  changes_count: "1",
   ...over,
 });
 

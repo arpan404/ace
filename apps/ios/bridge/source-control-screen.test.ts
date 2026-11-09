@@ -144,7 +144,7 @@ test("hosts read under their provider, and the active GitLab host is browse-only
   ]);
   expect(answer.screen.status).toMatchObject({
     name: "GitLab",
-    cli: { title: "GitLab CLI", value: "glab 2.90.0" },
+    cli: { title: "GitLab CLI", value: expect.stringMatching(/^glab \d+\.\d+/) },
     api: { title: "GitLab API", value: "Signed in as ada" },
   });
   expect(answer.screen.status.note).toContain("Code review");

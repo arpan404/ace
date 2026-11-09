@@ -185,8 +185,8 @@ test("Origin browsing probes its account once per window and fails closed after 
   const get = { ...request, args: ["api", "/repos/team/repo/pulls/7", "--method", "GET"] };
   await expect(admitted.runner(get)).rejects.toMatchObject({ kind: "forbidden" });
   await expect(
-    (await h.read(originRepository, { op: "forge.pr.detail", number: 7 })).result,
-  ).toMatchObject({ kind: "error" });
+    h.read(originRepository, { op: "forge.pr.detail", number: 7 }),
+  ).rejects.toMatchObject({ kind: "forbidden" });
 });
 
 test("a settings change makes the next Origin read prove its account again", async () => {

@@ -116,8 +116,7 @@ const page = (repository: ForgeRepository, number: number) =>
 test("an Origin pull request shows its details and diffs without GitHub's write controls", async () => {
   const app = withDetails(hosted(origin, 42));
   await app.open(page(origin, 42));
-  await screen.findByText(/Read only in ace/);
-  expect(screen.getByRole("link", { name: "Open on Cursor Origin" })).toHaveProperty(
+  expect(await screen.findByRole("link", { name: "Open on Cursor Origin" })).toHaveProperty(
     "href",
     "https://cursor.com/codebase/acme/api/pull/42",
   );

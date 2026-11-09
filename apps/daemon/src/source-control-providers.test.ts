@@ -60,10 +60,13 @@ test("a host saved without a provider on gitlab.com still loads, saves and route
   await writeFile(
     join(root, "settings.json"),
     JSON.stringify({
-      "sourceControl.preferences": {
-        hosts: [{ host: "github.com" }, { host: "gitlab.com" }],
-        host: "gitlab.com",
-        remote: "origin",
+      version: 2,
+      settings: {
+        "sourceControl.preferences": {
+          hosts: [{ host: "github.com" }, { host: "gitlab.com" }],
+          host: "gitlab.com",
+          remote: "origin",
+        },
       },
     }),
   );
