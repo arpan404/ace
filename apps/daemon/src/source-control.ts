@@ -40,6 +40,10 @@ export class SourceControl {
   /** Verified API accounts per provider and host and preferences revision, reused for a short
    * window. Cleared by every preferences change and rescan, the account-change signals. */
   private identities = new Map<string, { account: string; revision: number; at: number }>();
+  /** Bumped per key when a probe names another account, and for every key by a rescan. A probe
+   * that started under an older generation never writes its answer back. */
+  private generations = new Map<string, number>();
+  private epoch = 0;
   /** Hosts whose account is being probed again behind a reused answer. */
   private reverifying = new Set<string>();
   private aliases: SshHostAliases;
@@ -83,7 +87,7 @@ export class SourceControl {
     this.stop = settings.onChange((layer, keys) => {
       if (layer.kind !== "global" || !keys.includes("sourceControl.preferences")) return;
       this.currentRevision++;
-      this.identities.clear();
+      this.forgetIdentities();
       for (const listener of this.listeners) listener();
     });
   }
@@ -108,8 +112,9 @@ export class SourceControl {
     if (!configured || configuredForge(configured) !== "github")
       throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
+    const key = `github ${host}`;
     const { account, at } = await this.verifiedAccount(
-      `github ${host}`,
+      key,
       (probe) => githubIdentity(runner, host, probe, this.now),
       revision,
       signal,
@@ -123,6 +128,7 @@ export class SourceControl {
       runner: identityRunner(runner, host, account, assertCurrent, {
         now: this.now,
         verifiedAt: at,
+        onMismatch: () => this.mismatched(key),
       }),
     };
   }
@@ -150,6 +156,7 @@ export class SourceControl {
     check();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
     const cli = forge === "origin" ? "origin" : "glab";
+    const generation = this.generation(key);
     const pinned = pinnedRunner({
       runner,
       account,
@@ -161,16 +168,16 @@ export class SourceControl {
         now: this.now,
         verifiedAt: at,
         onVerified: (verifiedAt) => {
-          if (revision === this.currentRevision)
+          if (revision === this.currentRevision && generation === this.generation(key))
             this.identities.set(key, { account, revision, at: verifiedAt });
         },
-        onMismatch: () => this.identities.delete(key),
+        onMismatch: () => this.mismatched(key),
       },
     });
     const verified: CommandRunner = async (request) => {
       check();
       request.signal.throwIfAborted();
-      if (!isReadOnlyApiRequest(cli, request)) throw new ForgeError("unsupported");
+      if (!isReadOnlyApiRequest(cli, request, repository.host)) throw new ForgeError("unsupported");
       const result = await pinned(request);
       check();
       return result;
@@ -208,9 +215,23 @@ export class SourceControl {
     signal: AbortSignal,
   ) {
     const now = this.now();
+    const generation = this.generation(key);
     const verified = { account: await identify(signal), revision, at: now };
-    if (revision === this.currentRevision) this.identities.set(key, verified);
+    if (revision === this.currentRevision && generation === this.generation(key))
+      this.identities.set(key, verified);
     return verified;
+  }
+  /** Which account-change signals `key` has seen; equal values mean none happened between. */
+  private generation(key: string): string {
+    return `${this.epoch}:${this.generations.get(key) ?? 0}`;
+  }
+  private mismatched(key: string): void {
+    this.generations.set(key, (this.generations.get(key) ?? 0) + 1);
+    this.identities.delete(key);
+  }
+  private forgetIdentities(): void {
+    this.epoch++;
+    this.identities.clear();
   }
   /** Real hosts behind SSH host aliases in these remote URLs (`~/.ssh/config` `Host` entries). */
   hostAliases(urls: readonly string[], signal: AbortSignal): Promise<Record<string, string>> {
@@ -246,7 +267,7 @@ export class SourceControl {
                 transportInstructions: "Check a project's remote to verify Git access.",
               };
     // A rescan re-verifies identity from scratch.
-    this.identities.clear();
+    this.forgetIdentities();
     check();
     if (!git) return status;
     const info = await git.repositoryInfo(cwd);

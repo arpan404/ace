@@ -189,6 +189,56 @@ test("Origin browsing probes its account once per window and fails closed after 
   ).rejects.toMatchObject({ kind: "forbidden" });
 });
 
+test("a background account probe that started before a detected switch never restores the old account", async () => {
+  const cli = { signedIn: "person@example.com", probes: 0, prs: { "7": originPr() } };
+  const reads = originCli(cli);
+  // The next identity probe, when held, answers only once the test releases it.
+  let held: PromiseWithResolvers<string> | undefined;
+  const runner: CommandRunner = async (request) => {
+    if (request.args[0] === "auth" && held) {
+      const gate = held;
+      held = undefined;
+      cli.probes++;
+      const account = await gate.promise;
+      return { code: 0, stdout: JSON.stringify({ account }), truncated: false };
+    }
+    return reads(request);
+  };
+  const h = await harness("origin-race", runner, originPreferences);
+  const signal = new AbortController().signal;
+  await h.source.readIdentity(h.root, originRepository, signal);
+  expect(cli.probes).toBe(1);
+
+  // Past the verification window, the cached account is reused while a probe runs behind it.
+  h.clock.now += 61_000;
+  held = Promise.withResolvers<string>();
+  const stale = held;
+  const reused = await h.source.readIdentity(h.root, originRepository, signal);
+  expect(reused.account).toBe("person@example.com");
+  expect(cli.probes).toBe(2);
+
+  // The account switches; the next read's own probe sees it and fails closed.
+  cli.signedIn = "other@example.com";
+  const get: CommandRequest = {
+    command: "origin",
+    args: ["api", "/repos/team/repo/pulls/7", "--method", "GET"],
+    mode: "json",
+    signal,
+  };
+  await expect(reused.runner(get)).rejects.toMatchObject({ kind: "forbidden" });
+
+  // The probe that began before the switch now answers with the old account.
+  stale.resolve("person@example.com");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Its stale answer must not admit the next read: the account is proved again and refused.
+  const before = cli.probes;
+  await expect(h.source.readIdentity(h.root, originRepository, signal)).rejects.toMatchObject({
+    kind: "forbidden",
+  });
+  expect(cli.probes).toBe(before + 1);
+});
+
 test("a settings change makes the next Origin read prove its account again", async () => {
   const cli = { signedIn: "person@example.com", probes: 0, prs: { "7": originPr() } };
   const h = await harness("origin-signal", originCli(cli), originPreferences);
