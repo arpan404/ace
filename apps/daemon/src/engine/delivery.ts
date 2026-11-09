@@ -185,7 +185,7 @@ export async function executeIntent(
       }
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
-      await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd);
+      await sessions.assertWorkspaceAvailable(repo.session(actor.id).cwd, actor.id);
       if (repo.cancelled(intent.id)) throw new DeliveryDeferred("Cancelled before delivery");
       actor.lifetime?.signal.throwIfAborted();
       const input = [

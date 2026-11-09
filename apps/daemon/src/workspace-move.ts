@@ -19,6 +19,7 @@ type MoveGit = Pick<
   | "repositoryInfo"
   | "pruneWorktrees"
   | "worktreeMetadata"
+  | "branchHead"
 >;
 export interface MoveContext {
   store: Store;
@@ -142,6 +143,38 @@ async function assertBranchFree(
   const holder = trees.find((tree) => tree.branch === branch && tree.path !== target);
   if (holder) throw new WorkspaceChangeRefused("git_branch_checked_out");
 }
+/**
+ * The branch a remade worktree goes back on: the one the gone checkout was on, while it still
+ * exists and nothing else has it checked out. Otherwise the worktree is made as new.
+ */
+async function survivingBranch(
+  git: MoveGit,
+  project: string,
+  details: ThreadDetails | undefined,
+): Promise<string | undefined> {
+  const branch = details?.branch;
+  if (!branch || !(await git.branchHead({ repo: project, branch }))) return undefined;
+  const holders = await git.listWorktrees(project);
+  for (const tree of holders) if (tree.branch === branch && !(await staleTree(tree))) return;
+  return branch;
+}
+/**
+ * Where a gone worktree whose branch went too starts again: its base branch as it is now (the
+ * remote's last fetched copy for a remote base), else where it first started. Never fetches.
+ */
+async function currentBase(
+  git: MoveGit,
+  project: string,
+  details: ThreadDetails | undefined,
+): Promise<string> {
+  const base = details?.base;
+  const head =
+    base &&
+    (await git.branchHead({ repo: project, branch: base.ref, remote: base.remote }).catch(() => {
+      return undefined;
+    }));
+  return head || recordedBaseRef(details);
+}
 /** The checkout move itself. Everything before the first Git write is a refusal. */
 export async function moveCheckout(
   context: MoveContext,
@@ -186,9 +219,16 @@ export async function moveCheckout(
   }
   let path = root;
   if (selection.mode === "worktree") {
+    // Remaking a gone worktree keeps the thread on its branch while that branch survives;
+    // with the branch gone too, it starts again from its base branch as it is now.
+    const gone = !selection.branch && !(await exists(previous));
+    const kept = gone ? await survivingBranch(git, project, thread.details) : undefined;
     const made = await ensureThreadWorktree(context, id, project, {
-      branch: selection.branch,
-      baseRef: recordedBaseRef(thread.details),
+      branch: selection.branch ?? kept,
+      baseRef:
+        gone && !kept
+          ? await currentBase(git, project, thread.details)
+          : recordedBaseRef(thread.details),
     });
     path = made.path;
     if (!made.created && selection.branch)
@@ -210,10 +250,11 @@ export async function moveCheckout(
     base,
     pullRequestWorkspace: _pullRequestWorkspace,
     worktreeMissing: _missing,
-    ...kept
+    checkoutMissing: _gone,
+    ...rest
   } = thread.details ?? {};
   return {
-    ...kept,
+    ...rest,
     ...(base && !selection.branch ? { base } : {}),
     mode: selection.mode,
     worktree: path,
