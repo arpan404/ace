@@ -6,16 +6,7 @@
       "$ref": "https://ace.local/protocol/v1/ForgeAccount.json"
     },
     "forge": {
-      "enum": [
-        "github",
-        "gitlab",
-        "gitbucket",
-        "bitbucket",
-        "gitea",
-        "forgejo",
-        "origin"
-      ],
-      "type": "string"
+      "$ref": "https://ace.local/protocol/v1/ForgeKind.json"
     },
     "host": {
       "$ref": "https://ace.local/protocol/v1/GitHubHost.json"

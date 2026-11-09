@@ -2948,6 +2948,18 @@ Example:
 }
 ```
 
+## ForgeKind
+
+[JSON Schema](schema/ForgeKind.json), input validation.
+
+Type: ["github","gitlab","gitbucket","bitbucket","gitea","forgejo","origin"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"gitea"
+```
+
 ## ForgeLabelColor
 
 [JSON Schema](schema/ForgeLabelColor.json), input validation.
@@ -4379,7 +4391,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| forge | yes | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo","origin"] |  |
+| forge | yes | [ForgeKind.json](schema/ForgeKind.json) |  |
 | host | yes | string | {"maxLength":253,"pattern":"^[a-zA-Z0-9.-]+$"} |
 | owner | yes | string | {"maxLength":512,"pattern":"^[\\w.-]+(?:\\/[\\w.-]+)*$","x-ace-constraint":"Every owner path segment must differ from . and ..","not":{"pattern":"(?:^\|/)\\.{1,2}(?:/\|$)"}} |
 | name | yes | string | {"maxLength":100,"pattern":"^[\\w.-]+$"} |

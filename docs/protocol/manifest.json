@@ -17,8 +17,8 @@
       "sha256": "b4a6f00bb317bfed04898d9e32e080a719849c779954c450fc7e02973d740f30"
     },
     "forge.md": {
-      "bytes": 138061,
-      "sha256": "2aebbc2c0e1e56ab0f41e5d54262f1971424f81ad48d00226097e62a151033ad"
+      "bytes": 138244,
+      "sha256": "b702a66b4b9bfa8638302bf283eb6665d7d60b3074c8ab9e2714fc4fe972520b"
     },
     "mcp.md": {
       "bytes": 62040,
@@ -1520,6 +1520,10 @@
       "bytes": 5144,
       "sha256": "a540e85ef7452ce3a18fc66de273b8e71a6f1a8c4d3869aaee7c28698a72ecf0"
     },
+    "schema/ForgeKind.json": {
+      "bytes": 261,
+      "sha256": "e0ba35fc8ae334562021b3d22ead9cb400410f39bfd81bb3752555c92615a2fa"
+    },
     "schema/ForgeLabelColor.json": {
       "bytes": 180,
       "sha256": "1903d6e3de07a678df1cfd0cd80273d98cc69b1fb4a9b20660aee7a93ecd34ef"
@@ -1685,8 +1689,8 @@
       "sha256": "f242c5967420782ce279f454e93d120608a02a0b1d5e15eb499326c93aa26ad3"
     },
     "schema/ForgeRepository.json": {
-      "bytes": 908,
-      "sha256": "13cc0db52baad7f82f1c62ee945844a399d99b17ec126a799a7c068ef334e2fc"
+      "bytes": 790,
+      "sha256": "5f4034121612be76a25699c56e42343f694475b2036b3b86469069b0b6c9f344"
     },
     "schema/ForgeRepositoryName.json": {
       "bytes": 229,
@@ -3965,8 +3969,8 @@
       "sha256": "05c643b01208bfc9cf5c52933ee2ae72e86fd305186482542cfbbfb6eec3db1a"
     },
     "schema/SourceControlHost.json": {
-      "bytes": 575,
-      "sha256": "dfeb88aef0218ce844c4235d0d211b37eda990081757fc66ecb21594a91adbd4"
+      "bytes": 457,
+      "sha256": "5a3dc409725dfabf2859b08547d2946ee8c779552b13a4fb79a5f2a1bd9715c8"
     },
     "schema/SourceControlPreferences.json": {
       "bytes": 869,
@@ -4901,10 +4905,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 992080,
-      "sha256": "401eb5ddf8102a522c6075b5fe596b68bb8d5c11c6580addc3d518a9b3daee47"
+      "bytes": 992049,
+      "sha256": "2ebd1c562cee374aef511a9801d5cb62b55eb5ba6a56653503ce0d96b3f84327"
     }
   },
-  "input": "98ed4e88d40aad8681d3535f3f14426bb5104ac96e6df5b7fc2cd6984a2f2b25",
+  "input": "2bd30e1f5e5e2894388a8e65feaf9f7bd17c89d6febcf49737690abc71286a93",
   "version": 1
 }

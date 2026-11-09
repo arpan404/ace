@@ -31663,7 +31663,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | host | yes | [GitHubHost.json](schema/GitHubHost.json) |  |
-| forge | no | ["github","gitlab","gitbucket","bitbucket","gitea","forgejo","origin"] |  |
+| forge | no | [ForgeKind.json](schema/ForgeKind.json) |  |
 | account | no | [ForgeAccount.json](schema/ForgeAccount.json) |  |
 
 Example:

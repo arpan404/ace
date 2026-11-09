@@ -6,8 +6,31 @@ import { z } from "zod";
 /** The longest pull request description or comment, GitHub's own body limit. */
 export const maxForgeTextLength = 65_536;
 const text = z.string().max(maxForgeTextLength);
+export const ForgeKind = z.enum([
+  "github",
+  "gitlab",
+  "gitbucket",
+  "bitbucket",
+  "gitea",
+  "forgejo",
+  "origin",
+]);
+export type ForgeKind = z.infer<typeof ForgeKind>;
+/**
+ * Public hosts whose provider is fixed. Any other host, including self-hosted installations,
+ * is mapped explicitly in source control settings and never guessed from its name.
+ */
+export const publicForgeHosts: Readonly<Record<string, ForgeKind>> = {
+  "github.com": "github",
+  "gitlab.com": "gitlab",
+  "bitbucket.org": "bitbucket",
+  "codeberg.org": "forgejo",
+  "origin.cursor.com": "origin",
+};
+/** Cursor Origin is one hosted service: its API host is the only host it can have. */
+export const originApiHost = "origin.cursor.com";
 export const ForgeRepository = z.object({
-  forge: z.enum(["github", "gitlab", "gitbucket", "bitbucket", "gitea", "forgejo", "origin"]),
+  forge: ForgeKind,
   host: z
     .string()
     .regex(/^[a-zA-Z0-9.-]+$/)
