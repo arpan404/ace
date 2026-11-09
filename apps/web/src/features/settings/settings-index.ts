@@ -6,6 +6,19 @@ import { hasDesktopUpdates } from "@/boot/desktop-updates.ts";
 import { primaryMachineId } from "@/lib/machines.ts";
 import { visibleSettingsPages, settingsPages, type SettingsPath } from "./settings-pages.ts";
 
+/** Words for every Git host provider, so searching any of them finds Source control. */
+const forgeWords = [
+  "github",
+  "gitlab",
+  "cursor",
+  "origin",
+  "bitbucket",
+  "gitbucket",
+  "gitea",
+  "forgejo",
+  "codeberg",
+];
+
 /**
  * Every setting a person might look for, by page: the palette's Settings group and the
  * Settings sidebar's filter search it, and each row reads its title from here (`settingRow`),
@@ -92,16 +105,28 @@ const entries = [
     keywords: ["github", "gh", "git", "enterprise", "account", "rescan"],
   },
   {
+    id: "sourceControl.hosts",
+    page: "/settings/source-control",
+    title: "Git hosts",
+    keywords: [...forgeWords, "forge", "providers", "add", "remove", "self-hosted"],
+  },
+  {
+    id: "sourceControl.provider",
+    page: "/settings/source-control",
+    title: "Git provider",
+    keywords: [...forgeWords, "forge", "host"],
+  },
+  {
     id: "sourceControl.host",
     page: "/settings/source-control",
-    title: "GitHub host",
-    keywords: ["github", "enterprise", "hostname", "ghe", "server"],
+    title: "Git host",
+    keywords: [...forgeWords, "enterprise", "hostname", "ghe", "server", "self-hosted"],
   },
   {
     id: "sourceControl.account",
     page: "/settings/source-control",
     title: "Expected account",
-    keywords: ["github", "login", "gh", "user", "account"],
+    keywords: [...forgeWords, "login", "gh", "glab", "user", "account"],
   },
   {
     id: "sourceControl.remote",

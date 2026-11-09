@@ -1,14 +1,21 @@
-import { SourceControlHosts, gitProviders } from "./source-control-hosts.tsx";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { actionErrorText } from "@ace/ui-core";
+import {
+  actionErrorText,
+  defaultForgeHost,
+  forgeCanCheck,
+  forgeClis,
+  forgeNames,
+  forgeOrder,
+  hostForge,
+} from "@ace/ui-core";
+import { originApiHost, type ForgeKind } from "@ace/protocol/forge";
 import {
   SourceControlPreferences,
   SettingsValues,
   type SourceControlReadiness,
-  type ForgeRepository,
 } from "@ace/protocol";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { daemonErrorCode } from "@/lib/daemon-command.ts";
@@ -32,6 +39,10 @@ import { useSettingsMachine } from "./machine-scope.tsx";
 import { ToolchainSection } from "./toolchain-section.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
+import { settingRow } from "./settings-index.ts";
+import { ForgeIcon } from "@/components/ui/forge-icon.tsx";
+import { removeHost, saveHost, showHost } from "./source-control-edits.ts";
+import { SourceControlHosts } from "./source-control-hosts.tsx";
 
 /**
  * Settings › Source control for the machine Settings edits (`SettingsOutlet` renders this page
@@ -57,7 +68,9 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
   const preferencesRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
-  const [forge, setForge] = useState<ForgeRepository["forge"]>("github");
+  // The host the form edits: a saved host, or undefined while adding one.
+  const [original, setOriginal] = useState<string>();
+  const [forge, setForge] = useState<ForgeKind>("github");
   const [host, setHost] = useState("github.com");
   const [account, setAccount] = useState("");
   const [remote, setRemote] = useState("origin");
@@ -83,27 +96,25 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     },
   });
   const status: SourceControlReadiness | undefined = readiness.data;
-  // Each fresh reading resets the form to what the daemon holds (adjusted during render).
+  const preferences = status?.preferences;
+  /** Opens the form on a saved host. */
+  const edit = (target: string, from = preferences) => {
+    const entry = from?.hosts.find((saved) => saved.host === target);
+    setOriginal(target);
+    setForge(entry ? hostForge(entry) : "github");
+    setHost(target);
+    setAccount(entry?.account ?? "");
+  };
+  // Each fresh reading resets the form to the shown host (adjusted during render).
   const [shown, setShown] = useState<SourceControlReadiness>();
   if (status && status !== shown) {
     setShown(status);
-    setHost(status.preferences.host);
-    setForge(
-      status.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.forge ??
-        "github",
-    );
-    setAccount(
-      status.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.account ??
-        "",
-    );
+    edit(status.preferences.host, status.preferences);
     setRemote(status.preferences.remote);
   }
-  const save = async () => {
-    if (!status) return;
+  const write = async (next: unknown) => {
     setError(undefined);
-    const hosts = status.preferences.hosts.filter((entry) => entry.host !== host);
-    hosts.push({ host, forge, ...(account ? { account } : {}) });
-    const parsed = SourceControlPreferences.safeParse({ hosts, host, remote });
+    const parsed = SourceControlPreferences.safeParse(next);
     if (!parsed.success) {
       setError("Enter a valid hostname, account and remote name.");
       return;
@@ -133,40 +144,57 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
       setSaving(false);
     }
   };
-  const savedAccount =
-    status?.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.account ??
-    "";
+  const save = async () => {
+    if (!preferences) return;
+    const next = saveHost(preferences, original, { forge, host, account }, remote);
+    if (!next) {
+      setError(`${host} is already a saved host. Manage it from Git hosts.`);
+      return;
+    }
+    await write(next);
+  };
+  const editing = preferences?.hosts.find((entry) => entry.host === original);
   const changed =
-    !!status &&
-    (host !== status.preferences.host ||
-      account !== savedAccount ||
-      remote !== status.preferences.remote ||
-      forge !== (status.preferences.hosts.find((entry) => entry.host === host)?.forge ?? "github"));
-  const selected = gitProviders.find((entry) => entry.forge === forge);
-  const savedForge =
-    status?.preferences.hosts.find((entry) => entry.host === status.preferences.host)?.forge ??
-    "github";
-  const savedName = gitProviders.find((entry) => entry.forge === savedForge)?.name ?? "GitHub";
-  const cliName = savedForge === "gitlab" ? "glab" : savedForge === "origin" ? "origin" : "gh";
-  const canCheck = savedForge === "github" || savedForge === "gitlab" || savedForge === "origin";
+    !!preferences &&
+    (!editing ||
+      host !== editing.host ||
+      forge !== hostForge(editing) ||
+      account !== (editing.account ?? "") ||
+      remote !== preferences.remote);
+  const shownEntry = preferences?.hosts.find((entry) => entry.host === preferences.host);
+  const savedForge = shownEntry ? hostForge(shownEntry) : "github";
+  const savedName = forgeNames[savedForge];
+  const cliName = forgeClis[savedForge];
+  const canCheck = forgeCanCheck(savedForge);
   const loading = readiness.isFetching && !readiness.isError;
   const disabled = saving || loading;
   const readError = readiness.isError
     ? `Couldn't read source control status. ${actionErrorText(readFailureCode(readiness.error))}`
     : undefined;
+  const openForm = () => preferencesRef.current?.scrollIntoView?.({ block: "start" });
   return (
     <>
       <SourceControlHosts
-        preferences={status?.preferences}
+        preferences={preferences}
         disabled={disabled || !status}
-        onManage={(provider, target) => {
+        onAdd={(provider) => {
+          const fixed = defaultForgeHost(provider);
+          setOriginal(undefined);
           setForge(provider);
-          setHost(target);
-          setAccount(
-            status?.preferences.hosts.find((entry) => entry.host === target)?.account ?? "",
-          );
+          setHost(preferences?.hosts.some((entry) => entry.host === fixed) ? "" : fixed);
+          setAccount("");
           setError(undefined);
-          preferencesRef.current?.scrollIntoView?.({ block: "start" });
+          openForm();
+        }}
+        onManage={(target) => {
+          edit(target);
+          setError(undefined);
+          openForm();
+        }}
+        onShow={(target) => preferences && void write(showHost(preferences, target))}
+        onRemove={(target) => {
+          const next = preferences && removeHost(preferences, target);
+          if (next) void write(next);
         }}
       />
       <SettingSection label={savedName}>
@@ -174,20 +202,22 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           title={`${savedName} ${canCheck ? "CLI" : "connection"}`}
           description={
             status && !loading ? (
-              `${!canCheck ? "API support pending" : status.cli === "available" ? `${cliName} ${status.version}` : "Not installed"} · ${status.preferences.host}`
+              `${!canCheck ? "API support pending" : status.cli === "available" ? `${cliName ?? ""} ${status.version}` : "Not installed"} · ${status.preferences.host}`
             ) : loading ? (
               <Skeleton className="mt-1 w-40" />
             ) : undefined
           }
         >
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={disabled}
-            onClick={() => void refreshSourceControl(queries, client)}
-          >
-            Rescan
-          </Button>
+          {canCheck && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={disabled}
+              onClick={() => void refreshSourceControl(queries, client)}
+            >
+              Rescan
+            </Button>
+          )}
         </SettingRow>
         {status && !loading && (
           <SettingRow title={`${savedName} API`} inline>
@@ -227,25 +257,35 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             setting={settingKeys.autoDraftCommits}
             entry="generation.autoDraftCommits"
           />
-          <SettingRow title="Provider" description="The provider for this host.">
+          <SettingRow
+            {...settingRow("sourceControl.provider")}
+            description="The provider for this host."
+          >
             <Select
               label="Git provider"
               value={forge}
-              options={gitProviders.map((entry) => ({ value: entry.forge, label: entry.name }))}
+              options={forgeOrder.map((value) => ({
+                value,
+                label: forgeNames[value],
+                icon: <ForgeIcon forge={value} size={14} decorative />,
+              }))}
               disabled={disabled}
               onValueChange={(value) => {
                 setForge(value);
-                setHost(gitProviders.find((entry) => entry.forge === value)?.host ?? "");
+                setHost(value === "origin" ? originApiHost : defaultForgeHost(value));
                 setAccount("");
               }}
             />
           </SettingRow>
           <SettingRow
-            title={`${selected?.name ?? "Git"} host`}
+            {...settingRow("sourceControl.host")}
+            title={`${forgeNames[forge]} host`}
             description={
               forge === "github"
                 ? "github.com, or a GitHub Enterprise hostname."
-                : `The hostname of your ${selected?.name ?? "Git"} installation.`
+                : forge === "origin"
+                  ? "Cursor Origin is one hosted service."
+                  : `The hostname of your ${forgeNames[forge]} installation.`
             }
             htmlFor="sc-host"
           >
@@ -253,11 +293,11 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
               id="sc-host"
               value={host}
               onChange={(event) => setHost(event.target.value.toLowerCase())}
-              disabled={disabled}
+              disabled={disabled || forge === "origin"}
             />
           </SettingRow>
           <SettingRow
-            title="Expected account"
+            {...settingRow("sourceControl.account")}
             description="Requests stop if the CLI is signed in as someone else."
             htmlFor="sc-account"
           >
@@ -270,7 +310,7 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             />
           </SettingRow>
           <SettingRow
-            title="Repository remote"
+            {...settingRow("sourceControl.remote")}
             description="The Git remote that names a project's repository."
             htmlFor="sc-remote"
           >
@@ -282,8 +322,21 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
             />
           </SettingRow>
           <SettingFooter>
+            {original !== preferences?.host && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={disabled}
+                onClick={() => {
+                  if (preferences) edit(preferences.host);
+                  setError(undefined);
+                }}
+              >
+                Cancel
+              </Button>
+            )}
             <Button size="sm" disabled={disabled || !changed} onClick={() => void save()}>
-              Save preferences
+              {original === undefined ? "Add host" : "Save preferences"}
             </Button>
           </SettingFooter>
         </SettingSection>
