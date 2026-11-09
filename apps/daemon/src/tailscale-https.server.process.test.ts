@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connect, createServer as createTlsServer } from "node:tls";
 import { afterEach, expect, test } from "vitest";
-import { PairingResponse } from "@ace/protocol";
+import { PairingResponse, RemoteAccessStatus } from "@ace/protocol";
+import { z } from "zod";
 import { SettingsService } from "@ace/settings";
 import { accessRequest, pinnedAgent } from "./client-access.ts";
 import { readConfig } from "./config.ts";
@@ -185,7 +186,13 @@ async function tailnetDaemon(certificate: (name: string) => Promise<string>) {
         await accessRequest(f.server.httpUrl, "/v1/pairings", { token, method: "POST", body: {} }),
       ).url,
     );
-  return { identity, link };
+  const tailscaleStatus = async () =>
+    RemoteAccessStatus.parse(
+      z
+        .object({ remoteAccess: z.unknown() })
+        .parse(await accessRequest(f.server.httpUrl, "/v1/status", { token })).remoteAccess,
+    ).networks?.tailscale;
+  return { identity, link, tailscaleStatus };
 }
 
 test("over Tailscale, a pairing link names the ts.net host once browsers asking for it get Tailscale's certificate", async () => {
@@ -223,6 +230,31 @@ test("when the tailnet can't issue a certificate, pairing links keep the 100.x a
   expect(url.hostname).toBe("127.0.0.1");
   expect(new URLSearchParams(url.hash.slice(1)).get("fingerprint")).toBe(identity.fingerprint);
   expect(await presented(Number(url.port), tailnet)).toBe(identity.fingerprint);
+});
+
+test("a certificate Linux refuses says how to fix it, and the next pairing link fetches it again", async () => {
+  const ca = await authority();
+  const leaf = await ca.leaf(tailnet);
+  let operator = false;
+  let asked = 0;
+  // Linux tailscaled answers only root or its operator.
+  const { link, tailscaleStatus } = await tailnetDaemon(async () => {
+    asked++;
+    if (!operator)
+      throw new Error("Command failed: tailscale cert\nAccess denied: cert access denied");
+    return `${leaf.cert}${ca.root}${leaf.key}`;
+  });
+
+  await expect.poll(() => asked, { timeout: 5000 }).toBeGreaterThan(0);
+  const refused = await tailscaleStatus();
+  expect(refused?.state).toBe("on");
+  expect(refused?.warning).toContain("sudo tailscale set --operator=$USER");
+  expect((await link()).hostname).toBe("127.0.0.1");
+
+  // The person runs the command; making a link doesn't wait ten minutes for the next try.
+  operator = true;
+  expect((await link()).hostname).toBe(tailnet);
+  expect((await tailscaleStatus())?.warning).toBeUndefined();
 });
 
 test("a Tailscale certificate that expires while renewals fail stops being offered", async () => {

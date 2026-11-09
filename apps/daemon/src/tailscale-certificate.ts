@@ -59,6 +59,13 @@ export interface TrustedCertificate {
   select(servername: string): SecureContext | undefined;
   /** True while a valid Tailscale certificate is served, so a ts.net link works in browsers. */
   active(): boolean;
+  /** Why the last fetch failed and how to fix it; undefined once a certificate is fetched. */
+  problem(): string | undefined;
+  /**
+   * Fetches again now, unless a certificate is served, and waits up to `waitMs` for it: the
+   * person may have just fixed what the last fetch failed on.
+   */
+  retry(waitMs: number): Promise<void>;
   /** Settles after the first fetch, whether or not it produced a certificate. */
   ready: Promise<void>;
   stop(): void;
@@ -77,7 +84,8 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
   let expires = 0;
   let current = "";
   let stopped = false;
-  let failing = false;
+  let problem: string | undefined;
+  let fetching: Promise<void> | undefined;
   let cancel: (() => void) | undefined;
   const schedule = (milliseconds: number) => {
     if (stopped) return;
@@ -86,7 +94,15 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
       void refresh();
     }, milliseconds);
   };
-  const refresh = async () => {
+  const refresh = () => {
+    cancel?.();
+    cancel = undefined;
+    fetching ??= fetchOnce().finally(() => {
+      fetching = undefined;
+    });
+    return fetching;
+  };
+  const fetchOnce = async () => {
     try {
       const pem = parseTailscaleCertificate(
         await options.fetch(options.name),
@@ -100,12 +116,13 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         expires = pem.expires;
         current = pem.cert;
       }
-      failing = false;
+      problem = undefined;
       schedule(refreshMs);
     } catch (error) {
       if (stopped) return;
-      if (!failing) options.log?.(certificateError(options.name, error));
-      failing = true;
+      const failure = certificateError(options.name, error);
+      if (failure.message !== problem) options.log?.(failure);
+      problem = failure.message;
       schedule(retryMs);
     }
   };
@@ -119,6 +136,18 @@ export function trustedCertificate(options: TrustedCertificateOptions): TrustedC
         ? context
         : undefined,
     active,
+    problem: () => problem,
+    async retry(waitMs) {
+      if (stopped || active()) return;
+      let stopWaiting: (() => void) | undefined;
+      await Promise.race([
+        refresh(),
+        new Promise<void>((resolve) => {
+          stopWaiting = options.delay(resolve, waitMs);
+        }),
+      ]);
+      stopWaiting?.();
+    },
     ready,
     stop() {
       stopped = true;
