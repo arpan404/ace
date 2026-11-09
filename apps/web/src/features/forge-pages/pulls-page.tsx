@@ -11,6 +11,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import { GitMergeIcon, GitPullRequestIcon, XCircleIcon } from "@phosphor-icons/react";
 import type { ForgePrList, ForgePrRow, VerifyRun } from "@ace/protocol";
 import { useVerifyRuns } from "@/lib/verify.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { useMergeMethod } from "@/features/forge/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
 import { Button } from "@/components/ui/button.tsx";
@@ -163,12 +164,21 @@ export function PullRequestsPage(props: {
   const lineOf = (text: string) => prQueryText({ ...search, ...prSearchOf(text) });
   const qualifiers = (patch: Partial<PullsSearch>) =>
     prQueryText({ ...search, ...patch, q: undefined });
-  const openPr = (project: string, number: number) =>
+  // A merge run's PR opens in its own repository, never a same-numbered one on another host.
+  const openPr = (project: string, number: number) => {
+    const target = merge.run?.target;
+    const pr =
+      target?.kind === "merge"
+        ? target.prs.find((each) => each.pr.number === number)?.pr
+        : target?.pr.pr.number === number
+          ? target.pr.pr
+          : undefined;
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
-      search: { back: listAddress },
+      search: { back: listAddress, ...(pr ? { repo: repositoryParam(pr.repository) } : {}) },
     });
+  };
   const bar = (
     <>
       <PresetMenu

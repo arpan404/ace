@@ -9,7 +9,7 @@ import {
   onModifiedClick,
   RowShell,
   rowActionClass,
-  useOpenOnGitHub,
+  useOpenOnHost,
 } from "./row-parts.tsx";
 
 /**
@@ -30,7 +30,7 @@ export function IssueRow(props: {
 }) {
   const { row, thread } = props;
   const navigate = useNavigate();
-  const openOnGitHub = useOpenOnGitHub();
+  const openOnHost = useOpenOnHost();
   const openThread = thread
     ? () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } })
     : undefined;
@@ -38,6 +38,7 @@ export function IssueRow(props: {
     <RowShell
       label={`#${row.ref.number} ${row.title}`}
       url={row.url}
+      forge={row.ref.repository.forge}
       last={props.last}
       menu={openThread && <MenuItem onClick={openThread}>Open thread</MenuItem>}
       onNewThread={() =>
@@ -55,7 +56,7 @@ export function IssueRow(props: {
               params={{ project: props.project, number: String(row.ref.number) }}
               search={{ back: props.back }}
               data-view-row=""
-              onClick={onModifiedClick(row.url, openOnGitHub)}
+              onClick={onModifiedClick(row.url, openOnHost)}
               className="rounded-sm font-semibold break-words text-foreground focus-ring hover:text-link"
             >
               <span data-view-row-title="">{row.title}</span>
