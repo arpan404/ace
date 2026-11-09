@@ -67,26 +67,37 @@ import Testing
     }
 }
 
-/// Which pages a thread gets on a phone.
+/// Which pages a thread gets on a phone, and where its other screens open.
 @Suite struct ThreadPagesTests {
-    @Test func aPageShowsOnlyWhenTheThreadHasSomethingForIt() {
-        let bare = ThreadPages(ThreadPageFacts())
-        #expect(bare.kinds == [.chat, .files, .terminal])
-        let busy = ThreadPages(ThreadPageFacts(changedFiles: 6, hasBrowser: true, agents: 3))
-        #expect(busy.kinds == [.chat, .changes, .files, .terminal, .browser, .agents])
-        #expect(busy.count(of: .changes) == 6)
+    @Test func changesJoinsChatOnlyWhenTheThreadHasChanges() {
+        #expect(ThreadPages(ThreadPageFacts()).kinds == [.chat])
+        let changed = ThreadPages(ThreadPageFacts(changedFiles: 6))
+        #expect(changed.kinds == [.chat, .changes])
+        #expect(changed.label(of: .changes) == "Changes, 6 files")
+        #expect(ThreadPages(ThreadPageFacts(changedFiles: 1)).label(of: .changes) == "Changes, 1 file")
+        #expect(changed.label(of: .chat) == "Chat")
     }
 
-    @Test func aChatHasNoCheckoutPages() {
-        #expect(ThreadPages(ThreadPageFacts(chat: true, changedFiles: 3, agents: 2)).kinds == [.chat, .agents])
+    @Test func aChatHasNoChangesPageAndNoCheckoutScreens() {
+        let chat = ThreadPages(ThreadPageFacts(chat: true, changedFiles: 3))
+        #expect(chat.kinds == [.chat])
+        #expect(!chat.checkout)
+        #expect(ThreadPages(ThreadPageFacts()).checkout)
     }
 
-    @Test func aPageAskedForStaysWhileItOpensAndAGonePageFallsBackToChat() {
-        let opening = ThreadPages(ThreadPageFacts(requested: .browser))
-        #expect(opening.shown(.browser) == .browser)
-        let closed = ThreadPages(ThreadPageFacts())
-        #expect(closed.shown(.browser) == .chat)
-        #expect(closed.neighbour(of: .chat, step: 1) == .files)
-        #expect(closed.neighbour(of: .chat, step: -1) == nil)
+    @Test func changesAskedForStaysWhileItShowsAndFallsBackToChatOnceGone() {
+        let asked = ThreadPages(ThreadPageFacts(requested: .changes))
+        #expect(asked.shown(.changes) == .changes)
+        #expect(ThreadPages(ThreadPageFacts()).shown(.changes) == .chat)
+    }
+
+    @Test func filesTerminalBrowserAndAgentsPushInsteadOfBeingPages() {
+        for destination in [ThreadDestination.files, .terminal, .browser, .agents] {
+            #expect(destination.page == nil)
+            #expect(destination.pushed != nil)
+        }
+        #expect(ThreadDestination.changes.page == .changes)
+        #expect(ThreadDestination.changes.pushed == nil)
+        #expect(ThreadDestination.logs.pushed == nil)
     }
 }

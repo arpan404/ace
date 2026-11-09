@@ -9,19 +9,23 @@ private struct MenuScreen: Identifiable {
     var identifier: String { id }
 }
 
-/// The four primary destinations, always one tap away.
+/// The thread's screens, always one tap away. Beside the iPad's side panel: Changes, Files,
+/// Terminal and Browser, opening as its tabs. On a phone Changes is beside Chat in the bar, so
+/// the grid holds Files, Terminal (a thread with a checkout), Browser and Agents, each pushed.
 private struct MenuScreenGrid: View {
+    let pages: ThreadPages?
     let open: (ThreadDestination) -> Void
     let dismiss: DismissAction
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var screens: [MenuScreen] {
-        [
-            MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes),
-            MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files),
-            MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal),
-            MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser),
-        ]
+        let changes = MenuScreen(id: "thread.changes", title: "Changes", icon: .plusMinus, destination: .changes)
+        let files = MenuScreen(id: "thread.files", title: "Files", icon: .folder, destination: .files)
+        let terminal = MenuScreen(id: "thread.terminal", title: "Terminal", icon: .terminalWindow, destination: .terminal)
+        let browser = MenuScreen(id: "thread.browser", title: "Browser", icon: .compass, destination: .browser)
+        let agents = MenuScreen(id: "thread.agents", title: "Agents", icon: .treeStructure, destination: .agents)
+        guard let pages else { return [changes, files, terminal, browser] }
+        return (pages.checkout ? [files, terminal] : []) + [browser, agents]
     }
 
     var body: some View {
@@ -47,7 +51,7 @@ private struct MenuScreenGrid: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(screen.id == "thread.search" ? "Find in thread" : screen.title)
+                .accessibilityLabel(screen.title)
                 .accessibilityIdentifier(screen.id)
             }
         }
@@ -85,7 +89,7 @@ struct ThreadMenuPanel: View {
     let archived: Bool
     let open: (ThreadDestination) -> Void
     let leave: () -> Void
-    /// The thread's pages on a phone, which hold its screens; nil beside the iPad's side panel,
+    /// The thread's pages on a phone, which decide its screens; nil beside the iPad's side panel,
     /// where the screens open as its tabs from the grid.
     var pages: ThreadPages? = nil
     @Environment(\.threadOrganizer) private var organizer
@@ -110,12 +114,9 @@ struct ThreadMenuPanel: View {
 
     private var panel: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
-            // On a phone the screens are the thread's pages, in the row under its title.
-            if pages == nil {
-                MenuScreenGrid(open: open, dismiss: dismiss)
-                    .padding(.bottom, AceDesign.Space.related)
-                Divider()
-            }
+            MenuScreenGrid(pages: pages, open: open, dismiss: dismiss)
+                .padding(.bottom, AceDesign.Space.related)
+            Divider()
             Menu { conversation } label: { groupLabel("Conversation", icon: .notePencil) }
                 .accessibilityIdentifier("thread.options.conversation")
                 .menuIndicator(.hidden)
@@ -187,12 +188,8 @@ struct ThreadMenuPanel: View {
 
     /// The thread's tools that aren't screens: what the phone keeps, runs and opens elsewhere.
     @ViewBuilder private var tools: some View {
-        if let pages {
-            // A browser the agent hasn't opened yet: the one way to its page.
-            if !pages.kinds.contains(.browser) {
-                MenuRow(title: "Open browser", icon: .compass, identifier: "thread.browser") { open(.browser); dismiss() }
-            }
-        } else {
+        // On a phone the agent tree is in the grid above.
+        if pages == nil {
             MenuRow(title: "Agent tree", icon: .treeStructure, identifier: "thread.agents") { open(.agents); dismiss() }
         }
         MenuRow(title: "Logs", icon: .scroll, identifier: "thread.logs") { open(.logs); dismiss() }

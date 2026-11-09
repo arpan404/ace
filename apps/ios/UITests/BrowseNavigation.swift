@@ -49,6 +49,14 @@ extension XCUIApplication {
         let item = buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@ OR label BEGINSWITH %@", identifier,
                                                 labels[identifier] ?? identifier, "\(labels[identifier] ?? identifier),")).firstMatch
         if item.waitForExistence(timeout: 2) && item.isHittable { return item }
+        // On a phone Changes is a page beside Chat in the bar, not a ⋯ entry: close the panel
+        // and hand back the bar's button.
+        let page = buttons["thread.page.changes"]
+        if identifier == "thread.changes", page.exists {
+            if buttons["thread.options.tools"].exists { coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap() }
+            _ = page.waitForExistence(timeout: 3)
+            return page
+        }
         let conversation: Set<String> = ["thread.search", "thread.turns", "thread.attachments", "thread.menu.rename", "thread.forkLast", "thread.merge"]
         let group = identifier == "thread.continueOn" || identifier.hasPrefix("thread.action.") ? "organize"
             : conversation.contains(identifier) ? "conversation" : "tools"

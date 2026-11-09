@@ -95,9 +95,6 @@ import XCTest
         let app = launch(into: "thread.ios-done")
         let title = app.threadTitle(timeout: 25)
         XCTAssertTrue(title.label.contains("· Med") || (title.value as? String)?.contains("Med") == true, "the title's line reads the model and effort")
-        // The page pills still sit right under the title.
-        let pages = app.descendants(matching: .any)["thread.pages"].firstMatch
-        if pages.exists { XCTAssertGreaterThanOrEqual(pages.frame.minY, title.frame.maxY - 1) }
         title.tap()
         let model = app.titleMenuItem("thread.title.model", label: "Model")
         XCTAssertTrue(model.waitForExistence(timeout: 10))
