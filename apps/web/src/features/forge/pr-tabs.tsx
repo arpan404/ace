@@ -23,7 +23,7 @@ const names: Record<PrTab, string> = {
  * Summary · Timeline · Code · Checks as words: the current one on the flat selected fill, no
  * shadow. Focus shows only from the keyboard, as the quiet inset ring rows use.
  */
-const wordTab =
+export const wordTab =
   "h-7 rounded-md px-2 text-ui font-normal focus-ring-inset hover:not-data-active:bg-hover data-active:bg-active data-active:font-medium";
 
 /**

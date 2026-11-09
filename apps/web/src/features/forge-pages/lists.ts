@@ -255,7 +255,9 @@ const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /**
  * A row a list already read for this pull request or issue, if any: its page shows what the row
- * says (title, state, author) at once while the rest loads.
+ * says (title, state, author) at once while the rest loads. Rows match by their whole identity
+ * (provider, host, owner, name, number); with no repository named, only the list's own
+ * repository counts, so a same-numbered review on another host never stands in for this one.
  */
 export function cachedRow<K extends "prList" | "issueList">(
   cache: QueryClient,
@@ -266,17 +268,18 @@ export function cachedRow<K extends "prList" | "issueList">(
     Partial<Pick<ForgeRepository, "forge" | "host">>,
 ): (K extends "prList" ? ForgePrRow : ForgeIssueRow) | undefined {
   type Row = K extends "prList" ? ForgePrRow : ForgeIssueRow;
-  for (const [, data] of cache.getQueriesData<{ items: Row[] }>({
+  for (const [, data] of cache.getQueriesData<{ items: Row[]; repository?: ForgeRepository }>({
     queryKey: ["forge", project, "browse", kind],
   })) {
+    const target = repository ?? data?.repository;
+    if (!target) continue;
     const row = data?.items.find(
       (item) =>
         item.ref.number === number &&
-        (!repository ||
-          (same(item.ref.repository.owner, repository.owner) &&
-            same(item.ref.repository.name, repository.name) &&
-            (repository.forge === undefined || same(item.ref.repository.forge, repository.forge)) &&
-            (repository.host === undefined || same(item.ref.repository.host, repository.host)))),
+        same(item.ref.repository.owner, target.owner) &&
+        same(item.ref.repository.name, target.name) &&
+        (target.forge === undefined || same(item.ref.repository.forge, target.forge)) &&
+        (target.host === undefined || same(item.ref.repository.host, target.host)),
     );
     if (row) return row;
   }
