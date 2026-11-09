@@ -181,9 +181,11 @@ import XCTest
         app.buttons["pill.status"].tap()
         // On a phone the agent tree is pushed over the thread.
         XCTAssertTrue(app.descendants(matching: .any)["agents.summary"].waitForExistence(timeout: 10), "Waiting on opens the agent tree")
-        app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["pill.status"].waitForExistence(timeout: 10), "back returns to the thread")
-        app.navigationBars.buttons.firstMatch.tap()
+        let tree = app.descendants(matching: .any)["agents.summary"]
+        app.tapBack()
+        XCTAssertTrue(tree.waitForNonExistence(timeout: 10), "back returns to the thread")
+        XCTAssertTrue(app.buttons["pill.status"].isHittable)
+        app.tapBack()
 
         app.revealRow("thread.ios-goal").tap()
         let goal = app.buttons["pill.goal"]
