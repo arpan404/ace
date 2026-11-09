@@ -36,9 +36,11 @@ import {
   pairedEntryFor,
   accountMachineEntry,
   accountMachineState,
+  sameAccountMachineState,
   type AccountMachine,
   type AccountMachineConnection,
   type AccountMachineOptions,
+  type AccountMachineState,
 } from "./account-machines.ts";
 import type { PortLike } from "./wire.ts";
 
@@ -372,9 +374,15 @@ export class MachinePool {
     } else if (current.state.entry.target.kind !== "account")
       throw new ClientError("identity", "A paired machine already uses this host id");
     const opened = gate;
+    // Readers such as React's external stores need the same object until the state changes.
+    let last: AccountMachineState | undefined;
     return {
       gate: opened,
-      get: () => accountMachineState(this.machine(hostId), opened),
+      get: () => {
+        const next = accountMachineState(this.machine(hostId), opened);
+        if (!last || !sameAccountMachineState(last, next)) last = next;
+        return last;
+      },
       subscribe: (listener) => {
         const stopPool = this.status(hostId).subscribe(listener);
         const stopGate = opened.subscribe(listener);

@@ -50,6 +50,7 @@ import { findElevation, LinuxSandboxSetup, readSandboxFacts } from "./os/linux-s
 import { linuxTrayHost, runProgram } from "./os/tray-host.ts";
 import { hyprlandShortcutHint } from "./os/hyprland-shortcut.ts";
 import { installAppImageEntry, nodeAppImageEntryFiles } from "./os/appimage-entry.ts";
+import { claimAceLinks } from "./os/link-handler.ts";
 import { loginShellPath } from "./daemon/login-path.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { enableFeatures, linuxFeatures } from "./os/chromium-features.ts";
@@ -106,14 +107,16 @@ disableDnsPrefetching(app);
 enableFeatures(app.commandLine, linuxFeatures(process.platform));
 // An AppImage or tar.gz installs nothing: its menu entry is what lets the portal grant that
 // shortcut, and what `ace://` links open.
-if (process.platform === "linux" && app.isPackaged)
-  installAppImageEntry({
+if (process.platform === "linux" && app.isPackaged) {
+  const linux = {
     env: process.env,
     home: homedir(),
-    execPath: process.execPath,
     files: nodeAppImageEntryFiles,
-    warn: (message) => console.warn(message),
-  });
+    warn: (message: string) => console.warn(message),
+  };
+  installAppImageEntry({ ...linux, execPath: process.execPath });
+  claimAceLinks(linux);
+}
 registerAppScheme();
 if (!app.requestSingleInstanceLock()) app.quit();
 else

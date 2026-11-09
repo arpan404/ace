@@ -79,6 +79,17 @@ test("a network row says where it serves, why it doesn't, or how to turn it on",
   expect(
     directLine("tailscale", true, { state: "on", address: "https://mac.tail.ts.net:4243" }),
   ).toEqual({ tone: "on", words: "On at mac.tail.ts.net:4243." });
+  // Serving at the 100.x address, with what keeps browsers from trusting the ts.net name.
+  expect(
+    directLine("tailscale", true, {
+      state: "on",
+      address: "https://100.64.0.2:4243",
+      warning: "Run `sudo tailscale set --operator=$USER` so ace can fetch it.",
+    }),
+  ).toEqual({
+    tone: "warn",
+    words: "On at 100.64.0.2:4243. Run `sudo tailscale set --operator=$USER` so ace can fetch it.",
+  });
   expect(
     directLine("lan", true, { state: "failed", error: "Couldn't listen on port 4243." }),
   ).toEqual({ tone: "warn", words: "Couldn't listen on port 4243." });

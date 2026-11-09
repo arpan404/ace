@@ -167,6 +167,20 @@ export function remoteDirect(deps: {
       const name = network === "tailscale" && trusted?.active() ? trusted.name : undefined;
       return `https://${name ?? urlHost(read.advertisedHost)}:${port}`;
     },
+    /**
+     * What the person can fix on a network that serves: browsers won't trust the Tailscale
+     * address until Tailscale issues its certificate, and why it hasn't.
+     */
+    warnings(): Partial<Record<DirectNetwork, string>> {
+      const problem = serving.tailscale ? trusted?.problem() : undefined;
+      return problem ? { tailscale: problem.slice(0, 256) } : {};
+    },
+    /**
+     * Before a pairing link is made: fetch a Tailscale certificate that failed again now, waiting
+     * up to `waitMs`, so the link names the ts.net host as soon as the person fixed the cause.
+     */
+    refreshCertificate: (waitMs: number) =>
+      serving.tailscale && trusted ? trusted.retry(waitMs) : Promise.resolve(),
     serving: () => serving,
     errors: () => errors,
     open: () => listener !== undefined,
