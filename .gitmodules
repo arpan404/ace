@@ -1,3 +1,8 @@
 [submodule "packages/markit"]
 	path = packages/markit
 	url = https://github.com/arpan404/markit.git
+[submodule "private/spade"]
+	path = private/spade
+	url = https://github.com/arpan404/spade.git
+	branch = main
+	update = none

@@ -10,6 +10,7 @@
     "**/routeTree.gen.ts",
     "**/*.gen.ts",
     "docs/protocol",
-    "packages/markit/**"
+    "packages/markit/**",
+    "private/**"
   ]
 }
