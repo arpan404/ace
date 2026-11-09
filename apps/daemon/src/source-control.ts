@@ -11,10 +11,15 @@ import {
   ForgeError,
   SshHostAliases,
   identityVerificationMs,
+  isReadOnlyApiRequest,
+  pinnedRunner,
   type CommandRunner,
 } from "@ace/forge";
 import {
   SourceControlPreferences,
+  configuredForge,
+  configuredForges,
+  type ForgeKind,
   type SourceControlReadiness,
   type ForgeRepository,
 } from "@ace/protocol";
@@ -32,7 +37,8 @@ export class SourceControl {
   private closed = false;
   private stop: () => void;
   private listeners = new Set<() => void>();
-  /** Verified API accounts per host and preferences revision, reused for a short window. */
+  /** Verified API accounts per provider and host and preferences revision, reused for a short
+   * window. Cleared by every preferences change and rescan, the account-change signals. */
   private identities = new Map<string, { account: string; revision: number; at: number }>();
   /** Hosts whose account is being probed again behind a reused answer. */
   private reverifying = new Set<string>();
@@ -99,10 +105,15 @@ export class SourceControl {
     };
     check();
     const configured = preferences.hosts.find((entry) => entry.host === host);
-    if (!configured || (configured.forge ?? "github") !== "github")
+    if (!configured || configuredForge(configured) !== "github")
       throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const { account, at } = await this.verifiedAccount(runner, host, revision, signal);
+    const { account, at } = await this.verifiedAccount(
+      `github ${host}`,
+      (probe) => githubIdentity(runner, host, probe, this.now),
+      revision,
+      signal,
+    );
     await assertCurrent();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
     return {
@@ -115,84 +126,90 @@ export class SourceControl {
       }),
     };
   }
-  /** Alternative host reads are pinned to an admitted CLI identity and preferences revision. */
+  /**
+   * Alternative host reads are pinned to an admitted CLI identity and preferences revision, and
+   * admit only explicit GET API requests. The account is re-probed at most once per verification
+   * window per host (always after a preferences change or rescan), beside the read it gates.
+   */
   async readIdentity(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
     if (repository.forge === "github") return this.identity(cwd, repository.host, signal);
-    if (repository.forge !== "gitlab" && repository.forge !== "origin")
-      throw new ForgeError("unsupported");
+    const forge = repository.forge;
+    if (forge !== "gitlab" && forge !== "origin") throw new ForgeError("unsupported");
+    const revision = this.currentRevision;
     const check = await this.guard();
     const preferences = await this.preferences();
     const configured = preferences.hosts.find((entry) => entry.host === repository.host);
-    if (!configured || configured.forge !== repository.forge) throw new ForgeError("unsupported");
+    if (!configured || configuredForge(configured) !== forge) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const identify = () =>
-      repository.forge === "origin"
-        ? originIdentity(runner, signal)
-        : gitlabIdentity(runner, repository.host, signal);
-    const account = await identify();
+    const identify = (probe: AbortSignal) =>
+      forge === "origin"
+        ? originIdentity(runner, probe)
+        : gitlabIdentity(runner, repository.host, probe);
+    const key = `${forge} ${repository.host}`;
+    const { account, at } = await this.verifiedAccount(key, identify, revision, signal);
     check();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
+    const cli = forge === "origin" ? "origin" : "glab";
+    const pinned = pinnedRunner({
+      runner,
+      account,
+      identify,
+      pins: () => true,
+      isWrite: () => false,
+      assertCurrent: check,
+      options: {
+        now: this.now,
+        verifiedAt: at,
+        onVerified: (verifiedAt) => {
+          if (revision === this.currentRevision)
+            this.identities.set(key, { account, revision, at: verifiedAt });
+        },
+        onMismatch: () => this.identities.delete(key),
+      },
+    });
     const verified: CommandRunner = async (request) => {
       check();
       request.signal.throwIfAborted();
-      const command = repository.forge === "origin" ? "origin" : "glab";
-      const methodAt = request.args.findIndex((arg) => arg === "-X" || arg === "--method");
-      if (
-        request.command !== command ||
-        request.args[0] !== "api" ||
-        methodAt < 0 ||
-        request.args[methodAt + 1] !== "GET" ||
-        request.args.some((arg) =>
-          ["--input", "--field", "--raw-field", "-F", "-f", "--verbose"].includes(arg),
-        )
-      )
-        throw new ForgeError("unsupported");
-      if ((await identify()) !== account) throw new ForgeError("forbidden");
-      const result = await runner(request);
-      check();
-      if ((await identify()) !== account) throw new ForgeError("forbidden");
+      if (!isReadOnlyApiRequest(cli, request)) throw new ForgeError("unsupported");
+      const result = await pinned(request);
       check();
       return result;
     };
-    return { account, revision: this.currentRevision, check, runner: verified };
+    return { account, revision, check, runner: verified };
   }
-  /** One `/user` probe per host per window, not one per operation. */
+  /** One identity probe per provider host per window, not one per operation. */
   private async verifiedAccount(
-    runner: CommandRunner,
-    host: string,
+    key: string,
+    identify: (signal: AbortSignal) => Promise<string>,
     revision: number,
     signal: AbortSignal,
   ) {
-    const cached = this.identities.get(host);
+    const cached = this.identities.get(key);
     const now = this.now();
     const age = cached && cached.revision === revision ? now - cached.at : -1;
     if (cached && age >= 0 && age < identityVerificationMs) return cached;
     // A recent answer still names the backend, and the runner proves the account of every
     // request it sends, so the next read need not wait for this probe; it runs behind it.
     if (cached && age >= 0 && age < identityReuseMs) {
-      if (!this.reverifying.has(host)) {
-        this.reverifying.add(host);
-        void this.probeAccount(runner, host, revision, signal)
+      if (!this.reverifying.has(key)) {
+        this.reverifying.add(key);
+        void this.probeAccount(key, identify, revision, signal)
           .catch(() => undefined)
-          .finally(() => this.reverifying.delete(host));
+          .finally(() => this.reverifying.delete(key));
       }
       return cached;
     }
-    return this.probeAccount(runner, host, revision, signal);
+    return this.probeAccount(key, identify, revision, signal);
   }
   private async probeAccount(
-    runner: CommandRunner,
-    host: string,
+    key: string,
+    identify: (signal: AbortSignal) => Promise<string>,
     revision: number,
     signal: AbortSignal,
   ) {
     const now = this.now();
-    const verified = {
-      account: await githubIdentity(runner, host, signal, this.now),
-      revision,
-      at: now,
-    };
-    if (revision === this.currentRevision) this.identities.set(host, verified);
+    const verified = { account: await identify(signal), revision, at: now };
+    if (revision === this.currentRevision) this.identities.set(key, verified);
     return verified;
   }
   /** Real hosts behind SSH host aliases in these remote URLs (`~/.ssh/config` `Host` entries). */
@@ -207,8 +224,8 @@ export class SourceControl {
     const check = await this.guard();
     const preferences = await this.preferences();
     const runner = this.runner(cwd);
-    const forge =
-      preferences.hosts.find((entry) => entry.host === preferences.host)?.forge ?? "github";
+    const selected = preferences.hosts.find((entry) => entry.host === preferences.host);
+    const forge: ForgeKind = selected ? configuredForge(selected) : "github";
     const status: SourceControlReadiness =
       forge === "github"
         ? await githubReadiness(runner, preferences, signal, this.now)
@@ -247,7 +264,7 @@ export class SourceControl {
       }
       repositoryFromRemote(
         remote,
-        Object.fromEntries(preferences.hosts.map((entry) => [entry.host, entry.forge ?? "github"])),
+        configuredForges(preferences.hosts),
         await this.hostAliases([remote], signal),
       );
       // The same transport a push uses (credential helpers, SSH command, no prompts), so a

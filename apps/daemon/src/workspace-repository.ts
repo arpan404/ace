@@ -1,5 +1,9 @@
 import { repositoryFromRemote } from "@ace/forge";
-import type { ForgeRepository, SourceControlPreferences } from "@ace/protocol";
+import {
+  configuredForges,
+  type ForgeRepository,
+  type SourceControlPreferences,
+} from "@ace/protocol";
 
 /** One remote selection rule for both published checkout details and forge commands. */
 export function workspaceRepository(
@@ -16,11 +20,7 @@ export function workspaceRepository(
   try {
     return repositoryFromRemote(
       remote,
-      preferences
-        ? Object.fromEntries(
-            preferences.hosts.map((entry) => [entry.host, entry.forge ?? "github"]),
-          )
-        : {},
+      preferences ? configuredForges(preferences.hosts) : {},
       aliases,
     );
   } catch {

@@ -6,15 +6,19 @@ import {
   GitHubInbox,
   ForgeError,
   ForgeListCaches,
+  OriginListSnapshots,
   repositoryKey,
   type CommandRunner,
 } from "@ace/forge";
-import type { ForgeRepository, LinkedPullRequest } from "@ace/protocol";
+import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 import { remotePushesTo } from "./workspace-push.ts";
+
+/** How many GitLab or Origin pull requests one state refresh reads at once. */
+const stateReadConcurrency = 4;
 
 /** Resolves a checkout's forge repository and keeps one GitHub backend per identity. */
 export class ForgeBackends {
@@ -23,6 +27,8 @@ export class ForgeBackends {
   private lists = new Map<string, ForgeListCaches>();
   /** Each host's notifications per signed-in account, kept so conditional reads find their page. */
   private inboxes = new Map<string, GitHubInbox>();
+  /** Origin list traversals per admitted account, so page turns don't read every page again. */
+  private originSnapshots = new Map<string, OriginListSnapshots>();
   private git: WorkspaceForgeGit;
   private now: () => number;
   private runner: (cwd: string) => CommandRunner;
@@ -48,6 +54,7 @@ export class ForgeBackends {
     this.backends.clear();
     this.lists.clear();
     this.inboxes.clear();
+    this.originSnapshots.clear();
   }
   async repository(cwd: string): Promise<ForgeRepository> {
     return (await this.checkoutRepository(cwd)).repository;
@@ -69,33 +76,45 @@ export class ForgeBackends {
       )) ?? {}
     );
   }
-  /** Host-specific reads never share GitHub's API transport or mutation backend. */
+  /** Host-specific reads never share GitHub's API transport or mutation backend. They only
+   * run through SourceControl's identity-pinned, GET-only runner, never an unchecked one. */
   async reader(
     cwd: string,
     repository: ForgeRepository,
     signal: AbortSignal,
   ): Promise<ForgeReader> {
     if (repository.forge === "github") return this.backend(cwd, repository);
-    if (repository.forge !== "gitlab" && repository.forge !== "origin")
+    if (!readableForges.includes(repository.forge) || !this.sourceControl)
       throw new ForgeError("unsupported");
-    const identity = await this.sourceControl?.readIdentity(cwd, repository, signal);
-    const options = { repository, runner: identity?.runner ?? this.runner(cwd) };
-    return repository.forge === "gitlab" ? new GitLabReader(options) : new OriginReader(options);
+    const identity = await this.sourceControl.readIdentity(cwd, repository, signal);
+    const options = { repository, runner: identity.runner };
+    if (repository.forge === "gitlab") return new GitLabReader(options);
+    return new OriginReader({
+      ...options,
+      snapshots: this.snapshots(
+        JSON.stringify({ account: identity.account, revision: identity.revision }),
+      ),
+    });
   }
+  /**
+   * Each pull request's state, keyed by number: null when it no longer exists, and absent when
+   * this read can't say (a state GitLab or Origin added later, which must never read as open),
+   * so the caller keeps that link's previous summary.
+   */
   async states(
     cwd: string,
     repository: ForgeRepository,
     numbers: readonly number[],
     signal: AbortSignal,
-  ) {
+  ): Promise<Map<number, LinkedPullRequest | null>> {
     if (repository.forge === "github")
       return (await this.backend(cwd, repository)).states(numbers, signal);
     const reader = await this.reader(cwd, repository, signal);
     const result = new Map<number, LinkedPullRequest | null>();
-    for (const number of numbers) {
+    const read = async (number: number) => {
       try {
         const status = await reader.status(number, signal);
-        if (status.state === "unknown") throw new ForgeError("invalid_data");
+        if (status.state === "unknown") return;
         result.set(number, {
           number,
           repo: repository,
@@ -109,7 +128,17 @@ export class ForgeBackends {
         if (error instanceof ForgeError && error.kind === "not_found") result.set(number, null);
         else throw error;
       }
-    }
+    };
+    let next = 0;
+    const worker = async () => {
+      while (next < numbers.length) {
+        const number = numbers[next++];
+        if (number !== undefined) await read(number);
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(stateReadConcurrency, numbers.length) }, worker),
+    );
     return result;
   }
   async backend(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
@@ -183,6 +212,16 @@ export class ForgeBackends {
       if (first !== undefined) this.inboxes.delete(first);
     }
     return inbox;
+  }
+  private snapshots(key: string): OriginListSnapshots {
+    const snapshots = this.originSnapshots.get(key) ?? new OriginListSnapshots(this.now);
+    this.originSnapshots.delete(key);
+    this.originSnapshots.set(key, snapshots);
+    if (this.originSnapshots.size > 8) {
+      const first = this.originSnapshots.keys().next().value;
+      if (first !== undefined) this.originSnapshots.delete(first);
+    }
+    return snapshots;
   }
   private listCaches(key: string): ForgeListCaches {
     const lists = this.lists.get(key) ?? new ForgeListCaches(this.now);

@@ -1,6 +1,7 @@
 import { ForgeError, repositoryKey, prFromUrl, prUrl, prRepository } from "@ace/forge";
 import {
   ForgePrRef,
+  configuredForge,
   type ForgePrStatus,
   type ThreadId,
   type ForgeRepository,
@@ -133,21 +134,20 @@ export class WorkspacePrAssociations {
     try {
       // A bare `owner/name` lives on this checkout's host (an Enterprise host, say), never
       // an assumed github.com.
+      // Each configured host reads addresses and `host/owner/name` by its own provider.
+      const hosts = (await this.ctx.sourceControl?.preferences())?.hosts;
       const origin = operation.url
         ? undefined
         : "repo" in operation && operation.repo
-          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd))
+          ? prRepository(operation.repo, await this.defaultRepositoryHost(cwd), hosts)
           : await this.ctx.backends.repository(cwd);
       const pr = operation.url
-        ? prFromUrl(
-            operation.url,
-            (await this.ctx.sourceControl?.preferences())?.hosts.map((entry) => entry.host),
-          )
+        ? prFromUrl(operation.url, hosts)
         : ForgePrRef.parse({
             number: operation.number,
             repository:
               origin && "repo" in operation && operation.repo
-                ? prRepository(operation.repo, origin)
+                ? prRepository(operation.repo, origin, hosts)
                 : origin,
           });
       if (operation.op === "thread.link_pr") {
@@ -171,8 +171,10 @@ export class WorkspacePrAssociations {
     try {
       return await this.ctx.backends.repository(cwd);
     } catch {
-      const host = (await this.ctx.sourceControl?.preferences())?.host ?? "github.com";
-      return { forge: "github", host, owner: "unused", name: "unused" };
+      const preferences = await this.ctx.sourceControl?.preferences();
+      const host = preferences?.host ?? "github.com";
+      const entry = preferences?.hosts.find((candidate) => candidate.host === host) ?? { host };
+      return { forge: configuredForge(entry), host, owner: "unused", name: "unused" };
     }
   }
   async status(id: ThreadId, cwd: string): Promise<ForgePrStatus | null> {

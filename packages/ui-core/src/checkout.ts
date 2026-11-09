@@ -1,3 +1,4 @@
+import { readableForges } from "@ace/protocol/forge";
 import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 
 /** A thread's pull request: the linked one from details, refined by the forge's live status. */
@@ -111,7 +112,7 @@ export function prBlocker(checkout: Checkout): string | undefined {
 /** Linking an existing review only needs a read adapter, not a mutation backend. */
 export function linkPrBlocker(checkout: Checkout): string | undefined {
   if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
-  if (!["github", "gitlab", "origin"].includes(checkout.repository.forge))
+  if (!readableForges.includes(checkout.repository.forge))
     return "Linking pull requests for this Git provider isn't supported yet.";
   return undefined;
 }
