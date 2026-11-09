@@ -141,13 +141,18 @@ struct WorkSheet: View {
                 QuietSectionRow { QuietRowText(title: "None linked", tone: AceDesign.Ink.muted) }
             }
             if model.canOperate {
-                QuietSectionRow {
-                    Button(work.prs.isEmpty ? "Link a pull request" : "Link another") { reference = ""; linking = true }
-                        .buttonStyle(.textAction(.prominent))
-                        .disabled(!canAct)
-                        .accessibilityIdentifier("work.link")
-                    Spacer(minLength: AceTheme.Spacing.none)
+                // The whole row answers the tap, not just its words.
+                Button { reference = ""; linking = true } label: {
+                    QuietSectionRow {
+                        Text(work.prs.isEmpty ? "Link a pull request" : "Link another")
+                            .aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                            .fontWeight(AceDesign.Typeface.strong)
+                            .foregroundStyle(AceDesign.Ink.primary)
+                    }
                 }
+                .buttonStyle(.row)
+                .disabled(!canAct)
+                .accessibilityIdentifier("work.link")
             }
         }
     }
