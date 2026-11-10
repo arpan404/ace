@@ -94,13 +94,13 @@ test("a request carrying a body on stdin is refused even as a GET", () => {
 const noteWrite = { method: "POST" as const, endpoint: /^projects\/[^/]+\/issues\/\d+\/notes$/ };
 const write = (args: string[], input?: string) =>
   input === undefined ? { command: "glab", args } : { command: "glab", args, input };
-const noteArgs = (endpoint: string, method = "POST", host = "gitlab.com") => [
+const noteArgs = (endpoint: string, method = "POST", hostname = "gitlab.com") => [
   "api",
   endpoint,
   "-X",
   method,
   "--hostname",
-  host,
+  hostname,
   "--include",
   "--input",
   "-",
