@@ -331,6 +331,7 @@ test("Changes offers creation on GitLab when its repository declares it", async 
   await fixture.act({ kind: "commit", message: "Fix the queue", push: true }, "c");
   await until(() => step(fixture.sink).kind === "create-pr", "create-pr step");
   expect(step(fixture.sink).blocked).toBeNull();
+  expect(fixture.sink.read("changes:summary")?.openOn).toBe("Open on GitLab");
 });
 
 test("Changes refuses creation on GitHub when the repository explicitly grants no capabilities", async () => {

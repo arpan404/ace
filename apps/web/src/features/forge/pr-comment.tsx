@@ -1,4 +1,3 @@
-import { can } from "@ace/ui-core";
 import { useRef, useState, type ReactNode } from "react";
 import { authoredReviewComment } from "@ace/forge/review-comment-body";
 import type { ForgeComment } from "@ace/protocol";

@@ -57,6 +57,8 @@ export function useRowSteps(input: {
     for (const row of rows)
       found.set(keyOf(row), rowStep(row, viewer, linked.get(keyOf(row)), runs, sourceOf(row)));
     return found;
+    // sourceOf reads only lists and each row's project, which changes with the rows.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, viewer, linked, runs, lists]);
   const act = useStepAction(input.back);
   const markReady = useMarkReady();

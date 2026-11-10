@@ -33,24 +33,30 @@ function IssueBody(props: {
   onBack(): void;
 }) {
   const source = useRepositoryCapabilities(props.project, props.issue.ref.repository);
-  const issue = can(
+  const writable = can(
     props.issue.capabilities !== undefined
       ? { repository: props.issue.ref.repository, capabilities: props.issue.capabilities }
       : source,
     "issues.write",
-  )
-    ? props.issue
-    : {
-        ...props.issue,
-        permissions: {
-          ...props.issue.permissions,
-          edit: false,
-          triage: false,
-          comment: false,
-          close: false,
-          reopen: false,
-        },
-      };
+  );
+  // Without issues.write the host's permissions can't be acted on here, so every write is off.
+  const issue = useMemo(
+    () =>
+      writable
+        ? props.issue
+        : {
+            ...props.issue,
+            permissions: {
+              ...props.issue.permissions,
+              edit: false,
+              triage: false,
+              comment: false,
+              close: false,
+              reopen: false,
+            },
+          },
+    [writable, props.issue],
+  );
   const writes = useIssueWrites(props.project, issue.ref.repository, {
     repository: issue.ref.repository,
     capabilities: issue.capabilities,

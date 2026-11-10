@@ -50,6 +50,7 @@ export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail)
   const cache = useQueryClient();
   const changed = `${detail.updatedAt ?? ""}|${detail.reviewers.join(",")}|${detail.status.comments.length}`;
   const seen = useRef(changed);
+  const readable = can(detail, "reviews.approvals.read");
   useEffect(() => {
     if (!can(detail, "reviews.approvals.read")) return;
     // The PR may have changed while no view followed it (another pane kept it fresh).
@@ -62,10 +63,10 @@ export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail)
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (!can(detail, "reviews.approvals.read") || seen.current === changed) return;
+    if (!readable || seen.current === changed) return;
     seen.current = changed;
     void refetch();
-  }, [changed, refetch]);
+  }, [changed, refetch, readable]);
   return query;
 }
 

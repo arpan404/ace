@@ -64,12 +64,13 @@ export function PrPeople(props: {
                 rows={
                   can(detail, "reviews.approvals.write")
                     ? rows
-                    : rows.map((row) => ({
-                        ...row,
-                        canRerequest: false,
-                        canRemove: false,
-                        canDismiss: false,
-                      }))
+                    : rows.map((row) =>
+                        Object.assign({}, row, {
+                          canRerequest: false,
+                          canRemove: false,
+                          canDismiss: false,
+                        }),
+                      )
                 }
                 value={reviewers.data}
                 disabled={disabled || !can(detail, "reviews.approvals.write")}

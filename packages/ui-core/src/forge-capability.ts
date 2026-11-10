@@ -34,6 +34,6 @@ export function repositoryCapabilities(
   }[],
 ): ForgeCapabilitySource {
   const key = repositoryKey(repository);
-  const entry = entries.find((entry) => repositoryKey(entry.repository) === key);
+  const entry = entries.find((each) => repositoryKey(each.repository) === key);
   return entry ?? repository;
 }

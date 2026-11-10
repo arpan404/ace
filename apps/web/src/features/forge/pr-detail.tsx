@@ -119,7 +119,7 @@ function PrDetailLoaded(props: {
       can(detail, "reviews.comments.write") ||
       can(detail, "reviews.commits"),
   };
-  const tab = available[props.tab] ? props.tab : "summary";
+  const shownTab = available[props.tab] ? props.tab : "summary";
   const [dialog, setDialog] = useState<PrDialog>();
   const [commitWhen, setCommitWhen] = useState<"now" | "auto">();
   const actions = usePrActions({
@@ -284,7 +284,7 @@ function PrDetailLoaded(props: {
                         <PrHeader
                           actions={actions}
                           extensions={props.extensions}
-                          condensed={condensed[tab]}
+                          condensed={condensed[shownTab]}
                           behindOpen={behindOpen}
                           onBehindOpen={setBehindOpen}
                           gates={<PrGatesRow actions={actions} onSelect={onGate} />}
@@ -328,7 +328,7 @@ function PrDetailLoaded(props: {
               >
                 <PrTabs
                   available={available}
-                  tab={tab}
+                  tab={shownTab}
                   onTab={props.onTab}
                   onScroll={onScroll}
                   readable={readable}

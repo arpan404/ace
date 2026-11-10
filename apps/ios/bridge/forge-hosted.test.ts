@@ -436,7 +436,7 @@ test("read-only comments stay readable without requesting write state, lifecycle
     review: unknown;
     unread: unknown;
   };
-  expect(page.rows.some((row) => row.comment?.body === "Readable discussion")).toBe(true);
+  expect(page.rows.some((each) => each.comment?.body === "Readable discussion")).toBe(true);
   expect(page.box).toBeNull();
   expect(page.review).toBeNull();
   expect(page.unread).toBeNull();
