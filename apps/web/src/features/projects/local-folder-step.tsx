@@ -3,7 +3,6 @@ import {
   FolderPlusIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
-  GitBranchIcon,
 } from "@phosphor-icons/react";
 import {
   choosePath,
@@ -36,7 +35,7 @@ import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx"
 import type { Machine } from "@/lib/machines.ts";
 import type { PaletteStart } from "@/lib/layout.tsx";
 import { AllowFolder } from "./allow-folder.tsx";
-import { AllowedPlaces, Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
+import { AllowedPlaces, RefusedNotice, RowMeta } from "./folder-notices.tsx";
 import { Problem } from "./form-parts.tsx";
 import { useNativePicker } from "./native-picker.ts";
 import { useAddFolder } from "./use-add-folder.ts";
@@ -142,11 +141,7 @@ export function LocalFolderStep(props: {
   const problem = added.problem;
   let state: ReactNode = null;
   if (offline)
-    state = (
-      <Notice icon={offlineIcon}>
-        {machine.name} isn't connected. Folders come back once it is.
-      </Notice>
-    );
+    state = <ListStatus>{machine.name} isn't connected. Folders come back once it is.</ListStatus>;
   else if (folder.homeFailed)
     state = (
       <ListStatus
@@ -181,6 +176,7 @@ export function LocalFolderStep(props: {
     );
   else if (!rows.length && folder.loading)
     state = <OptionSkeletons label="folders" rows={6} geometry={optionGeometry} />;
+  else if (!rows.length) state = <ListStatus>No folders here.</ListStatus>;
 
   return (
     <>
@@ -225,11 +221,6 @@ export function LocalFolderStep(props: {
               />
             )}
           />
-          {!rows.length && !folder.loading && (
-            <div role="status" className="py-8 text-center text-ui text-muted-foreground">
-              No folders here
-            </div>
-          )}
         </div>
       </ListViewport>
       {problem && (
@@ -253,7 +244,7 @@ export function LocalFolderStep(props: {
             {problem.message}
             {problem.denied && !problem.canAllow && (
               <AllowedPlaces
-                className="mt-1 justify-start"
+                className="mt-1 flex"
                 roots={home?.roots ?? []}
                 home={home?.path}
                 onGo={(path) => type(pathInput(path, home?.path))}
@@ -359,8 +350,8 @@ function FolderRow(props: {
     >
       <Icon icon={entry.project ? FolderSimpleStarIcon : FolderSimpleIcon} />
       <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-      {entry.project && <Badge>Project</Badge>}
-      {entry.git && <Badge icon={GitBranchIcon}>Git</Badge>}
+      {entry.project && <RowMeta>Project</RowMeta>}
+      {entry.git && <RowMeta>Git</RowMeta>}
     </CommandOption>
   );
 }

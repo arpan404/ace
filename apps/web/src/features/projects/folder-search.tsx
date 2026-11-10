@@ -2,7 +2,6 @@ import {
   FolderOpenIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
-  GitBranchIcon,
   HouseSimpleIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
@@ -20,7 +19,7 @@ import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { AllowFolder } from "./allow-folder.tsx";
 import { tabCompletes } from "./path-completion.ts";
-import { Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
+import { RefusedNotice, RowMeta } from "./folder-notices.tsx";
 import type { FolderRow, FolderSearch } from "./use-folder-search.ts";
 
 /** Rows of a folder this long and longer mount only near the viewport. */
@@ -147,9 +146,7 @@ export function FolderSearchBox(props: {
   let state: ReactNode = null;
   if (search.offline)
     state = (
-      <Notice icon={offlineIcon}>
-        That machine isn't connected. Folders come back once it is.
-      </Notice>
+      <ListStatus>{search.machineName} isn't connected. Folders come back once it is.</ListStatus>
     );
   else if (search.homeFailed)
     state = (
@@ -187,7 +184,7 @@ export function FolderSearchBox(props: {
     state = <OptionSkeletons label="folders" rows={5} geometry={folderOptionGeometry} />;
   else if (!rows.length)
     state = (
-      <Notice icon={FolderSimpleIcon}>
+      <ListStatus>
         {query.kind === "path"
           ? query.segment
             ? `No folders in ${displayPath(query.directory, home?.path)} start with “${query.segment}”.`
@@ -195,7 +192,7 @@ export function FolderSearchBox(props: {
           : text
             ? `No folders match “${text}”.`
             : "No folders here yet."}
-      </Notice>
+      </ListStatus>
     );
 
   // Each section's first option index, so ids run on across sections.
@@ -303,7 +300,7 @@ export function FolderSearchBox(props: {
             : "Showing the first 5,000 folders here. Type more of a name to narrow them."}
           {search.restFailed && (
             <Button size="sm" variant="ghost" onClick={search.retry}>
-              Try again
+              Retry
             </Button>
           )}
         </p>
@@ -383,8 +380,8 @@ function FolderOption(props: {
       <span className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.active ? displayPath(row.path, props.home) : ""}
       </span>
-      {row.project && <Badge>Project</Badge>}
-      {row.git && <Badge icon={GitBranchIcon}>Git</Badge>}
+      {row.project && <RowMeta>Project</RowMeta>}
+      {row.git && <RowMeta>Git</RowMeta>}
     </div>
   );
 }
