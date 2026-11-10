@@ -99,6 +99,22 @@ test("running checks and an outstanding review read as waiting, not done", () =>
   expect(gates.conflicts).toBe("Checking (working)");
 });
 
+test("a host that can't say whether its review rules are met shows approvals so far, never done", () => {
+  const unknown = facts({ reviewDecision: "UNKNOWN" });
+  expect(said(unknown).reviews).toBe("Unavailable (idle)");
+  expect(prFacts(unknown).find((gate) => gate.key === "reviews")?.value).toBe(
+    "Review status unavailable",
+  );
+  const approvedSoFar = facts({
+    reviewDecision: "UNKNOWN",
+    outcomes: new Map([["mira", "approved" as const]]),
+  });
+  expect(said(approvedSoFar).reviews).toBe("1 approved (idle)");
+  expect(prFacts(approvedSoFar).find((gate) => gate.key === "reviews")?.value).toBe(
+    "Approved by mira",
+  );
+});
+
 test("a merged PR shows who merged it, where it went and what became of the branch", () => {
   expect(
     said(

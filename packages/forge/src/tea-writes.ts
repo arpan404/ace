@@ -3,7 +3,7 @@ import { ForgeMergeState, type ForgeMergeCommit } from "@ace/protocol/forge-merg
 import type { MergeMethod } from "./api.ts";
 import { WriteDispatch } from "./write-dispatch.ts";
 import { TeaReader } from "./tea-reader.ts";
-import { decode, pull, sha } from "./tea-records.ts";
+import { decode, pull, sha, state as pullState, type Pull } from "./tea-records.ts";
 import { teaChecks } from "./tea-checks.ts";
 import { teaGet, teaResponse } from "./tea-api.ts";
 import { ForgeError } from "./errors.ts";
@@ -74,7 +74,7 @@ export class TeaWriter {
         : result,
     );
   }
-  async prMergeState(number: number, signal: AbortSignal) {
+  async #read(number: number, signal: AbortSignal) {
     const p = decode(pull, (await this.get(`/pulls/${number}`, signal)).body);
     if (p.number !== number) throw new ForgeError("invalid_data");
     const repo = decode(metadata, (await this.get("", signal)).body);
@@ -85,25 +85,11 @@ export class TeaWriter {
       p.head.sha,
       signal,
     );
-    const methods: MergeMethod[] = [];
-    if (repo.allow_merge_commits) methods.push("merge");
-    if (repo.allow_squash_merge) methods.push("squash");
-    if (repo.allow_rebase) methods.push("rebase");
-    return decode(ForgeMergeState, {
-      headSha: p.head.sha,
-      state: p.merged ? "MERGED" : p.state.toUpperCase(),
-      mergeState: p.mergeable === true ? "CLEAN" : "UNKNOWN",
-      reviewDecision: null,
-      checksState: checks.ci.toUpperCase(),
-      autoMerge: null,
-      queue: null,
-      methods: repo.permissions.push && !repo.archived ? methods : [],
-      canEnable: false,
-      canDisable: false,
-      canDequeue: false,
-      blockers: [],
-      raw: {},
-    });
+    return { p, repo, checks };
+  }
+  async prMergeState(number: number, signal: AbortSignal) {
+    const { p, repo, checks } = await this.#read(number, signal);
+    return teaMergeState(p, repo, checks.ci);
   }
   async merge(
     number: number,
@@ -114,12 +100,14 @@ export class TeaWriter {
     commit?: ForgeMergeCommit,
   ) {
     decode(sha, headSha);
-    const state = await this.prMergeState(number, signal);
+    const { p, repo, checks } = await this.#read(number, signal);
+    const state = teaMergeState(p, repo, checks.ci);
     if (state.headSha !== headSha) throw new ForgeError("head_moved");
-    if (state.state !== "OPEN" || state.mergeState !== "CLEAN" || !state.methods?.includes(method))
+    // A draft, a PR Gitea hasn't found free of conflicts, or failing or unsettled checks never
+    // reach the host. Branch protection and approvals stay the host's to enforce.
+    if (pullState(p) !== "open" || p.mergeable !== true || !state.methods?.includes(method))
       throw new ForgeError("forbidden");
-    if (state.checksState !== "SUCCESS" && state.checksState !== "NONE")
-      throw new ForgeError("forbidden");
+    if (checks.ci !== "success" && checks.ci !== "none") throw new ForgeError("forbidden");
     if (method === "rebase" && commit) throw new ForgeError("unsupported");
     await this.write(
       `/pulls/${number}/merge`,
@@ -135,4 +123,39 @@ export class TeaWriter {
       dispatch,
     );
   }
+}
+
+/**
+ * A pull request's merge state. Drafts read as `DRAFT`, from the same draft rule as every
+ * Gitea read. Gitea's `mergeable` only says there are no conflicts; branch protection and
+ * required approvals aren't read, so even a conflict-free PR is `UNKNOWN`, never `CLEAN`, and
+ * its review decision is `UNKNOWN`, never null ("no review required").
+ */
+export function teaMergeState(
+  p: Pull,
+  repo: z.infer<typeof metadata>,
+  ci: "none" | "pending" | "success" | "failure" | "unknown",
+) {
+  const state = pullState(p);
+  const methods: MergeMethod[] = [];
+  if (repo.allow_merge_commits) methods.push("merge");
+  if (repo.allow_squash_merge) methods.push("squash");
+  if (repo.allow_rebase) methods.push("rebase");
+  const blockers: string[] = [];
+  if (state === "draft") blockers.push("This pull request is a draft.");
+  return decode(ForgeMergeState, {
+    headSha: p.head.sha,
+    state: state === "unknown" ? p.state.toUpperCase() : state.toUpperCase(),
+    mergeState: state === "draft" ? "DRAFT" : "UNKNOWN",
+    reviewDecision: "UNKNOWN",
+    checksState: ci.toUpperCase(),
+    autoMerge: null,
+    queue: null,
+    methods: repo.permissions.push && !repo.archived ? methods : [],
+    canEnable: false,
+    canDisable: false,
+    canDequeue: false,
+    blockers,
+    raw: {},
+  });
 }

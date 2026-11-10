@@ -155,7 +155,8 @@ export class TeaReader implements ForgeReader {
       headRepository: headRepository(this.repository, p),
       labels: labels(p),
       reviewers: (await this.reviews.reviewers(number, signal)).reviews.map((r) => r.login),
-      reviewDecision: null,
+      // Gitea's required approvals aren't read: unknown, never "no review required" (null).
+      reviewDecision: "UNKNOWN",
       commits: 0,
       changedFiles: p.changed_files ?? 0,
       unavailableResources: ["commits", ...(p.changed_files === undefined ? ["fileCount"] : [])],

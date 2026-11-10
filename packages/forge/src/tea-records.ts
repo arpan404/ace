@@ -50,13 +50,16 @@ export function pullUrl(repo: ForgeRepository, number: number) {
   return `https://${repo.host}/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/pulls/${number}`;
 }
 export function status(repo: ForgeRepository, p: Pull) {
+  const s = state(p);
   return decode(ForgePrStatus, {
     ref: ref(repo, p.number),
     title: clipText(p.title),
     url: pullUrl(repo, p.number),
     headSha: p.head.sha,
-    state: state(p),
-    mergeability: p.mergeable === true ? "mergeable" : "unknown",
+    state: s,
+    // Gitea's `mergeable` means no conflicts, and Gitea reports false for drafts; a draft is
+    // never mergeable here either, whatever the field says.
+    mergeability: s === "open" && p.mergeable === true ? "mergeable" : "unknown",
     ci: "unknown",
     checks: [],
     comments: [],

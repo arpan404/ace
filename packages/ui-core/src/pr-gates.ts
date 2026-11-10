@@ -76,6 +76,14 @@ function reviewsGate(facts: GateFacts): Gate {
     return { key: "reviews", label, value: `${Math.max(1, approved)} approved`, tone: "done" };
   if (decision === "REVIEW_REQUIRED")
     return { key: "reviews", label, value: "Review required", tone: "needs-you" };
+  // The host can't say whether its rules are met: approvals so far, never "done".
+  if (decision === "UNKNOWN")
+    return {
+      key: "reviews",
+      label,
+      value: approved ? `${approved} approved` : "Unavailable",
+      tone: "idle",
+    };
   return { key: "reviews", label, value: "None", tone: "idle" };
 }
 
@@ -180,7 +188,11 @@ export function prFacts(facts: GateFacts): Gate[] {
           : "Approved"
         : reviews.tone === "needs-you"
           ? "Review required"
-          : "No reviews yet";
+          : reviews.value === "Unavailable"
+            ? "Review status unavailable"
+            : approving.length
+              ? `Approved by ${names(approving)}`
+              : "No reviews yet";
   const conflictsSaid =
     conflicts.tone === "failed"
       ? `Conflicts with ${facts.baseBranch}`

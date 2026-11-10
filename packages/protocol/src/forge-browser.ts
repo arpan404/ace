@@ -186,6 +186,10 @@ export const ForgePrDetail = z.object({
   /** Each label's GitHub colour, by name. */
   labelColors: ForgeLabelColors.optional(),
   reviewers: z.array(text).max(100),
+  /**
+   * The host's review decision (`APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`); null when
+   * the repository requires no review, and `UNKNOWN` when the host can't say.
+   */
   reviewDecision: z.string().max(100).nullable(),
   commits: z.number().int().nonnegative(),
   changedFiles: z.number().int().nonnegative(),
