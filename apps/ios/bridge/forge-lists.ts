@@ -22,7 +22,13 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
-import { listSources, mergeGroups, readEach, type ListSource } from "./forge-list-sources.ts";
+import {
+  issueListSources,
+  mergeGroups,
+  pullSources,
+  readEach,
+  type ListSource,
+} from "./forge-list-sources.ts";
 import type { ForgeReads } from "./forge-reads.ts";
 import {
   filterChoices,
@@ -197,12 +203,14 @@ export async function readPulls(
   const { search } = request;
   const sort = search.sort ?? "ready";
   const byReadiness = sort === "ready" && (search.state ?? "open") === "open";
-  const sources = await listSources(reads, request.project);
+  const { sources, unlisted } = await pullSources(reads, request.project);
   const { answers, failed } = await readEach(sources, (source) =>
     readRepositoryPulls(reads, request, source),
   );
   const lists = answers.map((answer) => answer.value);
   const more = lists.some((list) => list.more);
+  // Counts are known only once every repository answered in full, so none undercounts.
+  const complete = answeredInFull(sources, lists, unlisted);
   const linked = reads.linked().pulls;
   const labelled = sources.some((source) => source.label);
   const steps = new Map<string, RowStep>();
@@ -210,31 +218,37 @@ export async function readPulls(
     for (const [key, step] of list.steps) if (!steps.has(key)) steps.set(key, step);
   const stepOf = (row: ForgePrRow) =>
     steps.get(identity(row)) ?? { step: "wait" as const, local: undefined };
-  const merged = mergeGroups(lists, identity, (rows) =>
-    byReadiness
-      ? groupBySteps(rows, (row) => stepOf(row).step).flatMap((group) => group.rows)
-      : sortPrs(rows, sort === "ready" ? "updated" : sort),
+  const merged = mergeGroups(
+    lists,
+    identity,
+    (rows) =>
+      byReadiness
+        ? groupBySteps(rows, (row) => stepOf(row).step).flatMap((group) => group.rows)
+        : sortPrs(rows, sort === "ready" ? "updated" : sort),
+    complete,
   );
   const first = lists[0]?.first;
   return {
     type: "forge.pulls",
     repository: first ? `${first.repository.owner}/${first.repository.name}` : "",
-    counts: {
-      open: total(lists, ({ first: head }) => head.counts.open + head.counts.draft),
-      merged: total(lists, ({ first: head }) => head.counts.merged),
-      closed: total(lists, ({ first: head }) => head.counts.closed),
-    },
+    counts: complete
+      ? {
+          open: total(lists, ({ first: head }) => head.counts.open + head.counts.draft),
+          merged: total(lists, ({ first: head }) => head.counts.merged),
+          closed: total(lists, ({ first: head }) => head.counts.closed),
+        }
+      : null,
     groups: merged.map(({ group, total }) => ({
       id: group.id,
       label: group.label,
-      count: byReadiness ? (more ? null : group.rows.length) : total,
+      count: byReadiness ? (more || !complete ? null : group.rows.length) : total,
       rows: group.rows.map((row) => ({
         ...prRowView(row, stepOf(row), linked, preview),
         repositoryLabel: labelled ? repositoryLabel(row.ref.repository) : null,
       })),
     })),
     more,
-    failed,
+    failed: unlisted ? [unlisted, ...failed] : failed,
     ...filterChoices(
       lists.flatMap((list) => list.rows),
       search,
@@ -249,7 +263,7 @@ export async function readIssues(
 ): Promise<IssuesReply> {
   const { project, search } = request;
   const base = issueQuery(search, 1);
-  const sources = await listSources(reads, project);
+  const { sources, unlisted } = await issueListSources(reads, project);
   const { answers, failed } = await readEach(sources, async (source) => {
     const pages = await readPages(
       (page) => reads.issuePage(project, base, page, source.repository),
@@ -264,14 +278,17 @@ export async function readIssues(
   const labelled = sources.some((source) => source.label);
   const linked = reads.linked().issues;
   const first = lists[0]?.first;
+  const complete = answeredInFull(sources, lists, unlisted);
   return {
     type: "forge.issues",
     repository: first ? `${first.repository.owner}/${first.repository.name}` : "",
-    counts: {
-      open: total(lists, (list) => list.first.counts.open),
-      closed: total(lists, (list) => list.first.counts.closed),
-    },
-    groups: mergeGroups(lists, keyOf, (rows) => rows.toSorted(newestIssue)).map(
+    counts: complete
+      ? {
+          open: total(lists, (list) => list.first.counts.open),
+          closed: total(lists, (list) => list.first.counts.closed),
+        }
+      : null,
+    groups: mergeGroups(lists, keyOf, (rows) => rows.toSorted(newestIssue), complete).map(
       ({ group, total }) => ({
         id: group.id,
         label: group.label,
@@ -283,18 +300,33 @@ export async function readIssues(
       }),
     ),
     more: lists.some((list) => list.more),
-    failed,
+    failed: unlisted ? [unlisted, ...failed] : failed,
     ...filterChoices(
       lists.flatMap((list) => list.rows),
       search,
     ),
-    // New issues open on the primary, the project's first listed repository.
-    canCreate: first?.canCreate ?? false,
+    // New issues open on the primary, which is read without naming it.
+    canCreate:
+      answers.find((answer) => answer.source.repository === undefined)?.value.first.canCreate ??
+      false,
   };
 }
 
 const updatedAt = (row: { updatedAt?: string | undefined }) => Date.parse(row.updatedAt ?? "") || 0;
 const newestIssue = (a: ForgeIssueRow, b: ForgeIssueRow) => updatedAt(b) - updatedAt(a);
+
+/**
+ * Every source answered, its repositories were all known, and no first page says its counts
+ * are partial: only then are counts summed.
+ */
+const answeredInFull = (
+  sources: readonly ListSource[],
+  lists: readonly { first: ForgePrList | ForgeIssueList }[],
+  unlisted: string | null,
+) =>
+  !unlisted &&
+  lists.length === sources.length &&
+  lists.every(({ first }) => !first.incomplete && !first.truncated);
 
 /** A state's count added across repositories. */
 const total = <T>(lists: readonly T[], count: (list: T) => number) =>

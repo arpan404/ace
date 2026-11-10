@@ -102,32 +102,32 @@ describe("project repositories", () => {
   });
 });
 
-describe("saving one repository edit", () => {
-  /** A daemon's saved choices, refusing a save whose `expected` isn't them any more. */
-  const saved = (start: ProjectRepositoryConfig | null) => {
-    let current = start;
-    let saves = 0;
-    return {
-      get current() {
-        return current;
-      },
-      get saves() {
-        return saves;
-      },
-      read: async () => current,
-      save: async (
-        next: ProjectRepositoryConfig | null,
-        expected: ProjectRepositoryConfig | null,
-      ) => {
-        saves++;
-        if (!sameRepositoryConfig(current, expected)) return "repositories_changed";
-        current = next;
-        return "saved";
-      },
-      changed: (outcome: string) => outcome === "repositories_changed",
-    };
+/** A daemon's saved choices, refusing a save whose `expected` isn't them any more. */
+const saved = (start: ProjectRepositoryConfig | null) => {
+  let current = start;
+  let saves = 0;
+  return {
+    get current() {
+      return current;
+    },
+    get saves() {
+      return saves;
+    },
+    read: async () => current,
+    save: async (
+      next: ProjectRepositoryConfig | null,
+      expected: ProjectRepositoryConfig | null,
+    ) => {
+      saves++;
+      if (!sameRepositoryConfig(current, expected)) return "repositories_changed";
+      current = next;
+      return "saved";
+    },
+    changed: (outcome: string) => outcome === "repositories_changed",
   };
+};
 
+describe("saving one repository edit", () => {
   it("re-applies the edit to choices another device saved meanwhile, keeping both", async () => {
     // The phone read no choices; the web has since hidden GitHub.
     const daemon = saved({ added: [], hidden: [github], primary: null });

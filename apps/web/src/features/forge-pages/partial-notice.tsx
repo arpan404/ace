@@ -31,3 +31,26 @@ export function PartialNotice(props: {
     </div>
   );
 }
+
+/**
+ * Projects whose repositories couldn't be read list only their primary: one sentence saying
+ * which, so a list that may be missing repositories never looks complete.
+ */
+export function UnlistedNotice(props: {
+  projects: readonly string[];
+  name(project: string): string;
+}) {
+  if (!props.projects.length) return null;
+  const names = props.projects.map(props.name);
+  const said = names.length <= 2 ? names.join(" and ") : `${names.length} projects`;
+  return (
+    <div
+      role="status"
+      className="flex min-h-9 min-w-0 items-center gap-1 border-t border-border py-1 text-ui text-muted-foreground"
+    >
+      <span className="min-w-0 truncate" title={names.join(", ")}>
+        {`Couldn't read the repositories of ${said}, so only ${names.length === 1 ? "its primary is" : "their primaries are"} listed.`}
+      </span>
+    </div>
+  );
+}

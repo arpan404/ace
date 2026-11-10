@@ -2,7 +2,6 @@ import { ClientError } from "@ace/client";
 import {
   maxCommitMessageLength,
   maxForgeTextLength,
-  SourceControlPreferences,
   ThreadId,
   type CommandPayload,
   type CommandResult,
@@ -18,6 +17,7 @@ import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { WorkspaceRefusal, type ChangesOwner, type ChangesSession } from "./changes.ts";
 import { draftContext } from "./git-drafts.ts";
+import { globalRemote } from "./push-remote.ts";
 
 /*
  * The Changes sheet's next step through the daemon's guarded git and forge commands, the same
@@ -87,18 +87,6 @@ async function push(
     remote: await globalRemote(owner),
     ...(target ? { target } : {}),
   });
-}
-
-/** The global source control remote name every push names. */
-export async function globalRemote(owner: Pick<ChangesOwner, "request">): Promise<string> {
-  const response = await owner.request({
-    type: "settings.get",
-    key: "sourceControl.preferences",
-    scope: {},
-  });
-  const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
-  if (!response.ok || !entry) throw new WorkspaceRefusal("forge_preferences_changed");
-  return SourceControlPreferences.parse(entry.value).remote;
 }
 
 async function perform(owner: ChangesOwner, session: ChangesSession, action: GitAction) {

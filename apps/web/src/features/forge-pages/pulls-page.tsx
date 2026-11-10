@@ -37,7 +37,7 @@ import { MergeStrip } from "./merge-strip.tsx";
 import { useRowSteps } from "./row-steps.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
-import { PartialNotice } from "./partial-notice.tsx";
+import { PartialNotice, UnlistedNotice } from "./partial-notice.tsx";
 import { useReviewSources } from "./review-sources.ts";
 import { ClearLine, countWords, PresetMenu, StateToggles } from "./quick-views.tsx";
 
@@ -327,6 +327,7 @@ export function PullRequestsPage(props: {
               }
               onRetry={list.retry}
             />
+            <UnlistedNotice projects={review.unlisted} name={choice.name} />
             {incomplete && !list.loading && !(list.error && !list.first) && (
               <div
                 role="status"

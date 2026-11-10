@@ -109,6 +109,11 @@ export class ChangesSession {
   readonly review: SheetReview;
   #reads: Reads | undefined;
   #rounds = 0;
+  /**
+   * Whether the project uses several repositories, read once per open sheet (only the words
+   * under a new PR need it): a refresh never reads the project's repositories again.
+   */
+  #several: Promise<boolean> | undefined;
   #state: "loading" | "ready" | "error" = "loading";
   #error = "";
   #reading: Promise<void> | undefined;
@@ -373,26 +378,40 @@ export class ChangesSession {
     this.summary();
   }
 
+  /** Only for the words under a new PR; a daemon that can't list them says nothing. */
+  #severalRepositories(): Promise<boolean> {
+    const workspaceId = this.workspaceId;
+    if (!workspaceId) return Promise.resolve(false);
+    this.#several ??= this.#workspace({
+      op: "forge.repositories",
+      workspaceId: WorkspaceId.parse(workspaceId),
+    }).then(
+      (result) =>
+        result.kind === "forge" &&
+        result.data.resource === "repositories" &&
+        reviewRepositories(result.data.value).length > 1,
+      () => {
+        // A failed read is asked again on the next refresh.
+        this.#several = undefined;
+        return false;
+      },
+    );
+    return this.#several;
+  }
+
   async #read(): Promise<void> {
     if (!this.#reads) this.#state = "loading";
     this.summary();
     const threadId = ThreadId.parse(this.threadId);
     try {
-      const workspaceId = this.workspaceId;
-      const [status, diff, pr, repositories] = await Promise.all([
+      const [status, diff, pr, severalRepositories] = await Promise.all([
         this.#workspace({ op: "git.status", threadId }),
         this.#workspace({ op: "git.diff", threadId }),
         // Only a linked PR has a forge status; its checks and comments stay in the bridge.
         this.details?.linkedPrs?.length
           ? this.#workspace({ op: "pr.status", threadId }).catch(() => undefined)
           : Promise.resolve(undefined),
-        // Only for the words under a new PR; a daemon that can't list them says nothing.
-        workspaceId
-          ? this.#workspace({
-              op: "forge.repositories",
-              workspaceId: WorkspaceId.parse(workspaceId),
-            }).catch(() => undefined)
-          : Promise.resolve(undefined),
+        this.#severalRepositories(),
       ]);
       if (this.#closed) return;
       if (status.kind !== "gitStatus" || diff.kind !== "gitDiff")
@@ -407,10 +426,7 @@ export class ChangesSession {
         patchTruncated: diff.truncated,
         lastPath: [...sections.keys()].at(-1),
         pr: pr?.kind === "pr" ? pr.status : null,
-        severalRepositories:
-          repositories?.kind === "forge" &&
-          repositories.data.resource === "repositories" &&
-          reviewRepositories(repositories.data.value).length > 1,
+        severalRepositories,
         round: ++this.#rounds,
         validators: new Map(),
       };

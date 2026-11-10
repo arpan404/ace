@@ -52,9 +52,9 @@ struct ForgeIssuesList: View {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
-                    // A project with several repositories opens the row's own; one keeps the project's.
+                    // The row's full identity, whatever its label says: an issue opens in its own repository.
                     let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number,
-                                           repository: row.repositoryLabel == nil ? nil : row.repository)
+                                           repository: row.repository)
                     Button { open(route) } label: { ForgeIssueRowView(row: row) }
                         .buttonStyle(RowPressStyle(selected: openRow == route))
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])

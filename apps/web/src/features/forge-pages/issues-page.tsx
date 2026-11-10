@@ -1,8 +1,12 @@
 import {
   issueQuery,
   issueSortLabels,
+  repositoryLabel,
+  reviewSourceId,
+  sameRepository,
   type IssuesSearch,
   type IssuesSort,
+  type ReviewSource,
   workKey,
 } from "@ace/ui-core";
 import { useState } from "react";
@@ -18,9 +22,10 @@ import { IssueRow } from "./issue-row.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
-import { primarySources, useGroupCounts, useIssuePages, useListFailure } from "./lists.ts";
+import { useGroupCounts, useIssuePages, useListFailure } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
-import { PartialNotice } from "./partial-notice.tsx";
+import { PartialNotice, UnlistedNotice } from "./partial-notice.tsx";
+import { useIssueSources } from "./review-sources.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
 import { QueryField } from "./query-field.tsx";
@@ -28,6 +33,30 @@ import { issueQueryText, issueSearchOf } from "./query-text.ts";
 import { ClearLine, PresetMenu, StateToggles } from "./quick-views.tsx";
 
 const known = (value: number | undefined) => (value === undefined ? undefined : String(value));
+
+/**
+ * Each project's open issue total for the project menu: the sum over its sources' first pages,
+ * left out while any of them is unread or its repositories aren't all known.
+ */
+function openCounts(
+  sources: readonly ReviewSource[],
+  firsts: ReadonlyMap<string, ForgeIssueList>,
+  settled: boolean,
+): Map<string, number> {
+  if (!settled) return new Map();
+  const counts = new Map<string, number | undefined>();
+  for (const source of sources) {
+    const first = firsts.get(reviewSourceId(source));
+    const sofar = counts.has(source.project) ? counts.get(source.project) : 0;
+    counts.set(
+      source.project,
+      sofar === undefined || !first ? undefined : sofar + first.counts.open,
+    );
+  }
+  return new Map(
+    [...counts].flatMap(([project, count]) => (count === undefined ? [] : [[project, count]])),
+  );
+}
 
 type Preset = "assigned" | "created" | "all";
 const presetPatch: Record<Preset, Partial<IssuesSearch>> = {
@@ -115,22 +144,29 @@ export function IssuesPage(props: {
   const listKey = JSON.stringify([projects, query]);
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
-  const list = useIssuePages(projects, query, pages);
+  // Each project's issues come from every repository it uses that ace reads issues from.
+  const review = useIssueSources(projects);
+  const sources = review.sources;
+  const list = useIssuePages(sources, query, pages);
   const failure = useListFailure(list);
   // Who the open issues concern, whatever preset is on, for the presets' counts.
-  const people = useGroupCounts(primarySources(projects), {
+  const counted = useGroupCounts(sources, {
     by: "issue-people",
     query: issueQuery({ ...search, who: undefined, state: undefined }, 1),
   }).total;
+  const people = review.settled ? counted : undefined;
   const linked = useLinkedThreads().issues;
+  // Totals wait for every source's first page, so a total never undercounts.
+  const partial = [...list.firsts.values()].some((first) => first.incomplete || first.truncated);
   const sum = (pick: (first: ForgeIssueList) => number) => {
-    if (list.firsts.size < projects.length) return undefined;
+    if (!review.settled || partial || list.firsts.size < sources.length) return undefined;
     let total = 0;
     for (const first of list.firsts.values()) total += pick(first);
     return total;
   };
   const navigate = useNavigate();
   const listAddress = useLocation({ select: (location) => location.searchStr });
+  // New issues open on a project's primary, whose read is keyed by the project alone.
   const creatable = projects.filter((id) => list.firsts.get(id)?.canCreate);
   const preset: Preset = search.who === "assigned" || search.who === "created" ? search.who : "all";
   const sections = issueSections(search, list.rows, onSearch);
@@ -163,7 +199,7 @@ export function IssuesPage(props: {
       />
       <ProjectMenu
         choice={choice}
-        counts={new Map([...list.firsts].map(([id, first]) => [id, first.counts.open]))}
+        counts={openCounts(sources, list.firsts, review.settled)}
         onPick={(next) => onSearch({ ...choice.pick(next), labels: undefined, author: undefined })}
       />
       <NewInProject
@@ -216,9 +252,16 @@ export function IssuesPage(props: {
             {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
             <PartialNotice
               failed={list.failed}
-              name={(source) => choice.name(source.project)}
+              name={(source) =>
+                source.shown
+                  ? choice.one
+                    ? repositoryLabel(source.shown)
+                    : `${choice.name(source.project)}'s ${repositoryLabel(source.shown)}`
+                  : choice.name(source.project)
+              }
               onRetry={list.retry}
             />
+            <UnlistedNotice projects={review.unlisted} name={choice.name} />
           </>
         }
         header={header}
@@ -260,6 +303,15 @@ export function IssuesPage(props: {
                 <IssueRow
                   project={project}
                   projectName={choice.one ? undefined : choice.name(project)}
+                  repositoryName={
+                    review.several.has(project) ? repositoryLabel(row.ref.repository) : undefined
+                  }
+                  otherRepository={
+                    !sameRepository(
+                      row.ref.repository,
+                      review.primary.get(project) ?? row.ref.repository,
+                    )
+                  }
                   back={listAddress}
                   row={row}
                   thread={linked.get(workKey(row.ref.repository, row.ref.number))}

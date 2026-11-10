@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { WorkspaceId, type ForgeRepository, type ProjectRepositories } from "@ace/protocol";
-import { reviewSources } from "./review-sources.ts";
+import { issueSources, reviewSources } from "./review-sources.ts";
 
 const github: ForgeRepository = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
 const gitlab: ForgeRepository = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
@@ -55,4 +55,30 @@ test("a hidden repository isn't read, and hiding every one reads nothing", () =>
     ],
   ]);
   expect(reviewSources(["ace"], none)).toEqual([]);
+});
+
+test("issues are read from every repository whose host ace reads issues from", () => {
+  const upstream = { ...github, owner: "upstream" };
+  const lists = new Map([
+    ["ace", listed([entry(github, { primary: true }), entry(gitlab), entry(upstream)])],
+  ]);
+  expect(issueSources(["ace"], lists)).toEqual([
+    { project: "ace", shown: github },
+    { project: "ace", repository: upstream, shown: upstream },
+  ]);
+});
+
+test("a project whose only listed repositories are hidden lists no issues, as it lists no reviews", () => {
+  const lists = new Map([
+    [
+      "ace",
+      listed([entry(github, { primary: false, visible: false })], {
+        added: [],
+        hidden: [github],
+        primary: null,
+      }),
+    ],
+  ]);
+  expect(issueSources(["ace"], lists)).toEqual([]);
+  expect(reviewSources(["ace"], lists)).toEqual([]);
 });

@@ -12,7 +12,7 @@ import { applePlatform } from "@/lib/keymap.ts";
 import { useBackToList } from "./back-to-list.ts";
 import { readable } from "./issue-page.tsx";
 import { useIssueWrites } from "./issue-writes.ts";
-import { useIssuePages } from "./lists.ts";
+import { primarySources, useIssuePages } from "./lists.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 /** A new issue has no conversation yet: everyone comes from the repository. */
@@ -33,7 +33,8 @@ export function NewIssuePage(props: {
   const choice = { name: useProjectName() };
   const back = useBackToList("/issues", props.back);
   // The list's first page names the repository and whether this account may open issues.
-  const list = useIssuePages([project], issueQuery({}, 1), 1);
+  // New issues open on the primary: its first page says whether one can be opened.
+  const list = useIssuePages(primarySources([project]), issueQuery({}, 1), 1);
   const writes = useIssueWrites(project, list.first?.repository);
   const title = useMarkdownDraft(draftKeys.newIssueTitle(project));
   const body = useMarkdownDraft(draftKeys.newIssue(project));

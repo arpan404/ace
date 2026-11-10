@@ -2,6 +2,7 @@ import { type LinkedThread } from "@ace/ui-core";
 import { Link, useNavigate } from "@tanstack/react-router";
 import type { ForgeIssueRow } from "@ace/protocol";
 import { MenuItem } from "@/components/ui/menu.tsx";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { Avatars, CommentCount, IssueStateIcon, LabelPills } from "./marks.tsx";
 import {
   Ago,
@@ -22,6 +23,10 @@ export function IssueRow(props: {
   project: string;
   /** The project's name, on line 2; none when the list shows one project. */
   projectName?: string | undefined;
+  /** "GitHub · acme/upstream", on line 2, when the project lists issues from several repositories. */
+  repositoryName?: string | undefined;
+  /** The row's repository is not the project's primary: its page names it. */
+  otherRepository?: boolean | undefined;
   row: ForgeIssueRow;
   /** The list's address, so the issue's page can return to it as it was. */
   back: string;
@@ -54,7 +59,10 @@ export function IssueRow(props: {
             <Link
               to="/issues/$project/$number"
               params={{ project: props.project, number: String(row.ref.number) }}
-              search={{ back: props.back }}
+              search={{
+                back: props.back,
+                ...(props.otherRepository ? { repo: repositoryParam(row.ref.repository) } : {}),
+              }}
               data-view-row=""
               onClick={onModifiedClick(row.url, openOnHost)}
               className="rounded-sm font-semibold break-words text-foreground focus-ring hover:text-link"
@@ -93,6 +101,12 @@ export function IssueRow(props: {
               <>
                 <Dot />
                 <span className="truncate">{props.projectName}</span>
+              </>
+            )}
+            {props.repositoryName && (
+              <>
+                <Dot />
+                <span className="truncate">{props.repositoryName}</span>
               </>
             )}
           </div>

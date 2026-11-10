@@ -1,4 +1,11 @@
-import type { ForgeInboxList, ForgeInboxQuery, ForgeInboxRow } from "@ace/protocol";
+import type {
+  ForgeInboxList,
+  ForgeInboxQuery,
+  ForgeInboxRow,
+  ForgeRepository,
+  ProjectRepositories,
+} from "@ace/protocol";
+import { reviewRepositories, sameRepository } from "@ace/ui-core";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 
 /** `/inbox?view=all&reason=mention&repo=github.com/acme/ace`: the inbox's filters, in the address. */
@@ -170,23 +177,53 @@ export function inboxGroups(
 const repoKey = (repository: { host: string; owner: string; name: string }) =>
   `${repository.host}/${repository.owner}/${repository.name}`.toLowerCase();
 
+type InboxRepository = { host: string; owner: string; name: string };
+
+/** A project's repositories as the inbox tags rows with them (ADR 0116). */
+export interface InboxProjectRepositories<R extends InboxRepository = InboxRepository> {
+  primary?: R | undefined;
+  /** Its other visible, available repositories; only a project with saved choices has any. */
+  others: readonly R[];
+}
+
 /**
- * Each row's project, by its repository; `repositories` maps each project to its repository, or
- * to every repository it uses (ADR 0116). A
- * repository two projects share belongs to the first. Rows of repositories no project is stay
- * without one.
+ * A project's repositories for the inbox: its primary (from `forge.repositories`, else
+ * `fallback`, the primary an older daemon or a failed list read still names) and, only when the
+ * project has saved choices, its other visible, available ones. With no saved choices a project
+ * tags rows with its primary alone, as before.
+ */
+export function inboxRepositoriesOf(
+  value: ProjectRepositories | undefined,
+  fallback: ForgeRepository | undefined,
+): InboxProjectRepositories<ForgeRepository> {
+  const primary = value ? (value.primary ?? undefined) : fallback;
+  const others = value?.config
+    ? reviewRepositories(value).filter(
+        (repository) => !primary || !sameRepository(repository, primary),
+      )
+    : [];
+  return { primary, others };
+}
+
+/**
+ * Each row's project, by its repository; `repositories` maps each project to its primary, or to
+ * its primary and its other repositories. Every project's primary is matched first, so a row of
+ * one project's primary never moves to another project that also uses that repository; among
+ * primaries, and then among the others, a repository two projects share belongs to the first.
+ * Rows of repositories no project uses stay without one.
  */
 export function inboxProjects(
-  repositories: ReadonlyMap<
-    string,
-    | { host: string; owner: string; name: string }
-    | readonly { host: string; owner: string; name: string }[]
-  >,
+  repositories: ReadonlyMap<string, InboxRepository | InboxProjectRepositories>,
 ): (row: Pick<ForgeInboxRow, "repository">) => string | undefined {
   const byRepo = new Map<string, string>();
+  const claim = (project: string, repository: InboxRepository | undefined) => {
+    if (repository && !byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
+  };
+  const split = (value: InboxRepository | InboxProjectRepositories) =>
+    "others" in value ? value : { primary: value, others: [] };
+  for (const [project, value] of repositories) claim(project, split(value).primary);
   for (const [project, value] of repositories)
-    for (const repository of Array.isArray(value) ? value : [value])
-      if (!byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
+    for (const repository of split(value).others) claim(project, repository);
   return (row) => byRepo.get(repoKey(row.repository));
 }
 

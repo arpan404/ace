@@ -170,6 +170,57 @@ test("one repository failing leaves the other's pull requests on screen and says
   expect(rowsOf(reply)).toEqual(["GitHub · acme/ace #9"]);
   expect(reply.failed).toHaveLength(1);
   expect(reply.failed[0]).toMatch(/^GitLab · acme\/ace: /);
+  // With a repository unread no count is known, so none undercounts.
+  expect(reply.counts).toBeNull();
+  expect(reply.groups.map((group) => group.count)).toEqual([null]);
+});
+
+test("a group's total is every repository's count of it, even one whose rows so far don't show it", async () => {
+  const { ask } = service((op) => {
+    if (op.op === "forge.repositories")
+      return repositories(entry(github, { primary: true }), entry(gitlab));
+    if (op.op === "forge.group-counts")
+      return { resource: "groupCounts", counts: { all: op.repository ? 7 : 1 } };
+    // GitLab's first page is empty though it counts seven.
+    if (op.repository?.forge === "gitlab") return prList(gitlab, []);
+    return prList(github, [pr(github, 9, "2026-11-04T00:00:00Z")]);
+  });
+  const reply = (await ask(updated)) as PullsReply;
+  expect(reply.groups.map((group) => [group.id, group.count])).toEqual([["all", 8]]);
+});
+
+test("a project whose repositories can't be read says so and leaves its counts unknown", async () => {
+  const { ask } = service((op) => {
+    if (op.op === "forge.repositories") return { error: "forge_read_failed" };
+    if (op.op === "forge.group-counts") return { resource: "groupCounts", counts: { all: 1 } };
+    return prList(github, [pr(github, 9, "2026-11-04T00:00:00Z")]);
+  });
+  const reply = (await ask(updated)) as PullsReply;
+  expect(rowsOf(reply)).toEqual(["- #9"]);
+  expect(reply.failed).toEqual([
+    "Couldn't read this project's repositories, so only its primary is listed.",
+  ]);
+  expect(reply.counts).toBeNull();
+});
+
+test("a project whose choices hide every repository lists nothing and reads no host", async () => {
+  const { ask, ops } = service((op) => {
+    if (op.op === "forge.repositories")
+      return {
+        resource: "repositories",
+        value: {
+          workspaceId: WorkspaceId.parse("ace"),
+          repositories: [entry(github, { visible: false })],
+          primary: null,
+          config: { added: [], hidden: [github], primary: null },
+        },
+      };
+    return { error: "forge_read_failed" };
+  });
+  const reply = (await ask(updated)) as PullsReply;
+  expect(reply.groups).toEqual([]);
+  expect(reply.failed).toEqual([]);
+  expect(ops.map((op) => op.op)).toEqual(["forge.repositories"]);
 });
 
 test("every repository failing fails the list as one repository's failure did", async () => {
@@ -229,15 +280,16 @@ test("Show more reads one more page of each repository that has more, and none o
   expect(gitlabPages.every((op) => op.query?.page === 1)).toBe(true);
 });
 
-test("issues from every visible repository merge newest first, each naming its repository", async () => {
-  const { ask } = service((op) => {
+test("issues come from every repository ace reads issues from, newest first, each naming its repository", async () => {
+  const upstream: ForgeRepository = { ...github, owner: "upstream" };
+  const { ask, ops } = service((op) => {
     if (op.op === "forge.repositories")
-      return repositories(entry(github, { primary: true }), entry(gitlab));
+      return repositories(entry(github, { primary: true }), entry(gitlab), entry(upstream));
     if (op.op === "forge.group-counts") return { resource: "groupCounts", counts: {} };
-    const repository = op.repository?.forge === "gitlab" ? gitlab : github;
+    const repository = op.repository ?? github;
     const items =
-      repository === gitlab
-        ? [issue(gitlab, 3, "2026-11-05T00:00:00Z")]
+      repository.owner === "upstream"
+        ? [issue(upstream, 3, "2026-11-05T00:00:00Z")]
         : [issue(github, 4, "2026-11-02T00:00:00Z")];
     return {
       resource: "issueList",
@@ -246,7 +298,7 @@ test("issues from every visible repository merge newest first, each naming its r
         items,
         total: 1,
         counts: { open: 1, closed: 0 },
-        canCreate: true,
+        canCreate: repository === github,
         unavailableReason: "",
         incomplete: false,
         truncated: false,
@@ -254,6 +306,10 @@ test("issues from every visible repository merge newest first, each naming its r
     };
   });
   const reply = (await ask({ type: "forge.issues", project: "ace", search: {} })) as IssuesReply;
-  expect(rowsOf(reply)).toEqual(["GitLab · acme/ace #3", "GitHub · acme/ace #4"]);
+  expect(rowsOf(reply)).toEqual(["GitHub · upstream/ace #3", "GitHub · acme/ace #4"]);
   expect(reply.counts).toEqual({ open: 2, closed: 0 });
+  expect(reply.canCreate).toBe(true);
+  // A GitLab mirror lists its merge requests in Pull requests, nothing in Issues.
+  const read = ops.filter((op) => op.op === "forge.issue.list");
+  expect(read.some((op) => op.repository?.forge === "gitlab")).toBe(false);
 });

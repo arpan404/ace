@@ -35,6 +35,8 @@ export interface RepositoryLists {
   lists: ReadonlyMap<string, ProjectRepositories>;
   /** Projects whose read hasn't answered yet. */
   pending: ReadonlySet<string>;
+  /** Projects whose read failed: lists read only their primary, and say so. */
+  failed: ReadonlySet<string>;
 }
 
 export function useProjectRepositoryLists(projects: readonly string[]): RepositoryLists {
@@ -54,13 +56,15 @@ export function useProjectRepositoryLists(projects: readonly string[]): Reposito
   });
   const lists = new Map<string, ProjectRepositories>();
   const pending = new Set<string>();
+  const failed = new Set<string>();
   results.forEach((result, index) => {
     const project = projects[index];
     if (!project) return;
     if (result.data) lists.set(project, result.data);
-    else if (!result.isError) pending.add(project);
+    else if (result.isError) failed.add(project);
+    else pending.add(project);
   });
-  return { lists, pending };
+  return { lists, pending, failed };
 }
 
 /**

@@ -1,11 +1,13 @@
 import { expect, test } from "vitest";
-import type { ForgeInboxRow } from "@ace/protocol";
+import { WorkspaceId, type ForgeInboxRow, type ProjectRepositories } from "@ace/protocol";
 import {
   inboxBackoffMs,
   inboxGroups,
   inboxPollMs,
   inboxProjects,
+  inboxRepositoriesOf,
   inboxSettledMs,
+  type InboxProjectRepositories,
   rowsForProjects,
 } from "./inbox-model.ts";
 
@@ -113,4 +115,56 @@ test("every project shows the whole account's notifications; picked projects onl
     "1",
     "2",
   ]);
+});
+
+test("a project's primary keeps its rows when another project also uses that repository", () => {
+  const upstream = repo("upstream");
+  const projectOf = inboxProjects(
+    new Map([
+      // A fork whose project chose to use its upstream too.
+      ["p-fork", { primary: repo("fork"), others: [upstream] }],
+      ["p-upstream", { primary: upstream, others: [] }],
+    ]),
+  );
+  expect(projectOf(note("1", "upstream", "mention"))).toBe("p-upstream");
+  expect(projectOf(note("2", "fork", "mention"))).toBe("p-fork");
+});
+
+test("a project's other repositories tag rows no project's primary claims", () => {
+  const projectOf = inboxProjects(
+    new Map<string, ReturnType<typeof repo> | InboxProjectRepositories>([
+      ["p-ace", { primary: repo("ace"), others: [repo("ace-mirror")] }],
+      ["p-docs", repo("docs-site")],
+    ]),
+  );
+  expect(projectOf(note("1", "ace-mirror", "mention"))).toBe("p-ace");
+  expect(projectOf(note("2", "elsewhere", "mention"))).toBeUndefined();
+});
+
+test("a project with no saved choices tags rows with its primary alone, as before", () => {
+  const listed = (config: ProjectRepositories["config"]): ProjectRepositories => ({
+    workspaceId: WorkspaceId.parse("p-ace"),
+    primary: repo("ace"),
+    config,
+    repositories: [repo("ace"), repo("ace-upstream"), repo("ace-hidden")].map((repository) => ({
+      repository,
+      source: "remote",
+      remote: repository.name,
+      visible: repository.name !== "ace-hidden",
+      primary: repository.name === "ace",
+      available: true,
+    })),
+  });
+  expect(inboxRepositoriesOf(listed(null), undefined)).toEqual({
+    primary: repo("ace"),
+    others: [],
+  });
+  expect(
+    inboxRepositoriesOf(
+      listed({ added: [], hidden: [repo("ace-hidden")], primary: null }),
+      undefined,
+    ),
+  ).toEqual({ primary: repo("ace"), others: [repo("ace-upstream")] });
+  // A daemon that can't list repositories still names the primary.
+  expect(inboxRepositoriesOf(undefined, repo("ace"))).toEqual({ primary: repo("ace"), others: [] });
 });

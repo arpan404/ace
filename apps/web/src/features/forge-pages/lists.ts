@@ -240,17 +240,26 @@ export function usePrPages(sources: readonly ReviewSource[], query: ForgePrSearc
   );
 }
 
-/** The projects' issues matching `query`, up to `pages` pages of 25 each. */
-export function useIssuePages(projects: readonly string[], query: ForgeIssueSearch, pages: number) {
+/** Issues matching `query` from each source, up to `pages` pages of 25 each. */
+export function useIssuePages(
+  sources: readonly ReviewSource[],
+  query: ForgeIssueSearch,
+  pages: number,
+) {
   const cache = useQueryClient();
   return useListPages<ForgeIssueList>(
     ["issueList", withoutPage(query)],
-    primarySources(projects),
+    sources,
     pages,
-    async (client, { project }, page, signal) => {
+    async (client, { project, repository }, page, signal) => {
       const value = await readForge(
         client,
-        { op: "forge.issue.list", workspaceId: project, query: { ...query, page } },
+        {
+          op: "forge.issue.list",
+          workspaceId: project,
+          ...(repository ? { repository } : {}),
+          query: { ...query, page },
+        },
         signal,
       );
       if (value.resource !== "issueList") throw new Error("No issue list.");

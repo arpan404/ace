@@ -301,6 +301,8 @@ export class WorkspaceForge {
       p.type === "forge.pr.status"
         ? await this.backends.backend(cwd, p.link.pr.repository)
         : await this.backends.writer(cwd, p.link.pr.repository);
+    // Settings that changed while the repository was resolved refuse before anything else.
+    if (!allowed()) throw new Error("forbidden");
     if (
       (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
       generation === undefined

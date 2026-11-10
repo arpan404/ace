@@ -271,10 +271,12 @@ export class WorkspaceForgeBrowse {
     });
     const host = operation.host ?? own?.host ?? "";
     const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
-    // Rows from any visible repository of the project on this host open without naming it.
+    // Rows from any repository the project uses on this host open without naming it.
     const visible = own
       ? (await this.ctx.backends.projectRepositories(cwd)).resolved.repositories
-          .filter((entry) => entry.visible && entry.repository.host === value.host)
+          .filter(
+            (entry) => entry.visible && entry.available && entry.repository.host === value.host,
+          )
           .map((entry) => entry.repository)
       : [];
     const primary = own?.host === value.host ? own : visible[0];

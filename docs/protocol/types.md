@@ -22561,6 +22561,7 @@ Example:
 | type | yes | `"workspace.repositories.set"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | repositories | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectRepositoryConfig.json"},{"type":"null"}]} |
+| expected | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectRepositoryConfig.json"},{"type":"null"}]} |
 
 Example:
 
@@ -22873,6 +22874,7 @@ Example:
 | type | yes | `"workspace.repositories.set"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | repositories | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectRepositoryConfig.json"},{"type":"null"}]} |
+| expected | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectRepositoryConfig.json"},{"type":"null"}]} |
 
 Example:
 
