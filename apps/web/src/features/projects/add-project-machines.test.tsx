@@ -293,3 +293,30 @@ test("Back from Clone keeps the GitHub search", async () => {
   expect(search).toHaveProperty("value", "docs");
   expect(screen.queryByRole("option", { name: /ada\/engine/ })).toBeNull();
 });
+
+test("a reconnect of this machine keeps the open step on this machine", async () => {
+  const { made, build } = twoMachines();
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "~/code/");
+
+  // While this machine reconnects the build server is the only one online: the step stays here.
+  act(() => made.daemon.refuseConnections(true));
+  await waitFor(() =>
+    expect(
+      screen.queryByText("This Mac isn't connected. Folders come back once it is."),
+    ).toBeTruthy(),
+  );
+  expect(screen.getByRole("combobox", { name: "Folder path" })).toHaveProperty("value", "~/code/");
+  await userEvent.keyboard("{Enter}");
+  act(() => made.daemon.refuseConnections(false));
+
+  const again = await screen.findByRole("combobox", { name: "Folder path" });
+  expect(again).toHaveProperty("value", "~/code/");
+  expect(await screen.findByRole("button", { name: "Machine: This Mac" })).toBeTruthy();
+  expect(paths(build)).toEqual([]);
+});

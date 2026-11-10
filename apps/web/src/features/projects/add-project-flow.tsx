@@ -1,7 +1,7 @@
 import { Activity, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CommandChoices } from "@/components/ui/command-choices.tsx";
 import type { PaletteStart } from "@/lib/layout.tsx";
-import { useMachines, type Machine } from "@/lib/machines.ts";
+import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { CloneProjectStep } from "./clone-project-step.tsx";
 import { CreateProjectStep } from "./create-project-step.tsx";
 import { GithubStep } from "./github-step.tsx";
@@ -13,6 +13,27 @@ import { useProjectDialogs } from "./projects-context.ts";
 
 /** A machine as the flow remembers it: found again in the pool by id, or by being this one. */
 export type ChosenMachine = Pick<Machine, "id" | "name" | "primary">;
+
+/**
+ * The machine the flow opens on: the one New thread in chose, else this one; when this one is
+ * down as the flow opens, the one that can take a project now. Pinned for the flow's life, so a
+ * reconnect never moves an open step (or its Enter) to another machine.
+ */
+function openingMachine(
+  machines: readonly Machine[],
+  asked: ChosenMachine | undefined,
+): ChosenMachine | undefined {
+  if (asked) return asked;
+  const own = machines.find((each) => each.primary);
+  const start =
+    own?.status === "online"
+      ? own
+      : (machines.find((each) => each.status === "online") ?? own ?? machines[0]);
+  return start && { id: start.id, name: start.name, primary: start.primary };
+}
+
+/** Keys what the flow keeps per machine; this one's id changes once its daemon says it. */
+const machineKey = (pick: ChosenMachine) => (pick.primary ? primaryMachineId : pick.id);
 
 /** One step shown on one machine. Its drafts live as long as the flow does. */
 interface Slot {
@@ -42,7 +63,7 @@ export function AddProjectFlow(props: {
   const machines = useMachines();
   const { clone } = useProjectDialogs();
   const land = useLandInProject();
-  const [chosen, setChosen] = useState<ChosenMachine | undefined>(props.machine);
+  const [chosen, setChosen] = useState(() => openingMachine(machines, props.machine));
   const [picking, setPicking] = useState(false);
   const [cloneUrl, setCloneUrl] = useState<{ machine: string; url: string }>();
   const [slots, setSlots] = useState<readonly Slot[]>([]);
@@ -59,17 +80,12 @@ export function AddProjectFlow(props: {
     client: undefined,
   });
   const found = chosen && resolve(chosen);
-  const machine: Machine | undefined = chosen
-    ? (found ?? unreachable(chosen))
-    : // This machine first; when it's down, the one that can take a project now.
-      (online[0] ?? machines[0]);
+  const machine: Machine | undefined = chosen && (found ?? unreachable(chosen));
   // A machine other than this one always shows which, so the chip can change it.
-  const several =
-    online.length > 1 ||
-    (chosen === undefined ? machine?.primary === false : found === undefined || !found.primary);
+  const several = online.length > 1 || found === undefined || !found.primary;
   const choices = useMemo(() => machineChoices(machines, { onlineOnly: false }), [machines]);
 
-  const current = machine ? `${machine.id}\u0000${props.page}` : undefined;
+  const current = machine ? `${machineKey(machine)}\u0000${props.page}` : undefined;
   if (machine && current && !slots.some((slot) => slot.key === current))
     setSlots([
       ...slots,
@@ -131,7 +147,7 @@ export function AddProjectFlow(props: {
         />
       );
     if (slot.page === "add-clone") {
-      const url = cloneUrl?.machine === on.id ? cloneUrl.url : undefined;
+      const url = cloneUrl?.machine === machineKey(on) ? cloneUrl.url : undefined;
       return (
         // A repository chosen in GitHub starts the clone's form over with its address.
         <CloneProjectStep
@@ -152,7 +168,7 @@ export function AddProjectFlow(props: {
           onBack={props.onBack}
           trailing={trailing}
           onSelect={(row) => {
-            setCloneUrl({ machine: on.id, url: row.cloneUrl });
+            setCloneUrl({ machine: machineKey(on), url: row.cloneUrl });
             props.onPage("add-clone");
           }}
         />

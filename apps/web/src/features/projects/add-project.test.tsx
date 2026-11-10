@@ -1,7 +1,9 @@
 import { createIdleTask } from "@/test/tasks.ts";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { createQueryClient } from "@/app.tsx";
+import { hostIdentityKey } from "@/lib/host-name.ts";
 import { harness } from "@/test/harness.tsx";
 
 const home = "/home/dev";
@@ -367,4 +369,30 @@ test("sources narrow as you type and Enter opens the highlighted one", async () 
   await userEvent.clear(again);
   await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(await screen.findByRole("textbox", { name: "Project name" })).toBeTruthy();
+});
+
+test("a Git URL typed before this machine says its id is kept once it does", async () => {
+  const queryClient = createQueryClient();
+  const made = harness({ queryClient });
+  made.daemon.projects.seedFolders("/home/dev", [{ path: "/home/dev/code" }]);
+  made.daemon.holdRequests("host.identity");
+  await made.open("/settings");
+  await screen.findByRole("heading", { level: 1 });
+  await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
+  await userEvent.click(await screen.findByRole("option", { name: "Git URL" }));
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "Repository address" }),
+    "acme/here",
+  );
+
+  made.daemon.restoreRequests();
+  // The held read is dropped and asked again (as a reconnect does), now answered.
+  act(() => void queryClient.resetQueries({ queryKey: hostIdentityKey }));
+  await waitFor(() =>
+    expect(queryClient.getQueryData(hostIdentityKey)).toMatchObject({ hostId: "fake-host" }),
+  );
+  expect(screen.getByRole("textbox", { name: "Repository address" })).toHaveProperty(
+    "value",
+    "acme/here",
+  );
 });
