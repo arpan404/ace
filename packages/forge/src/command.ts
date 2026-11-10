@@ -20,6 +20,8 @@ export type CommandResult = {
   stdout: string;
   truncated: boolean;
   identityChanged?: true;
+  /** Only tea's parsed HTTP status and pagination/quota headers, never raw stderr. */
+  http?: { status: number; headers: Record<string, string> } | undefined;
   /** The CLI reported a network failure (DNS, refused, timed out). Stderr itself never escapes. */
   unreachable?: true;
 };
@@ -153,6 +155,7 @@ export function createCommandRunner(options: {
           : { text: Buffer.concat(chunks, bytes).toString("utf8"), truncated: false };
       return {
         code,
+        ...(request.command === "tea" ? { http: teaHttp(diagnostics) } : {}),
         stdout: output.text,
         truncated: output.truncated,
         ...(code !== 0 && networkFailure.test(diagnostics) ? { unreachable: true as const } : {}),
@@ -204,4 +207,22 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
   const found = await findExecutable(command, { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
   if (found === undefined) throw new ForgeError("cli", undefined, false);
   return { command: found, createJob: () => createKillOnCloseJob() };
+}
+
+/** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
+function teaHttp(stderr: string): CommandResult["http"] {
+  const match = /^HTTP\/[\d.]+ (\d{3})[^\r\n]*\r?\n([\s\S]*?)(?:\r?\n\r?\n|$)/.exec(stderr);
+  if (!match) return undefined;
+  const headers: Record<string, string> = {};
+  for (const line of (match[2] ?? "").split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    const name = line.slice(0, colon).toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (
+      ["x-total-count", "retry-after", "x-ratelimit-remaining"].includes(name) &&
+      /^\d{1,15}$/.test(value)
+    )
+      headers[name] = value;
+  }
+  return { status: Number(match[1]), headers };
 }

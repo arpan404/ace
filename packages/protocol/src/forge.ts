@@ -46,9 +46,15 @@ export function configuredForges(
 export const originApiHost = "origin.cursor.com";
 /** Providers ace can read pull requests from: GitHub through gh, GitLab through glab and
  * Cursor Origin through origin. Others are saved hosts with no pull request reads yet. */
-export const readableForges: readonly ForgeKind[] = ["github", "gitlab", "origin"];
+export const readableForges: readonly ForgeKind[] = [
+  "github",
+  "gitlab",
+  "origin",
+  "gitea",
+  "forgejo",
+];
 /** Providers ace reads issues from: GitHub only. Issues lists leave the others' repositories out. */
-export const issueReadableForges: readonly ForgeKind[] = ["github"];
+export const issueReadableForges: readonly ForgeKind[] = ["github", "gitea", "forgejo"];
 export const ForgeRepository = z.object({
   forge: ForgeKind,
   host: z

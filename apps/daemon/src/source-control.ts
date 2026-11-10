@@ -1,9 +1,11 @@
+import { teaSourceIdentity } from "./tea-source-control.ts";
 import {
   createCommandRunner,
   githubReadiness,
   gitlabReadiness,
   gitlabIdentity,
   originReadiness,
+  teaReadiness,
   originIdentity,
   githubIdentity,
   identityRunner,
@@ -163,29 +165,37 @@ export class SourceControl {
     signal: AbortSignal,
   ) {
     const forge = repository.forge;
-    if (forge !== "gitlab" && forge !== "origin") throw new ForgeError("unsupported");
+    if (forge !== "gitlab" && forge !== "origin" && forge !== "gitea" && forge !== "forgejo")
+      throw new ForgeError("unsupported");
     const revision = this.currentRevision;
     const check = await this.guard();
     const preferences = await this.preferences();
     const configured = preferences.hosts.find((entry) => entry.host === repository.host);
     if (!configured || configuredForge(configured) !== forge) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
+    const tea =
+      forge === "gitea" || forge === "forgejo"
+        ? await teaSourceIdentity(runner, repository.host, signal)
+        : undefined;
+    const target = tea?.login ?? repository.host;
     const identify = (probe: AbortSignal) =>
-      forge === "origin"
-        ? originIdentity(runner, probe)
-        : gitlabIdentity(runner, repository.host, probe);
+      tea
+        ? tea.identify(probe)
+        : forge === "origin"
+          ? originIdentity(runner, probe)
+          : gitlabIdentity(runner, repository.host, probe);
     const key = `${forge} ${repository.host}`;
     const { account, at } = await this.verifiedAccount(key, identify, revision, signal);
     check();
     if (configured.account && configured.account !== account) throw new ForgeError("forbidden");
-    const cli = forge === "origin" ? "origin" : "glab";
+    const cli = tea ? "tea" : forge === "origin" ? "origin" : "glab";
     const generation = this.generation(key);
     const pinned = pinnedRunner({
       runner,
       account,
       identify,
       pins: () => true,
-      isWrite: (request) => !isReadOnlyApiRequest(cli, request, repository.host),
+      isWrite: (request) => !isReadOnlyApiRequest(cli, request, target),
       assertCurrent: check,
       options: {
         now: this.now,
@@ -200,13 +210,12 @@ export class SourceControl {
     const verified: CommandRunner = async (request) => {
       check();
       request.signal.throwIfAborted();
-      if (!isAdmittedApiRequest(cli, request, repository.host, writes))
-        throw new ForgeError("unsupported");
+      if (!isAdmittedApiRequest(cli, request, target, writes)) throw new ForgeError("unsupported");
       const result = await pinned(request);
       check();
       return result;
     };
-    return { account, revision, check, runner: verified };
+    return { account, revision, check, runner: verified, login: tea?.login };
   }
   /** One identity probe per provider host per window, not one per operation. */
   private async verifiedAccount(
@@ -278,18 +287,20 @@ export class SourceControl {
           ? await gitlabReadiness(runner, preferences, signal)
           : forge === "origin"
             ? await originReadiness(runner, preferences, signal)
-            : {
-                preferences,
-                cli: "unavailable",
-                version: null,
-                accounts: [],
-                account: null,
-                api: "unavailable",
-                instructions:
-                  "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
-                transport: "unchecked",
-                transportInstructions: "Check a project's remote to verify Git access.",
-              };
+            : forge === "gitea" || forge === "forgejo"
+              ? await teaReadiness(runner, preferences, signal)
+              : {
+                  preferences,
+                  cli: "unavailable",
+                  version: null,
+                  accounts: [],
+                  account: null,
+                  api: "unavailable",
+                  instructions:
+                    "Host saved. Pull requests, issues and API connection checks for this provider are not available yet. Git clone and push use your existing Git credentials.",
+                  transport: "unchecked",
+                  transportInstructions: "Check a project's remote to verify Git access.",
+                };
     // A rescan re-verifies identity from scratch.
     this.forgetIdentities();
     check();

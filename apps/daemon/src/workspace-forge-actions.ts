@@ -19,6 +19,20 @@ import {
   type ForgePrWrite,
 } from "./forge-action-observation.ts";
 
+/** What the PR action journal needs from a host: GitHub and Gitea in full, GitLab's merge only. */
+export type ForgeActionBackend =
+  | Pick<
+      GitHubForge,
+      | "status"
+      | "prMergeState"
+      | "currentUser"
+      | "replyComment"
+      | "requestReviews"
+      | "merge"
+      | "changeMergeState"
+    >
+  | GitLabHostedMerge;
+
 type Settled = "reconciled" | "failed";
 const settled = (receipt: ForgeWriteReceipt) =>
   receipt.phase === "reconciled" || receipt.phase === "failed";
@@ -139,7 +153,7 @@ export class WorkspaceForgeActions {
   }
   private async status(
     action: ForgeWriteReceipt["action"],
-    backend: GitHubForge | GitLabHostedMerge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
   ): Promise<ForgePrStatus> {
     const target =
@@ -156,7 +170,7 @@ export class WorkspaceForgeActions {
   }
   async execute(
     action: ForgePrWrite,
-    backend: GitHubForge | GitLabHostedMerge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,
@@ -190,7 +204,7 @@ export class WorkspaceForgeActions {
   private async write(
     action: ForgePrWrite,
     key: string,
-    backend: GitHubForge | GitLabHostedMerge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,

@@ -421,7 +421,7 @@ export class WorkspaceForge {
       input.id,
       p.pr.repository.forge === "gitlab"
         ? await gitLabReviewBackend(this.backends, cwd, p.pr, this.lifetime.signal)
-        : await this.backends.writer(cwd, p.pr.repository),
+        : await this.backends.reviewWriter(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );
@@ -470,7 +470,7 @@ export class WorkspaceForge {
     const p = command.payload;
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) return commandNotDispatched(command, "forbidden");
-    let backend: GitHubForge | import("@ace/forge").GitLabHostedMerge;
+    let backend: import("./workspace-forge-actions.ts").ForgeActionBackend;
     try {
       backend =
         p.pr.repository.forge === "gitlab"
@@ -480,7 +480,7 @@ export class WorkspaceForge {
               repository: p.pr.repository,
               signal: this.lifetime.signal,
             })
-          : await this.backends.writer(cwd, p.pr.repository);
+          : await this.backends.mergeWriter(cwd, p.pr.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }

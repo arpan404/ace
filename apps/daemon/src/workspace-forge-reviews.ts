@@ -9,13 +9,41 @@ import {
   ForgePrRef,
   type ForgeReviewState,
 } from "@ace/protocol";
-import { ForgeError, WriteDispatch, type GitHubForge, type GitLabReviews } from "@ace/forge";
+import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { Store } from "./store.ts";
+
+/** What the review journal needs from a host; GitHub, GitLab and Gitea each provide it. */
+type ReviewBackend = {
+  reviews: Pick<GitHubForge["reviews"], "viewedNow" | "moveDrafts" | "write" | "reconcile"> & {
+    decorations(
+      number: number,
+      signal: AbortSignal,
+    ): Promise<Pick<ForgeReviewState, "reactions" | "hidden" | "hideable">>;
+    host(
+      number: number,
+      signal: AbortSignal,
+    ): Promise<{
+      viewer: string;
+      pr: {
+        headRefOid: string;
+        state: string;
+        viewerCanComment: boolean;
+        viewerDidAuthor: boolean;
+      };
+      threads: {
+        id: string;
+        isResolved: boolean;
+        viewerCanResolve: boolean;
+        viewerCanUnresolve: boolean;
+      }[];
+      pending?: ForgeReviewState["hostedPending"];
+    }>;
+  };
+};
 
 const AcceptedDraftRow = z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) });
 const CountRow = z.object({ count: z.number() });
 const StoredDrafts = z.array(ForgeReviewDraft).max(100);
-type ReviewBackend = GitHubForge | { reviews: GitLabReviews };
 const scope = forgeResourceKey;
 /** The drafts a write sends. */
 function sentDrafts(action: ForgeReviewAction): readonly string[] {

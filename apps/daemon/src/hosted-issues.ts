@@ -30,7 +30,7 @@ export interface IssueWrites {
     signal: AbortSignal,
   ): Promise<ForgeIssueRef | null>;
 }
-/** Issues as every host with them answers: GitHub through gh, GitLab through glab. */
+/** Issues as every host with them answers: gh, glab or tea. */
 export interface HostedIssues extends IssueWrites {
   listIssues(query: ForgeIssueSearch, signal: AbortSignal): Promise<ForgeIssueList>;
   issueDetail(number: number, signal: AbortSignal): Promise<ForgeIssueDetail>;
@@ -58,14 +58,17 @@ export type IssueScope = {
 export async function hostedIssues(scope: IssueScope): Promise<HostedIssues> {
   const { cwd, repository, backends, sourceControl, signal } = scope;
   if (repository.forge === "github") return backends.backend(cwd, repository);
+  if (repository.forge === "gitea" || repository.forge === "forgejo")
+    return backends.teaIssues(cwd, repository, signal);
   if (repository.forge !== "gitlab" || !sourceControl) throw new ForgeError("unsupported");
   const identity = await sourceControl.readIdentity(cwd, repository, signal);
   return new GitLabIssues({ repository, runner: identity.runner });
 }
 
 /**
- * Issue writes, refused first for a hidden or unavailable repository (ADR 0116). GitLab's runner
- * admits reads plus exactly `gitlabIssueWrites`, proving the glab account around each (ADR 0117).
+ * Issue writes, refused first for a hidden or unavailable repository (ADR 0116). Each host's
+ * runner admits reads plus exactly its adapter's issue writes (`gitlabIssueWrites`,
+ * `teaIssueWrites`), proving the account around each (ADR 0117).
  */
 export async function hostedIssueWriter(scope: IssueScope): Promise<IssueWrites> {
   const { cwd, repository, backends, sourceControl, signal } = scope;
@@ -75,6 +78,8 @@ export async function hostedIssueWriter(scope: IssueScope): Promise<IssueWrites>
     repository,
   );
   if (refusal) throw new Error(refusal);
+  if (repository.forge === "gitea" || repository.forge === "forgejo")
+    return backends.teaIssueWriter(cwd, repository, signal);
   if (repository.forge !== "gitlab" || !sourceControl) throw new ForgeError("unsupported");
   const identity = await sourceControl.writeIdentity(cwd, repository, gitlabIssueWrites, signal);
   return new GitLabIssues({ repository, runner: identity.runner });
