@@ -442,6 +442,7 @@ export class Projects {
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
         if (
           p.type === "workspace.rename" ||
+          p.type === "workspace.repositories.set" ||
           p.type === "workspace.update" ||
           p.type === "workspace.remove"
         ) {
@@ -468,6 +469,11 @@ export class Projects {
               }),
             };
           }
+          if (p.type === "workspace.repositories.set")
+            return {
+              ok: true,
+              workspace: this.catalog.setRepositories(p.workspaceId, p.repositories),
+            };
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };
           await this.removeProject(input, p.workspaceId, p.stopRunning, allowed);

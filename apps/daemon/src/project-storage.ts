@@ -6,11 +6,13 @@ import {
   ProjectDefaults,
   ProjectNote,
   ThreadId,
+  type ProjectRepositoryConfig,
   type WorkspaceId,
   type WorkspaceChanged,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 import { ProjectError } from "./project-policy.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 
 const recentRow = z.object({ path: Project.shape.path, opened_at: z.number().nonnegative() });
 const folderRow = z.object({ opened_at: z.number().nonnegative().nullable() });
@@ -41,6 +43,9 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("defaults")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN defaults TEXT");
   if (!columns.has("notes")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN notes TEXT");
   if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
+  // A project's saved repository choices (ADR 0116); NULL is "no choices".
+  if (!columns.has("repositories"))
+    db.exec("ALTER TABLE workspace_metadata ADD COLUMN repositories TEXT");
 }
 
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
@@ -235,6 +240,16 @@ export class ProjectStorage {
     const project = this.get(id);
     const notes = change(project.notes ?? []);
     return notes ? this.update(id, project.name, { notes }) : undefined;
+  }
+  /** Replace the project's repository choices (ADR 0116) and tell every client to read them. */
+  setRepositories(id: WorkspaceId, config: ProjectRepositoryConfig | null): Project {
+    const workspace = this.store.atomic(() => {
+      this.get(id);
+      new ProjectRepositoryConfigs(this.store).set(id, config);
+      return this.get(id);
+    });
+    this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });
+    return workspace;
   }
   rename(id: WorkspaceId, name: string): Project {
     return this.update(id, name, {}, "renamed");
