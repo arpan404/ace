@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRepository.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "available": {
+      "type": "boolean"
+    },
+    "primary": {
+      "type": "boolean"
+    },
+    "remote": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "repository": {
+      "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+    },
+    "source": {
+      "enum": [
+        "remote",
+        "manual"
+      ],
+      "type": "string"
+    },
+    "unavailable": {
+      "$ref": "https://ace.local/protocol/v1/ProjectRepositoryUnavailable.json"
+    },
+    "visible": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "repository",
+    "source",
+    "visible",
+    "primary",
+    "available"
+  ],
+  "type": "object"
+}

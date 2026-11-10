@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRepositoriesSetCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "repositories": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProjectRepositoryConfig.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "type": {
+      "const": "workspace.repositories.set",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "repositories"
+  ],
+  "type": "object"
+}
