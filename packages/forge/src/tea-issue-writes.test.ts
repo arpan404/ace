@@ -119,6 +119,32 @@ for (const forge of ["gitea", "forgejo"] as const) {
     ).rejects.toMatchObject({ kind: "forbidden" });
     expect(writes).toEqual([]);
   });
+  test(`${forge} reopens an issue and refuses unknown close reasons`, async () => {
+    const { writer, writes } = fixture((r) =>
+      r.args[1] === "repos/team/app"
+        ? { archived: false, has_issues: true, permissions: { push: true } }
+        : { ...issue, state: "closed" },
+    );
+    await writer.writeIssue(
+      { action: "state", number: 3, state: "open", expectedUpdatedAt: "" },
+      "reopen",
+      signal,
+    );
+    expect(writes).toMatchObject([{ method: "PATCH", body: { state: "open" } }]);
+    await expect(
+      writer.writeIssue(
+        {
+          action: "state",
+          number: 3,
+          state: "closed",
+          reason: "not_planned",
+          expectedUpdatedAt: "",
+        },
+        "reason",
+        signal,
+      ),
+    ).rejects.toMatchObject({ kind: "unsupported" });
+  });
   test(`${forge} reconciles marked creation through reads without repeating it`, async () => {
     const { writer, writes } = fixture(() => [
       { ...issue, body: "Text\n\n<!-- ace-issue-action:lost -->" },

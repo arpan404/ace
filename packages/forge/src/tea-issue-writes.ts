@@ -188,6 +188,7 @@ export class TeaIssueWriter {
       const current = await this.issues.issueDetail(value.number, signal);
       return issueWriteLanded(current, value) ? current.ref : null;
     }
+    if (value.action === "comment") await this.issues.issueDetail(value.number, signal);
     for (let page = 1; page <= 10; page++) {
       const response = await this.get(
         value.action === "create"

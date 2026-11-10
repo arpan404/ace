@@ -18,7 +18,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
         body = [{ name: "work", url: "https://git.example", user: account }];
       else if (request.args[1] === "user") body = { login: account };
       else {
-        request.dispatch?.prepare();
+        request.dispatch?.prepare?.();
         request.dispatch?.record();
         mutations++;
         account = "bob";
