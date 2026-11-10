@@ -370,9 +370,11 @@ test("an approvals-only host offers Approve and submits an approval without comm
     .spyOn(app.client, "command")
     .mockResolvedValue({ commandId: CommandId.parse("approval"), ok: true });
   await app.open(page(gitlab, 13));
-  const review = await screen.findByRole("button", { name: "Review" });
-  await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
-  await userEvent.click(review);
+  // Review is a disabled placeholder until the review state arrives, then a new button.
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Review" }).hasAttribute("disabled")).toBe(false),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Review" }));
   expect(await screen.findByRole("radio", { name: "Approve", checked: true })).toBeTruthy();
   expect(screen.queryByRole("radio", { name: "Comment" })).toBeNull();
   const submit = screen.getByRole("button", { name: "Submit review" });
@@ -415,9 +417,7 @@ test("autoMerge without merge reads its state and offers disabling an armed auto
   );
   await app.open(page(gitlab, 14));
   await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
-  expect(await screen.findByRole("menuitem", { name: "Disable auto-merge" })).not.toHaveAttribute(
-    "aria-disabled",
-    "true",
-  );
+  const disable = await screen.findByRole("menuitem", { name: "Disable auto-merge" });
+  expect(disable.getAttribute("aria-disabled")).not.toBe("true");
   expect(screen.queryByRole("menuitem", { name: "Merge now" })).toBeNull();
 });

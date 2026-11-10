@@ -1,4 +1,4 @@
-import { can } from "@ace/ui-core";
+import { can, forgeDisplayName } from "@ace/ui-core";
 import { useEffect, useCallback, useMemo, useState, type KeyboardEvent } from "react";
 import { useConnectionState } from "@ace/client-react";
 import { useQueryClient, type Query } from "@tanstack/react-query";
@@ -198,7 +198,9 @@ function PrDetailLoaded(props: {
     if (!shortcut) return;
     event.preventDefault();
     if (shortcut === "open")
-      void openWeb(status.url).catch(() => toast.error({ title: "Couldn't open GitHub" }));
+      void openWeb(status.url).catch(() =>
+        toast.error({ title: `Couldn't open ${forgeDisplayName(status.ref.repository.forge)}` }),
+      );
     else props.onTab(shortcut);
   };
   const editable =
@@ -306,8 +308,16 @@ function PrDetailLoaded(props: {
                         </p>
                       )}
                       {!can(detail, "reviews.comments.write") && (
-                        <p className="px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground">
-                          {hostedReviewLine(repository.forge)}
+                        <p className="flex flex-wrap items-center gap-x-1.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground">
+                          <span>{hostedReviewLine(repository.forge)}</span>
+                          <a
+                            href={status.url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="rounded-xs font-medium text-foreground/90 focus-ring hover:text-foreground"
+                          >
+                            Open on {forgeDisplayName(repository.forge)}
+                          </a>
                         </p>
                       )}
                       <PrWriteStatus actions={actions} refreshing={props.refreshing} />
