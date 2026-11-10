@@ -24,9 +24,10 @@ function sourcesOf(
   return projects.flatMap((project): ReviewSource[] => {
     const value = lists.get(project);
     if (!value) return [{ project }];
-    const repositories = value.repositories
-      .filter((entry) => entry.visible && entry.available && readable(entry))
-      .map((entry) => entry.repository);
+    const shown = value.repositories.filter((entry) => entry.visible && entry.available);
+    // Nothing listed at all keeps the old project read, so its error still explains why.
+    if (!shown.length) return value.config ? [] : [{ project }];
+    const repositories = shown.filter(readable).map((entry) => entry.repository);
     if (!repositories.length) return [];
     const primary = value.primary && repositoryKey(value.primary);
     const several = repositories.length > 1;

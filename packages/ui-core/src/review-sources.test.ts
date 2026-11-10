@@ -96,3 +96,9 @@ test("issues appear for a mirror declaring issue reads, and disappear when reads
   expect(issueSources(["ace"], lists)).toEqual([{ project: "ace", repository: gitlab }]);
   expect(reviewSources(["ace"], lists)).toEqual([{ project: "ace", repository: gitlab }]);
 });
+
+test("a project with no listed repository still reads through the project so its problem shows", () => {
+  const lists = new Map([["ace", listed([])]]);
+  expect(reviewSources(["ace"], lists)).toEqual([{ project: "ace" }]);
+  expect(issueSources(["ace"], lists)).toEqual([{ project: "ace" }]);
+});
