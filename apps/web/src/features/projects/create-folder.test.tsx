@@ -74,7 +74,11 @@ test("a folder created for another machine is made on that machine, not this one
   await made.open("/settings");
   await screen.findByRole("heading", { level: 1 });
   await userEvent.keyboard("{Meta>}{Shift>}o{/Shift}{/Meta}");
-  await userEvent.click(await screen.findByRole("option", { name: "Build server" }));
+  // Add project starts on this machine; Ctrl+M lists the others.
+  await screen.findByRole("listbox", { name: "Project sources" });
+  await userEvent.keyboard("{Control>}m{/Control}");
+  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  await userEvent.click(await within(machines).findByRole("option", { name: "Build server" }));
   await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
   const input = await field();
   await userEvent.clear(input);
