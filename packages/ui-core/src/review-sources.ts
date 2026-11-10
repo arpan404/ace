@@ -33,11 +33,12 @@ export function reviewSources(
     if (!repositories.length) return value.config ? [] : [{ project }];
     const primary = value.primary && repositoryKey(value.primary);
     const several = repositories.length > 1;
-    return repositories.map((repository) => ({
-      project,
-      ...(repositoryKey(repository) === primary ? {} : { repository }),
-      ...(several ? { shown: repository } : {}),
-    }));
+    return repositories.map((repository) => {
+      const source: ReviewSource = { project };
+      if (repositoryKey(repository) !== primary) source.repository = repository;
+      if (several) source.shown = repository;
+      return source;
+    });
   });
 }
 

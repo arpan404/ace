@@ -217,7 +217,7 @@ function AddRepository(props: {
           disabled={props.disabled}
           aria-invalid={problem ? true : undefined}
           aria-describedby={text.trim() ? noteId : undefined}
-          className="font-mono text-[12.5px]"
+          className="font-mono"
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             // The dialog's form saves on Enter; here Enter adds the repository instead.

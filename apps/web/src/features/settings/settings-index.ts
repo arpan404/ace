@@ -129,6 +129,12 @@ const entries = [
     keywords: [...forgeWords, "login", "gh", "glab", "user", "account"],
   },
   {
+    id: "sourceControl.projectRepositories",
+    page: "/settings/source-control",
+    title: "Project repositories",
+    keywords: [...forgeWords, "repository", "repositories", "mirror", "remote", "primary", "hide"],
+  },
+  {
     id: "sourceControl.remote",
     page: "/settings/source-control",
     title: "Repository remote",

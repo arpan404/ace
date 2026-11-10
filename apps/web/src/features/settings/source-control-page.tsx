@@ -37,6 +37,7 @@ import {
   SettingSection,
 } from "@/components/setting-row.tsx";
 import { useSettingsMachine } from "./machine-scope.tsx";
+import { SourceControlProjects } from "./source-control-projects.tsx";
 import { ToolchainSection } from "./toolchain-section.tsx";
 import { settingKeys } from "./data/setting-keys.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
@@ -342,6 +343,8 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
           </SettingFooter>
         </SettingSection>
       </div>
+      {/* Project dialogs edit this window's own daemon's projects. */}
+      {machineId === "primary" && <SourceControlProjects />}
       <SettingSection label="Git transport">
         <SettingRow
           title="Check a project's remote"

@@ -42,6 +42,7 @@ import { useReviewSources } from "./review-sources.ts";
 import { ClearLine, countWords, PresetMenu, StateToggles } from "./quick-views.tsx";
 
 const noRuns: readonly VerifyRun[] = [];
+const partial = (first: ForgePrList) => first.incomplete || first.truncated;
 
 /**
  * Each project's open total for the project menu: the sum over its repositories' first pages,
@@ -176,7 +177,6 @@ export function PullRequestsPage(props: {
   const [method, setMethod] = useMergeMethod(single ?? "");
   const navigate = useNavigate();
   const dialogs = useProjectDialogs();
-  const partial = (first: ForgePrList) => first.incomplete || first.truncated;
   const incomplete = [...list.firsts.values()].some(partial);
   const complete = !list.more && !incomplete && review.settled;
   const sum = (pick: (counts: ForgePrList["counts"]) => number) => {

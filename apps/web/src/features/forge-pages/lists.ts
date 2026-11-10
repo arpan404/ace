@@ -125,9 +125,9 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
     // The last page asked for of this source says whether it has more.
     if (page === pages && data.nextPage !== undefined) more = true;
     for (const row of data.items) {
-      const key = rowKey(row);
-      if (owner.has(key)) continue;
-      owner.set(key, source.project);
+      const identity = rowKey(row);
+      if (owner.has(identity)) continue;
+      owner.set(identity, source.project);
       rows.push(row);
     }
   });
