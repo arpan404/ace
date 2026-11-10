@@ -80,7 +80,9 @@ export class TeaReviews {
   }
   async conversation(number: number, signal: AbortSignal) {
     const p = await this.pr(number, signal);
-    const comments = (await this.all(`issues/${number}/comments`, comment, signal)).map((c) =>
+    const rawComments = await this.all(`issues/${number}/comments`, comment, signal);
+    const rawInline: z.infer<typeof inline>[] = [];
+    const comments = rawComments.map((c) =>
       decode(ForgeComment, {
         kind: "issue",
         id: c.id,
@@ -121,6 +123,7 @@ export class TeaReviews {
       );
       if (!r.comments_count) continue;
       for (const c of await this.all(`pulls/${number}/reviews/${r.id}/comments`, inline, signal)) {
+        rawInline.push(c);
         const line = c.position > 0 ? c.position : null;
         const mapped = decode(ForgeComment, {
           kind: "inline",
@@ -152,7 +155,11 @@ export class TeaReviews {
     const latest = await this.pr(number, signal);
     if (latest.head.sha !== p.head.sha) throw new ForgeError("head_moved");
     if (comments.length > 2000 || threads.length > 2000) throw new ForgeError("limit");
-    return { comments, reviewThreads: threads };
+    return {
+      comments,
+      reviewThreads: threads,
+      raw: { reviews, comments: rawComments, inline: rawInline },
+    };
   }
   async reviewers(number: number, signal: AbortSignal) {
     const p = await this.pr(number, signal);

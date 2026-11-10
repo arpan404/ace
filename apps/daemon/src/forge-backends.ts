@@ -141,6 +141,18 @@ export class ForgeBackends {
       account: identity.account,
     };
   }
+  async mergeWriter(cwd: string, repository: ForgeRepository) {
+    if (repository.forge !== "gitea" && repository.forge !== "forgejo")
+      return this.writer(cwd, repository);
+    return (await this.teaWriter(cwd, repository, this.signal)).writer;
+  }
+  async mergeReader(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    const identity = await this.sourceControl.readIdentity(cwd, repository, signal);
+    if (!("login" in identity) || typeof identity.login !== "string")
+      throw new ForgeError("unsupported");
+    return new TeaWriter({ repository, runner: identity.runner, login: identity.login });
+  }
   async reviewWriter(cwd: string, repository: ForgeRepository) {
     if (repository.forge !== "gitea" && repository.forge !== "forgejo")
       return this.writer(cwd, repository);

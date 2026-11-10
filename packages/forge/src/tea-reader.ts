@@ -83,7 +83,12 @@ export class TeaReader implements ForgeReader {
     const checks = await teaChecks(this.runner, this.login, this.root, p.head.sha, signal);
     const latest = await this.pull(number, signal);
     if (latest.head.sha !== p.head.sha) throw new ForgeError("head_moved");
-    return { ...status(this.repository, p), ...conversation, ...checks };
+    return {
+      ...status(this.repository, p),
+      ...conversation,
+      ...checks,
+      raw: redactData({ ...p, conversation: conversation.raw, checks: checks.raw }),
+    };
   }
   async listPrs(input: ForgePrSearch, signal: AbortSignal) {
     const q = ForgePrSearch.parse(input);

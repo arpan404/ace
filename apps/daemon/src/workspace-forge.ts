@@ -403,9 +403,9 @@ export class WorkspaceForge {
     const p = command.payload;
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) return commandNotDispatched(command, "forbidden");
-    let backend: GitHubForge;
+    let backend: import("./workspace-forge-actions.ts").ForgeActionBackend;
     try {
-      backend = await this.backends.writer(cwd, p.pr.repository);
+      backend = await this.backends.mergeWriter(cwd, p.pr.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }

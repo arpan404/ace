@@ -28,6 +28,7 @@ export async function teaChecks(
 ) {
   decode(sha, head);
   const latest = new Map<string, z.infer<typeof record>>();
+  const raw: z.infer<typeof combined>[] = [];
   let total: number | undefined;
   let seen = 0;
   let aggregate = "success";
@@ -37,6 +38,7 @@ export async function teaChecks(
       (await teaGet(runner, login, `${root}/commits/${head}/status?page=${page}&limit=100`, signal))
         .body,
     );
+    raw.push(response);
     if (response.sha !== head) throw new ForgeError("head_moved");
     if (total !== undefined && total !== response.total_count) throw new ForgeError("conflict");
     total = response.total_count;
@@ -82,7 +84,7 @@ export async function teaChecks(
             : checks.length
               ? "success"
               : "none";
-    return { checks, ci };
+    return { checks, ci, raw };
   }
   throw new ForgeError("limit");
 }

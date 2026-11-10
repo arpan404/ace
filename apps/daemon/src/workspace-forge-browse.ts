@@ -69,6 +69,14 @@ export class WorkspaceForgeBrowse {
     if (repository.forge !== "github") {
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (reader instanceof TeaReader) {
+        if (operation.op === "forge.pr.merge-state") {
+          const backend = await this.ctx.backends.mergeReader(cwd, repository, signal);
+          const { value, writeState } = await this.parts.actions.readMergeState(
+            { repository, number: operation.number },
+            () => backend.prMergeState(operation.number, signal),
+          );
+          return { resource: "prMergeState", value: { ...value, writeState } };
+        }
         if (operation.op === "forge.pr.review-state")
           return {
             resource: "prReviewState",
@@ -88,9 +96,11 @@ export class WorkspaceForgeBrowse {
       if (operation.op === "forge.pr.detail") {
         const ref = { repository, number: operation.number };
         const revision = this.ctx.owner.capture(ref);
-        const value = await reader.prDetail(operation.number, signal);
+        const { value, writeState } = await this.parts.actions.readDetail(ref, () =>
+          reader.prDetail(operation.number, signal),
+        );
         if (this.ctx.owner.current(ref, revision)) this.publishStatus(value.status);
-        return { resource: "prDetail", value };
+        return { resource: "prDetail", value: { ...value, writeState } };
       }
       throw new ForgeError("unsupported");
     }
