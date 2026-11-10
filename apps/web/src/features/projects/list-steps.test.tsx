@@ -39,3 +39,24 @@ test("a failed home read shows Retry, not loading, and Retry brings the folders"
   await waitFor(() => expect(field.value).toBe("~/"));
   expect(await within(sheet).findByRole("option", { name: "code" })).toBeTruthy();
 });
+
+test("Tab completes a folder in the location field, and leaves it when nothing completes", async () => {
+  const made = host();
+  await source(made, "Git URL");
+  const location = await screen.findByRole<HTMLInputElement>("combobox", {
+    name: "Search for a location",
+  });
+  await userEvent.clear(location);
+  await userEvent.type(location, "~/code/we");
+  await screen.findByRole("option", { name: /weather/ });
+  await userEvent.tab();
+  await waitFor(() => expect(location.value).toBe("~/code/weather/"));
+  expect(document.activeElement).toBe(location);
+
+  await userEvent.clear(location);
+  await userEvent.type(location, "~/code/zz");
+  await waitFor(() => expect(screen.queryByRole("option", { name: /weather/ })).toBeNull());
+  await userEvent.tab();
+  expect(document.activeElement).not.toBe(location);
+  expect(location.value).toBe("~/code/zz");
+});

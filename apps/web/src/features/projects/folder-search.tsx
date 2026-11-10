@@ -19,6 +19,7 @@ import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx"
 import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
 import { AllowFolder } from "./allow-folder.tsx";
+import { tabCompletes } from "./path-completion.ts";
 import { Badge, Notice, RefusedNotice, offlineIcon } from "./folder-notices.tsx";
 import type { FolderRow, FolderSearch } from "./use-folder-search.ts";
 
@@ -31,8 +32,9 @@ const mod = (event: KeyboardEvent) => (applePlatform ? event.metaKey : event.ctr
 /**
  * The location box over a daemon's folders, as a combobox: letters search, `/`, `~` and `./`
  * browse a path. ↑/↓ (and Ctrl-N/P) move, Enter or Tab goes into the highlighted folder (Tab
- * completes a typed path), Backspace on an empty segment and ⌘↑ go up, Esc clears. ⌘Enter is
- * left to the form.
+ * completes a typed path), Backspace on an empty segment and ⌘↑ go up, Esc clears. Tab with
+ * nothing to complete moves focus on, and Enter with nothing highlighted, like ⌘Enter, is left
+ * to the form.
  */
 export function FolderSearchBox(props: {
   label: string;
@@ -105,14 +107,14 @@ export function FolderSearchBox(props: {
       const up = query.kind === "path" ? upInput(query, home?.path) : undefined;
       if (up === undefined) return;
       type(up);
-    } else if (key === "Enter") {
-      if (mod(event)) return;
-      choose(highlighted);
     } else if (key === "Tab" && !event.shiftKey && !event.altKey && !mod(event)) {
+      const fallback = query.kind === "path" && query.segment ? highlighted : undefined;
       if (query.kind === "path") {
+        // Nothing to complete and nothing to go into: Tab moves on, as it does anywhere.
+        const names = search.loading && !rows.length ? undefined : rows.map((row) => row.name);
+        if (!tabCompletes({ segment: query.segment, names, intoHighlighted: !!fallback })) return;
         // The daemon completes. Its reply applies only to the same text on the same machine.
         const typed = { text, machine: search.machineId };
-        const fallback = highlighted && query.segment ? highlighted : undefined;
         completing.current?.abort();
         const controller = new AbortController();
         completing.current = controller;
