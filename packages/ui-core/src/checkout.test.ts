@@ -184,3 +184,15 @@ test("a status from another host cannot change a linked review with the same nam
     repo: repository,
   });
 });
+
+test("a checkout can create reviews when its repository declaration enables creation", () => {
+  const checkout = checkoutOf(details({ repository: { ...repository, forge: "gitlab" } }));
+  if (!checkout) throw new Error("Expected checkout");
+  expect(nextGitStep(checkout, { capabilities: ["reviews.create"] })).toEqual({
+    kind: "create-pr",
+    blocked: undefined,
+  });
+  expect(nextGitStep(checkout, { capabilities: [] })).toMatchObject({
+    blocked: expect.any(String),
+  });
+});
