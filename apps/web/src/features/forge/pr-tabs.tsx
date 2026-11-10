@@ -20,14 +20,14 @@ const names: Record<PrTab, string> = {
 };
 
 /**
- * Summary · Timeline · Code · Checks as words: the current one on the flat selected fill, no
- * shadow. Focus shows only from the keyboard, as the quiet inset ring rows use.
+ * Summary · Timeline · Code · Checks as GitHub lays out its tabs: words on the bar's hairline,
+ * the current one underlined and in full ink. Focus shows only from the keyboard.
  */
 const wordTab =
-  "h-7 rounded-md px-2 text-ui font-normal focus-ring-inset hover:not-data-active:bg-hover data-active:bg-active data-active:font-medium";
+  "h-10 rounded-none bg-transparent px-2 text-ui font-normal focus-ring-inset hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
 
 /**
- * The tab bar: Summary · Timeline · Code · Checks as words with a quiet count each, and the
+ * The tab bar: Summary · Timeline · Code · Checks as words with a counter pill each, and the
  * active tab's context at its right end. In a panel each tab body is its own scroller. On a page
  * the whole page scrolls as one inside the page's column: the header scrolls away, the bar pins
  * to the top, Summary and Timeline grow with their content, and Code fills the space under the
@@ -77,10 +77,7 @@ export function PrTabs(props: {
     >
       <div
         ref={bar}
-        className={cn(
-          "shrink-0 border-t border-border py-2",
-          page && "sticky top-0 z-[3] border-b bg-panel",
-        )}
+        className={cn("shrink-0 border-b border-border", page && "sticky top-0 z-[3] bg-panel")}
       >
         <div
           className={cn(
@@ -88,14 +85,14 @@ export function PrTabs(props: {
             props.readable,
           )}
         >
-          <TabsList aria-label="Pull request detail" className="-ml-2">
+          <TabsList aria-label="Pull request detail" className="-ml-2 gap-1">
             {order.map((tab) => (
               <TabsTab key={tab} value={tab} className={wordTab}>
                 {names[tab]}
                 {!!props.counts[tab] && (
                   <span
                     aria-hidden
-                    className="ml-1 font-normal text-subtle-foreground tabular-nums"
+                    className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-fill px-1.5 text-2xs font-medium text-muted-foreground tabular-nums"
                   >
                     {props.counts[tab]}
                   </span>
@@ -114,7 +111,7 @@ export function PrTabs(props: {
           key={tab}
           value={tab}
           className={cn(
-            !page && "overflow-auto border-t border-border",
+            !page && "overflow-auto",
             page && tab === "code" && "flex-none overflow-hidden",
             page && tab !== "code" && "flex-none",
           )}

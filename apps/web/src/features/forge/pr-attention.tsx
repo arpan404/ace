@@ -4,7 +4,6 @@ import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
-import { PrSection } from "./pr-section.tsx";
 import { attentionItems, type AttentionItem } from "./pr-summary-model.ts";
 import { PrFixingWord } from "./pr-fixing-word.tsx";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
@@ -24,9 +23,9 @@ function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
       <span
         aria-hidden
         data-tone="failed"
-        className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full text-(--tone-text) ring-1 ring-(--tone)/60"
+        className="mt-px grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--tone)_18%,transparent)] text-(--tone-text)"
       >
-        <XIcon size={11} weight="bold" />
+        <XIcon size={13} weight="bold" />
       </span>
     );
   return (
@@ -70,7 +69,7 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-2.5 py-3">
+    <li className="flex items-start gap-3 px-4 py-3">
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -224,7 +223,13 @@ export function PrAttention(props: {
   const avatarOf = (author: string) =>
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
-    <PrSection id="pr-attention" title="Blocking the merge" count={items.length} fixed>
+    <section id="pr-attention" aria-label="Blocking the merge" className="scroll-mt-16">
+      <h3 className="flex items-center gap-1.5 px-4 pt-3 text-ui font-semibold text-foreground">
+        Blocking the merge
+        <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-fill px-1.5 text-2xs font-medium text-muted-foreground tabular-nums">
+          {items.length}
+        </span>
+      </h3>
       <ul className="divide-y divide-border-soft">
         {items.map((item) => {
           const masked = item.kind !== "check" && !hiddenKnown;
@@ -313,6 +318,6 @@ export function PrAttention(props: {
           );
         })}
       </ul>
-    </PrSection>
+    </section>
   );
 }

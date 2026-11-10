@@ -6,19 +6,23 @@ import { WebLink } from "@/components/web-link.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import type { PrDialog } from "./pr-dialogs.tsx";
-import { PrSection } from "./pr-section.tsx";
 import { lockReasonLabels } from "@ace/ui-core";
 
-/** One labelled row of the About section: "Reviewers", "Labels", "Milestone"… */
+/**
+ * One block of the sidebar, as GitHub stacks them: "Reviewers", "Labels", "Milestone"… in small
+ * strong type with its action at the right, what it holds under it, and a hairline below.
+ */
 export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex min-h-8 items-start gap-3 py-0.5 text-ui">
-      <span className="flex h-7 w-24 shrink-0 items-center text-xs text-muted-foreground">
-        {props.label}
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">{props.children}</div>
-      {/* The action's words, not its box, end on the column's edge. */}
-      {props.action && <div className="-mr-1.5 flex h-7 shrink-0 items-center">{props.action}</div>}
+    <div className="border-b border-border-soft py-3 text-ui first:pt-0 last:border-b-0">
+      <div className="flex h-6 items-center gap-2">
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">
+          {props.label}
+        </span>
+        {/* The action's words, not its box, end on the column's edge. */}
+        {props.action && <div className="-mr-1.5 flex shrink-0 items-center">{props.action}</div>}
+      </div>
+      <div className="mt-0.5 flex min-w-0 flex-col gap-0.5">{props.children}</div>
     </div>
   );
 }
@@ -43,10 +47,10 @@ function IssueLine(props: { issue: ForgeClosingIssue; action?: ReactNode }) {
 }
 
 /**
- * About the pull request: who reviews it, who is assigned, its labels and the agent on it
- * (`people`), then what it is filed under and touches on GitHub besides its code: the
- * milestone, the issues it closes, a locked conversation and the head branch once it is done.
- * Each row shows only when it holds something or this account can change it.
+ * The Summary's sidebar, as GitHub's: who reviews it, who is assigned, its labels and the agent on
+ * it (`people`), then the milestone, the issues it closes (Development), a locked conversation
+ * and the head branch once it is done. Each block shows only when it holds something or this
+ * account can change it.
  */
 export function PrDetails(props: {
   actions: PrActions;
@@ -57,9 +61,9 @@ export function PrDetails(props: {
   const snapshot = lifecycle.snapshot;
   if (!snapshot)
     return props.people ? (
-      <PrSection id="pr-about" title="About" fixed>
-        <div>{props.people}</div>
-      </PrSection>
+      <aside id="pr-about" aria-label="About">
+        {props.people}
+      </aside>
     ) : null;
   const busy = lifecycle.blocked;
   const editMilestone = snapshot.editableFields.includes("milestone");
@@ -105,7 +109,7 @@ export function PrDetails(props: {
     );
   if (issues.length || lifecycle.can("issue.link"))
     rows.push(
-      <DetailRow key="issues" label="Closes">
+      <DetailRow key="issues" label="Development">
         {issues.map((issue) => (
           <IssueLine
             key={`${issue.ref.repository.owner}/${issue.ref.repository.name}#${issue.ref.number}`}
@@ -242,11 +246,9 @@ export function PrDetails(props: {
     );
   if (!rows.length && !props.people) return null;
   return (
-    <PrSection id="pr-about" title="About" fixed>
-      <div>
-        {props.people}
-        {rows}
-      </div>
-    </PrSection>
+    <aside id="pr-about" aria-label="About">
+      {props.people}
+      {rows}
+    </aside>
   );
 }
