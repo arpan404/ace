@@ -82,3 +82,17 @@ test("a project whose only listed repositories are hidden lists no issues, as it
   expect(issueSources(["ace"], lists)).toEqual([]);
   expect(reviewSources(["ace"], lists)).toEqual([]);
 });
+
+test("issues appear for a mirror declaring issue reads, and disappear when reads are withdrawn", () => {
+  const lists = new Map([
+    [
+      "ace",
+      listed([
+        { ...entry(github, { primary: true }), capabilities: [] },
+        { ...entry(gitlab), capabilities: ["reviews.read", "issues.read"] },
+      ]),
+    ],
+  ]);
+  expect(issueSources(["ace"], lists)).toEqual([{ project: "ace", repository: gitlab }]);
+  expect(reviewSources(["ace"], lists)).toEqual([{ project: "ace", repository: gitlab }]);
+});

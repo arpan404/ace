@@ -148,7 +148,7 @@ test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
   (forge) => {
     expect(step({ repository: { ...repository, forge, host: "git.example.com" } })).toMatchObject({
       kind: "create-pr",
-      blocked: /aren't supported yet/,
+      blocked: /isn't supported yet/,
     });
   },
 );

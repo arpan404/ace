@@ -1,4 +1,6 @@
-import { readableForges } from "@ace/protocol/forge";
+import { can } from "./forge-capability.ts";
+import { forgeDisplayName } from "./forge-hosts.ts";
+import { reviewNoun } from "./hosted-reviews.ts";
 import type { ForgePrStatus, ForgeRepository, ThreadDetails } from "@ace/protocol";
 
 /** A thread's pull request: the linked one from details, refined by the forge's live status. */
@@ -98,10 +100,10 @@ function linkedPr(
 
 /** Why a checkout can't open a pull request, or undefined when it can. */
 export function prBlocker(checkout: Checkout): string | undefined {
-  if (checkout.repository?.forge === "gitlab")
-    return "Creating GitLab merge requests isn't supported yet: open one on GitLab.";
-  if (checkout.repository && checkout.repository.forge !== "github")
-    return "Pull requests for this Git provider aren't supported yet. Open one on its website.";
+  if (checkout.repository && !can(checkout.repository, "reviews.create")) {
+    const provider = forgeDisplayName(checkout.repository.forge);
+    return `Creating ${provider} ${reviewNoun(checkout.repository.forge)}s isn't supported yet: open one on ${provider}.`;
+  }
   if (!checkout.branch) return "The checkout is on a detached HEAD.";
   if (checkout.baseBranch !== undefined && checkout.branch === checkout.baseBranch)
     return `The checkout is on ${checkout.baseBranch}, the branch a PR would merge into.`;
@@ -112,7 +114,7 @@ export function prBlocker(checkout: Checkout): string | undefined {
 /** Linking an existing review only needs a read adapter, not a mutation backend. */
 export function linkPrBlocker(checkout: Checkout): string | undefined {
   if (!checkout.repository) return "ace found no supported Git remote for this checkout.";
-  if (!readableForges.includes(checkout.repository.forge))
+  if (!can(checkout.repository, "reviews.read"))
     return "Linking pull requests for this Git provider isn't supported yet.";
   return undefined;
 }

@@ -1,5 +1,6 @@
 import { prUrl } from "@ace/forge/pr-reference";
 import type { ForgeKind, ForgePrDetail, ForgeRepository } from "@ace/protocol";
+import { can } from "./forge-capability.ts";
 import { forgeDisplayName } from "./forge-hosts.ts";
 
 /*
@@ -8,9 +9,9 @@ import { forgeDisplayName } from "./forge-hosts.ts";
  * iPhone read these; nothing here offers a write, which the daemon refuses for these hosts. Pure.
  */
 
-/** Whether a review is read-only in ace: its detail says so, or it isn't on GitHub. */
-export function isHostedReview(detail: Pick<ForgePrDetail, "readOnly" | "status">): boolean {
-  return detail.readOnly === true || detail.status.ref.repository.forge !== "github";
+/** Whether ace cannot comment on this review. Prefer individual capability checks for sections. */
+export function isHostedReview(detail: Pick<ForgePrDetail, "status" | "capabilities">): boolean {
+  return !can(detail, "reviews.comments.write");
 }
 
 /** What the provider calls a review: GitLab's merge requests, everyone else's pull requests. */

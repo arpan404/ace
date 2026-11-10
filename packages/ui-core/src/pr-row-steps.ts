@@ -1,3 +1,4 @@
+import { can } from "./forge-capability.ts";
 import type { SidebarReader } from "@ace/client";
 import type { ForgePrRow, ForgeRepository, VerifyRun } from "@ace/protocol";
 import type { RowGroup } from "./forge-lists.ts";
@@ -74,7 +75,7 @@ export function rowStep(
   thread: LinkedThread | undefined,
   runs: readonly VerifyRun[],
 ): RowStep {
-  if (row.ref.repository.forge !== "github")
+  if (!can(row.ref.repository, "reviews.merge"))
     return {
       step: thread?.needsYou
         ? "answer"
