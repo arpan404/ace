@@ -52,6 +52,8 @@ struct ForgePullRow: Decodable, Sendable, Equatable, Identifiable {
     let stepNeedsYou: Bool
     let quiet: String?
     let updatedAt: Double?
+    /// "GitLab · acme/ace", only when the project lists more than one repository.
+    var repositoryLabel: String? = nil
     var id: String { key }
 }
 
@@ -71,6 +73,8 @@ struct ForgeIssueRow: Decodable, Sendable, Equatable, Identifiable {
     let milestone: String?
     let thread: ForgeThreadLink?
     let updatedAt: Double?
+    /// "GitLab · acme/ace", only when the project lists more than one repository.
+    var repositoryLabel: String? = nil
     var id: String { key }
 }
 
@@ -92,6 +96,8 @@ struct ForgePullList: Decodable, Sendable, Equatable {
     let more: Bool
     let authors: [String]
     let labels: [String]
+    /// One sentence per repository that couldn't be read; the others' rows still show.
+    var failed: [String]? = nil
 }
 
 struct ForgeIssueList: Decodable, Sendable, Equatable {
@@ -101,6 +107,7 @@ struct ForgeIssueList: Decodable, Sendable, Equatable {
     let more: Bool
     let authors: [String]
     let labels: [String]
+    var failed: [String]? = nil
     let canCreate: Bool
 }
 
