@@ -1,4 +1,5 @@
-import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import { teaForgeBrowse } from "./tea-forge-browse.ts";
+import { TeaReader, ForgeError, repositoryKey, prUrl } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -67,6 +68,10 @@ export class WorkspaceForgeBrowse {
     signal.throwIfAborted();
     if (repository.forge !== "github") {
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
+      if (reader instanceof TeaReader) {
+        const value = await teaForgeBrowse(reader, operation, signal);
+        if (value) return value;
+      }
       if (operation.op === "forge.pr.list")
         return { resource: "prList", value: await reader.listPrs(operation.query, signal) };
       if (operation.op === "forge.pr.files")

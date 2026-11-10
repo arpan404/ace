@@ -1,6 +1,9 @@
 import {
   GitHubForge,
   GitLabReader,
+  TeaReader,
+  TeaWriter,
+  teaWrites,
   OriginReader,
   type ForgeReader,
   GitHubInbox,
@@ -115,6 +118,25 @@ export class ForgeBackends {
     if (refusal) throw new Error(refusal);
     return this.backend(cwd, repository);
   }
+  async teaWriter(
+    cwd: string,
+    repository: ForgeRepository,
+    signal: AbortSignal,
+  ): Promise<{ writer: TeaWriter; account: string }> {
+    const refusal = repositoryWriteRefusal(
+      (await this.projectRepositories(cwd)).resolved,
+      repository,
+    );
+    if (refusal) throw new Error(refusal);
+    if (!this.sourceControl || (repository.forge !== "gitea" && repository.forge !== "forgejo"))
+      throw new ForgeError("unsupported");
+    const identity = await this.sourceControl.writeIdentity(cwd, repository, teaWrites, signal);
+    if (!identity.login) throw new ForgeError("unsupported");
+    return {
+      writer: new TeaWriter({ repository, runner: identity.runner, login: identity.login }),
+      account: identity.account,
+    };
+  }
   async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
     return (
       (await this.sourceControl?.hostAliases(
@@ -136,6 +158,11 @@ export class ForgeBackends {
     const identity = await this.sourceControl.readIdentity(cwd, repository, signal);
     const options = { repository, runner: identity.runner };
     if (repository.forge === "gitlab") return new GitLabReader(options);
+    if (repository.forge === "gitea" || repository.forge === "forgejo") {
+      if (!("login" in identity) || typeof identity.login !== "string" || !identity.login)
+        throw new ForgeError("unsupported");
+      return new TeaReader({ ...options, login: identity.login });
+    }
     return new OriginReader({
       ...options,
       snapshots: this.snapshots(

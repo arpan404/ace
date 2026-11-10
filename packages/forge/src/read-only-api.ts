@@ -1,7 +1,7 @@
 import type { CommandRequest } from "./command.ts";
 
 /** CLIs ace reaches non-GitHub hosts through, one exact request shape each. */
-export type HostApiCli = "glab" | "origin";
+export type HostApiCli = "glab" | "origin" | "tea";
 
 /**
  * One write an adapter admits (ADR 0117): an HTTP method and the endpoints it may reach. Each
@@ -36,6 +36,16 @@ export function isReadOnlyApiRequest(
   if (request.command !== cli || request.input !== undefined) return false;
   const endpoint = args[1];
   if (args[0] !== "api" || !endpoint || endpoint.startsWith("-")) return false;
+  if (cli === "tea")
+    return (
+      teaEndpoint(endpoint) &&
+      args.length === 7 &&
+      args[2] === "--method" &&
+      args[3] === "GET" &&
+      args[4] === "--login" &&
+      args[5] === host &&
+      args[6] === "--include"
+    );
   if (cli === "origin") return args.length === 4 && args[2] === "--method" && args[3] === "GET";
   if (args[2] !== "-X" || args[3] !== "GET" || args[4] !== "--hostname" || args[5] !== host)
     return false;
@@ -55,7 +65,31 @@ export function isAdmittedWriteRequest(
   host: string,
   writes: readonly HostApiWrite[],
 ): boolean {
-  if (cli !== "glab" || request.command !== cli) return false;
+  if (request.command !== cli) return false;
+  if (cli === "tea") {
+    const a = request.args;
+    const endpoint = a[1];
+    return (
+      a.length === 9 &&
+      a[0] === "api" &&
+      typeof endpoint === "string" &&
+      teaEndpoint(endpoint) &&
+      a[2] === "--method" &&
+      a[4] === "--login" &&
+      a[5] === host &&
+      a[6] === "--include" &&
+      a[7] === "--data" &&
+      a[8] === "@-" &&
+      typeof request.input === "string" &&
+      isJsonObject(request.input) &&
+      writes.some(
+        (w) =>
+          w.method === a[3] &&
+          new RegExp(w.endpoint.source, w.endpoint.flags.replace(/[gy]/g, "")).test(endpoint),
+      )
+    );
+  }
+  if (cli !== "glab") return false;
   const args = request.args;
   const endpoint = args[1];
   if (args.length !== 9 || args[0] !== "api" || !endpoint || endpoint.startsWith("-")) return false;
@@ -82,6 +116,22 @@ function isJsonObject(text: string): boolean {
   try {
     const value: unknown = JSON.parse(text);
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  } catch {
+    return false;
+  }
+}
+
+/** No absolute URLs, placeholders, traversal, fragments or alternate API roots. */
+function teaEndpoint(endpoint: string): boolean {
+  if (!/^(user|repos\/[A-Za-z0-9_.%-]+\/[A-Za-z0-9_.%-]+)(?:[/?]|$)/.test(endpoint)) return false;
+  if (/[\\#{}\s]/.test(endpoint)) return false;
+  try {
+    const path = decodeURIComponent(endpoint.split("?")[0] ?? "");
+    return (
+      !path.split("/").some((part) => part === "." || part === "..") &&
+      !/[\\?#{}\s]/.test(path) &&
+      !/%[0-9a-f]{2}/i.test(path)
+    );
   } catch {
     return false;
   }

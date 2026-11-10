@@ -36,8 +36,8 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
   origin: ["reviews.read", "reviews.files"],
   gitbucket: [],
   bitbucket: [],
-  gitea: [],
-  forgejo: [],
+  gitea: ["reviews.read", "reviews.files", "reviews.commits", "issues.read"],
+  forgejo: ["reviews.read", "reviews.files", "reviews.commits", "issues.read"],
 };
 
 export function supports(forge: ForgeKind, capability: ForgeCapability): boolean {
