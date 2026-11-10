@@ -22468,6 +22468,22 @@ Example:
 }
 ```
 
+### workspace.root.remove
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"workspace.root.remove"` |  |
+| path | yes | string | {"minLength":1,"maxLength":4096} |
+
+Example:
+
+```json
+{
+  "path": "example",
+  "type": "workspace.root.remove"
+}
+```
+
 ### workspace.create
 
 | Field | Required | Type | Constraints |
@@ -22484,8 +22500,7 @@ Example:
 ```json
 {
   "git": {},
-  "gitignore": "example",
-  "name": "|!",
+  "name": "((&, (\"&",
   "parent": "example",
   "type": "workspace.create"
 }
@@ -22505,7 +22520,8 @@ Example:
 
 ```json
 {
-  "name": "((&, (\"&",
+  "icon": "data:image/webp;base64,Q153k7dKTVoWBaU8UKHorMTSdMtHWIW6",
+  "name": ",}z+!*)~{#",
   "parent": "example",
   "type": "workspace.clone",
   "url": "example"
@@ -22528,8 +22544,9 @@ Example:
 
 ```json
 {
-  "icon": "data:image/webp;base64,Q153k7dKTVoWBaU8UKHorMTSdMtHWIW6",
-  "name": ",}z+!*)~{#",
+  "badge": null,
+  "icon": null,
+  "name": "{)",
   "type": "workspace.update",
   "workspaceId": "example"
 }
@@ -22547,7 +22564,7 @@ Example:
 
 ```json
 {
-  "name": "{)",
+  "name": "y#",
   "type": "workspace.rename",
   "workspaceId": "example"
 }
@@ -22595,6 +22612,7 @@ Example:
 
 ```json
 {
+  "stopRunning": false,
   "type": "workspace.remove",
   "workspaceId": "example"
 }

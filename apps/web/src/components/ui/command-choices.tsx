@@ -9,7 +9,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "./command-step.tsx";
-import { backHint, escapeHint, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
+import { fieldHints, KeyHints, navigateHint, selectHint } from "./key-hints.tsx";
 
 export interface CommandChoice {
   id: string;
@@ -152,8 +152,7 @@ export function CommandChoices(props: {
           ...(props.onSwitchMachines
             ? [{ keys: ["ctrl+m"] as const, label: props.switchLabel ?? "Machine" }]
             : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(text),
+          ...fieldHints(text, props.onBack),
         ]}
       />
     </>

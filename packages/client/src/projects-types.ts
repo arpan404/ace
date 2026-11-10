@@ -42,6 +42,12 @@ export interface ProjectCalls {
     options?: RequestOptions,
     commandId?: string,
   ): Promise<CommandResult>;
+  /** Stop allowing one project root; the other roots stay as they are. */
+  removeRoot(
+    input: Input<"workspace.root.remove">,
+    options?: RequestOptions,
+    commandId?: string,
+  ): Promise<CommandResult>;
   clone(
     input: Input<"workspace.clone">,
     options?: RequestOptions,
