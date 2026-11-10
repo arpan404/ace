@@ -190,19 +190,14 @@ export function CloneProjectStep(props: {
             }
           >
             The failed clone left a folder at{" "}
-            {displayPath(childFolder(place.location, leftover), place.home?.path)}; ace keeps it
-            for you to look at, so clone into another folder name or location.
+            {displayPath(childFolder(place.location, leftover), place.home?.path)}; ace keeps it for
+            you to look at, so clone into another folder name or location.
           </Offer>
         )}
       </div>
       {running ? (
         <CommandStepFooter note={<CloneStatus run={run} several={props.several} />}>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={run.cancelling}
-            onClick={clone.cancel}
-          >
+          <Button size="sm" variant="ghost" disabled={run.cancelling} onClick={clone.cancel}>
             Cancel clone
           </Button>
         </CommandStepFooter>
@@ -261,7 +256,11 @@ function CloneStatus(props: { run: Extract<CloneRun, { status: "running" }>; sev
         <>
           {" "}
           on{" "}
-          <MachineLabel name={run.machine.name} icon={run.machine.icon} primary={run.machine.primary} />
+          <MachineLabel
+            name={run.machine.name}
+            icon={run.machine.icon}
+            primary={run.machine.primary}
+          />
         </>
       )}
       {!run.cancelling && `…${value === undefined ? "" : ` ${value}%`}`}

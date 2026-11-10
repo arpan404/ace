@@ -166,10 +166,7 @@ test("failed clone keeps the folder name", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   await openClone(made);
   expect(await address()).toHaveProperty("value", "https://github.com/acme/site.git");
-  expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty(
-    "value",
-    "marketing",
-  );
+  expect(screen.getByRole("textbox", { name: "Folder name" })).toHaveProperty("value", "marketing");
   expect(await screen.findByText("~/marketing")).toBeTruthy();
   expect(screen.getByText(/Git couldn't finish/)).toBeTruthy();
 });

@@ -120,3 +120,22 @@ test("Settings offers to create a missing project folder, and Enter creates and 
   expect(await screen.findByRole("button", { name: `Actions for ${home}/work` })).toBeTruthy();
   expect(made.daemon.services.settings.get("projects.roots")).toEqual([home, `${home}/work`]);
 });
+
+test("New project folds its branch away, and a branch Git won't take opens it instead of creating", async () => {
+  const made = host();
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "orbit");
+  const branch = screen.getByRole("textbox", { name: "Initial branch", hidden: true });
+  // jsdom has no layout: whether the folded part is open is what hides it.
+  const shown = () => branch.closest("details")?.open;
+  expect(shown()).toBe(false);
+  await userEvent.click(screen.getByText("Branch and .gitignore"));
+  await userEvent.type(branch, "bad branch");
+  await userEvent.click(screen.getByText("Branch and .gitignore"));
+  await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+  expect(await screen.findByText("That isn't a branch name Git accepts.")).toBeTruthy();
+  expect(shown()).toBe(true);
+  expect(registered(made)).toEqual([]);
+});
