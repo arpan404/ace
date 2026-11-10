@@ -36,6 +36,18 @@ export class WorkspaceForgeBrowse {
     // Which repository a project is, from its remote alone: lists tag rows by project with it.
     if (operation.op === "forge.repository")
       return { resource: "repository", value: await this.ctx.backends.repository(cwd) };
+    if (operation.op === "forge.repositories") {
+      const { resolved, config } = await this.ctx.backends.projectRepositories(cwd);
+      return {
+        resource: "repositories",
+        value: {
+          workspaceId: operation.workspaceId,
+          repositories: resolved.repositories,
+          primary: resolved.primary?.repository ?? null,
+          config: config ?? null,
+        },
+      };
+    }
     // A new pull request reads where it would open, which may be a fork's parent.
     if (operation.op === "forge.pr.new-context")
       return { resource: "newPrContext", value: await this.parts.newPr.context(cwd, signal) };
@@ -259,9 +271,20 @@ export class WorkspaceForgeBrowse {
     });
     const host = operation.host ?? own?.host ?? "";
     const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
+    // Rows from any visible repository of the project on this host open without naming it.
+    const visible = own
+      ? (await this.ctx.backends.projectRepositories(cwd)).resolved.repositories
+          .filter((entry) => entry.visible && entry.repository.host === value.host)
+          .map((entry) => entry.repository)
+      : [];
+    const primary = own?.host === value.host ? own : visible[0];
     return {
       resource: "inboxList",
-      value: own?.host === value.host ? { ...value, projectRepository: own } : value,
+      value: {
+        ...value,
+        ...(primary ? { projectRepository: primary } : {}),
+        ...(visible.length ? { projectRepositories: visible } : {}),
+      },
     };
   }
   publishStatus(status: ForgePrStatus): void {

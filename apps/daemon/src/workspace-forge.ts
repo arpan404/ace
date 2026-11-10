@@ -27,6 +27,7 @@ import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 import { ForgeBackends } from "./forge-backends.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import { WorkspaceForgeBrowse } from "./workspace-forge-browse.ts";
 import { WorkspacePrAssociations } from "./workspace-pr-associations.ts";
 import { WorkspacePrCreation } from "./workspace-pr-creation.ts";
@@ -82,6 +83,7 @@ export class WorkspaceForge {
       sourceControl,
       replyReceipts: new ForgeReplyReceipts(store),
       signal: this.lifetime.signal,
+      configs: new ProjectRepositoryConfigs(store),
     });
     this.stopPreferences = sourceControl?.listen(() => {
       this.backends.clear();
@@ -279,7 +281,11 @@ export class WorkspaceForge {
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
-    const backend = await this.backends.backend(cwd, p.link.pr.repository);
+    // Refreshing a link's status reads; everything else here writes to the PR's repository.
+    const backend =
+      p.type === "forge.pr.status"
+        ? await this.backends.backend(cwd, p.link.pr.repository)
+        : await this.backends.writer(cwd, p.link.pr.repository);
     if (
       (p.type === "forge.pr.merge-state.change" || p.type === "forge.pr.auto-merge") &&
       generation === undefined
@@ -335,7 +341,7 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backends.backend(cwd, p.pr.repository),
+      await this.backends.writer(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );
@@ -360,7 +366,7 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.backend(cwd, p.pr.repository);
+    const backend = await this.backends.writer(cwd, p.pr.repository);
     await this.checks.execute(p, backend, this.lifetime.signal, allowed);
     return { ok: true };
   }
@@ -382,7 +388,7 @@ export class WorkspaceForge {
     if (!allowed()) return commandNotDispatched(command, "forbidden");
     let backend: GitHubForge;
     try {
-      backend = await this.backends.backend(cwd, p.pr.repository);
+      backend = await this.backends.writer(cwd, p.pr.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -410,7 +416,7 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.backend(cwd, p.pr.repository);
+    const backend = await this.backends.writer(cwd, p.pr.repository);
     const receipt = await this.lifecycle.execute(
       p,
       command.id,

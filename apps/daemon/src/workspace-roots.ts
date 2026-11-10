@@ -13,6 +13,7 @@ import {
   type MoveContext,
 } from "./workspace-move.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import type { SourceControl } from "./source-control.ts";
 import { ThreadId, type ThreadDetails, type Command } from "@ace/protocol";
 import type { Store } from "./store.ts";
@@ -232,6 +233,7 @@ export class WorkspaceRoots {
           info.remotes.flatMap((remote) => remote.fetchUrls),
           new AbortController().signal,
         ),
+        new ProjectRepositoryConfigs(this.store).get(thread.workspaceId),
       );
       check?.();
       // Never publish a read from an old binding. There is no await between comparison and write.

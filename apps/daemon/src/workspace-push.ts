@@ -1,6 +1,11 @@
-import { repositoryKey } from "@ace/forge";
+import { repositoryKey, resolveProjectRepositories } from "@ace/forge";
 import type { GitService } from "@ace/git";
-import type { CommandPayload, ForgePrWorkspace, ForgeRepository } from "@ace/protocol";
+import type {
+  CommandPayload,
+  ForgePrWorkspace,
+  ForgeRepository,
+  ProjectRepositoryConfig,
+} from "@ace/protocol";
 import type { SourceControl } from "./source-control.ts";
 import { workspaceRepository } from "./workspace-repository.ts";
 
@@ -34,6 +39,8 @@ export async function pushWorkspace(
   permitted: () => boolean,
   /** The checkout reviews this pull request: an untargeted push updates its head branch. */
   pullRequest?: Pick<ForgePrWorkspace, "headBranch" | "headRepository">,
+  /** The project's repository choices (ADR 0116): a targeted push goes to its primary. */
+  project: { config?: ProjectRepositoryConfig | undefined } = {},
 ) {
   const check = await sourceControl?.guard();
   const preferences = await sourceControl?.preferences();
@@ -73,7 +80,10 @@ export async function pushWorkspace(
     await git.push({ worktree: cwd, remote: input.remote, beforePush: allowed, ...force });
     return;
   }
-  if (input.remote !== (preferences?.remote ?? "origin")) throw new Error("repository_mismatch");
+  const config = project.config;
+  // Without saved choices only the global remote name is pushed to, as before.
+  if (!config && input.remote !== (preferences?.remote ?? "origin"))
+    throw new Error("repository_mismatch");
   const info = await git.repositoryInfo(cwd);
   allowed();
   const remote = info.remotes.find((entry) => entry.name === input.remote);
@@ -84,8 +94,17 @@ export async function pushWorkspace(
       new AbortController().signal,
     )) ?? {};
   allowed();
-  const repository = workspaceRepository(info.remotes, preferences, aliases);
-  if (!repository || repositoryKey(repository) !== repositoryKey(target.repository))
+  const primary = resolveProjectRepositories({
+    remotes: info.remotes,
+    preferences,
+    aliases,
+    config,
+  }).primary;
+  if (
+    !primary ||
+    (config && primary.remote !== input.remote) ||
+    repositoryKey(primary.repository) !== repositoryKey(target.repository)
+  )
     throw new Error("repository_mismatch");
   if (!remotePushesTo(remote, target.repository, preferences, aliases))
     throw new Error("repository_mismatch");

@@ -26,7 +26,7 @@ requests and checkout details all assumed that one repository.
 
 ### One pure resolver
 
-`resolveProjectRepositories` (daemon) takes the checkout's remotes, the global preferences,
+`resolveProjectRepositories` (`@ace/forge`, shared by the daemon and the fake daemon) takes the checkout's remotes, the global preferences,
 the aliases and the project's saved choices, and returns the resolved list and the primary.
 It does no I/O. `workspaceRepository()` is its primary, so every caller that wanted "the
 project's repository" now gets the primary through the same rule.
