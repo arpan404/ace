@@ -16,6 +16,7 @@ import { teaGet } from "./tea-api.ts";
 import { decode, pull, ref, status, labels, row, headRepository, sha } from "./tea-records.ts";
 import { clipText } from "./host-text.ts";
 import { redactData } from "./redact.ts";
+import { teaChecks } from "./tea-checks.ts";
 import { TeaReviews } from "./tea-reviews.ts";
 import { TeaIssues } from "./tea-issues.ts";
 import { forgeCapabilities } from "./forge-capabilities.ts";
@@ -79,9 +80,10 @@ export class TeaReader implements ForgeReader {
   async status(number: number, signal: AbortSignal) {
     const p = await this.pull(number, signal);
     const conversation = await this.reviews.conversation(number, signal);
+    const checks = await teaChecks(this.runner, this.login, this.root, p.head.sha, signal);
     const latest = await this.pull(number, signal);
     if (latest.head.sha !== p.head.sha) throw new ForgeError("head_moved");
-    return { ...status(this.repository, p), ...conversation };
+    return { ...status(this.repository, p), ...conversation, ...checks };
   }
   async listPrs(input: ForgePrSearch, signal: AbortSignal) {
     const q = ForgePrSearch.parse(input);
@@ -147,11 +149,7 @@ export class TeaReader implements ForgeReader {
       reviewDecision: null,
       commits: 0,
       changedFiles: p.changed_files ?? 0,
-      unavailableResources: [
-        "checks",
-        "commits",
-        ...(p.changed_files === undefined ? ["fileCount"] : []),
-      ],
+      unavailableResources: ["commits", ...(p.changed_files === undefined ? ["fileCount"] : [])],
       relatedThreads: [],
       relatedThreadsTruncated: false,
     });

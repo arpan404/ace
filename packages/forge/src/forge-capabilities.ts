@@ -37,6 +37,7 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
   gitbucket: [],
   bitbucket: [],
   gitea: [
+    "reviews.checks",
     "reviews.approvals.read",
     "reviews.approvals.write",
     "reviews.comments.read",
@@ -48,6 +49,7 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
     "issues.write",
   ],
   forgejo: [
+    "reviews.checks",
     "reviews.approvals.read",
     "reviews.approvals.write",
     "reviews.comments.read",

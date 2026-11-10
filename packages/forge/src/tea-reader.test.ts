@@ -33,6 +33,13 @@ function reader(forge: "gitea" | "forgejo", respond: (path: string) => unknown, 
   const runner: CommandRunner = async (r) => {
     if (r.command !== "tea" || r.args.slice(2).join(" ") !== "--method GET --login work --include")
       throw new Error("unsafe read");
+    if ((r.args[1] ?? "").includes("/status?"))
+      return {
+        code: 0,
+        stdout: JSON.stringify({ sha: head, state: "success", total_count: 0, statuses: [] }),
+        truncated: false,
+        http: { status: 200, headers: {} },
+      };
     return {
       code: 0,
       stdout: JSON.stringify(
@@ -61,7 +68,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
       body: "Description",
       baseSha: base,
       readOnly: false,
-      unavailableResources: ["checks", "commits"],
+      unavailableResources: ["commits"],
     });
     expect(await r.prCheckout(7, signal)).toMatchObject({
       headSha: head,
