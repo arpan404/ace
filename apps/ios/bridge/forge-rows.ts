@@ -1,5 +1,7 @@
 import type { ForgeIssueRow, ForgePrRow, ForgeRepository } from "@ace/protocol";
 import {
+  can,
+  type ForgeCapabilitySource,
   checksMark,
   forgeDisplayName,
   issueStateMark,
@@ -119,10 +121,11 @@ export function prRowView(
   step: RowStep,
   linked: LinkedThreads,
   preview: Preview,
+  source: ForgeCapabilitySource = row.ref.repository,
 ): PrRowView {
   const label = step.step === "wait" ? undefined : prStepLabels[step.step];
   // A review ace only reads has no review or checks to show: it says so, and opens to read.
-  const hosted = row.ref.repository.forge !== "github";
+  const hosted = !can(source, "reviews.merge");
   const ended = row.state === "closed" || row.state === "merged";
   return {
     key: keyOf(row),
@@ -135,8 +138,10 @@ export function prRowView(
     merged: row.state === "merged",
     conflicting: row.conflicting === true,
     labels: labelsOf(row.labels, row.labelColors, preview),
-    review: hosted ? null : (reviewMark(row.reviewDecision) ?? null),
-    checks: hosted ? null : (checksMark(row.ci, step.local) ?? null),
+    review: !can(source, "reviews.approvals.read")
+      ? null
+      : (reviewMark(row.reviewDecision) ?? null),
+    checks: !can(source, "reviews.checks") ? null : (checksMark(row.ci, step.local) ?? null),
     comments: row.commentCount ?? 0,
     additions: row.additions ?? null,
     deletions: row.deletions ?? null,

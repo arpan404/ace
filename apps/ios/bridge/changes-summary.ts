@@ -1,5 +1,11 @@
 import type { ThreadDetails } from "@ace/protocol";
-import { changeTreeRows, repositoryLabel, type DiffScope } from "@ace/ui-core";
+import {
+  can,
+  changeTreeRows,
+  repositoryLabel,
+  type DiffScope,
+  type ForgeCapabilitySource,
+} from "@ace/ui-core";
 import { changesNextStep, changesSummary, mergeMethods } from "@ace/ui-core/mobile";
 import type { Preview } from "./agents.ts";
 import type { ScopeFile } from "./changes-diffs.ts";
@@ -20,6 +26,7 @@ export interface SummaryInput {
   epoch: number;
   preview: Preview;
   details: ThreadDetails | undefined;
+  capabilitySource?: ForgeCapabilitySource | undefined;
   reads: Reads | undefined;
   state: "loading" | "ready" | "error";
   message: string;
@@ -60,7 +67,7 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
         files: checkout.files.map((file) => ({ ...file, counted: true })),
       };
   // The next step is the checkout's, whatever scope the list shows.
-  const step = changesNextStep(input.details, reads?.pr, checkout?.totals);
+  const step = changesNextStep(input.details, reads?.pr, checkout?.totals, input.capabilitySource);
   const resolved = scope.resolved;
   return {
     type: "changes.summary",
@@ -107,6 +114,9 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
           ? `Opens on ${repositoryLabel(input.details.repository)}`
           : null,
     },
+    canRequestReview:
+      can(input.capabilitySource ?? reads?.pr?.ref.repository, "reviews.approvals.write") &&
+      (reads?.pr?.state === "open" || reads?.pr?.state === "draft"),
     busy: input.busy,
     // Every way the forge merges; the phone remembers the last one picked.
     methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),

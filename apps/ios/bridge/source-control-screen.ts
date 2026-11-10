@@ -7,8 +7,10 @@ import {
 } from "@ace/protocol";
 import { originApiHost, publicForgeHosts } from "@ace/protocol/forge";
 import {
+  can,
   defaultForgeHost,
   forgeNames,
+  forgeClis,
   forgeOrder,
   hostForge,
   preferencesProblem,
@@ -50,16 +52,25 @@ export type SourceControlScreenRequest = z.infer<typeof SourceControlScreenReque
 /** How far ace reaches a provider: everything, read-only in Code review, or not yet. */
 export type HostSupport = "full" | "browse" | "pending";
 
-const support = (forge: string): HostSupport =>
-  forge === "github" ? "full" : forge === "gitlab" || forge === "origin" ? "browse" : "pending";
+const support = (forge: string): HostSupport => {
+  const kind = known(forge);
+  const source = kind ? { forge: kind } : undefined;
+  return can(source, "reviews.create")
+    ? "full"
+    : can(source, "reviews.read")
+      ? "browse"
+      : "pending";
+};
 const known = (forge: string): ForgeKind | undefined => ForgeKind.safeParse(forge).data;
 /** A provider this build doesn't know is shown by its own id. */
 const nameOf = (forge: string): string => {
   const kind = known(forge);
   return kind ? forgeNames[kind] : forge;
 };
-const cliOf = (forge: string): string =>
-  forge === "gitlab" ? "glab" : forge === "origin" ? "origin" : "gh";
+const cliOf = (forge: string): string => {
+  const kind = known(forge);
+  return kind ? (forgeClis[kind] ?? "CLI") : "CLI";
+};
 
 /** A saved host as the settings value holds it, every field kept. */
 const RawHost = z.looseObject({

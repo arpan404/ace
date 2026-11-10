@@ -1,9 +1,11 @@
 import { ClientError } from "@ace/client";
-import type { ForgeRepository } from "@ace/protocol";
+import type { ForgeRepository, ProjectRepository } from "@ace/protocol";
 import {
   forgeErrorText,
   issueSources,
   repositoryLabel,
+  repositoryCapabilities,
+  type ForgeCapabilitySource,
   reviewSources,
   type RowGroup,
 } from "@ace/ui-core";
@@ -20,6 +22,7 @@ import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 export interface ListSource {
   /** Named in every read; undefined reads the project's primary, as before ADR 0116. */
   repository: ForgeRepository | undefined;
+  capabilitySource?: ForgeCapabilitySource | undefined;
   /** "GitLab · acme/ace", only when the project lists more than one repository. */
   label: string | null;
 }
@@ -27,6 +30,7 @@ export interface ListSource {
 /** What a list reads, and the sentence saying the project's repositories couldn't be read. */
 export interface ListPlan {
   sources: ListSource[];
+  entries: ProjectRepository[];
   /** Set when the repositories couldn't be read: the primary alone is read, and totals are unknown. */
   unlisted: string | null;
 }
@@ -39,11 +43,22 @@ async function plan(
   rule: typeof reviewSources,
 ): Promise<ListPlan> {
   const value = await reads.repositories(project).catch(() => undefined);
-  if (!value) return { sources: [{ repository: undefined, label: null }], unlisted: unlistedText };
+  if (!value)
+    return {
+      sources: [{ repository: undefined, label: null }],
+      entries: [],
+      unlisted: unlistedText,
+    };
   const sources = rule([project], new Map([[project, value]]));
   return {
+    entries: value.repositories,
     sources: sources.map((source) => ({
       repository: source.repository,
+      capabilitySource: source.repository
+        ? repositoryCapabilities(source.repository, value.repositories)
+        : value.primary
+          ? repositoryCapabilities(value.primary, value.repositories)
+          : undefined,
       label: source.shown ? repositoryLabel(source.shown) : null,
     })),
     unlisted: null,
