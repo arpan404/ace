@@ -115,6 +115,10 @@ test("a host that can't say whether its review rules are met shows approvals so 
   );
 });
 
+test("an approved decision with no approving reviewer known says approved, never a made-up count", () => {
+  expect(said(facts({ reviewDecision: "APPROVED" })).reviews).toBe("Approved (done)");
+});
+
 test("a merged PR shows who merged it, where it went and what became of the branch", () => {
   expect(
     said(

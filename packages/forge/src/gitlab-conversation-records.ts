@@ -48,6 +48,7 @@ export const GitLabDiscussion = z.looseObject({
 });
 export const GitLabApprovals = z.looseObject({
   approved: z.boolean().optional(),
+  approvals_required: z.number().int().nonnegative().optional(),
   approvals_left: z.number().int().nonnegative().optional(),
   approved_by: z
     .array(z.looseObject({ user: GitLabUser, approved_at: text.nullable().optional() }))
@@ -154,14 +155,27 @@ export function conversation(discussions: z.infer<typeof GitLabDiscussion>[], he
   return { comments, reviewThreads, events };
 }
 
+/**
+ * The MR's review decision from its approvals and approval rules (docs.gitlab.com/api/
+ * merge_request_approvals/). GitLab marks an MR `approved`, with no approvals left and every
+ * rule met, when nothing is required, so those alone never mean someone approved. APPROVED
+ * needs a real approver or a satisfied rule that requires one; null ("no review required")
+ * needs GitLab to say none is required; anything else is UNKNOWN.
+ */
 export function approvalDecision(
   approvals: z.infer<typeof GitLabApprovals>,
   state?: z.infer<typeof GitLabApprovalState>,
-): "APPROVED" | "REVIEW_REQUIRED" | null {
-  if (state?.rules.length)
-    return state.rules.every((rule) => rule.approved) ? "APPROVED" : "REVIEW_REQUIRED";
-  if (approvals.approved !== undefined) return approvals.approved ? "APPROVED" : "REVIEW_REQUIRED";
-  if (approvals.approvals_left !== undefined)
-    return approvals.approvals_left === 0 ? "APPROVED" : "REVIEW_REQUIRED";
-  return null;
+): "APPROVED" | "REVIEW_REQUIRED" | "UNKNOWN" | null {
+  const rules = state?.rules ?? [];
+  // Readable rules are authoritative; the totals are the fallback without them.
+  if (rules.length) {
+    if (rules.some((rule) => !rule.approved)) return "REVIEW_REQUIRED";
+    if (rules.some((rule) => (rule.approvals_required ?? 0) > 0)) return "APPROVED";
+  } else if (approvals.approved === false || (approvals.approvals_left ?? 0) > 0)
+    return "REVIEW_REQUIRED";
+  if (approvals.approved_by.length > 0) return "APPROVED";
+  const noneRequired =
+    approvals.approvals_required === 0 ||
+    (state !== undefined && rules.every((rule) => rule.approvals_required === 0));
+  return noneRequired ? null : "UNKNOWN";
 }

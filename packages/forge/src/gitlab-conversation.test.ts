@@ -88,6 +88,50 @@ test.each([
   ]);
 });
 
+test.each([
+  {
+    name: "nothing required and nobody approved is no review required, never approved",
+    approvals: { approved: true, approvals_required: 0, approvals_left: 0, approved_by: [] },
+    rules: [{ approved: true, approvals_required: 0 }],
+    decision: null,
+  },
+  {
+    name: "approved with nothing left but no rule or requirement known is unknown",
+    approvals: { approved: true, approvals_left: 0, approved_by: [] },
+    rules: undefined,
+    decision: "UNKNOWN",
+  },
+  {
+    name: "a satisfied rule that requires an approval is approved",
+    approvals: { approved: true, approvals_left: 0, approved_by: [] },
+    rules: [{ approved: true, approvals_required: 1 }],
+    decision: "APPROVED",
+  },
+  {
+    name: "a real approver is approved even where nothing is required",
+    approvals: {
+      approved: true,
+      approvals_required: 0,
+      approvals_left: 0,
+      approved_by: [{ user, approved_at: note.created_at }],
+    },
+    rules: [{ approved: true, approvals_required: 0 }],
+    decision: "APPROVED",
+  },
+])("GitLab approvals: $name", async (row) => {
+  const f = fixture((req) =>
+    req.args[1] === `${root}/approvals`
+      ? reply(row.approvals)
+      : req.args[1] === `${root}/approval_state`
+        ? row.rules
+          ? reply({ rules: row.rules })
+          : { code: 1, stdout: "HTTP/2.0 404 Not Found\r\n\r\n{}", truncated: false }
+        : undefined,
+  );
+  const reader = new GitLabReader({ repository, runner: f.runner });
+  expect((await reader.prDetail(7, signal)).reviewDecision).toBe(row.decision);
+});
+
 test("discussion pagination is followed without dropping earlier notes", async () => {
   const f = fixture((req) =>
     req.args[1]?.includes("/discussions?")

@@ -73,7 +73,12 @@ function reviewsGate(facts: GateFacts): Gate {
   if (decision === "CHANGES_REQUESTED" || [...facts.outcomes.values()].includes("changes"))
     return { key: "reviews", label, value: "Changes requested", tone: "failed" };
   if (decision === "APPROVED" || (!decision && approved))
-    return { key: "reviews", label, value: `${Math.max(1, approved)} approved`, tone: "done" };
+    return {
+      key: "reviews",
+      label,
+      value: approved ? `${approved} approved` : "Approved",
+      tone: "done",
+    };
   if (decision === "REVIEW_REQUIRED")
     return { key: "reviews", label, value: "Review required", tone: "needs-you" };
   // The host can't say whether its rules are met: approvals so far, never "done".
