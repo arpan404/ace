@@ -1,71 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { Command, Thread, type ThreadId } from "@ace/protocol";
-import { transitionHarness } from "./engine/transition-test-support.ts";
-import { WorkspaceRuntime } from "./workspace-runtime.ts";
-
-const execute = promisify(execFile);
-async function git(root: string, ...args: string[]) {
-  return (await execute("git", ["-C", root, ...args])).stdout.trim();
-}
-async function fixture() {
-  const h = transitionHarness();
-  await git(h.home, "init", "-b", "main");
-  await git(h.home, "config", "user.name", "ace test");
-  await git(h.home, "config", "user.email", "test@ace.local");
-  await writeFile(join(h.home, "file.txt"), "project\n");
-  // The harness keeps its database in the project folder; it is not the project's work.
-  await writeFile(join(h.home, ".gitignore"), "events.sqlite*\n");
-  await git(h.home, "add", ".");
-  await git(h.home, "commit", "-m", "Initial");
-  await h.engine.ready();
-  const data = await mkdtemp(join(tmpdir(), "ace-move-data-"));
-  const open = () =>
-    new WorkspaceRuntime(h.store, data, () => 1000, {
-      changeWorkspace: (id, commandId, effect, reservation, commit) =>
-        h.engine.changeWorkspace(id, commandId, effect, reservation, commit),
-    });
-  let runtime = open();
-  let serial = 0;
-  const local = () => {
-    const created = h.command({
-      type: "thread.create",
-      workspaceId: h.workspace,
-      provider: "codex",
-      mode: "local",
-      input: [{ type: "text", text: "start" }],
-    });
-    if (!created.threadId) throw new Error("Missing thread");
-    return created.threadId;
-  };
-  const run = (payload: Record<string, unknown>) =>
-    runtime.execute(Command.parse({ id: `move-${++serial}`, deviceId: "device", payload }));
-  const send = (threadId: ThreadId, text: string) =>
-    h.command({ type: "thread.send", threadId, input: [{ type: "text", text }] });
-  return {
-    h,
-    data,
-    local,
-    run,
-    send,
-    get runtime() {
-      return runtime;
-    },
-    async restart() {
-      await runtime.close();
-      runtime = open();
-    },
-    async close() {
-      await runtime.close();
-      await h.close();
-      await rm(data, { recursive: true, force: true });
-    },
-  };
-}
+import { Thread } from "@ace/protocol";
+import { fixture, git } from "./workspace-move-test-support.ts";
 
 test("move to worktree from a branch makes its own branch, fences no shared root and ignores busy siblings", async () => {
   const f = await fixture();

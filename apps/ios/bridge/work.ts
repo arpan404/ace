@@ -8,6 +8,7 @@ import {
   checkoutProblem,
   defaultFirst,
   linkedPrProblem,
+  missingBranch,
   prSummary,
   type CheckoutProblemAction,
   type CheckoutReadState,
@@ -234,7 +235,8 @@ export class WorkSession implements WorkSubject {
         mode: checkout?.mode ?? null,
         branch: checkout ? text(checkout.branch ?? "detached HEAD", 256) : "",
         baseBranch: text(checkout?.baseBranch, 256),
-        note: text(checkout && checkoutNote(checkout), 256),
+        // A gone checkout's branch says where it is now, never its last sync state.
+        note: text(missingBranch(details)?.where ?? (checkout && checkoutNote(checkout)), 256),
         switchReason: reasons.switchReason ?? null,
         worktreeReason: reasons.worktreeReason ?? null,
         prs: (details?.linkedPrs ?? []).slice(0, 20).map((pr) => ({
