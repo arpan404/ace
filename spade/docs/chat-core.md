@@ -34,21 +34,25 @@ A reply is open from `reply_started` until one of finished, stopped, failed or i
 one reply is open per conversation. On startup Spade closes every open reply with
 `reply_interrupted`, so nothing is ever shown as still answering after a restart.
 
+Steering is the default: a `user_message` sent while a reply is open joins that turn. It is
+stored at once, and the next model call in the turn (after the current call ends, or at the next
+tool step) sees it, so the turn carries on instead of ending.
+
 ## API
 
 Local HTTP on `SPADE_LISTEN` (loopback). Every request except `/health` carries
 `Authorization: Bearer <token>`; the token is in `<data dir>/token` (mode 0600), written at
 startup, so only processes that can read the person's files can talk to Spade.
 
-| Method and path                             | Body     | Answer                                                              |
-| ------------------------------------------- | -------- | ------------------------------------------------------------------- |
-| `GET /health`                               |          | `{"ok":true}`                                                       |
-| `GET /v1/conversations`                     |          | `[{id, title, updated_at, answering}]`, newest first                |
-| `POST /v1/conversations`                    | `{text}` | `201 {id}`; the message is sent and a reply starts                  |
-| `GET /v1/conversations/{id}/events?after=N` |          | `[{seq, at, event}]` after `seq` N                                  |
-| `POST /v1/conversations/{id}/messages`      | `{text}` | `202`; `409` while a reply is open; `402` when today's cap is spent |
-| `POST /v1/conversations/{id}/stop`          |          | `202`; `404` when nothing is answering                              |
-| `GET /v1/conversations/{id}/live?after=N`   |          | Server-sent events, below                                           |
+| Method and path                             | Body     | Answer                                                                              |
+| ------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `GET /health`                               |          | `{"ok":true}`                                                                       |
+| `GET /v1/conversations`                     |          | `[{id, title, updated_at, answering}]`, newest first                                |
+| `POST /v1/conversations`                    | `{text}` | `201 {id}`; the message is sent and a reply starts                                  |
+| `GET /v1/conversations/{id}/events?after=N` |          | `[{seq, at, event}]` after `seq` N                                                  |
+| `POST /v1/conversations/{id}/messages`      | `{text}` | `202`; while a reply is open the message steers it; `402` when today's cap is spent |
+| `POST /v1/conversations/{id}/stop`          |          | `202`; `404` when nothing is answering                                              |
+| `GET /v1/conversations/{id}/live?after=N`   |          | Server-sent events, below                                                           |
 
 Live stream frames (`event:` name, JSON `data:`):
 

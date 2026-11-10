@@ -105,9 +105,43 @@ conversation always misses; every later call misses only on its new tail. The ru
   the stable part.
 - Anthropic: a long-lived breakpoint on the stable top and a short one on the tail. OpenAI: a stable
   `prompt_cache_key` per conversation.
-- Compaction is rare and large, between turns, and is the only time old tool results become stubs.
+- Compaction is rare and large and is the only time old tool results become stubs (see Compaction).
 - Every call records input, cache-read, cache-write and output tokens; cost uses the cache prices,
   and the trace shows the hit rate per turn.
+
+## Compaction
+
+Automatic (owner, 2026-11-10), plus a manual `/compact [focus]`. It rewrites only the conversation
+part of the prompt, never the cached top (rules, bot instructions, tools, skill index), so each
+compaction costs one cache miss and happens rarely.
+
+- **When.** Measured from the endpoint's reported input tokens, against a budget: the smaller of the
+  model's context size and a configurable cap. Compact at 75% of the budget, down to 35% (default
+  settings). Only at a safe point: between turns, or mid-turn when a long agent turn would
+  otherwise overflow; never between a tool call and its result.
+- **How, cheapest first.** (1) Prune without a model call: old tool results become stubs that point
+  into history, old images become their descriptions, repeated reads point back to the first.
+  (2) Summarise with the conversation's own model by appending the request to the cached prompt,
+  so its input is nearly all cache reads. (3) If summarising fails, drop the oldest turns behind a
+  visible marker.
+- **Kept word for word.** The cached top; the last turns and the latest message; pinned state: the
+  goal, the todo list, unanswered approvals, running background jobs, skills in use, and every
+  write already carried out with its duplicate-proof key, so it is never repeated.
+- **Structured summary.** Typed output with goal, decisions, facts with sources, actions taken and
+  their effects, open questions and next steps, and references (ids, links, paths). Each section
+  is checked; the summary has its own token cap; a later compaction folds the previous summary in
+  rather than stacking summaries.
+- **Lossless storage.** A `context_compacted` event records the span covered, the summary and the
+  token counts before and after, so a restart rebuilds the identical prompt. The full history
+  stays in SQLite; `history_search` and `history_read` fetch exact old text on demand. Memory
+  extraction runs on the compacted span first.
+- **Smaller from the start.** Large tool output is stored as an artifact with a trimmed view and a
+  handle to read more; exploration runs in sub-agents whose conclusions alone come back.
+- **Seen by the person.** One quiet line: "Context compacted: 152k → 61k tokens", with the summary
+  behind a link.
+- **Tests.** Replay on the fake endpoint: compaction fires at the high mark and lands near the low
+  one, the cached top is byte-identical before and after, recent turns and pinned state survive,
+  every completed write is in the summary, and a restart rebuilds the same prompt.
 
 ## Features
 
