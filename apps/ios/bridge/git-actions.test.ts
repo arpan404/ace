@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import type { CommandPayload } from "@ace/protocol";
+import { WorkspaceId, type CommandPayload } from "@ace/protocol";
 import type { ChangesStep } from "@ace/ui-core/mobile";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
@@ -255,5 +255,27 @@ describe("Merging and reviews from the Changes sheet", () => {
     expect(sent.find((payload) => payload.type === "forge.review.request")).toMatchObject({
       reviewers: ["ana"],
     });
+  });
+});
+
+describe("Pushing a project with several repositories", () => {
+  const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" } as const;
+
+  test("a push names the remote of the primary the project chose", async () => {
+    const { owner, act, sent } = await opened();
+    const saved = await owner.command({
+      type: "workspace.repositories.set",
+      workspaceId: WorkspaceId.parse("ace"),
+      repositories: { added: [], hidden: [], primary: gitlab },
+    });
+    expect(saved).toMatchObject({ ok: true });
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m1");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "mirror" });
+  });
+
+  test("a project without saved choices pushes to the remote source control settings name", async () => {
+    const { act, sent } = await opened();
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m2");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "origin" });
   });
 });

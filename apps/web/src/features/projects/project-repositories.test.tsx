@@ -1,3 +1,4 @@
+import type { ForgeRepository } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { cleanup, configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,9 +7,14 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
 
-const github = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
-const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
-const tools = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "tools" };
+const github: ForgeRepository = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
+const gitlab: ForgeRepository = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
+const tools: ForgeRepository = {
+  forge: "gitlab",
+  host: "gitlab.com",
+  owner: "acme",
+  name: "tools",
+};
 
 function app(daemon?: ReturnType<typeof harness>["daemon"]) {
   const made = harness(daemon ? { daemon } : {});
@@ -48,7 +54,7 @@ test("the primary offers no Hide; the mirror made primary, origin hidden and a r
     expect(rowOf(group, "GitLab · acme/ace").queryByText("Primary")).toBeTruthy(),
   );
   await userEvent.click(group.getByRole("button", { name: "Hide: GitHub · acme/ace" }));
-  await waitFor(() => expect(rowOf(group, "GitHub · acme/ace").queryByText("Hidden")).toBeTruthy());
+  await waitFor(() => expect(rowOf(group, "GitHub · acme/ace").queryByText(/Hidden/)).toBeTruthy());
 
   const field = group.getByRole("textbox", { name: "Add a repository by address" });
   await userEvent.type(field, "git@gitlab.com:acme/tools.git");
@@ -69,6 +75,6 @@ test("the primary offers no Hide; the mirror made primary, origin hidden and a r
   await again.open("/new?project=ace");
   group = await openRepositories();
   expect(rowOf(group, "GitLab · acme/ace").getByText("Primary")).toBeTruthy();
-  expect(rowOf(group, "GitHub · acme/ace").getByText("Hidden")).toBeTruthy();
+  expect(rowOf(group, "GitHub · acme/ace").getByText(/Hidden/)).toBeTruthy();
   expect(rowOf(group, "GitLab · acme/tools").getByText("Added by hand")).toBeTruthy();
 });

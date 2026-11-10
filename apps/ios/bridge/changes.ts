@@ -1,11 +1,12 @@
 import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
 import {
   ThreadId,
+  WorkspaceId,
   type SourceControlSelection,
   type ThreadDetails,
   type WorkspaceActionRequest,
 } from "@ace/protocol";
-import type { DiffScope } from "@ace/ui-core";
+import { reviewRepositories, type DiffScope } from "@ace/ui-core";
 import type { DiffRows } from "@ace/ui-core/review";
 import { patchFiles } from "@ace/ui-core/mobile";
 import type { PatchSink, Preview } from "./agents.ts";
@@ -203,6 +204,10 @@ export class ChangesSession {
     void this.refresh();
   }
 
+  /** The thread's project, once the thread is held. */
+  get workspaceId(): string | undefined {
+    return this.#store.thread?.workspaceId;
+  }
   get details(): ThreadDetails | undefined {
     return this.#store.thread?.details;
   }
@@ -373,12 +378,20 @@ export class ChangesSession {
     this.summary();
     const threadId = ThreadId.parse(this.threadId);
     try {
-      const [status, diff, pr] = await Promise.all([
+      const workspaceId = this.workspaceId;
+      const [status, diff, pr, repositories] = await Promise.all([
         this.#workspace({ op: "git.status", threadId }),
         this.#workspace({ op: "git.diff", threadId }),
         // Only a linked PR has a forge status; its checks and comments stay in the bridge.
         this.details?.linkedPrs?.length
           ? this.#workspace({ op: "pr.status", threadId }).catch(() => undefined)
+          : Promise.resolve(undefined),
+        // Only for the words under a new PR; a daemon that can't list them says nothing.
+        workspaceId
+          ? this.#workspace({
+              op: "forge.repositories",
+              workspaceId: WorkspaceId.parse(workspaceId),
+            }).catch(() => undefined)
           : Promise.resolve(undefined),
       ]);
       if (this.#closed) return;
@@ -394,6 +407,10 @@ export class ChangesSession {
         patchTruncated: diff.truncated,
         lastPath: [...sections.keys()].at(-1),
         pr: pr?.kind === "pr" ? pr.status : null,
+        severalRepositories:
+          repositories?.kind === "forge" &&
+          repositories.data.resource === "repositories" &&
+          reviewRepositories(repositories.data.value).length > 1,
         round: ++this.#rounds,
         validators: new Map(),
       };

@@ -15,7 +15,7 @@ struct ForgePullsList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
                        icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
             // Rows open where they were read, even while another project's rows load.
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome()
@@ -48,11 +48,13 @@ struct ForgeIssuesList: View {
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
                        icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
-                       loading: model.loading, refresh: refresh, more: more) {
+                       loading: model.loading, notes: model.list?.failed ?? [], refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in
                 if group.id != "all" { ForgeGroupHeader(label: group.label, count: group.count).forgeRowChrome() }
                 ForEach(group.rows) { row in
-                    let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number)
+                    // A project with several repositories opens the row's own; one keeps the project's.
+                    let route = ForgeRoute(kind: .issue, machineId: scope.machineId, project: scope.project, number: row.number,
+                                           repository: row.repositoryLabel == nil ? nil : row.repository)
                     Button { open(route) } label: { ForgeIssueRowView(row: row) }
                         .buttonStyle(RowPressStyle(selected: openRow == route))
                         .accessibilityAddTraits(openRow == route ? .isSelected : [])
@@ -67,7 +69,8 @@ struct ForgeIssuesList: View {
 
 /// The list around the rows: skeleton on the first read, the error state with Try again when
 /// nothing could be read, the empty state, a dimmed list while a changed filter reads, a quiet
-/// line when a refresh failed over rows already shown, Show more, and pull to refresh.
+/// line when a refresh failed over rows already shown (or one of several repositories couldn't be
+/// read), Show more, and pull to refresh.
 struct ForgeListFrame<Rows: View>: View {
     let loaded: Bool
     let empty: Bool
@@ -77,6 +80,8 @@ struct ForgeListFrame<Rows: View>: View {
     let stale: Bool
     let hasMore: Bool
     let loading: Bool
+    /// Repositories that couldn't be read, said over the rows the others gave.
+    var notes: [String] = []
     let refresh: () async -> Void
     let more: () async -> Void
     @ViewBuilder let rows: () -> Rows
@@ -97,9 +102,15 @@ struct ForgeListFrame<Rows: View>: View {
                 EmptyState(icon: icon, title: emptyTitle) { EmptyView() }
                     .padding(.top, AceDesign.Space.pageState)
                     .forgeRowChrome()
+                ForEach(notes, id: \.self) { note in
+                    Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
+                }
             } else {
                 if let failure {
                     Text(failure).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
+                }
+                ForEach(notes, id: \.self) { note in
+                    Text(note).meta().padding(.horizontal, AceTheme.Spacing.rowInner).forgeRowChrome()
                 }
                 rows()
                 if hasMore {

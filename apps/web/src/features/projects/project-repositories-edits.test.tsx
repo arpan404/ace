@@ -1,3 +1,4 @@
+import type { ForgeRepository } from "@ace/protocol";
 import { workbench } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -6,9 +7,14 @@ import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10_000 });
 
-const github = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
-const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
-const tools = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "tools" };
+const github: ForgeRepository = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
+const gitlab: ForgeRepository = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
+const tools: ForgeRepository = {
+  forge: "gitlab",
+  host: "gitlab.com",
+  owner: "acme",
+  name: "tools",
+};
 
 function app(daemon?: ReturnType<typeof harness>["daemon"]) {
   const made = harness(daemon ? { daemon } : {});
@@ -46,7 +52,7 @@ test("removing a repository added by hand and showing a hidden one leave only th
     expect(group.queryByRole("listitem", { name: "GitLab · acme/tools" })).toBeNull(),
   );
   await userEvent.click(group.getByRole("button", { name: "Show: GitHub · acme/ace" }));
-  await waitFor(() => expect(rowOf(group, "GitHub · acme/ace").queryByText("Hidden")).toBeNull());
+  await waitFor(() => expect(rowOf(group, "GitHub · acme/ace").queryByText(/Hidden/)).toBeNull());
   expect(made.daemon.projects.repositories.read("ace").config).toEqual({
     added: [],
     hidden: [],

@@ -1,16 +1,18 @@
-import type { ProjectRepository, ProjectRepositoryConfig } from "@ace/protocol";
+import {
+  configuredForges,
+  type ProjectRepository,
+  type ProjectRepositoryConfig,
+} from "@ace/protocol";
 import {
   actionErrorText,
   addRepository,
-  fixedInSourceControl,
   hideRepository,
   makePrimary,
-  parseRepositoryAddress,
   removeRepository,
-  repositoryAddressProblem,
+  repositoryFromAddress,
   repositoryLabel,
-  repositorySourceText,
-  repositoryUnavailableText,
+  repositoryLine,
+  repositoryRefusalText,
   showRepository,
 } from "@ace/ui-core";
 import { repositoryKey } from "@ace/forge/project-repositories";
@@ -30,7 +32,7 @@ import {
 
 const saveFailure = (error: unknown) =>
   error instanceof CommandRefused
-    ? actionErrorText(error.code)
+    ? (repositoryRefusalText(error.code) ?? actionErrorText(error.code))
     : "Couldn't save the repositories. Check the connection and try again.";
 
 /**
@@ -115,7 +117,9 @@ function RepositoryRow(props: {
 }) {
   const { entry } = props;
   const label = repositoryLabel(entry.repository);
-  const unavailable = repositoryUnavailableText(entry);
+  // What fixes these is the host's entry in Source control settings.
+  const fixedInSourceControl =
+    entry.unavailable === "host_not_configured" || entry.unavailable === "provider_mismatch";
   const action = (text: string, change: Change) => (
     <Button
       size="xs"
@@ -146,31 +150,25 @@ function RepositoryRow(props: {
           {entry.primary && (
             <span className="shrink-0 text-meta text-muted-foreground">Primary</span>
           )}
-          {!entry.visible && (
-            <span className="shrink-0 text-meta text-muted-foreground">Hidden</span>
-          )}
         </span>
         <span
-          className={cn("text-meta", unavailable ? "text-status-needs" : "text-subtle-foreground")}
+          className={cn(
+            "text-meta",
+            entry.unavailable ? "text-status-needs" : "text-subtle-foreground",
+          )}
         >
-          {unavailable ? (
+          {repositoryLine(entry)}
+          {fixedInSourceControl && (
             <>
-              {unavailable}
-              {fixedInSourceControl(entry) && (
-                <>
-                  {" "}
-                  <Link
-                    to="/settings/source-control"
-                    className="text-foreground underline-offset-2 hover:underline"
-                    onClick={props.onLeave}
-                  >
-                    Open Source control
-                  </Link>
-                </>
-              )}
+              {". "}
+              <Link
+                to="/settings/source-control"
+                className="text-foreground underline-offset-2 hover:underline"
+                onClick={props.onLeave}
+              >
+                Open Source control
+              </Link>
             </>
-          ) : (
-            repositorySourceText(entry)
           )}
         </span>
       </div>
@@ -194,9 +192,12 @@ function AddRepository(props: {
   const noteId = useId();
   const hosts = useSourceControlHosts();
   const [text, setText] = useState("");
-  const parsed = hosts.data ? parseRepositoryAddress(text, hosts.data) : undefined;
-  const problem = parsed && repositoryAddressProblem(parsed);
-  const found = parsed?.kind === "repository" ? parsed.repository : undefined;
+  const parsed =
+    hosts.data && text.trim()
+      ? repositoryFromAddress(text, configuredForges(hosts.data))
+      : undefined;
+  const problem = parsed && !parsed.ok ? parsed.problem : undefined;
+  const found = parsed?.ok ? parsed.repository : undefined;
   const add = async () => {
     if (!found || props.disabled) return;
     if (await props.onAdd(found)) setText("");
@@ -239,7 +240,7 @@ function AddRepository(props: {
             : found
               ? repositoryLabel(found)
               : problem}
-          {parsed?.kind === "host_not_configured" && (
+          {parsed && !parsed.ok && parsed.reason === "host_not_configured" && (
             <>
               {" "}
               <Link

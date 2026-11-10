@@ -33,6 +33,13 @@ export async function connected(
 ) {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
+  // The fake's GitLab mirror of `ace` answers with GitHub's seeded reads; these tests read the
+  // one repository (several are `forge-list-repositories.test.ts`'s).
+  daemon.projects.repositories.set("ace", {
+    added: [],
+    hidden: [{ forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" }],
+    primary: null,
+  });
   // The daemon serves forge media to a registered project; a thread there registers `ace`.
   daemon.createThread({
     id: "forge-project",

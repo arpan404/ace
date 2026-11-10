@@ -31,8 +31,6 @@ const copy: Record<string, string> = {
     "This project hides that repository: show it again in the project's settings, then retry.",
   repository_unavailable:
     "ace can't use that repository now: check its host in Source control settings, or pick another repository in the project's settings.",
-  primary_hidden: "The primary repository can't be hidden: make another one primary first.",
-  chat_project: "A chat has no repositories: open a project instead.",
   action_failed: "The daemon couldn't do that: check its logs, then retry.",
   action_busy: "Too many actions are running: wait for one to finish, then retry.",
   workspace_reads_busy: "Too many reads are waiting on the daemon: wait a moment, then retry.",

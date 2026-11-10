@@ -171,18 +171,30 @@ const repoKey = (repository: { host: string; owner: string; name: string }) =>
   `${repository.host}/${repository.owner}/${repository.name}`.toLowerCase();
 
 /**
- * Each row's project, by its repository; `projects` maps each project to its repository. A
+ * Each row's project, by its repository; `repositories` maps each project to its repository, or
+ * to every repository it uses (ADR 0116). A
  * repository two projects share belongs to the first. Rows of repositories no project is stay
  * without one.
  */
 export function inboxProjects(
-  repositories: ReadonlyMap<string, { host: string; owner: string; name: string }>,
+  repositories: ReadonlyMap<
+    string,
+    | { host: string; owner: string; name: string }
+    | readonly { host: string; owner: string; name: string }[]
+  >,
 ): (row: Pick<ForgeInboxRow, "repository">) => string | undefined {
   const byRepo = new Map<string, string>();
-  for (const [project, repository] of repositories)
-    if (!byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
+  for (const [project, value] of repositories)
+    for (const repository of Array.isArray(value) ? value : [value])
+      if (!byRepo.has(repoKey(repository))) byRepo.set(repoKey(repository), project);
   return (row) => byRepo.get(repoKey(row.repository));
 }
+
+/** Whether a row's repository is this one: a row of a project's primary opens without naming it. */
+export const sameInboxRepository = (
+  a: { host: string; owner: string; name: string },
+  b: { host: string; owner: string; name: string } | undefined,
+) => b !== undefined && repoKey(a) === repoKey(b);
 
 /**
  * The rows the project choice keeps: every row when every project shows (notifications are the
