@@ -5,7 +5,7 @@ import { WriteDispatch } from "./write-dispatch.ts";
 import { TeaReader } from "./tea-reader.ts";
 import { decode, pull, sha, state as pullState, type Pull } from "./tea-records.ts";
 import { teaChecks } from "./tea-checks.ts";
-import { teaGet, teaResponse } from "./tea-api.ts";
+import { teaGet, teaWrite } from "./tea-api.ts";
 import { ForgeError } from "./errors.ts";
 import type { HostApiWrite } from "./read-only-api.ts";
 
@@ -48,32 +48,6 @@ export class TeaWriter {
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.options.runner, this.options.login, `${this.root}${path}`, signal);
   }
-  private async write(path: string, body: object, signal: AbortSignal, dispatch: WriteDispatch) {
-    const result = await this.options.runner({
-      command: "tea",
-      args: [
-        "api",
-        `${this.root}${path}`,
-        "--method",
-        "POST",
-        "--login",
-        this.options.login,
-        "--include",
-        "--data",
-        "@-",
-      ],
-      input: JSON.stringify(body),
-      mode: "json",
-      signal,
-      dispatch,
-    });
-    if (result.identityChanged) throw new ForgeError("outcome_uncertain");
-    return teaResponse(
-      path.endsWith("/merge") && result.http?.status === 200 && !result.stdout.trim()
-        ? { ...result, stdout: "null" }
-        : result,
-    );
-  }
   async #read(number: number, signal: AbortSignal) {
     const p = decode(pull, (await this.get(`/pulls/${number}`, signal)).body);
     if (p.number !== number) throw new ForgeError("invalid_data");
@@ -109,8 +83,11 @@ export class TeaWriter {
       throw new ForgeError("forbidden");
     if (checks.ci !== "success" && checks.ci !== "none") throw new ForgeError("forbidden");
     if (method === "rebase" && commit) throw new ForgeError("unsupported");
-    await this.write(
-      `/pulls/${number}/merge`,
+    await teaWrite(
+      this.options.runner,
+      this.options.login,
+      `${this.root}/pulls/${number}/merge`,
+      "POST",
       {
         do: method,
         head_commit_id: headSha,

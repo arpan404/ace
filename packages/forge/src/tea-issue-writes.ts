@@ -5,7 +5,7 @@ import type { CommandRunner } from "./command.ts";
 import type { WriteDispatch } from "./write-dispatch.ts";
 import type { HostApiWrite } from "./read-only-api.ts";
 import { TeaIssues } from "./tea-issues.ts";
-import { teaGet, teaResponse } from "./tea-api.ts";
+import { teaGet, teaWrite } from "./tea-api.ts";
 import { decode } from "./tea-records.ts";
 import { ForgeError } from "./errors.ts";
 import { planIssueWrite, issueWriteLanded, applyMembers } from "./issue-write-plan.ts";
@@ -53,33 +53,22 @@ export class TeaIssueWriter {
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.options.runner, this.options.login, this.root + path, signal);
   }
-  private async write(
+  private write(
     path: string,
-    method: string,
+    method: "POST" | "PATCH" | "DELETE",
     body: object,
     signal: AbortSignal,
     dispatch?: WriteDispatch,
   ) {
-    const response = await this.options.runner({
-      command: "tea",
-      args: [
-        "api",
-        this.root + path,
-        "--method",
-        method,
-        "--login",
-        this.options.login,
-        "--include",
-        "--data",
-        "@-",
-      ],
-      input: JSON.stringify(body),
-      mode: "json",
+    return teaWrite(
+      this.options.runner,
+      this.options.login,
+      this.root + path,
+      method,
+      body,
       signal,
-      ...(dispatch ? { dispatch } : {}),
-    });
-    if (response.identityChanged) throw new ForgeError("outcome_uncertain");
-    return teaResponse(response);
+      dispatch,
+    );
   }
   async writeIssue(
     input: ForgeIssueWrite,
