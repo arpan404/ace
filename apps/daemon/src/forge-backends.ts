@@ -11,6 +11,7 @@ import {
   repositoryWriteRefusal,
   resolveProjectRepositories,
   type CommandRunner,
+  type HostApiWrite,
 } from "@ace/forge";
 import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
@@ -114,6 +115,24 @@ export class ForgeBackends {
     );
     if (refusal) throw new Error(refusal);
     return this.backend(cwd, repository);
+  }
+  /** Alternate-host I/O shares the repository refusal and identity fence of GitHub writes. */
+  async hostRunner(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ): Promise<CommandRunner> {
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    if (writes.length > 0) {
+      const refusal = repositoryWriteRefusal(
+        (await this.projectRepositories(cwd)).resolved,
+        repository,
+      );
+      if (refusal) throw new Error(refusal);
+      return (await this.sourceControl.writeIdentity(cwd, repository, writes, signal)).runner;
+    }
+    return (await this.sourceControl.readIdentity(cwd, repository, signal)).runner;
   }
   async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
     return (
