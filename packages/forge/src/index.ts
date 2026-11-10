@@ -53,3 +53,6 @@ export * from "./project-repositories.ts";
 export * from "./gitlab-api.ts";
 export * from "./gitlab-checks.ts";
 export { ReadBudget } from "./read-budget.ts";
+
+export * from "./gitlab-merge-state.ts";
+export * from "./gitlab-hosted-merge.ts";
