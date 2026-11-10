@@ -36,6 +36,9 @@ export interface FolderSeed {
   modifiedAt?: number;
 }
 /** Host filesystem fixture and registered catalog, including projects without threads. */
+/** A folder path without its trailing slashes; the root stays `/`. */
+const trimRoot = (path: string) => path.replace(/\/+$/, "") || "/";
+
 export class FakeProjects {
   private context: FakeServiceContext;
   private hasOwnedWork: (id: string) => boolean;
@@ -401,10 +404,9 @@ export class FakeProjects {
         if (!p.path.startsWith("/") || p.path.split("/").includes(".."))
           throw new Error("invalid_path");
         // Matched as typed and as the folder it names, trailing slashes aside, as the real one.
-        const trim = (path: string) => path.replace(/\/+$/, "") || "/";
-        const targets = new Set([trim(p.path), trim(this.realpath(p.path))]);
+        const targets = new Set([trimRoot(p.path), trimRoot(this.realpath(p.path))]);
         const configured = this.context.projectRoots?.() ?? [];
-        const kept = configured.filter((root) => !targets.has(trim(root)));
+        const kept = configured.filter((root) => !targets.has(trimRoot(root)));
         if (kept.length === configured.length) return { ok: true };
         if (!kept.length) throw new Error("last_root");
         this.context.saveProjectRoots?.(kept);
