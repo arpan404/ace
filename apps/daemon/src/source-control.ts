@@ -6,6 +6,7 @@ import {
   gitlabIdentity,
   originReadiness,
   teaReadiness,
+  isTeaHost,
   originIdentity,
   githubIdentity,
   identityRunner,
@@ -165,7 +166,7 @@ export class SourceControl {
     signal: AbortSignal,
   ) {
     const forge = repository.forge;
-    if (forge !== "gitlab" && forge !== "origin" && forge !== "gitea" && forge !== "forgejo")
+    if (forge !== "gitlab" && forge !== "origin" && !isTeaHost(forge))
       throw new ForgeError("unsupported");
     const revision = this.currentRevision;
     const check = await this.guard();
@@ -173,10 +174,9 @@ export class SourceControl {
     const configured = preferences.hosts.find((entry) => entry.host === repository.host);
     if (!configured || configuredForge(configured) !== forge) throw new ForgeError("unsupported");
     const runner = this.runner(cwd);
-    const tea =
-      forge === "gitea" || forge === "forgejo"
-        ? await teaSourceIdentity(runner, repository.host, signal)
-        : undefined;
+    const tea = isTeaHost(forge)
+      ? await teaSourceIdentity(runner, repository.host, signal)
+      : undefined;
     const target = tea?.login ?? repository.host;
     const identify = (probe: AbortSignal) =>
       tea
@@ -287,7 +287,7 @@ export class SourceControl {
           ? await gitlabReadiness(runner, preferences, signal)
           : forge === "origin"
             ? await originReadiness(runner, preferences, signal)
-            : forge === "gitea" || forge === "forgejo"
+            : isTeaHost(forge)
               ? await teaReadiness(runner, preferences, signal)
               : {
                   preferences,

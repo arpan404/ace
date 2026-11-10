@@ -1,5 +1,12 @@
 import { ThreadId } from "@ace/protocol";
-import { GitLabReader, GitLabReviews, gitLabReviewWrites, ForgeError } from "@ace/forge";
+import {
+  GitLabReader,
+  GitLabReviews,
+  TeaReader,
+  gitLabReviewWrites,
+  ForgeError,
+  isTeaHost,
+} from "@ace/forge";
 import type { ForgePrRef, ForgeBrowserOperation, ForgeBrowserResult } from "@ace/protocol";
 import type { ForgeBackends } from "./forge-backends.ts";
 import type { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
@@ -20,7 +27,11 @@ export async function gitLabReviewBackend(
   return { reviews: new GitLabReviews({ repository: pr.repository, runner: identity.runner }) };
 }
 
-export async function readGitLabConversation(
+/**
+ * A merge request or pull request's conversation on GitLab, Gitea or Forgejo: its review state
+ * (with ace's journal), activity, reviewers and commits. Undefined for any other read.
+ */
+export async function readHostedConversation(
   backends: ForgeBackends,
   reviews: WorkspaceForgeReviews,
   cwd: string,
@@ -28,30 +39,40 @@ export async function readGitLabConversation(
   operation: ForgeBrowserOperation,
   signal: AbortSignal,
 ): Promise<ForgeBrowserResult | undefined> {
-  if (pr.repository.forge !== "gitlab") return;
-  if (operation.op === "forge.pr.review-state") {
-    const reader = await backends.reader(cwd, pr.repository, signal);
-    if (!(reader instanceof GitLabReader)) throw new ForgeError("unsupported");
-    return { resource: "prReviewState", value: await reviews.state(pr, reader, signal) };
-  }
-  if (!["forge.pr.activity", "forge.pr.reviewers", "forge.pr.commits"].includes(operation.op))
-    return;
+  if (pr.repository.forge !== "gitlab" && !isTeaHost(pr.repository.forge)) return;
+  if (!conversationReads.has(operation.op)) return;
   const reader = await backends.reader(cwd, pr.repository, signal);
-  if (!(reader instanceof GitLabReader)) throw new ForgeError("unsupported");
-  if (operation.op === "forge.pr.activity")
-    return {
-      resource: "prActivity",
-      ...(await reader.prActivity(pr.number, operation.page, signal)),
-    };
+  if (!(reader instanceof GitLabReader) && !(reader instanceof TeaReader))
+    throw new ForgeError("unsupported");
+  if (operation.op === "forge.pr.review-state")
+    return { resource: "prReviewState", value: await reviews.state(pr, reader, signal) };
   if (operation.op === "forge.pr.reviewers")
-    return { resource: "prReviewers", value: await reader.prReviewers(pr.number, signal) };
+    return {
+      resource: "prReviewers",
+      value:
+        reader instanceof GitLabReader
+          ? await reader.prReviewers(pr.number, signal)
+          : await reader.reviews.reviewers(pr.number, signal),
+    };
   if (operation.op === "forge.pr.commits")
     return {
       resource: "prCommits",
       ...(await reader.prCommits(pr.number, operation.before, operation.headSha, signal)),
     };
-  return;
+  if (operation.op === "forge.pr.activity" && reader instanceof GitLabReader)
+    return {
+      resource: "prActivity",
+      ...(await reader.prActivity(pr.number, operation.page, signal)),
+    };
+  throw new ForgeError("unsupported");
 }
+
+const conversationReads = new Set([
+  "forge.pr.review-state",
+  "forge.pr.activity",
+  "forge.pr.reviewers",
+  "forge.pr.commits",
+]);
 
 /** Thread commands share hosted review persistence instead of growing a second write journal. */
 export async function executeGitLabThreadConversation(options: {

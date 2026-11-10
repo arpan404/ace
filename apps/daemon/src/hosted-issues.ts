@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { ForgeError, GitLabIssues, gitlabIssueWrites, repositoryWriteRefusal } from "@ace/forge";
+import { ForgeError, GitLabIssues, gitlabIssueWrites, isTeaHost } from "@ace/forge";
 import type {
   ForgeBrowserOperation,
   ForgeBrowserResult,
@@ -58,8 +58,7 @@ export type IssueScope = {
 export async function hostedIssues(scope: IssueScope): Promise<HostedIssues> {
   const { cwd, repository, backends, sourceControl, signal } = scope;
   if (repository.forge === "github") return backends.backend(cwd, repository);
-  if (repository.forge === "gitea" || repository.forge === "forgejo")
-    return backends.teaIssues(cwd, repository, signal);
+  if (isTeaHost(repository.forge)) return backends.teaIssues(cwd, repository, signal);
   if (repository.forge !== "gitlab" || !sourceControl) throw new ForgeError("unsupported");
   const identity = await sourceControl.readIdentity(cwd, repository, signal);
   return new GitLabIssues({ repository, runner: identity.runner });
@@ -71,17 +70,12 @@ export async function hostedIssues(scope: IssueScope): Promise<HostedIssues> {
  * `teaIssueWrites`), proving the account around each (ADR 0117).
  */
 export async function hostedIssueWriter(scope: IssueScope): Promise<IssueWrites> {
-  const { cwd, repository, backends, sourceControl, signal } = scope;
+  const { cwd, repository, backends, signal } = scope;
   if (repository.forge === "github") return backends.writer(cwd, repository);
-  const refusal = repositoryWriteRefusal(
-    (await backends.projectRepositories(cwd)).resolved,
-    repository,
-  );
-  if (refusal) throw new Error(refusal);
-  if (repository.forge === "gitea" || repository.forge === "forgejo")
-    return backends.teaIssueWriter(cwd, repository, signal);
-  if (repository.forge !== "gitlab" || !sourceControl) throw new ForgeError("unsupported");
-  const identity = await sourceControl.writeIdentity(cwd, repository, gitlabIssueWrites, signal);
+  await backends.assertWritable(cwd, repository);
+  if (isTeaHost(repository.forge)) return backends.teaIssueWriter(cwd, repository, signal);
+  if (repository.forge !== "gitlab") throw new ForgeError("unsupported");
+  const identity = await backends.admittedWriter(cwd, repository, gitlabIssueWrites, signal);
   return new GitLabIssues({ repository, runner: identity.runner });
 }
 

@@ -1,11 +1,13 @@
-import { GitLabApi, GitLabLifecycle, forgeCapabilities } from "@ace/forge";
+import {
+  ForgeError,
+  forgeCapabilities,
+  prUrl,
+  repositoryKey,
+  withForgeCapabilities,
+} from "@ace/forge";
+import { hostedBrowse } from "./hosted-browse.ts";
 import { gitLabInboxBackend } from "./hosted-inbox.ts";
-import { GitLabHostedMerge, TeaReader, ForgeError, repositoryKey, prUrl } from "@ace/forge";
-import { HostedChecks } from "./hosted-checks.ts";
-import { readGitLabConversation } from "./hosted-review-conversation.ts";
 import { hostedIssueRead, isIssueRead } from "./hosted-issues.ts";
-import { teaForgeBrowse } from "./tea-forge-browse.ts";
-import { withForgeCapabilities } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -100,97 +102,19 @@ export class WorkspaceForgeBrowse {
       const scope = { cwd, repository, backends, sourceControl, signal };
       return hostedIssueRead(operation, scope, this.parts);
     }
-    if (repository.forge !== "github") {
-      if (repository.forge === "gitlab" && operation.op === "forge.repo.pr-options")
-        return {
-          resource: "repoPrOptions",
-          value: { labels: [], assignable: [], milestones: [], truncated: true },
-        };
-      if (repository.forge === "gitlab" && operation.op === "forge.pr.lifecycle") {
-        const backend = {
-          lifecycle: new GitLabLifecycle(
-            new GitLabApi({
-              repository,
-              runner: await this.ctx.backends.hostRunner(cwd, repository, [], signal),
-            }),
-          ),
-        };
-        const ref = { repository, number: operation.number };
-        const revision = this.ctx.owner.capture(ref);
-        const value = await this.parts.lifecycle.state(ref, backend, signal);
-        if (this.ctx.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
-        return { resource: "prLifecycle", value };
-      }
-      if (repository.forge === "gitlab" && operation.op === "forge.pr.merge-state") {
-        const backend = new GitLabHostedMerge({
-          repository,
-          runner: await this.ctx.backends.hostRunner(cwd, repository, [], signal),
-        });
-        const { value, writeState } = await this.parts.actions.readMergeState(
-          { repository, number: operation.number },
-          () => backend.prMergeState(operation.number, signal),
-        );
-        return { resource: "prMergeState", value: { ...value, writeState } };
-      }
-      if (repository.forge === "gitlab" && operation.op === "forge.pr.check")
-        return {
-          resource: "prCheck",
-          value: await new HostedChecks(this.ctx).read(
-            cwd,
-            repository,
-            operation.checkRunId,
-            operation.jobId,
-            signal,
-          ),
-        };
-      if ("number" in operation) {
-        const conversation = await readGitLabConversation(
-          this.ctx.backends,
-          this.parts.reviews,
-          cwd,
-          { repository, number: operation.number },
-          operation,
-          signal,
-        );
-        if (conversation) return conversation;
-      }
-      const reader = await this.ctx.backends.reader(cwd, repository, signal);
-      if (reader instanceof TeaReader) {
-        if (operation.op === "forge.pr.merge-state") {
-          const backend = await this.ctx.backends.mergeReader(cwd, repository, signal);
-          const { value, writeState } = await this.parts.actions.readMergeState(
-            { repository, number: operation.number },
-            () => backend.prMergeState(operation.number, signal),
-          );
-          return { resource: "prMergeState", value: { ...value, writeState } };
-        }
-        if (operation.op === "forge.pr.review-state")
-          return {
-            resource: "prReviewState",
-            value: await this.parts.reviews.state(
-              { repository, number: operation.number },
-              reader,
-              signal,
-            ),
-          };
-        const value = await teaForgeBrowse(reader, operation, signal);
-        if (value) return value;
-      }
-      if (operation.op === "forge.pr.list")
-        return { resource: "prList", value: await reader.listPrs(operation.query, signal) };
-      if (operation.op === "forge.pr.files")
-        return { resource: "prFiles", value: await reader.prFiles(operation, signal) };
-      if (operation.op === "forge.pr.detail") {
-        const ref = { repository, number: operation.number };
-        const revision = this.ctx.owner.capture(ref);
-        const { value, writeState } = await this.parts.actions.readDetail(ref, () =>
-          reader.prDetail(operation.number, signal),
-        );
-        if (this.ctx.owner.current(ref, revision)) this.publishStatus(value.status);
-        return { resource: "prDetail", value: { ...value, writeState } };
-      }
-      throw new ForgeError("unsupported");
-    }
+    if (repository.forge !== "github")
+      return hostedBrowse(
+        {
+          ctx: this.ctx,
+          parts: this.parts,
+          publishStatus: (status) => this.publishStatus(status),
+          publishLifecycle: (snapshot) => this.publishLifecycle(snapshot),
+        },
+        cwd,
+        repository,
+        operation,
+        signal,
+      );
     const backend = await this.ctx.backends.backend(cwd, repository);
     if (operation.op === "forge.pr.lifecycle") {
       const ref = { repository, number: operation.number };

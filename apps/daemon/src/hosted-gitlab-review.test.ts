@@ -16,7 +16,7 @@ import { ForgeBackends } from "./forge-backends.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
-import { gitLabReviewBackend, readGitLabConversation } from "./hosted-review-conversation.ts";
+import { gitLabReviewBackend, readHostedConversation } from "./hosted-review-conversation.ts";
 const pr = ForgePrRef.parse({
   repository: { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" },
   number: 7,
@@ -191,7 +191,7 @@ test("a durable uncertain GitLab comment survives journal restart and reconciles
       new WorkspaceForgeReviews(f.store).execute(f.command, "lost", backend, f.signal, () => true),
     ).rejects.toThrow("action_outcome_uncertain");
     const journal = new WorkspaceForgeReviews(f.store);
-    const before = await readGitLabConversation(
+    const before = await readHostedConversation(
       f.backends,
       journal,
       f.root,
@@ -214,7 +214,7 @@ test("a durable uncertain GitLab comment survives journal restart and reconciles
       f.signal,
       () => true,
     );
-    const after = await readGitLabConversation(
+    const after = await readHostedConversation(
       f.backends,
       journal,
       f.root,

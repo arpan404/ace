@@ -60,6 +60,7 @@ export * from "./gitlab-creation.ts";
 export { GitLabReviews, gitLabReviewWrites } from "./gitlab-reviews.ts";
 export { GitLabIssues } from "./gitlab-issues.ts";
 export { gitlabIssueWrites } from "./gitlab-issue-writes.ts";
+export { isTeaHost } from "./tea-hosts.ts";
 export { teaLogin, teaIdentity, teaReadiness } from "./tea-readiness.ts";
 export { TeaReader } from "./tea-reader.ts";
 export { TeaWriter, teaWrites } from "./tea-writes.ts";

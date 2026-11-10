@@ -17,6 +17,7 @@ import { decode, pull, ref, status, labels, row, headRepository, sha } from "./t
 import { clipText } from "./host-text.ts";
 import { redactData } from "./redact.ts";
 import { teaChecks } from "./tea-checks.ts";
+import { isTeaHost } from "./tea-hosts.ts";
 import { TeaReviews } from "./tea-reviews.ts";
 import { TeaIssues } from "./tea-issues.ts";
 import { forgeCapabilities } from "./forge-capabilities.ts";
@@ -37,6 +38,10 @@ const commit = z.looseObject({
   author: z.looseObject({ login: z.string() }).nullable().optional(),
 });
 
+const PullPage = z.array(pull).max(25);
+const FilePage = z.array(file).max(25);
+const CommitPage = z.array(commit).max(100);
+
 /** Shared Gitea/Forgejo API v1 reads through the user's identity-pinned tea login. */
 export class TeaReader implements ForgeReader {
   readonly repository: ForgeRepository;
@@ -47,8 +52,7 @@ export class TeaReader implements ForgeReader {
   private root: string;
   constructor(options: { repository: ForgeRepository; runner: CommandRunner; login: string }) {
     this.repository = options.repository;
-    if (options.repository.forge !== "gitea" && options.repository.forge !== "forgejo")
-      throw new ForgeError("unsupported");
+    if (!isTeaHost(options.repository.forge)) throw new ForgeError("unsupported");
     this.runner = options.runner;
     this.login = options.login;
     this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}`;
@@ -118,7 +122,7 @@ export class TeaReader implements ForgeReader {
       limit: "25",
     });
     const response = await this.get(`pulls?${params}`, signal);
-    const data = decode(z.array(pull).max(25), response.body);
+    const data = decode(PullPage, response.body);
     const rows = data.flatMap((p) => row(this.repository, p) ?? []);
     const items = rows.filter(
       (p) =>
@@ -191,7 +195,7 @@ export class TeaReader implements ForgeReader {
       `pulls/${input.number}/files?page=${input.page}&limit=25`,
       signal,
     );
-    const data = decode(z.array(file).max(25), response.body);
+    const data = decode(FilePage, response.body);
     await this.pinned(input.number, input.headSha, input.baseSha, signal);
     const more =
       response.total === undefined ? data.length === 25 : input.page * 25 < response.total;
@@ -239,7 +243,7 @@ export class TeaReader implements ForgeReader {
             `pulls/${number}/commits?page=${page}&limit=100&verification=false&files=false`,
             signal,
           );
-    const data = decode(z.array(commit).max(100), response.body);
+    const data = decode(CommitPage, response.body);
     await this.pinned(number, headSha, p.base.sha, signal);
     return {
       commits: data.toReversed().map((c) =>

@@ -1,11 +1,7 @@
-import { gitLabLifecycleBackend } from "./hosted-lifecycle.ts";
 import { gitLabInboxWriter } from "./hosted-inbox.ts";
 import { HostedChecks } from "./hosted-checks.ts";
-import { gitlabHostedMerge } from "./gitlab-hosted-merge.ts";
-import {
-  gitLabReviewBackend,
-  executeGitLabThreadConversation,
-} from "./hosted-review-conversation.ts";
+import { lifecycleBackend, mergeBackend, reviewBackend } from "./host-routes.ts";
+import { executeGitLabThreadConversation } from "./hosted-review-conversation.ts";
 import { withForgeCapabilities } from "@ace/forge";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { hostedIssueWriter, hostedIssues, type IssueScope } from "./hosted-issues.ts";
@@ -343,12 +339,7 @@ export class WorkspaceForge {
       )
         throw new ForgeError("unsupported");
       if (generation === undefined) return { ok: false, error: "forge_not_found" };
-      const backend = await gitlabHostedMerge({
-        backends: this.backends,
-        cwd,
-        repository: pr.repository,
-        signal: this.lifetime.signal,
-      });
+      const backend = await mergeBackend(this.backends, cwd, pr.repository, this.lifetime.signal);
       return this.actions.execute(
         p,
         backend,
@@ -420,9 +411,7 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      p.pr.repository.forge === "gitlab"
-        ? await gitLabReviewBackend(this.backends, cwd, p.pr, this.lifetime.signal)
-        : await this.backends.reviewWriter(cwd, p.pr.repository),
+      await reviewBackend(this.backends, cwd, p.pr, this.lifetime.signal),
       this.lifetime.signal,
       allowed,
     );
@@ -473,15 +462,7 @@ export class WorkspaceForge {
     if (!allowed()) return commandNotDispatched(command, "forbidden");
     let backend: import("./workspace-forge-actions.ts").ForgeActionBackend;
     try {
-      backend =
-        p.pr.repository.forge === "gitlab"
-          ? await gitlabHostedMerge({
-              backends: this.backends,
-              cwd,
-              repository: p.pr.repository,
-              signal: this.lifetime.signal,
-            })
-          : await this.backends.mergeWriter(cwd, p.pr.repository);
+      backend = await mergeBackend(this.backends, cwd, p.pr.repository, this.lifetime.signal);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -509,10 +490,12 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend =
-      p.pr.repository.forge === "gitlab"
-        ? await gitLabLifecycleBackend(this.backends, cwd, p.pr.repository, this.lifetime.signal)
-        : await this.backends.writer(cwd, p.pr.repository);
+    const backend = await lifecycleBackend(
+      this.backends,
+      cwd,
+      p.pr.repository,
+      this.lifetime.signal,
+    );
     const receipt = await this.lifecycle.execute(
       p,
       command.id,
