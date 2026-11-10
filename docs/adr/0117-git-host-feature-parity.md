@@ -49,3 +49,47 @@ ace still reaches every host only through the user's own logged-in CLI (ADR 0002
 Clients lose every `forge === "github"` branch. New host features need no client change when
 their data fits existing shapes. The capability table is the one place reviewers check that a
 host claims only what it implements.
+
+## What is built
+
+`forgeCapabilities` in `packages/forge/src/forge-capabilities.ts` is the source of truth; the
+daemon attaches it to every `ProjectRepository`, `ForgePrDetail` and `ForgeIssueDetail` at its
+browse boundary, and web and the iPhone gate every control with `can()` from `@ace/ui-core`.
+The separate read-only hosted review screens are gone: every host renders the one review page,
+showing what its capabilities declare.
+
+- **GitHub**: everything.
+- **GitLab** (`glab`): reviews, files, commits, discussions as review threads (read and write,
+  including resolve), approvals and reviewers (read and write), pipelines as checks with retry and
+  cancel, merge pinned to the head SHA, "merge when pipeline succeeds" as auto-merge, merge
+  request create and edit (title, body and other metadata, draft and ready, close and reopen, lock
+  and unlock), issues (read and write), and to-dos as the inbox.
+- **Gitea and Forgejo** (`tea`): reviews, files, commits, comments (read and write), approvals
+  (read and write), commit statuses as checks, merge pinned to the head SHA, and issues (read and
+  write).
+- **Cursor Origin**: reviews and files, read only.
+
+Every GitLab adapter shares one transport, `GitLabApi`: the endpoint guard, the read budget,
+status mapping, and one rule for writes. Only an explicit refusal (400, 401, 403, 404, 405, 409,
+412, 422, 429) seen under an unchanged identity has definitely failed; any other failure after
+dispatch, and an identity change after a success, is uncertain. In the daemon, `host-routes.ts`
+and `hosted-browse.ts` pick each host's adapter in one place, `hosted-issues.ts` does the same for
+issues, and every non-GitHub writer goes through `ForgeBackends.admittedWriter`, which refuses a
+hidden repository and then admits exactly that adapter's writes. Uncertain writes reconcile
+through the existing journals: issue actions, PR write receipts, hosted review writes and
+lifecycle writes. No host has a journal of its own.
+
+## Not yet supported
+
+- **GitLab**: stacks, suggestions, reactions and media; viewed-file state and moving review drafts
+  to a new head; the inbox marks a to-do done but has no read, unsubscribe or mark-all-before;
+  dequeuing from a merge train; updating, reverting or deleting and restoring a merge request's
+  branch, linking issues, and lock reasons; new merge request options (labels, assignees,
+  milestones) read empty. Resolving a discussion sends `PUT …/discussions/:id` with a JSON body `{resolved}`, while
+  GitLab's documentation shows only the query form. It needs confirming against a real instance.
+- **Gitea and Forgejo**: check reruns, auto-merge, pull request create and edit, the inbox,
+  stacks, suggestions, reactions, media and check detail pages. Actions on a pull request linked
+  to a thread (merge, reply, review request from the thread) fail closed as unsupported; the same
+  actions from the pull request page work.
+- **Cursor Origin**: every write.
+- **Bitbucket and GitBucket**: blocked until an official CLI exists.

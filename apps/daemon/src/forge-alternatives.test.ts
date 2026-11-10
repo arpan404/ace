@@ -383,7 +383,14 @@ test("GitLab merge requests browse through glab with GET-only, pinned reads", as
       value: {
         body: "MR body",
         changedFiles: 1,
-        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+        // What clients gate GitLab's comments, approvals and pipelines on.
+        capabilities: expect.arrayContaining([
+          "reviews.read",
+          "reviews.files",
+          "reviews.comments.read",
+          "reviews.approvals.read",
+          "reviews.checks",
+        ]),
       },
     },
   });
