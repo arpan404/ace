@@ -11,7 +11,7 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { ListViewport, OptionSkeletons } from "@/components/ui/list-viewport.tsx";
 import { canPick } from "@/components/ui/list-keys.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
@@ -24,6 +24,8 @@ import type { FolderRow, FolderSearch } from "./use-folder-search.ts";
 
 /** Rows of a folder this long and longer mount only near the viewport. */
 const virtualAbove = 120;
+/** A folder option's size and insets, which its loading rows take too. */
+const folderOptionGeometry = "h-[30px] gap-2 px-2";
 const mod = (event: KeyboardEvent) => (applePlatform ? event.metaKey : event.ctrlKey);
 
 /**
@@ -166,7 +168,7 @@ export function FolderSearchBox(props: {
       />
     );
   else if (!rows.length && search.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} className="px-2" />;
+    state = <OptionSkeletons label="folders" rows={5} geometry={folderOptionGeometry} />;
   else if (!rows.length)
     state = (
       <Notice icon={FolderSimpleIcon}>
@@ -238,12 +240,7 @@ export function FolderSearchBox(props: {
           </ol>
         </nav>
       )}
-      <div
-        className={cn(
-          "h-72 overflow-y-auto overscroll-contain rounded-md bg-secondary p-1",
-          props.listClassName,
-        )}
-      >
+      <ListViewport className={cn("h-72 rounded-md bg-secondary", props.listClassName)}>
         {state}
         <div id={listId} role="listbox" aria-label={props.listLabel} hidden={state !== null}>
           {sections.map((section, place) => {
@@ -282,7 +279,7 @@ export function FolderSearchBox(props: {
             );
           })}
         </div>
-      </div>
+      </ListViewport>
       {state === null && (search.restFailed || search.capped) && (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           {search.restFailed
@@ -362,7 +359,8 @@ function FolderOption(props: {
       onMouseDown={(event) => event.preventDefault()}
       onClick={props.onPick}
       className={cn(
-        "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground select-none",
+        folderOptionGeometry,
+        "flex cursor-default items-center rounded-sm text-ui text-foreground select-none",
         props.active && "bg-accent",
         row.stale && "opacity-60",
       )}

@@ -25,7 +25,7 @@ import {
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
 import { backHint, escapeHint, navigateHint } from "@/components/ui/key-hints.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { ListViewport, OptionSkeletons, optionGeometry } from "@/components/ui/list-viewport.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import type { Machine } from "@/lib/machines.ts";
@@ -163,7 +163,7 @@ export function LocalFolderStep(props: {
       />
     );
   else if (!rows.length && folder.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} className="px-2.5" />;
+    state = <OptionSkeletons label="folders" rows={6} geometry={optionGeometry} />;
 
   return (
     <>
@@ -188,15 +188,9 @@ export function LocalFolderStep(props: {
         />
         {props.trailing}
       </CommandStepRow>
-      <div className="h-[min(320px,46dvh)] overflow-y-auto overscroll-contain p-1">
+      <ListViewport className="h-[min(320px,46dvh)]" onPointerLeave={list.leave}>
         {state}
-        <div
-          id={listId}
-          role="listbox"
-          aria-label="Folders"
-          hidden={state !== null}
-          onPointerLeave={list.leave}
-        >
+        <div id={listId} role="listbox" aria-label="Folders" hidden={state !== null}>
           <LongRows
             items={rows}
             rowKey={(row) => `${row.kind}\u0000${rowPath(row)}`}
@@ -220,7 +214,7 @@ export function LocalFolderStep(props: {
             </div>
           )}
         </div>
-      </div>
+      </ListViewport>
       {problem && (
         <div className="px-3 pb-2">
           <Problem

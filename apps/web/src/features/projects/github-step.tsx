@@ -18,7 +18,6 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   CommandOption,
-  CommandStepList,
   CommandStepRow,
   commandStepField,
   stepFieldKey,
@@ -34,7 +33,7 @@ import {
 import { Input } from "@/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Select } from "@/components/ui/select.tsx";
-import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { ListViewport, OptionSkeletons, optionGeometry } from "@/components/ui/list-viewport.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
@@ -166,7 +165,7 @@ function RepositoryBrowser(props: {
   let state: ReactNode = null;
   if (error) state = <Notice icon={LockSimpleIcon}>{error}</Notice>;
   else if (loading)
-    state = <ListSkeleton label="repositories" shape="row" rows={6} className="px-3.5 py-1" />;
+    state = <OptionSkeletons label="repositories" rows={6} geometry={optionGeometry} />;
   else if (!rows.length) state = <Notice icon={GithubLogoIcon}>No repositories match.</Notice>;
 
   return (
@@ -286,8 +285,9 @@ function RepositoryBrowser(props: {
         </Popover>
         {props.trailing}
       </CommandStepRow>
-      {state ?? (
-        <CommandStepList id={listId} label="GitHub repositories" className="h-[min(320px,46dvh)]">
+      <ListViewport className="h-[min(320px,46dvh)]">
+        {state}
+        <div id={listId} role="listbox" aria-label="GitHub repositories" hidden={state !== null}>
           {rows.map((row, at) => (
             <CommandOption
               key={row.id}
@@ -308,8 +308,8 @@ function RepositoryBrowser(props: {
               </span>
             </CommandOption>
           ))}
-        </CommandStepList>
-      )}
+        </div>
+      </ListViewport>
       <KeyHints
         hints={[
           ...(rows.length ? [navigateHint, selectHint] : []),

@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { commandField, CommandSearchRow } from "./command.tsx";
 import { IconButton } from "./icon-button.tsx";
 import { KeyHintList, type KeyHint } from "./key-hints.tsx";
+import { optionGeometry } from "./list-viewport.tsx";
 import { sectionRule } from "./rules.ts";
 
 /*
@@ -107,7 +108,8 @@ function CommandOption(props: {
       onMouseDown={(event) => event.preventDefault()}
       onClick={props.disabled ? undefined : props.onPick}
       className={cn(
-        "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui text-foreground select-none data-highlighted:bg-accent aria-disabled:opacity-50 pointer-coarse:h-11 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
+        optionGeometry,
+        "flex cursor-default items-center rounded-md text-ui text-foreground select-none data-highlighted:bg-accent aria-disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground",
         props.className,
       )}
     >
