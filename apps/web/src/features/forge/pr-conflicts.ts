@@ -77,8 +77,7 @@ export function usePrConflicts(props: {
     setPending("push");
     try {
       // Pushes the PR's head branch without force: a branch that moved on GitHub refuses.
-      // With saved repository choices the daemon pushes only to the primary's remote.
-      const remote = (await readPushRemote(client, props.workspaceId)) ?? "origin";
+      const remote = (await readPushRemote(client)) ?? "origin";
       await runCommand(client, {
         type: "git.push",
         threadId: ThreadId.parse(props.threadId),

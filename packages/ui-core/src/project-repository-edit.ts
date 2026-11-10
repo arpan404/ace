@@ -98,6 +98,8 @@ export function repositoryLine(entry: ProjectRepository): string {
 
 const refusals: Readonly<Record<string, string>> = {
   primary_hidden: "The primary repository can't be hidden. Make another one primary first.",
+  repositories_changed:
+    "This project's repositories changed on another device. Check them and try again.",
   chat_project: "A chat has no repositories to choose.",
   workspace_not_found: "That project is gone.",
 };

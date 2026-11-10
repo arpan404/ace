@@ -109,3 +109,22 @@ test("saving a project's choices tells every client the project changed", async 
   ]);
   expect(new ProjectRepositoryConfigs(f.store).get(f.workspaceId)?.added).toEqual([gitlab]);
 });
+
+test("a save that started from choices another device has since replaced is refused", async () => {
+  const f = await setup();
+  const configs = new ProjectRepositoryConfigs(f.store);
+  // The web hides GitHub, then the phone, which read the project before that, adds GitLab.
+  configs.set(f.workspaceId, { added: [], hidden: [github], primary: null }, null);
+  expect(() =>
+    configs.set(f.workspaceId, { added: [gitlab], hidden: [], primary: null }, null),
+  ).toThrow("repositories_changed");
+  expect(configs.get(f.workspaceId)).toEqual({ added: [], hidden: [github], primary: null });
+  // Read again and applied to what is saved now, the phone's edit keeps the web's.
+  const upper = { ...github, owner: "ACME" };
+  configs.set(
+    f.workspaceId,
+    { added: [gitlab], hidden: [github], primary: null },
+    { added: [], hidden: [upper], primary: null },
+  );
+  expect(configs.get(f.workspaceId)).toEqual({ added: [gitlab], hidden: [github], primary: null });
+});

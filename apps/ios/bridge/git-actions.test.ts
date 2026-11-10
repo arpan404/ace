@@ -261,8 +261,9 @@ describe("Merging and reviews from the Changes sheet", () => {
 describe("Pushing a project with several repositories", () => {
   const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" } as const;
 
-  test("a push names the remote of the primary the project chose", async () => {
-    const { owner, act, sent } = await opened();
+  test("a plain push names the global remote even when the project chose its mirror as primary", async () => {
+    const { owner, act, sent, daemon } = await opened();
+    daemon.projects.repositories.addMirror("ace");
     const saved = await owner.command({
       type: "workspace.repositories.set",
       workspaceId: WorkspaceId.parse("ace"),
@@ -270,7 +271,7 @@ describe("Pushing a project with several repositories", () => {
     });
     expect(saved).toMatchObject({ ok: true });
     await act({ kind: "commit", message: "Fix the queue", push: true }, "m1");
-    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "mirror" });
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "origin" });
   });
 
   test("a project without saved choices pushes to the remote source control settings name", async () => {

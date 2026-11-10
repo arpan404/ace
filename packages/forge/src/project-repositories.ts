@@ -168,3 +168,25 @@ export function normalizeRepositoryConfig(
   if (!added.length && !hidden.length && !input.primary) return { ok: true, config: undefined };
   return { ok: true, config: { added, hidden, primary: input.primary } };
 }
+
+/**
+ * Whether two saved choices are the same choices: the same repositories added in the same
+ * order, the same ones hidden in any order, and the same primary, by identity. A save that
+ * names the choices it started from is refused when the saved ones differ from them.
+ */
+export function sameRepositoryConfig(
+  a: ProjectRepositoryConfig | null | undefined,
+  b: ProjectRepositoryConfig | null | undefined,
+): boolean {
+  const shape = (input: ProjectRepositoryConfig | null | undefined) => {
+    const normalized = normalizeRepositoryConfig(input ?? null);
+    const config = normalized.ok ? normalized.config : (input ?? undefined);
+    if (!config) return "";
+    return JSON.stringify([
+      config.added.map(repositoryKey),
+      config.hidden.map(repositoryKey).toSorted(),
+      config.primary ? repositoryKey(config.primary) : null,
+    ]);
+  };
+  return shape(a) === shape(b);
+}

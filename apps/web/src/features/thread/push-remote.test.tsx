@@ -46,7 +46,7 @@ function idle(): Scenario {
   };
 }
 
-test("a project whose primary is its GitLab mirror pushes to the mirror's remote, not the global one", async () => {
+test("a plain push names the global remote even when the project's primary is its GitLab mirror", async () => {
   const app = harness({ throughWorker: true });
   app.play(idle()).runUntilBlocked();
   app.daemon.services.settings.seed({
@@ -56,6 +56,7 @@ test("a project whose primary is its GitLab mirror pushes to the mirror's remote
       remote: "origin",
     },
   });
+  app.daemon.projects.repositories.addMirror("ace");
   app.daemon.projects.repositories.set("ace", { added: [], hidden: [github], primary: gitlab });
   const frames: CommandPayload[] = [];
   const receive = app.daemon.command.bind(app.daemon);
@@ -68,6 +69,6 @@ test("a project whose primary is its GitLab mirror pushes to the mirror's remote
   const dialog = await screen.findByRole("dialog", { name: /^Push release\/mirror/ });
   await userEvent.click(within(dialog).getByRole("button", { name: "Push" }));
   await waitFor(() =>
-    expect(frames.find((frame) => frame.type === "git.push")).toMatchObject({ remote: "mirror" }),
+    expect(frames.find((frame) => frame.type === "git.push")).toMatchObject({ remote: "origin" }),
   );
 });

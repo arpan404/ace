@@ -34,14 +34,31 @@ interface Row {
   canRemove: boolean;
 }
 
-async function machine() {
+/** `between` runs once, after the phone's next read of the project's repositories. */
+async function machine(between?: (daemon: ReturnType<typeof sheetFixture>["daemon"]) => void) {
   const { daemon, client } = sheetFixture();
   closers.push(() => client.close());
+  daemon.projects.repositories.addMirror(ace);
   daemon.createThread({ id: "t1", workspaceId: ace, title: "Mirror", provider: "codex" });
   daemon.apply("t1", [facts.rootAgent("codex"), facts.turn("root"), facts.endTurn("root")]);
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const manage = new ProjectManage(client, schedule);
+  let pending = between;
+  const owner: ConstructorParameters<typeof ProjectManage>[0] = {
+    request: (async (input: Parameters<typeof client.request>[0], options) => {
+      const reply = await client.request(input, options);
+      const run = pending;
+      if (run && input.type === "workspace.request") {
+        pending = undefined;
+        run(daemon);
+      }
+      return reply;
+    }) as typeof client.request,
+    enqueue: client.enqueue.bind(client),
+    intent: client.intent.bind(client),
+    commandId: client.commandId.bind(client),
+  };
+  const manage = new ProjectManage(owner, schedule);
   const rows = async () =>
     ((await manage.answer({ op: "repositories.read", workspaceId: ace })) as { rows: Row[] }).rows;
   const change = (kind: "primary" | "hide" | "show" | "remove", repository: object) =>
@@ -53,7 +70,7 @@ async function machine() {
     } as never);
   const add = (address: string) =>
     manage.answer({ op: "repositories.add", workspaceId: ace, address });
-  return { rows, change, add };
+  return { rows, change, add, daemon };
 }
 
 const shown = (rows: Row[]) =>
@@ -121,5 +138,17 @@ test("hiding the primary clears it, and the next visible repository becomes prim
   expect(listed.find((row) => row.label === "GitHub · acme/ace")).toMatchObject({
     visible: false,
     canMakePrimary: true,
+  });
+});
+
+test("the phone's edit is re-applied to choices saved elsewhere since it read them", async () => {
+  const { change, daemon } = await machine((fake) => {
+    fake.projects.repositories.set(ace, { added: [], hidden: [gitlab], primary: null });
+  });
+  expect(await change("primary", github)).toMatchObject({ ok: true });
+  expect(daemon.projects.repositories.read(ace).config).toEqual({
+    added: [],
+    hidden: [gitlab],
+    primary: github,
   });
 });

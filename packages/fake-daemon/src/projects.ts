@@ -480,7 +480,7 @@ export class FakeProjects {
         };
       }
       if (p.type === "workspace.repositories.set") {
-        const error = this.repositories.set(project.id, p.repositories);
+        const error = this.repositories.set(project.id, p.repositories, p.expected);
         if (error) return { ok: false, error };
         this.emit({
           type: "workspace.changed",

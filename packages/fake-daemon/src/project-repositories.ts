@@ -1,6 +1,7 @@
 import {
   normalizeRepositoryConfig,
   resolveProjectRepositories,
+  sameRepositoryConfig,
   type CheckoutRemote,
 } from "@ace/forge/project-repositories";
 import {
@@ -18,23 +19,27 @@ const preferences: SourceControlPreferences = {
 };
 
 /**
- * Each fake project's remotes. Every project has a GitHub `origin` (`acme/<id>`, the repository
- * `forge.repository` has always answered); `ace` also has a GitLab mirror, for multi-host UI.
+ * Fake projects' repository choices (ADR 0116), resolved by the daemon's own rule. Every
+ * project has a GitHub `origin` (`acme/<id>`, the repository `forge.repository` has always
+ * answered); a project given a GitLab mirror (`addMirror`, as `seedGitLabMirror` does for
+ * `ace`) also has a `mirror` remote on gitlab.com, for multi-host UI.
  */
-function remotes(workspaceId: string): CheckoutRemote[] {
-  const origin = { name: "origin", fetchUrls: [`https://github.com/acme/${workspaceId}.git`] };
-  return workspaceId === "ace"
-    ? [origin, { name: "mirror", fetchUrls: ["git@gitlab.com:acme/ace.git"] }]
-    : [origin];
-}
-
-/** Fake projects' repository choices (ADR 0116), resolved by the daemon's own rule. */
 export class FakeProjectRepositories {
   private configs = new Map<string, ProjectRepositoryConfig>();
+  private mirrored = new Set<string>();
+  /** Give the project a `mirror` remote: `acme/<id>` on gitlab.com. */
+  addMirror(workspaceId: string): void {
+    this.mirrored.add(workspaceId);
+  }
+  private remotes(workspaceId: string): CheckoutRemote[] {
+    const origin = { name: "origin", fetchUrls: [`https://github.com/acme/${workspaceId}.git`] };
+    if (!this.mirrored.has(workspaceId)) return [origin];
+    return [origin, { name: "mirror", fetchUrls: [`git@gitlab.com:acme/${workspaceId}.git`] }];
+  }
   read(workspaceId: string): ProjectRepositories {
     const config = this.configs.get(workspaceId);
     const resolved = resolveProjectRepositories({
-      remotes: remotes(workspaceId),
+      remotes: this.remotes(workspaceId),
       preferences,
       config,
     });
@@ -46,7 +51,13 @@ export class FakeProjectRepositories {
     };
   }
   /** Save choices as the daemon does; an error code when it would refuse them. */
-  set(workspaceId: string, input: ProjectRepositoryConfig | null): string | undefined {
+  set(
+    workspaceId: string,
+    input: ProjectRepositoryConfig | null,
+    expected?: ProjectRepositoryConfig | null,
+  ): string | undefined {
+    if (expected !== undefined && !sameRepositoryConfig(this.configs.get(workspaceId), expected))
+      return "repositories_changed";
     const normalized = normalizeRepositoryConfig(input && ProjectRepositoryConfig.parse(input));
     if (!normalized.ok) return normalized.error;
     if (normalized.config) this.configs.set(workspaceId, normalized.config);

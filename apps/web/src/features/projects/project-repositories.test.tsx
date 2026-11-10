@@ -18,7 +18,11 @@ const tools: ForgeRepository = {
 
 function app(daemon?: ReturnType<typeof harness>["daemon"]) {
   const made = harness(daemon ? { daemon } : {});
-  if (!daemon) for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+  if (!daemon) {
+    for (const scenario of workbench()) made.play(scenario).runUntilBlocked();
+    // `ace`'s checkout has `origin` on GitHub and `mirror` on GitLab.
+    made.daemon.projects.repositories.addMirror("ace");
+  }
   return made;
 }
 

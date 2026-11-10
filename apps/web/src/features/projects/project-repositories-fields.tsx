@@ -1,8 +1,4 @@
-import {
-  configuredForges,
-  type ProjectRepository,
-  type ProjectRepositoryConfig,
-} from "@ace/protocol";
+import { configuredForges, type ProjectRepository } from "@ace/protocol";
 import {
   actionErrorText,
   addRepository,
@@ -14,6 +10,7 @@ import {
   repositoryLine,
   repositoryRefusalText,
   showRepository,
+  type RepositoryEdit,
 } from "@ace/ui-core";
 import { repositoryKey } from "@ace/forge/project-repositories";
 import { Link } from "@tanstack/react-router";
@@ -46,12 +43,14 @@ export function ProjectRepositoriesFields(props: { projectId: string; onLeave():
   const save = useSaveProjectRepositories();
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const apply = async (next: ProjectRepositoryConfig | null) => {
+  const config = value?.config ?? null;
+  /** Save one edit; a change saved elsewhere meanwhile is read and kept. */
+  const apply = async (edit: RepositoryEdit) => {
     if (saving) return false;
     setSaving(true);
     setProblem(undefined);
     try {
-      await save(props.projectId, next);
+      await save(props.projectId, edit, config);
       return true;
     } catch (error) {
       setProblem(saveFailure(error));
@@ -60,7 +59,6 @@ export function ProjectRepositoriesFields(props: { projectId: string; onLeave():
       setSaving(false);
     }
   };
-  const config = value?.config ?? null;
   const loading = lists.pending.has(props.projectId);
   return (
     <div role="group" aria-label="Repositories" className="grid gap-1.5">
@@ -74,7 +72,7 @@ export function ProjectRepositoriesFields(props: { projectId: string; onLeave():
                 entry={entry}
                 disabled={saving}
                 onLeave={props.onLeave}
-                onApply={(change) => void apply(change(config, entry.repository))}
+                onApply={(change) => void apply((current) => change(current, entry.repository))}
               />
             ))}
           </ul>
@@ -95,7 +93,7 @@ export function ProjectRepositoriesFields(props: { projectId: string; onLeave():
         <AddRepository
           disabled={saving}
           onLeave={props.onLeave}
-          onAdd={(repository) => apply(addRepository(config, repository))}
+          onAdd={(repository) => apply((current) => addRepository(current, repository))}
         />
       )}
       {problem && (

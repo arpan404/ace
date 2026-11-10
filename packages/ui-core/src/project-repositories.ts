@@ -3,9 +3,10 @@ import type { ForgeRepository, ProjectRepositories, ProjectRepositoryConfig } fr
 import { defaultForgeHost, forgeDisplayName } from "./forge-hosts.ts";
 
 /*
- * A project's repositories as clients use them (ADR 0116): which ones Code review lists, which
- * remote a push names, how a repository is labelled, and the edits the project's settings make
- * to its saved choices. Web and the iPhone share these. Pure.
+ * A project's repositories as clients use them (ADR 0116): which ones Code review lists, how a
+ * repository is labelled, and the edits the project's settings make to its saved choices. Web
+ * and the iPhone share these. Pure. Every push names the global remote name; the daemon picks
+ * where the push before a new pull request goes.
  */
 
 /** Repositories Code review lists for a project: visible and available, in the daemon's order. */
@@ -13,15 +14,6 @@ export function reviewRepositories(value: ProjectRepositories | undefined): Forg
   return (value?.repositories ?? [])
     .filter((entry) => entry.visible && entry.available)
     .map((entry) => entry.repository);
-}
-
-/**
- * The remote a push names. With saved choices the daemon accepts only the primary's remote; with
- * none, the global remote name as before.
- */
-export function pushRemote(value: ProjectRepositories | undefined, globalRemote: string): string {
-  if (!value?.config) return globalRemote;
-  return value.repositories.find((entry) => entry.primary)?.remote ?? globalRemote;
 }
 
 /** "GitLab · acme/api", naming the host when it isn't the provider's public one. */
@@ -102,4 +94,34 @@ export function removeRepository(
     hidden: without(current.hidden, repository),
     primary: current.primary && same(current.primary, repository) ? null : current.primary,
   });
+}
+
+/** One edit of a project's choices: the edit functions above, bound to their repository. */
+export type RepositoryEdit = (
+  config: ProjectRepositoryConfig | null,
+) => ProjectRepositoryConfig | null;
+
+/**
+ * Save one edit of a project's choices, applied to the choices it was read from and naming them
+ * as `expected`. When another device saved meanwhile (`repositories_changed`) the choices are
+ * read again and the same edit is applied to them, once; a second conflict is the answer.
+ */
+export async function saveRepositoryEdit<Outcome>(
+  io: {
+    /** The project's saved choices now (`forge.repositories`' `config`). */
+    read: () => Promise<ProjectRepositoryConfig | null>;
+    save: (
+      repositories: ProjectRepositoryConfig | null,
+      expected: ProjectRepositoryConfig | null,
+    ) => Promise<Outcome>;
+    /** The save was refused with `repositories_changed`. */
+    changed: (outcome: Outcome) => boolean;
+  },
+  edit: RepositoryEdit,
+  from: ProjectRepositoryConfig | null,
+): Promise<Outcome> {
+  const first = await io.save(edit(from), from);
+  if (!io.changed(first)) return first;
+  const current = await io.read();
+  return io.save(edit(current), current);
 }

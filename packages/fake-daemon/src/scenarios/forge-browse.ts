@@ -30,11 +30,12 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
 }
 
 /**
- * Merge requests on `ace`'s GitLab mirror beside its GitHub reviews (ADR 0116), for Code review
- * reading both of a project's repositories. Apart from `seedForgeBrowse`, so lists that read
- * only GitHub stay as they were.
+ * `ace`'s GitLab mirror (a `mirror` remote on gitlab.com) and its merge requests beside the
+ * GitHub reviews (ADR 0116), for Code review reading both of a project's repositories. Apart
+ * from `seedForgeBrowse`, so projects without it list one repository, as they always did.
  */
 export function seedGitLabMirror(daemon: FakeDaemon, now: number): void {
+  daemon.projects.repositories.addMirror("ace");
   daemon.workspace.addPullRequests(gitlabMirrorPullRequests(now));
 }
 

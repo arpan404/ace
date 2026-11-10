@@ -51,7 +51,6 @@ import { fileManagerName, openOnHost, spawnDetached, type HostSpawner } from "./
 import { openableProjectFolders } from "./host-open-places.ts";
 import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { pushWorkspace } from "./workspace-push.ts";
-import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import { actionErrorCode, rejectedRemoteHead } from "./action-errors.ts";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { RunCheckpoints } from "./run-checkpoints.ts";
@@ -899,10 +898,9 @@ export class WorkspaceRuntime {
               asPerson(() => this.git.push(options)),
             repositoryInfo: (path: string) => this.git.repositoryInfo(path),
           };
-          const workspaceId = this.store.getThread(threadId)?.workspaceId;
-          await pushWorkspace(git, this.options.sourceControl, cwd, p, allowed, review, {
-            config: workspaceId && new ProjectRepositoryConfigs(this.store).get(workspaceId),
-          });
+          await pushWorkspace(git, this.options.sourceControl, cwd, p, allowed, review, () =>
+            this.forge.prPushTarget(cwd),
+          );
         } catch (error) {
           const remoteHead = rejectedRemoteHead(error);
           if (!remoteHead) throw error;

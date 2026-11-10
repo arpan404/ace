@@ -1,4 +1,4 @@
-import { normalizeRepositoryConfig } from "@ace/forge";
+import { normalizeRepositoryConfig, sameRepositoryConfig } from "@ace/forge";
 import { ProjectRepositoryConfig, WorkspaceId } from "@ace/protocol";
 import { ProjectError } from "./project-policy.ts";
 import type { Store } from "./store.ts";
@@ -17,6 +17,8 @@ function decode(value: unknown): ProjectRepositoryConfig | undefined {
 /** A project's saved repository choices, in `workspace_metadata.repositories` (ADR 0116). */
 export class ProjectRepositoryConfigs {
   private store: Store;
+  /** The engine's session table exists; checked until it does, then never again. */
+  private sessions = false;
   constructor(store: Store) {
     this.store = store;
   }
@@ -35,8 +37,17 @@ export class ProjectRepositoryConfigs {
     const id = this.projectOf(cwd);
     return id === undefined ? undefined : this.get(id);
   }
-  /** Replace the choices; null or empty ones clear them. */
-  set(id: WorkspaceId, input: ProjectRepositoryConfig | null): void {
+  /**
+   * Replace the choices; null or empty ones clear them. With `expected` (the choices the edit
+   * started from), refused with `repositories_changed` when the saved ones are others now.
+   */
+  set(
+    id: WorkspaceId,
+    input: ProjectRepositoryConfig | null,
+    expected?: ProjectRepositoryConfig | null,
+  ): void {
+    if (expected !== undefined && !sameRepositoryConfig(this.get(id), expected))
+      throw new ProjectError("repositories_changed");
     const normalized = normalizeRepositoryConfig(input && ProjectRepositoryConfig.parse(input));
     if (!normalized.ok) throw new ProjectError(normalized.error);
     const config = normalized.config;
@@ -51,17 +62,18 @@ export class ProjectRepositoryConfigs {
     const own = this.store
       .statement(
         `SELECT id FROM workspaces w WHERE path=? AND NOT EXISTS
-        (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id) LIMIT 1`,
+        (SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+        ORDER BY w.created_at,w.id LIMIT 1`,
       )
       .get(cwd);
     if (own) return WorkspaceId.parse(own.id);
-    const sessions = this.store
+    this.sessions ||= !!this.store
       .statement("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'")
       .get();
-    if (!sessions) return undefined;
+    if (!this.sessions) return undefined;
     const thread = this.store
       .statement(
-        "SELECT t.workspace_id FROM engine_sessions s JOIN threads t ON t.id=s.thread_id WHERE s.cwd=? ORDER BY t.id LIMIT 1",
+        "SELECT t.workspace_id FROM engine_sessions s JOIN threads t ON t.id=s.thread_id WHERE s.cwd=? ORDER BY t.created_at,t.id LIMIT 1",
       )
       .get(cwd);
     return thread ? WorkspaceId.parse(thread.workspace_id) : undefined;

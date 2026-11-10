@@ -13,6 +13,8 @@ import {
   hideRepository,
   makePrimary,
   removeRepository,
+  saveRepositoryEdit,
+  type RepositoryEdit,
   repositoryFromAddress,
   repositoryLabel,
   repositoryLine,
@@ -27,7 +29,9 @@ import type { WriteOutcome } from "./project-manage.ts";
  * A project's repositories in its settings on the phone (ADR 0116): each repository the daemon
  * lists with where it comes from, and the person's choices (primary, hidden, added by hand).
  * Every change reads the saved choices afresh, applies one shared edit and saves the whole
- * choice through the durable outbox, so a change made elsewhere meanwhile is kept. Swift draws.
+ * choice through the durable outbox, naming the choices it started from. When another device
+ * saved in between, the choices are read again and the edit re-applied once
+ * (`saveRepositoryEdit`), so a change made elsewhere meanwhile is kept. Swift draws.
  */
 
 export const RepositorySettingsRequest = z.discriminatedUnion("op", [
@@ -97,7 +101,7 @@ export class RepositorySettings {
       show: showRepository,
       remove: removeRepository,
     }[request.change];
-    return this.#save(current.workspaceId, edit(current.config, request.repository));
+    return this.#apply(current, (config) => edit(config, request.repository));
   }
 
   async #add(current: ProjectRepositories, address: string): Promise<unknown> {
@@ -110,14 +114,28 @@ export class RepositorySettings {
     );
     if (listed?.visible)
       return refused(`${repositoryLabel(parsed.repository)} is already in this project.`);
-    return this.#save(current.workspaceId, addRepository(current.config, parsed.repository));
+    return this.#apply(current, (config) => addRepository(config, parsed.repository));
   }
 
-  #save(workspaceId: WorkspaceId, repositories: ProjectRepositoryConfig | null) {
-    return this.#write(
-      { type: "workspace.repositories.set", workspaceId, repositories },
-      repositoryRefusalText,
-    );
+  #apply(current: ProjectRepositories, edit: RepositoryEdit): Promise<WriteOutcome> {
+    const workspaceId = current.workspaceId;
+    return saveRepositoryEdit(
+      {
+        read: async () => {
+          const fresh = await this.#read(workspaceId);
+          if (!fresh) throw new Error("unreadable");
+          return fresh.config;
+        },
+        save: (repositories: ProjectRepositoryConfig | null, expected) =>
+          this.#write(
+            { type: "workspace.repositories.set", workspaceId, repositories, expected },
+            repositoryRefusalText,
+          ),
+        changed: (outcome) => !outcome.ok && outcome.code === "repositories_changed",
+      },
+      edit,
+      current.config,
+    ).catch(() => refused(unreachable));
   }
 
   async #read(workspaceId: WorkspaceId): Promise<ProjectRepositories | undefined> {

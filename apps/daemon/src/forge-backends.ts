@@ -18,6 +18,7 @@ import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
 import type { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import { remotePushesTo } from "./workspace-push.ts";
+import { prHeadMetadata, resolvePrHead } from "./pr-head.ts";
 
 /** How many GitLab or Origin pull requests one state refresh reads at once. */
 const stateReadConcurrency = 4;
@@ -81,7 +82,28 @@ export class ForgeBackends {
     return {
       resolved: resolveProjectRepositories({ remotes: info.remotes, preferences, aliases, config }),
       config,
+      globalRemote: preferences?.remote ?? "origin",
       remotes: info.remotes.map((remote) => remote.name),
+    };
+  }
+  /**
+   * Where a new pull request's branch is pushed (`resolvePrHead`), with the project's
+   * repositories. `metadata` reads what PR creation needs to find where the PR opens.
+   */
+  async prHead(cwd: string) {
+    const project = await this.projectRepositories(cwd);
+    const read = async (entry: { repository: ForgeRepository }) =>
+      (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    const head = await resolvePrHead({
+      resolved: project.resolved,
+      globalRemote: project.globalRemote,
+      metadata: read,
+    });
+    return {
+      head,
+      project,
+      /** The pushed repository's metadata, its parent cleared when the project refuses it. */
+      metadata: () => prHeadMetadata(head, project.resolved, read),
     };
   }
   /** The GitHub backend for a write, refused when the project hides or can't use `repository`. */

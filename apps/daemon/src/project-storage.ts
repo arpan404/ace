@@ -242,10 +242,14 @@ export class ProjectStorage {
     return notes ? this.update(id, project.name, { notes }) : undefined;
   }
   /** Replace the project's repository choices (ADR 0116) and tell every client to read them. */
-  setRepositories(id: WorkspaceId, config: ProjectRepositoryConfig | null): Project {
+  setRepositories(
+    id: WorkspaceId,
+    config: ProjectRepositoryConfig | null,
+    expected?: ProjectRepositoryConfig | null,
+  ): Project {
     const workspace = this.store.atomic(() => {
       this.get(id);
-      new ProjectRepositoryConfigs(this.store).set(id, config);
+      new ProjectRepositoryConfigs(this.store).set(id, config, expected);
       return this.get(id);
     });
     this.emit({ type: "workspace.changed", change: "updated", workspaceId: id, workspace });

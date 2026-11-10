@@ -73,12 +73,19 @@ export type ProjectRepositories = z.infer<typeof ProjectRepositories>;
 
 /**
  * Replace a project's repository choices; null clears them. Refused with `primary_hidden` when
- * the primary is also hidden. Answers with the project, and every client is told through
+ * the primary is also hidden, and with `repositories_changed` when `expected` no longer matches
+ * the saved choices (another device saved meanwhile): the client reads `forge.repositories`
+ * again and re-applies its one edit. Answers with the project, and every client is told through
  * `workspace.changed` (`updated`) to read `forge.repositories` again.
  */
 export const ProjectRepositoriesSetCommand = z.object({
   type: z.literal("workspace.repositories.set"),
   workspaceId: WorkspaceId,
   repositories: ProjectRepositoryConfig.nullable(),
+  /**
+   * The saved choices the edit started from (`forge.repositories`' `config`; null for none).
+   * Compared by identity, the order of `hidden` aside. Absent replaces whatever is saved.
+   */
+  expected: ProjectRepositoryConfig.nullable().optional(),
 });
 export type ProjectRepositoriesSetCommand = z.infer<typeof ProjectRepositoriesSetCommand>;

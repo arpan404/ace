@@ -27,6 +27,7 @@ import { WorkspacePrLinks } from "./workspace-pr-links.ts";
 import { WorkspaceForgeActions } from "./workspace-forge-actions.ts";
 import type { PrOwnerOperation } from "./agent-control/tools.ts";
 import { ForgeBackends } from "./forge-backends.ts";
+import type { PrPushTarget } from "./workspace-push.ts";
 import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 import { WorkspaceForgeBrowse } from "./workspace-forge-browse.ts";
 import { WorkspacePrAssociations } from "./workspace-pr-associations.ts";
@@ -116,6 +117,15 @@ export class WorkspaceForge {
   }
   repository(cwd: string): Promise<ForgeRepository> {
     return this.backends.repository(cwd);
+  }
+  /** Where the push before a new PR goes (ADR 0116): its head, and the project's primary. */
+  async prPushTarget(cwd: string): Promise<PrPushTarget> {
+    const { head, project } = await this.backends.prHead(cwd);
+    return {
+      head,
+      primary: project.resolved.primary?.repository,
+      chosen: project.config !== undefined,
+    };
   }
   prRepositories(cwd: string): Promise<ForgeRepository[]> {
     return this.creation.prRepositories(cwd);
@@ -226,7 +236,12 @@ export class WorkspaceForge {
       throw new Error("invalid_command");
     let backend: GitHubForge;
     try {
-      backend = await this.backends.backend(cwd, p.repository);
+      // A write is refused on a hidden or unavailable repository. Reconciling only reads whether
+      // an earlier write landed, so an uncertain one still settles after its repository is hidden.
+      backend =
+        p.type === "forge.issue.write"
+          ? await this.backends.writer(cwd, p.repository)
+          : await this.backends.backend(cwd, p.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }

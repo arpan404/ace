@@ -6,9 +6,9 @@ import {
   type ProjectRepositories,
   type ProjectRepositoryConfig,
 } from "@ace/protocol";
-import { pushRemote } from "@ace/ui-core";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { runCommand } from "./daemon-command.ts";
+import { saveRepositoryEdit, type RepositoryEdit } from "@ace/ui-core";
+import { CommandRefused, runCommand } from "./daemon-command.ts";
 import { useDaemonQuery } from "./daemon-query.ts";
 import { readForge } from "./forge-read.ts";
 import { forgetProjectRepositories, projectRepositoriesKey } from "./project-cache.ts";
@@ -64,19 +64,40 @@ export function useProjectRepositoryLists(projects: readonly string[]): Reposito
 }
 
 /**
- * Save a project's repository choices (`workspace.repositories.set`); null clears them. Rejects
- * with `CommandRefused` and the daemon's code (`primary_hidden`, `workspace_not_found`...).
+ * Save one edit of a project's repository choices (`workspace.repositories.set`), applied to the
+ * choices `from` it was made against. When another device saved meanwhile, the choices are read
+ * again and the edit re-applied once (`saveRepositoryEdit`). Rejects with `CommandRefused` and
+ * the daemon's code (`primary_hidden`, `repositories_changed`, `workspace_not_found`...).
  */
 export function useSaveProjectRepositories() {
   const client = useClient();
   const cache = useQueryClient();
-  return async (project: string, repositories: ProjectRepositoryConfig | null) => {
+  return async (project: string, edit: RepositoryEdit, from: ProjectRepositoryConfig | null) => {
+    const workspaceId = WorkspaceId.parse(project);
     try {
-      await runCommand(client, {
-        type: "workspace.repositories.set",
-        workspaceId: WorkspaceId.parse(project),
-        repositories,
-      });
+      const refused = await saveRepositoryEdit(
+        {
+          read: async () =>
+            (await readProjectRepositories(client, project, new AbortController().signal)).config,
+          save: (repositories, expected) =>
+            runCommand(client, {
+              type: "workspace.repositories.set",
+              workspaceId,
+              repositories,
+              expected,
+            }).then(
+              () => undefined,
+              (error: unknown) => {
+                if (error instanceof CommandRefused) return error;
+                throw error;
+              },
+            ),
+          changed: (outcome) => outcome?.code === "repositories_changed",
+        },
+        edit,
+        from,
+      );
+      if (refused) throw refused;
     } finally {
       forgetProjectRepositories(cache, project);
     }
@@ -84,23 +105,21 @@ export function useSaveProjectRepositories() {
 }
 
 /**
- * The remote a targeted push in this project names (`pushRemote`): the primary's remote when
- * the project has saved choices, else the global remote name. Undefined when the source control
- * settings can't be read. A daemon that can't list repositories keeps the global rule.
+ * The remote every push names: the global remote name, as the person's Git would push. The
+ * push before a new pull request names it too; the daemon pushes that one to the PR's head
+ * (the primary, or the person's fork of it, ADR 0116). Undefined when the source control
+ * settings can't be read.
  */
-export async function readPushRemote(
-  client: ClientApi,
-  project: string,
-): Promise<string | undefined> {
-  const signal = new AbortController().signal;
-  const [settings, repositories] = await Promise.all([
-    client.request({ type: "settings.get", key: "sourceControl.preferences", scope: {} }),
-    readProjectRepositories(client, project, signal).catch(() => undefined),
-  ]);
+export async function readPushRemote(client: ClientApi): Promise<string | undefined> {
+  const settings = await client.request({
+    type: "settings.get",
+    key: "sourceControl.preferences",
+    scope: {},
+  });
   const entry = settings.entries.find((item) => item.key === "sourceControl.preferences");
   const preferences = entry ? SourceControlPreferences.safeParse(entry.value) : undefined;
   if (!settings.ok || !preferences?.success) return undefined;
-  return pushRemote(repositories, preferences.data.remote);
+  return preferences.data.remote;
 }
 
 /**

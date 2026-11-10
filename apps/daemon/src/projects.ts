@@ -472,7 +472,7 @@ export class Projects {
           if (p.type === "workspace.repositories.set")
             return {
               ok: true,
-              workspace: this.catalog.setRepositories(p.workspaceId, p.repositories),
+              workspace: this.catalog.setRepositories(p.workspaceId, p.repositories, p.expected),
             };
           if (p.type === "workspace.rename")
             return { ok: true, workspace: this.catalog.rename(p.workspaceId, p.name) };

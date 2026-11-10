@@ -281,8 +281,7 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       return result.commit ?? "";
     },
     async push(thread, target, force) {
-      // With saved repository choices the daemon pushes only to the primary's remote.
-      const remote = await readPushRemote(client, thread.workspaceId);
+      const remote = await readPushRemote(client);
       if (remote === undefined) throw new WorkspaceError("forge_preferences_changed");
       await run({
         type: "git.push",

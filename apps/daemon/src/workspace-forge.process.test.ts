@@ -323,6 +323,24 @@ test("a project lists every remote's repository, and hiding one moves the primar
       }),
     );
     expect(refused).toMatchObject({ ok: false, error: "repository_hidden" });
+    const issue = await runtime.execute(
+      Command.parse({
+        id: "hidden-issue-write",
+        deviceId: "device",
+        payload: {
+          type: "forge.issue.write",
+          workspaceId,
+          repository: github,
+          input: { action: "comment", number: 4, body: "Never sent" },
+        },
+      }),
+    );
+    expect(issue).toMatchObject({
+      ok: false,
+      error: "repository_hidden",
+      code: "action_not_dispatched",
+      issueAction: { state: "failed", error: "repository_hidden" },
+    });
   } finally {
     await runtime.close();
     await store.close();
