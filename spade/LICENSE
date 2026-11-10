@@ -2,37 +2,114 @@ Spade License 1.0
 
 Copyright 2026 Arpan Bhandari. All rights reserved.
 
-This license covers every file in the `spade/` directory of this repository and its
-subdirectories ("Spade"). The Apache License 2.0 that applies to the rest of the repository
-does not apply to Spade.
+Spade is proprietary, source-available software. It is not open source.
 
-1. Viewing. You may read Spade's source code, for example to evaluate it, to understand how
-   ace behaves, or to report a security problem.
+1. Definitions
 
-2. Running official builds. You may install and run Spade as shipped in official ace releases
-   published by the copyright holder.
+   "Licensor" means Arpan Bhandari.
 
-3. Not permitted. Unless the copyright holder gives you written permission first, you may not:
+   "You" means the individual or legal entity exercising rights under this License. "Your
+   organization" means the legal entity on whose behalf You act, together with its employees
+   and contractors acting for it.
 
-   a. copy or reproduce Spade, in whole or in part, beyond what sections 1 and 2 need;
-   b. modify Spade, translate it, or create works based on it;
-   c. distribute, publish, sublicense, sell, rent or lend Spade, or offer it as a hosted
-      service;
-   d. use Spade, or any part of it, for a commercial purpose, other than running official
-      builds under section 2;
-   e. use Spade to build, train or improve a product, service or model that competes with it.
+   "Spade" means Licensor's original material in the `spade/` directory of the ace repository
+   and its subdirectories, including source code, documentation and configuration, and any
+   executable form of that material. Spade does not include Separately Licensed Material.
 
-4. Hosting platforms. Where this repository is hosted on GitHub or a similar service, that
-   service's terms may let its users view and fork public content within the service. This
-   license grants nothing beyond those terms, and a fork does not give its holder any of the
-   rights reserved in section 3.
+   "Separately Licensed Material" means material in or used by Spade that is under another
+   license, including ace components under the Apache License 2.0, third-party dependencies,
+   and bundled data or generated material identified as separately licensed.
 
-5. Contributions. The copyright holder accepts contributions to Spade only under a separate
-   written agreement.
+   "Official Build" means an executable distribution of Spade that Licensor publishes as part
+   of an official ace release, on the ace releases page at
+   https://github.com/arpan404/ace/releases or on https://acehq.dev. Source archives, and
+   binaries compiled by anyone other than Licensor, are not Official Builds.
 
-6. Ending. If you break this license, your rights under it end at once.
+   "Commercial Purpose" means an activity carried out for commercial advantage or monetary
+   compensation, directly or indirectly.
 
-7. No warranty. Spade is provided "as is", without warranty of any kind. The copyright holder
-   is not liable for any claim, damage or other liability arising from Spade or its use.
+   "Competing Offering" means a product, service or model offered to others as a substitute for
+   Spade's principal functionality: an AI assistant that acts on its users' apps, devices,
+   machines or coding agents.
 
-For permission beyond this license, contact the copyright holder.
+   "User Settings" means settings Licensor designates as user-configurable, including supported
+   environment variables and the model catalogue file.
+
+2. Reading. You may read Spade's source code and documentation, including on a hosting
+   platform, to evaluate it, to understand how ace behaves, and to find and report security
+   problems, including as paid security research. This permission is subject to section 5.
+
+3. Running Official Builds. Subject to section 5, You may download, install and run Official
+   Builds, and make the copies reasonably needed to do so, including backups, for personal use
+   and for Your organization's internal use, including paid work and other internal commercial
+   activity. You may change User Settings. This section does not permit compiling the source,
+   changing program code, distributing Spade outside Your organization, or providing Spade's
+   functionality to third parties as a service.
+
+4. Separately Licensed Material. Separately Licensed Material remains under its own license,
+   and nothing in this License limits rights granted directly by its owners. The license texts
+   and notices it requires accompany distributions of Official Builds.
+
+5. Not permitted. Except as sections 2 to 4 allow, or with Licensor's prior written
+   permission, You may not:
+
+   a. copy or reproduce Spade, in whole or in part;
+   b. modify, translate or adapt Spade, or create works based on it, except by changing User
+      Settings;
+   c. distribute, publish, sublicense, sell, rent, lend or otherwise make Spade available to
+      others;
+   d. operate Spade, or make it available, for third parties as a hosted, managed, API, embedded
+      or other service, whether paid or free;
+   e. use Spade for a Commercial Purpose, except running Official Builds under section 3;
+   f. use Spade, including information obtained by studying its source, to develop or improve a
+      Competing Offering, or to train, fine-tune or evaluate a model intended for one;
+   g. remove or alter license, copyright or other notices in Spade.
+
+   This section applies except where applicable law gives You a right that cannot be waived by
+   agreement.
+
+6. Hosting platforms. Public hosting of Spade is subject to rights that the hosting platform's
+   own terms grant, such as viewing and forking on GitHub. This License does not withdraw those
+   rights. Outside them, a fork gives no permission to modify, redistribute, commercially use or
+   otherwise use Spade beyond this License.
+
+7. Contributions. Licensor does not accept contributions to Spade except under a separate
+   written agreement signed before the work is done. A pull request, or merging one, is not
+   such an agreement, and this License gives no permission to modify Spade to prepare one.
+
+8. Your content. Licensor claims no ownership of Your inputs, the bots You create, or the
+   outputs You obtain, merely because Spade processes them.
+
+9. Patents. Licensor grants You a nonexclusive, worldwide, royalty-free license under patent
+   claims Licensor controls that are necessarily infringed by the activities this License
+   permits, solely to carry out those activities. No other patent rights are granted.
+
+10. Trademarks. This License grants no rights in the names ace or Spade or their logos, except
+    to keep notices and to identify unmodified software accurately. You may not suggest that
+    Licensor endorses You or Your products.
+
+11. Ending. Your rights under this License end automatically if You break it. You must then
+    stop the activities that need those rights and delete the copies You hold only under this
+    License, unless the law requires You to keep them. If You fix a first breach within 30 days
+    after Licensor's written notice, Your rights are restored as if the breach had not happened.
+    Later breaches need Licensor's written reinstatement. Sections 4, 6, 8 and 12 to 14 continue
+    after Your rights end. Rights under other licenses are unaffected.
+
+12. No warranty. To the maximum extent permitted by applicable law, Spade is provided "as is",
+    without warranties of any kind, express or implied, including merchantability, fitness for
+    a particular purpose, title and non-infringement.
+
+13. Limitation of liability. To the maximum extent permitted by applicable law, Licensor is not
+    liable for any claim, damages or other liability arising from Spade or its use. Nothing in
+    this License excludes liability that cannot lawfully be excluded.
+
+14. General. This License is governed by the laws of [GOVERNING LAW], without regard to its
+    conflict-of-laws rules. Subject to mandatory law, disputes go to the courts of [COURTS]. If
+    a provision is unenforceable, the rest continues to apply as far as the law allows. You must
+    comply with applicable export-control and sanctions laws. This License does not revoke
+    rights granted earlier for any version or component under another license.
+
+15. Permission. Ask for permission beyond this License at [CONTACT]. Permission counts only if
+    it is in writing, issued by Licensor or an authorized representative, and names the material
+    and activities it covers. Silence, a reply on an issue, or merging an unrelated change does
+    not grant permission.

@@ -7,10 +7,15 @@ person's machines through their ace daemons. The design and the decisions so far
 
 This repository is the backend, written in Rust. Spade's screens live in ace's own apps (React on
 desktop and web, Swift on iOS). It lives in ace's repository at `spade/`, under the
-[Spade License](LICENSE): readable, but not to be copied, modified, redistributed or used
-commercially without written permission. The rest of ace is Apache-2.0.
+[Spade License](LICENSE). Spade is source-available, not open source: you may read it and run
+official builds, including for internal work use. Other copying, modification,
+redistribution, hosting as a service, and commercial or competing use need written
+permission. The rest of ace is Apache-2.0.
 
 ## Getting started
+
+The build, run, test and deployment instructions below are for the Licensor and developers
+authorized in writing. They grant no permission to build or modify Spade.
 
 Rust 1.95.0 is pinned in `rust-toolchain.toml`. If another Rust is first on your `PATH` (Homebrew's
 `rust`, for example), put rustup's toolchain first so the pin applies:

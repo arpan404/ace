@@ -10,7 +10,9 @@ ace is a clean-room rewrite. Never copy, paste or closely paraphrase code from t
 
 `spade/` is not Apache-2.0: it is under the Spade License (`spade/LICENSE`). Never move or copy
 code from `spade/` into the rest of the repository, and never publish it elsewhere. Code may flow
-the other way: Spade may use ace's Apache-2.0 packages. Spade is Rust, with its own Cargo
+the other way: Spade may use ace's Apache-2.0 packages, keeping their license, attribution and
+modification notices. Changes to `spade/` need the owner's review (`.github/CODEOWNERS`); outside
+contributions to it are accepted only under a separate written agreement. Spade is Rust, with its own Cargo
 workspace and checks (`cargo fmt`, `cargo clippy`, `cargo test` inside `spade/`).
 
 ## Priorities

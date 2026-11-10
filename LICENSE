@@ -1,9 +1,13 @@
 Licensing of this repository
 
-Everything in this repository is licensed under the Apache License, Version 2.0 (below),
-except the `spade/` directory and its subdirectories. Those are licensed under the
-Spade License in `spade/LICENSE`, which does not permit copying, modifying, redistributing
-or commercial use without written permission.
+ace is licensed under the Apache License 2.0, except Arpan Bhandari's original material in the
+`spade/` directory, which is under the Spade License 1.0 in `spade/LICENSE`. Spade is
+source-available, not open source: you may read it and run official builds, including for
+internal work use. Other copying, modification, redistribution, hosting as a service, and
+commercial or competing use need written permission. Separately licensed components keep
+their own licenses. This summary does not replace the license texts.
+
+The Apache License 2.0 follows.
 
 --------------------------------------------------------------------------------
 
