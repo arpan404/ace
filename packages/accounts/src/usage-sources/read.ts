@@ -20,6 +20,8 @@ export interface UsagePorts {
     keyColumn: string;
     key: string;
     valueColumn: string;
+    /** With several rows for the key, the one with the highest value here; ignored if absent. */
+    prefer?: string;
   }): Promise<string | undefined>;
   fetch(url: string, init: RequestInit): Promise<Response>;
   /**
@@ -84,6 +86,9 @@ type Attempt = { ok: true; reading: UsageReading } | UsageFailure | undefined;
 const maxBytes = 256 * 1024;
 const secretShape = z.string().min(8).max(16_384);
 const login = z.string().trim().min(1).max(256);
+/** A stored value sent in a header: plain id characters only, so it can't inject a header. */
+const fieldShape = z.string().regex(/^[\w.:-]{1,256}$/);
+const placeholder = /\{(\w+)\}/g;
 
 function inHome(home: string, file: string): string | undefined {
   if (!isAbsolute(home) || isAbsolute(file)) return undefined;
@@ -131,7 +136,9 @@ function sameLogin(reported: unknown, account: UsageAccount): boolean {
 
 type TokenSource = Extract<UsageSource, { kind: "token-http" }>;
 /** A token, or why there is none: no login here, one that has lapsed, or a store ace can't use. */
-type Stored = { secret: string } | { failure: "missing" | "expired" | "unavailable" };
+type Stored =
+  | { secret: string; fields: Record<string, string> }
+  | { failure: "missing" | "expired" | "unavailable" };
 
 async function fromKeychain(
   store: Extract<TokenStore, { from: "keychain" }>,
@@ -150,7 +157,7 @@ async function fromKeychain(
       signal,
     });
     const secret = secretShape.safeParse(out.trim()).data;
-    return secret ? { secret } : { failure: "missing" };
+    return secret ? { secret, fields: {} } : { failure: "missing" };
   } catch {
     return { failure: "missing" };
   }
@@ -177,6 +184,7 @@ async function fromStore(
               keyColumn: store.keyColumn,
               key: store.key,
               valueColumn: store.valueColumn,
+              ...(store.prefer ? { prefer: store.prefer } : {}),
             });
       if (text === undefined || text.length > maxBytes) continue;
       value = JSON.parse(text);
@@ -185,12 +193,18 @@ async function fromStore(
     }
     const secret = secretShape.safeParse(first(value, store.path)).data;
     if (!secret) continue;
+    const fields: Record<string, string> = {};
+    for (const [name, at] of Object.entries(store.fields ?? {})) {
+      const field = fieldShape.safeParse(first(value, at)).data;
+      if (field) fields[name] = field;
+    }
+    if (Object.keys(fields).length !== Object.keys(store.fields ?? {}).length) continue;
     if (store.expires) {
       const at = instant(first(value, store.expires.path), store.expires.unit);
       // Never refreshed: ace doesn't write the CLI's credentials; the CLI renews on next use.
       if (at !== undefined && at <= ports.now()) return { failure: "expired" };
     }
-    return { secret };
+    return { secret, fields };
   }
   return { failure: "missing" };
 }
@@ -209,16 +223,29 @@ async function stored(
   return { failure: "missing" };
 }
 
+/** The request's headers for one stored login; one naming a field it doesn't have is left out. */
+function headersFor(
+  request: TokenSource["request"],
+  held: { secret: string; fields: Record<string, string> },
+): Record<string, string> {
+  const values: Record<string, string> = { ...held.fields, token: held.secret };
+  const headers: Record<string, string> = { accept: "application/json" };
+  for (const [name, template] of Object.entries(request.headers)) {
+    const names = [...template.matchAll(placeholder)].map((match) => match[1] ?? "");
+    if (names.some((key) => !Object.hasOwn(values, key))) continue;
+    headers[name] = template.replace(placeholder, (_, key: string) => values[key] ?? "");
+  }
+  return headers;
+}
+
 async function call(
   request: TokenSource["request"],
-  secret: string,
+  held: { secret: string; fields: Record<string, string> },
   captured: string | undefined,
   ports: UsagePorts,
   signal: AbortSignal,
 ): Promise<{ status: number; answer?: unknown }> {
-  const headers: Record<string, string> = { accept: "application/json" };
-  for (const [name, template] of Object.entries(request.headers))
-    headers[name] = template.replaceAll("{token}", secret);
+  const headers = headersFor(request, held);
   if (request.body !== undefined) headers["content-type"] = "application/json";
   const response = await ports.fetch(request.url, {
     method: request.method,
@@ -294,7 +321,7 @@ async function fromToken(
     let captured: string | undefined;
     let plan = "";
     if (source.prelude) {
-      const prelude = await call(source.prelude.request, token.secret, undefined, ports, signal);
+      const prelude = await call(source.prelude.request, token, undefined, ports, signal);
       if (prelude.status === 401) return signIn;
       captured = z
         .string()
@@ -304,8 +331,9 @@ async function fromToken(
       if (!captured) return unavailable("usage is unavailable");
       for (const path of source.prelude.plan ?? []) plan ||= planName(first(prelude.answer, path));
     }
-    const result = await call(source.request, token.secret, captured, ports, signal);
+    const result = await call(source.request, token, captured, ports, signal);
     if (result.status === 401) return signIn;
+    if (source.noPlan.includes(result.status)) return undefined;
     if (result.answer === undefined) return unavailable("usage is unavailable");
     const reading = mapUsage(result.answer, source.mapping);
     if (!reading) return unavailable("reported no usage");

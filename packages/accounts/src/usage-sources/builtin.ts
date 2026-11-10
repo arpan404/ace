@@ -1,6 +1,6 @@
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { z } from "zod";
-import { TokenStore, UsageSource, type UsageDeclaration } from "./declaration.ts";
+import { TokenSource, TokenStore, UsageSource, type UsageDeclaration } from "./declaration.ts";
 
 /*
  * The usage sources ace ships, keyed by native provider or ACP registry agent id. A new ACP
@@ -77,19 +77,22 @@ const goMeter = (key: string, label: string) => ({
 });
 
 /**
- * OpenCode Go's usage route, read with the `opencode-go` key OpenCode stores. Confirmed read-only
- * with a signed-in OpenCode 2.0.29. Go is one of OpenCode's providers, so a full meter never
- * holds the account: its other providers still work.
+ * OpenCode Go's usage route. A Go key is sent alone; an OpenCode Console login (OpenCode 2.2's
+ * browser sign-in, which serves Go and Zen) sends its access token with its org id, as OpenCode's
+ * own usage read does. 403 is a Console account without Go. Confirmed read-only with a signed-in
+ * OpenCode 2.0.29 (key) and against the OpenCode 2.2.6 binary (Console). Go is one of OpenCode's
+ * providers, so a full meter never holds the account: its other providers still work.
  */
-function openCodeGo(token: z.input<typeof TokenStore>): z.input<typeof UsageSource> {
+function openCodeGo(token: z.input<typeof TokenSource>["token"]): z.input<typeof UsageSource> {
   return {
     kind: "token-http",
     token,
     request: {
       method: "GET",
       url: "https://opencode.ai/zen/go/v1/usage",
-      headers: { authorization: "Bearer {token}" },
+      headers: { authorization: "Bearer {token}", "x-opencode-org-id": "{org}" },
     },
+    noPlan: [403],
     mapping: {
       windows: [
         { ...goMeter("rolling", "five_hour"), durationMins: 300 },
@@ -99,6 +102,17 @@ function openCodeGo(token: z.input<typeof TokenStore>): z.input<typeof UsageSour
     },
   };
 }
+
+/** One row of OpenCode v2's SQLite `credential` table, the active one when there are several. */
+const openCodeCredential = (integration: string) => ({
+  from: "sqlite" as const,
+  files: ["opencode.db", "data/opencode/opencode.db"],
+  table: "credential",
+  keyColumn: "integration_id",
+  key: integration,
+  valueColumn: "value",
+  prefer: "active",
+});
 
 const declarations: Record<string, Declared> = {
   // Antigravity CLI 1.3.5 (`agy`): `-p /usage` is its built-in slash command, answered with no
@@ -215,23 +229,24 @@ const declarations: Record<string, Declared> = {
   },
   // OpenCode v2 keeps credentials in its SQLite `credential` table, older ones in auth.json:
   // under the implicit home (`$XDG_DATA_HOME/opencode`) or an ace-managed one (`data/opencode`).
+  // The first login found is read: a Go key, then a Console login, then a pre-v2 Go key.
   opencode: {
     cli: "OpenCode",
     sources: [
-      openCodeGo({
-        from: "sqlite",
-        files: ["opencode.db", "data/opencode/opencode.db"],
-        table: "credential",
-        keyColumn: "integration_id",
-        key: "opencode-go",
-        valueColumn: "value",
-        path: ["key"],
-      }),
-      openCodeGo({
-        from: "file",
-        files: ["auth.json", "data/opencode/auth.json"],
-        path: ["opencode-go", "key"],
-      }),
+      openCodeGo([
+        { ...openCodeCredential("opencode-go"), path: ["key"] },
+        {
+          ...openCodeCredential("opencode"),
+          path: ["access"],
+          expires: { path: ["expires"], unit: "ms" },
+          fields: { org: ["metadata", "orgID"] },
+        },
+        {
+          from: "file",
+          files: ["auth.json", "data/opencode/auth.json"],
+          path: ["opencode-go", "key"],
+        },
+      ]),
     ],
   },
 };
