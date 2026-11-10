@@ -2,6 +2,8 @@ import {
   GitHubForge,
   GitLabReader,
   TeaReader,
+  TeaReviews,
+  teaReviewWrites,
   TeaWriter,
   TeaIssueWriter,
   teaIssueWrites,
@@ -137,6 +139,26 @@ export class ForgeBackends {
     return {
       writer: new TeaWriter({ repository, runner: identity.runner, login: identity.login }),
       account: identity.account,
+    };
+  }
+  async reviewWriter(cwd: string, repository: ForgeRepository) {
+    if (repository.forge !== "gitea" && repository.forge !== "forgejo")
+      return this.writer(cwd, repository);
+    const refusal = repositoryWriteRefusal(
+      (await this.projectRepositories(cwd)).resolved,
+      repository,
+    );
+    if (refusal) throw new Error(refusal);
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    const identity = await this.sourceControl.writeIdentity(
+      cwd,
+      repository,
+      teaReviewWrites,
+      this.signal,
+    );
+    if (!identity.login) throw new ForgeError("unsupported");
+    return {
+      reviews: new TeaReviews({ repository, runner: identity.runner, login: identity.login }),
     };
   }
   async issueWriter(cwd: string, repository: ForgeRepository) {

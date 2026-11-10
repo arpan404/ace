@@ -16,6 +16,7 @@ import { teaGet } from "./tea-api.ts";
 import { decode, pull, ref, status, labels, row, headRepository, sha } from "./tea-records.ts";
 import { clipText } from "./host-text.ts";
 import { redactData } from "./redact.ts";
+import { TeaReviews } from "./tea-reviews.ts";
 import { TeaIssues } from "./tea-issues.ts";
 import { forgeCapabilities } from "./forge-capabilities.ts";
 
@@ -39,6 +40,7 @@ const commit = z.looseObject({
 export class TeaReader implements ForgeReader {
   readonly repository: ForgeRepository;
   readonly issues: TeaIssues;
+  readonly reviews: TeaReviews;
   private runner: CommandRunner;
   private login: string;
   private root: string;
@@ -50,6 +52,7 @@ export class TeaReader implements ForgeReader {
     this.login = options.login;
     this.root = `repos/${encodeURIComponent(options.repository.owner)}/${encodeURIComponent(options.repository.name)}`;
     this.issues = new TeaIssues(options);
+    this.reviews = new TeaReviews(options);
   }
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.runner, this.login, `${this.root}/${path}`, signal);
@@ -74,7 +77,11 @@ export class TeaReader implements ForgeReader {
     return p;
   }
   async status(number: number, signal: AbortSignal) {
-    return status(this.repository, await this.pull(number, signal));
+    const p = await this.pull(number, signal);
+    const conversation = await this.reviews.conversation(number, signal);
+    const latest = await this.pull(number, signal);
+    if (latest.head.sha !== p.head.sha) throw new ForgeError("head_moved");
+    return { ...status(this.repository, p), ...conversation };
   }
   async listPrs(input: ForgePrSearch, signal: AbortSignal) {
     const q = ForgePrSearch.parse(input);
@@ -126,9 +133,9 @@ export class TeaReader implements ForgeReader {
   async prDetail(number: number, signal: AbortSignal) {
     const p = await this.pull(number, signal);
     return decode(ForgePrDetail, {
-      status: status(this.repository, p),
+      status: await this.status(number, signal),
       capabilities: forgeCapabilities[this.repository.forge],
-      readOnly: true,
+      readOnly: false,
       body: clipText(p.body ?? ""),
       author: clipText(p.user?.login ?? ""),
       headBranch: clipText(p.head.ref),
@@ -141,7 +148,6 @@ export class TeaReader implements ForgeReader {
       commits: 0,
       changedFiles: p.changed_files ?? 0,
       unavailableResources: [
-        "comments",
         "checks",
         "reviews",
         "commits",

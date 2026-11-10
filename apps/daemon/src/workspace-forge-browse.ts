@@ -69,6 +69,15 @@ export class WorkspaceForgeBrowse {
     if (repository.forge !== "github") {
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (reader instanceof TeaReader) {
+        if (operation.op === "forge.pr.review-state")
+          return {
+            resource: "prReviewState",
+            value: await this.parts.reviews.state(
+              { repository, number: operation.number },
+              reader,
+              signal,
+            ),
+          };
         const value = await teaForgeBrowse(reader, operation, signal);
         if (value) return value;
       }

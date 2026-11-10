@@ -358,7 +358,7 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backends.writer(cwd, p.pr.repository),
+      await this.backends.reviewWriter(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );

@@ -35,7 +35,9 @@ function reader(forge: "gitea" | "forgejo", respond: (path: string) => unknown, 
       throw new Error("unsafe read");
     return {
       code: 0,
-      stdout: JSON.stringify(respond(r.args[1] ?? "")),
+      stdout: JSON.stringify(
+        /\/(comments|reviews)\?/.test(r.args[1] ?? "") ? [] : respond(r.args[1] ?? ""),
+      ),
       truncated: false,
       http: { status: 200, headers: { "x-total-count": String(total) } },
     };
@@ -58,8 +60,8 @@ for (const forge of ["gitea", "forgejo"] as const) {
     expect(await r.prDetail(7, signal)).toMatchObject({
       body: "Description",
       baseSha: base,
-      readOnly: true,
-      unavailableResources: ["comments", "checks", "reviews", "commits"],
+      readOnly: false,
+      unavailableResources: ["checks", "reviews", "commits"],
     });
     expect(await r.prCheckout(7, signal)).toMatchObject({
       headSha: head,
