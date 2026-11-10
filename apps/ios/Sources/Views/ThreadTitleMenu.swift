@@ -3,8 +3,9 @@ import SwiftUI
 /// The thread's title and the line under it as one tap target that opens one system menu, as a
 /// document's title does in the system's own apps. The line reads where the thread is and what
 /// runs it: the project's mark and name, then the provider's mark (with its account badge) and
-/// the model and its effort ("▣ ace-next · ✳ Opus 5.5 · Med ⌄"); the project's name is cut
-/// first, then the model's words, so the line never runs past its width. A chat has no project and
+/// the model and its effort ("▣ ace-next · ✳ Opus 5.5 · Med ⌄"). When the line is short the
+/// project's name is cut first, never below its first letters; then it goes, its mark staying;
+/// only then are the model's words cut. No piece is ever a bare "…". A chat has no project and
 /// shows the model alone; without a model to change (view only, archived) it reads "project ·
 /// branch". The menu: the project's mark, name and branch first (opening Work), then Model (the
 /// picker sheet), Effort and Access as submenus, then the thread's own actions.
@@ -36,6 +37,8 @@ struct ThreadTitleMenu: View, Equatable {
     @Environment(\.colorScheme) private var scheme
     let status: String?
     var width: CGFloat
+    /// Aligned to the leading edge (beside the back button) rather than centred.
+    var leading = false
     /// Nil where the model can't be changed here.
     var model: ModelLine? = nil
     var tune: TuneRow? = nil
@@ -59,6 +62,9 @@ struct ThreadTitleMenu: View, Equatable {
         Group {
             if hasMenu {
                 Menu { items } label: { label(chevron: true) }
+                    // No bar-button padding: the words fill exactly the width they're given.
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
                     .menuOrder(.fixed)
                     .accessibilityIdentifier("thread.title")
                     .accessibilityHint("Model and thread actions")
@@ -66,18 +72,17 @@ struct ThreadTitleMenu: View, Equatable {
                 label(chevron: false).accessibilityIdentifier("thread.title")
             }
         }
-        // UIKit measures principal items at their ideal size: the toolbar proposes a width that
-        // leaves equal room for the controls on either side.
-        .frame(width: width)
+        // UIKit measures bar items at their ideal size: the toolbar gives the width.
+        .frame(width: width, alignment: alignment)
     }
 
     private func label(chevron: Bool) -> some View {
-        VStack(spacing: AceTheme.Spacing.none) {
+        VStack(alignment: leading ? .leading : .center, spacing: AceTheme.Spacing.none) {
             Text(title).aceFont(AceDesign.TextRole.navTitle, relativeTo: .subheadline)
                 .foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             subtitle(chevron: chevron)
         }
-        .frame(width: width)
+        .frame(width: width, alignment: alignment)
         // The whole heading is the target: both lines and the space between them.
         .frame(minHeight: AceDesign.Size.tap)
         .contentShape(Rectangle())
@@ -87,37 +92,85 @@ struct ThreadTitleMenu: View, Equatable {
     }
 
     @ViewBuilder private func subtitle(chevron: Bool) -> some View {
-        HStack(spacing: AceDesign.Space.tight) {
+        Group {
             if let model {
-                // What gives way first when the line is short: the project's name, then the
-                // model's words. The marks, the dot and the chevron always show, so the line
-                // never runs past its width.
-                if !project.isEmpty {
-                    mark
-                    Text(project).lineLimit(1).truncationMode(.tail)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
-                }
-                providerMark(model.provider)
-                Text(Self.modelWords(model)).lineLimit(1).truncationMode(.tail).layoutPriority(1)
-                if model.queued {
-                    AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption).fixedSize()
+                // The first that fits: everything; the project's name cut, its first letters
+                // kept; its mark alone; the model's words cut at their end.
+                ViewThatFits(in: .horizontal) {
+                    if !project.isEmpty {
+                        modelLine(model, chevron: chevron, name: .whole)
+                        modelLine(model, chevron: chevron, name: .cut)
+                    }
+                    modelLine(model, chevron: chevron, name: .none)
+                    modelLine(model, chevron: chevron, name: .none, cutModel: true)
                 }
             } else if !place.isEmpty {
-                if !project.isEmpty { mark }
-                providerMark(nil)
-                Text(place).lineLimit(1).truncationMode(.middle)
-            }
-            if chevron {
-                AceIcon(.caretDown, size: AceDesign.Size.rowPin, weight: .bold, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .fixedSize()
-                    .accessibilityHidden(true)
+                HStack(spacing: AceDesign.Space.tight) {
+                    if !project.isEmpty { mark }
+                    providerMark(nil)
+                    Text(place).lineLimit(1).truncationMode(.middle)
+                    caret(chevron)
+                }
+            } else {
+                caret(chevron)
             }
         }
-        .frame(maxWidth: width)
+        .frame(maxWidth: width, alignment: alignment)
         .aceFont(AceDesign.TextRole.navSubtitle, relativeTo: .caption)
         .foregroundStyle(model == nil ? AceTheme.Colours.subtleForeground : AceTheme.Colours.mutedForeground)
+    }
+
+    private var alignment: Alignment { leading ? .leading : .center }
+
+    /// How much of the project's name a subtitle line shows.
+    private enum ProjectName { case whole, cut, none }
+
+    /// One way to draw "▣ project · ✳ model · effort ⌄": the marks, the dot and the chevron at
+    /// their size; the project's name whole, cut to the room left (never below its first five
+    /// letters), or gone; the model's words whole, or cut at their end as the last resort.
+    private func modelLine(_ model: ModelLine, chevron: Bool, name: ProjectName, cutModel: Bool = false) -> some View {
+        HStack(spacing: AceDesign.Space.tight) {
+            if !project.isEmpty {
+                mark
+                switch name {
+                case .whole:
+                    Text(project).lineLimit(1).fixedSize().foregroundStyle(AceTheme.Colours.subtleForeground)
+                case .cut:
+                    // Its ideal width is its first letters and "…", so this line is chosen only
+                    // when they fit; laid out, the name takes the room left and is cut there.
+                    ZStack(alignment: .leading) {
+                        Text(verbatim: "\(project.prefix(5))…").lineLimit(1).fixedSize().hidden()
+                        Text(project).lineLimit(1).truncationMode(.tail)
+                            .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
+                    }
+                    .foregroundStyle(AceTheme.Colours.subtleForeground)
+                case .none:
+                    EmptyView()
+                }
+                if name != .none {
+                    Text(verbatim: "·").foregroundStyle(AceTheme.Colours.subtleForeground).fixedSize().accessibilityHidden(true)
+                }
+            }
+            providerMark(model.provider)
+            if cutModel {
+                Text(Self.modelWords(model)).lineLimit(1).truncationMode(.tail)
+            } else {
+                Text(Self.modelWords(model)).lineLimit(1).fixedSize()
+            }
+            if model.queued {
+                AceIcon(.clock, size: AceDesign.Size.rowPin, relativeTo: .caption).fixedSize()
+            }
+            caret(chevron)
+        }
+    }
+
+    @ViewBuilder private func caret(_ shown: Bool) -> some View {
+        if shown {
+            AceIcon(.caretDown, size: AceDesign.Size.rowPin, weight: .bold, relativeTo: .caption)
+                .foregroundStyle(AceTheme.Colours.subtleForeground)
+                .fixedSize()
+                .accessibilityHidden(true)
+        }
     }
 
     @ViewBuilder private var items: some View {
@@ -257,7 +310,7 @@ struct ThreadTitleMenu: View, Equatable {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
             && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
             && lhs.provider == rhs.provider && lhs.providerAccount == rhs.providerAccount
-            && lhs.status == rhs.status && lhs.width == rhs.width
+            && lhs.status == rhs.status && lhs.width == rhs.width && lhs.leading == rhs.leading
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
             && (lhs.openWork == nil) == (rhs.openWork == nil)

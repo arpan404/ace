@@ -16,40 +16,43 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Move } from "./checkout-move.tsx";
 import { failure } from "./use-git-flow.tsx";
-import { RowAction, RowLabel, RowStatic } from "./work-card-parts.tsx";
+import { RowAction, RowProblem } from "./work-card-parts.tsx";
 
 /**
  * What stops the thread's checkout, in the Work card's Workspace (`checkoutProblem`, shared with
  * the phones): a move that failed (or whose outcome ace couldn't confirm) with Retry, which asks
  * for the same move again, and Clear, which releases what the move held once the person confirms;
- * or a worktree folder that is gone, with Move to local and Recreate worktree. A setup script's
- * failure has its own row (`WorktreeSetupRow`).
+ * or a checkout folder that is gone, saying what Git still has of it (its branch still there,
+ * checked out elsewhere, or deleted) with the ways back. A setup script's failure has its own
+ * row (`WorktreeSetupRow`).
  */
 export function CheckoutProblem(props: { thread: ThreadRef; move(move: Move): void }) {
   const problem = checkoutProblem(useThreadMeta(props.thread.id)?.details);
   if (problem?.kind === "move-failed" || problem?.kind === "move-unconfirmed")
     return <FailedMove thread={props.thread} problem={problem} move={props.move} />;
-  if (problem?.kind === "worktree-missing")
+  if (problem?.kind === "worktree-missing" || problem?.kind === "project-missing")
     return (
-      <RowStatic label={problem.label} className="flex-wrap">
-        <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <RowLabel>{problem.label}</RowLabel>
+      <RowProblem label={problem.label} detail={problem.detail} glyph={failedGlyph}>
         {problem.actions.map(
           (action) =>
             action.kind === "move" && (
               <RowAction
                 key={action.label}
-                className="ml-0"
+                className="mx-0"
                 onClick={() => props.move({ change: action.move })}
               >
                 {action.label}
               </RowAction>
             ),
         )}
-      </RowStatic>
+      </RowProblem>
     );
   return null;
 }
+
+const failedGlyph = (
+  <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
+);
 
 function FailedMove(props: { thread: ThreadRef; problem: Problem; move(move: Move): void }) {
   const { problem } = props;
@@ -70,16 +73,14 @@ function FailedMove(props: { thread: ThreadRef; problem: Problem; move(move: Mov
   };
   return (
     <>
-      <RowStatic label={problem.detail ? `${problem.label}. ${problem.detail}` : problem.label}>
-        <WarningCircleIcon aria-hidden size={16} className="shrink-0 text-status-failed" />
-        <RowLabel title={problem.detail}>{problem.label}</RowLabel>
-        <RowAction className="ml-0" onClick={() => retry && props.move({ change: retry.move })}>
+      <RowProblem label={problem.label} detail={problem.detail} glyph={failedGlyph}>
+        <RowAction className="mx-0" onClick={() => retry && props.move({ change: retry.move })}>
           Retry
         </RowAction>
-        <RowAction className="ml-0" disabled={clearing} onClick={() => setAsking(true)}>
+        <RowAction className="mx-0" disabled={clearing} onClick={() => setAsking(true)}>
           Clear
         </RowAction>
-      </RowStatic>
+      </RowProblem>
       {asking && (
         <Dialog open onOpenChange={(open) => setAsking(open)}>
           <DialogContent size="sm">

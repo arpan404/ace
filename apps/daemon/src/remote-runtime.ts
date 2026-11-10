@@ -21,6 +21,8 @@ import {
 
 /** Settings this runtime applies: the networks, and the older single choice it translates. */
 const keys = [...remotePreferenceKeys, "remote.transport"] as const;
+/** How long making a pairing link waits on a Tailscale certificate fetched again for it. */
+const pairingCertificateWaitMs = 15_000;
 /** How often the address remote access listens on is checked against the network's. */
 export const addressCheckMs = 30_000;
 const Stored = SettingsValues.pick({
@@ -175,13 +177,20 @@ export function remoteRuntime(
      * What a pairing link names: the direct address while LAN or Tailscale serves, else the
      * person's own relay (ADR 0070). ace's relay admits account devices only, which never pair.
      */
+    /** Fetches a failed Tailscale certificate again before a link is made (`refreshCertificate`). */
+    beforePairing: () => direct.refreshCertificate(pairingCertificateWaitMs),
     pairing: () =>
       direct.connection() ??
       (relays.selfHosted() && options.relay ? relayPairing(options.relay) : undefined),
     status: () => {
       const config = options.remoteConfig;
       const networks = remoteNetworksStatus({
-        direct: { serving: direct.serving(), errors: direct.errors(), address: direct.address },
+        direct: {
+          serving: direct.serving(),
+          errors: direct.errors(),
+          warnings: direct.warnings(),
+          address: direct.address,
+        },
         relays: relays.view(),
       });
       return {

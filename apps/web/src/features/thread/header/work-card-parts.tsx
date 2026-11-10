@@ -108,6 +108,39 @@ export function RowAction({ className, ...props }: ComponentProps<"button">) {
 }
 
 /**
+ * What stops the checkout, as a row that grows: the failed glyph and its words, why on the line
+ * beneath, then its ways out as text buttons. Never fixed at one row's height, so a long reason
+ * or a second action wraps inside it rather than over the row below.
+ */
+export function RowProblem(props: {
+  label: string;
+  detail?: string | undefined;
+  glyph: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={props.detail ? `${props.label}. ${props.detail}` : props.label}
+      className="flex min-w-0 flex-col gap-0.5 px-2.5 py-2 text-ui text-foreground"
+    >
+      <div className="flex min-w-0 items-center gap-2.5">
+        {props.glyph}
+        <span className="min-w-0 flex-1">{props.label}</span>
+      </div>
+      {props.detail && (
+        <p className="pl-[26px] text-xs text-pretty text-muted-foreground">{props.detail}</p>
+      )}
+      {props.children && (
+        <div className="-ml-2 flex flex-wrap items-center gap-1 pt-0.5 pl-[26px]">
+          {props.children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * One of the card's sections (Workspace, Branch, Agents). A hairline between sections divides
  * them; a quiet caption names each section where the rows alone don't say what they are.
  * `label` names it for assistive tech; `title` shows that caption.

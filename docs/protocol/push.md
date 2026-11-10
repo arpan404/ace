@@ -33,26 +33,22 @@ Example:
       "autoSettle": false,
       "details": {
         "ahead": 0,
-        "base": {
-          "head": "3b32794de1b6fc1a233eadf724cf7febf4324b48f4fc3dc6da5e9",
-          "ref": "example"
-        },
-        "continuedFrom": {
+        "branch": null,
+        "continuedOn": {
           "at": 0,
           "hostId": "example",
           "name": "example",
           "threadId": "example"
         },
-        "diff": {
-          "additions": 6,
-          "deletions": 8,
-          "files": 5
-        },
-        "guest": {
+        "head": "67a823b32794de1b6fc1a233eadf724cf7febf4324b48f4fc3dc6",
+        "machine": {
           "host": "example",
+          "icon": {
+            "kind": "cloud"
+          },
           "name": "example"
         },
-        "head": null,
+        "upstream": null,
         "worktreeCreation": {
           "actions": [],
           "attempt": 6,
@@ -3345,217 +3341,23 @@ Example:
 
 ```json
 {
-  "seq": 1,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "entitiesBefore": {},
-    "interactions": {},
-    "itemOrder": [],
-    "itemSeqs": {},
-    "items": {},
-    "kind": "thread",
-    "runs": {},
-    "seq": 1,
-    "thread": {
-      "acpAgentId": "example",
-      "activityAt": 8,
-      "archivedAt": 2,
-      "autoSettleAt": 1,
-      "backend": "acp",
-      "capabilities": {
-        "attachmentInput": {
-          "documents": [],
-          "embeddedContext": true,
-          "format": "opencode",
-          "maxInlineBytes": 8
-        },
-        "backgroundTaskControl": true,
-        "backgroundVisibility": "partial",
-        "fork": true,
-        "forkPoints": [],
-        "forkSubagents": false,
-        "goals": false,
-        "imageInput": false,
-        "interruptCascades": true,
-        "launchOptions": [],
-        "permissionModes": [],
-        "planMode": false,
-        "resume": false,
-        "rewindFiles": true,
-        "steer": false,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": false,
-        "tokenUsage": true
+    "keep": [],
+    "kind": "threads",
+    "seq": 9,
+    "threads": {},
+    "window": {
+      "before": {
+        "at": 9,
+        "id": "example"
       },
-      "capabilitiesRef": "example",
-      "createdAt": 8,
-      "delegatedFrom": {
-        "hostId": "example",
-        "threadId": "example"
-      },
-      "details": {
-        "baseBranch": "example",
-        "behind": 0,
-        "branch": null,
-        "continuedFrom": {
-          "at": 1,
-          "hostId": "example",
-          "name": "example",
-          "threadId": "example"
-        },
-        "head": "6cc480e1c6f125c207972905ed35aaed0901bcaf4fbc0dffd3a713b5",
-        "linkedPr": {
-          "draft": true,
-          "number": 6,
-          "state": "merged",
-          "url": "https://example.invalid/"
-        },
-        "machine": {
-          "host": "example",
-          "name": "example"
-        },
-        "pullRequestWorkspace": {
-          "baseBranch": "example",
-          "baseSha": "d4cb397dd408805bb084e9cd6ec3e05f4b6ef32371f5cf5",
-          "context": "example",
-          "contextTruncated": false,
-          "headBranch": "example",
-          "headRepository": {
-            "forge": "gitlab",
-            "host": "obNsr2",
-            "name": "h",
-            "owner": "Uh_zqP/yn4wJf/EA/VzHy.YQ_/4XAZ8hUi/b/ZCs_BYvD"
-          },
-          "headSha": "c3ad61e9c50ca6eb0e366fe70ebae2971b7ef8c84a59",
-          "ref": {
-            "number": 5,
-            "repository": {
-              "forge": "gitlab",
-              "host": "WC2ISl",
-              "name": "zFQu4k",
-              "owner": "SLLT3/D8O/Z5ii_fm_/Venu/Lo-Qe/S/hZgzivOZk/2WIx5vt"
-            }
-          }
-        },
-        "worktreeCreation": {
-          "actions": [],
-          "attempt": 2,
-          "cleanupComplete": false,
-          "commandId": "example",
-          "details": [],
-          "elapsedMs": 5,
-          "error": "example",
-          "message": "example",
-          "startedAt": 4,
-          "state": "local",
-          "step": "preparing",
-          "steps": [],
-          "threadId": "example"
-        }
-      },
-      "effectiveCapabilities": {
-        "approvals": "none",
-        "backgroundTaskControl": false,
-        "backgroundVisibility": "partial",
-        "fork": false,
-        "forkPoints": [],
-        "forkSubagents": true,
-        "forkTranscript": false,
-        "imageInput": true,
-        "interruptCascades": true,
-        "planMode": true,
-        "resume": true,
-        "rewindFiles": false,
-        "steer": true,
-        "steeringMode": "interrupt-restart",
-        "subagentTranscripts": false,
-        "tokenUsage": false
-      },
-      "handoff": {
-        "bytes": 0,
-        "sourceThreadId": "example",
-        "truncated": false
-      },
-      "id": "example",
-      "imported": {
-        "importedAt": 4,
-        "instanceId": "example",
-        "native": {
-          "aliases": [],
-          "forkedFromNativeId": "example",
-          "installationId": "example",
-          "instanceId": "example",
-          "path": "example",
-          "provider": "claude"
-        },
-        "sourceId": "example"
-      },
-      "installationId": "example",
-      "instanceId": "example",
-      "listOrder": 7,
-      "live": {
-        "askingThreads": [],
-        "options": {},
-        "provider": "acp",
-        "step": "tests",
-        "subagentCount": 0,
-        "turnStart": {
-          "at": 4,
-          "turn": 10
-        },
-        "waitingSince": 8,
-        "workingSince": 0
-      },
-      "movedFrom": {
-        "links": {
-          "linkedIssues": []
-        },
-        "workspaceId": "example"
-      },
-      "provider": "antigravity",
-      "queue": {
-        "paused": false,
-        "reason": "snooze",
-        "resumeAt": 1,
-        "revision": 2
-      },
-      "snoozeWake": {
-        "on": "pr",
-        "prs": [
-          {
-            "head": "example",
-            "pr": "example",
-            "state": "draft",
-            "updatedAt": 7
-          }
-        ]
-      },
-      "snoozedUntil": 1,
-      "status": {
-        "on": "background_task",
-        "queuePosition": 5,
-        "state": "waiting"
-      },
-      "switch": {
-        "at": 5,
-        "error": "example",
-        "lossy": false,
-        "selection": {
-          "provider": "codex"
-        },
-        "state": "queued"
-      },
-      "title": "example",
-      "titleSource": "agent",
-      "updatedAt": 4,
-      "workspaceId": "example"
-    },
-    "usage": {},
-    "usageSnapshots": {}
+      "counts": [],
+      "revision": 6,
+      "total": 9
+    }
   }
 }
 ```

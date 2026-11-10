@@ -157,11 +157,15 @@ export async function startServer(options: ServerOptions): Promise<{
     account: () => options.machineAccount,
     allowedOrigins: webOriginAllowlist(options.webOrigins),
     // A failed settings read falls back to this computer's own link rather than failing pairing.
-    pairingApp: async () =>
-      (await options.settings?.get("remote.hostedPairingLink").catch(() => undefined))?.value ===
-      true
+    // Both pairing paths call this before they read the address, so a Tailscale certificate
+    // that failed is fetched again first: the link then names the ts.net host if it can.
+    pairingApp: async () => {
+      await dynamicRemote?.beforePairing();
+      return (await options.settings?.get("remote.hostedPairingLink").catch(() => undefined))
+        ?.value === true
         ? hostedWebOrigin
-        : undefined,
+        : undefined;
+    },
     ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
     ...(options.version === undefined ? {} : { version: options.version }),
     ...(options.eventLoop ? { eventLoop: options.eventLoop } : {}),

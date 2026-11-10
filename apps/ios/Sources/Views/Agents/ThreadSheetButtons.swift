@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The sheets the thread's ⋯ menu still opens over it: Work and Logs. Changes, Files, Terminal,
-/// Browser and Agents are the thread's pages (`ThreadPager`), or the iPad side panel's tabs.
+/// The sheets the thread's ⋯ menu still opens over it: Work and Logs. On a phone Changes is a
+/// page beside Chat (`ThreadPager`) and Files, Terminal, Browser and Agents push (`ThreadPushedTools`);
+/// on iPad they are the side panel's tabs.
 struct ThreadSheetButtons: ViewModifier {
     @Bindable var model: ClientModel
     @Binding var showingWork: Bool

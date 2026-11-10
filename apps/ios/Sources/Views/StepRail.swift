@@ -96,7 +96,8 @@ private struct RailMarkModifier: ViewModifier {
                 mark.frame(width: AceDesign.Space.row, height: AceDesign.Space.row)
                     .background(AceTheme.Colours.background, in: Circle())
                     .offset(x: -StepRail<EmptyView>.inset - AceDesign.Space.row / 2,
-                            y: (AceDesign.Size.tap - AceDesign.Space.tight - AceDesign.Space.row) / 2)
+                            // Centred on the row's first line, which every railed row draws at the step height.
+                            y: (AceDesign.Size.stepRow - AceDesign.Space.row) / 2)
                     .accessibilityHidden(true)
             }
         } else {

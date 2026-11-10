@@ -22,6 +22,7 @@ export function remoteNetworksStatus(facts: {
   direct: {
     serving: DirectPlan;
     errors: Partial<Record<DirectNetwork, string>>;
+    warnings?: Partial<Record<DirectNetwork, string>>;
     address: (network: DirectNetwork) => string | undefined;
   };
   relays: readonly RelayView[];
@@ -31,7 +32,10 @@ export function remoteNetworksStatus(facts: {
     const error = direct.errors[network];
     if (error) return { state: "failed", error };
     const address = direct.address(network);
-    return direct.serving[network] ? { state: "on", ...(address ? { address } : {}) } : off;
+    const warning = direct.warnings?.[network];
+    return direct.serving[network]
+      ? { state: "on", ...(address ? { address } : {}), ...(warning ? { warning } : {}) }
+      : off;
   };
   const chosen = relays.find((relay) => relay.plan.chosen);
   const hosted = relays.find((relay) => relay.plan.hosted);

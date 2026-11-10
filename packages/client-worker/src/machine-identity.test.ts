@@ -92,6 +92,19 @@ test("an account entry waiting for its machine code doesn't take a working pairi
   expect(f.pool.machine("host")?.status).toBe("online");
 });
 
+test("an account machine reads as the same state until it changes, so a page watching it settles", async () => {
+  const f = world({ accountTransport: asksForCode });
+  await f.pool.start();
+  const opened = f.pool.openAccountMachine({ hostId: relayKey, name: "Office Mac" });
+  await until(() => opened.get().kind === "asking");
+
+  const asking = opened.get();
+  expect(opened.get()).toBe(asking);
+  opened.gate.enter("1234");
+  expect(opened.get()).not.toBe(asking);
+  expect(opened.get()).toBe(opened.get());
+});
+
 test("an account machine turned off before its daemon was known stays off as its pairing after sign-out", async () => {
   let stored: readonly string[] = [];
   const f = world({ off: { load: () => stored, save: (ids) => void (stored = ids) } });

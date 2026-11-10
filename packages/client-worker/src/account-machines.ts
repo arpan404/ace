@@ -136,6 +136,15 @@ export function accountMachineState(
   return { kind: "connecting" };
 }
 
+/** Whether two readings of an account machine say the same thing. Pure. */
+export function sameAccountMachineState(a: AccountMachineState, b: AccountMachineState): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "asking" && b.kind === "asking")
+    return a.reason === b.reason && a.lockedUntil === b.lockedUntil;
+  if (a.kind === "failed" && b.kind === "failed") return a.message === b.message;
+  return true;
+}
+
 /**
  * Every path to an account machine this app can use (ADR 0114): ace's relay always, then what
  * the machine said over a verified connection. Relays pin the machine's relay host key; a

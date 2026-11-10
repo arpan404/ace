@@ -19,19 +19,20 @@ struct WorkBranchPicker: View {
     var body: some View {
         List {
             if let reason = work?.switchReason {
-                Text(reason).foregroundStyle(AceTheme.Colours.mutedForeground)
+                Text(reason).foregroundStyle(AceDesign.Ink.muted)
                     .accessibilityIdentifier("work.branches.reason")
             }
             switch branches?.state {
             case "ready":
                 ForEach(shown, id: \.self) { name in row(name) }
-                if shown.isEmpty { Text("No branch matches").foregroundStyle(AceTheme.Colours.mutedForeground) }
-                if branches?.truncated == true { Text("More branches on your computer").foregroundStyle(AceTheme.Colours.mutedForeground) }
+                if shown.isEmpty { Text("No branch matches").foregroundStyle(AceDesign.Ink.muted) }
+                if branches?.truncated == true { Text("More branches on your computer").foregroundStyle(AceDesign.Ink.muted) }
             case "error":
                 HStack {
                     Text("Couldn't read the branches.").foregroundStyle(AceTheme.StatusText.failed)
                     Spacer()
-                    WorkWordButton(label: "Try again", identifier: "work.branches.retry") { model.sheet(["kind": "work.branches"]) }
+                    Button("Try again") { model.sheet(["kind": "work.branches"]) }
+                        .buttonStyle(.textAction(.prominent)).accessibilityIdentifier("work.branches.retry")
                 }
             default:
                 // Rows shaped like branches while they're read, so the list doesn't jump.
@@ -40,13 +41,12 @@ struct WorkBranchPicker: View {
             }
         }
         .listStyle(.plain)
-        .listRowSeparator(.hidden)
         .scrollContentBackground(.hidden)
-        .background(AceTheme.Colours.background)
+        .background(AceDesign.Surface.background)
         .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Find a branch")
         .navigationTitle("Switch branch")
         .navigationBarTitleDisplayMode(.inline)
-        .aceFont(AceTheme.Typography.label, relativeTo: .body)
+        .aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
         .accessibilityIdentifier("work.branches")
     }
 
@@ -57,19 +57,19 @@ struct WorkBranchPicker: View {
             runner.send(["kind": "switch", "branch": name], model: model)
             dismiss()
         } label: {
-            HStack {
-                Text(verbatim: name).aceMonospace(AceTheme.Typography.label, relativeTo: .body)
-                    .foregroundStyle(current || allowed ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
+            HStack(spacing: AceDesign.Space.related) {
+                Text(verbatim: name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .foregroundStyle(current || allowed ? AceDesign.Ink.primary : AceDesign.Ink.muted)
                     .lineLimit(1).truncationMode(.middle)
-                Spacer()
-                if current { Image(systemName: "checkmark").foregroundStyle(AceTheme.Colours.foreground) }
+                Spacer(minLength: AceDesign.Space.related)
+                if current { AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline).foregroundStyle(AceDesign.Ink.primary) }
             }
-            .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
+            .frame(minHeight: AceDesign.Size.rowLine).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!allowed)
-        .listRowSeparator(.hidden)
-        .listRowBackground(AceTheme.Colours.background)
+        .listRowSeparatorTint(AceTheme.Colours.separator)
+        .listRowBackground(AceDesign.Surface.background)
         .accessibilityAddTraits(current ? .isSelected : [])
         .accessibilityIdentifier("work.branch.\(name)")
     }

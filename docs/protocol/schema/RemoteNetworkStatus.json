@@ -26,6 +26,10 @@
           "type": "string"
         }
       ]
+    },
+    "warning": {
+      "maxLength": 256,
+      "type": "string"
     }
   },
   "required": [
