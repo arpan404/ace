@@ -1,5 +1,6 @@
 import { repositoryFromRemote } from "./remote.ts";
 import { repositoryKey } from "./repository-key.ts";
+export { repositoryKey } from "./repository-key.ts";
 import {
   configuredForge,
   configuredForges,
