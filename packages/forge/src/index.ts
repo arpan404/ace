@@ -47,3 +47,4 @@ export * from "./gitlab-reader.ts";
 export * from "./read-only-api.ts";
 export { pinnedRunner } from "./pinned-runner.ts";
 export { OriginListSnapshots, originListSnapshotMs } from "./origin-list-snapshots.ts";
+export * from "./project-repositories.ts";
