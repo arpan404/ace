@@ -69,6 +69,8 @@ export interface CliLoginOptions {
   openCodeSignIn?(
     signal: AbortSignal,
   ): Promise<import("@ace/adapter-opencode/sign-in").OpenCodeSignIn>;
+  /** OpenCode integrations with a pre-2.2 login, so the dialog can ask to sign in again. */
+  openCodeEarlierLogins?(): Promise<ReadonlySet<string>>;
   /** Codex's app-server for a ChatGPT sign-in in ace's dialog. */
   codexAccount?(
     signal: AbortSignal,
@@ -111,6 +113,7 @@ export function cliLoginDriver(options: CliLoginOptions): ProviderLoginDriver {
     return openCodeLoginDriver({
       ...options,
       ...(options.openCodeSignIn ? { signIn: options.openCodeSignIn } : {}),
+      ...(options.openCodeEarlierLogins ? { earlierLogins: options.openCodeEarlierLogins } : {}),
     });
   if (provider === "codex" && action === "login" && options.codexAccount) {
     const { codexAccount, onCodexAccount, ...terminal } = options;

@@ -92,4 +92,5 @@ export {
   openCodeLoginChoices,
   openCodeIntegrationConnected,
   openCodeAuthChangeVerified,
+  openCodeEarlierLogins,
 } from "./opencode-auth.ts";

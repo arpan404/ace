@@ -3205,12 +3205,12 @@
       "sha256": "a413e7ead20aaa3342a6df57d551184fad587b5c4d6a7aa185785991e0795600"
     },
     "schema/ProviderLoginInput.json": {
-      "bytes": 1380,
-      "sha256": "5e13a07dd16e74ff9a34996e3b4e3917d62a97d79f86e764116278445be62d90"
+      "bytes": 1389,
+      "sha256": "d509dabfcef4ef0b968f4ca6400991c4e9bf4a5d18ae04930e94eb657ac16d5d"
     },
     "schema/ProviderLoginProgress.json": {
-      "bytes": 3549,
-      "sha256": "c93fc0738a196280831aed1ee4c440982fa228ca05f9b8a26644d2479bcd641b"
+      "bytes": 3659,
+      "sha256": "2e98b45cd57b933a387af327dd5e385ef50fe2f950c7593270544c2b97732d50"
     },
     "schema/ProviderLoginRequest.json": {
       "bytes": 4603,
@@ -3369,8 +3369,8 @@
       "sha256": "f7922217408e80e032751bd441645edee616edea2276f3c35ef6d06538646983"
     },
     "schema/RemoteNetworkStatus.json": {
-      "bytes": 630,
-      "sha256": "23a574d57f844b8b518fda9d943305872e5e8cc641be6912ad40342f67b51687"
+      "bytes": 701,
+      "sha256": "933fcc69cf01ad77b4ab3cb2dd999e94179e84b85bed0d2281a4060641a707f0"
     },
     "schema/RemoteNetworks.json": {
       "bytes": 620,
@@ -4893,10 +4893,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 991474,
-      "sha256": "760469dbdc3efe79d2757753df5d84cdfd509d114fc515d35f74eb93b6004e05"
+      "bytes": 991786,
+      "sha256": "a553c5dd2813af855f48cadd6ee3242683b3991d6728070499457a6180fa1ecf"
     }
   },
-  "input": "5dcde7784b6cb99a1027f6c1081be7d74da5ffcf70786aa4cbc5f74edded2fb3",
+  "input": "d39b24b8ba6aebe97fbe3f1609bb09644e9ea73eff48a6c5b9d31be252e000ae",
   "version": 1
 }

@@ -359,6 +359,37 @@ test("a sign-in the daemon couldn't run says what went wrong and where the cause
   expect(await within(dialog).findByText("Enter this code on the sign-in page")).toBeTruthy();
 }, 30_000);
 
+test("OpenCode's long service list is searched by name, and a lost earlier login says sign in again", async () => {
+  const app = harness();
+  stage(app, "opencode", { auth: "logged_out" });
+  disconnect(app, "opencode");
+  const list = await providersList(app);
+  await userEvent.click(await within(list).findByRole("button", { name: "Sign in" }));
+  const dialog = await screen.findByRole("dialog", { name: "Sign in to OpenCode" });
+  const choices = await within(dialog).findByRole("group", {
+    name: "Which service do you want to connect?",
+  });
+  const search = within(dialog).getByRole("searchbox", { name: "Search services" });
+  await waitFor(() => expect(document.activeElement).toBe(search));
+  expect(
+    within(within(choices).getByRole("button", { name: "GitHub Copilot" })).getByText(
+      "Sign in again",
+    ),
+  ).toBeTruthy();
+  expect(within(choices).queryAllByText("Sign in again")).toHaveLength(1);
+
+  await userEvent.type(search, "gateway");
+  expect(
+    within(choices)
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual(["Cloudflare AI Gateway", "Vercel AI Gateway", "Other provider"]);
+
+  await userEvent.clear(search);
+  await userEvent.type(search, "wafer{Enter}");
+  expect(await within(dialog).findByText("opencode auth login --standalone wafer.ai")).toBeTruthy();
+}, 30_000);
+
 test("Pi service selection shows known marks and leads to browser sign-in without a premature error", async () => {
   const app = harness();
   stage(app, "pi", { auth: "logged_out" });

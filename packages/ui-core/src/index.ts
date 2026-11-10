@@ -124,6 +124,7 @@ export * from "./provider-status.ts";
 export * from "./provider-readiness.ts";
 export * from "./provider-account-model.ts";
 export * from "./provider-services.ts";
+export * from "./service-search.ts";
 export * from "./questions.ts";
 export * from "./answered-questions.ts";
 export * from "./question-line.ts";
