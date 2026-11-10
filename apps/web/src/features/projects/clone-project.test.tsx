@@ -199,7 +199,7 @@ test("a clone that finishes after the palette closed says so and opens on reques
   await openClone(made);
   await userEvent.type(await address(), "https://github.com/acme/docs.git");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  expect(await screen.findByText(/Closing the palette leaves the clone running/)).toBeTruthy();
+  expect(await screen.findByText(/^Cloning acme\/docs…/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Close command palette" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   for (let stage = 0; stage < 5; stage++) await step();

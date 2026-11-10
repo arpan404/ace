@@ -103,7 +103,12 @@ export function AddProjectFlow(props: {
       (each) => each instanceof HTMLElement && each.dataset.slot === showing,
     );
     if (!shown || shown.contains(document.activeElement)) return;
-    shown.querySelector<HTMLElement>("input:not([type=hidden]), textarea")?.focus();
+    // Its field; when that is disabled (a clone running), the footer's action that isn't.
+    const target =
+      shown.querySelector<HTMLElement>("input:not([type=hidden]):enabled, textarea:enabled") ??
+      shown.querySelector<HTMLElement>("[data-slot=command-step-footer] button:enabled") ??
+      shown.querySelector<HTMLElement>("button:enabled");
+    target?.focus();
   }, [showing]);
 
   if (!machine) return null;

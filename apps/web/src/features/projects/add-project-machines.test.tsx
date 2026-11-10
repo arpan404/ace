@@ -320,3 +320,31 @@ test("a reconnect of this machine keeps the open step on this machine", async ()
   expect(await screen.findByRole("button", { name: "Machine: This Mac" })).toBeTruthy();
   expect(paths(build)).toEqual([]);
 });
+
+test("a clone running on the build server shows only on its Clone step; this machine's says where it runs", async () => {
+  const stages: (() => void)[] = [];
+  const { made } = twoMachines({ projectScheduler: (callback) => void stages.push(callback) });
+  await addProjectOn(made, "Build server", "Git URL");
+  await userEvent.type(
+    await screen.findByRole("textbox", { name: "Repository address" }),
+    "acme/big-repo",
+  );
+  await screen.findByText("~/big-repo");
+  await userEvent.click(screen.getByRole("button", { name: "Clone" }));
+  await screen.findByText(/Cloning acme\/big-repo on/);
+
+  await pick("This Mac");
+  const here = await screen.findByRole("textbox", { name: "Repository address" });
+  expect(here).toHaveProperty("value", "");
+  expect(here.hasAttribute("disabled")).toBe(false);
+  expect(screen.getByText("A clone is running on Build server.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Clone" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.queryByRole("button", { name: "Cancel clone" })).toBeNull();
+
+  // Back on the build server its address field is disabled, so its Cancel clone takes focus.
+  await pick("Build server");
+  const cancel = await screen.findByRole("button", { name: "Cancel clone" });
+  await waitFor(() => expect(document.activeElement).toBe(cancel));
+  await userEvent.click(cancel);
+  await waitFor(() => expect(screen.queryByText(/Cloning acme\/big-repo/)).toBeNull());
+});

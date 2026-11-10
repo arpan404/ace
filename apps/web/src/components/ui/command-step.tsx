@@ -134,7 +134,10 @@ function CommandStepFooter(props: {
   hints?: readonly KeyHint[];
 }) {
   return (
-    <div className={cn("flex min-h-12 shrink-0 items-center gap-2 px-3 py-2", sectionRule)}>
+    <div
+      data-slot="command-step-footer"
+      className={cn("flex min-h-12 shrink-0 items-center gap-2 px-3 py-2", sectionRule)}
+    >
       {props.hints && <KeyHintList hints={props.hints} className="shrink" />}
       <div className="min-w-0 flex-1 truncate font-mono text-xs text-subtle-foreground">
         {props.note}

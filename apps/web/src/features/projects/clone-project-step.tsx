@@ -74,7 +74,10 @@ export function CloneProjectStep(props: {
   const { machine, clone } = props;
   const { run, show } = clone;
   useEffect(show, [show]);
-  const failed = run.status === "failed" && run.machine.id === machine.id ? run : undefined;
+  // A clone belongs to the machine it runs on; another machine's step only says it's running.
+  const here = run.status !== "idle" && sameMachine(run.machine, machine);
+  const failed = run.status === "failed" && here ? run : undefined;
+  const elsewhere = run.status === "running" && !here ? run : undefined;
   const previous = failed?.input;
   const [url, setUrl] = useState(props.initialUrl ?? previous?.url ?? "");
   const [name, setName] = useState<string>();
@@ -85,7 +88,7 @@ export function CloneProjectStep(props: {
     machine,
     suggested: previous?.parent ?? (latest ? parentFolder(latest.path) : undefined),
   });
-  const running = run.status === "running";
+  const running = run.status === "running" && here;
   const value = url.trim();
   const local = value && !shorthand(value) ? cloneUrlProblem(value) : undefined;
   const checked = useCloneAddress(machine, value, value !== "" && shorthand(value));
@@ -109,7 +112,7 @@ export function CloneProjectStep(props: {
 
   const submit = () => {
     setTouched(true);
-    if (!parent || urlProblem || nameProblem || running) return;
+    if (!parent || urlProblem || nameProblem || running || elsewhere) return;
     clone.dismiss();
     clone.start({ parent, name: folder, url: address }, machine);
   };
@@ -170,11 +173,6 @@ export function CloneProjectStep(props: {
           disabled={running}
         />
         {!running && <LocationField state={place} />}
-        {running && (
-          <p className="text-sm text-subtle-foreground">
-            Closing the palette leaves the clone running; ace says when it's done.
-          </p>
-        )}
         {running && run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
         {failed && <Problem>{failed.problem.message}</Problem>}
         {leftover && place.location && (
@@ -209,15 +207,17 @@ export function CloneProjectStep(props: {
             escapeHint(url),
           ]}
           note={
-            parent && folder && !nameProblem
-              ? displayPath(childFolder(parent, folder), place.home?.path)
-              : undefined
+            elsewhere ? (
+              <span role="status">A clone is running on {elsewhere.machine.name}.</span>
+            ) : parent && folder && !nameProblem ? (
+              displayPath(childFolder(parent, folder), place.home?.path)
+            ) : undefined
           }
         >
           <Button
             type="submit"
             variant="primary"
-            disabled={machine.client === undefined || !parent}
+            disabled={machine.client === undefined || !parent || elsewhere !== undefined}
           >
             Clone
           </Button>
@@ -226,6 +226,8 @@ export function CloneProjectStep(props: {
     </form>
   );
 }
+
+const sameMachine = (a: Machine, b: Machine) => a.id === b.id || (a.primary && b.primary);
 
 /** The failed clone's folder, as the location lists it now, when it is still there. */
 function leftoverFolder(name: string, siblings: readonly string[] | undefined) {

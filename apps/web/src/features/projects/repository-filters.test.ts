@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { activeFilters, defaultFilters, onlyTextChanged } from "./repository-filters.ts";
+import { activeFilters, defaultFilters, onlyTypedChanged } from "./repository-filters.ts";
 
 test("the default filters narrow nothing", () => {
   expect(activeFilters(defaultFilters)).toEqual([]);
@@ -15,9 +15,11 @@ test("each changed filter is named, with a picked account first", () => {
   ]);
 });
 
-test("the last answer carries over only when the search text alone changed", () => {
+test("the last answer carries over only when typed parts alone changed", () => {
   const key = ["projects", "github-repositories", "m1", "github.com", "ada", "", "doc", "all"];
-  expect(onlyTextChanged(key, key.with(6, "docs"), 6)).toBe(true);
-  expect(onlyTextChanged(key, key.with(4, "other"), 6)).toBe(false);
-  expect(onlyTextChanged(key, key.with(7, "private"), 6)).toBe(false);
+  const typed = [4, 5, 6];
+  expect(onlyTypedChanged(key, key.with(6, "docs"), typed)).toBe(true);
+  expect(onlyTypedChanged(key, key.with(4, "other").with(5, "ace-org"), typed)).toBe(true);
+  expect(onlyTypedChanged(key, key.with(3, "ghe.example"), typed)).toBe(false);
+  expect(onlyTypedChanged(key, key.with(7, "private"), typed)).toBe(false);
 });

@@ -33,17 +33,17 @@ export function activeFilters(filters: RepositoryFilters, account?: string): str
 }
 
 /**
- * Whether two list reads differ only in their search text (at `textAt` in the key): then the
- * last answer may show, dimmed, while the new one comes. Any other change (account, owner, a
- * filter) is a different list.
+ * Whether two list reads differ only in what is typed (the parts at `typed` in the key: search
+ * text, account, owner): then the last answer may show, dimmed and out of reach, while the new
+ * one comes. Any other change (host, a chosen filter) is a different list.
  */
-export function onlyTextChanged(
+export function onlyTypedChanged(
   before: readonly unknown[],
   after: readonly unknown[],
-  textAt: number,
+  typed: readonly number[],
 ): boolean {
   return (
     before.length === after.length &&
-    before.every((part, at) => at === textAt || Object.is(part, after[at]))
+    before.every((part, at) => typed.includes(at) || Object.is(part, after[at]))
   );
 }

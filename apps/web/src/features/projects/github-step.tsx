@@ -34,7 +34,7 @@ import {
   refreshSourceControl,
   SourceControlReadError,
 } from "@/lib/source-control-cache.ts";
-import { activeFilters, defaultFilters, onlyTextChanged } from "./repository-filters.ts";
+import { activeFilters, defaultFilters, onlyTypedChanged } from "./repository-filters.ts";
 import { RepositoryFiltersMenu } from "./repository-filters-menu.tsx";
 
 const viewport = "h-[min(320px,46dvh)]";
@@ -45,8 +45,10 @@ const action = (label: string, run: () => void) => (
     {label}
   </Button>
 );
-/** Where the search text sits in the list's query key. */
-const textAt = 6;
+/** Where the typed parts (account, owner, search text) sit in the list's query key. */
+const typedAt = [4, 5, 6];
+/** How long a step left keeps its reads, so Back to it shows them at once and asks again. */
+const keptMs = 30_000;
 
 /**
  * Add project › GitHub repository, as a palette step: one search box over the repositories the
@@ -104,14 +106,17 @@ function RepositoryBrowser(props: {
     queryKey: ["projects", "github-readiness", props.machineId],
     read: (client, signal) => readReadiness(client, undefined, signal),
     retry: false,
-    gcTime: 0,
+    gcTime: keptMs,
     staleTime: 0,
     refetchOnReconnect: "always",
   });
   const readiness: SourceControlReadiness | undefined = status.data;
-  const host = selection?.host ?? readiness?.preferences.host ?? "";
-  const account = selection?.account ?? readiness?.account ?? "";
-  const { owner, visibility, archived, fork } = filters;
+  // The account and owner are typed: they ask once typing settles, as the search text does.
+  const chosen = useDebouncedValue(selection, searchSettleMs);
+  const owner = useDebouncedValue(filters.owner, searchSettleMs);
+  const host = chosen?.host ?? readiness?.preferences.host ?? "";
+  const account = chosen?.account ?? readiness?.account ?? "";
+  const { visibility, archived, fork } = filters;
   const input = RepositoryListInput.safeParse({
     host,
     account,
@@ -146,18 +151,24 @@ function RepositoryBrowser(props: {
         throw new SourceControlReadError("forge_invalid_data");
       return reply.result.repositories;
     },
-    // Only a new search text keeps the last answer up; another account or filter is another list.
+    // Only typing keeps the last answer up; another host or a chosen filter is another list.
     placeholderData: (previous, previousQuery) =>
-      previousQuery && onlyTextChanged(previousQuery.queryKey, key, textAt) ? previous : undefined,
+      previousQuery && onlyTypedChanged(previousQuery.queryKey, key, typedAt)
+        ? previous
+        : undefined,
     refetchOnReconnect: "always",
     enabled: readiness?.api === "ready" && input.success,
     retry: false,
-    gcTime: 0,
+    gcTime: keptMs,
     staleTime: 0,
   });
   const rows = repositories.data ?? [];
   // The last answer, showing while the one for what's typed now comes.
-  const stale = repositories.isPlaceholderData || query !== settled;
+  const stale =
+    repositories.isPlaceholderData ||
+    query !== settled ||
+    selection !== chosen ||
+    filters.owner !== owner;
   // The best match is highlighted from the start, so Enter clones it.
   const list = useListHighlight({ count: rows.length, start: 0 });
   const { listId, current } = list;
@@ -249,8 +260,8 @@ function RepositoryBrowser(props: {
         />
         <RepositoryFiltersMenu
           readiness={readiness}
-          host={host}
-          account={account}
+          host={selection?.host ?? readiness?.preferences.host ?? ""}
+          account={selection?.account ?? readiness?.account ?? ""}
           onAccount={setSelection}
           filters={filters}
           onFilters={setFilters}
