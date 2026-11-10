@@ -35,15 +35,9 @@ import {
 } from "@ace/protocol";
 import { AsyncCommands } from "./async-commands.ts";
 import { makeFolders, planFolders, type MadeFolders } from "./project-folders.ts";
-import {
-  ProjectPaths,
-  ProjectError,
-  assertOrdinaryPath,
-  assertProjectPath,
-  canonicalProjectRoots,
-  withoutProjectRoot,
-} from "./project-policy.ts";
+import { ProjectPaths, ProjectError, assertProjectPath } from "./project-policy.ts";
 import { applyNoteEdits } from "./project-notes.ts";
+import { ProjectRoots } from "./project-roots.ts";
 import { ProjectStorage } from "./project-storage.ts";
 import { browseProjects } from "./project-browse.ts";
 import { ChatProjects } from "./chat-projects.ts";
@@ -79,6 +73,8 @@ type CloneFlight = {
 };
 export class Projects {
   readonly catalog: ProjectStorage;
+  /** Edits to the allowed roots, one at a time; a `projects.roots` write takes a turn too. */
+  readonly roots: ProjectRoots;
   readonly ready: Promise<void>;
   private paths: ProjectPaths;
   private picker: ProjectPicker;
@@ -104,6 +100,11 @@ export class Projects {
     this.noteId = options.noteId ?? randomUUID;
     this.options = options;
     this.home = options.home ?? homedir();
+    this.roots = new ProjectRoots({
+      home: this.home,
+      ...(options.roots ? { roots: options.roots } : {}),
+      ...(options.saveRoots ? { saveRoots: options.saveRoots } : {}),
+    });
     this.paths = new ProjectPaths(this.home, options.roots ?? (async () => []));
     this.git = new GitService({ timeoutMs: 600_000, ...options.git });
     this.metadataGit = new GitService({ ...options.git, timeoutMs: 10_000 });
@@ -302,56 +303,6 @@ export class Projects {
     }
   }
   /**
-   * Allow a folder as a project root, keeping home allowed when it is the first. With
-   * `create`, a missing folder is made first and removed again if saving fails.
-   */
-  private async addRoot(
-    p: Extract<ProjectCommand, { type: "workspace.root.add" }>,
-    allowed: () => boolean,
-  ) {
-    const save = this.options.saveRoots;
-    if (!save) throw new ProjectError("projects_unavailable");
-    const plan = await planFolders(p.path);
-    if (plan.missing.length && !p.create) throw new ProjectError("directory_missing");
-    assertOrdinaryPath(plan.path);
-    this.check(allowed);
-    const made = plan.missing.length ? await makeFolders(plan) : undefined;
-    try {
-      const configured = (await this.options.roots?.()) ?? [];
-      let roots: string[];
-      try {
-        roots = await canonicalProjectRoots([
-          ...(configured.length ? configured : [this.home]),
-          plan.path,
-        ]);
-      } catch (error) {
-        throw error instanceof ProjectError ? error : new ProjectError("directory_unavailable");
-      }
-      this.check(allowed);
-      await save(roots);
-      return { ok: true };
-    } catch (error) {
-      made?.undo();
-      throw error;
-    } finally {
-      await made?.close();
-    }
-  }
-  /** Stop allowing one root, keeping the others as they are now; nothing is deleted. */
-  private async removeRoot(
-    p: Extract<ProjectCommand, { type: "workspace.root.remove" }>,
-    allowed: () => boolean,
-  ) {
-    const save = this.options.saveRoots;
-    if (!save) throw new ProjectError("projects_unavailable");
-    this.check(allowed);
-    const roots = await withoutProjectRoot((await this.options.roots?.()) ?? [], p.path);
-    if (!roots) return { ok: true };
-    this.check(allowed);
-    await save(roots);
-    return { ok: true };
-  }
-  /**
    * A canonical folder inside the allowed roots that a project may be made in (ADR 0101):
    * `requested`, or else the folder of the newest project when it isn't inside a Git work tree,
    * or else home. It comes back open, so the transfer makes and fills its folder through that
@@ -454,8 +405,10 @@ export class Projects {
           if (!this.chats) throw new ProjectError("projects_unavailable");
           return { ok: true, workspace: await this.chats.create() };
         }
-        if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
-        if (p.type === "workspace.root.remove") return await this.removeRoot(p, allowed);
+        if (p.type === "workspace.root.add")
+          return await this.roots.add(p, () => this.check(allowed));
+        if (p.type === "workspace.root.remove")
+          return await this.roots.remove(p, () => this.check(allowed));
         if (
           p.type === "workspace.rename" ||
           p.type === "workspace.update" ||

@@ -1,15 +1,18 @@
+import { SettingsValues } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { fallback } from "@/boot/connection.tsx";
+import { createMemoryHistory } from "@tanstack/react-router";
 import { harness } from "@/test/harness.tsx";
 import { createIdleTask } from "@/test/tasks.ts";
 
 const home = "/home/dev";
 
 const localTarget = { url: "ws://127.0.0.1:4242/", token: "a".repeat(64) };
-function host(remote = false) {
+function host(remote = false, options: Parameters<typeof harness>[0] = {}) {
   const made = harness({
+    ...options,
     connection: {
       ...fallback,
       mode: "daemon",
@@ -195,12 +198,38 @@ test("undo after allowing and adding a native pick takes back only the folder, k
   });
   // Settings, or another device, allows another place before the undo.
   const roots = () => made.daemon.services.settings.get("projects.roots");
-  made.daemon.services.settings.write("projects.roots", [...(roots() as string[]), "/opt"]);
+  made.daemon.services.settings.write("projects.roots", [
+    ...SettingsValues.shape["projects.roots"].parse(roots()),
+    "/opt",
+  ]);
 
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await waitFor(() => expect(roots()).toEqual([home, "/opt"]));
   expect(made.daemon.projects.isRemoved(project?.id ?? "")).toBe(false);
   expect(registered(made)).toEqual([path]);
+});
+
+test("undo after allowing and adding closes the new project's draft to Home, since it's hidden", async () => {
+  const path = "/srv/private/project";
+  desktopBridge({ chosen: path });
+  const history = createMemoryHistory({ initialEntries: ["/"] });
+  const made = host(false, { history });
+  made.daemon.projects.seedFolders(home, [{ path }], { roots: [home, "/srv"] });
+  made.daemon.services.settings.seed({ "projects.roots": [home] });
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));
+  const failure = await within(
+    await screen.findByRole("dialog", { name: "Add project" }),
+  ).findByRole("alert");
+  await userEvent.click(within(failure).getByRole("button", { name: "Allow and add" }));
+  await screen.findByRole("button", { name: "Project: project" });
+  expect(history.location.pathname).toBe("/new");
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(history.location.pathname).toBe("/"));
+  expect(screen.queryByRole("button", { name: "Project: project" })).toBeNull();
 });
 
 test("dropping a local folder on a remote primary offers remote browsing without registering its same-path folder", async () => {

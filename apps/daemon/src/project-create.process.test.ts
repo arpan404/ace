@@ -194,3 +194,23 @@ test("removing one project root keeps the roots allowed after it, and an unknown
     await f.close();
   }
 });
+
+test("removing the only allowed root is refused, so home doesn't become allowed again", async () => {
+  let saved: string[] = [];
+  const f = await projectFixture({
+    roots: async () => saved,
+    saveRoots: async (roots) => {
+      saved = roots;
+    },
+  });
+  try {
+    saved = [f.root];
+    expect(await f.command({ type: "workspace.root.remove", path: f.root })).toMatchObject({
+      ok: false,
+      error: "last_root",
+    });
+    expect(saved).toEqual([f.root]);
+  } finally {
+    await f.close();
+  }
+});
