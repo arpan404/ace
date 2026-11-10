@@ -5,6 +5,9 @@
     "available": {
       "type": "boolean"
     },
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCapabilities.json"
+    },
     "primary": {
       "type": "boolean"
     },

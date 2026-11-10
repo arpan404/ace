@@ -761,10 +761,10 @@ Example:
       "ref": {
         "number": 1,
         "repository": {
-          "forge": "gitbucket",
-          "host": "KTQS3y05nUk",
+          "forge": "origin",
+          "host": "TQS3y05",
           "name": "Kas_K3YZ",
-          "owner": "ZgQCTMWV/z-4AR/Wby/4gDUHVm/iyFneqUOww./l5QFG1PxX/UQ8U2z/tt"
+          "owner": "UjT/QC/MWVSxz-4/RnWby/4gDUHVm/iyFneqUOww./l5QFG1PxX/UQ8U2z/tt"
         }
       },
       "reviewThreads": [],
@@ -772,6 +772,7 @@ Example:
       "title": "example",
       "url": "example"
     },
+    "unavailableResources": [],
     "updatedAt": "example",
     "writeState": "pending"
   }
@@ -1005,6 +1006,30 @@ Example:
   },
   "resource": "emojiImages"
 }
+```
+
+## ForgeCapabilities
+
+[JSON Schema](schema/ForgeCapabilities.json), input validation.
+
+Type: array. See JSON Schema for constraints.
+
+Example:
+
+```json
+[]
+```
+
+## ForgeCapability
+
+[JSON Schema](schema/ForgeCapability.json), input validation.
+
+Type: ["reviews.read","reviews.files","reviews.commits","reviews.comments.read","reviews.comments.write","reviews.approvals.read","reviews.approvals.write","reviews.checks","reviews.checks.write","reviews.create","reviews.edit","reviews.merge","reviews.autoMerge","reviews.stacks","reviews.suggestions","issues.read","issues.write","inbox","reactions","media"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"reviews.approvals.read"
 ```
 
 ## ForgeCheck
@@ -3764,6 +3789,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| capabilities | no | [ForgeCapabilities.json](schema/ForgeCapabilities.json) |  |
 | readOnly | no | boolean |  |
 | unavailableResources | no | array | {"maxItems":6,"items":{"type":"string","enum":["comments","checks","reviews","commits","files","fileCount"]}} |
 | status | yes | [ForgePrStatus.json](schema/ForgePrStatus.json) |  |
@@ -3799,6 +3825,7 @@ Example:
   "baseBranch": "example",
   "baseSha": "CFB67D170069BbbDDfdAd5D5fB101843d6FFcAF66eF1aBE4805",
   "body": "example",
+  "capabilities": [],
   "changedFiles": 1,
   "commits": 2,
   "headBranch": "example",
@@ -3851,10 +3878,10 @@ Example:
     "ref": {
       "number": 5,
       "repository": {
-        "forge": "gitlab",
-        "host": "zO",
+        "forge": "github",
+        "host": "OI3cf",
         "name": "x",
-        "owner": "3begJG/ocC25ZtC_3g/4fXfe30/Im1XD/KS2Kh-r"
+        "owner": "JG/ocC25ZtC_3g/4fXfe30/Im1XD/KS2Kh-r"
       }
     },
     "reviewThreads": [],

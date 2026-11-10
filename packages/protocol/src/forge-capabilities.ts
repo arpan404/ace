@@ -49,13 +49,8 @@ export const ForgeCapability = z.enum([
 ]);
 export type ForgeCapability = z.infer<typeof ForgeCapability>;
 
-/** A repository's capabilities on the wire: unknown values from a newer daemon are dropped. */
-export const ForgeCapabilities = z
-  .array(z.string().max(64))
-  .max(64)
-  .transform((values) =>
-    values.flatMap((value) => {
-      const known = ForgeCapability.safeParse(value);
-      return known.success ? [known.data] : [];
-    }),
-  );
+/**
+ * A repository's capabilities on the wire. Plain strings, so a newer daemon's capability an older
+ * client doesn't know parses and is simply never asked for.
+ */
+export const ForgeCapabilities = z.array(z.string().min(1).max(64)).max(64);

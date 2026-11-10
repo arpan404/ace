@@ -27,6 +27,9 @@
       "maxLength": 65536,
       "type": "string"
     },
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/ForgeCapabilities.json"
+    },
     "changedFiles": {
       "maximum": 9007199254740991,
       "minimum": 0,

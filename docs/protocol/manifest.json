@@ -17,8 +17,8 @@
       "sha256": "b4a6f00bb317bfed04898d9e32e080a719849c779954c450fc7e02973d740f30"
     },
     "forge.md": {
-      "bytes": 138214,
-      "sha256": "237da8f8b02d498a1ed98e90a0b0127a2bed1a220cfc6e9ce660f65bc3f55be1"
+      "bytes": 139033,
+      "sha256": "4be4e83cdae1e89e2df8c886799eb661ee11cf4adcfbd01c43ef8968ec5a0931"
     },
     "mcp.md": {
       "bytes": 62040,
@@ -1336,6 +1336,14 @@
       "bytes": 12580,
       "sha256": "f227c64a8bad779c6210c3498a5cf0296833877cd13c2b74fe7b3cd3f69da0e7"
     },
+    "schema/ForgeCapabilities.json": {
+      "bytes": 246,
+      "sha256": "1cd3a95fce82704b0fc2fc6b18cc36d245a061dcd47bd7ac9f11677ea4cc96db"
+    },
+    "schema/ForgeCapability.json": {
+      "bytes": 616,
+      "sha256": "3962da4b06b57e25707f306b593f5fe835e28d4ef4ab1f73e890e4b1df210c3b"
+    },
     "schema/ForgeCheck.json": {
       "bytes": 1217,
       "sha256": "4ff6d8656a3373261dbd1a1ae4af6c14e9f8a249ac16358aebf6b82c60c2f2e5"
@@ -1617,8 +1625,8 @@
       "sha256": "fb1e718884b40fc3187dafdcff9afd44b2db8e3036d602f27551dcebf058df09"
     },
     "schema/ForgePrDetail.json": {
-      "bytes": 3384,
-      "sha256": "46d8dba157f1b80879610a0d80a6a38c850543741725f8563dbfd757abc9bc3b"
+      "bytes": 3482,
+      "sha256": "4ffbad438854e7413c53327ce9461221ba126f69e40403b14216cf619c6c3ffd"
     },
     "schema/ForgePrDetailFile.json": {
       "bytes": 603,
@@ -3105,8 +3113,8 @@
       "sha256": "eaf27a17e043c513dc0deda38502fbef44decf598b13e7768d9bf3804b292b27"
     },
     "schema/ProjectRepository.json": {
-      "bytes": 816,
-      "sha256": "8eb4fd9fd165bc0619a8c2dfd5180a10afbd226e3f0b98def8cc7eed3785c836"
+      "bytes": 914,
+      "sha256": "07c50d35f6f3e054b97212d54e41ad9922cedd82f362ae0b4f375235580d37e2"
     },
     "schema/ProjectRepositoryConfig.json": {
       "bytes": 751,
@@ -4925,10 +4933,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 996106,
-      "sha256": "73f6f7af2bc969ba69e0fb21375e64864bbbbcdcb2864ffbadc63335cc997725"
+      "bytes": 996189,
+      "sha256": "2abff440841cca025910d9f5f86f9c943c6715c358049a977b41c1087d9ded40"
     }
   },
-  "input": "785094ca8b1201e384033dd7ca498a1da6a2708ecb4b4f8168703f9d0b193d46",
+  "input": "7ce80dc5bf34165509b5afb24a330d8cb1a9544886fc6b7b78eebd122f05ecb9",
   "version": 1
 }
