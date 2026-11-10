@@ -66,16 +66,14 @@ export class FakePrCatalog {
       },
     }));
   }
-  /** More pull requests beside the seeded ones; one already known by number is replaced. */
+  /** More pull requests beside the seeded ones; one already known (same repository and number) is replaced. */
   add(fixtures: readonly PullRequestFixture[]): void {
     const known = this.fixtures;
     this.seed(fixtures);
     const added = this.fixtures;
-    const numbers = new Set(added.map((entry) => entry.detail.status.ref.number));
-    this.fixtures = [
-      ...known.filter((entry) => !numbers.has(entry.detail.status.ref.number)),
-      ...added,
-    ];
+    const id = (entry: PullRequestFixture) => JSON.stringify(entry.detail.status.ref);
+    const ids = new Set(added.map(id));
+    this.fixtures = [...known.filter((entry) => !ids.has(id(entry))), ...added];
   }
   private find(op: { repository?: unknown; number?: unknown }) {
     return this.fixtures.find(

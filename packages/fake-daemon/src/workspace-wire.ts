@@ -153,10 +153,14 @@ export class FakeWorkspaceWire {
   }
   /**
    * A seeded read asked for with the repository named, as a link from a PR page asks: the
-   * catalog seeds `acme/ace`'s reads without it.
+   * catalog seeds `acme/ace`'s reads without it. Only GitHub's `acme/ace`: the GitLab mirror of
+   * `ace` is another repository, never answered with GitHub's reads.
    */
   private withoutRepository(op: WorkspaceActionRequest["operation"]) {
-    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    if (!("repository" in op) || !op.repository) return undefined;
+    const { forge, host, owner, name } = op.repository;
+    if (forge !== "github" || host !== "github.com" || owner !== "acme" || name !== "ace")
+      return undefined;
     const { repository: _repository, ...rest } = op;
     return this.forgeReads.get(JSON.stringify(rest));
   }

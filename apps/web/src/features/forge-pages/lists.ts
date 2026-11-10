@@ -150,6 +150,42 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
 }
 
 /**
+ * Two lists read side by side as one: `extra` adds its rows after `main`'s, each row once. Used
+ * for a project ranked through its primary while its other repositories list newest first.
+ */
+export function joinPages<L extends ForgePrList | ForgeIssueList>(
+  main: ListPages<L>,
+  extra: ListPages<L>,
+): ListPages<L> {
+  const seen = new Set(main.rows.map(rowKey));
+  const added = extra.rows.filter((row) => !seen.has(rowKey(row)));
+  const ours = new Set(added.map(rowKey));
+  const answered = main.first !== undefined || extra.first !== undefined;
+  return {
+    rows: [...main.rows, ...added],
+    first: main.first ?? extra.first,
+    firsts: new Map([...main.firsts, ...extra.firsts]),
+    projectOf: (row) => (ours.has(rowKey(row)) ? extra.projectOf(row) : main.projectOf(row)),
+    stale: main.stale || extra.stale,
+    loading: main.loading,
+    error: answered ? undefined : main.error,
+    errorProject: answered ? undefined : main.errorProject,
+    errorSource: answered ? undefined : main.errorSource,
+    failed: [
+      ...main.failed,
+      ...extra.failed,
+      ...(answered && main.errorSource ? [main.errorSource] : []),
+      ...(answered && extra.errorSource ? [extra.errorSource] : []),
+    ],
+    more: main.more || extra.more,
+    retry: () => {
+      main.retry();
+      extra.retry();
+    },
+  };
+}
+
+/**
  * Why every read failed, in the failing Git host's words (glab for GitLab, never gh). The
  * project's repository is asked for only once a read of its primary has failed.
  */

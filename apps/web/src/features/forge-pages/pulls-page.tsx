@@ -25,7 +25,7 @@ import { ForgeList } from "./forge-list.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
-import { useGroupCounts, useListFailure, usePrPages } from "./lists.ts";
+import { joinPages, useGroupCounts, useListFailure, usePrPages } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
 import { PrRow } from "./pr-row.tsx";
 import { pullSections } from "./pull-filters.ts";
@@ -129,15 +129,23 @@ export function PullRequestsPage(props: {
   // Each project's reviews come from every repository it uses (ADR 0116).
   const review = useReviewSources(projects);
   const sources = review.sources;
-  const listed = usePrPages(sources, query, pages);
-  // Ranking reads one repository: a project listing several is read newest first, like several
-  // projects are.
+  // One project is ranked through its primary; its other repositories add their rows newest
+  // first, as several projects' do.
   const rankedActive =
-    byWork && single !== undefined && review.settled && !review.several.has(single);
+    byWork && single !== undefined && sources.some((source) => !source.repository);
   const ranked = useReadyPages(single, search, rankedActive);
   const useRanked = rankedActive && ranked.error === undefined;
-  const list = useRanked ? ranked : listed;
+  const listed = usePrPages(
+    useRanked ? sources.filter((source) => source.repository) : sources,
+    query,
+    pages,
+  );
+  const list = useRanked ? joinPages(ranked, listed) : listed;
   const failure = useListFailure(list);
+  const showMore = () => {
+    if (useRanked && ranked.more) ranked.loadMore();
+    if (!useRanked || listed.more) setPaging({ key: listKey, pages: pages + 1 });
+  };
   const peopleQuery = prQuery({ ...search, who: undefined }, 1);
   const people = useGroupCounts(open ? sources : [], { by: "pr-people", query: peopleQuery });
   const linked = useLinkedThreads().pulls;
@@ -406,12 +414,7 @@ export function PullRequestsPage(props: {
                 />
               );
             }}
-            onMore={
-              list.more
-                ? () =>
-                    useRanked ? ranked.loadMore() : setPaging({ key: listKey, pages: pages + 1 })
-                : undefined
-            }
+            onMore={list.more ? showMore : undefined}
           />
         )}
       </ListFrame>

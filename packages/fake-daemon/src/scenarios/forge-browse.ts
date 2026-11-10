@@ -7,6 +7,7 @@ import {
   projectNotifications,
   projectPullRequests,
 } from "../catalog/forge-projects.ts";
+import { gitlabMirrorPullRequests } from "../catalog/gitlab-mirror.ts";
 import { pullRequestDetails } from "../catalog/pull-request-details.ts";
 import { richIssueReads, richPullRequest } from "../catalog/rich-content.ts";
 import type { FakeDaemon } from "../daemon.ts";
@@ -26,6 +27,15 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
   const rich = { number: 246, reads: richIssueReads(now) };
   const issues = [...browseIssues(now), rich].map((issue) => Object.assign(issue, { project }));
   seedIssues(daemon, issues);
+}
+
+/**
+ * Merge requests on `ace`'s GitLab mirror beside its GitHub reviews (ADR 0116), for Code review
+ * reading both of a project's repositories. Apart from `seedForgeBrowse`, so lists that read
+ * only GitHub stay as they were.
+ */
+export function seedGitLabMirror(daemon: FakeDaemon, now: number): void {
+  daemon.workspace.addPullRequests(gitlabMirrorPullRequests(now));
 }
 
 /**
