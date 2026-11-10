@@ -25,15 +25,26 @@ export function ownerTurnFinished(
   state: ThreadState,
   task: Pick<BackgroundTask, "agentId">,
 ): boolean {
-  const key = lookup(state.indexes.agentKeysById, task.agentId);
+  return agentTurnFinished(state, task.agentId);
+}
+
+function agentTurnFinished(state: ThreadState, agentId: string): boolean {
+  const key = lookup(state.indexes.agentKeysById, agentId);
   const record = key === undefined ? undefined : lookup(state.agents, key);
   if (!record || record.activeRun || !record.lastRun) return false;
   return lookup(state.runs, record.lastRun)?.state === "completed";
 }
 
-/** `holdsThread` (ADR 0109) for a live task in `state`. */
+/**
+ * `holdsThread` (ADR 0109, ADR 0116) for a live task in `state`. Work is past its agent's final
+ * reply only once both its own agent and the thread's main agent finished their turns: a
+ * subagent's command still holds while the main agent works and may be waiting on it.
+ */
 export function taskHoldsThread(state: ThreadState, task: BackgroundTask): boolean {
-  return holdsThread(task, ownerTurnFinished(state, task));
+  const root = state.rootKey === undefined ? undefined : lookup(state.agents, state.rootKey);
+  const replied =
+    ownerTurnFinished(state, task) && (!root || agentTurnFinished(state, root.agent.id));
+  return holdsThread(task, replied);
 }
 
 export function isLiveTool(item: Item): item is ToolItem {

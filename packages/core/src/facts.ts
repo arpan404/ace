@@ -172,6 +172,8 @@ export type Fact =
       outputPath?: string;
       /** The provider never resumes the agent when this task ends (ADR 0109). */
       wakesAgent?: false;
+      /** The provider takes no new prompt while it runs (ADR 0116). */
+      blocksPrompts?: true;
       raw?: RawPayload[];
     }
   /** The ports a running task's processes listen on now; empty when none (ADR 0109). */
