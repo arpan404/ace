@@ -20,15 +20,21 @@ export const RECHECK_PER_MACHINE = 16;
 
 /**
  * What a re-read view of a settled child means: it runs again (`reopen`), it ran again and
- * settled with a different result (`settle`, a new result for the parent), or nothing that
- * matters to the parent changed (`ignore`, so a title or pin there never repeats a result).
+ * settled with a different result or failure reason (`settle`, a new result for the parent: a
+ * stop found later to be a usage limit says so), or nothing that matters to the parent changed
+ * (`ignore`, so a title or pin there never repeats a result).
  */
 export function recheckOutcome(
   saved: MachineThreadView | undefined,
   view: MachineThreadView,
 ): "reopen" | "settle" | "ignore" {
   if (!settledStates.has(view.state) || view.requests.length > 0) return "reopen";
-  if (saved && saved.state === view.state && (saved.result ?? "") === (view.result ?? ""))
+  if (
+    saved &&
+    saved.state === view.state &&
+    (saved.result ?? "") === (view.result ?? "") &&
+    saved.failure?.code === view.failure?.code
+  )
     return "ignore";
   return "settle";
 }

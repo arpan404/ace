@@ -137,6 +137,57 @@ test("a limit reported just after the child's turn ended settles it as usage lim
   expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("usage_limited");
 });
 
+const settledNotices = (h: ReturnType<typeof withRecovery>, parent: { threadId: string }) =>
+  (h.inputs.get(parent.threadId as never) ?? []).filter((text) =>
+    text.includes("delegation.settled"),
+  );
+
+test("a limit reported a moment after the turn ended replaces the bare failure the parent was about to hear", async () => {
+  const h = withRecovery({});
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  const [ended, limit] = limitAfterEnd(h.clock.now() + 60_000);
+  await h.emit(child.childId, ended);
+  await h.emit(child.childId, limit);
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(settledNotices(h, parent)).toHaveLength(1);
+  expect(settledNotices(h, parent)[0]).toContain("usage_limited");
+  expect(h.service.monitor.snapshot(parent).children[0]).toMatchObject({
+    state: "failed",
+    failure: { code: "usage_limited" },
+  });
+});
+
+test("a limit reported after the parent already heard a bare failure tells it the reason once", async () => {
+  const h = withRecovery({});
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  const [ended, limit] = limitAfterEnd(h.clock.now() + 60_000);
+  await h.emit(child.childId, ended);
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(settledNotices(h, parent)).toHaveLength(1);
+  expect(settledNotices(h, parent)[0]).not.toContain("usage_limited");
+
+  await h.emit(child.childId, limit);
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(settledNotices(h, parent)).toHaveLength(2);
+  expect(settledNotices(h, parent)[1]).toContain("usage_limited");
+  expect(h.service.monitor.snapshot(parent).children[0]).toMatchObject({
+    state: "failed",
+    failure: { code: "usage_limited" },
+  });
+  // The limit staying in place tells it nothing more.
+  await h.emit(child.childId, limit);
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(settledNotices(h, parent)).toHaveLength(2);
+});
+
 test("a child is never settled while its limit policy is still loading, and settles once it loads as manual", async () => {
   const { promise: loaded, resolve: release } = Promise.withResolvers<void>();
   let gated = false;
