@@ -188,7 +188,6 @@ export class GitLabCreation {
     } catch (error) {
       throw dispatch.failure(error);
     }
-    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
     const ack = Match.safeParse(response.body);
     if (
       !ack.success ||

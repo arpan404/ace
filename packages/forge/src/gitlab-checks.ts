@@ -160,8 +160,7 @@ export class GitLabChecks {
     dispatch: MutationDispatch,
   ) {
     if (!allowed()) throw new ForgeError("cancelled", undefined, false);
-    const response = await this.#api.write(endpoint, "POST", {}, signal, budget, dispatch);
-    if (response.identityChanged) throw new ForgeMutationOutcome(response.body);
+    await this.#api.write(endpoint, "POST", {}, signal, budget, dispatch, (body) => body);
   }
 
   async rerun(

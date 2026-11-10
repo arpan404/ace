@@ -29,6 +29,15 @@ function runner(
         (endpoint.includes("/pipelines?") ? { status: "200 OK", body: [] } : undefined) ??
         (endpoint.includes("merge_requests?") ? routes["*list"] : undefined) ??
         (endpoint.includes("/diffs?") ? routes["*diffs"] : undefined) ??
+        (endpoint.includes("/discussions?") || endpoint.includes("/commits?")
+          ? { status: "200 OK", headers: { "x-next-page": "", "x-total": "0" }, body: [] }
+          : undefined) ??
+        (endpoint.endsWith("/approvals")
+          ? { status: "200 OK", body: { approved_by: [], approved: false } }
+          : undefined) ??
+        (endpoint.endsWith("/approval_state")
+          ? { status: "200 OK", body: { rules: [] } }
+          : undefined) ??
         routes["*mr"];
       if (!route) return { code: 1, stdout: http("404 Not Found", {}, {}), truncated: false };
       return {
@@ -340,12 +349,12 @@ describe("gitlab reader", () => {
     expect(f.seen).toHaveLength(0);
   });
 
-  it("marks detail read-only with unavailable resources", async () => {
+  it("exposes conversation resources while checks remain unavailable", async () => {
     const f = runner({ "*mr": { status: "200 OK", body: mr() } });
     const reader = new GitLabReader({ repository, runner: f.runner });
     const detail = await reader.prDetail(7, signal());
-    expect(detail.readOnly).toBe(true);
-    expect(detail.unavailableResources).toEqual(["comments", "reviews", "commits"]);
+    expect(detail.readOnly).toBe(false);
+    expect(detail.unavailableResources).toEqual([]);
     expect(detail.baseSha).toBe(BASE);
   });
 

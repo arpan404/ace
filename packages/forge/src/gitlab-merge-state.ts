@@ -198,10 +198,10 @@ export class GitLabMergeState {
       signal,
       new ReadBudget(),
       dispatch,
+      () => ({ number, headSha }),
     );
     const ack = source.safeParse(result.body);
     if (
-      result.identityChanged ||
       !ack.success ||
       ack.data.iid !== number ||
       ack.data.sha !== headSha ||
@@ -257,10 +257,10 @@ export class GitLabMergeState {
         signal,
         new ReadBudget(),
         dispatch,
+        () => ({ number, headSha }),
       );
       const ack = z.looseObject({ status: z.literal("success") }).safeParse(result.body);
-      if (result.identityChanged || !ack.success)
-        throw new ForgeMutationOutcome({ number, headSha });
+      if (!ack.success) throw new ForgeMutationOutcome({ number, headSha });
     }
     // Persist acknowledgement in the shell before any lagging follow-up read.
     return undefined;

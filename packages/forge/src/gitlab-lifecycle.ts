@@ -64,7 +64,7 @@ export class GitLabLifecycle {
     const body = await this.#body(before, action, signal);
     assertLifecycleAction(await this.snapshot(number, signal), expectedVersion, action);
     if (!allowed() || signal.aborted) throw new ForgeError("cancelled");
-    const result = await this.api.write(
+    await this.api.write(
       `${this.api.root}/merge_requests/${number}`,
       "PUT",
       body,
@@ -72,7 +72,6 @@ export class GitLabLifecycle {
       new ReadBudget(),
       dispatch,
     );
-    if (result.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
     try {
       return (
         (await this.observe(number, action, before, _operationId, signal)) ?? {

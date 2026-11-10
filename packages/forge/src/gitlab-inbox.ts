@@ -147,7 +147,6 @@ export class GitLabInbox {
       new ReadBudget(),
       dispatch,
     );
-    if (response.identityChanged) throw new ForgeMutationOutcome({ dispatched: true });
     const ack = GitLabTodo.safeParse(response.body);
     if (!ack.success || String(ack.data.id) !== value.id || ack.data.state !== "done")
       throw new ForgeMutationOutcome({ dispatched: true });

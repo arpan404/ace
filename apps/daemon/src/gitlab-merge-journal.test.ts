@@ -57,6 +57,9 @@ test("an uncertain GitLab merge reconciles after restart without dispatching it 
     else if (endpoint.includes("/merge_requests/7/pipelines"))
       body = [{ id: 10, status: "success", sha }];
     else if (endpoint.endsWith("/pipelines/10")) body = { id: 10, status: "success", sha };
+    else if (endpoint.includes("/discussions?")) body = [];
+    else if (endpoint.endsWith("/approvals")) body = { approved: false, approved_by: [] };
+    else if (endpoint.endsWith("/approval_state")) body = { rules: [] };
     else body = { squash_option: "default_off" };
     return {
       code: 0,

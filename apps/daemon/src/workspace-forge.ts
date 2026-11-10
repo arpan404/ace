@@ -2,6 +2,10 @@ import { gitLabLifecycleBackend } from "./hosted-lifecycle.ts";
 import { gitLabInboxWriter } from "./hosted-inbox.ts";
 import { HostedChecks } from "./hosted-checks.ts";
 import { gitlabHostedMerge } from "./gitlab-hosted-merge.ts";
+import {
+  gitLabReviewBackend,
+  executeGitLabThreadConversation,
+} from "./hosted-review-conversation.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
@@ -256,6 +260,7 @@ export class WorkspaceForge {
     input: unknown,
     cwd: string,
     permitted: () => boolean,
+    commandId?: string,
   ): Promise<Omit<CommandResult, "commandId">> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
@@ -311,6 +316,17 @@ export class WorkspaceForge {
         this.projection.update(id, value.status, generation);
         return { ok: true, pr, prStatus: value.status };
       }
+      if (p.type === "forge.comment.reply" || p.type === "forge.review.request")
+        return executeGitLabThreadConversation({
+          backends: this.backends,
+          reviews: this.reviews,
+          store: this.store,
+          cwd,
+          commandId,
+          action: p,
+          signal: this.lifetime.signal,
+          allowed: () => allowed() && this.links.getLinkState(id, pr)?.generation === generation,
+        });
       if (
         p.type !== "forge.pr.merge" &&
         p.type !== "forge.pr.auto-merge" &&
@@ -395,7 +411,9 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backends.writer(cwd, p.pr.repository),
+      p.pr.repository.forge === "gitlab"
+        ? await gitLabReviewBackend(this.backends, cwd, p.pr, this.lifetime.signal)
+        : await this.backends.writer(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );

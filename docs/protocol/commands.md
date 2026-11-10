@@ -1507,7 +1507,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"forge.review.request"` |  |
 | link | yes | [ForgeThreadLink.json](schema/ForgeThreadLink.json) |  |
-| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^[\\w-]+$"}} |
+| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 
 Example:
 

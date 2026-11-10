@@ -313,6 +313,15 @@ function glab(mrs: Record<number, object>, seen: string[]): CommandRunner {
     seen.push(endpoint);
     if (endpoint === "user") return http("200 OK", { username: "a.user_1" });
     if (!request.args.includes("GET")) throw new Error("Unexpected mutation");
+    if (
+      endpoint.includes("/discussions?") ||
+      endpoint.includes("/commits?") ||
+      endpoint.includes("/pipelines?")
+    )
+      return http("200 OK", [], { "x-total": "0", "x-next-page": "" });
+    if (endpoint.endsWith("/approvals"))
+      return http("200 OK", { approved_by: [], approved: false });
+    if (endpoint.endsWith("/approval_state")) return http("200 OK", { rules: [] });
     if (endpoint.includes("/diffs?"))
       return http(
         "200 OK",

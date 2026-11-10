@@ -252,7 +252,12 @@ export const ForgeCommand = z.discriminatedUnion("type", [
     type: z.literal("forge.review.request"),
     link: ForgeThreadLink,
     reviewers: z
-      .array(z.string().regex(/^[\w-]+$/))
+      .array(
+        z
+          .string()
+          .regex(/^[\w.-]+$/)
+          .max(100),
+      )
       .min(1)
       .max(100),
   }),

@@ -39,7 +39,16 @@ function fixture(
       request.dispatch?.record();
       if (options.loseWrite) throw new Error("lost response");
     }
-    const body = read(path, write);
+    // The MR status also reads its conversation; these checks tests don't vary it.
+    const body = write
+      ? read(path, write)
+      : path.includes("/discussions?")
+        ? []
+        : path.endsWith("/approvals")
+          ? { approved: false, approved_by: [] }
+          : path.endsWith("/approval_state")
+            ? { rules: [] }
+            : read(path, write);
     return {
       code: body === undefined ? 1 : 0,
       stdout: `HTTP/2.0 ${body === undefined ? "404 Not Found" : "200 OK"}\r\nX-Next-Page: \r\n\r\n${typeof body === "string" ? body : JSON.stringify(body ?? {})}`,
@@ -219,7 +228,7 @@ describe("GitLab pipeline checks", () => {
     const dispatch = new MutationDispatch();
     await expect(
       f.checks.rerun({ runId: 9, attempt: 12, jobs: "failed" }, signal(), () => true, dispatch),
-    ).rejects.toMatchObject({ kind: "cli" });
+    ).rejects.toMatchObject({ kind: "outcome_uncertain" });
     expect(dispatch.definitelyFailed).toBe(false);
   });
   it("does not settle a partially completed retry of all jobs", async () => {

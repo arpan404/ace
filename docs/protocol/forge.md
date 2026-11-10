@@ -1491,7 +1491,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"forge.review.request"` |  |
 | link | yes | [ForgeThreadLink.json](schema/ForgeThreadLink.json) |  |
-| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^[\\w-]+$"}} |
+| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 
 Example:
 
@@ -1510,7 +1510,7 @@ Example:
     "threadId": "example"
   },
   "reviewers": [
-    "JpQ8deJB6Jd"
+    "KpQ9deKB7Je"
   ],
   "type": "forge.review.request"
 }
@@ -4871,7 +4871,7 @@ Semantic rule: Names at least one reviewer or team.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"reviewers.request"` |  |
-| reviewers | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":39,"pattern":"^[\\w-]+$"}} |
+| reviewers | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 | teams | no | array | {"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 
 Example:
@@ -4892,7 +4892,7 @@ Semantic rule: Names at least one reviewer or team.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | kind | yes | `"reviewers.remove"` |  |
-| reviewers | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":39,"pattern":"^[\\w-]+$"}} |
+| reviewers | yes | array | {"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 | teams | no | array | {"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 
 Example:
