@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ForgePrReviewers } from "@ace/protocol/forge-people";
 import { ForgeComment, ForgeReviewThread, type ForgeRepository } from "@ace/protocol/forge";
 import type { ForgeReviewAction, ForgeReviewDraft } from "@ace/protocol/forge-review";
 import type { CommandRunner } from "./command.ts";
@@ -34,6 +35,7 @@ const review = z.looseObject({
   updated_at: z.string(),
   comments_count: z.number().int().nonnegative(),
   dismissed: z.boolean().optional(),
+  stale: z.boolean().optional(),
 });
 const inline = comment.extend({
   path: z.string(),
@@ -107,13 +109,14 @@ export class TeaReviews {
           file: null,
           line: null,
           replyTo: null,
-          reviewState: r.dismissed
-            ? "DISMISSED"
-            : r.state === "REQUEST_CHANGES"
-              ? "CHANGES_REQUESTED"
-              : r.state === "COMMENT"
-                ? "COMMENTED"
-                : r.state,
+          reviewState:
+            r.dismissed || r.stale
+              ? "DISMISSED"
+              : r.state === "REQUEST_CHANGES"
+                ? "CHANGES_REQUESTED"
+                : r.state === "COMMENT"
+                  ? "COMMENTED"
+                  : r.state,
         }),
       );
       if (!r.comments_count) continue;
@@ -150,6 +153,38 @@ export class TeaReviews {
     if (latest.head.sha !== p.head.sha) throw new ForgeError("head_moved");
     if (comments.length > 2000 || threads.length > 2000) throw new ForgeError("limit");
     return { comments, reviewThreads: threads };
+  }
+  async reviewers(number: number, signal: AbortSignal) {
+    const p = await this.pr(number, signal);
+    const rows = await this.all(`pulls/${number}/reviews`, review, signal);
+    const latest = new Map<string, z.infer<typeof review>>();
+    for (const r of rows.toSorted((a, b) => a.id - b.id)) if (r.user) latest.set(r.user.login, r);
+    return decode(ForgePrReviewers, {
+      author: p.user?.login ?? null,
+      canRequest: false,
+      canDismiss: false,
+      suggested: [],
+      requested: [...latest.values()]
+        .filter((r) => r.state === "REQUEST_REVIEW")
+        .map((r) => ({ kind: "user", login: r.user?.login })),
+      reviews: [...latest.values()]
+        .filter((r) => r.state !== "REQUEST_REVIEW")
+        .map((r) => ({
+          id: r.id,
+          login: r.user?.login,
+          state:
+            r.dismissed || r.stale
+              ? "DISMISSED"
+              : r.state === "REQUEST_CHANGES"
+                ? "CHANGES_REQUESTED"
+                : r.state === "COMMENT"
+                  ? "COMMENTED"
+                  : ["APPROVED", "PENDING"].includes(r.state)
+                    ? r.state
+                    : "PENDING",
+          submittedAt: r.submitted_at || null,
+        })),
+    });
   }
   async host(number: number, signal: AbortSignal) {
     const p = await this.pr(number, signal);

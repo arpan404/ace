@@ -41,6 +41,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
   function fixture() {
     const writes: { path: string | undefined; body: unknown }[] = [];
     let moved = false;
+    let verdict = "COMMENT";
     let posted = "";
     const adapter = new TeaReviews({
       repository: { forge, host: "git.example", owner: "team", name: "app" },
@@ -58,7 +59,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
         } else if (path === "user") body = { login: "alice" };
         else if (path === "repos/team/app") body = { archived: false, permissions: { push: true } };
         else if (path.includes("/reviews/4/comments?")) body = [inline];
-        else if (path.includes("/reviews?")) body = [review];
+        else if (path.includes("/reviews?")) body = [{ ...review, state: verdict }];
         else if (path.includes("/comments?")) body = [{ ...comment, body: posted || comment.body }];
         else body = { ...pr, head: { ...pr.head, sha: moved ? base : head } };
         return {
@@ -72,6 +73,9 @@ for (const forge of ["gitea", "forgejo"] as const) {
     return {
       adapter,
       writes,
+      verdict: (state: string) => {
+        verdict = state;
+      },
       move: () => {
         moved = true;
       },
@@ -159,6 +163,39 @@ for (const forge of ["gitea", "forgejo"] as const) {
       kind: "head_moved",
     });
     expect(writes).toHaveLength(1);
+  });
+  test(`${forge} maps approvals and pins approve/request-changes submissions`, async () => {
+    const { adapter, writes, move, verdict } = fixture();
+    verdict("APPROVED");
+    expect(await adapter.reviewers(7, signal)).toMatchObject({
+      reviews: [{ login: "alice", state: "APPROVED" }],
+      canRequest: false,
+    });
+    for (const event of ["APPROVE", "REQUEST_CHANGES"] as const)
+      await adapter.write(
+        7,
+        { kind: "submit", event, headSha: head, body: "Verdict", draftIds: [] },
+        [],
+        event,
+        signal,
+        () => true,
+      );
+    expect(writes.map((w) => w.body)).toMatchObject([
+      { event: "APPROVED", commit_id: head },
+      { event: "REQUEST_CHANGES", commit_id: head },
+    ]);
+    move();
+    await expect(
+      adapter.write(
+        7,
+        { kind: "submit", event: "APPROVE", headSha: head, body: "Verdict", draftIds: [] },
+        [],
+        "stale",
+        signal,
+        () => true,
+      ),
+    ).rejects.toMatchObject({ kind: "head_moved" });
+    expect(writes).toHaveLength(2);
   });
   test(`${forge} refuses changed permissions and header or method substitutions`, async () => {
     const { adapter, writes } = fixture();

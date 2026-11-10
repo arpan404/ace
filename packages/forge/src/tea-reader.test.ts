@@ -61,7 +61,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
       body: "Description",
       baseSha: base,
       readOnly: false,
-      unavailableResources: ["checks", "reviews", "commits"],
+      unavailableResources: ["checks", "commits"],
     });
     expect(await r.prCheckout(7, signal)).toMatchObject({
       headSha: head,

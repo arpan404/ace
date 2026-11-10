@@ -7,6 +7,11 @@ export async function teaForgeBrowse(
   operation: ForgeBrowserOperation,
   signal: AbortSignal,
 ): Promise<ForgeBrowserResult | undefined> {
+  if (operation.op === "forge.pr.reviewers")
+    return {
+      resource: "prReviewers",
+      value: await reader.reviews.reviewers(operation.number, signal),
+    };
   if (operation.op === "forge.pr.commits")
     return {
       resource: "prCommits",
