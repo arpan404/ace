@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ForgeRepository, ProjectRepositories } from "@ace/protocol";
+import { WorkspaceId, type ForgeRepository, type ProjectRepositories } from "@ace/protocol";
 import {
   addRepository,
   hideRepository,
@@ -16,7 +16,7 @@ const gitlab: ForgeRepository = { forge: "gitlab", host: "gitlab.com", owner: "a
 const corp: ForgeRepository = { forge: "gitlab", host: "git.corp", owner: "team/sub", name: "api" };
 
 const project = (config: ProjectRepositories["config"]): ProjectRepositories => ({
-  workspaceId: "w1",
+  workspaceId: WorkspaceId.parse("w1"),
   primary: gitlab,
   config,
   repositories: [
