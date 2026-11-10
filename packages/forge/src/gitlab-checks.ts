@@ -25,6 +25,8 @@ export const gitLabChecksWrites: readonly HostApiWrite[] = [
 const positive = z.number().int().positive();
 const logBytes = 1_048_576;
 
+const PipelinePage = z.array(GitLabPipeline).max(100);
+
 /** Pipelines and jobs through the person's own identity-checked glab. No credential access. */
 export class GitLabChecks {
   readonly #api: GitLabApi;
@@ -45,7 +47,7 @@ export class GitLabChecks {
         signal,
         budget,
       );
-      const parsed = z.array(GitLabPipeline).max(100).safeParse(response.body);
+      const parsed = PipelinePage.safeParse(response.body);
       if (!parsed.success) throw new ForgeError("invalid_data");
       pipelines.push(...parsed.data);
       const next = response.headers["x-next-page"];
@@ -54,7 +56,7 @@ export class GitLabChecks {
     }
     const pipeline = pipelines
       .filter((item) => item.sha?.toLowerCase() === headSha.toLowerCase())
-      .sort((a, b) => b.id - a.id)[0];
+      .toSorted((a, b) => b.id - a.id)[0];
     if (!pipeline || pipelines.some((item) => item.id > pipeline.id && !item.sha))
       return {
         ci: pipelines.length === 0 ? ("none" as const) : ("unknown" as const),

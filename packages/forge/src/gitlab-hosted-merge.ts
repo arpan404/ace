@@ -11,7 +11,7 @@ export class GitLabHostedMerge {
   readonly #merge: GitLabMergeState;
   constructor(options: { repository: ForgeRepository; runner: CommandRunner }) {
     this.#reader = new GitLabReader(options);
-    this.#merge = new GitLabMergeState(new GitLabApi(options), options.repository);
+    this.#merge = new GitLabMergeState(new GitLabApi(options));
   }
   status(...args: Parameters<GitLabReader["status"]>) {
     return this.#reader.status(...args);

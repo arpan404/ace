@@ -7,6 +7,7 @@ import {
 import { ForgePrRef } from "@ace/protocol/forge";
 import { GitLabApi } from "./gitlab-api.ts";
 import { ForgeError } from "./errors.ts";
+import { decode } from "./gitlab-records.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
 import type { HostApiWrite } from "./read-only-api.ts";
@@ -24,11 +25,6 @@ export const gitLabLifecycleWrites: readonly HostApiWrite[] = [
 const Users = z
   .array(z.looseObject({ id: z.number().int().positive(), username: z.string() }))
   .max(100);
-function decode<T>(schema: z.ZodType<T>, body: unknown): T {
-  const result = schema.safeParse(body);
-  if (!result.success) throw new ForgeError("invalid_data");
-  return result.data;
-}
 /** Lifecycle updates over an identity-checked glab runner. No automatic write retries. */
 export class GitLabLifecycle {
   readonly api: GitLabApi;

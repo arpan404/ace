@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { ForgeMergeCommit, ForgeMergeState } from "@ace/protocol/forge-merge-state";
-import { ForgeRepository } from "@ace/protocol/forge";
 import type { MergeMethod } from "./api.ts";
 import { GitLabApi } from "./gitlab-api.ts";
 import { GitLabChecks } from "./gitlab-checks.ts";
@@ -101,17 +100,18 @@ export function gitlabMergeState(raw: unknown): ForgeMergeState {
   });
 }
 
+const Version = z.looseObject({ version: z.string() });
+const CancelAck = z.looseObject({ status: z.literal("success") });
+
 /** Pinned-head merge operations. The durable write fence belongs to WorkspaceForgeActions. */
 export class GitLabMergeState {
   readonly #api: GitLabMergeApi;
   readonly #root: string;
   readonly #checks: GitLabChecks;
-  constructor(api: GitLabMergeApi, repository: ForgeRepository) {
-    const repo = ForgeRepository.parse(repository);
-    if (repo.forge !== "gitlab") throw new ForgeError("unsupported");
+  constructor(api: GitLabMergeApi) {
     this.#api = api;
     this.#checks = new GitLabChecks(api);
-    this.#root = `projects/${encodeURIComponent(`${repo.owner}/${repo.name}`)}`;
+    this.#root = api.root;
   }
   #path(number: number) {
     z.number().int().positive().parse(number);
@@ -160,7 +160,7 @@ export class GitLabMergeState {
   async #autoFields(signal: AbortSignal): Promise<Record<string, boolean>> {
     // Older servers can ignore an unknown auto_merge parameter, so choose only from a proven version.
     const response = await this.#api.get("version", signal, new ReadBudget());
-    const version = z.looseObject({ version: z.string() }).safeParse(response.body);
+    const version = Version.safeParse(response.body);
     const parts = version.success ? /^(\d+)\.(\d+)(?:\.|-)/.exec(version.data.version) : null;
     if (!parts) throw new ForgeError("unsupported", undefined, false);
     const major = Number(parts[1]),
@@ -259,7 +259,7 @@ export class GitLabMergeState {
         dispatch,
         () => ({ number, headSha }),
       );
-      const ack = z.looseObject({ status: z.literal("success") }).safeParse(result.body);
+      const ack = CancelAck.safeParse(result.body);
       if (!ack.success) throw new ForgeMutationOutcome({ number, headSha });
     }
     // Persist acknowledgement in the shell before any lagging follow-up read.

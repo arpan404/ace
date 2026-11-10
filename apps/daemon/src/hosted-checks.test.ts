@@ -12,6 +12,9 @@ const command = (jobs: "failed" | "all" = "failed") =>
     pr: { repository, number: 7 },
     action: { kind: "rerun", runId: 9, attempt: 12, jobs },
   });
+const unsupported = async (): Promise<never> => {
+  throw new Error("unexpected GitHub route");
+};
 function fixture(options: { denied?: boolean; lost?: boolean; partial?: boolean } = {}) {
   let writes = 0;
   let id = 12;
@@ -55,9 +58,6 @@ function fixture(options: { denied?: boolean; lost?: boolean; partial?: boolean 
         truncated: false,
       };
     };
-  };
-  const unsupported = async (): Promise<never> => {
-    throw new Error("unexpected GitHub route");
   };
   const router = new HostedChecks({
     backends: { hostRunner, backend: unsupported, writer: unsupported },

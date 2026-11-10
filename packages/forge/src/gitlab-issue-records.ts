@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ForgeRepository } from "@ace/protocol/forge";
 import { ForgeIssueEvent, ForgeIssueRow } from "@ace/protocol/forge-issues";
 import { ForgeError } from "./errors.ts";
-import type { Headers } from "./gitlab-records.ts";
+import { decode, type Headers } from "./gitlab-records.ts";
 import { clipLabels, clipText } from "./host-text.ts";
 import { prUrl } from "./pr-reference.ts";
 import { redactData } from "./redact.ts";
@@ -58,17 +58,6 @@ export const GitLabProject = z.looseObject({
     .optional(),
 });
 export type GitLabProject = z.infer<typeof GitLabProject>;
-
-export function decode<T>(schema: z.ZodType<T>, input: unknown): T {
-  const parsed = schema.safeParse(input);
-  if (!parsed.success) throw new ForgeError("invalid_data");
-  return parsed.data;
-}
-
-/** The API path of a project, `projects/<url-encoded full path>`. */
-export function projectPath(repository: ForgeRepository): string {
-  return `projects/${encodeURIComponent(`${repository.owner}/${repository.name}`)}`;
-}
 
 /** An issue's web address from the repository under read, never the server's `web_url`. */
 export function issueUrl(repository: ForgeRepository, iid: number): string {

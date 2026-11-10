@@ -66,9 +66,9 @@ export function pipelineFinished(status: string): boolean {
 
 /** Every source must agree on success. Incomplete or waiting jobs never become passed. */
 export function gitLabPipelineCi(status: string, jobs: readonly GitLabJob[]): ForgePrStatus["ci"] {
-  const states = [gitLabCi(status), ...jobs.map((job) => gitLabCi(job.status))];
-  if (states.includes("failure")) return "failure";
-  if (states.includes("pending")) return "pending";
-  if (states.includes("unknown") || !jobs.length) return "unknown";
+  const states = new Set([gitLabCi(status), ...jobs.map((job) => gitLabCi(job.status))]);
+  if (states.has("failure")) return "failure";
+  if (states.has("pending")) return "pending";
+  if (states.has("unknown") || !jobs.length) return "unknown";
   return "success";
 }

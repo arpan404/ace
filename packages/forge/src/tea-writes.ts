@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { ForgeMergeState, type ForgeMergeCommit } from "@ace/protocol/forge-merge-state";
-import type { CommandRunner } from "./command.ts";
 import type { MergeMethod } from "./api.ts";
 import { WriteDispatch } from "./write-dispatch.ts";
 import { TeaReader } from "./tea-reader.ts";

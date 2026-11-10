@@ -6,7 +6,7 @@ import {
   ForgeInboxList,
   ForgeInboxRow,
 } from "@ace/protocol/forge-inbox";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import { ForgeError } from "./errors.ts";
 import { ForgeMutationOutcome } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
@@ -76,6 +76,8 @@ export function gitLabTodoRow(host: string, todo: z.infer<typeof GitLabTodo>): F
       : root,
   });
 }
+const ProjectId = z.looseObject({ id: z.number().int().positive() });
+
 /** Account-local to-dos. Construct anew when the source-control identity changes. */
 export class GitLabInbox {
   readonly host: string;
@@ -96,10 +98,9 @@ export class GitLabInbox {
     const params = new URLSearchParams({ per_page: "50", page: String(query.page) });
     if (!query.all) params.set("state", "pending");
     if (query.repository) {
-      const path = encodeURIComponent(`${query.repository.owner}/${query.repository.name}`);
-      const project = z
-        .looseObject({ id: z.number().int().positive() })
-        .safeParse((await this.#api.get(`projects/${path}`, signal, budget)).body);
+      const project = ProjectId.safeParse(
+        (await this.#api.get(gitLabProjectPath(query.repository), signal, budget)).body,
+      );
       if (!project.success) throw new ForgeError("invalid_data");
       params.set("project_id", String(project.data.id));
     }

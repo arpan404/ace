@@ -113,6 +113,13 @@ export function changesCount(mr: GitLabMr): { count: number; capped: boolean } |
 }
 
 /** Output schemas are ours, but a throw must still be a sanitized ForgeError. */
+/** `input` parsed by `schema`; anything else is the host's invalid data. */
+export function decode<T>(schema: z.ZodType<T>, input: unknown): T {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  return parsed.data;
+}
+
 export function must<T>(result: { success: boolean; data?: T }): T {
   if (!result.success || result.data === undefined) throw new ForgeError("invalid_data");
   return result.data;

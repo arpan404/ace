@@ -49,6 +49,14 @@ const inline = comment.extend({
 const marker = (id: string) =>
   `<!-- ace-review-action:${encodeURIComponent(z.string().min(1).max(256).parse(id))} -->`;
 
+const CommentPage = z.array(comment).max(100);
+const ReviewPage = z.array(review).max(100);
+const InlinePage = z.array(inline).max(100);
+const RepoAccess = z.object({
+  archived: z.boolean(),
+  permissions: z.object({ push: z.boolean() }),
+});
+
 /** Gitea/Forgejo review transport. Local drafts and uncertain receipts belong to the daemon. */
 export class TeaReviews {
   private root: string;
@@ -66,21 +74,22 @@ export class TeaReviews {
     if (p.number !== number) throw new ForgeError("invalid_data");
     return p;
   }
-  private async all<T>(path: string, schema: z.ZodType<T>, signal: AbortSignal): Promise<T[]> {
+  /** Every row of a paged list; `page` checks one page of at most 100 rows. */
+  private async all<T>(path: string, page: z.ZodType<T[]>, signal: AbortSignal): Promise<T[]> {
     const rows: T[] = [];
-    for (let page = 1; page <= 20; page++) {
-      const response = await this.get(`${path}?page=${page}&limit=100`, signal);
-      const data = decode(z.array(schema).max(100), response.body);
+    for (let index = 1; index <= 20; index++) {
+      const response = await this.get(`${path}?page=${index}&limit=100`, signal);
+      const data = decode(page, response.body);
       rows.push(...data);
       if (rows.length > 2000) throw new ForgeError("limit");
-      if (response.total !== undefined ? page * 100 >= response.total : data.length < 100)
+      if (response.total !== undefined ? index * 100 >= response.total : data.length < 100)
         return rows;
     }
     throw new ForgeError("limit");
   }
   async conversation(number: number, signal: AbortSignal) {
     const p = await this.pr(number, signal);
-    const rawComments = await this.all(`issues/${number}/comments`, comment, signal);
+    const rawComments = await this.all(`issues/${number}/comments`, CommentPage, signal);
     const rawInline: z.infer<typeof inline>[] = [];
     const comments = rawComments.map((c) =>
       decode(ForgeComment, {
@@ -96,7 +105,7 @@ export class TeaReviews {
       }),
     );
     const threads: z.infer<typeof ForgeReviewThread>[] = [];
-    const reviews = await this.all(`pulls/${number}/reviews`, review, signal);
+    const reviews = await this.all(`pulls/${number}/reviews`, ReviewPage, signal);
     if (reviews.length > 100) throw new ForgeError("limit");
     for (const r of reviews) {
       if (r.state === "PENDING" || r.state === "REQUEST_REVIEW") continue;
@@ -122,7 +131,11 @@ export class TeaReviews {
         }),
       );
       if (!r.comments_count) continue;
-      for (const c of await this.all(`pulls/${number}/reviews/${r.id}/comments`, inline, signal)) {
+      for (const c of await this.all(
+        `pulls/${number}/reviews/${r.id}/comments`,
+        InlinePage,
+        signal,
+      )) {
         rawInline.push(c);
         const line = c.position > 0 ? c.position : null;
         const mapped = decode(ForgeComment, {
@@ -163,7 +176,7 @@ export class TeaReviews {
   }
   async reviewers(number: number, signal: AbortSignal) {
     const p = await this.pr(number, signal);
-    const rows = await this.all(`pulls/${number}/reviews`, review, signal);
+    const rows = await this.all(`pulls/${number}/reviews`, ReviewPage, signal);
     const latest = new Map<string, z.infer<typeof review>>();
     for (const r of rows.toSorted((a, b) => a.id - b.id)) if (r.user) latest.set(r.user.login, r);
     return decode(ForgePrReviewers, {
@@ -200,7 +213,7 @@ export class TeaReviews {
       (await teaGet(this.options.runner, this.options.login, "user", signal)).body,
     ).login;
     const repo = decode(
-      z.object({ archived: z.boolean(), permissions: z.object({ push: z.boolean() }) }),
+      RepoAccess,
       (await teaGet(this.options.runner, this.options.login, this.root, signal)).body,
     );
     return {

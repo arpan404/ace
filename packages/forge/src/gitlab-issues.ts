@@ -16,14 +16,13 @@ import {
   GitLabProject,
   GitLabUser,
   accessLevel,
-  decode,
   hasNextPage,
   issueRow,
   issuesEnabled,
   noteEvent,
-  projectPath,
   totalHeader,
 } from "./gitlab-issue-records.ts";
+import { decode } from "./gitlab-records.ts";
 import { gitlabIssueChange, planGitLabIssueWrite } from "./gitlab-issue-writes.ts";
 import { issueWriteLanded } from "./issue-write-plan.ts";
 import { ReadBudget } from "./read-budget.ts";
@@ -66,7 +65,7 @@ export class GitLabIssues {
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "gitlab") throw new ForgeError("unsupported");
     this.#api = new GitLabApi(options);
-    this.#root = projectPath(this.repository);
+    this.#root = this.#api.root;
   }
   async #read<T>(schema: z.ZodType<T>, path: string, signal: AbortSignal, budget: ReadBudget) {
     const response = await this.#api.get(path, signal, budget);

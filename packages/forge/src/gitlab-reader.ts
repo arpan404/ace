@@ -15,7 +15,6 @@ import {
   type ForgePrList as ForgePrListType,
 } from "@ace/protocol/forge-browser";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
-import { forgeCapabilities } from "./forge-capabilities.ts";
 import { GitLabChecks } from "./gitlab-checks.ts";
 import { GitLabReviews } from "./gitlab-reviews.ts";
 import { GitLabConversation, reviewersOf } from "./gitlab-conversation.ts";
@@ -55,7 +54,6 @@ export class GitLabReader implements ForgeReader {
   readonly conversation: GitLabConversation;
   readonly reviews: GitLabReviews;
   readonly #host: string;
-  readonly #project: string;
 
   constructor(options: { repository: ForgeRepository; runner: CommandRunner }) {
     this.repository = ForgeRepository.parse(options.repository);
@@ -65,7 +63,6 @@ export class GitLabReader implements ForgeReader {
     this.reviews = new GitLabReviews(options);
     this.conversation = new GitLabConversation(this.#api);
     this.#host = this.repository.host;
-    this.#project = encodeURIComponent(`${this.repository.owner}/${this.repository.name}`);
   }
 
   #ref(number: number): { repository: ForgeRepository; number: number } {
@@ -173,7 +170,7 @@ export class GitLabReader implements ForgeReader {
     this.#ref(number);
     const budget = new ReadBudget();
     const { body } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${number}`,
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
@@ -211,7 +208,7 @@ export class GitLabReader implements ForgeReader {
     else throw new ForgeError("unsupported");
     const budget = new ReadBudget();
     const { body, headers } = await this.#api.get(
-      `projects/${this.#project}/merge_requests?${params}`,
+      `${this.#api.root}/merge_requests?${params}`,
       signal,
       budget,
     );
@@ -253,7 +250,7 @@ export class GitLabReader implements ForgeReader {
     const read = async (extra: string): Promise<{ total: number; capped: boolean }> => {
       try {
         const { headers } = await this.#api.get(
-          `projects/${this.#project}/merge_requests?per_page=1&page=1${extra}${scope}`,
+          `${this.#api.root}/merge_requests?per_page=1&page=1${extra}${scope}`,
           signal,
           budget,
         );
@@ -291,7 +288,7 @@ export class GitLabReader implements ForgeReader {
     this.#ref(number);
     const budget = new ReadBudget();
     const { body } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${number}`,
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
@@ -312,7 +309,6 @@ export class GitLabReader implements ForgeReader {
     return must(
       ForgePrDetail.safeParse({
         readOnly: false,
-        capabilities: forgeCapabilities.gitlab,
         unavailableResources: [
           ...(commits.total === undefined && commits.before !== undefined
             ? ["commits" as const]
@@ -367,7 +363,7 @@ export class GitLabReader implements ForgeReader {
     budget: ReadBudget,
   ): Promise<{ count: number; capped: boolean } | undefined> {
     const { headers } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${number}/diffs?per_page=1&page=1`,
+      `${this.#api.root}/merge_requests/${number}/diffs?per_page=1&page=1`,
       signal,
       budget,
     );
@@ -385,7 +381,7 @@ export class GitLabReader implements ForgeReader {
     budget: ReadBudget,
   ): Promise<GitLabMr> {
     const { body } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${number}`,
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
@@ -422,7 +418,7 @@ export class GitLabReader implements ForgeReader {
     // (the /changes endpoint is deprecated since GitLab 15.7) is the only diff page read.
     const mr = await this.#pinnedMr(input.number, pinned, signal, budget);
     const { body, headers } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${input.number}/diffs?per_page=25&page=${input.page}`,
+      `${this.#api.root}/merge_requests/${input.number}/diffs?per_page=25&page=${input.page}`,
       signal,
       budget,
     );
@@ -460,7 +456,7 @@ export class GitLabReader implements ForgeReader {
     this.#ref(number);
     const budget = new ReadBudget();
     const { body } = await this.#api.get(
-      `projects/${this.#project}/merge_requests/${number}`,
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );

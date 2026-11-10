@@ -73,7 +73,7 @@ function environment(
     };
   };
   return {
-    backend: new GitLabMergeState(new GitLabApi({ repository, runner }), repository),
+    backend: new GitLabMergeState(new GitLabApi({ repository, runner })),
     writes,
   };
 }

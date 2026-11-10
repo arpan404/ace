@@ -30,6 +30,12 @@ const marked = z.looseObject({
 const marker = (id: string) =>
   `<!-- ace-issue-action:${encodeURIComponent(z.string().min(1).max(256).parse(id))} -->`;
 
+const Created = z.object({ id: z.number().int().positive() });
+const RepoLabels = z
+  .array(z.object({ id: z.number().int().positive(), name: z.string() }))
+  .max(1000);
+const MarkedPage = z.array(marked).max(100);
+
 /** The daemon journals these writes through the same durable IssueActions used by GitHub. */
 export class TeaIssueWriter {
   private root: string;
@@ -103,7 +109,7 @@ export class TeaIssueWriter {
     const current = await this.issues.issueDetail(value.number, signal);
     if (value.action === "comment") {
       decode(
-        z.object({ id: z.number().int().positive() }),
+        Created,
         await this.write(
           `/issues/${value.number}/comments`,
           "POST",
@@ -144,10 +150,7 @@ export class TeaIssueWriter {
         );
       } else {
         const response = await this.get("/labels?limit=1000&page=1", signal);
-        const labels = decode(
-          z.array(z.object({ id: z.number().int().positive(), name: z.string() })).max(1000),
-          response.body,
-        );
+        const labels = decode(RepoLabels, response.body);
         if (response.total === undefined || response.total > labels.length)
           throw new ForgeError("limit");
         const id = (name: string) => {
@@ -205,7 +208,7 @@ export class TeaIssueWriter {
           : `/issues/${value.number}/comments?limit=100&page=${page}`,
         signal,
       );
-      const rows = decode(z.array(marked).max(100), response.body);
+      const rows = decode(MarkedPage, response.body);
       const found = rows.find(
         (row) => row.pull_request == null && row.body?.includes(marker(actionId)),
       );

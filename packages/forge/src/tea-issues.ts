@@ -38,6 +38,14 @@ const event = z.looseObject({
   body: z.string().optional(),
 });
 
+const RepoSettings = z.object({
+  archived: z.boolean(),
+  has_issues: z.boolean(),
+  permissions: z.object({ push: z.boolean() }),
+});
+const IssuePage = z.array(issue).max(25);
+const EventPage = z.array(event).max(25);
+
 /** Issue read contract shared by both API v1 hosts. No mutation permissions are inferred. */
 export class TeaIssues {
   private options: { repository: ForgeRepository; runner: CommandRunner; login: string };
@@ -56,13 +64,7 @@ export class TeaIssues {
       this.root.slice(0, -7),
       signal,
     );
-    const repo = z
-      .object({
-        archived: z.boolean(),
-        has_issues: z.boolean(),
-        permissions: z.object({ push: z.boolean() }),
-      })
-      .safeParse(response.body);
+    const repo = RepoSettings.safeParse(response.body);
     return (
       repo.success && !repo.data.archived && repo.data.has_issues && repo.data.permissions.push
     );
@@ -103,7 +105,7 @@ export class TeaIssues {
     });
     if (q.search) params.set("q", q.search);
     const response = await this.get(`?${params}`, signal);
-    const data = decode(z.array(issue).max(25), response.body);
+    const data = decode(IssuePage, response.body);
     const items = data.filter((i) => i.pull_request == null).map((i) => this.row(i));
     const more = response.total === undefined ? data.length === 25 : q.page * 25 < response.total;
     const writable = await this.canWrite(signal);
@@ -145,7 +147,7 @@ export class TeaIssues {
     // The issue endpoint can also name PRs. Verify the resource before reading its timeline.
     await this.issueDetail(number, signal);
     const response = await this.get(`/${number}/timeline?page=${page}&limit=25`, signal);
-    const data = decode(z.array(event).max(25), response.body);
+    const data = decode(EventPage, response.body);
     const more = response.total === undefined ? data.length === 25 : page * 25 < response.total;
     return {
       events: data.map((e) =>

@@ -1,6 +1,6 @@
 import type { ForgeRepository } from "@ace/protocol/forge";
 import { ForgeReviewAction, type ForgeReviewDraft } from "@ace/protocol/forge-review";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import { GitLabConversation } from "./gitlab-conversation.ts";
 import {
   GitLabApprovals,
@@ -24,7 +24,7 @@ export function gitLabReviewWrites(
   repository: ForgeRepository,
   number: number,
 ): readonly HostApiWrite[] {
-  const root = `projects/${encodeURIComponent(`${repository.owner}/${repository.name}`)}/merge_requests/${number}`;
+  const root = `${gitLabProjectPath(repository)}/merge_requests/${number}`;
   const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return [
     { method: "POST", endpoint: new RegExp(`^${escaped}/notes$`) },

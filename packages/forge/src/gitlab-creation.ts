@@ -4,10 +4,11 @@ import { ForgeRepository, ForgePrRef, ForgeCreatePrInput } from "@ace/protocol/f
 import { ForgeBranchName } from "@ace/protocol/forge-new-pr";
 import type { PrHead } from "./api.ts";
 import type { ForgeRepositoryMetadata } from "./github-repository.ts";
-import { GitLabApi } from "./gitlab-api.ts";
+import { GitLabApi, gitLabProjectPath } from "./gitlab-api.ts";
 import { GitLabReader } from "./gitlab-reader.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
+import { decode } from "./gitlab-records.ts";
 import { ForgeMutationOutcome, MutationDispatch } from "./mutation.ts";
 import { ReadBudget } from "./read-budget.ts";
 import type { HostApiWrite } from "./read-only-api.ts";
@@ -37,11 +38,16 @@ const OpenInput = z.object({
 export const gitLabCreationWrites: readonly HostApiWrite[] = [
   { method: "POST", endpoint: /^projects\/[A-Za-z0-9%_.~-]+\/merge_requests$/ },
 ];
-function decode<T>(schema: z.ZodType<T>, body: unknown): T {
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) throw new ForgeError("invalid_data");
-  return parsed.data;
-}
+const Branches = z
+  .array(
+    z.looseObject({
+      name: ForgeBranchName,
+      commit: z.looseObject({ id: z.string().regex(/^[a-fA-F0-9]{40,64}$/) }),
+    }),
+  )
+  .max(100);
+const MatchPage = z.array(Match).max(100);
+
 /** The caller owns primary/head selection and visibility. This adapter proves project IDs. */
 export class GitLabCreation {
   readonly repository: ForgeRepository;
@@ -79,14 +85,6 @@ export class GitLabCreation {
   async branches(_defaultBranch: string, signal: AbortSignal) {
     const budget = new ReadBudget();
     const branches: { name: string; sha: string }[] = [];
-    const Branches = z
-      .array(
-        z.looseObject({
-          name: ForgeBranchName,
-          commit: z.looseObject({ id: z.string().regex(/^[a-fA-F0-9]{40,64}$/) }),
-        }),
-      )
-      .max(100);
     for (let page = 1; page <= 10; page++) {
       const response = await this.#api.get(
         `${this.#api.root}/repository/branches?per_page=100&page=${page}`,
@@ -110,8 +108,10 @@ export class GitLabCreation {
     )
       return { target, source: target };
     const repo = ForgeRepository.parse({ ...this.repository, ...head });
-    const path = encodeURIComponent(`${repo.owner}/${repo.name}`);
-    const source = decode(Metadata, (await this.#api.get(`projects/${path}`, signal, budget)).body);
+    const source = decode(
+      Metadata,
+      (await this.#api.get(gitLabProjectPath(repo), signal, budget)).body,
+    );
     if (source.forked_from_project?.id !== target.id) throw new ForgeError("conflict");
     return { target, source };
   }
@@ -136,7 +136,7 @@ export class GitLabCreation {
       signal,
       budget,
     );
-    const rows = decode(z.array(Match).max(100), response.body);
+    const rows = decode(MatchPage, response.body);
     // An incomplete lookup cannot prove absence, so never proceed to create.
     if (
       response.headers["x-next-page"]?.trim() ||

@@ -12,6 +12,11 @@ const refused = new Set([400, 401, 403, 404, 405, 409, 412, 422, 429]);
 
 export type GitLabResponse = { headers: Headers; body: unknown };
 
+/** A project's API path, `projects/<url-encoded full path>`, the prefix of its endpoints. */
+export function gitLabProjectPath(repository: Pick<ForgeRepository, "owner" | "name">): string {
+  return `projects/${encodeURIComponent(`${repository.owner}/${repository.name}`)}`;
+}
+
 /**
  * The one glab transport for every GitLab adapter (reader, reviews, checks, merge, inbox,
  * issues). Reads are `glab api <endpoint> -X GET --hostname <host> --include`; writes are exactly
@@ -28,7 +33,7 @@ export class GitLabApi {
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "gitlab") throw new ForgeError("unsupported");
     this.#runner = options.runner;
-    this.root = `projects/${encodeURIComponent(`${this.repository.owner}/${this.repository.name}`)}`;
+    this.root = gitLabProjectPath(this.repository);
   }
 
   /** The raw body of one GET, for non-JSON endpoints such as job traces. */
