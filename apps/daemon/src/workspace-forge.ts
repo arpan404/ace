@@ -300,10 +300,11 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
+    const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     if (
       p.link.pr.repository.forge === "gitlab" &&
       (p.type === "forge.comment.reply" || p.type === "forge.review.request")
-    ) {
+    )
       return executeGitLabThreadConversation({
         backends: this.backends,
         reviews: this.reviews,
@@ -312,10 +313,9 @@ export class WorkspaceForge {
         commandId,
         action: p,
         signal: this.lifetime.signal,
-        allowed,
+        allowed: () =>
+          allowed() && this.links.getLinkState(id, p.link.pr)?.generation === generation,
       });
-    }
-    const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     // Refreshing a link's status reads; everything else here writes to the PR's repository.
     const backend =
       p.type === "forge.pr.status"

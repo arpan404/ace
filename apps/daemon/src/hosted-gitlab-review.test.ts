@@ -9,7 +9,7 @@ import {
   ProjectRepositoryConfig,
   SourceControlPreferences,
 } from "@ace/protocol";
-import { type CommandRequest, type CommandRunner, reviewWriteMarker } from "@ace/forge";
+import { ForgeStore, type CommandRequest, type CommandRunner, reviewWriteMarker } from "@ace/forge";
 import { Store } from "./store.ts";
 import { SourceControl } from "./source-control.ts";
 import { ForgeBackends } from "./forge-backends.ts";
@@ -47,6 +47,7 @@ async function setup() {
     visible: false,
     uncertain: true,
     config: ProjectRepositoryConfig.parse({}),
+    onDiscussions: undefined as (() => void) | undefined,
   };
   const runner: CommandRunner = async (request) => {
     seen.push(request);
@@ -68,6 +69,7 @@ async function setup() {
         updated_at: mr.updated_at,
       });
     }
+    if (endpoint.includes("/discussions?")) state.onDiscussions?.();
     if (endpoint.includes("/discussions?"))
       return http(
         state.visible
@@ -315,6 +317,55 @@ test("thread reply and reviewer commands route through the GitLab journal", asyn
         ],
       },
     });
+  } finally {
+    forge.close();
+    await f.close();
+  }
+});
+
+test("relinking a thread while its GitLab reply is in flight sends nothing", async () => {
+  const f = await setup();
+  const forge = new WorkspaceForge(
+    f.store,
+    f.git,
+    () => 1000,
+    () => f.runner,
+    f.source,
+  );
+  try {
+    const thread = Thread.parse({
+      id: "relinked",
+      workspaceId: f.workspaceId,
+      title: "Review",
+      provider: "codex",
+      status: { state: "new" },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    f.store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+    const links = f.store.atomic((db) => new ForgeStore(db));
+    links.link({ threadId: thread.id, pr });
+    f.state.visible = true;
+    f.state.uncertain = false;
+    f.state.onDiscussions = () => {
+      f.state.onDiscussions = undefined;
+      links.unlink(thread.id, pr);
+      links.link({ threadId: thread.id, pr });
+    };
+    await expect(
+      forge.execute(
+        {
+          type: "forge.comment.reply",
+          link: { threadId: thread.id, pr },
+          commentId: 12,
+          body: "r",
+        },
+        f.root,
+        () => true,
+        "relinked-reply",
+      ),
+    ).rejects.toBeDefined();
+    expect(f.seen.filter((r) => r.input)).toEqual([]);
   } finally {
     forge.close();
     await f.close();
