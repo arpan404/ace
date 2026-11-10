@@ -953,23 +953,22 @@ Example:
 {
   "resource": "compare",
   "value": {
-    "aheadBy": 7,
+    "aheadBy": 2,
     "base": "example",
-    "behindBy": 0,
+    "behindBy": 9,
     "commits": [],
     "files": [],
     "head": {
-      "branch": "S<-",
-      "name": "CW",
-      "owner": "kXBNPIv"
+      "branch": "K<Hu;R",
+      "name": "YdFpL0a",
+      "owner": "kYCNQJv/WoIsh"
     },
-    "headSha": "ECf6cFbbdcfFBBA5e64FBE0Ecf5Ea1c0bFfbf2c2fD7e52E063BdB2A15",
-    "mergeBaseSha": "f16aEEAD8AF1e9Fd261Fbd89EfD9Efd7587Cd560babb480A372F",
-    "nextPage": 3,
+    "headSha": "5e64FBE0Ecf5Ea1c0bFfbf2c2fD7e52E063BdB2A15ccefa",
+    "mergeBaseSha": "d261Fbd89EfD9Efd7587Cd560babb480A372F3ECf6cFbbdcfFBB",
     "status": "diverged",
-    "totalCommits": 1,
-    "totalFiles": 1,
-    "truncated": true
+    "totalCommits": 6,
+    "totalFiles": 2,
+    "truncated": false
   }
 }
 ```
@@ -1672,22 +1671,23 @@ Example:
 
 ```json
 {
-  "aheadBy": 4,
+  "aheadBy": 0,
   "base": "example",
-  "behindBy": 0,
+  "behindBy": 4,
   "commits": [],
+  "existingPr": 8,
   "files": [],
   "head": {
-    "branch": "I],+Jc!",
-    "name": "g",
-    "owner": "7SrDFV"
+    "branch": ",+Jc!@I(",
+    "name": "MB",
+    "owner": "7TrDGW"
   },
-  "headSha": "390AfdA2B9Ce97Dd89B92Df53719Acd931B1e0b902A",
-  "mergeBaseSha": "bDA35B63ABA3a8DD0b543ddD85B7F4AbB03bfAAE3Ce",
-  "status": "behind",
-  "totalCommits": 5,
-  "totalFiles": 4,
-  "truncated": false
+  "headSha": "2B9Ce97Dd89B92Df53719Acd931B1e0b902AFDCF7EcbEFc",
+  "mergeBaseSha": "35B63ABA3a8DD0b543ddD85B7F4AbB03bfAAE3Ced390Afd",
+  "status": "ahead",
+  "totalCommits": 2,
+  "totalFiles": 1,
+  "truncated": true
 }
 ```
 
@@ -1697,7 +1697,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| owner | yes | string | {"maxLength":100,"pattern":"^[\\w-]+$"} |
+| owner | yes | string | {"maxLength":512,"pattern":"^[\\w.-]+(?:\\/[\\w.-]+)*$","x-ace-constraint":"Every owner path segment must differ from . and ..","not":{"pattern":"(?:^\|/)\\.{1,2}(?:/\|$)"}} |
 | name | yes | [ForgeRepositoryName.json](schema/ForgeRepositoryName.json) |  |
 | branch | yes | [ForgeBranchName.json](schema/ForgeBranchName.json) |  |
 
@@ -1705,9 +1705,9 @@ Example:
 
 ```json
 {
-  "branch": "25j'5|30",
-  "name": "i74rNsHUG",
-  "owner": "yH"
+  "branch": ")N",
+  "name": "ptar",
+  "owner": "zI/74/NsHU/PmnXdo/mkSbVNfyGA2/.lD8q-f3h/WH/vCLrb7vT/dcejX"
 }
 ```
 
@@ -2288,17 +2288,19 @@ Example:
   "base": "I@PK-",
   "body": "example",
   "head": {
-    "branch": "pq0%Od}(;",
-    "name": "JA",
-    "owner": "rqpXI"
+    "branch": "mCPRc(",
+    "name": ".eqXBz4J",
+    "owner": "rqpXJ/AU23kcG"
   },
+  "milestone": 9,
   "repository": {
     "forge": "github",
     "host": "3",
     "name": "JK",
     "owner": "I0OszBdVM/_WCnpQs-uf/m/eGhdR/Au9ynMJh/Rgtn4zdZ/jZO/J4szikH/H7Cupi/wMbMqbS/P.-_1Z1tZj"
   },
-  "title": "i",
+  "reviewers": [],
+  "title": "M",
   "type": "forge.hosted.pr.create",
   "workspaceId": "example"
 }

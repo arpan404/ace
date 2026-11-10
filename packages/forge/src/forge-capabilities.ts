@@ -39,6 +39,7 @@ export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapabil
     "reviews.checks.write",
     "reviews.merge",
     "reviews.autoMerge",
+    "reviews.create",
   ],
   origin: ["reviews.read", "reviews.files"],
   gitbucket: [],

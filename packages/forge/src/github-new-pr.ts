@@ -214,6 +214,7 @@ export class GitHubNewPr {
   ): Promise<ForgeCompare> {
     // Every name reaches the URL path: only names git and GitHub themselves would take are sent.
     if (
+      !/^[\w-]{1,100}$/.test(head.owner) ||
       !ForgeBranchName.safeParse(base).success ||
       !ForgeBranchName.safeParse(head.branch).success ||
       !ForgeRepositoryName.safeParse(head.name).success ||

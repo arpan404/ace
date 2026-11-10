@@ -1,6 +1,7 @@
 import {
   GitHubForge,
   GitLabReader,
+  GitLabCreation,
   OriginReader,
   type ForgeReader,
   GitHubInbox,
@@ -13,7 +14,12 @@ import {
   type CommandRunner,
   type HostApiWrite,
 } from "@ace/forge";
-import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
+import {
+  configuredForge,
+  readableForges,
+  type ForgeRepository,
+  type LinkedPullRequest,
+} from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
@@ -93,8 +99,14 @@ export class ForgeBackends {
    */
   async prHead(cwd: string) {
     const project = await this.projectRepositories(cwd);
-    const read = async (entry: { repository: ForgeRepository }) =>
-      (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    const read = async (entry: { repository: ForgeRepository }) => {
+      if (entry.repository.forge === "gitlab")
+        return new GitLabCreation({
+          repository: entry.repository,
+          runner: await this.hostRunner(cwd, entry.repository, [], this.signal),
+        }).repositoryMetadata(this.signal);
+      return (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    };
     const head = await resolvePrHead({
       resolved: project.resolved,
       globalRemote: project.globalRemote,
@@ -253,6 +265,26 @@ export class ForgeBackends {
    * The signed-in account's notifications on `host`, or on the host of the checkout's own
    * repository. Every request goes through the identity-checked runner.
    */
+  /** Resolve an inbox host through the project's repositories and configured provider. */
+  async inboxRepository(cwd: string, host: string | undefined): Promise<ForgeRepository> {
+    const own = await this.repository(cwd).catch((error: unknown) => {
+      if (host) return undefined;
+      throw error;
+    });
+    if (own && (!host || own.host === host)) return own;
+    if (!host) throw new ForgeError("unsupported");
+    const entries = (await this.projectRepositories(cwd)).resolved.repositories;
+    const entry = entries.find(
+      (item) => item.visible && item.available && item.repository.host === host,
+    );
+    if (entry) return entry.repository;
+    const configured = (await this.sourceControl?.preferences())?.hosts.find(
+      (item) => item.host === host,
+    );
+    if (!configured) throw new ForgeError("unsupported");
+    // Inbox is account-wide; no real repository is needed to read its host's to-dos.
+    return { forge: configuredForge(configured), host, owner: "inbox", name: "inbox" };
+  }
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
     const repository = host ? undefined : await this.repository(cwd);
     if (repository && repository.forge !== "github") throw new ForgeError("unsupported");
