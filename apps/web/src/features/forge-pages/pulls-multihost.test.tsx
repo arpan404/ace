@@ -1,5 +1,5 @@
 import { prQuery, readinessQueries } from "@ace/ui-core";
-import { seedForgeBrowse, workbench } from "@ace/fake-daemon";
+import { seedForgeBrowse, seedGitLabMirror, workbench } from "@ace/fake-daemon";
 import { ForgePrDetail, WorkspaceId, type ForgePrRow } from "@ace/protocol";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,7 +69,7 @@ test("same owner/name/number on distinct forge/host lists both rows", async () =
     .getAllByRole("listitem")
     .find((item) => within(item).queryByRole("link", { name: /GitLab same number/ }) !== null);
   if (!hosted) throw new Error("Missing hosted review row");
-  expect(within(hosted).getByText("Review status unavailable")).toBeTruthy();
+  expect(within(hosted).getByText("Waiting")).toBeTruthy();
   expect(within(hosted).queryByText("Ready to merge")).toBeNull();
   expect(within(hosted).getByRole("button", { name: /^View:/ })).toBeTruthy();
 });
@@ -149,7 +149,7 @@ test("each same-numbered row opens its own provider's review", async () => {
   await userEvent.click(within(hosted).getByRole("button", { name: /^View:/ }));
   const gitlabPage = await screen.findByRole("article", { name: "Pull request #500" });
   expect(await within(gitlabPage).findByText("GitLab same number")).toBeTruthy();
-  expect(within(gitlabPage).getByText(/Read only in ace/)).toBeTruthy();
+  expect(within(gitlabPage).getByText(/Some review actions are available only/)).toBeTruthy();
   expect(within(gitlabPage).getByRole("link", { name: "Open on GitLab" })).toHaveProperty(
     "href",
     "https://gitlab.example.com/acme/ace/-/merge_requests/500",
@@ -164,7 +164,7 @@ test("each same-numbered row opens its own provider's review", async () => {
   const githubPage = await screen.findByRole("article", { name: "Pull request #500" });
   expect(await within(githubPage).findByText("GitHub same number")).toBeTruthy();
   await within(githubPage).findByRole("tablist", { name: "Pull request detail" });
-  expect(within(githubPage).queryByText(/Read only in ace/)).toBeNull();
+  expect(within(githubPage).queryByText(/Some review actions are available only/)).toBeNull();
   expect(within(githubPage).queryByText("GitLab same number")).toBeNull();
 });
 
@@ -248,4 +248,15 @@ test("a GitLab project's failed list read says to sign in with glab, never gh", 
   await screen.findByText("Couldn't load pull requests");
   expect(await screen.findByText(/glab auth login/)).toBeTruthy();
   expect(screen.queryByText(/\bgh\b/)).toBeNull();
+});
+
+test("a configured GitLab mirror opens its real comment composer when comment writing is declared", async () => {
+  const app = withRepository();
+  seedGitLabMirror(app.daemon, Date.now(), ["reviews.comments.write"]);
+  await app.open("/pulls/ace/17?repo=gitlab%40gitlab.com%2Facme%2Face");
+  await userEvent.click(await screen.findByRole("tab", { name: /^Timeline/ }));
+  expect(await screen.findByRole("textbox", { name: "Comment" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Merge now/ })).toBeNull();
+  expect(screen.queryByText(/Some review actions are available only/)).toBeNull();
 });

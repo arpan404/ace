@@ -1,3 +1,5 @@
+import { can } from "@ace/ui-core";
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgeIssueDetail, ForgeRepository } from "@ace/protocol";
@@ -30,8 +32,29 @@ function IssueBody(props: {
   backLabel: string;
   onBack(): void;
 }) {
-  const { issue } = props;
-  const writes = useIssueWrites(props.project, issue.ref.repository);
+  const source = useRepositoryCapabilities(props.project, props.issue.ref.repository);
+  const issue = can(
+    props.issue.capabilities !== undefined
+      ? { repository: props.issue.ref.repository, capabilities: props.issue.capabilities }
+      : source,
+    "issues.write",
+  )
+    ? props.issue
+    : {
+        ...props.issue,
+        permissions: {
+          ...props.issue.permissions,
+          edit: false,
+          triage: false,
+          comment: false,
+          close: false,
+          reopen: false,
+        },
+      };
+  const writes = useIssueWrites(props.project, issue.ref.repository, {
+    repository: issue.ref.repository,
+    capabilities: issue.capabilities,
+  });
   // Read when a search runs: everyone who has spoken on the pages read so far, latest first.
   const cache = useQueryClient();
   const { project, repository } = props;
@@ -41,8 +64,12 @@ function IssueBody(props: {
   );
   const issueRepository = issue.ref.repository;
   const scope = useMemo(
-    () => ({ workspaceId: props.project, repository: issueRepository }),
-    [props.project, issueRepository],
+    () => ({
+      workspaceId: props.project,
+      repository: issueRepository,
+      capabilities: issue.capabilities,
+    }),
+    [props.project, issueRepository, issue.capabilities],
   );
   return (
     <ForgeContentScope value={scope}>

@@ -93,6 +93,7 @@ struct AgentSheet: Codable, Sendable, Equatable {
 
 /// The Changes sheet's file list and next step, read by the bridge from the daemon's guarded git.
 struct ChangesSummary: Codable, Sendable, Equatable {
+    let canRequestReview: Bool?
     struct File: Codable, Sendable, Equatable, Identifiable {
         let path: String; let from: String?; let status: String
         let additions: Int; let deletions: Int; let binary: Bool

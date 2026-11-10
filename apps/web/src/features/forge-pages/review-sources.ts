@@ -1,10 +1,11 @@
-import type { ForgeRepository } from "@ace/protocol";
+import type { ForgeRepository, ProjectRepositories } from "@ace/protocol";
 import { issueSources, reviewSources, type ReviewSource } from "@ace/ui-core";
 import { useProjectRepositoryLists } from "@/lib/project-repositories.ts";
 
 /** The reads a list sends for its projects, and what is known of their repositories. */
 export interface ListSources {
   sources: ReviewSource[];
+  lists: ReadonlyMap<string, ProjectRepositories>;
   /**
    * Every project's repositories were read, so totals may be summed. False while one is
    * still reading, and when one couldn't be read (that project reads its primary alone).
@@ -26,6 +27,7 @@ function useSources(projects: readonly string[], plan: typeof reviewSources): Li
   for (const [project, value] of lists) if (value.primary) primary.set(project, value.primary);
   return {
     sources,
+    lists,
     settled: pending.size === 0 && failed.size === 0,
     several,
     unlisted: projects.filter((project) => failed.has(project)),

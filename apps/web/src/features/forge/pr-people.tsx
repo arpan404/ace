@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrReviewers } from "./pr-reviewers.tsx";
@@ -37,37 +38,50 @@ export function PrPeople(props: {
         canDismiss: false,
       }));
   const reviewerPicker =
-    props.extensions?.reviewers?.(props.context) ??
-    (props.onRequestReview && (
-      <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
-        Request review
-      </Button>
-    ));
+    can(detail, "reviews.approvals.write") &&
+    (props.extensions?.reviewers?.(props.context) ??
+      (props.onRequestReview && (
+        <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onRequestReview}>
+          Request review
+        </Button>
+      )));
   const labelPicker =
-    props.extensions?.labels?.(props.context) ??
-    (props.onEdit && (
-      <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onEdit}>
-        Edit
-      </Button>
-    ));
+    can(detail, "reviews.edit") &&
+    (props.extensions?.labels?.(props.context) ??
+      (props.onEdit && (
+        <Button variant="ghost" size="xs" disabled={disabled} onClick={props.onEdit}>
+          Edit
+        </Button>
+      )));
   const assignees = props.assignees;
   return (
     <>
-      <DetailRow label="Reviewers" action={reviewerPicker}>
-        <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
-          {rows.length ? (
-            <PrReviewers
-              rows={rows}
-              value={reviewers.data}
-              disabled={disabled}
-              onDismissed={() => void reviewers.refetch()}
-              onRequestReview={props.onRequestReview}
-            />
-          ) : (
-            <span className="text-subtle-foreground">No reviewers yet</span>
-          )}
-        </div>
-      </DetailRow>
+      {(can(detail, "reviews.approvals.read") || can(detail, "reviews.approvals.write")) && (
+        <DetailRow label="Reviewers" action={reviewerPicker}>
+          <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
+            {rows.length ? (
+              <PrReviewers
+                rows={
+                  can(detail, "reviews.approvals.write")
+                    ? rows
+                    : rows.map((row) => ({
+                        ...row,
+                        canRerequest: false,
+                        canRemove: false,
+                        canDismiss: false,
+                      }))
+                }
+                value={reviewers.data}
+                disabled={disabled || !can(detail, "reviews.approvals.write")}
+                onDismissed={() => void reviewers.refetch()}
+                onRequestReview={props.onRequestReview}
+              />
+            ) : (
+              <span className="text-subtle-foreground">No reviewers yet</span>
+            )}
+          </div>
+        </DetailRow>
+      )}
       {assignees && (
         <DetailRow label={assignees.length === 1 ? "Assignee" : "Assignees"}>
           <span className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-1">

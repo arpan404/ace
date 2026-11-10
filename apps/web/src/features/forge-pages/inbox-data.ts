@@ -1,3 +1,5 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
+import { can } from "@ace/ui-core";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { WorkspaceId, type ForgeInboxList, type ForgeInboxWrite } from "@ace/protocol";
 import { actionErrorText } from "@ace/ui-core";
@@ -26,7 +28,9 @@ export const inboxKey = (project: string | undefined) => ["forge", project, "inb
  */
 export function useInboxPages(project: string | undefined, search: InboxSearch, pages: number) {
   const client = useClient();
-  const ready = useConnectionState() === "ready";
+  const connected = useConnectionState() === "ready";
+  const source = useRepositoryCapabilities(project, undefined);
+  const ready = connected && can(source, "inbox");
   const filters = inboxQuery(search, 1);
   const results = useQueries({
     queries: Array.from({ length: pages }, (_, index) => ({
@@ -73,7 +77,7 @@ export function useInboxPages(project: string | undefined, search: InboxSearch, 
     ),
     first: first?.data,
     stale: first?.isPlaceholderData ?? false,
-    loading: !first?.data && !failed,
+    loading: ready && !first?.data && !failed,
     error: failed?.error ?? undefined,
     more: results[results.length - 1]?.data?.nextPage !== undefined,
     retry: () => void Promise.all(results.map((result) => result.refetch())),
@@ -96,7 +100,9 @@ export function useInboxWrites(project: string | undefined) {
   const client = useClient();
   const cache = useQueryClient();
   const toast = useToast();
-  const ready = useConnectionState() === "ready";
+  const connected = useConnectionState() === "ready";
+  const source = useRepositoryCapabilities(project, undefined);
+  const ready = connected && can(source, "inbox");
   const clock = useClock();
   /** When Mark all read last went out: GitHub may still be applying it. */
   const readAllAt = useRef<number | undefined>(undefined);

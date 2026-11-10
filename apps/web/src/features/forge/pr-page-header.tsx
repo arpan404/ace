@@ -1,3 +1,4 @@
+import { forgeDisplayName } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import type { GateKey } from "@ace/ui-core";
 import { StateWords } from "@/components/forge-marks.tsx";
@@ -48,6 +49,14 @@ export function PrPageHeader(props: {
           <>
             {props.extensions?.headerActions?.(context)}
             <PrAgentChip detail={detail} compact={false} />
+            <a
+              href={status.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex h-7 items-center rounded-md px-2 text-ui text-muted-foreground focus-ring hover:bg-hover"
+            >
+              Open on {forgeDisplayName(status.ref.repository.forge)}
+            </a>
             <PrReviewButton />
             {/* A merged or closed PR's state is in words under the title, not a button. */}
             {actions.primary.kind !== "state" && (

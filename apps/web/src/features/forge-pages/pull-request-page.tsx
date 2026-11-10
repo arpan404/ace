@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrRef, ForgeRepository } from "@ace/protocol";
 import { IssuePages } from "@/components/forge-links.tsx";
 import { PullRequestOpener } from "@/components/pull-request-link.tsx";
-import { HostedPrSkeleton, loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
+import { loadPrDetail, PrPageSkeleton } from "@/features/forge/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { BackLabel } from "@/components/back-label.tsx";
 import { backLabel, useBackToList } from "./back-to-list.ts";
@@ -67,21 +67,12 @@ export function PullRequestPage(props: {
             <Suspense
               fallback={
                 <div className="h-full bg-panel [--forge-gutter:1rem] sm:[--forge-gutter:2rem]">
-                  {repository && repository.forge !== "github" ? (
-                    <HostedPrSkeleton
-                      forge={repository.forge}
-                      number={props.number}
-                      seed={seed}
-                      onBack={back}
-                    />
-                  ) : (
-                    <PrPageSkeleton
-                      number={props.number}
-                      seed={seed}
-                      onBack={back}
-                      readable="mx-auto w-full max-w-[64rem]"
-                    />
-                  )}
+                  <PrPageSkeleton
+                    number={props.number}
+                    seed={seed}
+                    onBack={back}
+                    readable="mx-auto w-full max-w-[64rem]"
+                  />
                 </div>
               }
             >

@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ForgePrDetail, ForgePrReviewers } from "@ace/protocol";
@@ -19,6 +20,7 @@ export function usePrReviewers(workspaceId: string, detail: ForgePrDetail) {
   const pr = detail.status.ref;
   return useDaemonQuery<ForgePrReviewers>({
     queryKey: ["forge", workspaceId, pr, "reviewers"],
+    enabled: can(detail, "reviews.approvals.read"),
     retry: false,
     gcTime: keptForgeMs,
     refetchOnReconnect: "always",
@@ -49,6 +51,7 @@ export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail)
   const changed = `${detail.updatedAt ?? ""}|${detail.reviewers.join(",")}|${detail.status.comments.length}`;
   const seen = useRef(changed);
   useEffect(() => {
+    if (!can(detail, "reviews.approvals.read")) return;
     // The PR may have changed while no view followed it (another pane kept it fresh).
     const [read] = cache.getQueryCache().findAll({
       queryKey: ["forge", workspaceId],
@@ -59,7 +62,7 @@ export function useFollowPrReviewers(workspaceId: string, detail: ForgePrDetail)
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    if (seen.current === changed) return;
+    if (!can(detail, "reviews.approvals.read") || seen.current === changed) return;
     seen.current = changed;
     void refetch();
   }, [changed, refetch]);

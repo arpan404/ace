@@ -1,3 +1,4 @@
+import { can, repositoryCapabilities } from "@ace/ui-core";
 import {
   issueQuery,
   issueSortLabels,
@@ -167,7 +168,16 @@ export function IssuesPage(props: {
   const navigate = useNavigate();
   const listAddress = useLocation({ select: (location) => location.searchStr });
   // New issues open on a project's primary, whose read is keyed by the project alone.
-  const creatable = projects.filter((id) => list.firsts.get(id)?.canCreate);
+  const creatable = projects.filter((id) => {
+    const first = list.firsts.get(id);
+    return (
+      first?.canCreate &&
+      can(
+        repositoryCapabilities(first.repository, review.lists.get(id)?.repositories ?? []),
+        "issues.write",
+      )
+    );
+  });
   const preset: Preset = search.who === "assigned" || search.who === "created" ? search.who : "all";
   const sections = issueSections(search, list.rows, onSearch);
   const filtered =
