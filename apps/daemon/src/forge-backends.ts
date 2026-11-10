@@ -134,6 +134,9 @@ export class ForgeBackends {
   }
   /** Refuses a write to a repository the project hides or can't use (ADR 0116). */
   async assertWritable(cwd: string, repository: ForgeRepository): Promise<void> {
+    // Without saved choices nothing is hidden, so a write goes exactly where it always did,
+    // without reading Git first: a checkout Git can't read must not refuse the write.
+    if (!this.configs.forCheckout(cwd)) return;
     const refusal = repositoryWriteRefusal(
       (await this.projectRepositories(cwd)).resolved,
       repository,
