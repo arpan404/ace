@@ -73,6 +73,22 @@ test("a folder added on the build server is added there and opens New thread the
   expect(paths(made.daemon)).toEqual([]);
 });
 
+test("adding a folder that is already a project on the build server opens a new thread there", async () => {
+  const { made, build } = twoMachines();
+  build.projects.command({ type: "workspace.add", path: "/home/ci/services/api" });
+  await addProjectOn(made, "Build server", "Local folder");
+  const field = await screen.findByRole("combobox", { name: "Folder path" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "~/services/api/");
+  await screen.findByText("~/services/api");
+  await userEvent.keyboard("{Enter}");
+
+  expect(await screen.findByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: api" })).toBeTruthy();
+  expect(screen.queryByRole("dialog", { name: "Add project" })).toBeNull();
+  expect(paths(build)).toEqual(["/home/ci/services/api"]);
+});
+
 test("a new project is created on the chosen machine and New thread opens there", async () => {
   const { made, build } = twoMachines();
   await addProjectOn(made, "Build server", "New project");

@@ -175,12 +175,7 @@ export function LocalFolderStep(props: {
         onRetry={folder.retry}
         allow={
           folder.failure.canAllow && folder.directory ? (
-            <AllowFolder
-              client={machine.client}
-              path={folder.directory}
-              roots={home?.roots ?? []}
-              onAllowed={folder.retry}
-            />
+            <AllowFolder client={machine.client} path={folder.directory} onAllowed={folder.retry} />
           ) : undefined
         }
       />
@@ -252,7 +247,7 @@ export function LocalFolderStep(props: {
                 <Button
                   size="sm"
                   disabled={added.adding}
-                  onClick={() => added.allowAndAdd(problem.path, home?.roots ?? [])}
+                  onClick={() => added.allowAndAdd(problem.path)}
                 >
                   Allow and add
                 </Button>

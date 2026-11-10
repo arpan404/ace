@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
 import { fallback } from "@/boot/connection.tsx";
 import { harness } from "@/test/harness.tsx";
+import { createIdleTask } from "@/test/tasks.ts";
 
 const home = "/home/dev";
 
@@ -167,6 +168,38 @@ test("a refused native folder pick shows its exact path, and one action allows a
   expect(failure.textContent).toContain("ace isn't allowed to open this folder yet");
   await userEvent.click(within(failure).getByRole("button", { name: "Allow and add" }));
   await screen.findByRole("button", { name: "Project: project" });
+  expect(registered(made)).toEqual([path]);
+});
+
+test("undo after allowing and adding a native pick takes back only the folder, keeping the project's threads", async () => {
+  const path = "/srv/private/project";
+  desktopBridge({ chosen: path });
+  const made = host();
+  made.daemon.projects.seedFolders(home, [{ path }], { roots: [home, "/srv"] });
+  made.daemon.services.settings.seed({ "projects.roots": [home] });
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Local folder" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Browse…" }));
+  const failure = await within(
+    await screen.findByRole("dialog", { name: "Add project" }),
+  ).findByRole("alert");
+  await userEvent.click(within(failure).getByRole("button", { name: "Allow and add" }));
+  await screen.findByRole("button", { name: "Project: project" });
+  const project = made.daemon.projects.list().workspaces.find((each) => each.path === path);
+  createIdleTask(made.daemon, {
+    id: "thread-started-meanwhile",
+    workspaceId: project?.id ?? "",
+    title: "Started before the undo",
+    provider: "codex",
+  });
+  // Settings, or another device, allows another place before the undo.
+  const roots = () => made.daemon.services.settings.get("projects.roots");
+  made.daemon.services.settings.write("projects.roots", [...(roots() as string[]), "/opt"]);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(roots()).toEqual([home, "/opt"]));
+  expect(made.daemon.projects.isRemoved(project?.id ?? "")).toBe(false);
   expect(registered(made)).toEqual([path]);
 });
 
