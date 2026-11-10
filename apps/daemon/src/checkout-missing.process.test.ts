@@ -134,3 +134,30 @@ test("a message sent after the worktree was removed waits, then sends once the t
     await f.close();
   }
 });
+
+test("a new worktree never picks up the thread's old branch and its stale commits", async () => {
+  const f = await fixture();
+  try {
+    const thread = f.local();
+    await f.h.engine.flush();
+    expect(
+      await f.run({ type: "thread.workspace.set", threadId: thread, mode: "worktree" }),
+    ).toMatchObject({ ok: true });
+    const tree = details(f, thread)?.worktree ?? "";
+    const own = details(f, thread)?.branch ?? "";
+    // The person moved the work to a branch of their own, leaving the thread's first one behind.
+    await writeFile(join(tree, "file.txt"), "old work\n");
+    await git(tree, "commit", "-am", "Old work");
+    const stale = await git(tree, "rev-parse", "HEAD");
+    await git(tree, "switch", "-c", "ui/atmos");
+    expect(await f.runtime.details(thread)).toMatchObject({ branch: "ui/atmos" });
+    await git(f.h.home, "worktree", "remove", "--force", tree);
+    await git(f.h.home, "branch", "-D", "ui/atmos");
+    const main = await git(f.h.home, "rev-parse", "HEAD");
+    expect(await recreate(f, thread)).toMatchObject({ ok: true });
+    expect(details(f, thread)).toMatchObject({ branch: `${own}-2`, head: main });
+    expect(await git(f.h.home, "rev-parse", own)).toBe(stale);
+  } finally {
+    await f.close();
+  }
+});
