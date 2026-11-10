@@ -1,4 +1,3 @@
-import { hostedIssues } from "./hosted-issues.ts";
 import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
@@ -66,29 +65,6 @@ export class WorkspaceForgeBrowse {
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
-    if (operation.op === "forge.issue.list" || operation.op === "forge.issue.detail" || operation.op === "forge.issue.timeline" || operation.op === "forge.issue.actions") {
-      const issues = await hostedIssues({ cwd, repository, backends: this.ctx.backends,
-        sourceControl: this.ctx.sourceControl, signal });
-    if (operation.op === "forge.issue.list")
-      return { resource: "issueList", value: await issues.listIssues(operation.query, signal) };
-    if (operation.op === "forge.issue.timeline")
-      return {
-        resource: "issueTimeline",
-        ...(await issues.issueTimeline(operation.number, operation.page, signal)),
-      };
-    if (operation.op === "forge.issue.actions")
-      return {
-        resource: "issueActions",
-        actions: this.parts.issueActions.list(repository, operation.number),
-      };
-    if (operation.op === "forge.issue.detail") {
-      const value = await issues.issueDetail(operation.number, signal);
-      return {
-        resource: "issueDetail",
-        value: { ...value, ...this.parts.issueLinks.related(value.ref) },
-      };
-    }
-    }
     if (repository.forge !== "github") {
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (operation.op === "forge.pr.list")
@@ -138,6 +114,25 @@ export class WorkspaceForgeBrowse {
           signal,
           operation.headSha,
         ),
+      };
+    }
+    if (operation.op === "forge.issue.list")
+      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
+    if (operation.op === "forge.issue.timeline")
+      return {
+        resource: "issueTimeline",
+        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
+      };
+    if (operation.op === "forge.issue.actions")
+      return {
+        resource: "issueActions",
+        actions: this.parts.issueActions.list(repository, operation.number),
+      };
+    if (operation.op === "forge.issue.detail") {
+      const value = await backend.issueDetail(operation.number, signal);
+      return {
+        resource: "issueDetail",
+        value: { ...value, ...this.parts.issueLinks.related(value.ref) },
       };
     }
     if (operation.op === "forge.pr.merge-state") {

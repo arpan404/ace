@@ -46,7 +46,7 @@ import {
  * No mutations; the caller's runner already verified API identity. */
 export class GitLabReader implements ForgeReader {
   readonly repository: ForgeRepository;
-  readonly #runner: CommandRunner;
+  readonly #api: GitLabApi;
   readonly #host: string;
   readonly #project: string;
 
@@ -54,8 +54,8 @@ export class GitLabReader implements ForgeReader {
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "gitlab") throw new ForgeError("unsupported");
     if (!options.runner) throw new ForgeError("unsupported");
-    this.#runner = options.runner;
     this.#host = this.repository.host;
+    this.#api = new GitLabApi(options.runner, this.#host);
     this.#project = encodeURIComponent(`${this.repository.owner}/${this.repository.name}`);
   }
 
@@ -69,7 +69,7 @@ export class GitLabReader implements ForgeReader {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<{ headers: Headers; body: unknown }> {
-    return new GitLabApi(this.#runner, this.#host).request(endpoint, signal, budget);
+    return this.#api.get(endpoint, signal, budget);
   }
 
   #statusOf(mr: GitLabMr): ForgePrStatusType {

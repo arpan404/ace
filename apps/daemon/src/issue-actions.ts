@@ -1,7 +1,6 @@
-import type { HostedIssues } from "./hosted-issues.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { z } from "zod";
-import { WriteDispatch, repositoryKey, uncertainWriteExpired } from "@ace/forge";
+import { WriteDispatch, repositoryKey, uncertainWriteExpired, type GitHubForge } from "@ace/forge";
 import {
   ForgeIssueAction,
   ForgeIssueWrite,
@@ -65,7 +64,7 @@ export class IssueActions {
   }
   async execute(
     command: Command,
-    backend: HostedIssues,
+    backend: GitHubForge,
     allowed: () => boolean,
     signal: AbortSignal,
   ): Promise<Omit<CommandResult, "commandId">> {
