@@ -35,7 +35,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `tools/dev`               | The development process runner behind `bun run dev`                     |
 | `docs/adr`                | Architecture decision records                                           |
 | `docs/research`           | Primary-source research behind the decisions                            |
-| `private/spade`           | Spade, a private submodule; empty unless you have access (see below)    |
+| `spade`                   | Spade, ace's assistant (Rust); under its own license, see below         |
 
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits and control handback.
@@ -67,13 +67,6 @@ The generated [protocol reference](docs/protocol/README.md) covers WebSocket mes
 ```sh
 bun install
 bun run check   # merge gate only: includes tests
-```
-
-`private/spade` is a private repository, so `git submodule update --init --recursive` skips it
-(`update = none`) and ace builds without it. With access, check it out explicitly:
-
-```sh
-git submodule update --init --checkout private/spade
 ```
 
 ### Commands
@@ -205,4 +198,8 @@ authority's Ed25519 key in the bundled daemon for standalone installs (ADR 0041)
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0, except `spade/`. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The `spade/` directory is under the [Spade License](spade/LICENSE): you may read it and run
+official builds, but not copy, modify, redistribute or use it commercially without written
+permission.

@@ -1,3 +1,12 @@
+Licensing of this repository
+
+Everything in this repository is licensed under the Apache License, Version 2.0 (below),
+except the `spade/` directory and its subdirectories. Those are licensed under the
+Spade License in `spade/LICENSE`, which does not permit copying, modifying, redistributing
+or commercial use without written permission.
+
+--------------------------------------------------------------------------------
+
 
                                  Apache License
                            Version 2.0, January 2004

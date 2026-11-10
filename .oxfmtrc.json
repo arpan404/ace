@@ -11,6 +11,6 @@
     "**/*.gen.ts",
     "docs/protocol",
     "packages/markit/**",
-    "private/**"
+    "spade/target/**"
   ]
 }

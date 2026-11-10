@@ -7,7 +7,7 @@
     "fixtures",
     ".recordings",
     "packages/markit/**",
-    "private/**",
+    "spade/target/**",
     "**/routeTree.gen.ts",
     "**/*.gen.ts"
   ],

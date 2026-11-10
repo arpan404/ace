@@ -1,0 +1,38 @@
+Spade License 1.0
+
+Copyright 2026 Arpan Bhandari. All rights reserved.
+
+This license covers every file in the `spade/` directory of this repository and its
+subdirectories ("Spade"). The Apache License 2.0 that applies to the rest of the repository
+does not apply to Spade.
+
+1. Viewing. You may read Spade's source code, for example to evaluate it, to understand how
+   ace behaves, or to report a security problem.
+
+2. Running official builds. You may install and run Spade as shipped in official ace releases
+   published by the copyright holder.
+
+3. Not permitted. Unless the copyright holder gives you written permission first, you may not:
+
+   a. copy or reproduce Spade, in whole or in part, beyond what sections 1 and 2 need;
+   b. modify Spade, translate it, or create works based on it;
+   c. distribute, publish, sublicense, sell, rent or lend Spade, or offer it as a hosted
+      service;
+   d. use Spade, or any part of it, for a commercial purpose, other than running official
+      builds under section 2;
+   e. use Spade to build, train or improve a product, service or model that competes with it.
+
+4. Hosting platforms. Where this repository is hosted on GitHub or a similar service, that
+   service's terms may let its users view and fork public content within the service. This
+   license grants nothing beyond those terms, and a fork does not give its holder any of the
+   rights reserved in section 3.
+
+5. Contributions. The copyright holder accepts contributions to Spade only under a separate
+   written agreement.
+
+6. Ending. If you break this license, your rights under it end at once.
+
+7. No warranty. Spade is provided "as is", without warranty of any kind. The copyright holder
+   is not liable for any claim, damage or other liability arising from Spade or its use.
+
+For permission beyond this license, contact the copyright holder.

@@ -6,6 +6,13 @@ ace is a multi-agent coding environment: a local daemon that drives the user's i
 
 ace is a clean-room rewrite. Never copy, paste or closely paraphrase code from t3code, `arpan404/ace-legacy`, or any other codebase whose license we haven't explicitly accepted. Reading other projects to learn which interfaces exist is fine; the implementation must be written fresh from our own specs and from primary provider sources.
 
+## Spade's license
+
+`spade/` is not Apache-2.0: it is under the Spade License (`spade/LICENSE`). Never move or copy
+code from `spade/` into the rest of the repository, and never publish it elsewhere. Code may flow
+the other way: Spade may use ace's Apache-2.0 packages. Spade is Rust, with its own Cargo
+workspace and checks (`cargo fmt`, `cargo clippy`, `cargo test` inside `spade/`).
+
 ## Priorities
 
 1. Correctness of agent state. Never show an agent as done while any part of its tree is still working or waiting on a human.

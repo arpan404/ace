@@ -1,0 +1,78 @@
+{
+  "checked": "2026-11-08",
+  "defaults": {
+    "openrouter": {
+      "main": "claude-sonnet-5-5",
+      "fast": "claude-haiku-5-5",
+      "deep": "claude-opus-5-5"
+    },
+    "opencode-go": {
+      "main": "kimi-k3.1-pro",
+      "fast": "claude-haiku-5-5",
+      "deep": "gemini-4-argon"
+    },
+    "anthropic": {
+      "main": "claude-sonnet-5-5",
+      "fast": "claude-haiku-5-5",
+      "deep": "claude-opus-5-5"
+    }
+  },
+  "models": [
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "routes": {
+        "openrouter": { "model": "anthropic/claude-opus-5.5" },
+        "anthropic": { "model": "claude-opus-5-5" }
+      }
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "routes": {
+        "openrouter": { "model": "anthropic/claude-sonnet-5.5" },
+        "anthropic": { "model": "claude-sonnet-5-5" }
+      }
+    },
+    {
+      "id": "claude-haiku-5-5",
+      "name": "Claude Haiku 5.5",
+      "routes": {
+        "openrouter": { "model": "anthropic/claude-haiku-5.5" },
+        "opencode-go": { "model": "claude-haiku-5-5", "protocol": "anthropic" },
+        "anthropic": { "model": "claude-haiku-5-5" }
+      }
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "routes": {
+        "openrouter": { "model": "openai/gpt-6.1-sol" }
+      }
+    },
+    {
+      "id": "gemini-4-argon",
+      "name": "Gemini 4 Argon",
+      "routes": {
+        "openrouter": { "model": "google/gemini-4-argon" },
+        "opencode-go": { "model": "gemini-4-argon", "protocol": "gemini" }
+      }
+    },
+    {
+      "id": "kimi-k3.1-pro",
+      "name": "Kimi K3.1 Pro",
+      "routes": {
+        "openrouter": { "model": "moonshotai/kimi-k3.1-pro" },
+        "opencode-go": { "model": "kimi-k3.1-pro" }
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "routes": {
+        "openrouter": { "model": "z-ai/glm-5.3" },
+        "opencode-go": { "model": "glm-5.3" }
+      }
+    }
+  ]
+}
