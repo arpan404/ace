@@ -25,7 +25,12 @@ import {
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
 import { backHint, escapeHint, navigateHint } from "@/components/ui/key-hints.tsx";
-import { ListViewport, OptionSkeletons, optionGeometry } from "@/components/ui/list-viewport.tsx";
+import {
+  ListStatus,
+  ListViewport,
+  OptionSkeletons,
+  optionGeometry,
+} from "@/components/ui/list-viewport.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import type { Machine } from "@/lib/machines.ts";
@@ -141,6 +146,18 @@ export function LocalFolderStep(props: {
       <Notice icon={offlineIcon}>
         {machine.name} isn't connected. Folders come back once it is.
       </Notice>
+    );
+  else if (folder.homeFailed)
+    state = (
+      <ListStatus
+        actions={
+          <Button size="sm" variant="ghost" onClick={folder.retryHome}>
+            Retry
+          </Button>
+        }
+      >
+        Couldn't read the home folder on {machine.name}.
+      </ListStatus>
     );
   else if (folder.failure)
     state = (

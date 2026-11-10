@@ -11,7 +11,7 @@ import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { ListViewport, OptionSkeletons } from "@/components/ui/list-viewport.tsx";
+import { ListStatus, ListViewport, OptionSkeletons } from "@/components/ui/list-viewport.tsx";
 import { canPick } from "@/components/ui/list-keys.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
@@ -146,6 +146,18 @@ export function FolderSearchBox(props: {
       <Notice icon={offlineIcon}>
         That machine isn't connected. Folders come back once it is.
       </Notice>
+    );
+  else if (search.homeFailed)
+    state = (
+      <ListStatus
+        actions={
+          <Button size="sm" variant="ghost" onClick={search.retryHome}>
+            Retry
+          </Button>
+        }
+      >
+        Couldn't read the home folder on {search.machineName}.
+      </ListStatus>
     );
   else if (search.failure)
     state = (

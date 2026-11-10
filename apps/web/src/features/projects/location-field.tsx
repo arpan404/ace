@@ -46,7 +46,11 @@ export function LocationField(props: { state: LocationState; disabled?: boolean 
         <span className="font-medium text-muted-foreground">Location</span>
         <Icon icon={FolderSimpleIcon} size={14} className="text-subtle-foreground" />
         <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
-          {state.location ? displayPath(state.location, state.home?.path) : "…"}
+          {state.location
+            ? displayPath(state.location, state.home?.path)
+            : state.search.loading
+              ? "…"
+              : "Not chosen yet"}
         </span>
       </div>
       <FolderSearchBox
