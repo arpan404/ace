@@ -359,7 +359,12 @@ test("sources narrow as you type and Enter opens the highlighted one", async () 
   await userEvent.keyboard("{Enter}");
   expect(await screen.findByRole("textbox", { name: "Repository address" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Back" }));
-  await screen.findByRole("combobox", { name: "Search project sources" });
+  // Back finds the search as it was left.
+  const again = await screen.findByRole<HTMLInputElement>("combobox", {
+    name: "Search project sources",
+  });
+  expect(again.value).toBe("git");
+  await userEvent.clear(again);
   await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(await screen.findByRole("textbox", { name: "Project name" })).toBeTruthy();
 });
