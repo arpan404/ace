@@ -394,6 +394,13 @@ export class FakeProjects {
         this.context.saveProjectRoots?.(roots);
         return { ok: true };
       }
+      if (p.type === "workspace.root.remove") {
+        const path = p.path.replace(/\/+$/, "") || "/";
+        const configured = this.context.projectRoots?.() ?? [];
+        const kept = configured.filter((root) => root !== path);
+        if (kept.length !== configured.length) this.context.saveProjectRoots?.(kept);
+        return { ok: true };
+      }
       if (p.type === "workspace.add") {
         if (p.create) this.makeFolders(this.checked(p.path));
         const info = this.inspection(p.path);

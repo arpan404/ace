@@ -109,3 +109,24 @@ export async function canonicalProjectRoots(roots: readonly string[]): Promise<s
     }),
   );
 }
+
+/**
+ * The configured roots without `path`, matched as typed and as its canonical folder (the form
+ * `workspace.root.add` saves), or undefined when it isn't one of them. A missing folder is
+ * still matched as typed.
+ */
+export async function withoutProjectRoot(
+  configured: readonly string[],
+  path: string,
+): Promise<string[] | undefined> {
+  absoluteProjectPath(path);
+  const trim = (root: string) => root.replace(/\/+$/, "") || "/";
+  const targets = new Set([trim(path)]);
+  try {
+    targets.add(trim(await realpath(path)));
+  } catch {
+    /* A folder gone since keeps its typed path. */
+  }
+  const kept = configured.filter((root) => !targets.has(trim(root)));
+  return kept.length === configured.length ? undefined : kept;
+}

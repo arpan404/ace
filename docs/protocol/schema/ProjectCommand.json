@@ -81,6 +81,24 @@
     },
     {
       "properties": {
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "workspace.root.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "git": {
           "properties": {
             "initialBranch": {
