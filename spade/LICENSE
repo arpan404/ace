@@ -20,10 +20,11 @@ Spade is proprietary, source-available software. It is not open source.
    license, including ace components under the Apache License 2.0, third-party dependencies,
    and bundled data or generated material identified as separately licensed.
 
-   "Official Build" means an executable distribution of Spade that Licensor publishes as part
-   of an official ace release, on the ace releases page at
-   https://github.com/arpan404/ace/releases or on https://acehq.dev. Source archives, and
-   binaries compiled by anyone other than Licensor, are not Official Builds.
+   "Official Build" means an executable distribution of Spade that Licensor designates as
+   official and publishes, directly or through an authorized release operator, as part of an
+   official ace release at https://github.com/arpan404/ace/releases or https://acehq.dev.
+   Source archives, and independently produced binaries not so designated and published, are
+   not Official Builds.
 
    "Commercial Purpose" means an activity carried out for commercial advantage or monetary
    compensation, directly or indirectly.
@@ -37,14 +38,18 @@ Spade is proprietary, source-available software. It is not open source.
 
 2. Reading. You may read Spade's source code and documentation, including on a hosting
    platform, to evaluate it, to understand how ace behaves, and to find and report security
-   problems, including as paid security research. This permission is subject to section 5.
+   problems, including as paid security research. You may make the copies reasonably needed
+   solely for this reading, including browser caches and local viewing copies; this does not
+   permit compiling, running, modifying or redistributing them. This permission is subject to
+   section 5.
 
 3. Running Official Builds. Subject to section 5, You may download, install and run Official
    Builds, and make the copies reasonably needed to do so, including backups, for personal use
    and for Your organization's internal use, including paid work and other internal commercial
-   activity. You may change User Settings. This section does not permit compiling the source,
-   changing program code, distributing Spade outside Your organization, or providing Spade's
-   functionality to third parties as a service.
+   activity. When running an Official Build under this section, You may change User Settings;
+   this does not permit changing program code or other material. This section does not permit
+   compiling the source, changing program code, distributing Spade outside Your organization,
+   or providing Spade's functionality to third parties as a service.
 
 4. Separately Licensed Material. Separately Licensed Material remains under its own license,
    and nothing in this License limits rights granted directly by its owners. The license texts
@@ -54,8 +59,7 @@ Spade is proprietary, source-available software. It is not open source.
    permission, You may not:
 
    a. copy or reproduce Spade, in whole or in part;
-   b. modify, translate or adapt Spade, or create works based on it, except by changing User
-      Settings;
+   b. modify, translate or adapt Spade, or create works based on it;
    c. distribute, publish, sublicense, sell, rent, lend or otherwise make Spade available to
       others;
    d. operate Spade, or make it available, for third parties as a hosted, managed, API, embedded
@@ -92,8 +96,10 @@ Spade is proprietary, source-available software. It is not open source.
     stop the activities that need those rights and delete the copies You hold only under this
     License, unless the law requires You to keep them. If You fix a first breach within 30 days
     after Licensor's written notice, Your rights are restored as if the breach had not happened.
-    Later breaches need Licensor's written reinstatement. Sections 4, 6, 8 and 12 to 14 continue
-    after Your rights end. Rights under other licenses are unaffected.
+    Later breaches need Licensor's written reinstatement. Section 1 continues to apply to
+    interpret the surviving sections. Sections 4 to 8 and 10 to 15 continue after Your rights
+    end; sections 6 and 8 do not by themselves give permission to use Spade. Rights under other
+    licenses are unaffected.
 
 12. No warranty. To the maximum extent permitted by applicable law, Spade is provided "as is",
     without warranties of any kind, express or implied, including merchantability, fitness for
@@ -111,5 +117,5 @@ Spade is proprietary, source-available software. It is not open source.
 
 15. Permission. Ask for permission beyond this License at [CONTACT]. Permission counts only if
     it is in writing, issued by Licensor or an authorized representative, and names the material
-    and activities it covers. Silence, a reply on an issue, or merging an unrelated change does
-    not grant permission.
+    and activities it covers. Silence, merging a change, or a reply on an issue that does not
+    expressly grant the permission described above, does not grant permission.

@@ -7,10 +7,7 @@ person's machines through their ace daemons. The design and the decisions so far
 
 This repository is the backend, written in Rust. Spade's screens live in ace's own apps (React on
 desktop and web, Swift on iOS). It lives in ace's repository at `spade/`, under the
-[Spade License](LICENSE). Spade is source-available, not open source: you may read it and run
-official builds, including for internal work use. Other copying, modification,
-redistribution, hosting as a service, and commercial or competing use need written
-permission. The rest of ace is Apache-2.0.
+[Spade License](LICENSE). Spade's original material is proprietary and source-available, not open source. You may read it and run Official Builds, including for internal workplace use, make the copies those permissions reasonably need, and change User Settings as that license permits. Other copying, modification, redistribution, hosting as a service, and restricted commercial or competing use need prior written permission. Separately licensed material keeps its own license. This summary does not replace the license texts. The rest of ace is Apache-2.0.
 
 ## Getting started
 
