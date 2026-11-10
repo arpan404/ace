@@ -186,7 +186,7 @@ export function LocalFolderStep(props: {
       />
     );
   else if (!rows.length && folder.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} className="px-3.5 py-1" />;
+    state = <ListSkeleton label="folders" shape="row" rows={6} className="px-2.5" />;
 
   return (
     <>
