@@ -68,21 +68,20 @@ export class TeaIssues {
   }
   async listIssues(input: ForgeIssueSearch, signal: AbortSignal) {
     const q = ForgeIssueSearch.parse(input);
-    if (q.author || q.assignee || q.labels.length || q.milestone || q.sort === "comments")
+    if (
+      q.author ||
+      q.assignee ||
+      q.labels.length ||
+      q.milestone ||
+      q.sort !== "updated" ||
+      q.order !== "desc"
+    )
       throw new ForgeError("unsupported");
     const params = new URLSearchParams({
       state: q.state,
       type: "issues",
       page: String(q.page),
       limit: "25",
-      sort:
-        q.sort === "created"
-          ? q.order === "desc"
-            ? "newest"
-            : "oldest"
-          : q.order === "desc"
-            ? "recentupdate"
-            : "leastupdate",
     });
     if (q.search) params.set("q", q.search);
     const response = await this.get(`?${params}`, signal);

@@ -174,3 +174,21 @@ test("malformed API data, wrong issue numbers, missing fork sources and PRs in i
     reader("gitea", () => ({ ...issue, pull_request: {} })).issues.issueDetail(3, signal),
   ).rejects.toMatchObject({ kind: "invalid_data" });
 });
+
+test("commit pages expose the newest commit first", async () => {
+  const r = reader(
+    "forgejo",
+    (path) =>
+      path.includes("/commits?")
+        ? [
+            { sha: base, commit: { message: "Older", author: { name: "Alice" } } },
+            { sha: head, commit: { message: "Newer", author: { name: "Alice" } } },
+          ]
+        : pull,
+    2,
+  );
+  expect((await r.prCommits(7, undefined, head, signal)).commits.map((c) => c.message)).toEqual([
+    "Newer",
+    "Older",
+  ]);
+});

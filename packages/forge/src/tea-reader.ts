@@ -234,7 +234,7 @@ export class TeaReader implements ForgeReader {
     const data = decode(z.array(commit).max(100), response.body);
     await this.pinned(number, headSha, p.base.sha, signal);
     return {
-      commits: data.map((c) =>
+      commits: data.toReversed().map((c) =>
         decode(ForgeCommit, {
           sha: c.sha,
           message: clipText(c.commit.message),
