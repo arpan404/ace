@@ -78,3 +78,20 @@ test("clicking a folder row still showing from the last search does nothing", as
   expect(location.value).toBe("weathers");
   release();
 });
+
+test("a GitHub list that fails offers Retry beside the reason, and Clear filters", async () => {
+  const made = harness({ throughWorker: true });
+  await source(made, "GitHub repository");
+  await screen.findByRole("option", { name: /ada\/engine/ });
+  await userEvent.click(screen.getByRole("button", { name: "Repository filters" }));
+  const account = await screen.findByRole("textbox", { name: "GitHub account" });
+  await userEvent.clear(account);
+  await userEvent.type(account, "other");
+  await userEvent.keyboard("{Escape}");
+  const reason = await screen.findByText(/Couldn't list repositories\./);
+  const status = reason.closest<HTMLElement>('[role="status"]');
+  if (!status) throw new Error("The reason should be a status line");
+  expect(within(status).getByRole("button", { name: "Retry" })).toBeTruthy();
+  await userEvent.click(within(status).getByRole("button", { name: "Clear filters" }));
+  expect(await screen.findByRole("option", { name: /ada\/engine/ })).toBeTruthy();
+});

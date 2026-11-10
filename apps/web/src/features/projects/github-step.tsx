@@ -1,9 +1,4 @@
-import {
-  DotsThreeIcon,
-  GithubLogoIcon,
-  LockSimpleIcon,
-  WifiSlashIcon,
-} from "@phosphor-icons/react";
+import { GithubLogoIcon, LockSimpleIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import type { ClientApi } from "@ace/client";
@@ -22,7 +17,6 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   backHint,
   escapeHint,
@@ -30,11 +24,14 @@ import {
   navigateHint,
   selectHint,
 } from "@/components/ui/key-hints.tsx";
-import { Input } from "@/components/ui/input.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Select } from "@/components/ui/select.tsx";
-import { ListViewport, OptionSkeletons, optionGeometry } from "@/components/ui/list-viewport.tsx";
+import {
+  ListStatus,
+  ListViewport,
+  OptionSkeletons,
+  optionGeometry,
+} from "@/components/ui/list-viewport.tsx";
 import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
+import { searchSettleMs, useDebouncedValue } from "@/lib/debounced.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import {
@@ -43,12 +40,19 @@ import {
   refreshSourceControl,
   SourceControlReadError,
 } from "@/lib/source-control-cache.ts";
-import { Notice } from "./folder-notices.tsx";
+import { activeFilters, defaultFilters, onlyTextChanged } from "./repository-filters.ts";
+import { RepositoryFiltersMenu } from "./repository-filters-menu.tsx";
+
+const viewport = "h-[min(320px,46dvh)]";
+/** Where the search text sits in the list's query key. */
+const textAt = 6;
 
 /**
  * Add project › GitHub repository, as a palette step: one search box over the repositories the
  * machine's logged-in GitHub CLI can see, the other filters behind ⋯, ↑ ↓ through the list and
- * Enter (or a click) to clone the highlighted one.
+ * Enter (or a click) to clone the highlighted one. The search goes out once typing settles; the
+ * last answer stays, dimmed and out of reach, until the new one comes. A failure says why beside
+ * what fixes it (Retry, Check again), and an empty answer names the filters narrowing it.
  */
 export function GithubStep(props: {
   machine: Machine;
@@ -65,7 +69,9 @@ export function GithubStep(props: {
           <span className="flex-1 text-ui text-muted-foreground">GitHub repository</span>
           {props.trailing}
         </CommandStepRow>
-        <Notice icon={WifiSlashIcon}>{props.machine.name} isn't connected.</Notice>
+        <ListViewport className={viewport}>
+          <ListStatus>{props.machine.name} isn't connected.</ListStatus>
+        </ListViewport>
       </>
     );
   // Reads go to the chosen machine and wait for its own connection.
@@ -89,11 +95,9 @@ function RepositoryBrowser(props: {
   trailing?: ReactNode;
 }) {
   const [selection, setSelection] = useState<{ host: string; account: string }>();
-  const [owner, setOwner] = useState("");
+  const [filters, setFilters] = useState(defaultFilters);
   const [query, setQuery] = useState("");
-  const [visibility, setVisibility] = useState<RepositoryListInput["visibility"]>("all");
-  const [archived, setArchived] = useState<RepositoryListInput["archived"]>("no");
-  const [fork, setFork] = useState<RepositoryListInput["fork"]>("all");
+  const settled = useDebouncedValue(query, searchSettleMs);
   const queries = useQueryClient();
   const status = useDaemonQuery({
     queryKey: ["projects", "github-readiness", props.machineId],
@@ -106,28 +110,30 @@ function RepositoryBrowser(props: {
   const readiness: SourceControlReadiness | undefined = status.data;
   const host = selection?.host ?? readiness?.preferences.host ?? "";
   const account = selection?.account ?? readiness?.account ?? "";
+  const { owner, visibility, archived, fork } = filters;
   const input = RepositoryListInput.safeParse({
     host,
     account,
     ...(owner ? { owner } : {}),
-    query,
+    query: settled,
     visibility,
     archived,
     fork,
   });
+  const key = [
+    "projects",
+    "github-repositories",
+    props.machineId,
+    host,
+    account,
+    owner,
+    settled,
+    visibility,
+    archived,
+    fork,
+  ];
   const repositories = useDaemonQuery({
-    queryKey: [
-      "projects",
-      "github-repositories",
-      props.machineId,
-      host,
-      account,
-      owner,
-      query,
-      visibility,
-      archived,
-      fork,
-    ],
+    queryKey: key,
     read: async (client, signal) => {
       if (!input.success) throw new SourceControlReadError("git_invalid_argument");
       const reply = await client.request(
@@ -139,6 +145,9 @@ function RepositoryBrowser(props: {
         throw new SourceControlReadError("forge_invalid_data");
       return reply.result.repositories;
     },
+    // Only a new search text keeps the last answer up; another account or filter is another list.
+    placeholderData: (previous, previousQuery) =>
+      previousQuery && onlyTextChanged(previousQuery.queryKey, key, textAt) ? previous : undefined,
     refetchOnReconnect: "always",
     enabled: readiness?.api === "ready" && input.success,
     retry: false,
@@ -146,27 +155,62 @@ function RepositoryBrowser(props: {
     staleTime: 0,
   });
   const rows = repositories.data ?? [];
+  // The last answer, showing while the one for what's typed now comes.
+  const stale = repositories.isPlaceholderData || query !== settled;
   // The best match is highlighted from the start, so Enter clones it.
   const list = useListHighlight({ count: rows.length, start: 0 });
   const { listId, current } = list;
-  const error = status.error
-    ? `Couldn't read GitHub CLI readiness. ${actionErrorText(readFailureCode(status.error))}`
-    : repositories.error
-      ? `Couldn't list repositories. ${actionErrorText(readFailureCode(repositories.error))}`
-      : readiness && readiness.api !== "ready"
-        ? readiness.instructions
-        : readiness && !input.success
-          ? "Enter a valid host, CLI account and optional repository owner."
-          : undefined;
-  const loading =
-    !error &&
-    (status.isPending || (input.success && readiness?.api === "ready" && !repositories.data));
+  const rescan = () => void refreshSourceControl(queries, props.client);
+  const narrowed = activeFilters(filters, selection?.account);
+  const clearFilters = () => {
+    setFilters(defaultFilters);
+    setSelection(undefined);
+  };
+  const action = (label: string, run: () => void) => (
+    <Button size="sm" variant="ghost" onClick={run}>
+      {label}
+    </Button>
+  );
 
   let state: ReactNode = null;
-  if (error) state = <Notice icon={LockSimpleIcon}>{error}</Notice>;
-  else if (loading)
+  if (status.error)
+    state = (
+      <ListStatus actions={action("Retry", () => void status.refetch())}>
+        Couldn't read GitHub CLI readiness. {actionErrorText(readFailureCode(status.error))}
+      </ListStatus>
+    );
+  else if (readiness && readiness.api !== "ready")
+    state = (
+      <ListStatus actions={action("Check again", rescan)}>{readiness.instructions}</ListStatus>
+    );
+  else if (readiness && !input.success)
+    state = (
+      <ListStatus actions={action("Clear filters", clearFilters)}>
+        Enter a valid host, CLI account and optional repository owner.
+      </ListStatus>
+    );
+  else if (repositories.error)
+    state = (
+      <ListStatus
+        actions={
+          <>
+            {action("Retry", () => void repositories.refetch())}
+            {narrowed.length > 0 && action("Clear filters", clearFilters)}
+          </>
+        }
+      >
+        Couldn't list repositories. {actionErrorText(readFailureCode(repositories.error))}
+      </ListStatus>
+    );
+  else if (status.isPending || (input.success && !repositories.data))
     state = <OptionSkeletons label="repositories" rows={6} geometry={optionGeometry} />;
-  else if (!rows.length) state = <Notice icon={GithubLogoIcon}>No repositories match.</Notice>;
+  else if (!rows.length && !stale)
+    state = (
+      <ListStatus actions={narrowed.length > 0 && action("Clear filters", clearFilters)}>
+        {settled ? `No repositories match “${settled}”` : "No repositories here"}
+        {narrowed.length > 0 ? ` with ${narrowed.join(", ")}.` : "."}
+      </ListStatus>
+    );
 
   return (
     <>
@@ -177,6 +221,7 @@ function RepositoryBrowser(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
+          aria-busy={stale || undefined}
           aria-activedescendant={current === undefined ? undefined : list.optionId(current)}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- A palette step opens to its field.
           autoFocus
@@ -197,102 +242,42 @@ function RepositoryBrowser(props: {
               })
             )
               return;
-            const action = list.key(event, () => true);
-            if (action.kind !== "pick") return;
+            const picked = list.key(event, () => !stale);
+            if (picked.kind === "pass" && event.key === "Enter") event.preventDefault();
+            if (picked.kind !== "pick") return;
             event.preventDefault();
-            const row = rows[action.at];
+            const row = rows[picked.at];
             if (row) props.onSelect(row);
           }}
           className={commandStepField}
         />
-        <Popover>
-          <PopoverTrigger
-            render={<IconButton icon={DotsThreeIcon} label="Repository filters" size="sm" />}
-          />
-          <PopoverContent
-            align="end"
-            aria-label="Repository filters"
-            className="grid w-72 gap-2 p-3"
-          >
-            {readiness && (
-              <Select
-                label="GitHub host"
-                value={host}
-                options={readiness.preferences.hosts.map((entry) => ({
-                  value: entry.host,
-                  label: entry.host,
-                }))}
-                onValueChange={(value) =>
-                  setSelection({
-                    host: value,
-                    account:
-                      readiness.preferences.hosts.find((entry) => entry.host === value)?.account ??
-                      "",
-                  })
-                }
-              />
-            )}
-            <Input
-              aria-label="GitHub account"
-              value={account}
-              placeholder="CLI account"
-              onChange={(event) => setSelection({ host, account: event.target.value })}
-            />
-            <Input
-              aria-label="Repository owner"
-              value={owner}
-              placeholder="Owner (all)"
-              onChange={(event) => setOwner(event.target.value)}
-            />
-            <Select<RepositoryListInput["visibility"]>
-              label="Repository visibility"
-              value={visibility}
-              options={[
-                { value: "all", label: "All visibility" },
-                { value: "private", label: "Private" },
-                { value: "public", label: "Public" },
-              ]}
-              onValueChange={setVisibility}
-            />
-            <Select<RepositoryListInput["archived"]>
-              label="Archived repositories"
-              value={archived}
-              options={[
-                { value: "all", label: "All archive states" },
-                { value: "no", label: "Active" },
-                { value: "yes", label: "Archived" },
-              ]}
-              onValueChange={setArchived}
-            />
-            <Select<RepositoryListInput["fork"]>
-              label="Fork repositories"
-              value={fork}
-              options={[
-                { value: "all", label: "Include forks" },
-                { value: "no", label: "Exclude forks" },
-                { value: "yes", label: "Forks only" },
-              ]}
-              onValueChange={setFork}
-            />
-            <Button
-              variant="secondary"
-              disabled={status.isFetching || repositories.isFetching}
-              onClick={() => void refreshSourceControl(queries, props.client)}
-            >
-              Rescan
-            </Button>
-          </PopoverContent>
-        </Popover>
+        <RepositoryFiltersMenu
+          readiness={readiness}
+          host={host}
+          account={account}
+          onAccount={setSelection}
+          filters={filters}
+          onFilters={setFilters}
+          rescanning={status.isFetching || repositories.isFetching}
+          onRescan={rescan}
+        />
         {props.trailing}
       </CommandStepRow>
-      <ListViewport className="h-[min(320px,46dvh)]">
+      <ListViewport className={viewport}>
         {state}
-        <div id={listId} role="listbox" aria-label="GitHub repositories" hidden={state !== null}>
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="GitHub repositories"
+          hidden={state !== null}
+          className={stale ? "opacity-60 transition-opacity" : undefined}
+        >
           {rows.map((row, at) => (
             <CommandOption
               key={row.id}
               id={list.optionId(at)}
               active={at === current}
+              disabled={stale}
               label={`${row.repository.owner}/${row.repository.name}`}
               onPoint={() => list.point(at)}
               onPick={() => props.onSelect(row)}
