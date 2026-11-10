@@ -3,6 +3,6 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "default": "",
   "maxLength": 100,
-  "pattern": "^(@me|[\\w-]*)$",
+  "pattern": "^(@me|[\\w.-]*)$",
   "type": "string"
 }

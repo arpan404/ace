@@ -50,4 +50,5 @@ export { pinnedRunner } from "./pinned-runner.ts";
 export { OriginListSnapshots, originListSnapshotMs } from "./origin-list-snapshots.ts";
 export * from "./project-repositories.ts";
 
-export { GitLabIssues, gitlabIssueWrites } from "./gitlab-issues.ts";
+export { GitLabIssues } from "./gitlab-issues.ts";
+export { gitlabIssueWrites } from "./gitlab-issue-writes.ts";

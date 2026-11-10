@@ -270,17 +270,18 @@ Example:
     "avatars": {},
     "body": "example",
     "commentCount": 4,
+    "confidential": false,
     "createdAt": "example",
     "labelColors": {},
     "labels": [],
     "milestone": "example",
     "permissions": {
       "close": false,
-      "comment": false,
-      "edit": true,
+      "comment": true,
+      "edit": false,
       "reason": "example",
-      "reopen": false,
-      "triage": true
+      "reopen": true,
+      "triage": false
     },
     "ref": {
       "number": 7,
@@ -292,9 +293,8 @@ Example:
       }
     },
     "relatedThreads": [],
-    "relatedThreadsTruncated": false,
+    "relatedThreadsTruncated": true,
     "state": "open",
-    "stateReason": null,
     "title": "example",
     "updatedAt": "example",
     "url": "example"
@@ -2066,7 +2066,7 @@ Example:
   "by": "issue-people",
   "query": {
     "assignee": "@me",
-    "author": "XBU-Fo",
+    "author": "YCV.Fo",
     "milestone": "example",
     "state": "open"
   }
@@ -2619,6 +2619,7 @@ Example:
 | avatars | no | [ForgeAvatars.json](schema/ForgeAvatars.json) |  |
 | raw | no | any JSON value |  |
 | body | yes | string | {"maxLength":65536} |
+| confidential | no | boolean |  |
 | permissions | yes | object | {"properties":{"edit":{"type":"boolean"},"close":{"type":"boolean"},"reopen":{"type":"boolean"},"comment":{"type":"boolean"},"triage":{"type":"boolean"},"reason":{"type":"string","maxLength":256}},"required":["edit","close","reopen","comment","reason"]} |
 | stateReason | no | union | {"anyOf":[{"type":"string","enum":["completed","not_planned","reopened"]},{"type":"null"}]} |
 | milestoneNumber | no | union | {"anyOf":[{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},{"type":"null"}]} |
@@ -2638,10 +2639,11 @@ Example:
   "createdAt": "example",
   "labels": [],
   "milestone": null,
+  "milestoneNumber": 3,
   "permissions": {
-    "close": true,
+    "close": false,
     "comment": false,
-    "edit": false,
+    "edit": true,
     "reason": "example",
     "reopen": false
   },
@@ -2656,7 +2658,7 @@ Example:
     }
   },
   "relatedThreads": [],
-  "relatedThreadsTruncated": true,
+  "relatedThreadsTruncated": false,
   "state": "closed",
   "title": "example",
   "updatedAt": "example",

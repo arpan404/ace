@@ -32,7 +32,7 @@ const github: readonly ForgeCapability[] = [
 
 export const forgeCapabilities: Readonly<Record<ForgeKind, readonly ForgeCapability[]>> = {
   github,
-  gitlab: ["reviews.read", "reviews.files"],
+  gitlab: ["reviews.read", "reviews.files", "issues.read", "issues.write"],
   origin: ["reviews.read", "reviews.files"],
   gitbucket: [],
   bitbucket: [],
