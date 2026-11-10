@@ -1,5 +1,4 @@
 import { MachineLabel } from "@/components/ui/machine-label.tsx";
-import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import {
   childFolder,
   cloneProgress,
@@ -12,7 +11,6 @@ import {
 } from "@ace/ui-core";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   CommandStepFooter,
@@ -21,14 +19,12 @@ import {
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
 import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
-import { ProgressBar } from "@/components/ui/progress-bar.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import type { Machine } from "@/lib/machines.ts";
-import { Problem, TextField } from "./form-parts.tsx";
+import { Offer, Problem, TextField } from "./form-parts.tsx";
 import { LocationField, useLocation } from "./location-field.tsx";
 import { projectReads } from "./project-commands.ts";
-import type { CloneControl } from "./use-clone-run.ts";
+import type { CloneControl, CloneRun } from "./use-clone-run.ts";
 import { useRecentFolders } from "./use-folders.ts";
 
 /**
@@ -63,8 +59,9 @@ function useCloneAddress(machine: Machine, value: string, enabled: boolean) {
  * Add project › Git URL, as a palette step: the field is the repository's address (HTTPS, SSH,
  * git@ or GitHub's owner/repo, checked as you type); below it the folder name and location,
  * suggested beside the machine's latest project. Git uses the person's own credentials on that
- * machine. Progress shows inline with Cancel and carries on if the palette closes; a failed
- * clone offers Retry.
+ * machine. While it clones, one line shows how far it is with Cancel clone, and it carries on
+ * if the palette closes. A failed clone keeps its address, folder name and location in the
+ * fields, and Clone tries again with whatever they say then.
  */
 export function CloneProjectStep(props: {
   machine: Machine;
@@ -77,10 +74,11 @@ export function CloneProjectStep(props: {
   const { machine, clone } = props;
   const { run, show } = clone;
   useEffect(show, [show]);
-  const previous = run.status === "failed" ? run.input : undefined;
+  const failed = run.status === "failed" && run.machine.id === machine.id ? run : undefined;
+  const previous = failed?.input;
   const [url, setUrl] = useState(props.initialUrl ?? previous?.url ?? "");
   const [name, setName] = useState<string>();
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState(previous !== undefined);
   const only = useMemo(() => [machine], [machine]);
   const latest = useRecentFolders(only).folders[0];
   const place = useLocation({
@@ -95,11 +93,19 @@ export function CloneProjectStep(props: {
     ? "Paste the repository's address."
     : (local ?? (checked.error ? notCloneable : undefined));
   const parent = running ? run.input.parent : place.location;
-  const suggestion = checked.data?.name ?? repositoryName(value);
-  const folder = running ? run.input.name : (name ?? freeName(suggestion, place.siblings ?? []));
-  const nameProblem = projectNameProblem(folder, running ? [] : place.siblings);
   const address = checked.data?.url ?? value;
+  const suggestion = checked.data?.name ?? repositoryName(value);
+  // The failed clone's folder name stays while its address does; a new address names its own.
+  const kept = previous && (value === previous.url || address === previous.url);
+  const folder = running
+    ? run.input.name
+    : (name ?? (kept ? previous.name : freeName(suggestion, place.siblings ?? [])));
+  const nameProblem = projectNameProblem(folder, running ? [] : place.siblings);
   const shownUrlProblem = touched && !checked.isFetching ? urlProblem : undefined;
+  const leftover =
+    failed && place.location === failed.input.parent
+      ? leftoverFolder(failed.input.name, place.siblings)
+      : undefined;
 
   const submit = () => {
     setTouched(true);
@@ -155,98 +161,109 @@ export function CloneProjectStep(props: {
           onChange={setName}
           placeholder="repo"
           problem={nameProblem}
-          showProblem={touched && (name !== undefined || !urlProblem)}
+          // The leftover folder is explained below, with a free name to use instead.
+          showProblem={
+            touched &&
+            folder.toLowerCase() !== leftover?.toLowerCase() &&
+            (name !== undefined || kept === true || !urlProblem)
+          }
           disabled={running}
         />
         {!running && <LocationField state={place} />}
-        {running ? (
-          <>
-            <CloneProgress
-              phase={run.phase}
-              percent={run.percent}
-              cancelling={run.cancelling}
-              onCancel={clone.cancel}
-              machine={props.several ? run.machine : undefined}
-            />
-            {run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
-          </>
-        ) : (
-          run.status === "failed" && (
-            <Problem
-              action={
-                <Button size="sm" onClick={clone.retry}>
-                  <Icon icon={ArrowClockwiseIcon} size={14} />
-                  Retry
-                </Button>
-              }
-            >
-              {run.problem.message}
-            </Problem>
-          )
+        {running && (
+          <p className="text-sm text-subtle-foreground">
+            Closing the palette leaves the clone running; ace says when it's done.
+          </p>
+        )}
+        {running && run.cancelProblem && <Problem>{run.cancelProblem}</Problem>}
+        {failed && <Problem>{failed.problem.message}</Problem>}
+        {leftover && place.location && (
+          <Offer
+            action={
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setName(freeName(leftover, place.siblings ?? []))}
+              >
+                Use {freeName(leftover, place.siblings ?? [])}
+              </Button>
+            }
+          >
+            The failed clone left a folder at{" "}
+            {displayPath(childFolder(place.location, leftover), place.home?.path)}; ace keeps it for
+            you to look at, so clone into another folder name or location.
+          </Offer>
         )}
       </div>
-      <CommandStepFooter
-        hints={[
-          { keys: ["enter"], label: "Clone" },
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(url),
-        ]}
-        note={
-          parent && folder && !nameProblem
-            ? displayPath(childFolder(parent, folder), place.home?.path)
-            : undefined
-        }
-      >
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={running || machine.client === undefined || !parent}
+      {running ? (
+        <CommandStepFooter note={<CloneStatus run={run} several={props.several} />}>
+          <Button size="sm" variant="ghost" disabled={run.cancelling} onClick={clone.cancel}>
+            Cancel clone
+          </Button>
+        </CommandStepFooter>
+      ) : (
+        <CommandStepFooter
+          hints={[
+            { keys: ["enter"], label: "Clone" },
+            ...(props.onBack ? [backHint] : []),
+            escapeHint(url),
+          ]}
+          note={
+            parent && folder && !nameProblem
+              ? displayPath(childFolder(parent, folder), place.home?.path)
+              : undefined
+          }
         >
-          {running ? "Cloning…" : "Clone"}
-        </Button>
-      </CommandStepFooter>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={machine.client === undefined || !parent}
+          >
+            Clone
+          </Button>
+        </CommandStepFooter>
+      )}
     </form>
   );
 }
 
-function CloneProgress(props: {
-  phase: Parameters<typeof cloneProgress>[0];
-  percent: number | undefined;
-  cancelling: boolean;
-  onCancel(): void;
-  machine: Machine | undefined;
-}) {
-  const { label, value } = cloneProgress(props.phase, props.percent);
+/** The failed clone's folder, as the location lists it now, when it is still there. */
+function leftoverFolder(name: string, siblings: readonly string[] | undefined) {
+  const wanted = name.toLowerCase();
+  return siblings?.find((sibling) => sibling.toLowerCase() === wanted);
+}
+
+/** "https://github.com/acme/web.git" → "acme/web": what a clone line calls the repository. */
+function repositoryLabel(url: string, fallback: string): string {
+  const parts = url
+    .replace(/[?#].*$/, "")
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "")
+    .split(/[/:]/)
+    .filter(Boolean);
+  return parts.length >= 3 ? parts.slice(-2).join("/") : fallback;
+}
+
+/** "Cloning acme/web… 42%": the one line a running clone shows, where Clone was. */
+function CloneStatus(props: { run: Extract<CloneRun, { status: "running" }>; several: boolean }) {
+  const { run } = props;
+  const { value } = cloneProgress(run.phase, run.percent);
+  const repository = repositoryLabel(run.input.url, run.input.name);
   return (
-    <div className="grid gap-2 rounded-md bg-secondary p-3">
-      <div className="flex items-center gap-2 text-ui">
-        <Spinner />
-        <span className="flex-1 text-foreground" aria-live="polite">
-          {props.cancelling ? "Cancelling…" : label}
-          {props.machine && (
-            <span className="text-subtle-foreground">
-              {" "}
-              · on{" "}
-              <MachineLabel
-                name={props.machine.name}
-                icon={props.machine.icon}
-                primary={props.machine.primary}
-              />
-            </span>
-          )}
-        </span>
-        {value !== undefined && (
-          <span className="text-sm text-muted-foreground tabular-nums">{value}%</span>
-        )}
-        <Button size="sm" variant="ghost" disabled={props.cancelling} onClick={props.onCancel}>
-          Cancel clone
-        </Button>
-      </div>
-      <ProgressBar
-        label="Clone progress"
-        value={value}
-        valueText={value === undefined ? label : `${label}, ${value}%`}
-      />
-    </div>
+    <span role="status" className="font-sans text-ui text-foreground">
+      {run.cancelling ? `Cancelling the clone of ${repository}…` : `Cloning ${repository}`}
+      {!run.cancelling && props.several && (
+        <>
+          {" "}
+          on{" "}
+          <MachineLabel
+            name={run.machine.name}
+            icon={run.machine.icon}
+            primary={run.machine.primary}
+          />
+        </>
+      )}
+      {!run.cancelling && `…${value === undefined ? "" : ` ${value}%`}`}
+    </span>
   );
 }
