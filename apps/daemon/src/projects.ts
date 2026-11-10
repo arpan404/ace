@@ -41,6 +41,7 @@ import {
   assertOrdinaryPath,
   assertProjectPath,
   canonicalProjectRoots,
+  withoutProjectRoot,
 } from "./project-policy.ts";
 import { applyNoteEdits } from "./project-notes.ts";
 import { ProjectStorage } from "./project-storage.ts";
@@ -336,6 +337,20 @@ export class Projects {
       await made?.close();
     }
   }
+  /** Stop allowing one root, keeping the others as they are now; nothing is deleted. */
+  private async removeRoot(
+    p: Extract<ProjectCommand, { type: "workspace.root.remove" }>,
+    allowed: () => boolean,
+  ) {
+    const save = this.options.saveRoots;
+    if (!save) throw new ProjectError("projects_unavailable");
+    this.check(allowed);
+    const roots = await withoutProjectRoot((await this.options.roots?.()) ?? [], p.path);
+    if (!roots) return { ok: true };
+    this.check(allowed);
+    await save(roots);
+    return { ok: true };
+  }
   /**
    * A canonical folder inside the allowed roots that a project may be made in (ADR 0101):
    * `requested`, or else the folder of the newest project when it isn't inside a Git work tree,
@@ -440,6 +455,7 @@ export class Projects {
           return { ok: true, workspace: await this.chats.create() };
         }
         if (p.type === "workspace.root.add") return await this.addRoot(p, allowed);
+        if (p.type === "workspace.root.remove") return await this.removeRoot(p, allowed);
         if (
           p.type === "workspace.rename" ||
           p.type === "workspace.update" ||

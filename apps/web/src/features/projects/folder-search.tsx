@@ -170,12 +170,7 @@ export function FolderSearchBox(props: {
         onRetry={search.retry}
         allow={
           search.failure.canAllow && query.kind === "path" ? (
-            <AllowFolder
-              client={search.client}
-              path={query.directory}
-              roots={roots}
-              onAllowed={search.retry}
-            />
+            <AllowFolder client={search.client} path={query.directory} onAllowed={search.retry} />
           ) : undefined
         }
       />

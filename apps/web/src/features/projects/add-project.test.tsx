@@ -189,7 +189,7 @@ test("the field starts beside the most recent project", async () => {
   expect(await option("mono")).toBeTruthy();
 });
 
-test("a folder that is already a project adds nothing and opens its latest thread", async () => {
+test("a folder that is already a project adds nothing and opens a new thread draft in it", async () => {
   const made = firstRun();
   const added = await addProject(made, { path: `${home}/code/weather` });
   createIdleTask(made.daemon, {
@@ -202,7 +202,8 @@ test("a folder that is already a project adds nothing and opens its latest threa
   await userEvent.type(input, "~/code/weather/");
   await screen.findByText("~/code/weather");
   await userEvent.keyboard("{Enter}");
-  expect(await screen.findByRole("heading", { level: 1, name: "Fix the forecast" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project: weather" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { level: 1, name: "Fix the forecast" })).toBeNull();
   expect(await screen.findByText("weather is already a project")).toBeTruthy();
   expect(registered(made)).toEqual([`${home}/code/weather`]);
 });
@@ -275,6 +276,30 @@ test("a folder outside the allowed places is allowed in one click, and Undo take
   await waitFor(() =>
     expect(made.daemon.services.settings.get("projects.roots")).toEqual(["/fake"]),
   );
+});
+
+/** A daemon whose allowed places are `/fake` only, with a repository at `/external/site`. */
+function outsideRoots() {
+  const made = harness();
+  made.daemon.projects.seedFolders("/fake", [{ path: "/external/site", git: true }], {
+    roots: ["/fake", "/external"],
+  });
+  made.daemon.services.settings.seed({ "projects.roots": ["/fake"] });
+  return made;
+}
+const roots = (made: ReturnType<typeof harness>) =>
+  made.daemon.services.settings.get("projects.roots");
+
+test("undo keeps a folder allowed after the one it takes back", async () => {
+  const made = outsideRoots();
+  const input = await localFolder(made);
+  await userEvent.type(input, "/external/");
+  await userEvent.click(await screen.findByRole("button", { name: "Allow this folder" }));
+  await waitFor(() => expect(roots(made)).toEqual(["/fake", "/external"]));
+  // Settings, or another device, allows another place meanwhile.
+  made.daemon.services.settings.write("projects.roots", ["/fake", "/external", "/srv"]);
+  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(roots(made)).toEqual(["/fake", "/srv"]));
 });
 
 test("New project: the field is its name, checked as you type, and Enter creates a Git repository", async () => {
