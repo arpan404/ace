@@ -472,6 +472,18 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "repository", value: projectRepository(op) } },
       });
+    if (op.op === "forge.repositories" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "forge",
+          data: {
+            resource: "repositories",
+            value: this.projects.repositories.read(op.workspaceId),
+          },
+        },
+      });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({
         type: "workspace.result",

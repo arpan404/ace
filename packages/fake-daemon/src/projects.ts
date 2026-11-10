@@ -1,4 +1,5 @@
 import { normalizeRemoteUrl } from "@ace/git/remote-url";
+import { FakeProjectRepositories } from "./project-repositories.ts";
 import { parseCloneUrl, projectIconMatches } from "@ace/project-picker";
 import { fakeSearch, fakeComplete } from "./project-picker.ts";
 import {
@@ -98,6 +99,8 @@ export class FakeProjects {
     }
   }
   private opened = new Map<string, number>();
+  /** Each project's repositories (ADR 0116): `ace` has a GitHub origin and a GitLab mirror. */
+  readonly repositories = new FakeProjectRepositories();
   /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";
   /** Allowed roots, canonical, as a real daemon reports them. */
@@ -475,6 +478,17 @@ export class FakeProjects {
           publication,
           inspection: this.inspection(project.path),
         };
+      }
+      if (p.type === "workspace.repositories.set") {
+        const error = this.repositories.set(project.id, p.repositories);
+        if (error) return { ok: false, error };
+        this.emit({
+          type: "workspace.changed",
+          workspaceId: project.id,
+          change: "updated",
+          workspace: project,
+        });
+        return { ok: true, workspace: project };
       }
       const threads = this.context
         .threads()
