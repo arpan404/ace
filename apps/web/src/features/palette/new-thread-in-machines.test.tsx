@@ -25,12 +25,16 @@ async function openStep(made: ReturnType<typeof harness>) {
   return screen.findByRole("dialog", { name: "New thread in" });
 }
 
-/** The step's rows, in order. */
+/** The step's rows, in order, as read aloud: decorative project badges are skipped. */
 const rows = async (step: HTMLElement) => {
   const list = await within(step).findByRole("listbox", { name: "Projects" });
   return within(list)
     .getAllByRole("option")
-    .map((option) => option.textContent ?? "");
+    .map((option) => {
+      const spoken = option.cloneNode(true) as HTMLElement;
+      for (const hidden of spoken.querySelectorAll("[aria-hidden]")) hidden.remove();
+      return spoken.textContent ?? "";
+    });
 };
 /** The machine's projects: every row but the chat first and Add project last. */
 const projectNames = async (step: HTMLElement) =>
