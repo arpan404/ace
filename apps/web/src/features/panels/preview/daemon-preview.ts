@@ -23,6 +23,7 @@ import type {
 } from "../sources.ts";
 import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
 import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
+import { onBrowsingThreads } from "@/lib/browsing.ts";
 import { daemonAnnotate } from "./daemon-annotate.ts";
 import { LivePicture } from "./live-picture.ts";
 import { SuggestionStore } from "./preview-suggestions.ts";
@@ -601,6 +602,20 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         if (!visibility.visible()) return;
         for (const [threadId, watch] of watches) {
           if (seen(threadId)) videos.settle(threadId);
+          watch.cancel?.();
+          poll(threadId);
+        }
+      }),
+    );
+    // A browser an agent opens shows as soon as the agent starts in it, not at the next retry.
+    let browsing: ReadonlySet<string> = new Set();
+    stops.push(
+      onBrowsingThreads(client, (threads) => {
+        const started = [...threads].filter((threadId) => !browsing.has(threadId));
+        browsing = threads;
+        for (const threadId of started) {
+          const watch = watches.get(threadId);
+          if (!watch || watch.subscribed || watch.subscribing) continue;
           watch.cancel?.();
           poll(threadId);
         }
