@@ -1,4 +1,5 @@
 import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import { hostedIssueRead, isIssueRead } from "./hosted-issues.ts";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -65,6 +66,11 @@ export class WorkspaceForgeBrowse {
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
+    if (isIssueRead(operation)) {
+      const { backends, sourceControl } = this.ctx;
+      const scope = { cwd, repository, backends, sourceControl, signal };
+      return hostedIssueRead(operation, scope, this.parts);
+    }
     if (repository.forge !== "github") {
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (operation.op === "forge.pr.list")
@@ -114,25 +120,6 @@ export class WorkspaceForgeBrowse {
           signal,
           operation.headSha,
         ),
-      };
-    }
-    if (operation.op === "forge.issue.list")
-      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
-    if (operation.op === "forge.issue.timeline")
-      return {
-        resource: "issueTimeline",
-        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
-      };
-    if (operation.op === "forge.issue.actions")
-      return {
-        resource: "issueActions",
-        actions: this.parts.issueActions.list(repository, operation.number),
-      };
-    if (operation.op === "forge.issue.detail") {
-      const value = await backend.issueDetail(operation.number, signal);
-      return {
-        resource: "issueDetail",
-        value: { ...value, ...this.parts.issueLinks.related(value.ref) },
       };
     }
     if (operation.op === "forge.pr.merge-state") {

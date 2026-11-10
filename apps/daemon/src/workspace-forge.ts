@@ -1,4 +1,5 @@
 import { commandNotDispatched } from "./command-not-dispatched.ts";
+import { hostedIssueWriter, hostedIssues, type IssueScope } from "./hosted-issues.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
@@ -224,9 +225,16 @@ export class WorkspaceForge {
   }
   async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
     const p = command.payload;
+    const scope = (repository: IssueScope["repository"]): IssueScope => ({
+      cwd,
+      repository,
+      backends: this.backends,
+      sourceControl: this.sourceControl,
+      signal: this.lifetime.signal,
+    });
     if (p.type === "forge.issue.link") {
       await (
-        await this.backends.backend(cwd, p.issue.repository)
+        await hostedIssues(scope(p.issue.repository))
       ).issueDetail(p.issue.number, this.lifetime.signal);
       if (!allowed()) throw new Error("forbidden");
       this.issueLinks.link(p.threadId, p.issue, this.now());
@@ -234,14 +242,14 @@ export class WorkspaceForge {
     }
     if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
       throw new Error("invalid_command");
-    let backend: GitHubForge;
+    let backend: Pick<GitHubForge, "writeIssue" | "reconcileIssue">;
     try {
       // A write is refused on a hidden or unavailable repository. Reconciling only reads whether
       // an earlier write landed, so an uncertain one still settles after its repository is hidden.
       backend =
         p.type === "forge.issue.write"
-          ? await this.backends.writer(cwd, p.repository)
-          : await this.backends.backend(cwd, p.repository);
+          ? await hostedIssueWriter(scope(p.repository))
+          : await hostedIssues(scope(p.repository));
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
