@@ -38,6 +38,7 @@ crates/
   spade-models/    endpoints and models, chat, typed output, streaming, cache counts
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
+  spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
@@ -49,12 +50,12 @@ docs/
 
 ## Settings
 
-| Variable                  | Default              | Meaning                                                                    |
-| ------------------------- | -------------------- | -------------------------------------------------------------------------- |
-| `SPADE_LISTEN`            | `127.0.0.1:3000`     | Address to listen on (loopback)                                            |
-| `RUST_LOG`                | `info`               | Log filter                                                                 |
-| `SPADE_MODEL_CATALOG`     | `config/models.json` | The model catalogue file                                                   |
-| Each endpoint's `key.env` |                      | That endpoint's key, for example `OPENCODE_API_KEY` or `ANTHROPIC_API_KEY` |
+| Variable                  | Default              | Meaning                                                                               |
+| ------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `SPADE_LISTEN`            | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
+| `RUST_LOG`                | `info`               | Log filter                                                                            |
+| `SPADE_MODEL_CATALOG`     | `config/models.json` | The model catalogue file                                                              |
+| Each endpoint's `key.env` |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
 
 ## Models
 
@@ -63,11 +64,11 @@ Spade calls any endpoint that speaks one of three formats: **OpenAI Chat Complet
 **OpenAI Responses** (`openai-responses`) or **Anthropic Messages** (`anthropic`).
 
 `config/models.json`, read at startup, lists the endpoints (id, name, format, base URL, the
-environment variable holding the key, optional extra headers) and each endpoint's models (id,
+key, optional extra headers) and each endpoint's models (id,
 name, context size, capabilities such as `tools`, `images` or `native-tool-search`, and an optional
 price per million tokens, including cache read and write prices). Models are named
 `endpoint/model`, for example `anthropic/claude-sonnet-5-5`; `roles` sets the main, fast and deep
-models. An endpoint without `key` needs none (a local server). To add an endpoint, add an entry
+models. Keys live in the OS keychain (ADR 0116): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
 and restart; nothing is recompiled.
 
 The shipped file lists OpenCode Go (the development default), Anthropic, OpenAI, Google Gemini,

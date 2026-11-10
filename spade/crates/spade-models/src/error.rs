@@ -3,8 +3,11 @@ pub enum ModelError {
     #[error("{0} is not an endpoint/model in the catalogue")]
     UnknownModel(String),
 
-    #[error("{var} is not set, so endpoint {endpoint} cannot be called")]
-    MissingKey { endpoint: String, var: String },
+    #[error("endpoint {endpoint} has no key: add one in Spade's settings{}", var.as_ref().map(|v| format!(" or set {v}")).unwrap_or_default())]
+    MissingKey {
+        endpoint: String,
+        var: Option<String>,
+    },
 
     /// The HTTP client could not be built (TLS or proxy setup).
     #[error("model client setup failed: {0}")]

@@ -30,20 +30,31 @@ fn catalog(fake: &FakeProvider) -> Result<Catalog> {
             { "id": "local", "name": "Local", "format": "openai-chat", "base_url": root,
               "models": [ { "id": "llama", "name": "Llama" } ] },
             { "id": "nokey", "name": "No key", "format": "anthropic", "base_url": root,
-              "key": { "env": "UNSET_KEY" }, "models": [ { "id": "x", "name": "X" } ] }
+              "key": { "env": "UNSET_KEY" }, "models": [ { "id": "x", "name": "X" } ] },
+            { "id": "vault", "name": "Keychain only", "format": "openai-chat", "base_url": root,
+              "key": {}, "models": [ { "id": "v", "name": "V" } ] }
         ]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
 
+/// The keychain holds keys for `vault` and `msgs`; the environment holds the rest.
 fn models(fake: &FakeProvider) -> Result<Models> {
-    let keys = Keys::new(|name| match name {
+    let keychain = |endpoint: &str| match endpoint {
+        "vault" => Some("vault-key".to_owned()),
+        "msgs" => Some("msgs-keychain-key".to_owned()),
+        _ => None,
+    };
+    let env = |name: &str| match name {
         "CHAT_KEY" => Some("chat-key".to_owned()),
         "RESP_KEY" => Some("resp-key".to_owned()),
-        "MSGS_KEY" => Some("msgs-key".to_owned()),
+        "MSGS_KEY" => Some("msgs-env-key".to_owned()),
         _ => None,
-    });
-    Ok(Models::new(catalog(fake)?, keys)?)
+    };
+    Ok(Models::new(
+        catalog(fake)?,
+        Keys::keychain_then_env(keychain, env),
+    )?)
 }
 
 fn only_request(fake: &FakeProvider) -> Result<Seen> {
@@ -113,7 +124,8 @@ async fn an_anthropic_endpoint_gets_its_key_in_x_api_key() -> Result {
     assert_eq!(reply.text, "Hello from Haiku");
     let request = only_request(&fake)?;
     assert_eq!(request.path, "/messages");
-    assert_eq!(request.key.as_deref(), Some("msgs-key"));
+    // The keychain's key wins over MSGS_KEY in the environment.
+    assert_eq!(request.key.as_deref(), Some("msgs-keychain-key"));
     assert_eq!(request.body["model"], "haiku");
     Ok(())
 }
@@ -151,10 +163,21 @@ async fn a_missing_key_names_the_variable_and_never_calls_the_endpoint() -> Resu
         reply,
         Err(ModelError::MissingKey {
             endpoint: "nokey".to_owned(),
-            var: "UNSET_KEY".to_owned()
+            var: Some("UNSET_KEY".to_owned())
         })
     );
     assert!(fake.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_keychain_only_endpoint_uses_its_keychain_key() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    models(&fake)?.chat("vault/v", &Prompt::ask("hi")).await?;
+    assert_eq!(
+        only_request(&fake)?.key.as_deref(),
+        Some("Bearer vault-key")
+    );
     Ok(())
 }
 

@@ -10,7 +10,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Price, Role};
-use crate::config::Keys;
+use crate::config::{KeyRequest, Keys};
 use crate::error::ModelError;
 use crate::prompt::{Delta, Prompt, Reply, Speaker, Usage};
 use crate::typed;
@@ -133,15 +133,22 @@ impl Models {
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
         let endpoint = resolved.endpoint;
-        let auth = match &endpoint.key_env {
-            Some(var) => {
-                AuthData::from_single(self.keys.get(var).ok_or_else(|| ModelError::MissingKey {
+        let auth = if endpoint.needs_key {
+            let request = KeyRequest {
+                endpoint: &endpoint.id,
+                env: endpoint.key_env.as_deref(),
+            };
+            let key = self
+                .keys
+                .get(request)
+                .ok_or_else(|| ModelError::MissingKey {
                     endpoint: endpoint.id.clone(),
-                    var: var.clone(),
-                })?)
-            }
+                    var: endpoint.key_env.clone(),
+                })?;
+            AuthData::from_single(key)
+        } else {
             // The SDK's OpenAI path needs some key; local servers ignore this one.
-            None => AuthData::from_single(KEYLESS),
+            AuthData::from_single(KEYLESS)
         };
         let mut options = ChatOptions::default();
         if let Some(value) = prompt.max_tokens {

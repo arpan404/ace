@@ -78,7 +78,9 @@ pub struct Endpoint {
     pub format: Format,
     /// Always ends with `/`.
     pub base_url: String,
-    /// The environment variable holding the key; `None` for a server that needs none.
+    /// Whether calls need a key. Keys come from the OS keychain, then `key_env` (ADR 0116).
+    pub needs_key: bool,
+    /// The environment variable that may hold the key.
     pub key_env: Option<String>,
     pub headers: Vec<(String, String)>,
     pub models: Vec<Model>,
@@ -154,7 +156,9 @@ struct FileEndpoint {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FileKey {
-    env: String,
+    /// Optional: without it the key comes only from the keychain.
+    #[serde(default)]
+    env: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -281,7 +285,11 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
     } else {
         format!("{base}/")
     };
-    let key_env = endpoint.key.map(|key| key.env.trim().to_owned());
+    let needs_key = endpoint.key.is_some();
+    let key_env = endpoint
+        .key
+        .and_then(|key| key.env)
+        .map(|var| var.trim().to_owned());
     if let Some(var) = &key_env {
         let valid = !var.is_empty()
             && var
@@ -340,6 +348,7 @@ fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoin
         name: endpoint.name,
         format: endpoint.format,
         base_url,
+        needs_key,
         key_env,
         headers: endpoint.headers.into_iter().collect(),
         models,

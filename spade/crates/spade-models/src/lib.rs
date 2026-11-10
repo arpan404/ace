@@ -13,7 +13,7 @@ mod typed;
 
 pub use catalog::{Capability, Catalog, CatalogError, Endpoint, Model, Price, Resolved, Role};
 pub use client::{KEYLESS, Models};
-pub use config::{Keys, ModelsConfig};
+pub use config::{KeyRequest, Keys, ModelsConfig};
 pub use error::ModelError;
 pub use format::Format;
 pub use prompt::{Delta, Message, Prompt, Reply, Speaker, Usage};

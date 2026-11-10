@@ -31,7 +31,7 @@ without spare hardware, may come later.
 | The model list is curated: the current model of each family worth running, nothing older                                                                                       | decided  |
 | Connectors reuse existing MCP servers before we write our own (see Connectors)                                                                                                 | proposed |
 | A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
-| How a person enters their model key in the app (environment only, or a key field stored in the OS keychain, which needs an ADR)                                                | **open** |
+| Endpoint keys are typed into the app and kept in the OS keychain only, then the endpoint's environment variable (ADR 0116)                                                     | decided  |
 
 ## Shared with ace
 
