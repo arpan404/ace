@@ -44,17 +44,18 @@ export { mediaKey, type RenderedMedia } from "./github-media.ts";
 export * from "./origin-readiness.ts";
 export * from "./origin-reader.ts";
 export * from "./gitlab-reader.ts";
+export * from "./gitlab-api.ts";
+export * from "./gitlab-checks.ts";
+export { ReadBudget } from "./read-budget.ts";
 export * from "./read-only-api.ts";
 export * from "./forge-capabilities.ts";
 export { pinnedRunner } from "./pinned-runner.ts";
 export { OriginListSnapshots, originListSnapshotMs } from "./origin-list-snapshots.ts";
 export * from "./project-repositories.ts";
 
-export * from "./gitlab-api.ts";
-export * from "./gitlab-checks.ts";
-export { ReadBudget } from "./read-budget.ts";
-
 export * from "./gitlab-merge-state.ts";
 export * from "./gitlab-hosted-merge.ts";
 
+export * from "./gitlab-lifecycle.ts";
+export * from "./gitlab-inbox.ts";
 export * from "./gitlab-creation.ts";

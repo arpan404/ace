@@ -1,4 +1,7 @@
-import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import { GitLabApi, GitLabLifecycle, forgeCapabilities } from "@ace/forge";
+import { gitLabInboxBackend } from "./hosted-inbox.ts";
+import { GitLabHostedMerge, ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import { HostedChecks } from "./hosted-checks.ts";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -42,7 +45,10 @@ export class WorkspaceForgeBrowse {
         resource: "repositories",
         value: {
           workspaceId: operation.workspaceId,
-          repositories: resolved.repositories,
+          repositories: resolved.repositories.map((entry) => ({
+            ...entry,
+            capabilities: [...forgeCapabilities[entry.repository.forge]],
+          })),
           primary: resolved.primary?.repository ?? null,
           config: config ?? null,
         },
@@ -60,12 +66,59 @@ export class WorkspaceForgeBrowse {
           resource: "compare",
           value: await this.parts.newPr.compare(cwd, operation, signal),
         };
+      if ((await this.ctx.backends.repository(cwd)).forge === "gitlab")
+        return {
+          resource: "repoPrOptions",
+          value: { labels: [], assignable: [], milestones: [], truncated: true },
+        };
       const target = await this.parts.newPr.targetBackend(cwd);
       return { resource: "repoPrOptions", value: await target.prOptions(signal) };
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     if (repository.forge !== "github") {
+      if (repository.forge === "gitlab" && operation.op === "forge.repo.pr-options")
+        return {
+          resource: "repoPrOptions",
+          value: { labels: [], assignable: [], milestones: [], truncated: true },
+        };
+      if (repository.forge === "gitlab" && operation.op === "forge.pr.lifecycle") {
+        const backend = {
+          lifecycle: new GitLabLifecycle(
+            new GitLabApi({
+              repository,
+              runner: await this.ctx.backends.hostRunner(cwd, repository, [], signal),
+            }),
+          ),
+        };
+        const ref = { repository, number: operation.number };
+        const revision = this.ctx.owner.capture(ref);
+        const value = await this.parts.lifecycle.state(ref, backend, signal);
+        if (this.ctx.owner.current(ref, revision)) this.publishLifecycle(value.snapshot);
+        return { resource: "prLifecycle", value };
+      }
+      if (repository.forge === "gitlab" && operation.op === "forge.pr.merge-state") {
+        const backend = new GitLabHostedMerge({
+          repository,
+          runner: await this.ctx.backends.hostRunner(cwd, repository, [], signal),
+        });
+        const { value, writeState } = await this.parts.actions.readMergeState(
+          { repository, number: operation.number },
+          () => backend.prMergeState(operation.number, signal),
+        );
+        return { resource: "prMergeState", value: { ...value, writeState } };
+      }
+      if (repository.forge === "gitlab" && operation.op === "forge.pr.check")
+        return {
+          resource: "prCheck",
+          value: await new HostedChecks(this.ctx).read(
+            cwd,
+            repository,
+            operation.checkRunId,
+            operation.jobId,
+            signal,
+          ),
+        };
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (operation.op === "forge.pr.list")
         return { resource: "prList", value: await reader.listPrs(operation.query, signal) };
@@ -270,7 +323,12 @@ export class WorkspaceForgeBrowse {
       throw error;
     });
     const host = operation.host ?? own?.host ?? "";
-    const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
+    const repository = await this.ctx.backends.inboxRepository(cwd, host);
+    const inbox =
+      repository.forge === "gitlab"
+        ? await gitLabInboxBackend(this.ctx.backends, cwd, repository, signal)
+        : await this.ctx.backends.inbox(cwd, host);
+    const value = await inbox.list(operation.query, signal);
     // Rows from any repository the project uses on this host open without naming it.
     const visible = own
       ? (await this.ctx.backends.projectRepositories(cwd)).resolved.repositories

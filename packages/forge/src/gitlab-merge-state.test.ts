@@ -35,6 +35,8 @@ function environment(
     identityChanged?: true;
     loseWrite?: boolean;
     squashOption?: string;
+    version?: string;
+    writeCode?: number;
   } = {},
 ) {
   const writes: CommandRequest[] = [];
@@ -50,7 +52,8 @@ function environment(
       writes.push(request);
       if (options.loseWrite) throw new Error("connection lost");
       body = options.writeBody ?? { ...mr, state: "merged" };
-    } else if (endpoint === path) body = { ...mr, ...options.source };
+    } else if (endpoint === "version") body = { version: options.version ?? "18.4.1-ee" };
+    else if (endpoint === path) body = { ...mr, ...options.source };
     else if (endpoint === root) body = { squash_option: options.squashOption ?? "default_off" };
     else if (endpoint === `${path}/pipelines?per_page=100&page=1`)
       body = [{ id: 12, sha: head, status: "success" }];
@@ -64,7 +67,7 @@ function environment(
     } else throw new Error(`unexpected endpoint ${endpoint}`);
     return {
       code: 0,
-      stdout: `HTTP/2 200 OK\r\n\r\n${JSON.stringify(body)}`,
+      stdout: `HTTP/2 ${request.input !== undefined ? (options.writeCode ?? 200) : 200} OK\r\n\r\n${JSON.stringify(body)}`,
       truncated: false,
       ...(request.input !== undefined && options.identityChanged ? { identityChanged: true } : {}),
     };
@@ -231,4 +234,35 @@ test("revoked admission and unsupported rebase or dequeue never dispatch", async
     kind: "unsupported",
   });
   expect(writes).toEqual([]);
+});
+
+test("older GitLab servers receive the documented pipeline auto-merge parameter", async () => {
+  const { backend, writes } = environment({
+    version: "16.11.0",
+    jobs: ["running"],
+    writeBody: { ...mr, merge_when_pipeline_succeeds: true },
+  });
+  await backend.change(7, head, "enable", "merge", signal);
+  expect(JSON.parse(writes[0]?.input ?? "null")).toEqual({
+    sha: head,
+    squash: false,
+    merge_when_pipeline_succeeds: true,
+  });
+});
+test("an unreadable server version never guesses an auto-merge strategy", async () => {
+  const { backend, writes } = environment({ version: "future" });
+  await expect(backend.change(7, head, "enable", "merge", signal)).rejects.toMatchObject({
+    kind: "unsupported",
+  });
+  expect(writes).toEqual([]);
+});
+
+test("a host SHA rejection after preflight is a definite head-moved refusal", async () => {
+  const { backend } = environment({ writeCode: 409, writeBody: { message: "SHA does not match" } });
+  const dispatch = new MutationDispatch();
+  await expect(backend.merge(7, head, "merge", signal, dispatch)).rejects.toMatchObject({
+    kind: "head_moved",
+    dispatched: false,
+  });
+  expect(dispatch.definitelyFailed).toBe(true);
 });

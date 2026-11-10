@@ -157,13 +157,25 @@ export class GitLabMergeState {
     if (state.headSha !== headSha) throw new ForgeError("head_moved", undefined, false);
     return state;
   }
+  async #autoFields(signal: AbortSignal): Promise<Record<string, boolean>> {
+    // Older servers can ignore an unknown auto_merge parameter, so choose only from a proven version.
+    const response = await this.#api.get("version", signal, new ReadBudget());
+    const version = z.looseObject({ version: z.string() }).safeParse(response.body);
+    const parts = version.success ? /^(\d+)\.(\d+)(?:\.|-)/.exec(version.data.version) : null;
+    if (!parts) throw new ForgeError("unsupported", undefined, false);
+    const major = Number(parts[1]),
+      minor = Number(parts[2]);
+    if (major > 17 || (major === 17 && minor >= 11)) return { auto_merge: true };
+    if (major >= 12) return { merge_when_pipeline_succeeds: true };
+    throw new ForgeError("unsupported", undefined, false);
+  }
   async #accept(
     number: number,
     headSha: string,
     method: MergeMethod,
     signal: AbortSignal,
     dispatch: MutationDispatch,
-    auto: boolean,
+    intent: "merge" | "autoMerge",
     commit?: ForgeMergeCommit,
   ): Promise<void> {
     if (!(await this.#methods(signal)).includes(method))
@@ -175,7 +187,7 @@ export class GitLabMergeState {
       {
         sha: headSha,
         squash: method === "squash",
-        auto_merge: auto,
+        ...(intent === "autoMerge" ? await this.#autoFields(signal) : { auto_merge: false }),
         ...(message
           ? {
               [method === "squash" ? "squash_commit_message" : "merge_commit_message"]:
@@ -195,7 +207,9 @@ export class GitLabMergeState {
       ack.data.sha !== headSha ||
       !(
         ack.data.state === "merged" ||
-        (auto && ack.data.merge_when_pipeline_succeeds && ack.data.squash === (method === "squash"))
+        (intent === "autoMerge" &&
+          ack.data.merge_when_pipeline_succeeds &&
+          ack.data.squash === (method === "squash"))
       )
     )
       throw new ForgeMutationOutcome({ number, headSha });
@@ -212,7 +226,7 @@ export class GitLabMergeState {
     if (state.state === "MERGED") return;
     if (state.blockers.length) throw new ForgeError("conflict", undefined, false);
     if (!state.canEnable) throw new ForgeError("forbidden", undefined, false);
-    await this.#accept(number, headSha, method, signal, dispatch, false, commit);
+    await this.#accept(number, headSha, method, signal, dispatch, "merge", commit);
   }
   async change(
     number: number,
@@ -232,7 +246,7 @@ export class GitLabMergeState {
     if (!(action === "enable" ? state.canEnable : state.canDisable))
       throw new ForgeError("forbidden", undefined, false);
     if (action === "enable")
-      await this.#accept(number, headSha, method, signal, dispatch, true, commit);
+      await this.#accept(number, headSha, method, signal, dispatch, "autoMerge", commit);
     else {
       // GitLab's cancellation has no sha parameter. Preflight pins the observed head; the host
       // enforces permissions. Use the older documented endpoint for deployed GitLab versions.
