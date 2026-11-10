@@ -8,8 +8,8 @@ import {
 } from "@ace/protocol";
 import { pushRemote } from "@ace/ui-core";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
 import { runCommand } from "./daemon-command.ts";
+import { useDaemonQuery } from "./daemon-query.ts";
 import { readForge } from "./forge-read.ts";
 import { forgetProjectRepositories, projectRepositoriesKey } from "./project-cache.ts";
 
@@ -70,20 +70,17 @@ export function useProjectRepositoryLists(projects: readonly string[]): Reposito
 export function useSaveProjectRepositories() {
   const client = useClient();
   const cache = useQueryClient();
-  return useCallback(
-    async (project: string, repositories: ProjectRepositoryConfig | null) => {
-      try {
-        await runCommand(client, {
-          type: "workspace.repositories.set",
-          workspaceId: WorkspaceId.parse(project),
-          repositories,
-        });
-      } finally {
-        forgetProjectRepositories(cache, project);
-      }
-    },
-    [client, cache],
-  );
+  return async (project: string, repositories: ProjectRepositoryConfig | null) => {
+    try {
+      await runCommand(client, {
+        type: "workspace.repositories.set",
+        workspaceId: WorkspaceId.parse(project),
+        repositories,
+      });
+    } finally {
+      forgetProjectRepositories(cache, project);
+    }
+  };
 }
 
 /**
@@ -104,4 +101,28 @@ export async function readPushRemote(
   const preferences = entry ? SourceControlPreferences.safeParse(entry.value) : undefined;
   if (!settings.ok || !preferences?.success) return undefined;
   return pushRemote(repositories, preferences.data.remote);
+}
+
+/**
+ * The Git hosts in source control settings, to read a typed repository address the way the
+ * daemon would. Read fresh each time a view that needs them opens.
+ */
+export function useSourceControlHosts() {
+  return useDaemonQuery({
+    queryKey: ["source-control", "hosts"],
+    staleTime: 0,
+    retry: false,
+    read: async (client) => {
+      const response = await client.request({
+        type: "settings.get",
+        key: "sourceControl.preferences",
+        scope: {},
+      });
+      const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
+      const parsed = entry ? SourceControlPreferences.safeParse(entry.value) : undefined;
+      if (!response.ok || !parsed?.success)
+        throw new Error("Couldn't read source control settings.");
+      return parsed.data.hosts;
+    },
+  });
 }

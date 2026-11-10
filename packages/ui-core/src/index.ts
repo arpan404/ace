@@ -122,6 +122,7 @@ export * from "./forge-error-copy.ts";
 export * from "./hosted-reviews.ts";
 export * from "./project-repositories.ts";
 export * from "./repository-address.ts";
+export * from "./repository-words.ts";
 export * from "./skill-library.ts";
 export * from "./provider-slots.ts";
 export * from "./subagent-row.ts";
