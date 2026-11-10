@@ -1,11 +1,10 @@
 import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
 import { FloatingContents } from "./floating-material.tsx";
-import { Kbd } from "./kbd.tsx";
 import { layers, menuLabel, overlaySurface } from "./menu-styles.ts";
 
 /**
@@ -92,9 +91,9 @@ function Command<Item>(props: {
 
 /**
  * The sheet's top row: a magnifier, the field (`commandField`), anything beside it (a spinner)
- * and the esc chip, which is the close control (so Tab lands on something visible). On touch,
- * where there's no Esc key, a "Close" button takes the chip's place. The field is always focused
- * while the sheet is open, so the caret is its focus mark.
+ * and the close mark, which always closes (so Tab lands on something visible). It shows no key:
+ * what Esc does here (clear the field first, or close) is the key hints' to say. The field is
+ * always focused while the sheet is open, so the caret is its focus mark.
  */
 const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
@@ -112,13 +111,9 @@ function CommandSearchRow(props: {
       {props.children}
       <Dialog.Close
         aria-label={props.closeLabel}
-        className="focus-ring relative grid shrink-0 place-items-center rounded-sm text-sm font-medium text-muted-foreground touch-hit touch-hit-lg"
+        className="focus-ring relative grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground touch-hit touch-hit-lg"
       >
-        {/* The chip hides itself on touch, where "Close" shows instead. */}
-        <Kbd>esc</Kbd>
-        <span aria-hidden className="hidden px-1 pointer-coarse:inline">
-          Close
-        </span>
+        <XIcon aria-hidden size={16} />
       </Dialog.Close>
     </div>
   );

@@ -17,13 +17,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import {
-  backHint,
-  escapeHint,
-  KeyHints,
-  navigateHint,
-  selectHint,
-} from "@/components/ui/key-hints.tsx";
+import { fieldHints, KeyHints, navigateHint, selectHint } from "@/components/ui/key-hints.tsx";
 import {
   ListStatus,
   ListViewport,
@@ -297,9 +291,9 @@ function RepositoryBrowser(props: {
       </ListViewport>
       <KeyHints
         hints={[
-          ...(rows.length ? [navigateHint, selectHint] : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(query),
+          ...(rows.length ? [navigateHint] : []),
+          ...(rows.length && !stale ? [selectHint] : []),
+          ...fieldHints(query, props.onBack),
         ]}
       />
     </>

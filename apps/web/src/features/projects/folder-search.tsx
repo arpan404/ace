@@ -10,7 +10,7 @@ import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { KeyHintList } from "@/components/ui/key-hints.tsx";
 import { ListStatus, ListViewport, OptionSkeletons } from "@/components/ui/list-viewport.tsx";
 import { canPick } from "@/components/ui/list-keys.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -312,24 +312,15 @@ export function FolderSearchBox(props: {
         <span id={`${listId}-path`} className="min-w-0 flex-1 truncate font-mono text-xs">
           {highlighted ? displayPath(highlighted.path, home?.path) : ""}
         </span>
-        <KeyHints />
+        <KeyHintList
+          className="shrink-0 max-sm:hidden"
+          hints={[
+            ...(highlighted ? [{ keys: ["enter"], label: "Go in" }] : []),
+            ...(query.kind === "path" ? [{ keys: ["tab"], label: "Complete" }] : []),
+          ]}
+        />
       </div>
     </div>
-  );
-}
-
-function KeyHints() {
-  return (
-    <span aria-hidden className="hidden shrink-0 items-center gap-2.5 sm:flex">
-      <span className="inline-flex items-center gap-1">
-        <Kbd>↵</Kbd>
-        go in
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <Kbd>tab</Kbd>
-        complete
-      </span>
-    </span>
   );
 }
 

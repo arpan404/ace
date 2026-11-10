@@ -95,3 +95,17 @@ test("a GitHub list that fails offers Retry beside the reason, and Clear filters
   await userEvent.click(within(status).getByRole("button", { name: "Clear filters" }));
   expect(await screen.findByRole("option", { name: /ada\/engine/ })).toBeTruthy();
 });
+
+test("the Backspace hint shows only while the field is empty, and Esc's hint says what it does", async () => {
+  const made = host();
+  const sheet = await source(made, "Local folder");
+  const field = await screen.findByRole<HTMLInputElement>("combobox", { name: "Folder path" });
+  const hints = () => sheet.querySelector('[data-slot="key-hints"]')?.textContent ?? "";
+  await waitFor(() => expect(field.value).not.toBe(""));
+  expect(hints()).not.toContain("Back");
+  expect(hints()).toContain("Clear");
+  await userEvent.clear(field);
+  expect(hints()).toContain("Back");
+  expect(hints()).toContain("Close");
+  expect(hints()).not.toContain("Clear");
+});

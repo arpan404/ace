@@ -24,7 +24,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { backHint, escapeHint, navigateHint } from "@/components/ui/key-hints.tsx";
+import { fieldHints, navigateHint } from "@/components/ui/key-hints.tsx";
 import {
   ListStatus,
   ListViewport,
@@ -276,8 +276,7 @@ export function LocalFolderStep(props: {
               : target
                 ? [{ keys: ["enter"], label: "Add" }]
                 : []),
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(text),
+          ...fieldHints(text, props.onBack),
         ]}
       >
         {native && (
