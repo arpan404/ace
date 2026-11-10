@@ -14,20 +14,24 @@ without spare hardware, may come later.
 
 ## Decisions
 
-| Decision                                                                                                                        | Status   |
-| ------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| Spade is Rust, in ace's repository at `spade/`, open source under Apache-2.0 like the rest of ace                               | decided  |
-| Spade runs on the person's own hardware beside the ace daemon; a hosted Spade may come later                                    | decided  |
-| Rust is the backend only; Spade's screens are ace's React (desktop, web) and Swift (iOS)                                        | decided  |
-| Spade acts on the person's machines and daemon through ace                                                                      | decided  |
-| Storage is one SQLite file per machine (`spade-store`)                                                                          | decided  |
-| Spade's own models go through OpenRouter; Claude models directly may come later                                                 | decided  |
-| Development and internal testing call models with an OpenCode Go API key                                                        | decided  |
-| Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                        | decided  |
-| The model list is curated: the current model of each family worth running, nothing older                                        | decided  |
-| Connectors reuse existing MCP servers before we write our own (see Connectors)                                                  | proposed |
-| A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)  | proposed |
-| How a person enters their model key in the app (environment only, or a key field stored in the OS keychain, which needs an ADR) | **open** |
+| Decision                                                                                                                                                                       | Status   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| Spade is Rust, in ace's repository at `spade/`, open source under Apache-2.0 like the rest of ace                                                                              | decided  |
+| Spade runs on the person's own hardware beside the ace daemon; a hosted Spade may come later                                                                                   | decided  |
+| Rust is the backend only; Spade's screens are ace's React (desktop, web) and Swift (iOS)                                                                                       | decided  |
+| Spade acts on the person's machines and daemon through ace                                                                                                                     | decided  |
+| Storage is one SQLite file per machine (`spade-store`)                                                                                                                         | decided  |
+| Models are reached through endpoints the person adds, in any of three formats: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages; no dependency on any one gateway | decided  |
+| Subscription models (Codex, Claude Code, OpenCode) are reached only through the person's own logged-in CLI via the ace daemon, never by reading their login tokens             | decided  |
+| The harness steers by default: a message sent mid-turn joins the running turn                                                                                                  | decided  |
+| The whole harness is in scope: background tools, duplicate-proof writes, native tool loading, skills, context, images                                                          | decided  |
+| Prompts are append-only so the cache hit rate inside agent turns stays near 99% (see Caching)                                                                                  | decided  |
+| Development and internal testing call models with an OpenCode Go API key                                                                                                       | decided  |
+| Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                                                                       | decided  |
+| The model list is curated: the current model of each family worth running, nothing older                                                                                       | decided  |
+| Connectors reuse existing MCP servers before we write our own (see Connectors)                                                                                                 | proposed |
+| A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)                                                 | proposed |
+| How a person enters their model key in the app (environment only, or a key field stored in the OS keychain, which needs an ADR)                                                | **open** |
 
 ## Shared with ace
 
@@ -47,11 +51,11 @@ matter; the encrypted channel and grants matter when Spade reaches a daemon from
 
 | Crate            | Job                                                                                                                                                                | State                 |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
-| `spade-models`   | Model catalogue, gateways, chat, typed output, streaming                                                                                                           | built                 |
+| `spade-models`   | Endpoints and models, chat, typed output, streaming, cache counts                                                                                                  | built                 |
 | `spade-core`     | Pure logic, no I/O: conversation events, transcript, prompts, spending, checkpoints, titles; later the agent loop, approval gate, turn-taking and memory decisions | built (chat), growing |
 | `spade-store`    | SQLite: conversations, event log, spending ledger                                                                                                                  | built                 |
 | `spade-server`   | Local API and reply engine                                                                                                                                         | in progress           |
-| `spade-testkit`  | Test-only fake model gateway                                                                                                                                       | built                 |
+| `spade-testkit`  | Test-only fake model endpoint                                                                                                                                      | built                 |
 | `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
 | `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
 | `spade-mcp`      | Connector catalogue and MCP client (`rmcp`)                                                                                                                        | planned               |
@@ -63,44 +67,47 @@ through the public API with real edges (sockets, SQLite) where possible.
 
 ## Models
 
-- **Production:** OpenRouter (`https://openrouter.ai/api/v1`, `OPENROUTER_API_KEY`), with the
-  person's own key on their machine.
-- **Development:** OpenCode Go (`OPENCODE_API_KEY`). Most Go models take OpenAI-style requests at
-  `https://opencode.ai/inference/go/openai/v1`. Some take Anthropic-style requests at
-  `.../go/anthropic/v1` (MiniMax, Qwen, Claude Haiku) or Google-style at `.../go/google/v1beta`
-  (Gemini), per the models.dev catalogue. The Go key is never shipped.
-- **Later:** Claude models through Anthropic's own API.
+**Endpoints, not gateways.** `config/models.json` lists endpoints (format, base URL, key variable,
+extra headers) and their models (context size, capabilities, price per million tokens with cache
+read and write prices). A model is `endpoint/model`; `roles` picks main, fast and deep. The three
+formats map to `genai`'s OpenAI, OpenAI Responses and Anthropic adapters; Spade sets the full
+target on every call, so any compatible server works, including local ones without a key. Model
+ids, prices and base URLs in the shipped file come from models.dev (checked 2026-11-10); tiered
+long-context prices are not modelled yet, so very long prompts are under-counted.
 
-The SDK must speak Anthropic's API natively (prompt caching, thinking blocks kept across tool
-turns), plus OpenRouter and custom endpoints. Compared 2026-11-08 (all MIT):
+**Development** uses OpenCode Go (`OPENCODE_API_KEY`): its OpenAI-format endpoint for Kimi K3.1 Pro
+and GLM-5.3, its Anthropic-format endpoint for Claude Haiku 5.5. Check that Go's terms allow its key
+outside OpenCode before relying on it in production. The Go key is never shipped.
 
-| Crate           | Fit                                                                                                                                                                                     | Gaps                                                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `genai` 0.7     | Each provider's own protocol, Anthropic caching and thinking signatures, OpenRouter and OpenCode Go adapters, raw-frame access for lenient decoding, typed output through a JSON schema | Its OpenCode Go adapter is stale (old endpoint, sends only MiniMax to the Anthropic path); fixed with our own endpoint resolver |
-| `aisdk` 0.6     | Closest to the Vercel AI SDK: `.schema::<T>()` typed output, tool macros, agent loop                                                                                                    | Young (263 stars); no Anthropic prompt caching; its OpenCode provider is Zen, not Go                                            |
-| `rig-core` 0.46 | Most used                                                                                                                                                                               | Now centred on its coding-agent framework; frequent breaking releases; needs Rust 1.97                                          |
+**CLI brains (planned).** Subscription models run as an ace provider session through the daemon,
+with Spade's tools, skills and memory attached as an MCP server and the approval gate inside those
+tools. Spade's roles can point at an endpoint or a CLI.
 
-Proposal: `genai` behind `spade-models`, a small crate with Spade's own request and response types.
-Typed output is `generate::<T>()`: the schema comes from `schemars`, and the reply is parsed with
-serde into `T`; a parse failure is an error, never a guess. Spade owns the agent loop in
-`spade-core`, not the SDK, because the approval gate has to sit between a tool call and its run.
-Swapping the SDK later only touches `spade-models`.
+**SDK.** `genai` behind `spade-models`, compared with `aisdk` and `rig-core` on 2026-11-08 for
+native Anthropic support (caching, thinking blocks across tool turns) and typed output. Spade owns
+the agent loop, because the approval gate sits between a tool call and its run; swapping the SDK
+only touches `spade-models`. Typed output is `generate::<T>()`: the schema comes from `schemars`,
+and a reply that does not parse is an error, never a guess.
 
-**The catalogue** (`config/models.json`, read at startup, so changing models needs no rebuild; 2026-11-08):
+## Caching
 
-| Model             | OpenRouter | OpenCode Go            | Anthropic |
-| ----------------- | ---------- | ---------------------- | --------- |
-| Claude Opus 5.5   | yes        |                        | yes       |
-| Claude Sonnet 5.5 | yes        |                        | yes       |
-| Claude Haiku 5.5  | yes        | yes (Anthropic format) | yes       |
-| GPT-6.1 Sol       | yes        |                        |           |
-| Gemini 4 Argon    | yes        | yes (Google format)    |           |
-| Kimi K3.1 Pro     | yes        | yes                    |           |
-| GLM-5.3           | yes        | yes                    |           |
+Hit rate is input tokens read from the cache over all input tokens, per call. The first call of a
+conversation always misses; every later call misses only on its new tail. The rules:
 
-Defaults per role: OpenRouter and Anthropic use Sonnet (main), Haiku (fast) and Opus (deep);
-OpenCode Go uses Kimi K3.1 Pro, Haiku and Gemini 4 Argon. Left out on purpose: older
-generations, Fable (cost), "-pro" and dated snapshots, preview and vision-experiment variants.
+- The prompt is append-only. The tool list never changes within a conversation: deferred tools are
+  revealed by `tool_search` results and called through a `call_tool` dispatcher, or by the
+  endpoint itself where it declares `native-tool-search`.
+- Per-turn content (matching memories, the time, room context) rides with the new message, never
+  at the top. The skill index is frozen per conversation; `skill_load` returns skill text at the
+  tail.
+- One model per conversation; side jobs use the fast model with fixed templates.
+- Byte-stable serialisation: tools sorted by name, fixed key order, no timestamps or random ids in
+  the stable part.
+- Anthropic: a long-lived breakpoint on the stable top and a short one on the tail. OpenAI: a stable
+  `prompt_cache_key` per conversation.
+- Compaction is rare and large, between turns, and is the only time old tool results become stubs.
+- Every call records input, cache-read, cache-write and output tokens; cost uses the cache prices,
+  and the trace shows the hit rate per turn.
 
 ## Features
 

@@ -1,148 +1,135 @@
 {
-  "checked": "2026-11-09",
-  "defaults": {
-    "openrouter": {
-      "main": "claude-sonnet-5-5",
-      "fast": "claude-haiku-5-5",
-      "deep": "claude-opus-5-5"
-    },
-    "opencode-go": {
-      "main": "kimi-k3.1-pro",
-      "fast": "claude-haiku-5-5",
-      "deep": "gemini-4-argon"
-    },
-    "anthropic": {
-      "main": "claude-sonnet-5-5",
-      "fast": "claude-haiku-5-5",
-      "deep": "claude-opus-5-5"
-    }
+  "checked": "2026-11-10",
+  "roles": {
+    "main": "opencode-go/kimi-k3.1-pro",
+    "fast": "opencode-go-anthropic/claude-haiku-5-5",
+    "deep": "anthropic/claude-opus-5-5"
   },
-  "models": [
+  "endpoints": [
     {
-      "id": "claude-opus-5-5",
-      "name": "Claude Opus 5.5",
-      "routes": {
-        "openrouter": {
-          "model": "anthropic/claude-opus-5.5",
-          "price": {
-            "input": 4,
-            "output": 20
-          }
+      "id": "opencode-go",
+      "name": "OpenCode Go",
+      "format": "openai-chat",
+      "base_url": "https://opencode.ai/inference/go/openai/v1/",
+      "key": { "env": "OPENCODE_API_KEY" },
+      "models": [
+        {
+          "id": "kimi-k3.1-pro",
+          "name": "Kimi K3.1 Pro",
+          "context": 1048576,
+          "capabilities": ["tools", "images"]
         },
-        "anthropic": {
-          "model": "claude-opus-5-5",
-          "price": {
-            "input": 4,
-            "output": 20
-          }
-        }
-      }
+        { "id": "glm-5.3", "name": "GLM-5.3", "context": 1000000, "capabilities": ["tools"] }
+      ]
     },
     {
-      "id": "claude-sonnet-5-5",
-      "name": "Claude Sonnet 5.5",
-      "routes": {
-        "openrouter": {
-          "model": "anthropic/claude-sonnet-5.5",
-          "price": {
-            "input": 2,
-            "output": 10
-          }
-        },
-        "anthropic": {
-          "model": "claude-sonnet-5-5",
-          "price": {
-            "input": 2,
-            "output": 10
-          }
+      "id": "opencode-go-anthropic",
+      "name": "OpenCode Go (Anthropic format)",
+      "format": "anthropic",
+      "base_url": "https://opencode.ai/inference/go/anthropic/v1/",
+      "key": { "env": "OPENCODE_API_KEY" },
+      "models": [
+        {
+          "id": "claude-haiku-5-5",
+          "name": "Claude Haiku 5.5",
+          "context": 1000000,
+          "capabilities": ["tools", "images"]
         }
-      }
+      ]
     },
     {
-      "id": "claude-haiku-5-5",
-      "name": "Claude Haiku 5.5",
-      "routes": {
-        "openrouter": {
-          "model": "anthropic/claude-haiku-5.5",
-          "price": {
-            "input": 0.1,
-            "output": 0.5
-          }
+      "id": "anthropic",
+      "name": "Anthropic",
+      "format": "anthropic",
+      "base_url": "https://api.anthropic.com/v1/",
+      "key": { "env": "ANTHROPIC_API_KEY" },
+      "models": [
+        {
+          "id": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "context": 1000000,
+          "capabilities": ["tools", "images", "native-tool-search"],
+          "price": { "input": 4, "output": 20, "cache_read": 0.2, "cache_write": 5 }
         },
-        "opencode-go": {
-          "model": "claude-haiku-5-5",
-          "protocol": "anthropic"
+        {
+          "id": "claude-sonnet-5-5",
+          "name": "Claude Sonnet 5.5",
+          "context": 1000000,
+          "capabilities": ["tools", "images", "native-tool-search"],
+          "price": { "input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5 }
         },
-        "anthropic": {
-          "model": "claude-haiku-5-5",
-          "price": {
-            "input": 0.1,
-            "output": 0.5
-          }
+        {
+          "id": "claude-haiku-5-5",
+          "name": "Claude Haiku 5.5",
+          "context": 1000000,
+          "capabilities": ["tools", "images", "native-tool-search"],
+          "price": { "input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125 }
         }
-      }
+      ]
     },
     {
-      "id": "gpt-6.1-sol",
-      "name": "GPT-6.1 Sol",
-      "routes": {
-        "openrouter": {
-          "model": "openai/gpt-6.1-sol",
-          "price": {
-            "input": 2,
-            "output": 10
-          }
+      "id": "openai",
+      "name": "OpenAI",
+      "format": "openai-responses",
+      "base_url": "https://api.openai.com/v1/",
+      "key": { "env": "OPENAI_API_KEY" },
+      "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "name": "GPT-6.1 Sol",
+          "context": 1050000,
+          "capabilities": ["tools", "images"],
+          "price": { "input": 2, "output": 10, "cache_read": 0.1, "cache_write": 2.5 }
         }
-      }
+      ]
     },
     {
-      "id": "gemini-4-argon",
-      "name": "Gemini 4 Argon",
-      "routes": {
-        "openrouter": {
-          "model": "google/gemini-4-argon",
-          "price": {
-            "input": 2,
-            "output": 10
-          }
-        },
-        "opencode-go": {
-          "model": "gemini-4-argon",
-          "protocol": "gemini"
+      "id": "google",
+      "name": "Google Gemini (OpenAI format)",
+      "format": "openai-chat",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "key": { "env": "GEMINI_API_KEY" },
+      "models": [
+        {
+          "id": "gemini-4-argon",
+          "name": "Gemini 4 Argon",
+          "context": 1048576,
+          "capabilities": ["tools", "images"],
+          "price": { "input": 2, "output": 10, "cache_read": 0.1 }
         }
-      }
+      ]
     },
     {
-      "id": "kimi-k3.1-pro",
-      "name": "Kimi K3.1 Pro",
-      "routes": {
-        "openrouter": {
-          "model": "moonshotai/kimi-k3.1-pro",
-          "price": {
-            "input": 2,
-            "output": 10
-          }
-        },
-        "opencode-go": {
-          "model": "kimi-k3.1-pro"
+      "id": "moonshot",
+      "name": "Moonshot",
+      "format": "openai-chat",
+      "base_url": "https://api.moonshot.ai/v1/",
+      "key": { "env": "MOONSHOT_API_KEY" },
+      "models": [
+        {
+          "id": "kimi-k3.1-pro",
+          "name": "Kimi K3.1 Pro",
+          "context": 1048576,
+          "capabilities": ["tools", "images"],
+          "price": { "input": 2, "output": 10, "cache_read": 0.2, "cache_write": 2 }
         }
-      }
+      ]
     },
     {
-      "id": "glm-5.3",
-      "name": "GLM-5.3",
-      "routes": {
-        "openrouter": {
-          "model": "z-ai/glm-5.3",
-          "price": {
-            "input": 0.0699,
-            "output": 1.4
-          }
-        },
-        "opencode-go": {
-          "model": "glm-5.3"
+      "id": "zai",
+      "name": "Z.AI",
+      "format": "openai-chat",
+      "base_url": "https://api.z.ai/api/paas/v4/",
+      "key": { "env": "ZHIPU_API_KEY" },
+      "models": [
+        {
+          "id": "glm-5.3",
+          "name": "GLM-5.3",
+          "context": 1000000,
+          "capabilities": ["tools"],
+          "price": { "input": 1.4, "output": 4.4, "cache_read": 0.26 }
         }
-      }
+      ]
     }
   ]
 }

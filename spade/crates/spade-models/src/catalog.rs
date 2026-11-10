@@ -1,9 +1,12 @@
-//! The models Spade uses, loaded from a JSON file (`config/models.json` by default) when Spade
-//! starts. Changing models means editing that file and restarting; nothing is recompiled.
+//! The endpoints and models Spade may call, loaded from a JSON file (`config/models.json` by
+//! default) when Spade starts. Any endpoint that speaks OpenAI Chat Completions, OpenAI Responses
+//! or Anthropic Messages can be added; changing the list means editing the file and restarting.
 //!
-//! Keep the list curated: the current model of each family worth running, nothing older and no
-//! variants that add cost without a reason. Loading checks the whole file and reports every
-//! problem at once, so a bad edit stops Spade at startup instead of failing a call later.
+//! A model is named `endpoint/model`, for example `anthropic/claude-sonnet-5-5`. The model part
+//! may itself contain `/` (`openrouter/anthropic/claude-sonnet-5.5`); the endpoint part cannot.
+//!
+//! Loading checks the whole file and reports every problem at once, so a bad edit stops Spade at
+//! startup instead of failing a call later.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -11,9 +14,9 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::gateway::{Gateway, Protocol};
+use crate::format::Format;
 
-/// What a call is for. Callers ask for a role; the catalogue's defaults pick the model.
+/// What a call is for. Callers ask for a role; the catalogue's `roles` pick the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
     /// Everyday chat and tool use.
@@ -24,70 +27,78 @@ pub enum Role {
     Deep,
 }
 
-/// A model Spade can call. `id` is Spade's own name for it, used everywhere else.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Model {
-    pub id: String,
-    pub name: String,
-    routes: Vec<Route>,
+/// What a model can do, as declared in the catalogue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+pub enum Capability {
+    #[serde(rename = "tools")]
+    Tools,
+    #[serde(rename = "images")]
+    Images,
+    #[serde(rename = "reasoning")]
+    Reasoning,
+    /// The endpoint withholds deferred tools and reveals them itself (Anthropic `defer_loading`).
+    #[serde(rename = "native-tool-search")]
+    NativeToolSearch,
 }
 
-/// One gateway's way to reach a model.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Route {
-    pub gateway: Gateway,
-    pub protocol: Protocol,
-    /// The model id that gateway expects.
-    pub model: String,
-    /// What the gateway charges. `None` for a flat-rate plan.
-    pub price: Option<Price>,
-}
-
-/// US dollars per million tokens.
+/// US dollars per million tokens. Cache prices default to the input price when absent.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Price {
     pub input: f64,
     pub output: f64,
+    #[serde(default)]
+    pub cache_read: Option<f64>,
+    #[serde(default)]
+    pub cache_write: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Model {
+    /// The model id the endpoint expects.
+    pub id: String,
+    pub name: String,
+    /// Context window in tokens, when known.
+    pub context: Option<u64>,
+    pub capabilities: Vec<Capability>,
+    /// `None` for a flat-rate plan or a local server.
+    pub price: Option<Price>,
 }
 
 impl Model {
-    /// How `gateway` reaches this model, if it can.
-    pub fn route(&self, gateway: Gateway) -> Option<&Route> {
-        self.routes.iter().find(|route| route.gateway == gateway)
+    pub fn can(&self, capability: Capability) -> bool {
+        self.capabilities.contains(&capability)
     }
+}
 
-    pub fn routes(&self) -> &[Route] {
-        &self.routes
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub struct Endpoint {
+    pub id: String,
+    pub name: String,
+    pub format: Format,
+    /// Always ends with `/`.
+    pub base_url: String,
+    /// The environment variable holding the key; `None` for a server that needs none.
+    pub key_env: Option<String>,
+    pub headers: Vec<(String, String)>,
+    pub models: Vec<Model>,
+}
+
+/// A model reference resolved against the catalogue.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Resolved<'a> {
+    pub endpoint: &'a Endpoint,
+    pub model: &'a Model,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
-    models: Vec<Model>,
-    defaults: BTreeMap<Gateway, Defaults>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Defaults {
-    main: String,
-    fast: String,
-    deep: String,
-}
-
-impl Defaults {
-    fn get(&self, role: Role) -> &str {
-        match role {
-            Role::Main => &self.main,
-            Role::Fast => &self.fast,
-            Role::Deep => &self.deep,
-        }
-    }
+    endpoints: Vec<Endpoint>,
+    roles: FileRoles,
 }
 
 /// Everything wrong with a catalogue file.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogError {
     /// The file, or `"catalogue"` when parsed from a string.
     pub source: String,
@@ -111,12 +122,39 @@ impl std::error::Error for CatalogError {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
-    /// When the provider ids were last checked; for people, not used by Spade.
+    /// When the ids and prices were last checked; for people, not used by Spade.
+    #[serde(default, rename = "checked")]
+    _checked: Option<String>,
+    roles: FileRoles,
+    endpoints: Vec<FileEndpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileRoles {
+    main: String,
+    fast: String,
+    deep: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileEndpoint {
+    id: String,
+    name: String,
+    format: Format,
+    base_url: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    checked: Option<String>,
-    defaults: BTreeMap<Gateway, Defaults>,
+    key: Option<FileKey>,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
     models: Vec<FileModel>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileKey {
+    env: String,
 }
 
 #[derive(Deserialize)]
@@ -124,17 +162,10 @@ struct File {
 struct FileModel {
     id: String,
     name: String,
-    routes: BTreeMap<Gateway, FileRoute>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct FileRoute {
-    model: String,
-    /// Defaults to the gateway's own protocol.
     #[serde(default)]
-    protocol: Option<Protocol>,
-    /// Absent for a flat-rate plan.
+    context: Option<u64>,
+    #[serde(default)]
+    capabilities: Vec<Capability>,
     #[serde(default)]
     price: Option<Price>,
 }
@@ -158,271 +189,162 @@ impl Catalog {
         })
     }
 
-    pub fn models(&self) -> &[Model] {
-        &self.models
+    pub fn endpoints(&self) -> &[Endpoint] {
+        &self.endpoints
     }
 
-    pub fn find(&self, id: &str) -> Option<&Model> {
-        self.models.iter().find(|model| model.id == id)
+    /// The model reference set for `role`.
+    pub fn role(&self, role: Role) -> &str {
+        match role {
+            Role::Main => &self.roles.main,
+            Role::Fast => &self.roles.fast,
+            Role::Deep => &self.roles.deep,
+        }
     }
 
-    /// The model `gateway` uses for `role`, if the catalogue sets defaults for that gateway.
-    pub fn default_for(&self, gateway: Gateway, role: Role) -> Option<&str> {
-        self.defaults
-            .get(&gateway)
-            .map(|defaults| defaults.get(role))
+    /// Finds `endpoint/model`.
+    pub fn resolve(&self, reference: &str) -> Option<Resolved<'_>> {
+        let (endpoint_id, model_id) = reference.split_once('/')?;
+        let endpoint = self.endpoints.iter().find(|e| e.id == endpoint_id)?;
+        let model = endpoint.models.iter().find(|m| m.id == model_id)?;
+        Some(Resolved { endpoint, model })
     }
 
     fn parse(text: &str) -> Result<Self, Vec<String>> {
         let file: File = serde_json::from_str(text).map_err(|error| vec![error.to_string()])?;
         let mut problems = Vec::new();
-        let models: Vec<Model> = file
-            .models
-            .into_iter()
-            .map(|model| check_model(model, &mut problems))
-            .collect();
-        if models.is_empty() {
-            problems.push("lists no models".to_owned());
+        if file.endpoints.is_empty() {
+            problems.push("lists no endpoints".to_owned());
         }
         let mut seen = HashSet::new();
-        for model in &models {
-            if !seen.insert(model.id.as_str()) {
-                problems.push(format!("model {} is listed more than once", model.id));
+        let endpoints: Vec<Endpoint> = file
+            .endpoints
+            .into_iter()
+            .map(|endpoint| check_endpoint(endpoint, &mut problems))
+            .collect();
+        for endpoint in &endpoints {
+            if !seen.insert(endpoint.id.as_str()) {
+                problems.push(format!("endpoint {} is listed more than once", endpoint.id));
             }
         }
         let catalog = Self {
-            models,
-            defaults: file.defaults,
+            endpoints,
+            roles: file.roles,
         };
-        catalog.check_defaults(&mut problems);
+        for (role, reference) in [
+            ("main", &catalog.roles.main),
+            ("fast", &catalog.roles.fast),
+            ("deep", &catalog.roles.deep),
+        ] {
+            if catalog.resolve(reference).is_none() {
+                problems.push(format!(
+                    "the {role} role names {reference}, which is not an endpoint/model in this file"
+                ));
+            }
+        }
         if problems.is_empty() {
             Ok(catalog)
         } else {
             Err(problems)
         }
     }
-
-    fn check_defaults(&self, problems: &mut Vec<String>) {
-        for (gateway, defaults) in &self.defaults {
-            for (role, id) in [
-                ("main", &defaults.main),
-                ("fast", &defaults.fast),
-                ("deep", &defaults.deep),
-            ] {
-                match self.find(id) {
-                    None => problems.push(format!(
-                        "{gateway} {role} default {id} is not a listed model"
-                    )),
-                    Some(model) if model.route(*gateway).is_none() => problems.push(format!(
-                        "{gateway} {role} default {id} has no {gateway} route"
-                    )),
-                    Some(_) => {}
-                }
-            }
-        }
-    }
 }
 
-fn check_model(model: FileModel, problems: &mut Vec<String>) -> Model {
-    let label = if model.id.trim().is_empty() {
-        problems.push("a model has an empty id".to_owned());
+fn check_endpoint(endpoint: FileEndpoint, problems: &mut Vec<String>) -> Endpoint {
+    let id = endpoint.id.trim().to_owned();
+    let valid_id = !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '_' | '.'));
+    if !valid_id {
+        problems.push(format!(
+            "endpoint id {:?} must be lowercase letters, digits, '-', '_' or '.'",
+            endpoint.id
+        ));
+    }
+    let label = if id.is_empty() {
         "(no id)".to_owned()
     } else {
-        model.id.clone()
+        id.clone()
     };
-    if model.name.trim().is_empty() {
-        problems.push(format!("model {label} has an empty name"));
+    if endpoint.name.trim().is_empty() {
+        problems.push(format!("endpoint {label} has an empty name"));
     }
-    if model.routes.is_empty() {
-        problems.push(format!("model {label} has no routes"));
+    let base = endpoint.base_url.trim();
+    if !(base.starts_with("https://") || base.starts_with("http://")) {
+        problems.push(format!(
+            "endpoint {label}: base_url must start with https:// or http://"
+        ));
     }
-    let routes = model
-        .routes
+    let base_url = if base.ends_with('/') {
+        base.to_owned()
+    } else {
+        format!("{base}/")
+    };
+    let key_env = endpoint.key.map(|key| key.env.trim().to_owned());
+    if let Some(var) = &key_env {
+        let valid = !var.is_empty()
+            && var
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+        if !valid {
+            problems.push(format!(
+                "endpoint {label}: key env {var:?} must be an environment variable name like OPENAI_API_KEY"
+            ));
+        }
+    }
+    if endpoint.models.is_empty() {
+        problems.push(format!("endpoint {label} lists no models"));
+    }
+    let mut seen = HashSet::new();
+    let models = endpoint
+        .models
         .into_iter()
-        .map(|(gateway, route)| {
-            let protocol = route.protocol.unwrap_or(gateway.default_protocol());
-            if !gateway.serves(protocol) {
+        .map(|model| {
+            let model_id = model.id.trim().to_owned();
+            if model_id.is_empty() {
+                problems.push(format!("endpoint {label} has a model with an empty id"));
+            } else if !seen.insert(model_id.clone()) {
                 problems.push(format!(
-                    "model {label}: {gateway} does not serve the {protocol} protocol"
+                    "endpoint {label}: model {model_id} is listed more than once"
                 ));
             }
-            if route.model.trim().is_empty() {
-                problems.push(format!("model {label}: {gateway} route has an empty model"));
+            if model.name.trim().is_empty() {
+                problems.push(format!("{label}/{model_id} has an empty name"));
             }
-            if let Some(price) = route.price {
+            if let Some(price) = model.price {
                 let valid = |v: f64| v.is_finite() && v >= 0.0;
-                if !valid(price.input) || !valid(price.output) {
+                let all = [
+                    Some(price.input),
+                    Some(price.output),
+                    price.cache_read,
+                    price.cache_write,
+                ];
+                if !all.into_iter().flatten().all(valid) {
                     problems.push(format!(
-                        "model {label}: {gateway} price must be zero or more dollars per million tokens"
+                        "{label}/{model_id}: prices must be zero or more dollars per million tokens"
                     ));
                 }
             }
-            Route {
-                gateway,
-                protocol,
-                model: route.model,
-                price: route.price,
+            Model {
+                id: model_id,
+                name: model.name,
+                context: model.context,
+                capabilities: model.capabilities,
+                price: model.price,
             }
         })
         .collect();
-    Model {
-        id: model.id,
-        name: model.name,
-        routes,
+    Endpoint {
+        id,
+        name: endpoint.name,
+        format: endpoint.format,
+        base_url,
+        key_env,
+        headers: endpoint.headers.into_iter().collect(),
+        models,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn problems(json: &str) -> Vec<String> {
-        Catalog::from_json(json)
-            .err()
-            .map(|e| e.problems)
-            .unwrap_or_default()
-    }
-
-    const HAIKU: &str = r#"{ "id": "haiku", "name": "Haiku", "routes": {
-        "openrouter": { "model": "anthropic/claude-haiku-5.5" },
-        "opencode-go": { "model": "claude-haiku-5-5", "protocol": "anthropic" } } }"#;
-
-    fn with_defaults(defaults: &str, models: &str) -> String {
-        format!(r#"{{ "defaults": {{ {defaults} }}, "models": [ {models} ] }}"#)
-    }
-
-    const ALL_HAIKU: &str =
-        r#""openrouter": { "main": "haiku", "fast": "haiku", "deep": "haiku" }"#;
-
-    #[test]
-    fn the_shipped_catalogue_is_valid_and_covers_every_gateway() -> Result<(), CatalogError> {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
-        let catalog = Catalog::load(&path)?;
-        for gateway in Gateway::ALL {
-            for role in [Role::Main, Role::Fast, Role::Deep] {
-                assert!(
-                    catalog.default_for(gateway, role).is_some(),
-                    "{gateway} has no {role:?} default"
-                );
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn a_route_without_a_protocol_uses_the_gateways_own() -> Result<(), CatalogError> {
-        let catalog = Catalog::from_json(&with_defaults(ALL_HAIKU, HAIKU))?;
-        let route = catalog
-            .find("haiku")
-            .and_then(|m| m.route(Gateway::OpenRouter));
-        assert_eq!(route.map(|r| r.protocol), Some(Protocol::OpenRouter));
-        Ok(())
-    }
-
-    #[test]
-    fn a_model_listed_twice_is_refused() {
-        let json = with_defaults(ALL_HAIKU, &format!("{HAIKU}, {HAIKU}"));
-        assert_eq!(
-            problems(&json),
-            vec!["model haiku is listed more than once"]
-        );
-    }
-
-    #[test]
-    fn a_default_naming_an_unlisted_model_is_refused() {
-        let json = with_defaults(
-            r#""openrouter": { "main": "haiku", "fast": "haiku", "deep": "gpt-5.4" }"#,
-            HAIKU,
-        );
-        assert_eq!(
-            problems(&json),
-            vec!["openrouter deep default gpt-5.4 is not a listed model"]
-        );
-    }
-
-    #[test]
-    fn a_default_its_gateway_cannot_run_is_refused() {
-        let json = with_defaults(
-            r#""anthropic": { "main": "haiku", "fast": "haiku", "deep": "haiku" }"#,
-            HAIKU,
-        );
-        assert_eq!(problems(&json).len(), 3);
-        assert!(problems(&json)[0].contains("has no anthropic route"));
-    }
-
-    #[test]
-    fn a_protocol_the_gateway_does_not_serve_is_refused() {
-        let model = r#"{ "id": "haiku", "name": "Haiku", "routes": {
-            "openrouter": { "model": "anthropic/claude-haiku-5.5", "protocol": "gemini" } } }"#;
-        assert_eq!(
-            problems(&with_defaults(ALL_HAIKU, model)),
-            vec!["model haiku: openrouter does not serve the gemini protocol"]
-        );
-    }
-
-    #[test]
-    fn a_misspelt_field_is_refused_not_ignored() {
-        let model = r#"{ "id": "haiku", "name": "Haiku", "routes": {
-            "openrouter": { "modle": "anthropic/claude-haiku-5.5" } } }"#;
-        let found = problems(&with_defaults(ALL_HAIKU, model));
-        assert!(found.iter().any(|p| p.contains("modle")), "{found:?}");
-    }
-
-    #[test]
-    fn an_unknown_gateway_is_refused() {
-        let model = r#"{ "id": "haiku", "name": "Haiku", "routes": {
-            "together": { "model": "claude-haiku" } } }"#;
-        let found = problems(&with_defaults(ALL_HAIKU, model));
-        assert!(found.iter().any(|p| p.contains("together")), "{found:?}");
-    }
-
-    #[test]
-    fn every_problem_is_reported_at_once() {
-        let models = r#"{ "id": "haiku", "name": "", "routes": {} }"#;
-        assert_eq!(
-            problems(&with_defaults(ALL_HAIKU, models)),
-            vec![
-                "model haiku has an empty name",
-                "model haiku has no routes",
-                "openrouter main default haiku has no openrouter route",
-                "openrouter fast default haiku has no openrouter route",
-                "openrouter deep default haiku has no openrouter route",
-            ]
-        );
-    }
-
-    #[test]
-    fn a_route_price_is_read_and_a_negative_price_is_refused() -> Result<(), CatalogError> {
-        let priced = r#"{ "id": "haiku", "name": "Haiku", "routes": {
-            "openrouter": { "model": "anthropic/claude-haiku-5.5",
-                            "price": { "input": 0.1, "output": 0.5 } } } }"#;
-        let catalog = Catalog::from_json(&with_defaults(ALL_HAIKU, priced))?;
-        let price = catalog
-            .find("haiku")
-            .and_then(|m| m.route(Gateway::OpenRouter))
-            .and_then(|r| r.price);
-        assert_eq!(
-            price,
-            Some(Price {
-                input: 0.1,
-                output: 0.5
-            })
-        );
-
-        let negative = priced.replace("0.1", "-1");
-        assert_eq!(
-            problems(&with_defaults(ALL_HAIKU, &negative)),
-            vec!["model haiku: openrouter price must be zero or more dollars per million tokens"]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_missing_file_names_the_path() {
-        let error = Catalog::load(Path::new("/nonexistent/models.json"));
-        assert!(
-            matches!(&error, Err(e) if e.source == "/nonexistent/models.json"),
-            "{error:?}"
-        );
-    }
-}
+mod tests;

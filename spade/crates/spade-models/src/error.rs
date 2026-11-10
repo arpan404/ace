@@ -1,27 +1,16 @@
-use crate::gateway::Gateway;
-
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ModelError {
-    #[error("{0} is not in Spade's model catalogue")]
+    #[error("{0} is not an endpoint/model in the catalogue")]
     UnknownModel(String),
 
-    #[error("{gateway} cannot run {model}")]
-    NoRoute { model: String, gateway: Gateway },
-
-    #[error("the model catalogue sets no defaults for {0}")]
-    NoDefaults(Gateway),
-
-    #[error("SPADE_MODEL_GATEWAY must be openrouter, opencode-go or anthropic, got {0:?}")]
-    UnknownGateway(String),
+    #[error("{var} is not set, so endpoint {endpoint} cannot be called")]
+    MissingKey { endpoint: String, var: String },
 
     /// The HTTP client could not be built (TLS or proxy setup).
     #[error("model client setup failed: {0}")]
     Setup(String),
 
-    #[error("{0} is not set")]
-    MissingKey(&'static str),
-
-    /// The gateway or provider failed: network, auth, rate limit, bad request.
+    /// The endpoint failed: network, auth, rate limit, bad request.
     #[error("{model}: {message}")]
     Provider { model: String, message: String },
 
