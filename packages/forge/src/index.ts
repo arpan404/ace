@@ -49,3 +49,5 @@ export * from "./forge-capabilities.ts";
 export { pinnedRunner } from "./pinned-runner.ts";
 export { OriginListSnapshots, originListSnapshotMs } from "./origin-list-snapshots.ts";
 export * from "./project-repositories.ts";
+
+export { withForgeCapabilities } from "./reported-capabilities.ts";

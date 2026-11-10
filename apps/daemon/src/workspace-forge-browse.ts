@@ -1,3 +1,4 @@
+import { withForgeCapabilities } from "@ace/forge";
 import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
@@ -28,6 +29,21 @@ export class WorkspaceForgeBrowse {
     this.parts = parts;
   }
   async browse(
+    cwd: string,
+    operation: import("@ace/protocol").ForgeBrowserOperation,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const result = await this.read(cwd, operation, signal);
+    if (result.resource === "prDetail")
+      return {
+        ...result,
+        value: withForgeCapabilities(result.value, result.value.status.ref.repository),
+      };
+    if (result.resource === "issueDetail")
+      return { ...result, value: withForgeCapabilities(result.value, result.value.ref.repository) };
+    return result;
+  }
+  private async read(
     cwd: string,
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,

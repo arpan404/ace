@@ -269,6 +269,7 @@ Example:
     "author": "example",
     "avatars": {},
     "body": "example",
+    "capabilities": [],
     "commentCount": 4,
     "createdAt": "example",
     "labelColors": {},
@@ -276,8 +277,8 @@ Example:
     "milestone": "example",
     "permissions": {
       "close": false,
-      "comment": false,
-      "edit": true,
+      "comment": true,
+      "edit": false,
       "reason": "example",
       "reopen": false,
       "triage": true
@@ -294,7 +295,6 @@ Example:
     "relatedThreads": [],
     "relatedThreadsTruncated": false,
     "state": "open",
-    "stateReason": null,
     "title": "example",
     "updatedAt": "example",
     "url": "example"
@@ -2618,6 +2618,7 @@ Example:
 | commentCount | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | avatars | no | [ForgeAvatars.json](schema/ForgeAvatars.json) |  |
 | raw | no | any JSON value |  |
+| capabilities | no | [ForgeCapabilities.json](schema/ForgeCapabilities.json) |  |
 | body | yes | string | {"maxLength":65536} |
 | permissions | yes | object | {"properties":{"edit":{"type":"boolean"},"close":{"type":"boolean"},"reopen":{"type":"boolean"},"comment":{"type":"boolean"},"triage":{"type":"boolean"},"reason":{"type":"string","maxLength":256}},"required":["edit","close","reopen","comment","reason"]} |
 | stateReason | no | union | {"anyOf":[{"type":"string","enum":["completed","not_planned","reopened"]},{"type":"null"}]} |
@@ -2638,10 +2639,11 @@ Example:
   "createdAt": "example",
   "labels": [],
   "milestone": null,
+  "milestoneNumber": 3,
   "permissions": {
-    "close": true,
+    "close": false,
     "comment": false,
-    "edit": false,
+    "edit": true,
     "reason": "example",
     "reopen": false
   },
@@ -2656,7 +2658,7 @@ Example:
     }
   },
   "relatedThreads": [],
-  "relatedThreadsTruncated": true,
+  "relatedThreadsTruncated": false,
   "state": "closed",
   "title": "example",
   "updatedAt": "example",

@@ -1,3 +1,4 @@
+import type { ForgeCapability } from "@ace/protocol";
 import { WorkspaceId, type ForgeBrowserResult } from "@ace/protocol";
 import { browseIssues, browsePullRequests } from "../catalog/forge-browse.ts";
 import { inboxNotifications } from "../catalog/inbox.ts";
@@ -34,8 +35,12 @@ export function seedForgeBrowse(daemon: FakeDaemon, now: number, project = "ace"
  * GitHub reviews (ADR 0116), for Code review reading both of a project's repositories. Apart
  * from `seedForgeBrowse`, so projects without it list one repository, as they always did.
  */
-export function seedGitLabMirror(daemon: FakeDaemon, now: number): void {
-  daemon.projects.repositories.addMirror("ace");
+export function seedGitLabMirror(
+  daemon: FakeDaemon,
+  now: number,
+  extraCapabilities: readonly ForgeCapability[] = [],
+): void {
+  daemon.projects.repositories.addMirror("ace", extraCapabilities);
   daemon.workspace.addPullRequests(gitlabMirrorPullRequests(now));
 }
 
