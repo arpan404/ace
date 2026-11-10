@@ -5,6 +5,7 @@ import { HostedChecks } from "./hosted-checks.ts";
 import { readGitLabConversation } from "./hosted-review-conversation.ts";
 import { hostedIssueRead, isIssueRead } from "./hosted-issues.ts";
 import { teaForgeBrowse } from "./tea-forge-browse.ts";
+import { withForgeCapabilities } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -34,6 +35,21 @@ export class WorkspaceForgeBrowse {
     this.parts = parts;
   }
   async browse(
+    cwd: string,
+    operation: import("@ace/protocol").ForgeBrowserOperation,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const result = await this.read(cwd, operation, signal);
+    if (result.resource === "prDetail")
+      return {
+        ...result,
+        value: withForgeCapabilities(result.value, result.value.status.ref.repository),
+      };
+    if (result.resource === "issueDetail")
+      return { ...result, value: withForgeCapabilities(result.value, result.value.ref.repository) };
+    return result;
+  }
+  private async read(
     cwd: string,
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,

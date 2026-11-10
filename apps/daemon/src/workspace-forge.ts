@@ -6,6 +6,7 @@ import {
   gitLabReviewBackend,
   executeGitLabThreadConversation,
 } from "./hosted-review-conversation.ts";
+import { withForgeCapabilities } from "@ace/forge";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { hostedIssueWriter, hostedIssues, type IssueScope } from "./hosted-issues.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
@@ -201,7 +202,7 @@ export class WorkspaceForge {
     // GitHub keeps a PR whose fork was deleted, but its head can no longer be fetched.
     if (!detail.headRepository) throw new ForgeError("fork_deleted");
     if (detail.status.headSha !== selection.headSha) throw new ForgeError("head_moved");
-    return detail;
+    return withForgeCapabilities(detail, detail.status.ref.repository);
   }
   async checkout(
     cwd: string,

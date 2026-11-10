@@ -1,3 +1,5 @@
+import { can } from "@ace/ui-core";
+import { capabilitySource } from "./forge-features.ts";
 import { ForgeRepository, type ForgeIssueRef } from "@ace/protocol";
 import { issueSourceText, issueStateMark, type ForgeMark } from "@ace/ui-core";
 import { z } from "zod";
@@ -24,6 +26,7 @@ export type ForgeIssueRequest = z.infer<typeof ForgeIssueRequest>;
 
 export interface IssueReply {
   type: "forge.issue";
+  writable: boolean;
   number: number;
   repository: ForgeRepository;
   title: string;
@@ -86,6 +89,11 @@ export async function readIssue(
   const detail = await reads.read({ op: "forge.issue.detail", ...scope }, false);
   if (detail.resource !== "issueDetail") throw new ForgeRefusal("forge_invalid_data");
   const issue = detail.value;
+  const source = await capabilitySource(reads, request.project, issue.ref.repository);
+  const writable = can(
+    { repository: issue.ref.repository, capabilities: issue.capabilities ?? source?.capabilities },
+    "issues.write",
+  );
   shown.set(bodyKey("issue", issue.ref.repository, issue.ref.number), issue.body);
   // The conversation is a nicety: the issue still opens when its timeline can't be read.
   const timeline = await reads
@@ -93,18 +101,20 @@ export async function readIssue(
     .catch(() => undefined);
   const events = timeline?.resource === "issueTimeline" ? timeline : undefined;
   const live = reads.linked().issues.get(keyOf(issue));
-  const actions = await reads
-    .read(
-      {
-        op: "forge.issue.actions",
-        workspaceId: request.project,
-        repository: issue.ref.repository,
-        number: issue.ref.number,
-      },
-      false,
-    )
-    .then((value) => (value.resource === "issueActions" ? value.actions : []))
-    .catch(() => []);
+  const actions = writable
+    ? await reads
+        .read(
+          {
+            op: "forge.issue.actions",
+            workspaceId: request.project,
+            repository: issue.ref.repository,
+            number: issue.ref.number,
+          },
+          false,
+        )
+        .then((value) => (value.resource === "issueActions" ? value.actions : []))
+        .catch(() => [])
+    : [];
   return {
     type: "forge.issue",
     number: issue.ref.number,
@@ -116,7 +126,8 @@ export async function readIssue(
     createdAt: epoch(issue.createdAt),
     updatedAt: epoch(issue.updatedAt),
     body: preview(issue.body, 32_768),
-    tasks: issue.permissions.edit,
+    writable,
+    tasks: writable && issue.permissions.edit,
     labels: issue.labels.slice(0, 20).map((name) => ({
       name: preview(name, 100),
       color: issue.labelColors?.[name] ?? null,

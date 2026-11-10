@@ -65,3 +65,4 @@ export { TeaReader } from "./tea-reader.ts";
 export { TeaWriter, teaWrites } from "./tea-writes.ts";
 export { TeaIssueWriter, teaIssueWrites } from "./tea-issue-writes.ts";
 export { TeaReviews, teaReviewWrites } from "./tea-reviews.ts";
+export { withForgeCapabilities } from "./reported-capabilities.ts";

@@ -4,6 +4,7 @@ import {
   DeviceId,
   WorkspaceId,
   type ForgeRepository,
+  type ForgeCapability,
   type ProjectRepositoryConfig,
 } from "@ace/protocol";
 import { FakeDaemon, fakeTransport, seedGitLabMirror } from "./index.ts";
@@ -11,9 +12,11 @@ import { FakeDaemon, fakeTransport, seedGitLabMirror } from "./index.ts";
 const github: ForgeRepository = { forge: "github", host: "github.com", owner: "acme", name: "ace" };
 const gitlab: ForgeRepository = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" };
 
-async function fixture(options: { mirror?: boolean } = { mirror: true }) {
+async function fixture(
+  options: { mirror?: boolean; capabilities?: ForgeCapability[] } = { mirror: true },
+) {
   const daemon = new FakeDaemon({ clock: () => 1000 });
-  if (options.mirror) seedGitLabMirror(daemon, 1000);
+  if (options.mirror) seedGitLabMirror(daemon, 1000, options.capabilities);
   daemon.createThread({ id: "ace-thread", workspaceId: "ace", title: "A", provider: "codex" });
   let sequence = 0;
   const client = new Client({
@@ -45,7 +48,7 @@ async function fixture(options: { mirror?: boolean } = { mirror: true }) {
       ? reply.result.data.value
       : undefined;
   };
-  return { client, workspaceId, read };
+  return { client, daemon, workspaceId, read };
 }
 
 test("ace lists only its GitHub origin until its GitLab mirror is seeded", async () => {
@@ -130,6 +133,65 @@ test("choosing the mirror as primary and hiding origin is what the next read sho
       "refuse",
     );
     expect(refused).toMatchObject({ ok: false, error: "primary_hidden" });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test.each([
+  { capabilities: ["reviews.read", "reviews.files"] },
+  { capabilities: ["reviews.read", "reviews.comments.write", "issues.read"] },
+] satisfies { capabilities: ForgeCapability[] }[])(
+  "mirror repositories and details agree on the declared capabilities $capabilities",
+  async ({ capabilities }) => {
+    const f = await fixture({ mirror: true, capabilities });
+    try {
+      const repositories = await f.read();
+      const mirror = repositories?.repositories.find(
+        (entry) => entry.repository.forge === "gitlab",
+      );
+      const expected = capabilities;
+      expect(mirror?.capabilities).toEqual(expected);
+      const reply = await f.client.request({
+        type: "workspace.request",
+        operation: {
+          op: "forge.pr.detail",
+          workspaceId: f.workspaceId,
+          repository: gitlab,
+          number: 17,
+        },
+      });
+      expect(reply.result).toMatchObject({
+        kind: "forge",
+        data: { resource: "prDetail", value: { capabilities: expected } },
+      });
+    } finally {
+      await f.client.close();
+    }
+  },
+);
+
+test("a scripted detail with no capabilities keeps its explicit empty declaration", async () => {
+  const f = await fixture();
+  try {
+    const operation = {
+      op: "forge.pr.detail" as const,
+      workspaceId: f.workspaceId,
+      repository: gitlab,
+      number: 17,
+    };
+    const first = await f.client.request({ type: "workspace.request", operation });
+    if (first.result.kind !== "forge" || first.result.data.resource !== "prDetail")
+      throw new Error("Expected a merge request detail");
+    f.daemon.workspace.setForgeRead(operation, {
+      resource: "prDetail",
+      value: { ...first.result.data.value, capabilities: [] },
+    });
+    const next = await f.client.request({ type: "workspace.request", operation });
+    expect(next.result).toMatchObject({
+      kind: "forge",
+      data: { resource: "prDetail", value: { capabilities: [] } },
+    });
   } finally {
     await f.client.close();
   }

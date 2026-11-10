@@ -269,8 +269,8 @@ Example:
     "author": "example",
     "avatars": {},
     "body": "example",
+    "capabilities": [],
     "commentCount": 4,
-    "confidential": false,
     "createdAt": "example",
     "labelColors": {},
     "labels": [],
@@ -2620,6 +2620,7 @@ Example:
 | commentCount | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | avatars | no | [ForgeAvatars.json](schema/ForgeAvatars.json) |  |
 | raw | no | any JSON value |  |
+| capabilities | no | [ForgeCapabilities.json](schema/ForgeCapabilities.json) |  |
 | body | yes | string | {"maxLength":65536} |
 | confidential | no | boolean |  |
 | permissions | yes | object | {"properties":{"edit":{"type":"boolean"},"close":{"type":"boolean"},"reopen":{"type":"boolean"},"comment":{"type":"boolean"},"triage":{"type":"boolean"},"reason":{"type":"string","maxLength":256}},"required":["edit","close","reopen","comment","reason"]} |
@@ -2638,16 +2639,17 @@ Example:
   "avatars": {},
   "body": "example",
   "commentCount": 9,
+  "confidential": false,
   "createdAt": "example",
   "labels": [],
   "milestone": null,
-  "milestoneNumber": 3,
   "permissions": {
     "close": false,
-    "comment": false,
-    "edit": true,
+    "comment": true,
+    "edit": false,
     "reason": "example",
-    "reopen": false
+    "reopen": false,
+    "triage": true
   },
   "raw": null,
   "ref": {
@@ -2660,8 +2662,9 @@ Example:
     }
   },
   "relatedThreads": [],
-  "relatedThreadsTruncated": false,
+  "relatedThreadsTruncated": true,
   "state": "closed",
+  "stateReason": null,
   "title": "example",
   "updatedAt": "example",
   "url": "example"

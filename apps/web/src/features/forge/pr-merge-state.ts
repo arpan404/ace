@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import { useClient } from "@ace/client-react";
 import {
@@ -45,7 +46,8 @@ export function usePrMergeState(props: {
   const query = useDaemonQuery({
     // A new head is a new merge state (checks, mergeability): read it again then, not only on open.
     queryKey: ["forge", props.workspaceId, ref, "merge-state", props.detail.status.headSha],
-    enabled: active,
+    enabled:
+      active && (can(props.detail, "reviews.merge") || can(props.detail, "reviews.autoMerge")),
     retry: false,
     gcTime: keptForgeMs,
     staleTime: 0,
@@ -81,7 +83,7 @@ export function usePrMergeState(props: {
             ? "Refresh GitHub to confirm the previous change first"
             : undefined;
   const run = async (action: MergeStateAction, method: MergeMethod, commit?: ForgeMergeCommit) => {
-    if (blocked || !state) return;
+    if (blocked || !state || !can(props.detail, "reviews.autoMerge")) return;
     // Only an enabled merge or squash writes a commit of its own.
     const message = commit && action === "enable" && method !== "rebase" ? { commit } : {};
     const payload: CommandPayload | undefined = props.threadId
@@ -140,7 +142,11 @@ export function usePrMergeState(props: {
     run,
     /** A deliberate read: the only thing that lifts an uncertain write's fence. */
     async confirm() {
-      if (!active) return true;
+      if (
+        !active ||
+        !(can(props.detail, "reviews.merge") || can(props.detail, "reviews.autoMerge"))
+      )
+        return true;
       const result = await query.refetch();
       if (result.isSuccess) setUncertain(false);
       return result.isSuccess;

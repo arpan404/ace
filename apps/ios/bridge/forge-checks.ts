@@ -12,6 +12,7 @@ import {
 } from "@ace/protocol";
 import {
   actionErrorText,
+  can,
   checkControls,
   checkFixRequest,
   checkLogNote,
@@ -284,7 +285,13 @@ export async function readCheck(
       : await checkRun(reads, request, id, check.jobId ?? undefined, finished);
   if (run?.log) logs.keep(run.id, run.log.text);
   const linked = detail.relatedThreads.find((thread) => !thread.archived);
-  const controls = checkControls(check, run, open(detail));
+  const offered = checkControls(check, run, open(detail));
+  const controls = {
+    ...offered,
+    rerunFailed: offered.rerunFailed && can(detail, "reviews.checks.write"),
+    rerunAll: offered.rerunAll && can(detail, "reviews.checks.write"),
+    cancel: offered.cancel && can(detail, "reviews.checks.write"),
+  };
   return {
     type: "forge.pull.check",
     name: preview(check.name, 200),

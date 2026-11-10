@@ -1,5 +1,6 @@
 import { ClientError } from "@ace/client";
 import {
+  ForgeCapability,
   ForgeMergeCommit,
   ForgeRepository,
   WorkspaceId,
@@ -24,7 +25,7 @@ import {
   reviewOutcomeLabels,
   type ForgeMark,
   type MergeMethod,
-  isHostedReview,
+  can,
   knownCommitCount,
   knownFileCount,
 } from "@ace/ui-core";
@@ -109,6 +110,7 @@ export interface PullReply {
   changedFiles: number | null;
   /** A review ace only reads (not GitHub): the page offers no writes, only this. */
   hosted: HostedView | null;
+  capabilities: string[];
   body: string;
   /** The description's task boxes tick and save. */
   tasks: boolean;
@@ -168,11 +170,15 @@ export async function readPull(
   shown: ShownBodies,
 ): Promise<PullReply> {
   const detail = await readDetail(reads, request);
-  const hosted = isHostedReview(detail) ? hostedView(detail) : null;
+  const capabilities = ForgeCapability.options.filter((capability) => can(detail, capability));
+  const hosted = hostedView(detail);
   // A read-only review has no merge state or lifecycle to read: ace writes nothing there.
-  const [mergeState, lifecycle] = hosted
-    ? [undefined, undefined]
-    : await Promise.all([readMergeState(reads, request, detail), prLifecycle(reads, request)]);
+  const [mergeState, lifecycle] = await Promise.all([
+    can(detail, "reviews.merge") || can(detail, "reviews.autoMerge")
+      ? readMergeState(reads, request, detail)
+      : undefined,
+    can(detail, "reviews.edit") ? prLifecycle(reads, request) : undefined,
+  ]);
   shown.set(bodyKey("pull", detail.status.ref.repository, detail.status.ref.number), detail.body);
   const { status } = detail;
   const state = status.state === "unknown" ? "open" : status.state;
@@ -191,16 +197,16 @@ export async function readPull(
     mergeState,
     method: request.method,
     linked: true,
-    autoMerge: true,
+    autoMerge: can(detail, "reviews.autoMerge"),
     blockers,
   });
-  if (hosted) return hostedPull(detail, request, preview, hosted);
   const fenced = detail.writeState !== undefined || mergeState?.writeState !== undefined;
   const label = prPrimaryLabel(primary);
   const action: PullAction | null =
-    primary.kind === "merge"
+    primary.kind === "merge" && can(detail, "reviews.merge")
       ? { kind: "merge", label, disabled: fenced ? fence : null }
-      : primary.kind === "auto-merge" || primary.kind === "auto-merge-ready"
+      : (primary.kind === "auto-merge" || primary.kind === "auto-merge-ready") &&
+          can(detail, "reviews.autoMerge")
         ? {
             kind: "enable-auto-merge",
             label,
@@ -208,7 +214,9 @@ export async function readPull(
           }
         : null;
   const secondary: PullAction | null =
-    primary.kind === "auto-merge-armed" && mergeState?.canDisable
+    primary.kind === "auto-merge-armed" &&
+    can(detail, "reviews.autoMerge") &&
+    mergeState?.canDisable
       ? {
           kind: "disable-auto-merge",
           label: "Turn off auto-merge",
@@ -232,9 +240,10 @@ export async function readPull(
     headSha: status.headSha,
     additions: detail.additions ?? null,
     deletions: detail.deletions ?? null,
-    commits: detail.commits,
-    changedFiles: detail.changedFiles,
-    hosted: null,
+    commits: knownCommitCount(detail),
+    changedFiles: knownFileCount(detail),
+    hosted,
+    capabilities,
     body: preview(detail.body, 32_768),
     tasks: lifecycle?.snapshot.editableFields.includes("body") ?? false,
     conversation: conversationWords(status),
@@ -242,20 +251,33 @@ export async function readPull(
       name: preview(name, 100),
       color: detail.labelColors?.[name] ?? null,
     })),
-    gates: gates.map((gate) => ({
+    gates: (can(detail, "reviews.merge")
+      ? gates.filter(
+          (gate) =>
+            (gate.key !== "checks" || can(detail, "reviews.checks")) &&
+            (gate.key !== "reviews" || can(detail, "reviews.approvals.read")),
+        )
+      : []
+    ).map((gate) => ({
       label: gate.label,
       value: preview(gate.value, 200),
       detail: gate.detail ?? null,
       tone: gate.tone,
     })),
-    primary: label,
+    primary: can(detail, "reviews.merge") || can(detail, "reviews.autoMerge") ? label : "",
     action,
     secondary,
-    blockers: primary.kind === "blocked" ? primary.blockers : [],
-    methods: mergeMethods.map((each) => ({ method: each.method, label: each.label })),
+    blockers: can(detail, "reviews.merge") && primary.kind === "blocked" ? primary.blockers : [],
+    methods: (can(detail, "reviews.merge") || can(detail, "reviews.autoMerge")
+      ? mergeMethods
+      : []
+    ).map((each) => ({ method: each.method, label: each.label })),
     method: request.method,
     commit:
-      request.method === "rebase" ? null : defaultMergeCommit(detail, request.method, mergeState),
+      (!can(detail, "reviews.merge") && !can(detail, "reviews.autoMerge")) ||
+      request.method === "rebase"
+        ? null
+        : defaultMergeCommit(detail, request.method, mergeState),
     reviewers: [...new Set([...detail.reviewers, ...outcomes.keys()])].slice(0, 30).map((login) => {
       const outcome = outcomes.get(login);
       return { login: preview(login, 100), outcome: outcome ? reviewOutcomeLabels[outcome] : null };
@@ -277,56 +299,6 @@ export async function readPull(
       archived: thread.archived,
       needsYou: live?.id === thread.id && live.needsYou,
     })),
-  };
-}
-
-/** A read-only review: its header, description and files, and none of GitHub's controls. */
-function hostedPull(
-  detail: ForgePrDetail,
-  request: Extract<ForgePullRequest, { type: "forge.pull" }>,
-  preview: Preview,
-  hosted: HostedView,
-): PullReply {
-  const { status } = detail;
-  const state = status.state === "unknown" ? "open" : status.state;
-  return {
-    type: "forge.pull",
-    number: status.ref.number,
-    repository: status.ref.repository,
-    title: preview(status.title, 400),
-    url: status.url,
-    state: { word: prWords[state], tone: prTone[state] },
-    merged: state === "merged",
-    author: preview(detail.author, 100),
-    createdAt: epoch(detail.createdAt),
-    updatedAt: epoch(detail.updatedAt),
-    headBranch: preview(detail.headBranch, 256),
-    baseBranch: preview(detail.baseBranch, 256),
-    headSha: status.headSha,
-    additions: detail.additions ?? null,
-    deletions: detail.deletions ?? null,
-    commits: knownCommitCount(detail),
-    changedFiles: knownFileCount(detail),
-    hosted,
-    body: preview(detail.body, 32_768),
-    tasks: false,
-    conversation: "",
-    labels: detail.labels.slice(0, 20).map((name) => ({
-      name: preview(name, 100),
-      color: detail.labelColors?.[name] ?? null,
-    })),
-    gates: [],
-    primary: "",
-    action: null,
-    secondary: null,
-    blockers: [],
-    methods: [],
-    method: request.method,
-    commit: null,
-    reviewers: [],
-    checks: [],
-    files: [],
-    threads: [],
   };
 }
 

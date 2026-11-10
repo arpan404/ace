@@ -116,3 +116,5 @@ struct ForgeProjects: Decodable, Sendable { let projects: [ForgeProject] }
 
 /// A merge or auto-merge's outcome, refused or not, in the web's words.
 struct ForgeWrite: Decodable, Sendable, Equatable { let ok: Bool; let message: String }
+
+struct ForgeFeatures: Decodable, Sendable { let issues: Bool; let inbox: Bool; let create: Bool }

@@ -1,3 +1,5 @@
+import { forgeCapabilities } from "@ace/forge/capabilities";
+import type { ForgeCapability, ForgeRepository } from "@ace/protocol";
 import {
   normalizeRepositoryConfig,
   resolveProjectRepositories,
@@ -26,10 +28,22 @@ const preferences: SourceControlPreferences = {
  */
 export class FakeProjectRepositories {
   private configs = new Map<string, ProjectRepositoryConfig>();
-  private mirrored = new Set<string>();
-  /** Give the project a `mirror` remote: `acme/<id>` on gitlab.com. */
-  addMirror(workspaceId: string): void {
-    this.mirrored.add(workspaceId);
+  private mirrored = new Map<string, readonly ForgeCapability[] | undefined>();
+  /**
+   * Give the project a `mirror` remote: `acme/<id>` on gitlab.com. The mirror declares the
+   * daemon's GitLab capabilities, or exactly `capabilities` when given (a host that supports less).
+   */
+  addMirror(workspaceId: string, capabilities?: readonly ForgeCapability[]): void {
+    this.mirrored.set(workspaceId, capabilities);
+  }
+  capabilities(repository: ForgeRepository): ForgeCapability[] {
+    const declared =
+      repository.forge === "gitlab" &&
+      repository.host === "gitlab.com" &&
+      repository.owner === "acme"
+        ? this.mirrored.get(repository.name)
+        : undefined;
+    return [...(declared ?? forgeCapabilities[repository.forge])];
   }
   private remotes(workspaceId: string): CheckoutRemote[] {
     const origin = { name: "origin", fetchUrls: [`https://github.com/acme/${workspaceId}.git`] };
@@ -45,7 +59,10 @@ export class FakeProjectRepositories {
     });
     return {
       workspaceId: WorkspaceId.parse(workspaceId),
-      repositories: resolved.repositories,
+      repositories: resolved.repositories.map((entry) => ({
+        ...entry,
+        capabilities: this.capabilities(entry.repository),
+      })),
       primary: resolved.primary?.repository ?? null,
       config: config ?? null,
     };

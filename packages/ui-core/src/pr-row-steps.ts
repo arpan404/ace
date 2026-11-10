@@ -1,3 +1,4 @@
+import { can, type ForgeCapabilitySource } from "./forge-capability.ts";
 import type { SidebarReader } from "@ace/client";
 import type { ForgePrRow, ForgeRepository, VerifyRun } from "@ace/protocol";
 import type { RowGroup } from "./forge-lists.ts";
@@ -73,16 +74,8 @@ export function rowStep(
   viewer: string | undefined,
   thread: LinkedThread | undefined,
   runs: readonly VerifyRun[],
+  source: ForgeCapabilitySource = row.ref.repository,
 ): RowStep {
-  if (row.ref.repository.forge !== "github")
-    return {
-      step: thread?.needsYou
-        ? "answer"
-        : row.state === "closed" || row.state === "merged"
-          ? "none"
-          : "wait",
-      local: undefined,
-    };
   const local = localCheckOf(
     runs,
     { owner: row.ref.repository.owner, name: row.ref.repository.name, number: row.ref.number },
@@ -95,7 +88,24 @@ export function rowStep(
     linkedNeedsYou: thread?.needsYou === true,
     local,
   });
-  return { step, local };
+  const supported = (() => {
+    switch (step) {
+      case "review":
+        return can(source, "reviews.approvals.write");
+      case "address":
+        return can(source, "reviews.comments.read");
+      case "fix":
+        return can(source, "reviews.checks");
+      case "merge":
+        return can(source, "reviews.merge");
+      case "resolve":
+      case "update":
+        return can(source, "reviews.edit");
+      default:
+        return true;
+    }
+  })();
+  return { step: supported ? step : "wait", local };
 }
 
 const groups = [

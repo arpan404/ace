@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useMemo, type ReactNode } from "react";
 import { XIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
@@ -134,7 +135,11 @@ function CheckRow(props: {
   const rerun = useCheckRerun({ workspaceId: props.workspaceId, pr, onDone: props.onRefresh });
   const line = run.data ? firstFailureLine(run.data) : undefined;
   const workflow = run.data?.workflow;
-  const controls = checkControls(check, run.data, props.open);
+  const controls = checkControls(
+    check,
+    run.data,
+    props.open && can(detail, "reviews.checks.write"),
+  );
   return (
     <Row
       item={props.item}

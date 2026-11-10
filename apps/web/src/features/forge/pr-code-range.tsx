@@ -7,8 +7,9 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import type { ForgeFile } from "@ace/protocol";
+import type { ForgeFile, ForgePrDetail } from "@ace/protocol";
 import {
+  can,
   codeCaveats,
   hostedFileShow,
   renderedKind,
@@ -64,6 +65,7 @@ export function PrCodeRange(
   },
 ) {
   const { detail, options } = props;
+  const threads = can(detail, "reviews.comments.read") ? detail.status.reviewThreads : noThreads;
   const scope = `forge:${props.workspaceId}`;
   const pages = usePrFilePages({
     ...props,
@@ -88,10 +90,10 @@ export function PrCodeRange(
   const discussed = useMemo(
     () =>
       new Set([
-        ...detail.status.reviewThreads.filter((t) => !t.outdated).map((t) => t.file),
+        ...threads.filter((t) => !t.outdated).map((t) => t.file),
         ...(review?.state?.drafts ?? []).map((d) => d.anchor.path),
       ]),
-    [detail.status.reviewThreads, review?.state?.drafts],
+    [threads, review?.state?.drafts],
   );
   const read = usePrFileSides({
     workspaceId: props.workspaceId,
@@ -190,7 +192,7 @@ export function PrCodeRange(
     if (focus && focused.current !== focus.seq) {
       focused.current = focus.seq;
       restored.current = true;
-      nav.go(focus.path, landingOf(focus, detail.status.reviewThreads));
+      nav.go(focus.path, landingOf(focus, threads));
     } else if (!restored.current) {
       restored.current = true;
       if (place && place !== files[0]?.path) nav.go(place);
@@ -207,12 +209,12 @@ export function PrCodeRange(
   if (range?.commit && !atHead)
     caveats.push("Conversations show on All commits and on commits through the latest one.");
   const placeable = useMemo(
-    () => threadsAtHead(detail.status.reviewThreads, range, detail.status.headSha),
-    [detail.status.reviewThreads, range, detail.status.headSha],
+    () => threadsAtHead(threads, range, detail.status.headSha),
+    [threads, range, detail.status.headSha],
   );
   const offDiff = props.range.commit
     ? []
-    : offDiffThreads(detail.status.reviewThreads, { files, diffs: shown, complete });
+    : offDiffThreads(threads, { files, diffs: shown, complete });
   const stops = codeThreadStops(offDiff, files, byPath, placeable);
   // A single commit's total is known only once its pages are read; the PR's comes with it.
   const fileCount = props.range.commit ? files.length : detail.changedFiles;
@@ -400,3 +402,5 @@ const noFiles: readonly ForgeFile[] = [];
 const noPaths: ReadonlySet<string> = new Set();
 const noChoices: ReadonlyMap<string, boolean> = new Map();
 const noOpening: ReadonlyMap<string, number> = new Map();
+
+const noThreads: ForgePrDetail["status"]["reviewThreads"] = [];

@@ -149,7 +149,7 @@ test("hosts read under their provider, and the active GitLab host is browse-only
       name: "Gitea",
       account: null,
       active: false,
-      support: "pending",
+      support: "browse",
     },
   ]);
   expect(answer.screen.status).toMatchObject({

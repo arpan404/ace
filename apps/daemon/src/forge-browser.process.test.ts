@@ -96,6 +96,11 @@ test("repository detail discovers archived and active links without replacing a 
           resource: "prDetail",
           value: {
             body: "Hosted context",
+            capabilities: expect.arrayContaining([
+              "reviews.comments.write",
+              "reviews.merge",
+              "issues.write",
+            ]),
             relatedThreads: expect.arrayContaining([
               { id: active.id, title: active.title, archived: false },
               { id: archived.id, title: archived.title, archived: true },

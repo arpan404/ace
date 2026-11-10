@@ -1,3 +1,4 @@
+import { ForgeCapabilities } from "./forge-capabilities.ts";
 import { z } from "zod";
 import { ForgeRepository } from "./forge.ts";
 import { CommandId, ThreadId, WorkspaceId } from "./ids.ts";
@@ -56,6 +57,7 @@ export const ForgeIssueRow = z.object({
 });
 export type ForgeIssueRow = z.infer<typeof ForgeIssueRow>;
 export const ForgeIssueDetail = ForgeIssueRow.extend({
+  capabilities: ForgeCapabilities.optional(),
   body: text,
   /** The host shows this issue only to its participants and project members (GitLab). */
   confidential: z.boolean().optional(),

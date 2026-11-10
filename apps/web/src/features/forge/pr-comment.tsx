@@ -48,7 +48,8 @@ export function PrComment(props: {
   const [shown, setShown] = useState(false);
   const avatar = props.avatar ?? true;
   const reason = hiddenReasonOf(state, comment);
-  const own = !!state && comment.author === state.viewer && comment.kind !== "review";
+  const own =
+    !!state && state.canComment && comment.author === state.viewer && comment.kind !== "review";
   const source = comment.kind === "review" ? undefined : comment.kind;
   const hideable = canHide(state, comment);
   const disabled = !review?.ready || review.pending;

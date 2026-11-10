@@ -1,3 +1,4 @@
+import { forgeCapabilities } from "./forge-capabilities.ts";
 import { repositoryFromRemote } from "./remote.ts";
 import { repositoryKey } from "./repository-key.ts";
 export { repositoryKey } from "./repository-key.ts";
@@ -87,6 +88,7 @@ export function resolveProjectRepositories(input: {
       problem ?? (readableForges.includes(repository.forge) ? undefined : "provider_unsupported");
     entries.set(key, {
       repository,
+      capabilities: [...forgeCapabilities[repository.forge]],
       source,
       ...(remote ? { remote } : {}),
       visible: !hidden.has(key),

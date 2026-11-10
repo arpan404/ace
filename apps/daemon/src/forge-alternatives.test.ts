@@ -147,7 +147,14 @@ test("Origin browsing probes its account once per window and fails closed after 
     (await h.read(originRepository, { op: "forge.pr.detail", number: 7 })).result,
   ).toMatchObject({
     kind: "forge",
-    data: { resource: "prDetail", value: { readOnly: true, body: "Review description" } },
+    data: {
+      resource: "prDetail",
+      value: {
+        readOnly: true,
+        body: "Review description",
+        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+      },
+    },
   });
   expect(
     (
@@ -371,7 +378,14 @@ test("GitLab merge requests browse through glab with GET-only, pinned reads", as
     (await h.read(gitlabRepository, { op: "forge.pr.detail", number: 3 })).result,
   ).toMatchObject({
     kind: "forge",
-    data: { resource: "prDetail", value: { body: "MR body", changedFiles: 1 } },
+    data: {
+      resource: "prDetail",
+      value: {
+        body: "MR body",
+        changedFiles: 1,
+        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+      },
+    },
   });
   expect(
     (

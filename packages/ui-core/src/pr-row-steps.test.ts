@@ -129,3 +129,14 @@ test("hosted reviews with unavailable review and CI data are never ready to merg
     ).toBe("answer");
   }
 });
+
+test("a mirror offers merge only when its declaration permits merging", () => {
+  const mirror = row(1, { ref: { repository: { ...repository, forge: "gitlab" }, number: 1 } });
+  expect(rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read"] }).step).toBe(
+    "wait",
+  );
+  expect(
+    rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read", "reviews.merge"] })
+      .step,
+  ).toBe("merge");
+});

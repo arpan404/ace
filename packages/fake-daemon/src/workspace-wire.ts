@@ -171,6 +171,29 @@ export class FakeWorkspaceWire {
         return read.value.title;
     return undefined;
   }
+  private reportCapabilities(data: ForgeBrowserResult): ForgeBrowserResult {
+    if (data.resource === "prDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.status.ref.repository),
+        },
+      };
+    if (data.resource === "issueDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.ref.repository),
+        },
+      };
+    return data;
+  }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
       this.issues.read(op) ??
@@ -446,7 +469,7 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: { kind: "forge", data: catalogued },
+        result: { kind: "forge", data: this.reportCapabilities(catalogued) },
       });
     if (op.op === "forge.pr.merge-state" && !this.forgeReads.has(JSON.stringify(op))) {
       const value = this.forge.mergeState(op.workspaceId, op.repository, op.number);
@@ -508,7 +531,9 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
+        result: data
+          ? { kind: "forge", data: this.reportCapabilities(data) }
+          : { kind: "error", code: "forge_not_found" },
       });
     }
     if (op.op === "git.conflicts")

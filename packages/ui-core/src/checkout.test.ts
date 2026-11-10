@@ -148,7 +148,7 @@ test.each(["gitbucket", "bitbucket", "gitea", "forgejo"] as const)(
   (forge) => {
     expect(step({ repository: { ...repository, forge, host: "git.example.com" } })).toMatchObject({
       kind: "create-pr",
-      blocked: /aren't supported yet/,
+      blocked: /isn't supported yet/,
     });
   },
 );
@@ -182,5 +182,39 @@ test("a status from another host cannot change a linked review with the same nam
   expect(checkoutOf(details(link(9)), status)?.pr).toMatchObject({
     state: "open",
     repo: repository,
+  });
+});
+
+test("a checkout can create reviews when its repository declaration enables creation", () => {
+  const checkout = checkoutOf(details({ repository: { ...repository, forge: "gitlab" } }));
+  if (!checkout) throw new Error("Expected checkout");
+  expect(nextGitStep(checkout, { capabilities: ["reviews.create"] })).toEqual({
+    kind: "create-pr",
+    blocked: undefined,
+  });
+  expect(nextGitStep(checkout, { capabilities: [] })).toMatchObject({
+    blocked: expect.any(String),
+  });
+});
+
+test("the mobile checkout retains the PR link without a merge action when merging is unsupported", async () => {
+  const { changesNextStep } = await import("./mobile-changes.ts");
+  const linked = details(link(9));
+  expect(
+    changesNextStep(linked, undefined, undefined, { capabilities: ["reviews.read"] }),
+  ).toMatchObject({
+    kind: "none",
+    pr: { number: 9 },
+  });
+  expect(
+    changesNextStep(
+      details({ repository: { ...repository, forge: "gitlab" } }),
+      undefined,
+      undefined,
+      { capabilities: ["reviews.create"] },
+    ),
+  ).toMatchObject({
+    kind: "create-pr",
+    blocked: null,
   });
 });

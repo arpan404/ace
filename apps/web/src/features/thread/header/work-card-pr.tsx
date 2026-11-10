@@ -1,3 +1,5 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
+import { can } from "@ace/ui-core";
 import type { CheckoutPr } from "@ace/ui-core";
 import {
   mergeBlock,
@@ -42,9 +44,13 @@ export function PrLine(props: {
   const prefetch = usePrPrefetch(props.workspaceId);
   const method = useMergeMethod();
   const { merge, checking } = useMergePr(git);
+  const repository = pr?.repo ?? git.checkout?.repository;
+  const capabilities = useRepositoryCapabilities(props.workspaceId, repository);
   if (!pr) return null;
-  const repository = pr.repo ?? git.checkout?.repository;
-  const live = repository?.forge === "github" && (pr.state === "open" || pr.state === "draft");
+  const live =
+    !!repository &&
+    can(capabilities, "reviews.merge") &&
+    (pr.state === "open" || pr.state === "draft");
   const same = git.status?.ref.number === pr.number;
   const block = git.status && same ? mergeBlock(git.status, git.checkout?.baseBranch) : undefined;
   const conflicts = block?.kind === "conflicts";

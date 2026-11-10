@@ -1,3 +1,4 @@
+import { can, repositoryCapabilities } from "@ace/ui-core";
 import {
   groupByWork,
   prQuery,
@@ -154,6 +155,7 @@ export function PullRequestsPage(props: {
   const verify = useVerifyRuns(single);
   const runs = verify.data?.runs ?? noRuns;
   const steps = useRowSteps({
+    lists: review.lists,
     back: listAddress,
     rows: list.rows,
     projectOf: list.projectOf,
@@ -259,7 +261,16 @@ export function PullRequestsPage(props: {
       />
       <NewInProject
         label="New pull request"
-        projects={projects}
+        projects={projects.filter((project) => {
+          const repository = review.primary.get(project);
+          return (
+            repository &&
+            can(
+              repositoryCapabilities(repository, review.lists.get(project)?.repositories ?? []),
+              "reviews.create",
+            )
+          );
+        })}
         name={choice.name}
         onPick={(project) =>
           void navigate({

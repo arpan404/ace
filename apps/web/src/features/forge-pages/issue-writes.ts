@@ -1,3 +1,5 @@
+import { can, type ForgeCapabilitySource } from "@ace/ui-core";
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
 import { useState } from "react";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
@@ -35,11 +37,19 @@ const uncertain = new Set(["action_outcome_uncertain", "forge_write_uncertain"])
  * against GitHub (`reconcile`) instead of being sent twice. After each, the issue reads again,
  * and every list, the Inbox and the sidebar's open issues are brought up to date with it.
  */
-export function useIssueWrites(project: string, repository: ForgeRepository | undefined) {
+export function useIssueWrites(
+  project: string,
+  repository: ForgeRepository | undefined,
+  declaration?: ForgeCapabilitySource,
+) {
   const client = useClient();
   const cache = useQueryClient();
   const toast = useToast();
-  const ready = useConnectionState() === "ready";
+  const connected = useConnectionState() === "ready";
+  const source = useRepositoryCapabilities(project, repository);
+  const ready =
+    connected &&
+    can(declaration?.capabilities !== undefined ? declaration : source, "issues.write");
   const [pending, setPending] = useState(false);
   const refresh = async () => {
     // The issue's own read lands first (it's on screen), then lists take its word for it.

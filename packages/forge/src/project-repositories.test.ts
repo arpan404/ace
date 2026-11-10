@@ -256,3 +256,20 @@ describe("saved choices", () => {
     ).toEqual({ ok: true, config: config({ added: [gitlab] }) });
   });
 });
+
+test("hidden and unavailable repository entries still declare their adapter capabilities", () => {
+  const result = resolveProjectRepositories({
+    remotes: [origin, mirror],
+    preferences,
+    config: config({ hidden: [gitlab], added: [bitbucket] }),
+  });
+  expect(result.repositories).toMatchObject([
+    { repository: github, capabilities: expect.arrayContaining(["reviews.merge", "issues.write"]) },
+    {
+      repository: gitlab,
+      visible: false,
+      capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+    },
+    { repository: bitbucket, available: false, capabilities: [] },
+  ]);
+});
