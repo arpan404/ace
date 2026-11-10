@@ -35,7 +35,7 @@ Each agent CLI owns its credentials. ace can start its login or hand a pasted AP
 | `tools/dev`               | The development process runner behind `bun run dev`                     |
 | `docs/adr`                | Architecture decision records                                           |
 | `docs/research`           | Primary-source research behind the decisions                            |
-| `spade`                   | Spade, ace's assistant (Rust); under its own license, see below         |
+| `spade`                   | Spade, ace's assistant (Rust, its own Cargo workspace)                  |
 
 The [agent browser and computer tool contract](docs/daemon/agent-tools.md) documents
 scoped MCP calls, navigation waits and control handback.
@@ -198,7 +198,4 @@ authority's Ed25519 key in the bundled daemon for standalone installs (ADR 0041)
 
 ## License
 
-Apache-2.0, except `spade/`. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
-
-ace is licensed under the Apache License 2.0, except Arpan Bhandari's original material in the
-`spade/` directory, which is under the Spade License 1.0 in [`spade/LICENSE`](spade/LICENSE). Spade's original material is proprietary and source-available, not open source. You may read it and run Official Builds, including for internal workplace use, make the copies those permissions reasonably need, and change User Settings as that license permits. Other copying, modification, redistribution, hosting as a service, and restricted commercial or competing use need prior written permission. Separately licensed material keeps its own license. This summary does not replace the license texts.
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

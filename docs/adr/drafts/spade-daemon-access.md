@@ -9,7 +9,7 @@ and the push gateway ([ADR 0106](../0106-ios-remote-push-gateway.md)). This is t
 ## Context
 
 Spade is ace's cloud agent. Its backend is a Rust service in this repository's `spade/`
-directory, under its own license (`spade/LICENSE`). The owner
+directory, Apache-2.0 like the rest of ace. The owner
 decided (2026-11-08) that Spade's agents can use a person's connected daemons and devices:
 start, steer and read ace threads, drive the browser and computer use, and control the daemon.
 

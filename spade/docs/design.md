@@ -14,7 +14,7 @@ browser and computer use, and controls the daemon.
 
 | Decision                                                                                                                    | Status   |
 | --------------------------------------------------------------------------------------------------------------------------- | -------- |
-| The backend is Rust, in ace's repository at `spade/`, under the Spade License (`spade/LICENSE`)                             | decided  |
+| The backend is Rust, in ace's repository at `spade/`, Apache-2.0 like the rest of ace                                       | decided  |
 | It runs on Linux VMs (native binary, systemd), not Workers or containers                                                    | decided  |
 | Rust is the backend only; Spade's screens are ace's React (desktop, web) and Swift (iOS)                                    | decided  |
 | Spade acts on a person's connected daemons and devices: controls them and the daemon                                        | decided  |
