@@ -3,6 +3,7 @@ import { CommandDialog } from "@/components/ui/command.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { AddProjectSteps, isAddPage } from "@/features/projects/index.ts";
 import type { PalettePage, PaletteStart } from "@/lib/layout.tsx";
+import type { Machine } from "@/lib/machines.ts";
 import { NewThreadIn } from "./new-thread-in.tsx";
 import PaletteBody from "./palette-body.tsx";
 
@@ -24,6 +25,8 @@ export default function PaletteDialog(props: {
     setStartedWith(props.start);
     setStack(props.start.page ? [props.start.page] : []);
   }
+  // The machine New thread in had chosen when it opened Add project, which starts there.
+  const [addOn, setAddOn] = useState<Pick<Machine, "id" | "name" | "primary">>();
   const page = stack.at(-1);
   const push = useCallback((next: PalettePage) => setStack((pages) => [...pages, next]), []);
   const back = useCallback(() => setStack((pages) => pages.slice(0, -1)), []);
@@ -44,7 +47,14 @@ export default function PaletteDialog(props: {
         (page === undefined ? (
           <PaletteBody close={props.close} push={push} />
         ) : page === "new-thread-in" ? (
-          <NewThreadIn onBack={back} close={props.close} onAddProject={() => push("add-project")} />
+          <NewThreadIn
+            onBack={back}
+            close={props.close}
+            onAddProject={(machine) => {
+              setAddOn(machine);
+              push("add-project");
+            }}
+          />
         ) : (
           <Suspense
             fallback={
@@ -53,6 +63,7 @@ export default function PaletteDialog(props: {
           >
             <AddProjectSteps.Component
               page={page}
+              machine={stack.includes("new-thread-in") ? addOn : undefined}
               attempt={page === props.start.page ? props.start.attempt : undefined}
               onPage={push}
               onBack={back}
