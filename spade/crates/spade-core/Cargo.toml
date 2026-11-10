@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Spade's pure logic: conversation events, transcript, prompts, spending"
 edition.workspace = true
 rust-version.workspace = true
-license-file.workspace = true
+license.workspace = true
 publish.workspace = true
 
 [dependencies]
