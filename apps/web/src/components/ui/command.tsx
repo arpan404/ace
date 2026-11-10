@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
-import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DialogOverlay } from "./dialog.tsx";
 import { FloatingContents } from "./floating-material.tsx";
@@ -91,8 +91,8 @@ function Command<Item>(props: {
 
 /**
  * The sheet's top row: a magnifier, the field (`commandField`), anything beside it (a spinner)
- * and the close mark, which always closes (so Tab lands on something visible). It shows no key:
- * what Esc does here (clear the field first, or close) is the key hints' to say. The field is
+ * and Close, a quiet word that always closes (so Tab lands on something visible), on touch too.
+ * It shows no key: what Esc does here (clear the field first, or close) is the key hints' to say. The field is
  * always focused while the sheet is open, so the caret is its focus mark.
  */
 const commandField =
@@ -111,9 +111,10 @@ function CommandSearchRow(props: {
       {props.children}
       <Dialog.Close
         aria-label={props.closeLabel}
-        className="focus-ring relative grid size-6 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground touch-hit touch-hit-lg"
+        aria-keyshortcuts="Escape"
+        className="focus-ring relative shrink-0 rounded-sm px-1 text-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground touch-hit touch-hit-lg"
       >
-        <XIcon aria-hidden size={16} />
+        Close
       </Dialog.Close>
     </div>
   );
