@@ -79,7 +79,14 @@ test("near-simultaneous completions wake once with every outcome while another c
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
 });
 
-test("parent waits for a child's background task after its foreground turn ends", async () => {
+const reply = (item: string, text: string): Fact => ({
+  type: "item.upsert",
+  agent: "root",
+  item,
+  draft: { type: "message", role: "assistant", parts: [{ type: "text", text }], complete: true },
+});
+
+test("a child's reply reaches its parent while the build it left running goes on, and a later turn for it arrives as an update", async () => {
   const h = setup();
   const parent = await h.parent();
   const edge = h.delegate(parent, "background");
@@ -95,19 +102,30 @@ test("parent waits for a child's background task after its foreground turn ends"
       stoppable: true,
       ambient: false,
     },
+    reply("first", "Fixed the bug; the full build is still running."),
     end,
   );
   h.clock.advance(1050);
   await h.engine.flush();
-  expect(h.store.getThread(parent.threadId)?.status).toMatchObject({
-    state: "waiting",
-    on: "background_task",
-  });
-  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
-  await h.emit(edge.childId, { type: "background.ended", task: "build", status: "completed" });
-  h.clock.advance(1100);
-  await h.engine.flush();
+  expect(h.store.getThread(edge.childId)?.status).toEqual({ state: "done" });
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("the full build is still running");
+  expect(Object.values(h.store.snapshotThread(edge.childId).backgroundTasks)).toMatchObject([
+    { status: "running" },
+  ]);
+
+  // The provider wakes the agent when the build ends: new work, then a new result.
+  await h.emit(
+    edge.childId,
+    { type: "background.ended", task: "build", status: "completed" },
+    { type: "turn.started", agent: "root", trigger: "background_completion" },
+  );
+  expect(h.store.getThread(edge.childId)?.status.state).toBe("working");
+  await h.emit(edge.childId, reply("second", "The full build passed."), end);
+  h.clock.advance(h.clock.now() + 1100);
+  await h.engine.flush();
+  expect(wakes(h.events, parent.threadId)).toHaveLength(2);
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("The full build passed.");
 });
 
 test("a child that leaves a dev server running settles at its reply and the parent gets the result, the server still listed", async () => {
@@ -125,25 +143,18 @@ test("a child that leaves a dev server running settles at its reply and the pare
     outputPath: "/tmp/tasks/dev.output",
   });
   await h.complete(edge.childId, "The app runs at http://localhost:5173");
-  // The provider would wake the agent when the command ends: until it is known to be a
-  // service, the child waits on it.
   h.clock.advance(1050);
-  await h.engine.flush();
-  expect(h.store.getThread(edge.childId)?.status).toEqual({
-    state: "waiting",
-    on: "background_task",
-  });
-  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
-
-  const ports = h.engine.backgroundPorts();
-  const [dev] = ports.candidates(edge.childId);
-  expect(dev).toMatchObject({ outputPath: "/tmp/tasks/dev.output", turnFinished: true });
-  ports.report(edge.childId, dev!.taskId, [5173]);
-  h.clock.advance(1100);
   await h.engine.flush();
   expect(h.store.getThread(edge.childId)?.status.state).toBe("done");
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
   expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("http://localhost:5173");
+
+  // Its port is still found, for the strip that names it.
+  const ports = h.engine.backgroundPorts();
+  const [dev] = ports.candidates(edge.childId);
+  expect(dev).toMatchObject({ outputPath: "/tmp/tasks/dev.output", turnFinished: true });
+  ports.report(edge.childId, dev!.taskId, [5173]);
+  await h.engine.flush();
   expect(h.store.snapshotThread(edge.childId).backgroundTasks[dev!.taskId]).toMatchObject({
     status: "running",
     listening: [5173],

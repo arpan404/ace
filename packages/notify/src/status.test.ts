@@ -138,7 +138,7 @@ it("an expected self-started turn cancels the transient completion alert", async
   await f.flush();
   expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
 });
-it("no done alert is sent while a child or nonambient background task remains live", async () => {
+it("no done alert is sent while a child works, and a command it left running doesn't hold one back", async () => {
   const f = fixture();
   f.start();
   f.fact({
@@ -164,12 +164,15 @@ it("no done alert is sent while a child or nonambient background task remains li
   });
   f.end("completed", "child");
   await f.flush();
-  expect(f.deliveries).toEqual([]);
+  // Every agent replied: done now, while the command still runs (ADR 0116).
+  expect(f.deliveries.map((d) => d.notification.status)).toEqual(["done", "done"]);
+  const before = f.deliveries.length;
   f.fact({ type: "background.ended", task: "task", status: "completed" });
   await f.flush();
-  expect(f.deliveries.map((d) => d.notification)).toEqual([
-    expect.objectContaining({ status: "done", backgroundCount: 1 }),
-    expect.objectContaining({ status: "done", backgroundCount: 1 }),
+  // Its end is its own alert.
+  expect(f.deliveries.slice(before).map((d) => d.notification)).toEqual([
+    expect.objectContaining({ status: "background_done", backgroundCount: 1 }),
+    expect.objectContaining({ status: "background_done", backgroundCount: 1 }),
   ]);
 });
 it("bursts coalesce at the first deadline with the final status and count", async () => {

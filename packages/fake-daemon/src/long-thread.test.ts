@@ -663,7 +663,7 @@ test("the streaming fixture produces deterministic multi-day work with approvals
 // Mutation cases: count pre-cursor approval requests twice; use a device name as proof
 // of auto-review; declare a thread done while a background shell runs.
 // Not executed (tests run at merge).
-test("fake catch-up counts an approval answer after the cursor and preserves background waiting", async () => {
+test("fake catch-up counts an approval answer after the cursor and keeps the background command running", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
   daemon.createThread({
     id: "background",
@@ -733,7 +733,7 @@ test("fake catch-up counts an approval answer after the cursor and preserves bac
   try {
     const summary = await client.threadCatchUp({ threadId: "background", sinceSeq });
     expect(summary).toMatchObject({
-      status: { state: "waiting", on: "background_task" },
+      status: { state: "done" },
       turnsCompleted: 1,
       digest: {
         approvalsAsked: 0,

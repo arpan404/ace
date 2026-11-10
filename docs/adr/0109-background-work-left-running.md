@@ -1,6 +1,7 @@
 # 0109: Background work left running after a finished turn
 
-Status: accepted. Date: 2026-11-01. Amends [ADR 0004](0004-canonical-agent-model.md) ("a
+Status: accepted, amended by [ADR 0116](0116-done-at-reply.md) (commands left running no longer
+hold a thread past its final reply). Date: 2026-11-01. Amends [ADR 0004](0004-canonical-agent-model.md) ("a
 thread is done only when … no background task is live") and refines thread settlement for
 [ADR 0052](0052-agent-control.md) (delegation).
 
