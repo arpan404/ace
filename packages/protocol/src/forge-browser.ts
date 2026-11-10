@@ -1,4 +1,5 @@
 import { ForgeLifecycleState } from "./forge-lifecycle.ts";
+import { ForgeCapabilities } from "./forge-capabilities.ts";
 import {
   ForgeIssueOperations,
   ForgeIssueResults,
@@ -156,6 +157,8 @@ export const ForgePrDetailFile = z.object({
 });
 export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
+  /** What ace can do with this review's host (ADR 0117). Absent from older daemons. */
+  capabilities: ForgeCapabilities.optional(),
   /** Host reads are available, but ace does not yet admit mutations for this provider. */
   readOnly: z.boolean().optional(),
   /** Resources this adapter cannot read; never present empty arrays as complete results.

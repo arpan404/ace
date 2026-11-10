@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ForgeCapabilities } from "./forge-capabilities.ts";
 import { ForgeRepository } from "./forge.ts";
 import { WorkspaceId } from "./ids.ts";
 
@@ -54,6 +55,8 @@ export const ProjectRepository = z.object({
   available: z.boolean(),
   /** Set exactly when `available` is false. */
   unavailable: ProjectRepositoryUnavailable.optional(),
+  /** What ace can do with this repository's host (ADR 0117). Absent from older daemons. */
+  capabilities: ForgeCapabilities.optional(),
 });
 export type ProjectRepository = z.infer<typeof ProjectRepository>;
 

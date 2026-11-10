@@ -11,7 +11,9 @@ import {
   ForgeError,
   SshHostAliases,
   identityVerificationMs,
+  isAdmittedApiRequest,
   isReadOnlyApiRequest,
+  type HostApiWrite,
   pinnedRunner,
   type CommandRunner,
 } from "@ace/forge";
@@ -139,6 +141,27 @@ export class SourceControl {
    */
   async readIdentity(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
     if (repository.forge === "github") return this.identity(cwd, repository.host, signal);
+    return this.hostIdentity(cwd, repository, [], signal);
+  }
+  /**
+   * A non-GitHub host's runner admitting reads plus exactly `writes` (ADR 0117). Writes prove the
+   * account before and after they run, as GitHub's do; anything else is refused.
+   */
+  async writeIdentity(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ) {
+    if (repository.forge === "github") throw new ForgeError("unsupported");
+    return this.hostIdentity(cwd, repository, writes, signal);
+  }
+  private async hostIdentity(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ) {
     const forge = repository.forge;
     if (forge !== "gitlab" && forge !== "origin") throw new ForgeError("unsupported");
     const revision = this.currentRevision;
@@ -162,7 +185,7 @@ export class SourceControl {
       account,
       identify,
       pins: () => true,
-      isWrite: () => false,
+      isWrite: (request) => !isReadOnlyApiRequest(cli, request, repository.host),
       assertCurrent: check,
       options: {
         now: this.now,
@@ -177,7 +200,8 @@ export class SourceControl {
     const verified: CommandRunner = async (request) => {
       check();
       request.signal.throwIfAborted();
-      if (!isReadOnlyApiRequest(cli, request, repository.host)) throw new ForgeError("unsupported");
+      if (!isAdmittedApiRequest(cli, request, repository.host, writes))
+        throw new ForgeError("unsupported");
       const result = await pinned(request);
       check();
       return result;
