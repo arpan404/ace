@@ -7,12 +7,14 @@ import {
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { canPick } from "@/components/ui/list-keys.ts";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import { LongRows, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import { applePlatform } from "@/lib/keymap.ts";
@@ -44,20 +46,25 @@ export function FolderSearchBox(props: {
 }) {
   const { search, text, onText } = props;
   const { query, rows, sections, home } = search;
-  const listId = useId();
-  // Nothing is highlighted until a row is pointed at.
-  const [active, setActive] = useState<number>();
-  const chosen = active;
-  const current = Math.min(chosen ?? 0, Math.max(0, rows.length - 1));
+  const virtual = useRef<VirtualRowsHandle>(null);
+  // Nothing is highlighted until a key or the pointer moves to a row.
+  const list = useListHighlight({
+    count: rows.length,
+    // A folder's rows past the first sections may need mounting before they show.
+    reveal: (at) => {
+      const children = sections.find((section) => section.id === "children");
+      const offset = children ? rows.indexOf(children.rows[0] as FolderRow) : -1;
+      if (offset >= 0 && at >= offset) virtual.current?.scrollToIndex(at - offset);
+    },
+  });
+  const { listId, optionId, current } = list;
   // Rows still cached from before the machine went away, or from a folder now refused, stay
   // out of reach.
   const blocked = search.offline || search.failure !== undefined;
-  const pointed = blocked || chosen === undefined ? undefined : rows[current];
+  const pointed = blocked || current === undefined ? undefined : rows[current];
   // A row still showing from the previous query is never chosen for this one.
-  const highlighted = pointed?.stale ? undefined : pointed;
-  const virtual = useRef<VirtualRowsHandle>(null);
+  const highlighted = canPick(pointed, blocked) ? pointed : undefined;
   const roots = home?.roots ?? [];
-  const optionId = (index: number) => `${listId}-${index}`;
   // What the box holds now, for replies that arrive later: the text and the machine it's for.
   const latest = useRef({ text, machine: search.machineId });
   useEffect(() => {
@@ -72,20 +79,9 @@ export function FolderSearchBox(props: {
     return () => completing.current?.abort();
   }, [machineId]);
 
-  // Keep the highlighted folder in view; one in a long folder may need mounting first.
-  useEffect(() => {
-    const element = document.getElementById(optionId(current));
-    if (element) element.scrollIntoView?.({ block: "nearest" });
-    else {
-      const children = sections.find((section) => section.id === "children");
-      const offset = children ? rows.indexOf(children.rows[0] as FolderRow) : -1;
-      if (offset >= 0 && current >= offset) virtual.current?.scrollToIndex(current - offset);
-    }
-  });
-
   const type = (next: string) => {
     onText(next);
-    setActive(undefined);
+    list.reset();
   };
   const browse = (path: string) => type(pathInput(path, home?.path));
   const choose = (row: FolderRow | undefined) => {
@@ -97,16 +93,17 @@ export function FolderSearchBox(props: {
     const caretAtEnd =
       event.currentTarget.selectionStart === text.length &&
       event.currentTarget.selectionEnd === text.length;
-    const count = rows.length;
-    if (key === "ArrowDown" || (event.ctrlKey && key === "n"))
-      setActive(count && chosen !== undefined ? (current + 1) % count : 0);
-    else if (key === "ArrowUp" && mod(event)) {
+    const action = list.key(event, (at) => canPick(rows[at], blocked));
+    if (action.kind === "moved") return;
+    // ⌘Enter is the form's.
+    if (action.kind === "pick") {
+      if (action.how === "alternate") return;
+      choose(rows[action.at]);
+    } else if (key === "ArrowUp" && mod(event)) {
       const up = query.kind === "path" ? upInput(query, home?.path) : undefined;
       if (up === undefined) return;
       type(up);
-    } else if (key === "ArrowUp" || (event.ctrlKey && key === "p"))
-      setActive(count ? (current - 1 + count) % count : 0);
-    else if (key === "Enter") {
+    } else if (key === "Enter") {
       if (mod(event)) return;
       choose(highlighted);
     } else if (key === "Tab" && !event.shiftKey && !event.altKey && !mod(event)) {
@@ -201,7 +198,7 @@ export function FolderSearchBox(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={pointed ? optionId(current) : undefined}
+          aria-activedescendant={pointed && current !== undefined ? optionId(current) : undefined}
           aria-describedby={`${listId}-path`}
           placeholder={props.placeholder}
           value={text}
@@ -257,7 +254,7 @@ export function FolderSearchBox(props: {
                 row={row}
                 active={first + at === current}
                 home={home?.path}
-                onPoint={() => setActive(first + at)}
+                onPoint={() => list.point(first + at)}
                 onPick={() => browse(row.path)}
               />
             );

@@ -5,10 +5,10 @@ import {
   WifiSlashIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { ClientApi } from "@ace/client";
 import { ClientProvider, useNotifyBatch } from "@ace/client-react";
-import { actionErrorText, stepHighlight } from "@ace/ui-core";
+import { actionErrorText } from "@ace/ui-core";
 import {
   RepositoryListInput,
   type HostedRepository,
@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { useListHighlight } from "@/components/ui/use-list-highlight.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import {
@@ -94,8 +95,6 @@ function RepositoryBrowser(props: {
   const [visibility, setVisibility] = useState<RepositoryListInput["visibility"]>("all");
   const [archived, setArchived] = useState<RepositoryListInput["archived"]>("no");
   const [fork, setFork] = useState<RepositoryListInput["fork"]>("all");
-  const [active, setActive] = useState<number | undefined>(0);
-  const listId = useId();
   const queries = useQueryClient();
   const status = useDaemonQuery({
     queryKey: ["projects", "github-readiness", props.machineId],
@@ -148,12 +147,9 @@ function RepositoryBrowser(props: {
     staleTime: 0,
   });
   const rows = repositories.data ?? [];
-  const current = active !== undefined && active < rows.length ? active : undefined;
-  const highlighted = current === undefined ? undefined : rows[current];
-  useEffect(() => {
-    if (current !== undefined)
-      document.getElementById(`${listId}-${current}`)?.scrollIntoView?.({ block: "nearest" });
-  }, [current, listId]);
+  // The best match is highlighted from the start, so Enter clones it.
+  const list = useListHighlight({ count: rows.length, start: 0 });
+  const { listId, current } = list;
   const error = status.error
     ? `Couldn't read GitHub CLI readiness. ${actionErrorText(readFailureCode(status.error))}`
     : repositories.error
@@ -182,7 +178,7 @@ function RepositoryBrowser(props: {
           aria-expanded
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={highlighted ? `${listId}-${current}` : undefined}
+          aria-activedescendant={current === undefined ? undefined : list.optionId(current)}
           // oxlint-disable-next-line jsx-a11y/no-autofocus -- A palette step opens to its field.
           autoFocus
           value={query}
@@ -191,7 +187,7 @@ function RepositoryBrowser(props: {
           autoComplete="off"
           onChange={(event) => {
             setQuery(event.target.value);
-            setActive(0);
+            list.reset(0);
           }}
           onKeyDown={(event) => {
             if (
@@ -202,11 +198,11 @@ function RepositoryBrowser(props: {
               })
             )
               return;
-            if (event.key === "ArrowDown" || event.key === "ArrowUp")
-              setActive(stepHighlight(current, event.key === "ArrowDown" ? 1 : -1, rows.length));
-            else if (event.key === "Enter" && highlighted) props.onSelect(highlighted);
-            else return;
+            const action = list.key(event, () => true);
+            if (action.kind !== "pick") return;
             event.preventDefault();
+            const row = rows[action.at];
+            if (row) props.onSelect(row);
           }}
           className={commandStepField}
         />
@@ -295,10 +291,10 @@ function RepositoryBrowser(props: {
           {rows.map((row, at) => (
             <CommandOption
               key={row.id}
-              id={`${listId}-${at}`}
+              id={list.optionId(at)}
               active={at === current}
               label={`${row.repository.owner}/${row.repository.name}`}
-              onPoint={() => setActive(at)}
+              onPoint={() => list.point(at)}
               onPick={() => props.onSelect(row)}
             >
               <Icon icon={row.visibility === "private" ? LockSimpleIcon : GithubLogoIcon} />
