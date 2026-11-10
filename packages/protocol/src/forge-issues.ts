@@ -54,6 +54,8 @@ export const ForgeIssueRow = z.object({
 export type ForgeIssueRow = z.infer<typeof ForgeIssueRow>;
 export const ForgeIssueDetail = ForgeIssueRow.extend({
   body: text,
+  /** Whether the host restricts this issue to authorized participants. */
+  confidential: z.boolean().optional(),
   permissions: z.object({
     edit: z.boolean(),
     close: z.boolean(),

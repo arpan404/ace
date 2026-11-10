@@ -114,13 +114,15 @@ export function prUrl(pr: ForgePrRef): string {
 }
 
 /** Browser-safe issue identity uses the same repository restrictions as PR addresses. */
-export function issueFromUrl(value: string): import("@ace/protocol/forge-issues").ForgeIssueRef {
+export function issueFromUrl(value: string, hosts: readonly PrHost[] = defaultHosts): import("@ace/protocol/forge-issues").ForgeIssueRef {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
     throw new ForgeError("invalid_data");
   }
+  const gitlab = /^\/(.+)\/-\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
+  if (gitlab) return prFromUrl(`https://${url.host}/${gitlab[1]}/-/merge_requests/${gitlab[2]}`, hostsWithSafeUrl(url, hosts));
   const match = /^\/([\w.-]+)\/([\w.-]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
   if (
     !match ||
@@ -132,4 +134,9 @@ export function issueFromUrl(value: string): import("@ace/protocol/forge-issues"
   )
     throw new ForgeError("invalid_data");
   return prFromUrl(`https://${url.host}/${match[1]}/${match[2]}/pull/${match[3]}`);
+}
+
+function hostsWithSafeUrl(url: URL, hosts: readonly PrHost[]): readonly PrHost[] {
+  if (url.protocol !== "https:" || url.username || url.password || url.port) throw new ForgeError("invalid_data");
+  return hosts;
 }

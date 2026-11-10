@@ -15,7 +15,7 @@ import {
   type ForgePrList as ForgePrListType,
 } from "@ace/protocol/forge-browser";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
-import { Buffer } from "node:buffer";
+import { GitLabApi } from "./gitlab-api.ts";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
@@ -36,9 +36,7 @@ import {
   must,
   prRow,
   requireSha,
-  splitHttp,
   statusState,
-  throwForStatus,
   type GitLabMr,
   type Headers,
 } from "./gitlab-records.ts";
@@ -71,33 +69,7 @@ export class GitLabReader implements ForgeReader {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<{ headers: Headers; body: unknown }> {
-    signal.throwIfAborted();
-    let result;
-    try {
-      result = await this.#runner({
-        command: "glab",
-        args: ["api", endpoint, "-X", "GET", "--hostname", this.#host, "--include"],
-        signal,
-        mode: "json",
-      });
-    } catch (error) {
-      signal.throwIfAborted();
-      if (error instanceof ForgeError) throw error;
-      throw new ForgeError("cli");
-    }
-    if (result.truncated) throw new ForgeError("limit");
-    if (result.unreachable) throw new ForgeError("offline");
-    // One 8 MiB budget spans every request in the snapshot, counted in UTF-8 bytes.
-    budget.add(Buffer.byteLength(result.stdout, "utf8"));
-    const { headers, body } = splitHttp(result.stdout);
-    const code = Number(/^HTTP\/[\d.]+ (\d{3})/i.exec(result.stdout)?.[1]);
-    if (!Number.isInteger(code)) throw new ForgeError("invalid_data");
-    throwForStatus(code, headers, result.code);
-    try {
-      return { headers, body: JSON.parse(body) };
-    } catch {
-      throw new ForgeError("invalid_data");
-    }
+    return new GitLabApi(this.#runner, this.#host).request(endpoint, signal, budget);
   }
 
   #statusOf(mr: GitLabMr): ForgePrStatusType {
