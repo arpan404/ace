@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import type { ForgePrList, ForgePrRow } from "@ace/protocol";
 import { useClient, useConnectionState } from "@ace/client-react";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { prPageKey, readPrPage, usePrPages, type ListPages } from "./lists.ts";
+import { prPageKey, primarySources, readPrPage, usePrPages, type ListPages } from "./lists.ts";
 
 /** Rows to show per screen: one page's worth, then another per "Show more". */
 const screenful = 25;
@@ -31,7 +31,11 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
   const fallbackKey = JSON.stringify([project, prQuery(search, 1)]);
   const [fallbackPaging, setFallbackPaging] = useState({ key: fallbackKey, pages: 1 });
   const fallbackPages = fallbackPaging.key === fallbackKey ? fallbackPaging.pages : 1;
-  const head = usePrPages(project ? [project] : [], prQuery(search, 1), fallbackPages);
+  const head = usePrPages(
+    primarySources(project ? [project] : []),
+    prQuery(search, 1),
+    fallbackPages,
+  );
   const first = head.first;
   // Everything fits in the first page: the ranking is exact without another search.
   const exhaustive = first !== undefined && first.nextPage === undefined;
@@ -103,6 +107,7 @@ export function useReadyPages(project: string | undefined, search: PullsSearch, 
     loading: head.loading || (!exhaustive && unique.length === 0 && !settled),
     error: head.error,
     errorProject: head.errorProject,
+    errorSource: head.errorSource,
     more: next !== undefined && settled,
     retry,
   };

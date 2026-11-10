@@ -1,17 +1,22 @@
+import type { ReviewSource } from "@ace/ui-core";
 import { Button } from "@/components/ui/button.tsx";
 
 /**
- * Some projects' reads failed while others answered: one line under the bar naming them, with
- * the way to ask again. The rows shown are the projects that answered.
+ * Some reads failed while others answered: one line under the bar naming the projects or
+ * repositories that failed, with the way to ask again. The rows shown are the ones that answered.
  */
 export function PartialNotice(props: {
-  failed: readonly string[];
-  name(id: string): string;
+  failed: readonly ReviewSource[];
+  name(source: ReviewSource): string;
   onRetry(): void;
 }) {
   if (!props.failed.length) return null;
-  const names = props.failed.map(props.name);
-  const said = names.length <= 2 ? names.join(" and ") : `${names.length} projects`;
+  const names = [...new Set(props.failed.map(props.name))];
+  const repositories = props.failed.every((source) => source.shown);
+  const said =
+    names.length <= 2
+      ? names.join(" and ")
+      : `${names.length} ${repositories ? "repositories" : "projects"}`;
   return (
     <div
       role="status"

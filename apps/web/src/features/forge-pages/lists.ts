@@ -10,7 +10,7 @@ import type {
   ForgeIssueRow,
   ForgeRepository,
 } from "@ace/protocol";
-import { workKey } from "@ace/ui-core";
+import { reviewSourceId, workKey, type ReviewSource } from "@ace/ui-core";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   keepPreviousData,
@@ -31,22 +31,24 @@ const listed = { staleTime: 30_000, gcTime: 10 * 60_000, retry: false } as const
 /** The pages of one search read so far across the chosen projects, as one list. */
 export interface ListPages<L extends ForgePrList | ForgeIssueList> {
   rows: L["items"][number][];
-  /** The first project's first page: viewer, repository. */
+  /** The first read's first page: viewer, repository. */
   first: L | undefined;
-  /** Each project's first page, once read. */
+  /** Each read's first page, once read, by `reviewSourceId` (the project id for its primary). */
   firsts: ReadonlyMap<string, L>;
   /** The project a row came from. */
   projectOf(row: L["items"][number]): string;
   /** A filter or search just changed and these rows are the previous answer's. */
   stale: boolean;
   loading: boolean;
-  /** Every project's read failed: the first failure. */
+  /** Every read failed: the first failure. */
   error: Error | undefined;
   /** The project whose read is `error`. */
   errorProject: string | undefined;
-  /** Projects whose read failed while others answered. */
-  failed: readonly string[];
-  /** Another page exists after the last one read, in some project. */
+  /** The read that is `error`. */
+  errorSource?: ReviewSource | undefined;
+  /** Reads that failed while others answered. */
+  failed: readonly ReviewSource[];
+  /** Another page exists after the last one read, in some read. */
   more: boolean;
   retry(): void;
 }
@@ -54,30 +56,42 @@ export interface ListPages<L extends ForgePrList | ForgeIssueList> {
 const rowKey = (row: { ref: { repository: ForgeRepository; number: number } }) =>
   workKey(row.ref.repository, row.ref.number);
 
+/** The projects' primaries alone: one read each, as lists read before ADR 0116. */
+export const primarySources = (projects: readonly string[]): ReviewSource[] =>
+  projects.map((project) => ({ project }));
+
 /**
- * One cached read per project and page: page 2 of a project is asked for only once its page 1
- * says there is one, so "Show more" reads only the projects with more. Rows come in the
- * projects' order, each once (two projects on one repository show its rows once).
+ * One cached read per source and page: page 2 of a source is asked for only once its page 1
+ * says there is one, so "Show more" reads only the sources with more. Rows come in the
+ * sources' order, each once (two projects on one repository show its rows once).
  */
 function useListPages<L extends ForgePrList | ForgeIssueList>(
   key: readonly unknown[],
-  projects: readonly string[],
+  sources: readonly ReviewSource[],
   pages: number,
-  read: (client: ClientApi, project: string, page: number, signal: AbortSignal) => Promise<L>,
+  read: (client: ClientApi, source: ReviewSource, page: number, signal: AbortSignal) => Promise<L>,
 ): ListPages<L> {
   const client = useClient();
   const cache = useQueryClient();
   const ready = useConnectionState() === "ready";
-  const keyOf = (project: string, page: number) => ["forge", project, "browse", ...key, page];
-  const plan = projects.flatMap((project) =>
-    Array.from({ length: pages }, (_, index) => ({ project, page: index + 1 })),
+  // A primary's pages keep the key they had before a project could list several repositories.
+  const keyOf = (source: ReviewSource, page: number) => [
+    "forge",
+    source.project,
+    "browse",
+    ...key,
+    page,
+    ...(source.repository ? [repositoryParam(source.repository)] : []),
+  ];
+  const plan = sources.flatMap((source) =>
+    Array.from({ length: pages }, (_, index) => ({ source, page: index + 1 })),
   );
   const results = useQueries({
-    queries: plan.map(({ project, page }) => ({
-      queryKey: keyOf(project, page),
-      queryFn: ({ signal }: { signal: AbortSignal }) => read(client, project, page, signal),
+    queries: plan.map(({ source, page }) => ({
+      queryKey: keyOf(source, page),
+      queryFn: ({ signal }: { signal: AbortSignal }) => read(client, source, page, signal),
       enabled:
-        ready && (page === 1 || cache.getQueryData<L>(keyOf(project, page - 1))?.nextPage === page),
+        ready && (page === 1 || cache.getQueryData<L>(keyOf(source, page - 1))?.nextPage === page),
       ...listed,
       ...(page === 1 ? { placeholderData: keepPreviousData } : {}),
       meta: { daemonClient: client },
@@ -86,64 +100,68 @@ function useListPages<L extends ForgePrList | ForgeIssueList>(
   const rows: L["items"][number][] = [];
   const owner = new Map<string, string>();
   const firsts = new Map<string, L>();
-  const failed = new Set<string>();
+  const failed = new Map<string, ReviewSource>();
   let stale = false;
   let more = false;
   let error: Error | undefined;
-  let errorProject: string | undefined;
-  plan.forEach(({ project, page }, index) => {
+  let errorSource: ReviewSource | undefined;
+  plan.forEach(({ source, page }, index) => {
     const result = results[index];
     if (!result) return;
+    const id = reviewSourceId(source);
     if (result.isError) {
-      failed.add(project);
+      failed.set(id, source);
       if (!error) {
         error = result.error;
-        errorProject = project;
+        errorSource = source;
       }
     }
     const data = result.data;
     if (!data) return;
     if (page === 1) {
-      firsts.set(project, data);
+      firsts.set(id, data);
       stale ||= result.isPlaceholderData;
     }
-    // The last page asked for of this project says whether it has more.
+    // The last page asked for of this source says whether it has more.
     if (page === pages && data.nextPage !== undefined) more = true;
     for (const row of data.items) {
-      const id = rowKey(row);
-      if (owner.has(id)) continue;
-      owner.set(id, project);
+      const key = rowKey(row);
+      if (owner.has(key)) continue;
+      owner.set(key, source.project);
       rows.push(row);
     }
   });
   const answered = firsts.size > 0;
-  const first = projects.map((project) => firsts.get(project)).find(Boolean);
+  const first = sources.map((source) => firsts.get(reviewSourceId(source))).find(Boolean);
   return {
     rows,
     first,
     firsts,
-    projectOf: (row) => owner.get(rowKey(row)) ?? projects[0] ?? "",
+    projectOf: (row) => owner.get(rowKey(row)) ?? sources[0]?.project ?? "",
     stale,
-    loading: projects.length > 0 && !answered && failed.size < projects.length,
+    loading: sources.length > 0 && !answered && failed.size < sources.length,
     error: answered ? undefined : error,
-    errorProject: answered ? undefined : errorProject,
-    failed: answered ? [...failed] : [],
+    errorProject: answered ? undefined : errorSource?.project,
+    errorSource: answered ? undefined : errorSource,
+    failed: answered ? [...failed.values()] : [],
     more,
     retry: () => void Promise.all(results.map((result) => result.refetch())),
   };
 }
 
 /**
- * Why every project's list read failed, in the failing project's Git host's words (glab for
- * GitLab, never gh). The project's repository is asked for only once a read has failed.
+ * Why every read failed, in the failing Git host's words (glab for GitLab, never gh). The
+ * project's repository is asked for only once a read of its primary has failed.
  */
 export function useListFailure(
-  list: Pick<ListPages<ForgePrList | ForgeIssueList>, "error" | "errorProject">,
+  list: Pick<ListPages<ForgePrList | ForgeIssueList>, "error" | "errorProject" | "errorSource">,
 ): string | undefined {
-  const failing = list.error && list.errorProject ? [list.errorProject] : [];
+  const named = list.errorSource?.repository?.forge;
+  const failing = list.error && list.errorProject && !named ? [list.errorProject] : [];
   const repositories = useProjectRepositories(failing);
   if (!list.error) return undefined;
-  const forge = list.errorProject ? repositories.get(list.errorProject)?.forge : undefined;
+  const forge =
+    named ?? (list.errorProject ? repositories.get(list.errorProject)?.forge : undefined);
   return readFailureText(list.error, forge);
 }
 
@@ -156,27 +174,33 @@ export const prPageKey = (project: string | undefined, query: ForgePrSearch, pag
 /** One page of 25 of a project's pull requests matching `query`. */
 export async function readPrPage(
   client: ClientApi,
-  project: string,
+  source: string | ReviewSource,
   query: ForgePrSearch,
   page: number,
   signal: AbortSignal,
 ): Promise<ForgePrList> {
+  const { project, repository } = typeof source === "string" ? { project: source } : source;
   const value = await readForge(
     client,
-    { op: "forge.pr.list", workspaceId: project, query: { ...query, page } },
+    {
+      op: "forge.pr.list",
+      workspaceId: project,
+      ...(repository ? { repository } : {}),
+      query: { ...query, page },
+    },
     signal,
   );
   if (value.resource !== "prList") throw new Error("No pull request list.");
   return value.value;
 }
 
-/** The projects' pull requests matching `query`, up to `pages` pages of 25 each. */
-export function usePrPages(projects: readonly string[], query: ForgePrSearch, pages: number) {
+/** Pull requests matching `query` from each source, up to `pages` pages of 25 each. */
+export function usePrPages(sources: readonly ReviewSource[], query: ForgePrSearch, pages: number) {
   return useListPages<ForgePrList>(
     ["prList", withoutPage(query)],
-    projects,
+    sources,
     pages,
-    (client, project, page, signal) => readPrPage(client, project, query, page, signal),
+    (client, source, page, signal) => readPrPage(client, source, query, page, signal),
   );
 }
 
@@ -185,9 +209,9 @@ export function useIssuePages(projects: readonly string[], query: ForgeIssueSear
   const cache = useQueryClient();
   return useListPages<ForgeIssueList>(
     ["issueList", withoutPage(query)],
-    projects,
+    primarySources(projects),
     pages,
-    async (client, project, page, signal) => {
+    async (client, { project }, page, signal) => {
       const value = await readForge(
         client,
         { op: "forge.issue.list", workspaceId: project, query: { ...query, page } },
@@ -201,26 +225,39 @@ export function useIssuePages(projects: readonly string[], query: ForgeIssueSear
 }
 
 /**
- * Every group's total for the list on show, as GitHub counts it, summed over the projects: one
- * request per project and filter set, kept as long as the list's pages are. Undefined until
- * every project has answered, so a total never undercounts.
+ * Every group's total for the list on show, as the host counts it, summed over the sources: one
+ * request per source and filter set, kept as long as the list's pages are. Undefined until
+ * every source has answered, so a total never undercounts.
  */
 export function useGroupCounts(
-  projects: readonly string[],
+  sources: readonly ReviewSource[],
   grouping: ForgeGroupCounting,
 ): {
   total: Record<string, number> | undefined;
-  byProject: ReadonlyMap<string, Record<string, number>>;
+  /** By `reviewSourceId`. */
+  bySource: ReadonlyMap<string, Record<string, number>>;
 } {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   const results = useQueries({
-    queries: projects.map((project) => ({
-      queryKey: ["forge", project, "browse", "groupCounts", grouping],
+    queries: sources.map((source) => ({
+      queryKey: [
+        "forge",
+        source.project,
+        "browse",
+        "groupCounts",
+        grouping,
+        ...(source.repository ? [repositoryParam(source.repository)] : []),
+      ],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const value = await readForge(
           client,
-          { op: "forge.group-counts", workspaceId: project, grouping },
+          {
+            op: "forge.group-counts",
+            workspaceId: source.project,
+            ...(source.repository ? { repository: source.repository } : {}),
+            grouping,
+          },
           signal,
         );
         if (value.resource !== "groupCounts") throw new Error("No group counts.");
@@ -232,16 +269,16 @@ export function useGroupCounts(
       meta: { daemonClient: client },
     })),
   });
-  const byProject = new Map<string, Record<string, number>>();
+  const bySource = new Map<string, Record<string, number>>();
   results.forEach((result, index) => {
-    const project = projects[index];
-    if (project && result.data) byProject.set(project, result.data);
+    const source = sources[index];
+    if (source && result.data) bySource.set(reviewSourceId(source), result.data);
   });
-  if (!projects.length || byProject.size < projects.length) return { total: undefined, byProject };
+  if (!sources.length || bySource.size < sources.length) return { total: undefined, bySource };
   const total: Record<string, number> = {};
-  for (const counts of byProject.values())
+  for (const counts of bySource.values())
     for (const [id, count] of Object.entries(counts)) total[id] = (total[id] ?? 0) + count;
-  return { total, byProject };
+  return { total, bySource };
 }
 
 export const issueDetailKey = (project: string, number: number, repo = "") =>

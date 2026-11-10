@@ -1,6 +1,9 @@
 import {
   groupByWork,
   prQuery,
+  repositoryLabel,
+  reviewSourceId,
+  type ReviewSource,
   sortPrs,
   workKey,
   type PullsSearch,
@@ -35,9 +38,36 @@ import { useRowSteps } from "./row-steps.ts";
 import { useProjectChoice } from "./project-choice.ts";
 import { ProjectMenu } from "./project-menu.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
+import { useReviewSources } from "./review-sources.ts";
 import { ClearLine, countWords, PresetMenu, StateToggles } from "./quick-views.tsx";
 
 const noRuns: readonly VerifyRun[] = [];
+
+/**
+ * Each project's open total for the project menu: the sum over its repositories' first pages,
+ * left out while any of them is unread, incomplete or truncated.
+ */
+function projectOpenCounts(
+  sources: readonly ReviewSource[],
+  firsts: ReadonlyMap<string, ForgePrList>,
+  settled: boolean,
+): Map<string, number> {
+  const counts = new Map<string, number | undefined>();
+  if (!settled) return new Map();
+  for (const source of sources) {
+    const first = firsts.get(reviewSourceId(source));
+    const known = counts.has(source.project) ? counts.get(source.project) : 0;
+    counts.set(
+      source.project,
+      known === undefined || !first || first.incomplete || first.truncated
+        ? undefined
+        : known + first.counts.open + first.counts.draft,
+    );
+  }
+  return new Map(
+    [...counts].flatMap(([project, count]) => (count === undefined ? [] : [[project, count]])),
+  );
+}
 const noRows: readonly ForgePrRow[] = [];
 
 const known = (value: number | undefined) => (value === undefined ? undefined : String(value));
@@ -96,14 +126,20 @@ export function PullRequestsPage(props: {
   // By next move on open pull requests. One project is ranked readiest first through the whole
   // repository; several are read newest first, a page per project at a time.
   const byWork = sort === "ready" && open;
-  const listed = usePrPages(projects, query, pages);
-  const rankedActive = byWork && single !== undefined;
+  // Each project's reviews come from every repository it uses (ADR 0116).
+  const review = useReviewSources(projects);
+  const sources = review.sources;
+  const listed = usePrPages(sources, query, pages);
+  // Ranking reads one repository: a project listing several is read newest first, like several
+  // projects are.
+  const rankedActive =
+    byWork && single !== undefined && review.settled && !review.several.has(single);
   const ranked = useReadyPages(single, search, rankedActive);
   const useRanked = rankedActive && ranked.error === undefined;
   const list = useRanked ? ranked : listed;
   const failure = useListFailure(list);
   const peopleQuery = prQuery({ ...search, who: undefined }, 1);
-  const people = useGroupCounts(open ? projects : [], { by: "pr-people", query: peopleQuery });
+  const people = useGroupCounts(open ? sources : [], { by: "pr-people", query: peopleQuery });
   const linked = useLinkedThreads().pulls;
   // Local checks and the verified merge are a project's own: with one project shown.
   const verify = useVerifyRuns(single);
@@ -132,21 +168,17 @@ export function PullRequestsPage(props: {
   const [method, setMethod] = useMergeMethod(single ?? "");
   const navigate = useNavigate();
   const dialogs = useProjectDialogs();
-  const incomplete = [...list.firsts.values()].some((first) => first.incomplete || first.truncated);
-  const complete = !list.more && !incomplete;
+  const partial = (first: ForgePrList) => first.incomplete || first.truncated;
+  const incomplete = [...list.firsts.values()].some(partial);
+  const complete = !list.more && !incomplete && review.settled;
   const sum = (pick: (counts: ForgePrList["counts"]) => number) => {
-    if (list.firsts.size < projects.length) return undefined;
-    if (incomplete) return undefined;
+    if (!review.settled || incomplete || list.firsts.size < sources.length) return undefined;
     let total = 0;
     for (const first of list.firsts.values()) total += pick(first.counts);
     return total;
   };
-  const openCounts = new Map(
-    [...list.firsts]
-      .filter(([, first]) => !first.incomplete && !first.truncated)
-      .map(([id, first]) => [id, first.counts.open + first.counts.draft]),
-  );
-  const peopleTotal = people.total;
+  const openCounts = projectOpenCounts(sources, list.firsts, review.settled);
+  const peopleTotal = review.settled ? people.total : undefined;
   const allOpen = incomplete
     ? undefined
     : peopleTotal
@@ -276,7 +308,17 @@ export function PullRequestsPage(props: {
         strip={
           <>
             {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
-            <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
+            <PartialNotice
+              failed={list.failed}
+              name={(source) =>
+                source.shown
+                  ? single
+                    ? repositoryLabel(source.shown)
+                    : `${choice.name(source.project)}'s ${repositoryLabel(source.shown)}`
+                  : choice.name(source.project)
+              }
+              onRetry={list.retry}
+            />
             {incomplete && !list.loading && !(list.error && !list.first) && (
               <div
                 role="status"
@@ -353,6 +395,9 @@ export function PullRequestsPage(props: {
                 <PrRow
                   project={project}
                   projectName={single ? undefined : choice.name(project)}
+                  repositoryName={
+                    review.several.has(project) ? repositoryLabel(row.ref.repository) : undefined
+                  }
                   back={listAddress}
                   row={row}
                   step={steps.view(row, picking ? merge : undefined)}

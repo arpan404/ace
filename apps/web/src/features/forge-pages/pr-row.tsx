@@ -27,6 +27,8 @@ export function PrRow(props: {
   project: string;
   /** The project's name, on line 2; none when the list shows one project. */
   projectName?: string | undefined;
+  /** "GitLab · acme/ace", on line 2, when the project lists reviews from several repositories. */
+  repositoryName?: string | undefined;
   row: ForgePrRow;
   /** The list's address, so the pull request's page can return to it as it was. */
   back: string;
@@ -113,6 +115,12 @@ export function PrRow(props: {
               <>
                 <Dot />
                 <span className="truncate">{props.projectName}</span>
+              </>
+            )}
+            {props.repositoryName && (
+              <>
+                <Dot />
+                <span className="truncate">{props.repositoryName}</span>
               </>
             )}
             {row.additions !== undefined && row.deletions !== undefined && (

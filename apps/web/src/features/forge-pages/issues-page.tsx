@@ -18,7 +18,7 @@ import { IssueRow } from "./issue-row.tsx";
 import { useLinkedThreads } from "./linked-threads.ts";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { ListFrame } from "./list-frame.tsx";
-import { useGroupCounts, useIssuePages, useListFailure } from "./lists.ts";
+import { primarySources, useGroupCounts, useIssuePages, useListFailure } from "./lists.ts";
 import { NewInProject } from "./new-in-project.tsx";
 import { PartialNotice } from "./partial-notice.tsx";
 import { useProjectChoice } from "./project-choice.ts";
@@ -118,7 +118,7 @@ export function IssuesPage(props: {
   const list = useIssuePages(projects, query, pages);
   const failure = useListFailure(list);
   // Who the open issues concern, whatever preset is on, for the presets' counts.
-  const people = useGroupCounts(projects, {
+  const people = useGroupCounts(primarySources(projects), {
     by: "issue-people",
     query: issueQuery({ ...search, who: undefined, state: undefined }, 1),
   }).total;
@@ -214,7 +214,11 @@ export function IssuesPage(props: {
         strip={
           <>
             {filtered && <ClearLine onClear={() => onSearch(cleared)} />}
-            <PartialNotice failed={list.failed} name={choice.name} onRetry={list.retry} />
+            <PartialNotice
+              failed={list.failed}
+              name={(source) => choice.name(source.project)}
+              onRetry={list.retry}
+            />
           </>
         }
         header={header}
