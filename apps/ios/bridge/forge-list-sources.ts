@@ -1,6 +1,12 @@
 import { ClientError } from "@ace/client";
 import type { ForgeRepository } from "@ace/protocol";
-import { forgeErrorText, repositoryLabel, reviewRepositories, type RowGroup } from "@ace/ui-core";
+import {
+  forgeErrorText,
+  repositoryLabel,
+  reviewRepositories,
+  sameRepository,
+  type RowGroup,
+} from "@ace/ui-core";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 
 /*
@@ -19,11 +25,12 @@ export interface ListSource {
 
 /** The repositories a list reads. A daemon that can't list them reads the project's own. */
 export async function listSources(reads: ForgeReads, project: string): Promise<ListSource[]> {
-  const listed = await reads
-    .repositories(project)
-    .then(reviewRepositories)
-    .catch((): ForgeRepository[] => []);
-  if (listed.length === 0) return [{ repository: undefined, label: null }];
+  const value = await reads.repositories(project).catch(() => undefined);
+  const listed = reviewRepositories(value);
+  const [only] = listed;
+  // One repository, the primary: read as before ADR 0116, without naming it.
+  if (!only || (listed.length === 1 && value?.primary && sameRepository(only, value.primary)))
+    return [{ repository: undefined, label: null }];
   const several = listed.length > 1;
   return listed.map((repository) => ({
     repository,
