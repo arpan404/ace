@@ -8,7 +8,7 @@ import {
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
-import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
+import { fieldHints } from "@/components/ui/key-hints.tsx";
 import { sectionRule } from "@/components/ui/rules.ts";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
@@ -172,11 +172,7 @@ export function CreateProjectStep(props: {
         {problem && <Problem>{problem}</Problem>}
       </div>
       <CommandStepFooter
-        hints={[
-          { keys: ["enter"], label: "Create" },
-          ...(props.onBack ? [backHint] : []),
-          escapeHint(name),
-        ]}
+        hints={[{ keys: ["enter"], label: "Create" }, ...fieldHints(name, props.onBack)]}
         note={
           parent && name && !nameProblem
             ? displayPath(childFolder(parent, name), place.home?.path)

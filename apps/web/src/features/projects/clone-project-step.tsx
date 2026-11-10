@@ -18,7 +18,7 @@ import {
   commandStepField,
   stepFieldKey,
 } from "@/components/ui/command-step.tsx";
-import { backHint, escapeHint } from "@/components/ui/key-hints.tsx";
+import { fieldHints } from "@/components/ui/key-hints.tsx";
 import { applePlatform } from "@/lib/keymap.ts";
 import type { Machine } from "@/lib/machines.ts";
 import { Offer, Problem, TextField } from "./form-parts.tsx";
@@ -201,11 +201,7 @@ export function CloneProjectStep(props: {
         </CommandStepFooter>
       ) : (
         <CommandStepFooter
-          hints={[
-            { keys: ["enter"], label: "Clone" },
-            ...(props.onBack ? [backHint] : []),
-            escapeHint(url),
-          ]}
+          hints={[{ keys: ["enter"], label: "Clone" }, ...fieldHints(url, props.onBack)]}
           note={
             elsewhere ? (
               <span role="status">A clone is running on {elsewhere.machine.name}.</span>

@@ -12,8 +12,8 @@ test.each([
   expect(tabCompletes({ segment, names, intoHighlighted: false })).toBe(expected);
 });
 
-test("Tab still asks the daemon while the folder is being read", () => {
-  expect(tabCompletes({ segment: "we", names: undefined, intoHighlighted: false })).toBe(true);
+test("Tab moves focus on while the folder is still being read and nothing is listed", () => {
+  expect(tabCompletes({ segment: "we", names: undefined, intoHighlighted: false })).toBe(false);
 });
 
 test("Tab goes into the highlighted folder even when nothing completes", () => {

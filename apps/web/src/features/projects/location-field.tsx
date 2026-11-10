@@ -1,7 +1,5 @@
-import { FolderSimpleIcon } from "@phosphor-icons/react";
 import { displayPath } from "@ace/ui-core";
 import { useState } from "react";
-import { Icon } from "@/components/icon.tsx";
 import type { Machine } from "@/lib/machines.ts";
 import { FolderSearchBox } from "./folder-search.tsx";
 import { useFolderListing } from "./use-folders.ts";
@@ -44,7 +42,6 @@ export function LocationField(props: { state: LocationState; disabled?: boolean 
     <div className="grid gap-1.5">
       <div className="flex min-w-0 items-center gap-2 text-sm">
         <span className="font-medium text-muted-foreground">Location</span>
-        <Icon icon={FolderSimpleIcon} size={14} className="text-subtle-foreground" />
         <span className="min-w-0 flex-1 truncate font-mono text-sm text-foreground">
           {state.location
             ? displayPath(state.location, state.home?.path)

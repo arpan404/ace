@@ -118,3 +118,45 @@ test("the Backspace hint shows only while the field is empty, and Esc's hint say
   expect(hints()).toContain("Close");
   expect(hints()).not.toContain("Clear");
 });
+
+test.each([
+  ["Git URL", "textbox", "Repository address"],
+  ["New project", "textbox", "Project name"],
+] as const)(
+  "in %s the Back hint shows only while the field is empty",
+  async (name, role, label) => {
+    const made = host();
+    const sheet = await source(made, name);
+    const field = await screen.findByRole(role, { name: label });
+    const hints = () =>
+      [...sheet.querySelectorAll('[data-slot="key-hints"]')]
+        .filter(shown)
+        .map((each) => each.textContent)
+        .join(" ");
+    await waitFor(() => expect(hints()).toContain("Back"));
+    expect(hints()).toContain("Close");
+    await userEvent.type(field, "acme");
+    expect(hints()).not.toContain("Back");
+    expect(hints()).toContain("Clear");
+  },
+);
+
+test("the project sources show Back only while their search is empty", async () => {
+  const made = host();
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Add a project" }));
+  await userEvent.click(await screen.findByRole("option", { name: "Git URL" }));
+  await screen.findByRole("textbox", { name: "Repository address" });
+  await userEvent.keyboard("{Backspace}");
+  const search = await screen.findByRole("combobox", { name: "Search project sources" });
+  const sheet = await screen.findByRole("dialog", { name: "Add project" });
+  const hints = () =>
+    [...sheet.querySelectorAll('[data-slot="key-hints"]')]
+      .filter(shown)
+      .map((each) => each.textContent)
+      .join(" ");
+  await waitFor(() => expect(hints()).toContain("Back"));
+  await userEvent.type(search, "git");
+  expect(hints()).not.toContain("Back");
+  expect(hints()).toContain("Clear");
+});

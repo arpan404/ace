@@ -2,7 +2,6 @@ import {
   FolderOpenIcon,
   FolderSimpleIcon,
   FolderSimpleStarIcon,
-  HouseSimpleIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { crumbs, displayPath, pathInput, upInput } from "@ace/ui-core";
@@ -240,7 +239,6 @@ export function FolderSearchBox(props: {
                   onClick={() => browse(crumb.path)}
                   className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 focus-ring transition-colors duration-(--motion-fast) hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
                 >
-                  {crumb.home && <Icon icon={HouseSimpleIcon} size={13} />}
                   <span className="truncate">{crumb.label}</span>
                 </button>
               </li>
@@ -248,7 +246,7 @@ export function FolderSearchBox(props: {
           </ol>
         </nav>
       )}
-      <ListViewport className={cn("h-72 rounded-md bg-secondary", props.listClassName)}>
+      <ListViewport className={cn("h-72", props.listClassName)}>
         {state}
         <div id={listId} role="listbox" aria-label={props.listLabel} hidden={state !== null}>
           {sections.map((section, place) => {
