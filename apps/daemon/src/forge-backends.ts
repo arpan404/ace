@@ -108,6 +108,9 @@ export class ForgeBackends {
   }
   /** The GitHub backend for a write, refused when the project hides or can't use `repository`. */
   async writer(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    // Without saved choices nothing is hidden, so a write goes exactly where it always did,
+    // without reading Git first: a checkout Git can't read must not refuse the write.
+    if (!this.configs.forCheckout(cwd)) return this.backend(cwd, repository);
     const refusal = repositoryWriteRefusal(
       (await this.projectRepositories(cwd)).resolved,
       repository,
