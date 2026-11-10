@@ -2,6 +2,7 @@ import type { ThreadDetails } from "@ace/protocol";
 import {
   can,
   changeTreeRows,
+  forgeDisplayName,
   repositoryLabel,
   type DiffScope,
   type ForgeCapabilitySource,
@@ -114,6 +115,10 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
           ? `Opens on ${repositoryLabel(input.details.repository)}`
           : null,
     },
+    // The link out names the review's host, never assuming GitHub.
+    openOn: ((repository) => (repository ? `Open on ${forgeDisplayName(repository.forge)}` : null))(
+      reads?.pr?.ref.repository ?? input.details?.repository,
+    ),
     canRequestReview:
       can(input.capabilitySource ?? reads?.pr?.ref.repository, "reviews.approvals.write") &&
       (reads?.pr?.state === "open" || reads?.pr?.state === "draft"),

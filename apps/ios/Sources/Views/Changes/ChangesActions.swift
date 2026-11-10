@@ -109,7 +109,7 @@ private struct ChangesActions<Header: View>: ViewModifier {
             if summary?.canRequestReview == true, model.canOperate {
                 Button("Request review") { reviewers = ""; requestingReview = true }.disabled(running)
             }
-            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link("Open on provider", destination: url) }
+            if let url = step?.pr?.url.flatMap(URL.init(string:)) { Link(summary?.openOn ?? "Open in browser", destination: url) }
             Section {
                 if sizeClass == .regular {
                     Picker(selection: Binding(get: { summary?.layout ?? "unified" }, set: { model.sheet(["kind": "changes.layout", "layout": $0]) })) {

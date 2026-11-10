@@ -204,9 +204,10 @@ struct ForgePullPageView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                     }
-                    .buttonStyle(.forgeWord)
+                    .buttonStyle(.borderedProminent)
                     .buttonBorderShape(.capsule)
                     .tint(AceTheme.Colours.foreground)
+                    .foregroundStyle(AceTheme.Colours.background)
                     .disabled(writing || action.disabled != nil || !client.canOperate)
                     .accessibilityIdentifier("forge.pull.primary")
                     if page.methods.count > 1 {
@@ -215,7 +216,7 @@ struct ForgePullPageView: View {
                                 ForEach(page.methods, id: \.self) { Text($0.label).tag($0.method) }
                             }
                         } label: {
-                            Text("Method").frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                            Image(ace: .caretDown).frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                                 .aceGlass(in: AceShape.capsule, interactive: true)
                                 .contentShape(AceShape.capsule)
                         }
@@ -231,7 +232,7 @@ struct ForgePullPageView: View {
             }
             if let secondary = page.secondary {
                 Button(secondary.label) { Task { await write(ForgeWriteTarget(action: secondary, project: route.project, page: page, method: method)) } }
-                    .buttonStyle(.forgeWord)
+                    .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
                     .tint(AceTheme.Colours.foreground)
                     .disabled(writing || secondary.disabled != nil || !client.canOperate)
