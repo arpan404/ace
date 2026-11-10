@@ -24,3 +24,17 @@ test("explicit capabilities enable host controls and can withdraw GitHub control
   ).toBe(true);
   expect(can(undefined, "reviews.read")).toBe(false);
 });
+
+test("repository controls use the matching entry's declaration across case differences", async () => {
+  const { repositoryCapabilities } = await import("./forge-capability.ts");
+  const repository = { forge: "gitlab" as const, host: "gitlab.com", owner: "ACME", name: "Ace" };
+  const source = repositoryCapabilities(repository, [
+    {
+      repository: { ...repository, owner: "acme", name: "ace" },
+      capabilities: ["issues.write"],
+    },
+  ]);
+  expect(can(source, "issues.write")).toBe(true);
+  expect(can(source, "reviews.read")).toBe(false);
+  expect(can(repositoryCapabilities(repository, []), "reviews.read")).toBe(true);
+});

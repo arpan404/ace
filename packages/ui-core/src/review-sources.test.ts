@@ -16,7 +16,7 @@ const entry = (
   available: true,
 });
 const listed = (
-  repositories: ReturnType<typeof entry>[],
+  repositories: ProjectRepositories["repositories"],
   config: ProjectRepositories["config"] = null,
 ): ProjectRepositories => ({
   workspaceId: WorkspaceId.parse("ace"),
