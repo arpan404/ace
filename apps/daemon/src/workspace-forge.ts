@@ -1,3 +1,7 @@
+import { gitLabLifecycleBackend } from "./hosted-lifecycle.ts";
+import { gitLabInboxWriter } from "./hosted-inbox.ts";
+import { HostedChecks } from "./hosted-checks.ts";
+import { gitlabHostedMerge } from "./gitlab-hosted-merge.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
@@ -7,7 +11,6 @@ import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
-import { WorkspaceForgeChecks } from "./workspace-forge-checks.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
 import {
@@ -43,7 +46,7 @@ export class WorkspaceForge {
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
-  private checks = new WorkspaceForgeChecks();
+  private hostedCheckActions: HostedChecks;
   private now: () => number;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
@@ -101,6 +104,7 @@ export class WorkspaceForge {
       projection: this.projection,
       links: this.links,
     };
+    this.hostedCheckActions = new HostedChecks(context);
     this.newPr = new WorkspaceNewPr(context);
     this.browser = new WorkspaceForgeBrowse(context, {
       newPr: this.newPr,
@@ -295,6 +299,39 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
+    if (p.link.pr.repository.forge === "gitlab") {
+      const pr = p.link.pr;
+      const generation = this.links.getLinkState(id, pr)?.generation;
+      if (p.type === "forge.pr.status") {
+        const { value } = await this.actions.readDetail(pr, async () => ({
+          status: await (
+            await this.backends.reader(cwd, pr.repository, this.lifetime.signal)
+          ).status(pr.number, this.lifetime.signal),
+        }));
+        this.projection.update(id, value.status, generation);
+        return { ok: true, pr, prStatus: value.status };
+      }
+      if (
+        p.type !== "forge.pr.merge" &&
+        p.type !== "forge.pr.auto-merge" &&
+        p.type !== "forge.pr.merge-state.change"
+      )
+        throw new ForgeError("unsupported");
+      if (generation === undefined) return { ok: false, error: "forge_not_found" };
+      const backend = await gitlabHostedMerge({
+        backends: this.backends,
+        cwd,
+        repository: pr.repository,
+        signal: this.lifetime.signal,
+      });
+      return this.actions.execute(
+        p,
+        backend,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, pr)?.generation === generation,
+        (status) => this.projection.update(id, status, generation),
+      );
+    }
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     // Refreshing a link's status reads; everything else here writes to the PR's repository.
     const backend =
@@ -372,7 +409,12 @@ export class WorkspaceForge {
   ) {
     return runInboxWrite(
       command,
-      () => this.backends.inbox(cwd, command.payload.host),
+      async () => {
+        const repository = await this.backends.inboxRepository(cwd, command.payload.host);
+        return repository.forge === "gitlab"
+          ? gitLabInboxWriter(this.backends, cwd, repository, this.lifetime.signal)
+          : this.backends.inbox(cwd, command.payload.host);
+      },
       allowed,
       this.lifetime.signal,
     );
@@ -383,8 +425,7 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.writer(cwd, p.pr.repository);
-    await this.checks.execute(p, backend, this.lifetime.signal, allowed);
+    await this.hostedCheckActions.execute(p, cwd, this.lifetime.signal, allowed);
     return { ok: true };
   }
   /**
@@ -403,9 +444,17 @@ export class WorkspaceForge {
     const p = command.payload;
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) return commandNotDispatched(command, "forbidden");
-    let backend: GitHubForge;
+    let backend: GitHubForge | import("@ace/forge").GitLabHostedMerge;
     try {
-      backend = await this.backends.writer(cwd, p.pr.repository);
+      backend =
+        p.pr.repository.forge === "gitlab"
+          ? await gitlabHostedMerge({
+              backends: this.backends,
+              cwd,
+              repository: p.pr.repository,
+              signal: this.lifetime.signal,
+            })
+          : await this.backends.writer(cwd, p.pr.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -433,7 +482,10 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.writer(cwd, p.pr.repository);
+    const backend =
+      p.pr.repository.forge === "gitlab"
+        ? await gitLabLifecycleBackend(this.backends, cwd, p.pr.repository, this.lifetime.signal)
+        : await this.backends.writer(cwd, p.pr.repository);
     const receipt = await this.lifecycle.execute(
       p,
       command.id,

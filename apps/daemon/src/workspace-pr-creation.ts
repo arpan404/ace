@@ -1,3 +1,4 @@
+import { hostedCreationBackend } from "./hosted-create.ts";
 import { repositoryKey } from "@ace/forge";
 import {
   ForgeCreatePrInput,
@@ -45,7 +46,12 @@ export class WorkspacePrCreation {
     // The branch was pushed to the PR head's repository: the primary, or its fork (ADR 0116).
     const { head, project, metadata } = await this.ctx.backends.prHead(cwd);
     const checkout = { repository: head.pushed.repository, remotes: project.remotes };
-    const pushed = await this.ctx.backends.backend(cwd, checkout.repository);
+    const pushed = await hostedCreationBackend(
+      this.ctx.backends,
+      cwd,
+      checkout.repository,
+      this.ctx.signal,
+    );
     if (!allowed()) throw new Error("forbidden");
     // The daemon owns the base: a reviewed draft's base, else the thread's recorded base, else
     // the forge's default branch. A fork's PR opens on its parent, from `fork-owner:branch`.
@@ -63,7 +69,7 @@ export class WorkspacePrCreation {
     const backend =
       repositoryKey(target.repository) === repositoryKey(checkout.repository)
         ? pushed
-        : await this.ctx.backends.backend(cwd, target.repository);
+        : await hostedCreationBackend(this.ctx.backends, cwd, target.repository, this.ctx.signal);
     if (!allowed()) throw new Error("forbidden");
     const verifyHead = async () => {
       if (value.expectedHead === undefined) return;
@@ -118,7 +124,9 @@ export class WorkspacePrCreation {
     try {
       const repository = await this.ctx.backends.repository(cwd);
       return (
-        await (await this.ctx.backends.backend(cwd, repository)).repositoryMetadata(this.ctx.signal)
+        await (
+          await hostedCreationBackend(this.ctx.backends, cwd, repository, this.ctx.signal)
+        ).repositoryMetadata(this.ctx.signal)
       ).defaultBranch;
     } catch {
       this.ctx.signal.throwIfAborted();

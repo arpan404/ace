@@ -26,6 +26,7 @@ function runner(
       const endpoint = request.args[1] as string;
       const route =
         routes[endpoint] ??
+        (endpoint.includes("/pipelines?") ? { status: "200 OK", body: [] } : undefined) ??
         (endpoint.includes("merge_requests?") ? routes["*list"] : undefined) ??
         (endpoint.includes("/diffs?") ? routes["*diffs"] : undefined) ??
         routes["*mr"];
@@ -99,7 +100,7 @@ describe("gitlab reader", () => {
       title: "Add feature",
       headSha: HEAD,
       state: "open",
-      ci: "unknown",
+      ci: "none",
     });
     expect(f.seen[0]?.args).toEqual([
       "api",
@@ -344,7 +345,7 @@ describe("gitlab reader", () => {
     const reader = new GitLabReader({ repository, runner: f.runner });
     const detail = await reader.prDetail(7, signal());
     expect(detail.readOnly).toBe(true);
-    expect(detail.unavailableResources).toEqual(["comments", "checks", "reviews", "commits"]);
+    expect(detail.unavailableResources).toEqual(["comments", "reviews", "commits"]);
     expect(detail.baseSha).toBe(BASE);
   });
 
