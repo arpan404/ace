@@ -169,7 +169,8 @@ function RepositoryBrowser(props: {
 
   let state: ReactNode = null;
   if (error) state = <Notice icon={LockSimpleIcon}>{error}</Notice>;
-  else if (loading) state = <ListSkeleton label="repositories" shape="row" rows={6} />;
+  else if (loading)
+    state = <ListSkeleton label="repositories" shape="row" rows={6} className="px-3.5 py-1" />;
   else if (!rows.length) state = <Notice icon={GithubLogoIcon}>No repositories match.</Notice>;
 
   return (

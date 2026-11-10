@@ -169,7 +169,7 @@ export function FolderSearchBox(props: {
       />
     );
   else if (!rows.length && search.loading)
-    state = <ListSkeleton label="folders" shape="row" rows={6} />;
+    state = <ListSkeleton label="folders" shape="row" rows={6} className="px-3.5 py-1" />;
   else if (!rows.length)
     state = (
       <Notice icon={FolderSimpleIcon}>

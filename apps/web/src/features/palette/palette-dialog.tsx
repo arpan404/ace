@@ -46,7 +46,11 @@ export default function PaletteDialog(props: {
         ) : page === "new-thread-in" ? (
           <NewThreadIn onBack={back} close={props.close} onAddProject={() => push("add-project")} />
         ) : (
-          <Suspense fallback={<ListSkeleton label="Add project" shape="row" rows={4} />}>
+          <Suspense
+            fallback={
+              <ListSkeleton label="Add project" shape="row" rows={4} className="px-3.5 py-1" />
+            }
+          >
             <AddProjectSteps.Component
               page={page}
               attempt={page === props.start.page ? props.start.attempt : undefined}
