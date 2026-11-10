@@ -1,4 +1,4 @@
-import { forgeCapabilities } from "@ace/forge";
+import { forgeCapabilities } from "@ace/forge/capabilities";
 import type { ForgeCapability, ForgeRepository } from "@ace/protocol";
 import {
   normalizeRepositoryConfig,

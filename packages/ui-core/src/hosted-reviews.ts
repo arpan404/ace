@@ -21,7 +21,7 @@ export function reviewNoun(forge: ForgeKind | undefined): string {
 
 /** The one sentence under a read-only review's header. */
 export function hostedReviewLine(forge: ForgeKind): string {
-  return `Read only in ace. Reviews, comments, checks and merge actions are available on ${forgeDisplayName(forge)}.`;
+  return `Some review actions are available only on ${forgeDisplayName(forge)}.`;
 }
 
 /** Said in place of the changed files when the host doesn't share them. */
