@@ -190,6 +190,30 @@ describe("gitlab reader", () => {
     expect(page.incomplete).toBe(true);
   });
 
+  it("list rows carry the conflicts, rebase need and missing approvals GitLab listed, and never a review or CI verdict it didn't", async () => {
+    const list = runner({
+      "*list": {
+        status: "200 OK",
+        headers: { "x-total": "3" },
+        body: [
+          mr({ iid: 1, has_conflicts: true, detailed_merge_status: "conflict" }),
+          mr({ iid: 2, has_conflicts: false, detailed_merge_status: "need_rebase" }),
+          mr({ iid: 3, has_conflicts: false, detailed_merge_status: "not_approved" }),
+        ],
+      },
+    });
+    const page = await new GitLabReader({ repository, runner: list.runner }).listPrs(
+      prQuery(),
+      signal(),
+    );
+    const [conflicting, behind, unapproved] = page.items;
+    expect(conflicting).toMatchObject({ conflicting: true });
+    expect(behind).toMatchObject({ conflicting: false, behind: true });
+    expect(unapproved).toMatchObject({ behind: false, reviewDecision: "REVIEW_REQUIRED" });
+    for (const row of [conflicting, behind]) expect(row?.reviewDecision).toBeUndefined();
+    for (const row of page.items) expect(row.ci).toBeUndefined();
+  });
+
   it("keeps a record whose title or labels exceed protocol bounds, cut to fit", async () => {
     const labels = Array.from({ length: 150 }, (_, index) => `label-${index}`);
     const f = runner({

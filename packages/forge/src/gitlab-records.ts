@@ -227,7 +227,23 @@ export function prRow(repository: ForgeRepository, item: GitLabMr): object | nul
     item.user_notes_count !== undefined ? { commentCount: item.user_notes_count } : null,
     item.source_branch ? { headBranch: item.source_branch } : null,
     item.target_branch ? { baseBranch: item.target_branch } : null,
+    ...listedMergeFacts(item),
   );
+}
+
+/**
+ * What a list item says about merging, without another read: conflicts, a needed rebase, and
+ * missing approvals. GitLab's list never says a review passed or how the pipeline went, so a
+ * row carries no review decision or CI unless approvals are plainly missing (left unknown,
+ * never passing).
+ */
+function listedMergeFacts(item: GitLabMr): object[] {
+  const status = item.detailed_merge_status;
+  return [
+    item.has_conflicts !== undefined ? { conflicting: item.has_conflicts } : {},
+    status !== undefined ? { behind: status === "need_rebase" } : {},
+    status === "not_approved" ? { reviewDecision: "REVIEW_REQUIRED" } : {},
+  ];
 }
 
 /** A diff's added and removed lines. Only the `---`/`+++` file header before the first hunk is

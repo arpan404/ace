@@ -5,6 +5,7 @@ import type { RowGroup } from "./forge-lists.ts";
 import {
   localCheckOf,
   prNextStep,
+  prStatusUnknown,
   prStepsForYou,
   type LocalCheckResult,
   type PrNextStep,
@@ -148,10 +149,11 @@ export function groupBySteps(
     .filter((group) => group.rows.length > 0);
 }
 
-/** The quiet word a row waiting on someone else shows; none when nothing more is known. */
+/** The quiet word a row waiting on someone else shows; none when it waits on nothing named. */
 export function waitingWord(row: ForgePrRow, local: LocalCheckResult): string | undefined {
   if (row.ci === "pending" || local === "running") return "Checks running";
   if (row.reviewDecision === "REVIEW_REQUIRED") return "Waiting on review";
+  if (prStatusUnknown(row)) return "Review status unavailable";
   return undefined;
 }
 
