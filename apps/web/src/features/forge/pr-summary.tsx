@@ -6,9 +6,8 @@ import { PrStackSummary } from "./pr-stack-summary.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 
 /**
- * The Summary tab, laid out as GitHub lays out a pull request: a main column with the
- * description, the merge box (what blocks the merge in its authors' words, then each gate and
- * the merge itself), the biggest changes and the stack; and a sidebar (`about`) with the people,
+ * The Summary tab: a main column led by where the merge stands (one sentence, the gates, then
+ * what blocks it in its authors' words), then the description, the biggest changes and the stack; and a sidebar (`about`) with the people,
  * labels, the agent and what it's filed under. A narrow view stacks the sidebar under the column.
  * The conversation lives in the Timeline and the checks in Checks: a line here leads to each.
  */
@@ -33,7 +32,8 @@ export function PrSummary(props: {
   const comments = detail.status.comments.length;
   return (
     <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-4 pb-10 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15rem] @min-[50rem]/pr:gap-8">
-      <div className="min-w-0 space-y-5">
+      <div className="min-w-0 space-y-7">
+        {props.merge}
         <PrDescription
           context={context}
           extensions={props.extensions}
@@ -41,7 +41,6 @@ export function PrSummary(props: {
           onEdit={props.onEdit}
           onTasks={props.onTasks}
         />
-        {props.merge}
         <PrChangesGlance
           workspaceId={context.workspaceId}
           detail={detail}

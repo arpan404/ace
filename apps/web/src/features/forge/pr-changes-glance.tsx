@@ -61,11 +61,11 @@ function GlanceFrame(props: {
   children: ReactNode;
 }) {
   return (
-    <section aria-label="Changes" className="overflow-hidden rounded-lg border border-border">
-      <div className="flex min-h-10 items-center gap-2 border-b border-border bg-muted py-1.5 pr-2 pl-4">
-        <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-ui font-semibold text-foreground">
+    <section aria-label="Changes">
+      <div className="flex h-8 items-center gap-2">
+        <h3 className="flex min-w-0 flex-1 items-center gap-1.5 text-xs font-medium text-muted-foreground">
           Files changed
-          <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-fill px-1.5 text-2xs font-medium text-muted-foreground tabular-nums">
+          <span className="font-normal text-subtle-foreground tabular-nums">
             {props.detail.changedFiles}
           </span>
         </h3>
@@ -76,18 +76,20 @@ function GlanceFrame(props: {
             className="text-xs"
           />
         )}
-        <Button variant="ghost" size="xs" onClick={() => props.onOpenCode()}>
+        <Button variant="ghost" size="xs" className="-mr-1.5" onClick={() => props.onOpenCode()}>
           Open code
         </Button>
       </div>
-      <div className="py-1.5">{props.children}</div>
+      <div className="mt-1 border-t border-border-soft pt-1">{props.children}</div>
     </section>
   );
 }
 
 function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): void }) {
+  // Rows overhang the column by their inset, so file names start on its edge and the hover
+  // wash reaches past it.
   return (
-    <ul>
+    <ul className="-mx-2">
       {props.files.map((file) => (
         <li key={file.path}>
           <button
@@ -96,7 +98,7 @@ function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): voi
             onClick={() => props.onOpenCode(file.path)}
             className={cn(
               plainRow,
-              "flex min-h-7 w-full items-center gap-3 px-4 text-left focus-ring-inset",
+              "flex min-h-7 w-full items-center gap-3 rounded-md px-2 text-left focus-ring-inset",
             )}
           >
             <span className="flex min-w-0 flex-1 font-mono text-xs">
@@ -127,7 +129,7 @@ function GlanceFromDetail(props: { detail: ForgePrDetail; onOpenCode(path?: stri
       {files.length ? (
         <GlanceRows files={files} onOpenCode={props.onOpenCode} />
       ) : (
-        <p className="px-4 py-1 text-ui text-muted-foreground">No changed files.</p>
+        <p className="py-1 text-ui text-muted-foreground">No changed files.</p>
       )}
     </GlanceFrame>
   );
@@ -148,7 +150,7 @@ function GlanceFromPages(props: {
   return (
     <GlanceFrame detail={props.detail} onOpenCode={props.onOpenCode}>
       {pages.error ? (
-        <p className="flex items-center gap-2 px-4 py-1 text-ui text-muted-foreground">
+        <p className="flex items-center gap-2 py-1 text-ui text-muted-foreground">
           {readFailureText(pages.error)}
           <Button size="xs" onClick={pages.retry}>
             Retry
@@ -156,9 +158,9 @@ function GlanceFromPages(props: {
         </p>
       ) : pages.pending ? (
         <LoadingRegion label="changed files">
-          <ul aria-hidden>
+          <ul aria-hidden className="-mx-2">
             {[0, 1, 2].map((row) => (
-              <li key={row} className="flex h-7 items-center gap-3 px-4">
+              <li key={row} className="flex h-7 items-center gap-3 px-2">
                 <Skeleton className="h-3 flex-1" />
                 <Skeleton className="h-1.5 w-16 rounded-full @max-[30rem]/pr:hidden" />
                 <Skeleton className="h-3 w-20" />
@@ -169,7 +171,7 @@ function GlanceFromPages(props: {
       ) : files.length ? (
         <GlanceRows files={files} onOpenCode={props.onOpenCode} />
       ) : (
-        <p className="px-4 py-1 text-ui text-muted-foreground">No changed files.</p>
+        <p className="py-1 text-ui text-muted-foreground">No changed files.</p>
       )}
     </GlanceFrame>
   );

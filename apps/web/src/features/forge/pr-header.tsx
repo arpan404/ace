@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import type { MergeMethod } from "@ace/ui-core";
+import { prWords, type MergeMethod } from "@ace/ui-core";
 import {
   Menu,
   MenuContent,
@@ -20,8 +20,7 @@ import {
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { pullRequestTone } from "@/components/pull-request-state.tsx";
-import { StateBadge } from "@/components/forge-marks.tsx";
+import { PullRequestGlyph, pullRequestTone } from "@/components/pull-request-state.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useCopy } from "@/components/use-copy.ts";
@@ -193,16 +192,14 @@ export function PrPrimaryControl(props: {
   );
 }
 
-/** A branch name as GitHub sets it: mono on a light tint of the link colour. */
+/** A branch name: mono, in ink, struck through once the branch is deleted. */
 function BranchName(props: { name: string; deleted?: boolean | undefined }) {
   return (
     <span
       title={props.name}
       className={cn(
-        "inline-block max-w-64 min-w-0 truncate rounded-md px-1.5 py-px align-middle font-mono text-xs",
-        props.deleted
-          ? "bg-fill text-subtle-foreground line-through"
-          : "bg-[color-mix(in_oklab,var(--color-link)_12%,transparent)] text-link",
+        "inline-block max-w-64 min-w-0 truncate align-middle font-mono text-xs",
+        props.deleted ? "text-subtle-foreground line-through" : "text-foreground/90",
       )}
     >
       {props.deleted && <span className="sr-only">deleted branch </span>}
@@ -211,10 +208,24 @@ function BranchName(props: { name: string; deleted?: boolean | undefined }) {
   );
 }
 
+/** The state as its glyph and word, in the state's colour, with nothing around it. */
+function StateMark(props: { state: "open" | "draft" | "merged" | "closed" }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 font-medium",
+        pullRequestTone(props.state),
+      )}
+    >
+      <PullRequestGlyph state={props.state} size={15} />
+      {prWords[props.state]}
+    </span>
+  );
+}
+
 /**
- * Under the title, as GitHub words it: the state's pill, then "mira wants to merge 3 commits
- * into main from fix/socket", the head branch's checkout command a copy away, and when it was
- * last updated.
+ * Under the title, one line: the state in its colour, then "mira wants to merge 3 commits into
+ * main from fix/socket", the checkout command a copy away, and when it was last updated.
  */
 export function PrByline(props: { actions: PrActions }) {
   const { detail } = props.actions.context;
@@ -229,10 +240,17 @@ export function PrByline(props: { actions: PrActions }) {
   const deleted = props.actions.lifecycle.snapshot?.headBranch?.exists === false;
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
-      {status.state !== "unknown" && <StateBadge kind="pr" state={status.state} />}
+      {status.state !== "unknown" && (
+        <>
+          <StateMark state={status.state} />
+          <span aria-hidden className="text-faint-foreground">
+            ·
+          </span>
+        </>
+      )}
       <span className="inline-flex items-center gap-1.5">
         <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-        <span className="font-semibold text-foreground/90">{detail.author}</span>
+        <span className="font-medium text-foreground/90">{detail.author}</span>
       </span>
       <span>
         {status.state === "merged" ? `merged ${commits} into` : `wants to merge ${commits} into`}
@@ -246,7 +264,10 @@ export function PrByline(props: { actions: PrActions }) {
         size="sm"
         onClick={() => copy(checkout)}
       />
-      <span className="whitespace-nowrap text-xs text-subtle-foreground">
+      <span aria-hidden className="text-faint-foreground">
+        ·
+      </span>
+      <span className="whitespace-nowrap text-subtle-foreground">
         <PrTime at={detail.updatedAt} prefix="updated " />
       </span>
     </div>

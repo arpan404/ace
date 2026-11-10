@@ -9,8 +9,8 @@ import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 
 /**
- * The PR's description as GitHub shows it: a bordered box headed by who opened it and when,
- * with reactions and Edit, and the markdown under it, capped with Show more when it runs long.
+ * The PR's description as the first message of its conversation: who opened it and when, with
+ * reactions and Edit, and the markdown under it, capped with Show more when it runs long.
  */
 export function PrDescription(props: {
   context: PrWorkspaceContext;
@@ -40,11 +40,11 @@ export function PrDescription(props: {
   const { detail } = props.context;
   const at = detail.createdAt ?? detail.updatedAt;
   return (
-    <section aria-label="Description" className="overflow-hidden rounded-lg border border-border">
-      <div className="flex min-h-10 items-center gap-2 border-b border-border bg-muted py-1.5 pr-2 pl-3 text-ui">
+    <section aria-label="Description">
+      <div className="flex h-8 items-center gap-2 text-ui">
         <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
         <p className="flex min-w-0 flex-1 items-baseline gap-1.5 truncate">
-          <span className="truncate font-semibold text-foreground">{detail.author}</span>
+          <span className="truncate font-medium text-foreground">{detail.author}</span>
           <span className="shrink-0 text-muted-foreground">
             {at ? (
               <PrTime at={at} prefix={detail.createdAt ? "opened " : "updated "} />
@@ -53,7 +53,7 @@ export function PrDescription(props: {
             )}
           </span>
         </p>
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="-mr-1 flex shrink-0 items-center gap-0.5">
           <PrReactionPicker subject={{ kind: "pr" }} />
           {edit && (
             <IconButton
@@ -66,7 +66,7 @@ export function PrDescription(props: {
           )}
         </div>
       </div>
-      <div className="px-4 py-3">
+      <div className="pt-1.5 pl-7">
         {body.trim() ? (
           <div>
             <div

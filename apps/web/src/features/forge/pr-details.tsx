@@ -9,14 +9,14 @@ import type { PrDialog } from "./pr-dialogs.tsx";
 import { lockReasonLabels } from "@ace/ui-core";
 
 /**
- * One block of the sidebar, as GitHub stacks them: "Reviewers", "Labels", "Milestone"… in small
- * strong type with its action at the right, what it holds under it, and a hairline below.
+ * One group of the sidebar: "Reviewers", "Labels", "Milestone"… as a quiet heading with its
+ * action at the right and what it holds under it; groups are set apart by space alone.
  */
 export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="border-b border-border-soft py-3 text-ui first:pt-0 last:border-b-0">
+    <div className="pb-5 text-ui last:pb-0">
       <div className="flex h-6 items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-muted-foreground">
           {props.label}
         </span>
         {/* The action's words, not its box, end on the column's edge. */}

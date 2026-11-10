@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { XIcon } from "@phosphor-icons/react";
+import { XCircleIcon } from "@phosphor-icons/react";
 import type { ForgeCheck, ForgePrDetail } from "@ace/protocol";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -16,20 +16,16 @@ import { useAskFocus, useReplyOpen } from "./pr-ui-store.tsx";
 import { useQuote } from "./pr-quote.tsx";
 import { TextAction } from "./pr-text-action.tsx";
 
-/** Who asked, ringed in the failed tone; a failing check gets a cross in that tone. */
+/** Who asked, by their avatar; a failing check by the failed status icon. */
 function Lead(props: { item: AttentionItem; avatar: string | undefined }) {
   if (props.item.kind === "check")
     return (
-      <span
-        aria-hidden
-        data-tone="failed"
-        className="mt-px grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklab,var(--tone)_18%,transparent)] text-(--tone-text)"
-      >
-        <XIcon size={13} weight="bold" />
+      <span aria-hidden data-tone="failed" className="grid size-5 shrink-0 place-items-center">
+        <XCircleIcon size={18} weight="fill" className="text-(--tone-text)" />
       </span>
     );
   return (
-    <span className="mt-0.5 inline-flex shrink-0 rounded-full ring-2 ring-status-failed ring-offset-1 ring-offset-panel">
+    <span className="inline-flex size-5 shrink-0 items-center justify-center">
       <PrAvatar name={props.item.author} url={props.avatar} />
     </span>
   );
@@ -69,7 +65,7 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-3 px-4 py-3">
+    <li className="flex items-start gap-1.5 py-3 pr-4 pl-4">
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -224,12 +220,6 @@ export function PrAttention(props: {
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
     <section id="pr-attention" aria-label="Blocking the merge" className="scroll-mt-16">
-      <h3 className="flex items-center gap-1.5 px-4 pt-3 text-ui font-semibold text-foreground">
-        Blocking the merge
-        <span className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-fill px-1.5 text-2xs font-medium text-muted-foreground tabular-nums">
-          {items.length}
-        </span>
-      </h3>
       <ul className="divide-y divide-border-soft">
         {items.map((item) => {
           const masked = item.kind !== "check" && !hiddenKnown;

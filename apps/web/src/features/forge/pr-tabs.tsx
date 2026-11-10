@@ -20,14 +20,14 @@ const names: Record<PrTab, string> = {
 };
 
 /**
- * Summary · Timeline · Code · Checks as GitHub lays out its tabs: words on the bar's hairline,
- * the current one underlined and in full ink. Focus shows only from the keyboard.
+ * Summary · Timeline · Code · Checks as words on the bar's hairline, the current one in full ink
+ * and underlined in ink. Focus shows only from the keyboard.
  */
 const wordTab =
   "h-10 rounded-none bg-transparent px-2 text-ui font-normal focus-ring-inset hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
 
 /**
- * The tab bar: Summary · Timeline · Code · Checks as words with a counter pill each, and the
+ * The tab bar: Summary · Timeline · Code · Checks as words with a quiet count each, and the
  * active tab's context at its right end. In a panel each tab body is its own scroller. On a page
  * the whole page scrolls as one inside the page's column: the header scrolls away, the bar pins
  * to the top, Summary and Timeline grow with their content, and Code fills the space under the
@@ -92,7 +92,7 @@ export function PrTabs(props: {
                 {!!props.counts[tab] && (
                   <span
                     aria-hidden
-                    className="ml-0.5 inline-flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-fill px-1.5 text-2xs font-medium text-muted-foreground tabular-nums"
+                    className="ml-0.5 font-normal text-subtle-foreground tabular-nums"
                   >
                     {props.counts[tab]}
                   </span>
