@@ -181,3 +181,37 @@ test("a remote child failed on its limit reads working again when work starts th
     "done",
   );
 }, 60_000);
+
+test("a remote child whose limit is reported after its turn already failed gives its parent that reason", async () => {
+  const pair = await pairedMachines({ access: "operate" });
+  await pair.source.call({ op: "machines" });
+  const child = delegated.parse((await pair.source.call(task)).data).threadId;
+  await vi.waitFor(() => expect(pair.target.h.inputs.get(child)?.join("\n")).toContain(task.task), {
+    timeout: 10_000,
+  });
+  const parent = pair.source.caller.threadId;
+  const told = () => pair.source.h.inputs.get(parent)?.join("\n") ?? "";
+  // Codex ends the turn on systemError first; the parent hears a failure with no reason.
+  await pair.emit(child, {
+    type: "turn.ended",
+    agent: "root",
+    outcome: "failed",
+    error: { kind: "provider", message: "Codex thread reported systemError" },
+  });
+  await vi.waitFor(() => expect(told()).toContain("systemError"), { timeout: 10_000 });
+  expect(told()).not.toContain("Usage limit reached");
+
+  await pair.emit(child, {
+    type: "retry",
+    agent: "root",
+    on: "rate_limit",
+    until: 5000,
+    message: "Quota exhausted",
+  });
+  await vi.waitFor(() => expect(told()).toContain("Usage limit reached"), { timeout: 20_000 });
+  const status = MonitorSnapshot.parse((await pair.source.call({ op: "agents.status" })).data);
+  expect(status.children.find((row) => row.id === child)).toMatchObject({
+    state: "failed",
+    failure: { code: "usage_limited" },
+  });
+}, 60_000);
