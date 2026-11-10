@@ -55,3 +55,5 @@ export { teaLogin, teaIdentity, teaReadiness } from "./tea-readiness.ts";
 export { TeaReader } from "./tea-reader.ts";
 
 export { TeaWriter, teaWrites } from "./tea-writes.ts";
+
+export { TeaIssueWriter, teaIssueWrites } from "./tea-issue-writes.ts";

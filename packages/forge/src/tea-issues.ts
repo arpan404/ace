@@ -49,6 +49,24 @@ export class TeaIssues {
   private get(path: string, signal: AbortSignal) {
     return teaGet(this.options.runner, this.options.login, `${this.root}${path}`, signal);
   }
+  private async canWrite(signal: AbortSignal) {
+    const response = await teaGet(
+      this.options.runner,
+      this.options.login,
+      this.root.slice(0, -7),
+      signal,
+    );
+    const repo = z
+      .object({
+        archived: z.boolean(),
+        has_issues: z.boolean(),
+        permissions: z.object({ push: z.boolean() }),
+      })
+      .safeParse(response.body);
+    return (
+      repo.success && !repo.data.archived && repo.data.has_issues && repo.data.permissions.push
+    );
+  }
   private row(data: z.infer<typeof issue>) {
     if (data.pull_request != null) throw new ForgeError("invalid_data");
     const r = this.options.repository;
@@ -88,13 +106,14 @@ export class TeaIssues {
     const data = decode(z.array(issue).max(25), response.body);
     const items = data.filter((i) => i.pull_request == null).map((i) => this.row(i));
     const more = response.total === undefined ? data.length === 25 : q.page * 25 < response.total;
+    const writable = await this.canWrite(signal);
     return decode(ForgeIssueList, {
       repository: this.options.repository,
       items,
       total: response.total ?? items.length,
       counts: { open: 0, closed: 0 },
-      canCreate: false,
-      unavailableReason: "Issue writes are not available through tea.",
+      canCreate: writable,
+      unavailableReason: writable ? "" : "Repository write permission is required.",
       incomplete: true,
       truncated: more && q.page === 40,
       ...(more && q.page < 40 ? { nextPage: q.page + 1 } : {}),
@@ -104,16 +123,17 @@ export class TeaIssues {
     z.number().int().positive().parse(number);
     const data = decode(issue, (await this.get(`/${number}`, signal)).body);
     if (data.number !== number) throw new ForgeError("invalid_data");
+    const writable = await this.canWrite(signal);
     return decode(ForgeIssueDetail, {
       ...this.row(data),
       body: clipText(data.body ?? ""),
       permissions: {
-        edit: false,
-        close: false,
-        reopen: false,
-        comment: false,
-        triage: false,
-        reason: "Issue writes are not available through tea.",
+        edit: writable,
+        close: writable,
+        reopen: writable,
+        comment: writable,
+        triage: writable,
+        reason: writable ? "" : "Repository write permission is required.",
       },
       relatedThreads: [],
       relatedThreadsTruncated: false,

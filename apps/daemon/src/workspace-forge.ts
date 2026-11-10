@@ -234,14 +234,14 @@ export class WorkspaceForge {
     }
     if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
       throw new Error("invalid_command");
-    let backend: GitHubForge;
+    let backend: Pick<GitHubForge, "writeIssue" | "reconcileIssue">;
     try {
       // A write is refused on a hidden or unavailable repository. Reconciling only reads whether
       // an earlier write landed, so an uncertain one still settles after its repository is hidden.
       backend =
         p.type === "forge.issue.write"
-          ? await this.backends.writer(cwd, p.repository)
-          : await this.backends.backend(cwd, p.repository);
+          ? await this.backends.issueWriter(cwd, p.repository)
+          : await this.backends.issueReader(cwd, p.repository);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -403,7 +403,7 @@ export class WorkspaceForge {
     const p = command.payload;
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) return commandNotDispatched(command, "forbidden");
-    let backend: GitHubForge;
+    let backend: Pick<GitHubForge, "writeIssue" | "reconcileIssue">;
     try {
       backend = await this.backends.writer(cwd, p.pr.repository);
     } catch (error) {
