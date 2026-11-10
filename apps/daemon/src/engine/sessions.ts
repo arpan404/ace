@@ -42,7 +42,7 @@ interface SessionDependencies {
   repo: EngineRepository;
   permissionSettings?: import("./permissions.ts").PermissionSettings;
   prepareWorkspace?(id: ThreadId, options: { runCommands: boolean }): Promise<string>;
-  assertWorkspaceAvailable?(cwd: string): Promise<void>;
+  assertWorkspaceAvailable?(cwd: string, threadId: ThreadId): Promise<void>;
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
@@ -122,7 +122,7 @@ export class Sessions {
     if (actor.session && permissions.effective(actor.id) !== access)
       await this.close(actor, "idle");
     if (actor.session) {
-      await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd);
+      await this.assertWorkspaceAvailable(this.dependencies.repo.session(actor.id).cwd, actor.id);
       permissions.applied(actor.id, access, this.dependencies.clock.now());
       return;
     }
@@ -219,7 +219,7 @@ export class Sessions {
       await this.dependencies.repo.store.writable();
       if (lifetime.signal.aborted || this.dependencies.repo.cleaning(actor.id))
         throw new Error("Thread is being deleted");
-      await this.assertWorkspaceAvailable(metadata.cwd);
+      await this.assertWorkspaceAvailable(metadata.cwd, actor.id);
       const codexContext = {
         resetPermissions:
           mode === null && this.dependencies.repo.permissions.effective(actor.id) !== null,
@@ -527,8 +527,8 @@ export class Sessions {
       this.dependencies.repo.finishSessionOpen(actor.id);
     }
   }
-  async assertWorkspaceAvailable(cwd: string): Promise<void> {
-    await this.dependencies.assertWorkspaceAvailable?.(cwd);
+  async assertWorkspaceAvailable(cwd: string, threadId: ThreadId): Promise<void> {
+    await this.dependencies.assertWorkspaceAvailable?.(cwd, threadId);
     this.dependencies.repo.store.workspaceReservations.assertAvailable(cwd);
   }
 

@@ -10346,13 +10346,12 @@ Example:
 
 ```json
 {
-  "seq": 7,
+  "seq": 4,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "keep": [],
     "kind": "threads",
-    "seq": 7,
+    "seq": 4,
     "threads": {}
   }
 }
@@ -32713,6 +32712,9 @@ Example:
         "ref": "example"
       },
       "baseBranch": "example",
+      "checkoutMissing": {
+        "kind": "project"
+      },
       "continuedFrom": {
         "at": 3,
         "hostId": "example",
@@ -32749,12 +32751,7 @@ Example:
         "path": "example"
       },
       "worktree": "example",
-      "worktreeMissing": false,
-      "worktreeSetup": {
-        "at": 7,
-        "details": [],
-        "state": "skipped"
-      }
+      "worktreeMissing": false
     },
     "listOrder": 5,
     "live": {
@@ -32828,6 +32825,7 @@ Example:
 | worktreeCreation | no | [WorktreeCreationProgress.json](schema/WorktreeCreationProgress.json) |  |
 | workspaceChange | no | object | {"properties":{"commandId":{"type":"string","minLength":1,"maxLength":256},"state":{"type":"string","enum":["preparing","applied","failed"]},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"error":{"type":"string","maxLength":128},"lossy":{"default":true,"type":"boolean"},"uncertain":{"type":"boolean"},"mode":{"type":"string","enum":["local","worktree"]},"branch":{"type":"string","maxLength":1024}},"required":["commandId","state","at"]} |
 | worktreeMissing | no | boolean |  |
+| checkoutMissing | no | object | {"properties":{"kind":{"type":"string","enum":["worktree","project"]},"branch":{"type":"object","properties":{"name":{"type":"string","maxLength":1024},"state":{"type":"string","enum":["free","gone","elsewhere"]},"holder":{"type":"string","enum":["local","worktree"]}},"required":["name","state"]}},"required":["kind"]} |
 | worktreeSetup | no | object | {"properties":{"state":{"type":"string","enum":["failed","skipped"]},"reason":{"type":"string","const":"read_only"},"details":{"maxItems":200,"type":"array","items":{"type":"string","maxLength":1024}},"at":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"}},"required":["state","details","at"]} |
 | workspace | no | object | {"properties":{"id":{"type":"string","minLength":1},"name":{"type":"string","maxLength":256},"path":{"type":"string","maxLength":4096},"icon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"defaultIcon":{"anyOf":[{"$ref":"https://ace.local/protocol/v1/ProjectIcon.json"},{"type":"null"}]},"kind":{"$ref":"https://ace.local/protocol/v1/ProjectKind.json"}},"required":["id","name","path"]} |
 | mode | no | ["local","worktree"] |  |
@@ -32852,13 +32850,33 @@ Example:
 
 ```json
 {
-  "base": {
-    "head": "4eb89c28b77d9ccbc7645f3d126b102d4a6ee97adc0f884d90c0fb3",
-    "ref": "example",
-    "remote": "oCT_xjLFZ"
+  "behind": 4,
+  "continuedOn": {
+    "at": 9,
+    "hostId": "example",
+    "name": "example",
+    "threadId": "example"
   },
-  "baseBranch": "example",
+  "diff": {
+    "additions": 4,
+    "deletions": 3,
+    "files": 5
+  },
+  "guest": {
+    "host": "example",
+    "name": "example"
+  },
+  "head": null,
   "linkedIssues": [],
+  "linkedPr": {
+    "number": 4,
+    "state": "merged"
+  },
+  "linkedPrs": [],
+  "machine": {
+    "host": "example",
+    "name": "example"
+  },
   "mode": "worktree",
   "pullRequestWorkspace": {
     "baseBranch": "example",
@@ -32885,17 +32903,16 @@ Example:
   },
   "repository": {
     "forge": "github",
-    "host": "la-f",
-    "name": "sp4",
-    "owner": "Ys9/B86m"
+    "host": "EgYs",
+    "name": "p.2_",
+    "owner": "k/.OS6Rj/rU/CT_/jLFZN/qd6-kG7/3/o.jhfh0XPT/KnDJV/C/FoQbW"
   },
-  "workspace": {
-    "defaultIcon": null,
-    "icon": "data:image/webp;base64,VmPjHffoRTe=",
-    "id": "example",
-    "kind": "chat",
-    "name": "example",
-    "path": "example"
+  "worktree": "example",
+  "worktreeSetup": {
+    "at": 5,
+    "details": [],
+    "reason": "read_only",
+    "state": "failed"
   }
 }
 ```
@@ -33809,41 +33826,40 @@ Example:
   "interactions": {},
   "itemOrder": [],
   "items": {},
-  "itemsBefore": 2,
+  "itemsBefore": null,
   "kind": "thread",
   "runs": {},
   "seq": 4,
   "thread": {
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": false,
-        "planMode": false,
-        "resume": true
-      },
-      "coverage": "source_profile",
-      "mcp": "http",
-      "modeSelection": false,
-      "modelSelection": true,
-      "raw": {
-        "json": "example",
-        "truncated": true
-      },
-      "visibility": "limited"
-    },
+    "archivedAt": 6,
     "autoSettle": false,
     "backend": "cursor-sdk",
-    "createdAt": 0,
+    "capabilitiesRef": "example",
+    "continuation": {
+      "actionId": "thread.continue_new",
+      "reason": "cursor_cli_retired",
+      "state": "read_only"
+    },
+    "createdAt": 2,
     "details": {
-      "ahead": 5,
-      "base": {
-        "fetch": "unreachable",
-        "head": "5bb517139d7eaab6e2a5fe8cd40d978e65fd6668beac690a46eb810aab947",
-        "ref": "example"
+      "baseBranch": "example",
+      "diff": {
+        "additions": 0,
+        "deletions": 7,
+        "files": 0
       },
+      "guest": {
+        "host": "example",
+        "name": "example"
+      },
+      "head": null,
       "linkedPr": {
-        "draft": true,
-        "number": 7,
-        "state": "open"
+        "number": 8,
+        "state": "closed"
+      },
+      "machine": {
+        "host": "example",
+        "name": "example"
       },
       "pullRequestWorkspace": {
         "baseBranch": "example",
@@ -33868,12 +33884,6 @@ Example:
           }
         }
       },
-      "repository": {
-        "forge": "github",
-        "host": "4XUE",
-        "name": "RPqSBrL8VHC",
-        "owner": "KN3uoKM/nGpRZpSL7MW/Z"
-      },
       "workspaceChange": {
         "at": 1,
         "branch": "example",
@@ -33885,8 +33895,13 @@ Example:
       },
       "worktreeMissing": true
     },
+    "goal": {
+      "checks": 0,
+      "lastReason": "example",
+      "objective": "example",
+      "status": "active"
+    },
     "id": "example",
-    "installationId": "example",
     "lineage": {
       "lossy": false,
       "mode": "portable",
@@ -33901,17 +33916,23 @@ Example:
     "live": {
       "account": "example",
       "asking": [],
-      "contextMeter": {
-        "at": 3,
-        "limit": null,
-        "used": 1
+      "askingThreads": [],
+      "backgroundTaskCount": 7,
+      "turnStart": {
+        "at": 8,
+        "turn": 3
       },
-      "model": "example",
-      "options": {},
-      "subagentCount": 5,
-      "workingSince": 1
+      "waitingSince": 1,
+      "workingSince": 7
     },
     "provider": "acp",
+    "queue": {
+      "paused": false,
+      "pendingCount": 0,
+      "reason": "manual",
+      "resumeAt": null,
+      "revision": 1
+    },
     "readAt": 3,
     "settleWhenDone": true,
     "settledAt": 0,
@@ -33921,16 +33942,18 @@ Example:
       "outcome": "failed"
     },
     "snoozedUntil": 4,
+    "startedBy": "example",
     "status": {
-      "state": "new"
+      "on": "rate_limit",
+      "queuePosition": 10,
+      "state": "waiting"
     },
     "title": "example",
     "unread": true,
-    "updatedAt": 1,
+    "updatedAt": 5,
     "workspaceId": "example"
   },
-  "usage": {},
-  "usageSnapshots": {}
+  "usage": {}
 }
 ```
 

@@ -6,6 +6,7 @@ import {
   defaultFirst,
   dirtyMoveQuestion,
   linkedPrProblem,
+  missingBranch,
   prSummary,
   staleLockOutcome,
 } from "./work-checkout.ts";
@@ -19,6 +20,18 @@ const change = (
   lossy: true,
   ...over,
 });
+
+const gone = (
+  branch: NonNullable<NonNullable<ThreadDetails["checkoutMissing"]>["branch"]>,
+  extra: ThreadDetails = {},
+) =>
+  checkoutProblem({
+    ...extra,
+    worktreeMissing: true,
+    checkoutMissing: { kind: "worktree", branch },
+  });
+const labels = (problem: ReturnType<typeof checkoutProblem>) =>
+  problem?.actions.map((action) => (action.kind === "move" ? action.label : action.kind));
 
 describe("checkout moves", () => {
   it("refuses to move a checkout while its agents work", () => {
@@ -98,6 +111,59 @@ describe("checkout problems", () => {
       { kind: "move", move: { mode: "local" }, label: "Move to local" },
       { kind: "move", move: { mode: "worktree" }, label: "Recreate worktree" },
     ]);
+  });
+
+  it("leads with Recreate when the gone worktree's branch is still free", () => {
+    const problem = gone({ name: "ui/atmos", state: "free" });
+    expect(problem?.detail).toContain("ui/atmos is still here");
+    expect(labels(problem)).toEqual(["Recreate worktree", "Move to local"]);
+  });
+
+  it("names the base a new worktree starts from when the branch was deleted too", () => {
+    const problem = gone(
+      { name: "ui/atmos", state: "gone" },
+      { base: { ref: "main", remote: "origin", head: "a".repeat(40) } },
+    );
+    expect(problem?.label).toBe("Worktree and branch removed");
+    expect(problem?.detail).toBe(
+      "ui/atmos was deleted too. A new worktree starts from origin/main.",
+    );
+    expect(labels(problem)).toEqual(["Move to local", "New worktree"]);
+  });
+
+  it("never offers to recreate on a branch another checkout has", () => {
+    const local = gone({ name: "fix", state: "elsewhere", holder: "local" });
+    expect(local?.detail).toContain("checked out in the local checkout");
+    expect(labels(local)).toEqual(["Move to local", "New worktree"]);
+    expect(gone({ name: "fix", state: "elsewhere", holder: "worktree" })?.detail).toContain(
+      "another worktree",
+    );
+  });
+
+  it("offers no move when the project's own folder is gone", () => {
+    const problem = checkoutProblem({
+      worktreeMissing: true,
+      checkoutMissing: { kind: "project" },
+      workspace: { id: "w", name: "ace", path: "/code/ace" },
+    });
+    expect(problem).toMatchObject({ kind: "project-missing", label: "Project folder missing" });
+    expect(problem?.detail).toContain("/code/ace is gone");
+    expect(problem?.actions).toEqual([]);
+  });
+
+  it("says where a gone checkout's branch is instead of its last sync state", () => {
+    expect(missingBranch({ branch: "fix", ahead: 2 })).toBeUndefined();
+    expect(
+      missingBranch({
+        worktreeMissing: true,
+        branch: "fix",
+        checkoutMissing: { kind: "worktree", branch: { name: "fix", state: "gone" } },
+      }),
+    ).toEqual({ name: "fix", where: "deleted" });
+    expect(missingBranch({ worktreeMissing: true, branch: "fix" })).toEqual({
+      name: "fix",
+      where: "folder gone",
+    });
   });
 
   it("shows a failed setup's output with Retry and Continue, and a skipped one quietly", () => {

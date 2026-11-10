@@ -60,13 +60,15 @@ export function WorkspaceGroup(props: {
   onAddScript(): void;
 }) {
   const chat = useIsChat()(props.thread.workspaceId);
+  // A folder that is gone can't be opened or run in: its problem row says what to do instead.
+  const gone = useThreadMeta(props.thread.id)?.details?.worktreeMissing === true;
   return (
     <Section label="Workspace" title="Workspace">
       <MachineRow {...props} chat={chat} />
       <CheckoutProblem thread={props.thread} move={props.move} />
       <WorktreeSetupRow thread={props.thread} />
-      <OpenInRow thread={props.thread} />
-      {!chat && <RunScriptRow {...props} />}
+      {!gone && <OpenInRow thread={props.thread} />}
+      {!chat && !gone && <RunScriptRow {...props} />}
     </Section>
   );
 }
