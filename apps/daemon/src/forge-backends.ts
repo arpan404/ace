@@ -11,6 +11,7 @@ import {
   repositoryWriteRefusal,
   resolveProjectRepositories,
   type CommandRunner,
+  type HostApiWrite,
 } from "@ace/forge";
 import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
@@ -108,12 +109,26 @@ export class ForgeBackends {
   }
   /** The GitHub backend for a write, refused when the project hides or can't use `repository`. */
   async writer(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    await this.assertWritable(cwd, repository);
+    return this.backend(cwd, repository);
+  }
+  private async assertWritable(cwd: string, repository: ForgeRepository): Promise<void> {
     const refusal = repositoryWriteRefusal(
       (await this.projectRepositories(cwd)).resolved,
       repository,
     );
     if (refusal) throw new Error(refusal);
-    return this.backend(cwd, repository);
+  }
+  /** Non-GitHub writers use exact adapter admissions after project visibility refusal. */
+  async admittedWriter(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ) {
+    await this.assertWritable(cwd, repository);
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    return this.sourceControl.writeIdentity(cwd, repository, writes, signal);
   }
   async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
     return (

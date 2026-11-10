@@ -9,12 +9,13 @@ import {
   ForgePrRef,
   type ForgeReviewState,
 } from "@ace/protocol";
-import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
+import { ForgeError, WriteDispatch, type GitHubForge, type GitLabReviews } from "@ace/forge";
 import type { Store } from "./store.ts";
 
 const AcceptedDraftRow = z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) });
 const CountRow = z.object({ count: z.number() });
 const StoredDrafts = z.array(ForgeReviewDraft).max(100);
+type ReviewBackend = GitHubForge | { reviews: GitLabReviews };
 const scope = forgeResourceKey;
 /** The drafts a write sends. */
 function sentDrafts(action: ForgeReviewAction): readonly string[] {
@@ -75,7 +76,7 @@ export class WorkspaceForgeReviews {
   }
   async state(
     pr: ForgePrRef,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
   ): Promise<ForgeReviewState> {
     // The viewed marks are read beside the host, not after it: both name the head they saw, and
@@ -195,7 +196,7 @@ export class WorkspaceForgeReviews {
    * A draft an unknown write sent is never moved: once that write is found on GitHub, its
    * draft is removed only if it is still the text sent, so a move would leave it to post twice.
    */
-  async #move(pr: ForgePrRef, headSha: string, backend: GitHubForge, signal: AbortSignal) {
+  async #move(pr: ForgePrRef, headSha: string, backend: ReviewBackend, signal: AbortSignal) {
     const fenced = this.#fenced(pr);
     const read = this.#drafts(pr).filter((d) => !fenced.has(d.id));
     const moved = await backend.reviews.moveDrafts(pr.number, headSha, read, signal);
@@ -217,7 +218,7 @@ export class WorkspaceForgeReviews {
   async execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ) {
@@ -234,7 +235,7 @@ export class WorkspaceForgeReviews {
   async #execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ) {

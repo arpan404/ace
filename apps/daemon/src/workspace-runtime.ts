@@ -926,7 +926,7 @@ export class WorkspaceRuntime {
         );
         return { ok: true, terminalId };
       }
-      return this.forge.execute(p, cwd, allowed);
+      return this.forge.execute(p, cwd, allowed, command.id);
     });
   }
   private async workOnPr(

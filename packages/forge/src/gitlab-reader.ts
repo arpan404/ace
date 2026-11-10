@@ -15,7 +15,9 @@ import {
   type ForgePrList as ForgePrListType,
 } from "@ace/protocol/forge-browser";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
-import { Buffer } from "node:buffer";
+import { GitLabReviews } from "./gitlab-reviews.ts";
+import { GitLabConversation } from "./gitlab-conversation.ts";
+import { GitLabApi } from "./gitlab-api.ts";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
@@ -36,11 +38,8 @@ import {
   must,
   prRow,
   requireSha,
-  splitHttp,
   statusState,
-  throwForStatus,
   type GitLabMr,
-  type Headers,
 } from "./gitlab-records.ts";
 
 /** Read-only GitLab merge request adapter over the user's glab CLI.
@@ -48,7 +47,9 @@ import {
  * No mutations; the caller's runner already verified API identity. */
 export class GitLabReader implements ForgeReader {
   readonly repository: ForgeRepository;
-  readonly #runner: CommandRunner;
+  readonly #api: GitLabApi;
+  readonly conversation: GitLabConversation;
+  readonly reviews: GitLabReviews;
   readonly #host: string;
   readonly #project: string;
 
@@ -56,7 +57,9 @@ export class GitLabReader implements ForgeReader {
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "gitlab") throw new ForgeError("unsupported");
     if (!options.runner) throw new ForgeError("unsupported");
-    this.#runner = options.runner;
+    this.#api = new GitLabApi(options.runner, this.repository.host);
+    this.reviews = new GitLabReviews(options);
+    this.conversation = new GitLabConversation(this.#api, this.repository);
     this.#host = this.repository.host;
     this.#project = encodeURIComponent(`${this.repository.owner}/${this.repository.name}`);
   }
@@ -65,39 +68,8 @@ export class GitLabReader implements ForgeReader {
     return ForgePrRef.parse({ repository: this.repository, number });
   }
 
-  /** One explicit GET through glab; stdout/stderr/credentials never leave as errors. */
-  async #get(
-    endpoint: string,
-    signal: AbortSignal,
-    budget: ReadBudget,
-  ): Promise<{ headers: Headers; body: unknown }> {
-    signal.throwIfAborted();
-    let result;
-    try {
-      result = await this.#runner({
-        command: "glab",
-        args: ["api", endpoint, "-X", "GET", "--hostname", this.#host, "--include"],
-        signal,
-        mode: "json",
-      });
-    } catch (error) {
-      signal.throwIfAborted();
-      if (error instanceof ForgeError) throw error;
-      throw new ForgeError("cli");
-    }
-    if (result.truncated) throw new ForgeError("limit");
-    if (result.unreachable) throw new ForgeError("offline");
-    // One 8 MiB budget spans every request in the snapshot, counted in UTF-8 bytes.
-    budget.add(Buffer.byteLength(result.stdout, "utf8"));
-    const { headers, body } = splitHttp(result.stdout);
-    const code = Number(/^HTTP\/[\d.]+ (\d{3})/i.exec(result.stdout)?.[1]);
-    if (!Number.isInteger(code)) throw new ForgeError("invalid_data");
-    throwForStatus(code, headers, result.code);
-    try {
-      return { headers, body: JSON.parse(body) };
-    } catch {
-      throw new ForgeError("invalid_data");
-    }
+  #get(endpoint: string, signal: AbortSignal, budget: ReadBudget) {
+    return this.#api.get(endpoint, signal, budget);
   }
 
   #statusOf(mr: GitLabMr): ForgePrStatusType {
@@ -185,7 +157,9 @@ export class GitLabReader implements ForgeReader {
     );
     const parsed = Mr.safeParse(body);
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
-    return this.#statusOf(parsed.data);
+    const status = this.#statusOf(parsed.data);
+    const snapshot = await this.conversation.snapshot(number, status.headSha, signal, budget);
+    return { ...status, comments: snapshot.comments, reviewThreads: snapshot.reviewThreads };
   }
 
   async listPrs(query: ForgePrSearch, signal: AbortSignal): Promise<ForgePrListType> {
@@ -303,19 +277,27 @@ export class GitLabReader implements ForgeReader {
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
     const mr = parsed.data;
     const changed = changesCount(mr) ?? (await this.#diffCount(number, signal, budget));
-    // Commits are never read: their count stays a placeholder named in unavailableResources,
-    // as does a file count GitLab didn't give; the files themselves still read page by page.
+    const status = this.#statusOf(mr);
+    const snapshot = await this.conversation.snapshot(number, status.headSha, signal, budget);
+    const commits = await this.conversation.commits(
+      number,
+      undefined,
+      status.headSha,
+      signal,
+      budget,
+    );
+    const reviewers = await this.conversation.reviewers(number, signal, budget);
     return must(
       ForgePrDetail.safeParse({
-        readOnly: true,
+        readOnly: false,
         unavailableResources: [
-          "comments",
           "checks",
-          "reviews",
-          "commits",
+          ...(commits.total === undefined && commits.before !== undefined
+            ? ["commits" as const]
+            : []),
           ...(changed ? [] : ["fileCount" as const]),
         ],
-        status: this.#statusOf(mr),
+        status: { ...status, comments: snapshot.comments, reviewThreads: snapshot.reviewThreads },
         ...(mr.updated_at ? { updatedAt: mr.updated_at } : {}),
         ...(mr.created_at ? { createdAt: mr.created_at } : {}),
         body: clipText(typeof mr.description === "string" ? mr.description : ""),
@@ -325,14 +307,35 @@ export class GitLabReader implements ForgeReader {
         baseSha: requireSha(mr.diff_refs?.base_sha ?? ""),
         headRepository: this.#detailHeadRepository(mr),
         labels: clipLabels(mr.labels),
-        reviewers: [],
-        reviewDecision: null,
-        commits: 0,
+        reviewers: reviewers.requested.flatMap((r) => (r.kind === "user" ? [r.login] : [])),
+        reviewDecision: snapshot.reviewDecision,
+        commits: commits.total ?? commits.commits.length,
         changedFiles: changed?.count ?? 0,
         relatedThreads: [],
         relatedThreadsTruncated: false,
       }),
     );
+  }
+
+  prCommits(number: number, before: string | undefined, headSha: string, signal: AbortSignal) {
+    return this.conversation.commits(number, before, headSha, signal);
+  }
+  prReviewers(number: number, signal: AbortSignal) {
+    return this.conversation.reviewers(number, signal);
+  }
+  async prActivity(number: number, page: number, signal: AbortSignal) {
+    if (!Number.isInteger(page) || page < 1 || page > 20) throw new ForgeError("invalid_data");
+    const mr = await this.conversation.mr(number, signal);
+    const { conversation } = await import("./gitlab-conversation-records.ts");
+    const events = conversation(
+      await this.conversation.discussions(number, signal),
+      requireSha(headOf(mr)),
+    ).events;
+    return {
+      events: events.slice((page - 1) * 100, page * 100),
+      ...(events.length > page * 100 ? { nextPage: page + 1 } : {}),
+      truncated: false,
+    };
   }
 
   /** The diff file count from one per_page=1 page's x-total, when GitLab hasn't counted yet;

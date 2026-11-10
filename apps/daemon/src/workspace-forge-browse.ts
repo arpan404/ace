@@ -1,3 +1,4 @@
+import { readGitLabConversation } from "./hosted-review-conversation.ts";
 import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
@@ -66,6 +67,17 @@ export class WorkspaceForgeBrowse {
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
     if (repository.forge !== "github") {
+      if ("number" in operation) {
+        const conversation = await readGitLabConversation(
+          this.ctx.backends,
+          this.parts.reviews,
+          cwd,
+          { repository, number: operation.number },
+          operation,
+          signal,
+        );
+        if (conversation) return conversation;
+      }
       const reader = await this.ctx.backends.reader(cwd, repository, signal);
       if (operation.op === "forge.pr.list")
         return { resource: "prList", value: await reader.listPrs(operation.query, signal) };

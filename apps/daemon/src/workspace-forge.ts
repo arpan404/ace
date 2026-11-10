@@ -1,3 +1,7 @@
+import {
+  gitLabReviewBackend,
+  executeGitLabThreadConversation,
+} from "./hosted-review-conversation.ts";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
@@ -252,6 +256,7 @@ export class WorkspaceForge {
     input: unknown,
     cwd: string,
     permitted: () => boolean,
+    commandId?: string,
   ): Promise<Omit<CommandResult, "commandId">> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
@@ -295,6 +300,21 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
+    if (
+      p.link.pr.repository.forge === "gitlab" &&
+      (p.type === "forge.comment.reply" || p.type === "forge.review.request")
+    ) {
+      return executeGitLabThreadConversation({
+        backends: this.backends,
+        reviews: this.reviews,
+        store: this.store,
+        cwd,
+        commandId,
+        action: p,
+        signal: this.lifetime.signal,
+        allowed,
+      });
+    }
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     // Refreshing a link's status reads; everything else here writes to the PR's repository.
     const backend =
@@ -358,7 +378,9 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backends.writer(cwd, p.pr.repository),
+      p.pr.repository.forge === "gitlab"
+        ? await gitLabReviewBackend(this.backends, cwd, p.pr, this.lifetime.signal)
+        : await this.backends.writer(cwd, p.pr.repository),
       this.lifetime.signal,
       allowed,
     );
