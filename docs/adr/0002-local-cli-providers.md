@@ -146,11 +146,11 @@ A declared meter is advisory unless its declaration says a full window refuses a
 (`holds`): it is shown on the Usage page but never holds queued messages or picks a migration
 target (ADR 0053's definite-signal rule). The shipped sources are all advisory:
 
-| Source                             | Endpoint                                                                                                                        | Confirmed against                                                                           |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Cursor                             | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage` with the keychain token; plan from `cursor-agent about --format json` | cursor-agent 2026.10.01 bundle (`src/usage-data.ts`), a read-only call with a signed-in CLI |
-| Gemini CLI (ACP `official:gemini`) | `cloudcode-pa.googleapis.com` `v1internal:loadCodeAssist` then `v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json` | Gemini CLI 0.43 bundle (`CodeAssistServer`, `refreshUserQuota`)                             |
-| OpenCode                           | `opencode.ai/zen/go/v1/usage` with the `opencode-go` key from `opencode.db` or `auth.json`                                      | a read-only call with a signed-in OpenCode 2.0.29                                           |
+| Source                             | Endpoint                                                                                                                                                         | Confirmed against                                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Cursor                             | `api2.cursor.sh` `DashboardService/GetCurrentPeriodUsage` with the keychain token; plan from `cursor-agent about --format json`                                  | cursor-agent 2026.10.01 bundle (`src/usage-data.ts`), a read-only call with a signed-in CLI             |
+| Gemini CLI (ACP `official:gemini`) | `cloudcode-pa.googleapis.com` `v1internal:loadCodeAssist` then `v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json`                                  | Gemini CLI 0.43 bundle (`CodeAssistServer`, `refreshUserQuota`)                                         |
+| OpenCode                           | `opencode.ai/zen/go/v1/usage` with the `opencode-go` key, or an OpenCode Console login's access token and org id (403: no Go), from `opencode.db` or `auth.json` | a read-only call with a signed-in OpenCode 2.0.29 (key); OpenCode 2.2.6 binary (`UsageLimits`, Console) |
 
 Antigravity is not shipped: `agy -p /usage --output-format json` could not be confirmed
 against an installed `agy`, nor where its login is kept. Its entry is one declaration once the

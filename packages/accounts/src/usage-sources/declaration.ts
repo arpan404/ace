@@ -106,9 +106,25 @@ const Identifier = z.string().regex(/^[a-z_][a-z0-9_]{0,63}$/i);
  * the user's XDG config home), tried in order.
  */
 const HomeFiles = z.array(z.string().min(1).max(256)).min(1).max(4);
+/**
+ * Other values from the same stored login, sent as `{name}` in the request's headers (OpenCode's
+ * org id). A login missing any of them is not one this store reads.
+ */
+const Fields = z
+  .record(
+    Identifier.refine((name) => name !== "token" && name !== "captured"),
+    JsonPath,
+  )
+  .refine((fields) => Object.keys(fields).length <= 4);
 /** Where the CLI keeps the token it signed in with. */
 export const TokenStore = z.discriminatedUnion("from", [
-  z.object({ from: z.literal("file"), files: HomeFiles, path: JsonPath, expires: Time.optional() }),
+  z.object({
+    from: z.literal("file"),
+    files: HomeFiles,
+    path: JsonPath,
+    expires: Time.optional(),
+    fields: Fields.optional(),
+  }),
   /** A row of the CLI's own SQLite store, read only. */
   z.object({
     from: z.literal("sqlite"),
@@ -117,8 +133,11 @@ export const TokenStore = z.discriminatedUnion("from", [
     keyColumn: Identifier,
     key: z.string().min(1).max(128),
     valueColumn: Identifier,
+    /** With several rows for the key, the one with the highest value here (OpenCode's `active`). */
+    prefer: Identifier.optional(),
     path: JsonPath,
     expires: Time.optional(),
+    fields: Fields.optional(),
   }),
   /** The macOS login keychain item the CLI writes (read with `security`, macOS only). */
   z.object({
@@ -133,7 +152,10 @@ const Request = z.object({
   method: z.enum(["GET", "POST"]),
   /** HTTPS on the same host the CLI itself uses. */
   url: z.url({ protocol: /^https$/ }),
-  /** `Bearer {token}`-style templates; `{token}` is the only placeholder in headers. */
+  /**
+   * `Bearer {token}`-style templates. `{token}` and the store's `fields` are the only
+   * placeholders; a header naming a field the store found doesn't have is left out.
+   */
   headers: z.record(z.string().max(64), z.string().max(256)).default({}),
   /** JSON; string values may use `{captured}` from the prelude. */
   body: z.unknown().optional(),
@@ -170,6 +192,8 @@ export const TokenSource = z.object({
     })
     .optional(),
   request: Request,
+  /** Statuses with which the endpoint says this login has no such plan: no reading, no error. */
+  noPlan: z.array(z.number().int().min(400).max(499)).max(4).default([]),
   mapping: UsageMapping,
 });
 
