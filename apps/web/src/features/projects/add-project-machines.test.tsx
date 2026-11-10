@@ -183,19 +183,20 @@ test("a clone runs on the chosen machine with its progress, and Cancel stops it 
   );
   await screen.findByText("~/big-repo");
   await userEvent.click(screen.getByRole("button", { name: "Clone" }));
-  const bar = await screen.findByRole("progressbar", { name: "Clone progress" });
-  expect(
-    screen.getByText(
-      (text, element) =>
-        text.includes("· on") && element?.textContent?.includes("Build server") === true,
-    ),
-  ).toBeTruthy();
+  // One status line says what is cloning, on which machine, and how far it is.
+  const status = await screen.findByText(
+    (_, element) =>
+      element?.getAttribute("role") === "status" &&
+      element.textContent === "Cloning acme/big-repo on Build server…",
+  );
   await waitFor(() => expect(stages.length).toBeGreaterThan(0));
   stages.shift()?.();
-  await waitFor(() => expect(bar.getAttribute("aria-valuetext")).toBe("Receiving objects, 24%"));
+  await waitFor(() =>
+    expect(status.textContent).toBe("Cloning acme/big-repo on Build server… 24%"),
+  );
 
   await userEvent.click(screen.getByRole("button", { name: "Cancel clone" }));
-  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/Cloning acme\/big-repo/)).toBeNull());
   expect(paths(build)).toEqual([]);
   expect(paths(made.daemon)).toEqual([]);
 });
@@ -282,6 +283,8 @@ test("Back from Clone keeps the GitHub search", async () => {
     screen.getByRole("combobox", { name: "Search GitHub repositories" }),
     "docs",
   );
+  // Rows from the last search can't be chosen until this one comes back.
+  await waitFor(() => expect(screen.queryByRole("option", { name: /ada\/engine/ })).toBeNull());
   await userEvent.click(await screen.findByRole("option", { name: /ace-org\/docs/ }));
   await screen.findByRole("textbox", { name: "Repository address" });
 
