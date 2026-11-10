@@ -69,7 +69,7 @@ test("same owner/name/number on distinct forge/host lists both rows", async () =
     .getAllByRole("listitem")
     .find((item) => within(item).queryByRole("link", { name: /GitLab same number/ }) !== null);
   if (!hosted) throw new Error("Missing hosted review row");
-  expect(within(hosted).getByText("Waiting")).toBeTruthy();
+  expect(within(hosted).getByText("Review status unavailable")).toBeTruthy();
   expect(within(hosted).queryByText("Ready to merge")).toBeNull();
   expect(within(hosted).getByRole("button", { name: /^View:/ })).toBeTruthy();
 });

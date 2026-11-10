@@ -77,8 +77,22 @@ export function useRowSteps(input: {
     const status = prStatusWords(row, step, local, thread);
     const label = prNextAction(row, step, thread, viewer);
     const group = groupOf(row);
+    const source = sourceOf(row);
+    // A host that reports neither reviews nor checks can't say where a review stands.
+    if (
+      !can(source, "reviews.approvals.read") &&
+      !can(source, "reviews.checks") &&
+      step !== "answer"
+    )
+      return {
+        status:
+          row.state === "closed" || row.state === "merged"
+            ? status
+            : { words: "Review status unavailable", tone: undefined },
+        action: { label: "View", onPress: () => openPr(row) },
+      };
     // Merging picks the row for a verified merge; one without a known head merges on its page.
-    if (can(sourceOf(row), "reviews.merge") && group === "merge" && merge && row.headSha)
+    if (can(source, "reviews.merge") && group === "merge" && merge && row.headSha)
       return {
         status,
         action: {
@@ -96,14 +110,8 @@ export function useRowSteps(input: {
           onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
         },
       };
-    if (label === "Mark ready" && !can(sourceOf(row), "reviews.edit"))
-      return {
-        status:
-          row.state === "closed" || row.state === "merged"
-            ? status
-            : { words: "Review status unavailable", tone: undefined },
-        action: { label: "View", onPress: () => openPr(row) },
-      };
+    if (label === "Mark ready" && !can(source, "reviews.edit"))
+      return { status, action: { label: "View", onPress: () => openPr(row) } };
     if (label === "Mark ready")
       return {
         status,
