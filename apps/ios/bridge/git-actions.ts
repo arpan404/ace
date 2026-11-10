@@ -4,8 +4,10 @@ import {
   maxForgeTextLength,
   SourceControlPreferences,
   ThreadId,
+  WorkspaceActionRequest,
   type CommandPayload,
   type CommandResult,
+  type ProjectRepositories,
 } from "@ace/protocol";
 import {
   actionErrorText,
@@ -14,6 +16,7 @@ import {
   mergeMethods,
   parseReviewers,
 } from "@ace/ui-core/mobile";
+import { pushRemote } from "@ace/ui-core";
 import { z } from "zod";
 import type { PatchSink, Preview } from "./agents.ts";
 import { WorkspaceRefusal, type ChangesOwner, type ChangesSession } from "./changes.ts";
@@ -71,10 +74,14 @@ async function run(owner: ChangesOwner, payload: CommandPayload): Promise<Comman
   return result;
 }
 
-/** Push where the person's source-control preferences say, as the web does. */
+/**
+ * Push where the person's source-control preferences say, as the web does; a project with saved
+ * repository choices pushes to its primary's remote (ADR 0116), the only one the daemon takes.
+ */
 async function push(
   owner: ChangesOwner,
   threadId: ThreadId,
+  workspaceId: string | undefined,
   target?: Extract<CommandPayload, { type: "git.push" }>["target"],
 ): Promise<void> {
   const response = await owner.request({
@@ -85,16 +92,36 @@ async function push(
   const entry = response.entries.find((item) => item.key === "sourceControl.preferences");
   if (!response.ok || !entry) throw new WorkspaceRefusal("forge_preferences_changed");
   const preferences = SourceControlPreferences.parse(entry.value);
+  const repositories = workspaceId ? await projectRepositories(owner, workspaceId) : undefined;
   await run(owner, {
     type: "git.push",
     threadId,
-    remote: preferences.remote,
+    remote: pushRemote(repositories, preferences.remote),
     ...(target ? { target } : {}),
   });
 }
 
+/** The project's repositories; a daemon that can't list them pushes as before. */
+async function projectRepositories(
+  owner: ChangesOwner,
+  workspaceId: string,
+): Promise<ProjectRepositories | undefined> {
+  const request = WorkspaceActionRequest.safeParse({
+    type: "workspace.request",
+    requestId: "forge-read",
+    operation: { op: "forge.repositories", workspaceId },
+  });
+  if (!request.success) return undefined;
+  const reply = await owner.request(request.data, { timeoutMs: 15_000 }).catch(() => undefined);
+  const result = reply?.result;
+  return result?.kind === "forge" && result.data.resource === "repositories"
+    ? result.data.value
+    : undefined;
+}
+
 async function perform(owner: ChangesOwner, session: ChangesSession, action: GitAction) {
   const threadId = ThreadId.parse(session.threadId);
+  const workspaceId = session.workspaceId;
   const details = session.details;
   const reads = session.reads;
   const totals = reads && {
@@ -126,14 +153,14 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
     if (draft) session.draft = undefined;
     if (!action.push) return "Committed";
     try {
-      await push(owner, threadId);
+      await push(owner, threadId, workspaceId);
     } catch (error) {
       return { partial: `Committed. The push didn't go through: ${message(error)}` };
     }
     return "Committed and pushed";
   }
   if (action.kind === "push") {
-    await push(owner, threadId);
+    await push(owner, threadId, workspaceId);
     return "Pushed";
   }
   const checkout = checkoutOf(details, reads?.pr);
@@ -148,7 +175,7 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
       if (now.fingerprint !== draft.fingerprint) throw new WorkspaceRefusal("draft_changes_moved");
     }
     // A branch without an upstream reports nothing ahead; pushing first is always safe.
-    await push(owner, threadId, {
+    await push(owner, threadId, workspaceId, {
       repository: checkout.repository,
       branch: checkout.branch,
       head: checkout.head,

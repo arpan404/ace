@@ -203,6 +203,10 @@ export class ChangesSession {
     void this.refresh();
   }
 
+  /** The thread's project, once the thread is held. */
+  get workspaceId(): string | undefined {
+    return this.#store.thread?.workspaceId;
+  }
   get details(): ThreadDetails | undefined {
     return this.#store.thread?.details;
   }

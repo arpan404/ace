@@ -257,3 +257,25 @@ describe("Merging and reviews from the Changes sheet", () => {
     });
   });
 });
+
+describe("Pushing a project with several repositories", () => {
+  const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "acme", name: "ace" } as const;
+
+  test("a push names the remote of the primary the project chose", async () => {
+    const { owner, act, sent } = await opened();
+    const saved = await owner.command({
+      type: "workspace.repositories.set",
+      workspaceId: "ace",
+      repositories: { added: [], hidden: [], primary: gitlab },
+    });
+    expect(saved).toMatchObject({ ok: true });
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m1");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "mirror" });
+  });
+
+  test("a project without saved choices pushes to the remote source control settings name", async () => {
+    const { act, sent } = await opened();
+    await act({ kind: "commit", message: "Fix the queue", push: true }, "m2");
+    expect(sent.find((payload) => payload.type === "git.push")).toMatchObject({ remote: "origin" });
+  });
+});
