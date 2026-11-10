@@ -30,7 +30,7 @@ describe("requests and tasks before items", () => {
     expect(h.task("job")?.toolCallId).toBe(synthesizedId);
     h.end();
     expect(h.item("late-shell")).toMatchObject({ call: { status: "running" } });
-    expect(h.view.status).toEqual({ state: "waiting", on: "background_task" });
+    expect(h.view.status).toEqual({ state: "done" });
   });
 
   it("a request referencing an absent Codex item creates and retains its tool identity", () => {

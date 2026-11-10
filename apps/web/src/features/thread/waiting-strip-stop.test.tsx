@@ -16,7 +16,10 @@ type Started = {
   stoppable: boolean;
 };
 
-/** A turn that starts `tasks` in the background, then ends while they still run. */
+/**
+ * A turn that starts `tasks` in the background, then fails while they still run: the thread waits
+ * on them. (A turn that replies leaves its commands running without waiting, ADR 0116.)
+ */
 async function finishedTurnWaitingOn(tasks: readonly Started[]) {
   const app = harness();
   const scenario: Scenario = {
@@ -56,7 +59,7 @@ async function finishedTurnWaitingOn(tasks: readonly Started[]) {
     return receive(command);
   };
   await app.open(`/t/${id}`);
-  act(() => app.daemon.apply(id, [facts.endTurn("root")]));
+  act(() => app.daemon.apply(id, [facts.endTurn("root", "failed")]));
   const stops = () => sent.filter((payload) => payload.type === "background_task.stop");
   return { app, stops };
 }

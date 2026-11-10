@@ -133,7 +133,7 @@ test("an output-only command first seen after turn completion remains a stoppabl
     itemId: "exec",
     delta: "late",
   });
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.state.status).toEqual({ state: "done" });
   expect(Object.values(h.state.tasks).some((t) => t.stoppable && t.status === "running")).toBe(
     true,
   );
