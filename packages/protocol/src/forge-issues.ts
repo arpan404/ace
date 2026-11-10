@@ -3,10 +3,13 @@ import { ForgeRepository } from "./forge.ts";
 import { CommandId, ThreadId, WorkspaceId } from "./ids.ts";
 
 const text = z.string().max(65_536);
-/** A search filter's login, or `@me`, which GitHub resolves to the account `gh` signed in as. */
+/**
+ * A search filter's login, or `@me`, the account the host's CLI is signed in as. GitLab
+ * usernames may also contain dots.
+ */
 export const ForgeSearchLogin = z
   .string()
-  .regex(/^(@me|[\w-]*)$/)
+  .regex(/^(@me|[\w.-]*)$/)
   .max(100)
   .default("");
 const login = ForgeSearchLogin;
@@ -54,6 +57,8 @@ export const ForgeIssueRow = z.object({
 export type ForgeIssueRow = z.infer<typeof ForgeIssueRow>;
 export const ForgeIssueDetail = ForgeIssueRow.extend({
   body: text,
+  /** The host shows this issue only to its participants and project members (GitLab). */
+  confidential: z.boolean().optional(),
   permissions: z.object({
     edit: z.boolean(),
     close: z.boolean(),

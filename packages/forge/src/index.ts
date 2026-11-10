@@ -58,3 +58,5 @@ export * from "./gitlab-lifecycle.ts";
 export * from "./gitlab-inbox.ts";
 export * from "./gitlab-creation.ts";
 export { GitLabReviews, gitLabReviewWrites } from "./gitlab-reviews.ts";
+export { GitLabIssues } from "./gitlab-issues.ts";
+export { gitlabIssueWrites } from "./gitlab-issue-writes.ts";

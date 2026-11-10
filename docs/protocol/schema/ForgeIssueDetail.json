@@ -30,6 +30,9 @@
       "minimum": 0,
       "type": "integer"
     },
+    "confidential": {
+      "type": "boolean"
+    },
     "createdAt": {
       "maxLength": 65536,
       "type": "string"
