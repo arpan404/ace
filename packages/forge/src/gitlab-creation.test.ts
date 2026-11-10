@@ -110,3 +110,41 @@ test("an account switch during MR creation remains uncertain", async () => {
     ),
   ).rejects.toMatchObject({ kind: "outcome_uncertain" });
 });
+
+test("thread creation renders its reviewed title and body through the same MR write", async () => {
+  const f = fixture();
+  await f.backend.createPr(
+    "thread-7",
+    {
+      branch: "topic",
+      base: "main",
+      title: "Change",
+      summary: "Why",
+      draft: false,
+      template: { title: "{{title}}", body: "{{summary}} on {{branch}} ({{threadId}})" },
+    },
+    signal,
+  );
+  expect(JSON.parse(f.writes[0]?.input ?? "null")).toMatchObject({
+    title: "Change",
+    description: "Why on topic (thread-7)",
+  });
+});
+test("unknown thread template fields refuse publication", async () => {
+  const f = fixture();
+  await expect(
+    f.backend.createPr(
+      "thread-7",
+      {
+        branch: "topic",
+        base: "main",
+        title: "Change",
+        summary: "Why",
+        draft: false,
+        template: { title: "{{missing}}", body: "" },
+      },
+      signal,
+    ),
+  ).rejects.toMatchObject({ kind: "invalid_data" });
+  expect(f.writes).toEqual([]);
+});

@@ -1,3 +1,4 @@
+import { prCreateText } from "./pr-create-text.ts";
 import { z } from "zod";
 import { ForgeRepository, ForgePrRef, ForgeCreatePrInput } from "@ace/protocol/forge";
 import { ForgeBranchName } from "@ace/protocol/forge-new-pr";
@@ -205,31 +206,6 @@ export class GitLabCreation {
     signal: AbortSignal,
     head?: PrHead,
   ): Promise<ForgePrRef> {
-    const input = ForgeCreatePrInput.parse(raw);
-    if (!input.base) throw new ForgeError("base_missing");
-    const fields: Record<string, string> = {
-      threadId: z.string().min(1).max(256).parse(threadId),
-      branch: input.branch,
-      title: input.title,
-      summary: input.summary,
-    };
-    const render = (template: string) =>
-      template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
-        const value = fields[key];
-        if (value === undefined || !Object.hasOwn(fields, key))
-          throw new ForgeError("invalid_data");
-        return value;
-      });
-    return this.openPr(
-      {
-        branch: input.branch,
-        base: input.base,
-        title: render(input.template.title),
-        body: render(input.template.body),
-        draft: input.draft,
-      },
-      signal,
-      head,
-    );
+    return this.openPr(prCreateText(threadId, raw), signal, head);
   }
 }
