@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 
 use std::sync::Arc;
 
-use crate::catalog::{Catalog, Role};
+use crate::catalog::{Catalog, Price, Role};
 use crate::config::ModelsConfig;
 use crate::error::ModelError;
 use crate::gateway::{self, Gateway, Protocol};
@@ -48,6 +48,14 @@ impl Models {
 
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
+    }
+
+    /// What the configured gateway charges for `model`; `None` when unlisted or flat-rate.
+    pub fn price(&self, model: &str) -> Option<Price> {
+        self.catalog
+            .find(model)
+            .and_then(|m| m.route(self.config.gateway))
+            .and_then(|route| route.price)
     }
 
     pub fn gateway(&self) -> Gateway {

@@ -25,7 +25,7 @@ pub enum Role {
 }
 
 /// A model Spade can call. `id` is Spade's own name for it, used everywhere else.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub id: String,
     pub name: String,
@@ -33,12 +33,22 @@ pub struct Model {
 }
 
 /// One gateway's way to reach a model.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Route {
     pub gateway: Gateway,
     pub protocol: Protocol,
     /// The model id that gateway expects.
     pub model: String,
+    /// What the gateway charges. `None` for a flat-rate plan.
+    pub price: Option<Price>,
+}
+
+/// US dollars per million tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Price {
+    pub input: f64,
+    pub output: f64,
 }
 
 impl Model {
@@ -52,7 +62,7 @@ impl Model {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Catalog {
     models: Vec<Model>,
     defaults: BTreeMap<Gateway, Defaults>,
@@ -77,7 +87,7 @@ impl Defaults {
 }
 
 /// Everything wrong with a catalogue file.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CatalogError {
     /// The file, or `"catalogue"` when parsed from a string.
     pub source: String,
@@ -124,6 +134,9 @@ struct FileRoute {
     /// Defaults to the gateway's own protocol.
     #[serde(default)]
     protocol: Option<Protocol>,
+    /// Absent for a flat-rate plan.
+    #[serde(default)]
+    price: Option<Price>,
 }
 
 impl Catalog {
@@ -236,10 +249,19 @@ fn check_model(model: FileModel, problems: &mut Vec<String>) -> Model {
             if route.model.trim().is_empty() {
                 problems.push(format!("model {label}: {gateway} route has an empty model"));
             }
+            if let Some(price) = route.price {
+                let valid = |v: f64| v.is_finite() && v >= 0.0;
+                if !valid(price.input) || !valid(price.output) {
+                    problems.push(format!(
+                        "model {label}: {gateway} price must be zero or more dollars per million tokens"
+                    ));
+                }
+            }
             Route {
                 gateway,
                 protocol,
                 model: route.model,
+                price: route.price,
             }
         })
         .collect();
@@ -367,6 +389,32 @@ mod tests {
                 "openrouter deep default haiku has no openrouter route",
             ]
         );
+    }
+
+    #[test]
+    fn a_route_price_is_read_and_a_negative_price_is_refused() -> Result<(), CatalogError> {
+        let priced = r#"{ "id": "haiku", "name": "Haiku", "routes": {
+            "openrouter": { "model": "anthropic/claude-haiku-5.5",
+                            "price": { "input": 0.1, "output": 0.5 } } } }"#;
+        let catalog = Catalog::from_json(&with_defaults(ALL_HAIKU, priced))?;
+        let price = catalog
+            .find("haiku")
+            .and_then(|m| m.route(Gateway::OpenRouter))
+            .and_then(|r| r.price);
+        assert_eq!(
+            price,
+            Some(Price {
+                input: 0.1,
+                output: 0.5
+            })
+        );
+
+        let negative = priced.replace("0.1", "-1");
+        assert_eq!(
+            problems(&with_defaults(ALL_HAIKU, &negative)),
+            vec!["model haiku: openrouter price must be zero or more dollars per million tokens"]
+        );
+        Ok(())
     }
 
     #[test]

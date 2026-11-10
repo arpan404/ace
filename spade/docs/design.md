@@ -1,36 +1,39 @@
 # Spade design
 
-Date: 2026-11-08. Status: draft. Decisions marked **decided** are the owner's; everything else
+Date: 2026-11-08, updated 2026-11-10. Status: draft. Decisions marked **decided** are the owner's; everything else
 is a proposal waiting for the owner's review.
 
 ## What Spade is
 
-A cloud agent with ace as its front end. People talk to Spade, the main bot, and to bots they or
-others made. Spade works across their apps through connectors, remembers what matters, and acts
-on their machines through their ace daemons: it starts and steers coding agents, drives the
-browser and computer use, and controls the daemon.
+An assistant that runs on the person's own hardware beside their ace daemon, with ace as its front
+end. People talk to Spade, the main bot, and to bots they or others made. Spade works across their
+apps through connectors, remembers what matters, and acts on their machines through ace: it starts
+and steers coding agents, drives the browser and computer use, and controls the daemon. A laptop
+works; a Mac mini, a home Linux box or a small VPS keeps it always on. A hosted Spade, for people
+without spare hardware, may come later.
 
 ## Decisions
 
-| Decision                                                                                                                    | Status   |
-| --------------------------------------------------------------------------------------------------------------------------- | -------- |
-| The backend is Rust, in ace's repository at `spade/`, Apache-2.0 like the rest of ace                                       | decided  |
-| It runs on Linux VMs (native binary, systemd), not Workers or containers                                                    | decided  |
-| Rust is the backend only; Spade's screens are ace's React (desktop, web) and Swift (iOS)                                    | decided  |
-| Spade acts on a person's connected daemons and devices: controls them and the daemon                                        | decided  |
-| Cloud first; a local-only Spade comes later                                                                                 | decided  |
-| How Spade reaches daemons: through ace's relay with a Spade grant (ace draft ADR, `docs/adr/drafts/spade-daemon-access.md`) | proposed |
-| Connectors reuse existing MCP servers before we write our own (see Connectors)                                              | proposed |
-| Postgres with pgvector for data and memory; object storage for files                                                        | proposed |
-| Spade's own models go through OpenRouter for now; Claude models directly may come later                                     | decided  |
-| Development and internal testing call models with an OpenCode Go API key                                                    | decided  |
-| Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                    | decided  |
-| The model list is curated: the current model of each family worth running, nothing older                                    | decided  |
+| Decision                                                                                                                        | Status   |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| Spade is Rust, in ace's repository at `spade/`, open source under Apache-2.0 like the rest of ace                               | decided  |
+| Spade runs on the person's own hardware beside the ace daemon; a hosted Spade may come later                                    | decided  |
+| Rust is the backend only; Spade's screens are ace's React (desktop, web) and Swift (iOS)                                        | decided  |
+| Spade acts on the person's machines and daemon through ace                                                                      | decided  |
+| Storage is one SQLite file per machine (`spade-store`)                                                                          | decided  |
+| Spade's own models go through OpenRouter; Claude models directly may come later                                                 | decided  |
+| Development and internal testing call models with an OpenCode Go API key                                                        | decided  |
+| Model access uses the `genai` crate behind Spade's own `spade-models` crate (see Models)                                        | decided  |
+| The model list is curated: the current model of each family worth running, nothing older                                        | decided  |
+| Connectors reuse existing MCP servers before we write our own (see Connectors)                                                  | proposed |
+| A hosted Spade would reach daemons through ace's relay with a Spade grant (draft ADR `docs/adr/drafts/spade-daemon-access.md`)  | proposed |
+| How a person enters their model key in the app (environment only, or a key field stored in the OS keychain, which needs an ADR) | **open** |
 
 ## Shared with ace
 
-Spade must speak ace's protocols exactly. Each has one source of truth in ace and is checked
-from Rust with test vectors recorded from ace's TypeScript:
+Spade speaks ace's protocols exactly. Each has one source of truth in ace and is checked from Rust
+with test vectors recorded from ace's TypeScript. On the same machine only the wire messages
+matter; the encrypted channel and grants matter when Spade reaches a daemon from elsewhere:
 
 - **Encrypted channel:** `Noise_XX_25519_ChaChaPoly_SHA256` plus ace's prologue and flow credit
   (`packages/secure-channel`). Rust side: `snow`.
@@ -42,30 +45,30 @@ from Rust with test vectors recorded from ace's TypeScript:
 
 ## Crates
 
-Created when their first code lands.
-
-| Crate            | Job                                                                                                                         |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `spade-server`   | HTTP server, config, wiring (exists)                                                                                        |
-| `spade-core`     | Pure logic, no I/O: agent turn loop, approval gate, group chat turn-taking, memory decisions. Compiles natively and to Wasm |
-| `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                        |
-| `spade-ace`      | Reaches a person's daemons through the relay: Noise, grants, calls                                                          |
-| `spade-models`   | Model catalogue, gateways, chat, typed output, streaming (exists)                                                           |
-| `spade-mcp`      | Connector catalogue and MCP client (`rmcp`)                                                                                 |
-| `spade-memory`   | Memory storage and search                                                                                                   |
+| Crate            | Job                                                                                                                                                                | State                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- |
+| `spade-models`   | Model catalogue, gateways, chat, typed output, streaming                                                                                                           | built                 |
+| `spade-core`     | Pure logic, no I/O: conversation events, transcript, prompts, spending, checkpoints, titles; later the agent loop, approval gate, turn-taking and memory decisions | built (chat), growing |
+| `spade-store`    | SQLite: conversations, event log, spending ledger                                                                                                                  | built                 |
+| `spade-server`   | Local API and reply engine                                                                                                                                         | in progress           |
+| `spade-testkit`  | Test-only fake model gateway                                                                                                                                       | built                 |
+| `spade-protocol` | Types generated from ace's schemas, plus Spade's own                                                                                                               | planned               |
+| `spade-ace`      | Talks to the ace daemon: locally first, through the relay for a hosted Spade                                                                                       | planned               |
+| `spade-mcp`      | Connector catalogue and MCP client (`rmcp`)                                                                                                                        | planned               |
+| `spade-memory`   | Memory storage and search                                                                                                                                          | planned               |
 
 Rules carried over from ace: pure core with a thin I/O shell; clocks, ids, randomness and
 network endpoints are injected; outside data is parsed before use; tests assert behaviour
-through the public API with real edges (sockets, Postgres) where possible.
+through the public API with real edges (sockets, SQLite) where possible.
 
 ## Models
 
-- **Production:** OpenRouter (`https://openrouter.ai/api/v1`, `OPENROUTER_API_KEY`). Spade's own
-  key, on the VMs only.
+- **Production:** OpenRouter (`https://openrouter.ai/api/v1`, `OPENROUTER_API_KEY`), with the
+  person's own key on their machine.
 - **Development:** OpenCode Go (`OPENCODE_API_KEY`). Most Go models take OpenAI-style requests at
   `https://opencode.ai/inference/go/openai/v1`. Some take Anthropic-style requests at
   `.../go/anthropic/v1` (MiniMax, Qwen, Claude Haiku) or Google-style at `.../go/google/v1beta`
-  (Gemini), per the models.dev catalogue. The Go key is never deployed.
+  (Gemini), per the models.dev catalogue. The Go key is never shipped.
 - **Later:** Claude models through Anthropic's own API.
 
 The SDK must speak Anthropic's API natively (prompt caching, thinking blocks kept across tool
@@ -175,11 +178,13 @@ action is shown and logged on the daemon. Details in ace's draft ADR.
 
 ## Build order
 
-1. Foundation: this workspace (done), the ace ADR, generated protocol types, the Noise and grant
-   test vectors, and `spade-ace` connecting to a daemon.
-2. Spade one-to-one chat in ace, five connectors (Gmail, Calendar, Drive, GitHub, web search),
-   memory v1, and the ace bridge (start a thread, watch it).
-3. Crews, sharing by link, group chat.
-4. Browser and computer use through daemons, automations, messaging channels.
-5. Marketplace, moderation, billing.
-6. Connector breadth and generic MCP. Local-only Spade later.
+1. **Chat core** (in progress; contract in [chat-core.md](chat-core.md)). Done: model layer,
+   events, transcript, prompts, spending, store. Next: reply engine and local API, the daemon
+   starting Spade, and Spade's screens in ace.
+2. Agent loop, approval gate, and web search and page reading.
+3. Using the person's machines through ace: threads, browser, computer use.
+4. Memory.
+5. Chat apps (Telegram, Discord and Slack first) with sender pairing; proactive schedules.
+6. Connectors (Gmail, Calendar, Drive, GitHub, Notion first).
+7. Crews and group chat; then the marketplace, and a hosted Spade for people without spare
+   hardware.

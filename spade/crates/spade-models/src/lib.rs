@@ -10,7 +10,7 @@ pub mod gateway;
 mod prompt;
 mod typed;
 
-pub use catalog::{Catalog, CatalogError, Model, Role, Route};
+pub use catalog::{Catalog, CatalogError, Model, Price, Role, Route};
 pub use client::Models;
 pub use config::{ApiKey, ModelsConfig};
 pub use error::ModelError;

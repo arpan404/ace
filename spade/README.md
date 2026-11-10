@@ -35,20 +35,23 @@ curl localhost:3000/health   # {"ok":true}
 
 ```
 crates/
-  spade-server/   HTTP server, config, serve loop (binary + library)
-  spade-models/   model catalogue, gateways, chat, typed output, streaming
+  spade-models/    model catalogue, gateways, chat, typed output, streaming
+  spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
+  spade-store/     SQLite: conversations, event log, spending ledger
+  spade-server/    local API and reply engine (in progress)
+  spade-testkit/   test-only fake model gateway
+config/
+  models.json      the model catalogue, read at startup
 docs/
-  design.md       features, architecture, decisions and open questions
+  design.md        features, architecture, decisions, build order
+  chat-core.md     step 1 contract: events, API, live stream, spending
 ```
-
-Other crates (`spade-core`, `spade-protocol`, `spade-ace`, `spade-mcp`, `spade-memory`) are
-created when their first code lands; see the design doc.
 
 ## Settings
 
 | Variable                                                        | Default              | Meaning                                                       |
 | --------------------------------------------------------------- | -------------------- | ------------------------------------------------------------- |
-| `SPADE_LISTEN`                                                  | `127.0.0.1:3000`     | Address to listen on (loopback behind the proxy)              |
+| `SPADE_LISTEN`                                                  | `127.0.0.1:3000`     | Address to listen on (loopback)                               |
 | `RUST_LOG`                                                      | `info`               | Log filter                                                    |
 | `SPADE_MODEL_GATEWAY`                                           | `openrouter`         | `openrouter`, `opencode-go` (development only) or `anthropic` |
 | `OPENROUTER_API_KEY` / `OPENCODE_API_KEY` / `ANTHROPIC_API_KEY` |                      | Key for the chosen gateway                                    |
@@ -59,15 +62,15 @@ created when their first code lands; see the design doc.
 
 Models are listed in `config/models.json`, read when Spade starts: one entry per model, with how
 each gateway reaches it, and the default model per role (main, fast, deep) for each gateway.
-Changing models means editing the file and restarting; nothing is recompiled. On the VMs, point
-`SPADE_MODEL_CATALOG` at the deployed copy.
+Changing models means editing the file and restarting; nothing is recompiled. Point
+`SPADE_MODEL_CATALOG` at another copy to use a different list.
 
 Keep the list short: the current model of each family worth running. Spade checks the file at
 startup and refuses to start on any problem (unknown fields, duplicate ids, a default that is not
 listed or that its gateway cannot run), listing every problem it found.
 
-## Running on the Linux VMs
+## How it runs
 
-Build a release binary for the VM's architecture and run it under systemd. The server stops
-cleanly on SIGTERM, finishing open requests. Keep `SPADE_LISTEN` on loopback and put TLS in a
-reverse proxy in front of it.
+Spade runs on the person's own machine beside the ace daemon. Today the server runs on its own
+(`cargo run -p spade-server`); the ace daemon will start and stop it. It stops cleanly on SIGTERM,
+finishing open requests, and listens on loopback only.
