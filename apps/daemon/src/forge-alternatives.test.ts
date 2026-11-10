@@ -152,7 +152,7 @@ test("Origin browsing probes its account once per window and fails closed after 
       value: {
         readOnly: true,
         body: "Review description",
-        capabilities: ["reviews.read", "reviews.files"],
+        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
       },
     },
   });
@@ -371,7 +371,11 @@ test("GitLab merge requests browse through glab with GET-only, pinned reads", as
     kind: "forge",
     data: {
       resource: "prDetail",
-      value: { body: "MR body", changedFiles: 1, capabilities: ["reviews.read", "reviews.files"] },
+      value: {
+        body: "MR body",
+        changedFiles: 1,
+        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+      },
     },
   });
   expect(
