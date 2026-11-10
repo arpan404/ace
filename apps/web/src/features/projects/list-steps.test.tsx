@@ -60,3 +60,21 @@ test("Tab completes a folder in the location field, and leaves it when nothing c
   expect(document.activeElement).not.toBe(location);
   expect(location.value).toBe("~/code/zz");
 });
+
+test("clicking a folder row still showing from the last search does nothing", async () => {
+  const made = host();
+  await source(made, "Git URL");
+  const location = await screen.findByRole<HTMLInputElement>("combobox", {
+    name: "Search for a location",
+  });
+  await userEvent.clear(location);
+  await userEvent.type(location, "weather");
+  const row = await screen.findByRole("option", { name: /weather/ });
+  // The next search is held, so the rows above stay up from the last one.
+  const release = made.daemon.projects.holdReads((operation) => operation.op === "fs.search");
+  await userEvent.type(location, "s");
+  await waitFor(() => expect(row.getAttribute("aria-disabled")).toBe("true"));
+  await userEvent.click(row);
+  expect(location.value).toBe("weathers");
+  release();
+});

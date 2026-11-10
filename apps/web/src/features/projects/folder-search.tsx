@@ -88,8 +88,10 @@ export function FolderSearchBox(props: {
     list.reset();
   };
   const browse = (path: string) => type(pathInput(path, home?.path));
+  // Keys and pointer pick through here alike: a stale row, or any row of a blocked list, does
+  // nothing.
   const choose = (row: FolderRow | undefined) => {
-    if (row) browse(row.path);
+    if (row && canPick(row, blocked)) browse(row.path);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -266,7 +268,7 @@ export function FolderSearchBox(props: {
                 active={first + at === current}
                 home={home?.path}
                 onPoint={() => list.point(first + at)}
-                onPick={() => browse(row.path)}
+                onPick={() => choose(row)}
               />
             );
             return (
