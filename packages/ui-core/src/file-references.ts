@@ -3,7 +3,8 @@
  * Detection is deliberately conservative: a reference must look like a file (a name with a
  * letter-led extension), never a URL, an email or a version number. Inline code may hold a bare
  * filename; plain text needs a folder (`a/b.ts`) or a line (`b.ts:12`) before it counts, so
- * words like "Node.js" stay words. Resolution picks a unique workspace path from candidates the
+ * words like "Node.js" stay words. A path may start in the home folder (`~/Downloads/a.pdf`); it
+ * is never a checkout path, so only the daemon, which knows the home, can open it. Resolution picks a unique workspace path from candidates the
  * caller found (the checkout's path index); it never guesses between two.
  */
 
@@ -26,7 +27,7 @@ export type FileResolution =
 const segment = String.raw`[\w@+-][\w.@+-]*`;
 const name = String.raw`[\w@+-][\w.@+-]*\.[A-Za-z][A-Za-z0-9]{0,9}`;
 const lineSuffix = String.raw`(?::(\d{1,7})(?::(\d{1,5}))?|#L(\d{1,7})(?:C(\d{1,5}))?(?:-L?\d{1,7})?)?`;
-const pathBody = String.raw`(?:\.{1,2}/|/)?(?:${segment}/)*${name}`;
+const pathBody = String.raw`(?:\.{1,2}/|~?/)?(?:${segment}/)*${name}`;
 const whole = new RegExp(String.raw`^(${pathBody})${lineSuffix}$`);
 // In running text: not glued to a word, a path or a scheme on either side.
 const inText = new RegExp(
@@ -81,8 +82,17 @@ export function fileTextSpans(text: string): FileTextSpan[] {
   return spans;
 }
 
-/** The workspace-relative form of `path`: `./` dropped, an absolute path under `root` cut. */
+/** Whether `path` names one place on the machine: an absolute path or one in the home folder. */
+export function isMachinePath(path: string): boolean {
+  return path.startsWith("/") || path.startsWith("~/");
+}
+
+/**
+ * The workspace-relative form of `path`: `./` dropped, an absolute path under `root` cut. A home
+ * path (`~/a.ts`) has none: where home is, only the daemon knows.
+ */
 export function workspaceRelative(path: string, root: string | undefined): string | undefined {
+  if (path.startsWith("~/")) return undefined;
   if (path.startsWith("/")) {
     const base = root?.replace(/\/+$/, "");
     return base && path.startsWith(`${base}/`) ? path.slice(base.length + 1) : undefined;
@@ -147,6 +157,7 @@ export function checkoutLinkPath(
   root: string | undefined,
   cwd: string | undefined,
 ): string | undefined {
+  if (path.startsWith("~/")) return undefined;
   const base = (cwd ?? root)?.replace(/\/+$/, "");
   const absolute = normalizedPath(path.startsWith("/") || !base ? path : `${base}/${path}`);
   if (!absolute.startsWith("/")) return absolute;

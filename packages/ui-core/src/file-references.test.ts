@@ -10,11 +10,14 @@ import {
 } from "./file-references.ts";
 
 describe("inline code", () => {
-  test("a bare filename, a relative path and an absolute path count as files", () => {
+  test("a bare filename, a relative path, an absolute path and a home path count as files", () => {
     expect(codeFileReference("loader.ts")).toEqual({ path: "loader.ts" });
     expect(codeFileReference("src/app/x.tsx")).toEqual({ path: "src/app/x.tsx" });
     expect(codeFileReference("/Users/dev/acme/a.ts")).toEqual({ path: "/Users/dev/acme/a.ts" });
     expect(codeFileReference("./README.md")).toEqual({ path: "./README.md" });
+    expect(codeFileReference("~/Downloads/Draft3/Proposal_Draft3.pdf")).toEqual({
+      path: "~/Downloads/Draft3/Proposal_Draft3.pdf",
+    });
   });
 
   test("line and column suffixes are read in both colon and #L forms", () => {
@@ -38,7 +41,8 @@ describe("inline code", () => {
       "README",
       "me@example.com",
       "src/app/",
-      "~/notes.md",
+      "~notes.md",
+      "~user/notes.md",
       "file:///tmp/a.ts",
     ])
       expect(codeFileReference(text), text).toBeUndefined();
@@ -67,6 +71,10 @@ describe("plain text", () => {
     expect(files("Built on Node.js and Vue.js 3.4.1, e.g. v2.0.")).toEqual([]);
     expect(files("Docs at https://ace.dev/guide/start.html and www.example.com/a.ts")).toEqual([]);
     expect(files("Install @scope/pkg or email dev@acme.io/x.ts")).toEqual([]);
+  });
+
+  test("a home path in prose is one reference, tilde included", () => {
+    expect(files("Saved to ~/Downloads/report.pdf.")).toEqual([{ path: "~/Downloads/report.pdf" }]);
   });
 
   test("text without any reference comes back unchanged as one span", () => {
@@ -108,6 +116,7 @@ describe("resolution", () => {
     expect(workspaceRelative("/Users/dev/acme/src/a.ts", "/Users/dev/acme/")).toBe("src/a.ts");
     expect(workspaceRelative("/etc/hosts.conf", "/Users/dev/acme")).toBeUndefined();
     expect(workspaceRelative("./src/a.ts", undefined)).toBe("src/a.ts");
+    expect(workspaceRelative("~/acme/src/a.ts", "/Users/dev/acme")).toBeUndefined();
   });
 });
 
@@ -121,6 +130,7 @@ describe("message links", () => {
   test("a link outside the checkout has no checkout path", () => {
     expect(checkoutLinkPath("/Users/me/Downloads/report.pdf", root, undefined)).toBeUndefined();
     expect(checkoutLinkPath("../other/a.ts", root, undefined)).toBeUndefined();
+    expect(checkoutLinkPath("~/Downloads/report.pdf", root, root)).toBeUndefined();
   });
   test("file URLs, line suffixes and web links read as local paths or none", () => {
     expect(localLinkPath("file:///Users/me/with%20space.pdf")).toBe("/Users/me/with space.pdf");

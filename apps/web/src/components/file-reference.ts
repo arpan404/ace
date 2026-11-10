@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { ThreadId } from "@ace/protocol";
 import { isCheckoutPath } from "@ace/ui-core";
 import {
+  isMachinePath,
   resolveFileReference,
   workspaceRelative,
   type FileReference,
@@ -20,8 +21,8 @@ import {
  * A file an answer mentions (`loader.ts`, `src/app/x.tsx:42`), linked once the thread's checkout
  * confirms it. Resolution asks the daemon's path index once per path per thread, and only for
  * settled text. A unique match opens in the side panel's Files view at its line; several matches
- * open the Files tree filtered to the name. An absolute path the checkout doesn't hold (outside
- * the project, or ignored inside it) opens beside the thread as a file the answer names, which
+ * open the Files tree filtered to the name. An absolute or home path (`~/Downloads/a.pdf`) the
+ * checkout doesn't hold (outside the project, or ignored inside it) opens beside the thread as a file the answer names, which
  * the daemon serves because the answer names it. Anything else stays plain text or code.
  */
 
@@ -81,7 +82,7 @@ const answers = new WeakMap<ClientApi, Map<string, FileResolution>>();
 
 /**
  * Which file `reference` names in the thread whose checkout is at `root`: a checkout file, else
- * (for an absolute path in answer `itemId`) the file at that path, wherever it is.
+ * (for an absolute or home path in answer `itemId`) the file at that path, wherever it is.
  */
 export async function resolveFileMention(
   client: ClientApi,
@@ -91,7 +92,7 @@ export async function resolveFileMention(
 ): Promise<MentionResolution> {
   const { itemId } = thread;
   const outside: MentionResolution =
-    itemId && reference.path.startsWith("/")
+    itemId && isMachinePath(reference.path)
       ? { kind: "outside", path: reference.path, threadId: thread.threadId, itemId }
       : { kind: "none" };
   const found = await checkoutFile(client, thread, reference, signal);
