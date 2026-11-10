@@ -196,3 +196,25 @@ test("a checkout can create reviews when its repository declaration enables crea
     blocked: expect.any(String),
   });
 });
+
+test("the mobile checkout retains the PR link without a merge action when merging is unsupported", async () => {
+  const { changesNextStep } = await import("./mobile-changes.ts");
+  const linked = details(link(9));
+  expect(
+    changesNextStep(linked, undefined, undefined, { capabilities: ["reviews.read"] }),
+  ).toMatchObject({
+    kind: "none",
+    pr: { number: 9 },
+  });
+  expect(
+    changesNextStep(
+      details({ repository: { ...repository, forge: "gitlab" } }),
+      undefined,
+      undefined,
+      { capabilities: ["reviews.create"] },
+    ),
+  ).toMatchObject({
+    kind: "create-pr",
+    blocked: null,
+  });
+});
