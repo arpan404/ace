@@ -234,7 +234,11 @@ function fold(
     case "retry": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       const { type: _type, agent: _agent, ...retry } = fact;
-      record.retry = { ...retry };
+      // Only a running turn retries. A limit reported after its turn ended (Codex can end the
+      // turn on systemError before it says why) holds the agent as limited, with no retry left
+      // that would keep it looking busy forever.
+      if (fact.on !== "rate_limit" || record.activeRun) record.retry = { ...retry };
+      else delete record.retry;
       if (fact.on === "rate_limit")
         record.limited = {
           ...(fact.until === undefined ? {} : { until: fact.until }),

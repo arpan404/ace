@@ -1,6 +1,7 @@
 # Draft: Spade acts on a person's machines
 
-Date: 2026-11-08. Status: **proposed**, waiting for the owner's review. Builds on
+Date: 2026-11-08. Status: **proposed**, waiting for the owner's review. Applies to a hosted Spade only: the
+Spade being built first runs on the person's own machine and reaches the daemon there. Builds on
 [ADR 0110](../0110-cloudflare-relay.md) and [ADR 0111](../0111-account-machine-access.md). Would
 amend [ADR 0002](../0002-local-cli-providers.md) with a third hosted exception, after the relay
 and the push gateway ([ADR 0106](../0106-ios-remote-push-gateway.md)). This is the ADR that

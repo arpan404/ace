@@ -262,7 +262,7 @@ export function FileTab(props: TabViewProps) {
               onClose={() => setFind(undefined)}
             />
           )}
-          <div ref={viewer} className="h-full overflow-auto" tabIndex={-1}>
+          <div ref={viewer} className="relative h-full overflow-auto" tabIndex={-1}>
             {path && data.draft ? (
               <Suspense fallback={null}>
                 <TextEditor

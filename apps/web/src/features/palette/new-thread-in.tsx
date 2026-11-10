@@ -1,6 +1,8 @@
 import { ChatCircleIcon, FolderPlusIcon, FolderSimpleIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState, type ReactNode } from "react";
+import { projectBadge } from "@ace/ui-core";
+import { ProjectMark } from "@/components/project-mark.tsx";
 import { CommandChoices, type CommandChoice } from "@/components/ui/command-choices.tsx";
 import {
   machineAwayText,
@@ -140,6 +142,7 @@ function MachineProjects(props: {
         id: project.id,
         label: project.name,
         icon: FolderSimpleIcon,
+        mark: <ProjectMark id={project.id} badge={projectBadge(project)} />,
       })),
       {
         id: addProject,

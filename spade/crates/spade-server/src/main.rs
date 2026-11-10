@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Resolves on Ctrl-C, or on SIGTERM from systemd on the Linux VMs.
+/// Resolves on Ctrl-C, or on SIGTERM from whatever started Spade (the ace daemon or systemd).
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {
