@@ -162,8 +162,8 @@ async function readRepositoryPulls(
   const base: ForgePrSearch = prQuery(search, 1);
   const sort = search.sort ?? "ready";
   const byReadiness = sort === "ready" && (search.state ?? "open") === "open";
-  const read = (query: ForgePrSearch, page: number) =>
-    reads.prPage(project, query, page, source.repository);
+  const read = (pageQuery: ForgePrSearch, page: number) =>
+    reads.prPage(project, pageQuery, page, source.repository);
   const listed = byReadiness
     ? undefined
     : await readPages((page) => read(base, page), request.screens);

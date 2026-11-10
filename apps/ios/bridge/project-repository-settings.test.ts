@@ -44,8 +44,13 @@ async function machine() {
   const manage = new ProjectManage(client, schedule);
   const rows = async () =>
     ((await manage.answer({ op: "repositories.read", workspaceId: ace })) as { rows: Row[] }).rows;
-  const change = (change: "primary" | "hide" | "show" | "remove", repository: object) =>
-    manage.answer({ op: "repositories.change", workspaceId: ace, change, repository } as never);
+  const change = (kind: "primary" | "hide" | "show" | "remove", repository: object) =>
+    manage.answer({
+      op: "repositories.change",
+      workspaceId: ace,
+      change: kind,
+      repository,
+    } as never);
   const add = (address: string) =>
     manage.answer({ op: "repositories.add", workspaceId: ace, address });
   return { rows, change, add };
