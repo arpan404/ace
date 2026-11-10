@@ -112,6 +112,8 @@ struct ChangesSummary: Codable, Sendable, Equatable {
         let detail: String
         let blocked: String?
         let pr: PullRequest?
+        /// "Opens on GitLab · acme/ace", for a new PR when the project uses several repositories.
+        var opensOn: String? = nil
     }
     /// `loading`, `ready` or `error` (with the daemon's refusal code in `message`).
     let state: String

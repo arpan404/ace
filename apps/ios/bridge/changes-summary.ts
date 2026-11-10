@@ -1,5 +1,5 @@
 import type { ThreadDetails } from "@ace/protocol";
-import { changeTreeRows, type DiffScope } from "@ace/ui-core";
+import { changeTreeRows, repositoryLabel, type DiffScope } from "@ace/ui-core";
 import { changesNextStep, changesSummary, mergeMethods } from "@ace/ui-core/mobile";
 import type { Preview } from "./agents.ts";
 import type { ScopeFile } from "./changes-diffs.ts";
@@ -101,6 +101,11 @@ export function summaryPatch(input: SummaryInput): Record<string, unknown> {
       detail: preview(step.detail, 512),
       blocked: step.blocked === null ? null : preview(step.blocked, 512),
       pr: step.pr && { ...step.pr, title: step.pr.title && preview(step.pr.title, 256) },
+      // With several repositories, which one a new PR opens on: the primary, the thread's.
+      opensOn:
+        step.kind === "create-pr" && reads?.severalRepositories && input.details?.repository
+          ? `Opens on ${repositoryLabel(input.details.repository)}`
+          : null,
     },
     busy: input.busy,
     // Every way the forge merges; the phone remembers the last one picked.

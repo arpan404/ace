@@ -5,7 +5,7 @@ import {
   ForgeRepositoryName,
   WorkspaceId,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, repositoryLabel, reviewRepositories } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
 import { ForgeRefusal, type ForgeOwner, type ForgeReads } from "./forge-reads.ts";
@@ -56,6 +56,8 @@ export interface NewPrContextReply {
   bases: string[];
   head: { owner: string; name: string; branches: string[] };
   template: string;
+  /** "Opens on GitLab · acme/ace", only when the project uses more than one repository. */
+  opensOn: string | null;
 }
 export interface NewPrCompareReply {
   type: "forge.newpr.compare";
@@ -89,6 +91,11 @@ export async function readNewPrContext(
   );
   if (value.resource !== "newPrContext") throw new ForgeRefusal("forge_invalid_data");
   const context = value.value;
+  // New pull requests open on the primary; with several repositories the sheet says which.
+  const several = await reads
+    .repositories(request.project)
+    .then((listed) => reviewRepositories(listed).length > 1)
+    .catch(() => false);
   return {
     type: "forge.newpr.context",
     repository: context.base.repository,
@@ -106,6 +113,7 @@ export async function readNewPrContext(
         ),
     },
     template: preview(context.template ?? "", 65_536),
+    opensOn: several ? `Opens on ${repositoryLabel(context.base.repository)}` : null,
   };
 }
 

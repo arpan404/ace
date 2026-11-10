@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { facts } from "@ace/fake-daemon";
-import type { CommandPayload } from "@ace/protocol";
+import { WorkspaceId, type CommandPayload } from "@ace/protocol";
 import type { ChangesStep } from "@ace/ui-core/mobile";
 import { ChangesSession, type ChangesOwner } from "./changes.ts";
 import { gitAction } from "./git-actions.ts";
@@ -265,7 +265,7 @@ describe("Pushing a project with several repositories", () => {
     const { owner, act, sent } = await opened();
     const saved = await owner.command({
       type: "workspace.repositories.set",
-      workspaceId: "ace",
+      workspaceId: WorkspaceId.parse("ace"),
       repositories: { added: [], hidden: [], primary: gitlab },
     });
     expect(saved).toMatchObject({ ok: true });
