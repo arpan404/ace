@@ -1,19 +1,17 @@
 //! Calls go through the real SDK and HTTP to a local fake gateway.
 
-mod fake_provider;
-
-use fake_provider::FakeProvider;
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use spade_testkit::FakeProvider;
 use std::path::{Path, PathBuf};
 
 use spade_models::{
     ApiKey, Catalog, Delta, Gateway, ModelError, Models, ModelsConfig, Prompt, Usage,
 };
 
-type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// The catalogue Spade ships, so these tests also cover its routes.
 fn shipped_catalog() -> PathBuf {
@@ -35,7 +33,7 @@ fn models(gateway: Gateway, fake: &FakeProvider) -> Result<Models> {
     Ok(Models::new(config, catalog)?)
 }
 
-fn only_request(fake: &FakeProvider) -> Result<fake_provider::Seen> {
+fn only_request(fake: &FakeProvider) -> Result<spade_testkit::Seen> {
     let mut seen = fake.seen();
     assert_eq!(seen.len(), 1, "expected one request, got {seen:?}");
     seen.pop().ok_or_else(|| "no request".into())

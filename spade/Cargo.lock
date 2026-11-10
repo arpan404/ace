@@ -1836,12 +1836,12 @@ dependencies = [
 name = "spade-models"
 version = "0.1.0"
 dependencies = [
- "axum",
  "futures-util",
  "genai",
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "spade-testkit",
  "thiserror",
  "tokio",
 ]
@@ -1856,6 +1856,16 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "spade-testkit"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "futures-util",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
