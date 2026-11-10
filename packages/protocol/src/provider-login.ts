@@ -52,11 +52,16 @@ export const ProviderSignInReturnUrl = z
     description:
       "One-time sign-in return address handed only to the agent's loopback listener. Never log or persist.",
   });
+/**
+ * A sign-in choice's id: a CLI's integration id ("github-copilot", "wafer.ai") or a form option.
+ * It never starts with `-` or `.`, so it can't read as a flag or a path when passed to the CLI.
+ */
+const ChoiceId = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/);
 /** Continuation input. API keys use their own message type. */
 export const ProviderLoginInput = z.union([
   z.strictObject({ confirm: z.literal(true) }),
   z.strictObject({ value: z.literal("enter") }),
-  z.strictObject({ choice: z.string().regex(/^[a-z0-9_-]{1,64}$/) }),
+  z.strictObject({ choice: ChoiceId }),
   z.strictObject({ code: ProviderSignInCode }),
   z.strictObject({ returnUrl: ProviderSignInReturnUrl }),
 ]);
@@ -115,11 +120,17 @@ export const ProviderLoginProgress = z.strictObject({
     .regex(/^[A-Z0-9]{4,5}-[A-Z0-9]{4,5}$/)
     .optional(),
   prompt: z.string().max(256).optional(),
+  /** Every service the CLI can connect (OpenCode lists about 240), so clients offer a search. */
   choices: z
     .array(
-      z.strictObject({ id: z.string().regex(/^[a-z0-9_-]{1,64}$/), label: z.string().max(128) }),
+      z.strictObject({
+        id: ChoiceId,
+        label: z.string().max(128),
+        /** Its earlier login didn't carry over to the CLI's current store: sign in again. */
+        note: z.literal("sign_in_again").optional(),
+      }),
     )
-    .max(32)
+    .max(512)
     .optional(),
   message: z.string().max(256).optional(),
   /** The CLI takes the code its sign-in page shows, pasted back as `{ code }`. */

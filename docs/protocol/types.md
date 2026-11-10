@@ -23938,13 +23938,13 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| choice | yes | string | {"pattern":"^[a-z0-9_-]{1,64}$"} |
+| choice | yes | string | {"pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"} |
 
 Example:
 
 ```json
 {
-  "choice": "ii7ss"
+  "choice": "ci8ttmz_7bev_qh"
 }
 ```
 
@@ -23993,7 +23993,7 @@ Example:
 | url | no | intersection | {"allOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":8192,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"string","pattern":"^(?!.*\\s)https:\\/\\/\\S+$"}]} |
 | userCode | no | string | {"pattern":"^[A-Z0-9]{4,5}-[A-Z0-9]{4,5}$"} |
 | prompt | no | string | {"maxLength":256} |
-| choices | no | array | {"maxItems":32,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-z0-9_-]{1,64}$"},"label":{"type":"string","maxLength":128}},"required":["id","label"],"additionalProperties":false}} |
+| choices | no | array | {"maxItems":512,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-z0-9][a-z0-9._-]{0,63}$"},"label":{"type":"string","maxLength":128},"note":{"type":"string","const":"sign_in_again"}},"required":["id","label"],"additionalProperties":false}} |
 | message | no | string | {"maxLength":256} |
 | codeEntry | no | `true` |  |
 | returnUrlEntry | no | `true` |  |
@@ -24159,7 +24159,7 @@ Example:
 ```json
 {
   "input": {
-    "choice": "-2lst8cc96d3svvezunvw68csl109p39lrfvz_j7ei3va6me9j06l1lm00m"
+    "choice": "73ltt9cc-7d3tvve0vnvx79ctm10-q4-lrfw0.j7ej4wa7me-j17l1ln01m5v--"
   },
   "requestId": "example",
   "session": "example",
