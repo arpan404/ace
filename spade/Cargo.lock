@@ -1833,6 +1833,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-core"
+version = "0.1.0"
+dependencies = [
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "spade-models",
+]
+
+[[package]]
 name = "spade-models"
 version = "0.1.0"
 dependencies = [
