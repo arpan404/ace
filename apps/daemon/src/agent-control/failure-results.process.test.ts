@@ -100,6 +100,43 @@ test("a child ace resumes at its reset stays open, and its parent hears when it 
   expect(h.service.monitor.snapshot(parent).children[0]?.state).toBe("working");
 });
 
+/** Codex can end the turn on systemError first, and report the usage limit after it. */
+const limitAfterEnd = (until: number) =>
+  [
+    { ...end, outcome: "failed", error: { kind: "provider", message: "systemError" } },
+    { type: "retry", agent: "root", on: "rate_limit", until, message: "Quota exhausted" },
+  ] as const;
+
+test("a limit reported after the child's turn already ended still tells its parent that ace resumes it", async () => {
+  const h = withRecovery({ preferences: { limitPolicy: "resume_at_reset" } });
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  const reset = h.clock.now() + 60_000;
+  for (const fact of limitAfterEnd(reset)) await h.emit(child.childId, fact);
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain(
+    `ace resumes it at ${new Date(reset).toISOString()}`,
+  );
+  expect(h.service.journal.get(child.childId)?.phase).toBe("running");
+});
+
+test("a limit reported just after the child's turn ended settles it as usage limited when nothing resumes it", async () => {
+  const h = withRecovery({});
+  const parent = await h.parent();
+  const child = h.delegate(parent, "review");
+  await h.engine.flush();
+  await h.emit(child.childId, ...limitAfterEnd(h.clock.now() + 60_000));
+  h.clock.advance(h.clock.now() + 1_050);
+  await h.engine.flush();
+  expect(h.service.monitor.snapshot(parent).children[0]).toMatchObject({
+    state: "failed",
+    failure: { code: "usage_limited" },
+  });
+  expect(h.inputs.get(parent.threadId)?.join("\n")).toContain("usage_limited");
+});
+
 test("a child is never settled while its limit policy is still loading, and settles once it loads as manual", async () => {
   const { promise: loaded, resolve: release } = Promise.withResolvers<void>();
   let gated = false;
