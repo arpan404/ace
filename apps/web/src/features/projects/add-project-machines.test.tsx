@@ -95,6 +95,13 @@ test("Ctrl+M opens the machine picker from the local folder step and keeps what 
   await waitFor(() => expect(document.activeElement).toBe(again));
 });
 
+/** Lists the machines from the chip and chooses one. */
+async function pick(name: string) {
+  await userEvent.click(screen.getByRole("button", { name: /^Machine:/ }));
+  const machines = await screen.findByRole("listbox", { name: "Machines" });
+  await userEvent.click(within(machines).getByRole("option", { name }));
+}
+
 test("a Git URL typed for one machine is still there after visiting another", async () => {
   const { made } = twoMachines();
   await made.open("/settings");
@@ -106,11 +113,6 @@ test("a Git URL typed for one machine is still there after visiting another", as
     "acme/here",
   );
 
-  const pick = async (name: string) => {
-    await userEvent.click(screen.getByRole("button", { name: /^Machine:/ }));
-    const machines = await screen.findByRole("listbox", { name: "Machines" });
-    await userEvent.click(within(machines).getByRole("option", { name }));
-  };
   await pick("Build server");
   // Another machine has a form of its own.
   expect(await screen.findByRole("textbox", { name: "Repository address" })).toHaveProperty(

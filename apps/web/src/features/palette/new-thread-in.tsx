@@ -80,7 +80,7 @@ export function NewThreadIn(props: {
       />
     );
   const chip = several ? (
-<MachineChip name={machine.name} onClick={() => setPicking(true)} />
+    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
   ) : undefined;
   const switchMachines = several ? () => setPicking(true) : undefined;
   return (

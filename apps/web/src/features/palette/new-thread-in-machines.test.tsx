@@ -121,3 +121,23 @@ test("a folder created from the project picker on Build server is made there and
   expect(paths(build)).toContain("/home/ci/services/jobs");
   expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
 });
+
+test("Add project from New thread in keeps the chosen machine", async () => {
+  const { made, build } = world([{ hostId: "build", name: "Build server" }]);
+  if (!build) throw new Error("no build server");
+  const step = await openStep(made);
+  await userEvent.click(await within(step).findByRole("button", { name: "Machine: This Mac" }));
+  await userEvent.click(await within(step).findByRole("option", { name: "Build server" }));
+  await waitFor(async () => expect(await projectNames(step)).toEqual(["api"]));
+  await userEvent.click(within(step).getByRole("option", { name: /^Add project/ }));
+
+  // Add project opens on the build server, without asking again.
+  const sources = await screen.findByRole("listbox", { name: "Project sources" });
+  expect(screen.getByRole("button", { name: "Machine: Build server" })).toBeTruthy();
+  await userEvent.click(within(sources).getByRole("option", { name: "New project" }));
+  await userEvent.type(await screen.findByRole("textbox", { name: "Project name" }), "jobs");
+  expect(await screen.findByText("~/services/jobs")).toBeTruthy();
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await waitFor(() => expect(paths(build)).toContain("/home/ci/services/jobs"));
+  expect(paths(made.daemon)).toEqual(["/Users/dev/code/weather"]);
+});

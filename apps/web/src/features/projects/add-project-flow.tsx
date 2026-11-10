@@ -181,6 +181,7 @@ export function AddProjectFlow(props: {
   };
 
   return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- Ctrl+M from the fields inside, which keep their own roles
     <div ref={root} className="contents" onKeyDown={onKeyDown}>
       {showing === undefined && (
         // Its own list with its own search: nothing typed here filters a step's list.
