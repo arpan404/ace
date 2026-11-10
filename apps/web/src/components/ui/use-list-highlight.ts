@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useId, useState, type KeyboardEvent } from "react";
 import { applePlatform } from "@/lib/keymap.ts";
 import { listKey, type ListKeyAction } from "./list-keys.ts";
 
@@ -28,14 +28,13 @@ export function useListHighlight(options: {
   );
   const current = highlight && highlight.at < count ? highlight.at : undefined;
   const optionId = (at: number) => `${listId}-${at}`;
-  const reveal = useRef(options.reveal);
-  reveal.current = options.reveal;
+  const reveal = useEffectEvent((at: number) => options.reveal?.(at));
 
   useEffect(() => {
     if (highlight?.by !== "keys" || current === undefined) return;
     const element = document.getElementById(`${listId}-${current}`);
     if (element) element.scrollIntoView?.({ block: "nearest" });
-    else reveal.current?.(current);
+    else reveal(current);
   }, [highlight, current, listId]);
 
   return {

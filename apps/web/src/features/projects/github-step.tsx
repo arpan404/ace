@@ -38,6 +38,13 @@ import { activeFilters, defaultFilters, onlyTextChanged } from "./repository-fil
 import { RepositoryFiltersMenu } from "./repository-filters-menu.tsx";
 
 const viewport = "h-[min(320px,46dvh)]";
+
+/** A text button after a status line. */
+const action = (label: string, run: () => void) => (
+  <Button size="sm" variant="ghost" onClick={run}>
+    {label}
+  </Button>
+);
 /** Where the search text sits in the list's query key. */
 const textAt = 6;
 
@@ -160,11 +167,6 @@ function RepositoryBrowser(props: {
     setFilters(defaultFilters);
     setSelection(undefined);
   };
-  const action = (label: string, run: () => void) => (
-    <Button size="sm" variant="ghost" onClick={run}>
-      {label}
-    </Button>
-  );
 
   let state: ReactNode = null;
   if (status.error)
