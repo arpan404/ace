@@ -14,6 +14,13 @@ function host() {
   return made;
 }
 
+/** Whether nothing above `element` hides it. */
+function shown(element: Element) {
+  for (let at: Element | null = element; at; at = at.parentElement)
+    if (getComputedStyle(at).display === "none") return false;
+  return true;
+}
+
 /** Add a project, then one of its sources by name. */
 async function source(made: ReturnType<typeof harness>, name: string) {
   await made.open("/");
@@ -100,7 +107,9 @@ test("the Backspace hint shows only while the field is empty, and Esc's hint say
   const made = host();
   const sheet = await source(made, "Local folder");
   const field = await screen.findByRole<HTMLInputElement>("combobox", { name: "Folder path" });
-  const hints = () => sheet.querySelector('[data-slot="key-hints"]')?.textContent ?? "";
+  // Steps visited earlier stay mounted, hidden: only the hints on screen count.
+  const hints = () =>
+    [...sheet.querySelectorAll('[data-slot="key-hints"]')].find(shown)?.textContent ?? "";
   await waitFor(() => expect(field.value).not.toBe(""));
   expect(hints()).not.toContain("Back");
   expect(hints()).toContain("Clear");
