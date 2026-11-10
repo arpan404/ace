@@ -65,7 +65,6 @@ export function fixture(
     if (request.input !== undefined) {
       request.dispatch?.prepare?.();
       request.dispatch?.record();
-      const endpoint = request.args[1] ?? "";
       if (endpoint.endsWith("/notes")) return reply({ ...note, id: 12 });
       if (endpoint.includes("/discussions"))
         return reply({ id: "abcdef", individual_note: false, notes: [{ ...note, position }] });

@@ -6,14 +6,14 @@ import { ForgeCommit } from "@ace/protocol/forge-browser";
 import { ForgePrReviewers } from "@ace/protocol/forge-people";
 import { ForgeError } from "./errors.ts";
 import { ReadBudget } from "./read-budget.ts";
-import { Mr, headOf, requireSha, must } from "./gitlab-records.ts";
+import { Mr, headOf, requireSha, must, type GitLabMr } from "./gitlab-records.ts";
 import type { GitLabApi } from "./gitlab-api.ts";
 import {
   GitLabDiscussion,
   GitLabApprovals,
   GitLabApprovalState,
-  GitLabCommit,
-  GitLabUser,
+  GitLabCommits,
+  GitLabUsers,
   conversation,
   approvalDecision,
 } from "./gitlab-conversation-records.ts";
@@ -78,42 +78,7 @@ export class GitLabConversation {
         (await this.api.get(`${this.path(number)}/approvals`, signal, budget)).body,
       ),
     );
-    const users = must(
-      z
-        .array(GitLabUser)
-        .max(100)
-        .safeParse(mr.reviewers ?? []),
-    );
-    return must(
-      ForgePrReviewers.safeParse({
-        requested: users
-          .filter((u) => !approvals.approved_by.some((a) => a.user.id === u.id))
-          .map((u) =>
-            Object.assign(
-              {
-                kind: "user",
-                login: u.username,
-              },
-              u.avatar_url ? { avatarUrl: u.avatar_url } : {},
-            ),
-          ),
-        reviews: approvals.approved_by.map((a) =>
-          Object.assign(
-            {
-              id: a.user.id,
-              login: a.user.username,
-              state: "APPROVED",
-              submittedAt: a.approved_at ?? null,
-            },
-            a.user.avatar_url ? { avatarUrl: a.user.avatar_url } : {},
-          ),
-        ),
-        suggested: [],
-        author: mr.author?.username ?? null,
-        canRequest: true,
-        canDismiss: false,
-      }),
-    );
+    return reviewersOf(mr, approvals);
   }
   async commits(
     number: number,
@@ -137,7 +102,7 @@ export class GitLabConversation {
       signal,
       budget,
     );
-    const rows = must(z.array(GitLabCommit).max(100).safeParse(body));
+    const rows = must(GitLabCommits.safeParse(body));
     await pin();
     const next = headers["x-next-page"];
     const more = next !== undefined ? next !== "" : rows.length === 100;
@@ -162,4 +127,36 @@ export class GitLabConversation {
       truncated: more && page === 20,
     };
   }
+}
+
+/** Requested reviewers who haven't approved yet, beside the approvals themselves. */
+export function reviewersOf(mr: GitLabMr, approvals: z.infer<typeof GitLabApprovals>) {
+  const users = must(GitLabUsers.safeParse(mr.reviewers ?? []));
+  return must(
+    ForgePrReviewers.safeParse({
+      requested: users
+        .filter((u) => !approvals.approved_by.some((a) => a.user.id === u.id))
+        .map((u) =>
+          Object.assign(
+            { kind: "user", login: u.username },
+            u.avatar_url ? { avatarUrl: u.avatar_url } : {},
+          ),
+        ),
+      reviews: approvals.approved_by.map((a) =>
+        Object.assign(
+          {
+            id: a.user.id,
+            login: a.user.username,
+            state: "APPROVED",
+            submittedAt: a.approved_at ?? null,
+          },
+          a.user.avatar_url ? { avatarUrl: a.user.avatar_url } : {},
+        ),
+      ),
+      suggested: [],
+      author: mr.author?.username ?? null,
+      canRequest: true,
+      canDismiss: false,
+    }),
+  );
 }

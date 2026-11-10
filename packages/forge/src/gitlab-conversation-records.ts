@@ -70,6 +70,10 @@ export const GitLabCommit = z.looseObject({
   authored_date: text.nullable(),
   web_url: text,
 });
+export const GitLabUsers = z.array(GitLabUser).max(100);
+export const GitLabCommits = z.array(GitLabCommit).max(100);
+/** Any JSON object, for replies whose shape varies by GitLab edition. */
+export const GitLabObject = z.looseObject({});
 
 /** System notes stay in activity; human notes retain their provider ids for replies. */
 export function conversation(discussions: z.infer<typeof GitLabDiscussion>[], head: string) {

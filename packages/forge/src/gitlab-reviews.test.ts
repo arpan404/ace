@@ -64,16 +64,16 @@ const cases: {
   {
     name: "resolve",
     action: { kind: "thread.resolve", threadId: "abcdef" },
-    endpoint: `${root}/discussions/abcdef?resolved=true`,
+    endpoint: `${root}/discussions/abcdef`,
     method: "PUT",
-    body: {},
+    body: { resolved: true },
   },
   {
     name: "unresolve",
     action: { kind: "thread.unresolve", threadId: "abcdef" },
-    endpoint: `${root}/discussions/abcdef?resolved=false`,
+    endpoint: `${root}/discussions/abcdef`,
     method: "PUT",
-    body: {},
+    body: { resolved: false },
   },
   {
     name: "approve",
@@ -142,6 +142,43 @@ test.each(cases)("$name sends exactly its admitted write", async (row) => {
     expect(
       isAdmittedWriteRequest("glab", changed, repository.host, gitLabReviewWrites(repository, 7)),
     ).toBe(false);
+});
+
+test.each([
+  ["PUT", `${root}/merge`],
+  ["POST", `${root}/merge`],
+  ["PUT", `${root}/notes/11`],
+  ["DELETE", `${root}/notes/11`],
+  ["PUT", `${root}/discussions/abcdef/notes/11`],
+  ["PUT", `${root}/discussions/abcdef?resolved=true`],
+  ["POST", `${root}/approvals`],
+  ["POST", `${root}/reset_approvals`],
+  ["POST", `${root}/todo`],
+  ["DELETE", root],
+  ["POST", "projects/group%2Fsub%2Face/merge_requests"],
+  ["POST", "projects/group%2Fsub%2Face/issues/7/notes"],
+  ["POST", "projects/group%2Fsub%2Fother/merge_requests/7/notes"],
+  ["POST", "projects/group%2Fsub%2Face/merge_requests/70/notes"],
+  ["POST", `${root}/notes?internal=true`],
+])("%s %s is not admitted for MR conversation", (method, endpoint) => {
+  const request = {
+    command: "glab",
+    args: [
+      "api",
+      endpoint,
+      "-X",
+      method,
+      "--hostname",
+      repository.host,
+      "--include",
+      "--input",
+      "-",
+    ],
+    input: "{}",
+  };
+  expect(
+    isAdmittedWriteRequest("glab", request, repository.host, gitLabReviewWrites(repository, 7)),
+  ).toBe(false);
 });
 
 test("moving the head before a line write dispatches nothing", async () => {

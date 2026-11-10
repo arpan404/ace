@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { ForgeRepository } from "@ace/protocol/forge";
 import { ForgeReviewAction, type ForgeReviewDraft } from "@ace/protocol/forge-review";
 import { GitLabApi } from "./gitlab-api.ts";
@@ -6,6 +5,8 @@ import { GitLabConversation } from "./gitlab-conversation.ts";
 import {
   GitLabApprovals,
   GitLabUser,
+  GitLabUsers,
+  GitLabObject,
   GitLabDiscussion,
   GitLabNote,
 } from "./gitlab-conversation-records.ts";
@@ -29,10 +30,7 @@ export function gitLabReviewWrites(
     { method: "POST", endpoint: new RegExp(`^${escaped}/notes$`) },
     { method: "POST", endpoint: new RegExp(`^${escaped}/discussions$`) },
     { method: "POST", endpoint: new RegExp(`^${escaped}/discussions/[a-fA-F0-9]+/notes$`) },
-    {
-      method: "PUT",
-      endpoint: new RegExp(`^${escaped}/discussions/[a-fA-F0-9]+\\?resolved=(true|false)$`),
-    },
+    { method: "PUT", endpoint: new RegExp(`^${escaped}/discussions/[a-fA-F0-9]+$`) },
     { method: "POST", endpoint: new RegExp(`^${escaped}/(approve|unapprove)$`) },
     { method: "PUT", endpoint: new RegExp(`^${escaped}$`) },
   ];
@@ -105,12 +103,13 @@ export class GitLabReviews {
         body,
         dispatch,
       });
+      // Approval replies vary by GitLab edition, so they only need to be an object.
       const schema = endpoint.endsWith("/notes")
         ? GitLabNote
         : endpoint.includes("/discussions")
           ? GitLabDiscussion
           : /\/(approve|unapprove)$/.test(endpoint)
-            ? GitLabApprovals
+            ? GitLabObject
             : Mr;
       if (!schema.safeParse(response.body).success) throw new ForgeError("invalid_data");
     } catch (error) {
@@ -159,9 +158,9 @@ export class GitLabReviews {
       );
       if (!discussion?.notes.some((n) => n.resolvable)) throw new ForgeError("not_found");
       return this.#write(
-        `${root}/discussions/${this.#discussionId(action.threadId)}?resolved=${action.kind === "thread.resolve"}`,
+        `${root}/discussions/${this.#discussionId(action.threadId)}`,
         "PUT",
-        {},
+        { resolved: action.kind === "thread.resolve" },
         signal,
         allowed,
         dispatch,
@@ -199,27 +198,19 @@ export class GitLabReviews {
     if (action.kind === "reviewers.request" || action.kind === "reviewers.remove") {
       if (action.teams?.length) throw new ForgeError("unsupported");
       const mr = await this.#conversation.mr(number, signal);
-      const current = must(
-        z
-          .array(GitLabUser)
-          .max(100)
-          .safeParse(mr.reviewers ?? []),
-      );
+      const current = must(GitLabUsers.safeParse(mr.reviewers ?? []));
       const ids = new Set(current.map((u) => u.id));
       for (const username of action.reviewers) {
         const users = must(
-          z
-            .array(GitLabUser)
-            .max(100)
-            .safeParse(
-              (
-                await this.#api.get(
-                  `users?username=${encodeURIComponent(username)}`,
-                  signal,
-                  new ReadBudget(),
-                )
-              ).body,
-            ),
+          GitLabUsers.safeParse(
+            (
+              await this.#api.get(
+                `users?username=${encodeURIComponent(username)}`,
+                signal,
+                new ReadBudget(),
+              )
+            ).body,
+          ),
         );
         const user = users.find((u) => u.username.toLowerCase() === username.toLowerCase());
         if (!user) throw new ForgeError("not_found");
@@ -318,12 +309,7 @@ export class GitLabReviews {
     }
     if (action.kind === "reviewers.request" || action.kind === "reviewers.remove") {
       const mr = await this.#conversation.mr(number, signal);
-      const users = must(
-        z
-          .array(GitLabUser)
-          .max(100)
-          .safeParse(mr.reviewers ?? []),
-      );
+      const users = must(GitLabUsers.safeParse(mr.reviewers ?? []));
       return action.reviewers.every(
         (name) =>
           users.some((u) => u.username.toLowerCase() === name.toLowerCase()) ===
@@ -350,7 +336,7 @@ export class GitLabReviews {
           n.author?.id === viewer.id &&
           n.body.includes(marker) &&
           (action.kind !== "line.comment" ||
-            (n.position?.head_sha === action.headSha &&
+            (n.position?.head_sha.toLowerCase() === action.headSha.toLowerCase() &&
               (action.anchor.side === "RIGHT"
                 ? n.position.new_path === action.anchor.path &&
                   n.position.new_line === action.anchor.line

@@ -16,7 +16,8 @@ import {
 } from "@ace/protocol/forge-browser";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
 import { GitLabReviews } from "./gitlab-reviews.ts";
-import { GitLabConversation } from "./gitlab-conversation.ts";
+import { GitLabConversation, reviewersOf } from "./gitlab-conversation.ts";
+import { conversation } from "./gitlab-conversation-records.ts";
 import { GitLabApi } from "./gitlab-api.ts";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
@@ -286,7 +287,7 @@ export class GitLabReader implements ForgeReader {
       signal,
       budget,
     );
-    const reviewers = await this.conversation.reviewers(number, signal, budget);
+    const reviewers = reviewersOf(mr, snapshot.approvals);
     return must(
       ForgePrDetail.safeParse({
         readOnly: false,
@@ -326,7 +327,6 @@ export class GitLabReader implements ForgeReader {
   async prActivity(number: number, page: number, signal: AbortSignal) {
     if (!Number.isInteger(page) || page < 1 || page > 20) throw new ForgeError("invalid_data");
     const mr = await this.conversation.mr(number, signal);
-    const { conversation } = await import("./gitlab-conversation-records.ts");
     const events = conversation(
       await this.conversation.discussions(number, signal),
       requireSha(headOf(mr)),
