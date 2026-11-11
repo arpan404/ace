@@ -209,6 +209,21 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNativ
       onStatus: (listener: (value: EventOf<"sandbox.status">) => void) =>
         subscribe("sandbox.status", listener),
     },
+    /**
+     * Spade on this computer, reached directly (ADR 0123). The main process holds Spade's
+     * address and token; the page sends requests and opens live streams through it.
+     */
+    spade: {
+      endpoint: () => call("spade.endpoint"),
+      health: () => call("spade.health"),
+      request: (request: RequestOf<"spade.request">) => call("spade.request", request),
+      openLive: (request: RequestOf<"spade.live.open">) => call("spade.live.open", request),
+      closeLive: (streamId: string) => call("spade.live.close", { streamId }),
+      onLive: (listener: (value: EventOf<"spade.live">) => void) =>
+        subscribe("spade.live", listener),
+      onEndpointChanged: (listener: () => void) =>
+        subscribe("spade.endpoint.changed", () => listener()),
+    },
     diagnostics: {
       /**
        * Writes one event to the desktop log (component `renderer`). Fire-and-forget: a report

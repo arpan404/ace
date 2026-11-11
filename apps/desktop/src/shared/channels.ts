@@ -39,6 +39,15 @@ import {
 } from "./contract.ts";
 import { DiagnosticReport } from "./diagnostics.ts";
 import { DoctorReport, ProviderSummary, Toolchain } from "./onboarding.ts";
+import {
+  SpadeDirectAnswer,
+  SpadeDirectRequest,
+  SpadeEndpointInfo,
+  SpadeHealthInfo,
+  SpadeLiveClose,
+  SpadeLiveEvent,
+  SpadeLiveOpen,
+} from "./spade.ts";
 
 const None = z.undefined();
 const Count = z.number().int().min(0).max(100_000);
@@ -158,6 +167,15 @@ export const requests = {
   "sandbox.hide": { request: None, result: SandboxNotice },
   /** Start the app again through its launcher, so its sandbox turns on. */
   "sandbox.restart": { request: None, result: None },
+  /** The local Spade this app reaches directly (ADR 0123); never its token. */
+  "spade.endpoint": { request: None, result: SpadeEndpointInfo },
+  /** Spade's `/health`, straight from Spade: works while the daemon is down. */
+  "spade.health": { request: None, result: SpadeHealthInfo },
+  /** One request to Spade's API, sent by the main process with Spade's token. */
+  "spade.request": { request: SpadeDirectRequest, result: SpadeDirectAnswer },
+  /** Open a live stream; its frames and end arrive as `spade.live` events. */
+  "spade.live.open": { request: SpadeLiveOpen, result: None },
+  "spade.live.close": { request: SpadeLiveClose, result: None },
 } as const;
 export type RequestChannel = keyof typeof requests;
 export type RequestOf<C extends RequestChannel> = z.input<(typeof requests)[C]["request"]>;
@@ -184,6 +202,10 @@ export const events = {
   "sandbox.status": SandboxNotice,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,
+  /** A frame or the end of a live stream the page opened with `spade.live.open`. */
+  "spade.live": SpadeLiveEvent,
+  /** Spade's files changed (it started, stopped or restarted): ask `spade.endpoint` again. */
+  "spade.endpoint.changed": None,
 } as const;
 export type EventChannel = keyof typeof events;
 export type EventOf<C extends EventChannel> = z.output<(typeof events)[C]>;

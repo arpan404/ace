@@ -58,6 +58,24 @@ describe("window.ace bridge", () => {
     );
   });
 
+  it("hands the page Spade's address and API, and a token in the answer never gets through", async () => {
+    const endpoint = { address: "127.0.0.1:4100", version: "0.4.0", api: 1 };
+    const main = fakeIpc({
+      [requestChannel("spade.endpoint")]: { ...endpoint, token: "secret-token-secret-token" },
+    });
+    await expect(createBridge(main.ipc, info).spade.endpoint()).resolves.toEqual(endpoint);
+  });
+
+  it("passes Spade's live frames to the page and drops malformed ones", () => {
+    const main = fakeIpc();
+    const seen: unknown[] = [];
+    createBridge(main.ipc, info).spade.onLive((event) => seen.push(event));
+    const frame = { streamId: "s1", kind: "frame", event: "stored", data: "{}" };
+    main.emit(eventChannel("spade.live"), frame);
+    main.emit(eventChannel("spade.live"), { streamId: "s1", kind: "ended", reason: "gone" });
+    expect(seen).toEqual([frame]);
+  });
+
   it("hands the page an editor's icon only as a PNG data URL", async () => {
     const icon = "data:image/png;base64,iVBORw0KGgo=";
     const main = fakeIpc({ [requestChannel("shell.editorIcon")]: icon });
