@@ -1,4 +1,9 @@
-import { decodeStoredItem, decodeStoredPayload } from "./stored-decode.ts";
+import {
+  decodeStoredItem,
+  decodeStoredPayload,
+  untrusted,
+  type StoredTrust,
+} from "./stored-decode.ts";
 import { StreamingBlobs } from "./streaming-blobs.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
@@ -70,11 +75,12 @@ export class PayloadStore {
     db: DatabaseSync,
     nextBlobId: () => string,
     statement: (sql: string) => StatementSync,
+    trust: StoredTrust = untrusted(),
   ) {
     this.statement = statement;
     this.streamed = new StreamingBlobs(statement);
     this.db = db;
-    this.items = new ItemStore(db, statement);
+    this.items = new ItemStore(db, statement, trust);
     this.nextBlobId = nextBlobId;
   }
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
