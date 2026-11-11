@@ -83,6 +83,16 @@ export function relayBase(forwarded: { origin: string; prefix: string }): Outsid
   }
   return outsideBase("relay", forwarded.origin + forwarded.prefix);
 }
+function endpoint(
+  name: OutsideEndpoint["path"],
+  on: boolean,
+  reached: string | { problem: string },
+): OutsideEndpoint {
+  if (!on) return { path: name, url: null, on: false };
+  return typeof reached === "string"
+    ? { path: name, url: reached, on: true }
+    : { path: name, url: null, on: true, problem: reached.problem.slice(0, 512) };
+}
 /** The four ways in, with the URL to paste into a client and why one that's on can't serve. */
 export function reachEndpoints(
   localUrl: string,
@@ -91,33 +101,23 @@ export function reachEndpoints(
 ): OutsideEndpoint[] {
   const tailscale = facts.tailscale();
   const relay = facts.relay();
-  const path = (
-    name: OutsideEndpoint["path"],
-    on: boolean,
-    reached: string | { problem: string },
-  ): OutsideEndpoint =>
-    !on
-      ? { path: name, url: null, on: false }
-      : typeof reached === "string"
-        ? { path: name, url: reached, on: true }
-        : { path: name, url: null, on: true, problem: reached.problem.slice(0, 512) };
   return [
     { path: "local", url: localUrl, on: true },
-    path(
+    endpoint(
       "tailscale",
       settings.tailscale,
       "problem" in tailscale
         ? tailscale
         : resourceOf(outsideBase("tailscale", tailnetUrl(tailscale))),
     ),
-    path(
+    endpoint(
       "relay",
       settings.relay,
       "problem" in relay
         ? relay
         : resourceOf(outsideBase("relay", `${relay.origin}/m/${relay.hostId}`)),
     ),
-    path(
+    endpoint(
       "custom",
       settings.custom !== null,
       settings.custom === null ? "" : resourceOf(outsideBase("custom", settings.custom)),

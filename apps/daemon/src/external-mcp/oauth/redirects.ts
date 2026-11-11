@@ -37,13 +37,15 @@ export function matchRedirect(
   const asked = parse(requested);
   if (!asked || asked.protocol !== "http:" || !loopbackIps.has(asked.hostname)) return undefined;
   // Native apps listen on whatever port is free (RFC 8252 §7.3).
-  const portless = (url: URL) => `${url.protocol}//${url.hostname}${url.pathname}${url.search}`;
   return registered.some((uri) => {
     const url = parse(uri);
     return url !== undefined && loopbackIps.has(url.hostname) && portless(url) === portless(asked);
   })
     ? requested
     : undefined;
+}
+function portless(url: URL): string {
+  return `${url.protocol}//${url.hostname}${url.pathname}${url.search}`;
 }
 /** The host the person is shown: where the code goes. */
 export function redirectHost(uri: string): string {

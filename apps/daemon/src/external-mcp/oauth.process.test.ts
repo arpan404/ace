@@ -116,12 +116,12 @@ async function token(base: string, form: Record<string, string>) {
   });
   return { status: response.status, body: await response.json() };
 }
-const approveRead = {
+const approveRead: OutsideAccessDecision = {
   decision: "approve",
   scopes: ["threads:read"],
   projects: "all",
   expiresAt: null,
-} as const;
+};
 
 test("a client discovers sign-in from the 401, signs in with its metadata document and calls tools", async () => {
   const setup = await fixture();

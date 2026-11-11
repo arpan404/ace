@@ -41,8 +41,8 @@ test("the resource metadata URL inserts the well-known path before the resource 
   );
 });
 
+const at = (url: string) => relativePath(new Request(url), relay);
 test("paths are read below the base, and a request outside it has none", () => {
-  const at = (url: string) => relativePath(new Request(url), relay);
   expect(at("https://relay.example/m/host-1/token")).toBe("/token");
   expect(at("https://relay.example/m/host-1/.well-known/oauth-authorization-server")).toBe(
     "/.well-known/oauth-authorization-server",

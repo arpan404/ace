@@ -79,10 +79,12 @@ export async function externalMcp(context: ServiceContext) {
   // Token files whose grants ended while the daemon was stopped.
   files.sweep((grantId) => outside.grants.live(grantId) !== undefined);
   let admit: (() => boolean) | undefined;
-  let reach: () => ReachFacts = () => unreachable;
+  // Tailscale and ace's relay as the server sees them, once it listens.
+  let listening: { outsideReach(): ReachFacts } | undefined;
+  const reach = (): ReachFacts => listening?.outsideReach() ?? unreachable;
   context.onListen.push((server) => {
     admit = () => server.maintenance.admit();
-    reach = () => server.outsideReach();
+    listening = server;
   });
   const reachSettings = await outsideReachSettings(context);
   const oauth = outsideOAuth({
@@ -124,10 +126,10 @@ export async function externalMcp(context: ServiceContext) {
   const server = await startMcpServer({
     registry,
     ...(saved === undefined ? {} : { port: saved }),
-    onPortTaken: (port) =>
+    onPortTaken: (taken) =>
       context.log.log(
         "warn",
-        `The outside MCP endpoint's port ${port} is taken; it moves to a new one, and pasted client configs need the new URL from ace mcp list.`,
+        `The outside MCP endpoint's port ${taken} is taken; it moves to a new one, and pasted client configs need the new URL from ace mcp list.`,
       ),
     credentials: outside.principals,
     // Loopback requests: this endpoint's own address, or the person's public URL by its Host.
