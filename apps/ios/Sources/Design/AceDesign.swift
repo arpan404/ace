@@ -325,7 +325,7 @@ extension AceDesign.Size {
     static let rowPebble: CGFloat = 16
     /// The agent cursor over a page, as the web's 22px.
     static let pageCursor: CGFloat = 22
-    /// The person's avatar at the end of a home list's bar: a bar button's size.
+    /// The person's avatar at the leading edge of a home list's bar: a bar button's size.
     static let barAvatar: CGFloat = 36
     /// A grouped list's row (More, Settings), its glyph, chevron and corners.
     static let settingsRow: CGFloat = 48
