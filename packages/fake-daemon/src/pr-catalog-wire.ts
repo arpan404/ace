@@ -175,7 +175,7 @@ export class FakePrCatalog {
         detail: {
           ...fixture.detail,
           body: metadata.body,
-          status: { ...fixture.detail.status, title: metadata.title },
+          status: { ...fixture.detail.status, title: metadata.title, state: next.snapshot.state },
           labels: metadata.labels,
         },
         lifecycle: { ...fixture.lifecycle, snapshot: { ...snapshot, metadata, version } },
@@ -298,9 +298,20 @@ export class FakePrCatalog {
     if (action.kind === "revert") return this.revert(fixture, action, now);
     const handled =
       action.kind === "edit" ||
-      ["lock", "unlock", "branch.delete", "branch.restore", "issue.link", "issue.unlink"].includes(
-        action.kind,
-      );
+      [
+        "ready",
+        "draft",
+        "close",
+        "reopen",
+        "update.merge",
+        "update.rebase",
+        "lock",
+        "unlock",
+        "branch.delete",
+        "branch.restore",
+        "issue.link",
+        "issue.unlink",
+      ].includes(action.kind);
     if (!handled) return { ok: false, error: "forge_unsupported" };
     this.revision += 1;
     const next = applyManagement(fixture.lifecycle, action, this.revision, issueTitle);
@@ -308,6 +319,12 @@ export class FakePrCatalog {
     const metadata = next.snapshot.metadata;
     // GitHub's timeline records each of these as an event of its own.
     const events: Record<string, string> = {
+      ready: "ready_for_review",
+      draft: "convert_to_draft",
+      close: "closed",
+      reopen: "reopened",
+      "update.merge": "head_ref_force_pushed",
+      "update.rebase": "head_ref_force_pushed",
       lock: "locked",
       unlock: "unlocked",
       "branch.delete": "head_ref_deleted",
