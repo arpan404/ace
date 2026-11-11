@@ -1,7 +1,6 @@
 import { Navigate } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { loadComputerUseSettings } from "@/features/computer-use/index.ts";
-import { loadSpadeSettings } from "@/features/spade/index.ts";
 import { PastSessionsSettings } from "@/features/history/index.ts";
 const AdvancedSettings = lazy(() =>
   import("./advanced-page.tsx").then((module) => ({ default: module.AdvancedSettings })),
@@ -211,18 +210,6 @@ export function ComputerUseSettingsScreen() {
         <ComputerUseSettings
           remoteMachine={machine && !machine.primary ? machine.name : undefined}
         />
-      </Suspense>
-    </SettingsBody>
-  );
-}
-
-const SpadeSettings = lazy(loadSpadeSettings);
-
-export function SpadeSettingsScreen() {
-  return (
-    <SettingsBody page="Spade">
-      <Suspense fallback={null}>
-        <SpadeSettings />
       </Suspense>
     </SettingsBody>
   );

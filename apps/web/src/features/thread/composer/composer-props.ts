@@ -94,6 +94,11 @@ export interface ComposerProps {
   /** Send may go while files upload: the message waits in the strip until they're done. */
   sendsWhileUploading?: boolean | undefined;
   placeholder?: string | undefined;
+  /**
+   * There is no project, agent or command to suggest (Spade): + opens the file picker itself,
+   * and `@` or `/` open no list.
+   */
+  filesOnly?: boolean | undefined;
   /** The placeholder on a narrow composer, where `placeholder` would be cut short. */
   shortPlaceholder?: string | undefined;
   autoFocus?: boolean | undefined;

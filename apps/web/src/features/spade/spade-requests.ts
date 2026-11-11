@@ -1,10 +1,12 @@
 import type { ClientApi } from "@ace/client";
-import type { SpadeMethod } from "@ace/protocol";
+import { spadeExchange, type SpadeExchange } from "@ace/client/spade-http";
+import { maxSpadeRequestBytes, type SpadeMethod } from "@ace/protocol";
 import { spadeProblem } from "@ace/ui-core/spade-chat";
 
 /**
- * Spade's local API through the daemon (`spade.http`, ADR 0117). Bodies go as text and come
- * back as text; Spade owns their shape, so callers parse them with `@ace/ui-core/spade-chat`.
+ * Spade's local API through the daemon (`spade.http`, ADR 0117), large bodies in parts and long
+ * answers in pieces (`@ace/client/spade-http`). Spade owns the bodies' shape, so callers parse
+ * them with `@ace/ui-core/spade-chat`.
  */
 
 /** Spade refused, or the daemon couldn't reach it. `status` is Spade's, when it answered. */
@@ -23,27 +25,63 @@ function refusal(status: number, body: string): string {
   return spadeProblem(body) ?? `Spade answered ${status}.`;
 }
 
-/** One request; resolves with Spade's body on a 2xx answer and throws otherwise. */
+const ids = () => crypto.randomUUID();
+/** Uploads with images may be tens of megabytes: give them the time a slow link needs. */
+const uploadTimeoutMs = 5 * 60_000;
+
+/** One exchange, resolving with Spade's answer on 2xx (in its encoding) and throwing otherwise. */
+async function spadeAnswer(
+  client: ClientApi,
+  exchange: SpadeExchange,
+  signal: AbortSignal | undefined,
+): Promise<{ body: string; encoding: "text" | "base64"; contentType: string | undefined }> {
+  const large = (exchange.body?.length ?? 0) > maxSpadeRequestBytes;
+  const answer = await spadeExchange(client, exchange, {
+    id: ids,
+    signal,
+    ...(large ? { timeoutMs: uploadTimeoutMs } : {}),
+  });
+  if (answer.kind === "error") throw new SpadeRequestError(answer.message);
+  if (answer.status < 200 || answer.status > 299)
+    throw new SpadeRequestError(
+      refusal(answer.status, answer.encoding === "text" ? answer.body : ""),
+      answer.status,
+    );
+  return answer;
+}
+
+/** One request with a JSON body; resolves with Spade's text answer on 2xx and throws otherwise. */
 export async function spadeHttp(
   client: ClientApi,
   method: SpadeMethod,
   path: string,
   options: { body?: unknown; signal?: AbortSignal | undefined } = {},
 ): Promise<string> {
-  const reply = await client.request(
+  const answer = await spadeAnswer(
+    client,
     {
-      type: "spade.http",
       method,
       path,
       ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     },
-    options.signal ? { signal: options.signal } : {},
+    options.signal,
   );
-  const { result } = reply;
-  if (result.kind === "error") throw new SpadeRequestError(result.message);
-  if (result.status < 200 || result.status > 299)
-    throw new SpadeRequestError(refusal(result.status, result.body), result.status);
-  return result.body;
+  return answer.body;
+}
+
+/** A binary answer (an image) as a Blob of Spade's content type. */
+export async function spadeBlob(
+  client: ClientApi,
+  path: string,
+  signal?: AbortSignal,
+): Promise<Blob> {
+  const answer = await spadeAnswer(client, { method: "GET", path }, signal);
+  const type = answer.contentType ?? "application/octet-stream";
+  if (answer.encoding === "text") return new Blob([answer.body], { type });
+  const binary = atob(answer.body);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type });
 }
 
 /** A message's body as Spade takes it: images as `{data}` with their base64. */

@@ -9,7 +9,6 @@ export {
   PromptsSettingsScreen,
   AppearanceSettingsScreen,
   ComputerUseSettingsScreen,
-  SpadeSettingsScreen,
   GeneralSettingsScreen,
   ProfileSettingsScreen,
   KeyboardSettingsScreen,
@@ -46,3 +45,6 @@ export {
   NoMachineProfileScreen,
   NoMachineSettingsNav,
 } from "./no-machine-settings.tsx";
+
+/** A Settings page's frame: its title, lede and actions around the body (other slices' pages use it). */
+export { SettingsBody } from "./settings-body.tsx";

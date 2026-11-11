@@ -6,9 +6,10 @@ import {
   type SpadeReplyEntry,
   type SpadeView,
 } from "@ace/ui-core/spade-chat";
-import { memo } from "react";
+import { useClient } from "@ace/client-react";
+import { memo, useEffect, useState } from "react";
 import { formatBytes } from "@/components/format-bytes.ts";
-import { sentImageUrl } from "./spade-images.ts";
+import { spadePicture } from "./spade-images.ts";
 import { Prose } from "@/components/markdown/prose.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { WorkingIndicator } from "@/components/working-indicator.tsx";
@@ -103,30 +104,50 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
   }
 });
 
-/**
- * The person's images, right-aligned above their words. One sent from this window shows itself;
- * one sent elsewhere is a quiet tile with its size, since the daemon can't fetch Spade's copy yet.
- */
+/** The person's images, right-aligned above their words, each read once and kept by hash. */
 function SentImages(props: { images: readonly SpadeImageRef[] }) {
   return (
     <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5">
       {/* The same image twice in one message is one picture shown twice: keyed by place. */}
       {props.images
         .map((image, place) => ({ image, key: `${place}:${image.sha256}` }))
-        .map(({ image, key }) => {
-          const url = sentImageUrl(image.sha256);
-          return url ? (
-            <img key={key} src={url} alt="" className="max-h-40 max-w-60 rounded-lg object-cover" />
-          ) : (
-            <span
-              key={key}
-              className="grid h-16 min-w-24 place-items-center rounded-lg bg-bubble px-3 text-xs text-muted-foreground"
-            >
-              {`Image · ${formatBytes(image.bytes)}`}
-            </span>
-          );
-        })}
+        .map(({ image, key }) => (
+          <SentImage key={key} image={image} />
+        ))}
     </div>
+  );
+}
+
+/**
+ * One image: its picture once read; until then a quiet box its size holds; if it can't be read,
+ * the box says so with its size.
+ */
+function SentImage(props: { image: SpadeImageRef }) {
+  const client = useClient();
+  const { sha256: hash } = props.image;
+  const [shown, setShown] = useState<{ hash: string; url?: string; failed?: true }>();
+  useEffect(() => {
+    let live = true;
+    spadePicture(client, hash).then(
+      (url) => live && setShown({ hash, url }),
+      () => live && setShown({ hash, failed: true }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [client, hash]);
+  const state = shown?.hash === hash ? shown : undefined;
+  if (state?.url)
+    return <img src={state.url} alt="" className="max-h-40 max-w-60 rounded-lg object-cover" />;
+  return (
+    <span
+      role={state?.failed ? "img" : undefined}
+      aria-label={state?.failed ? "An image that couldn't be loaded" : undefined}
+      aria-busy={state ? undefined : true}
+      className="grid h-24 w-32 place-items-center rounded-lg bg-bubble px-3 text-xs text-muted-foreground"
+    >
+      {state?.failed ? `Image · ${formatBytes(props.image.bytes)}` : null}
+    </span>
   );
 }
 
