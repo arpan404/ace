@@ -2,7 +2,8 @@
 //!
 //! The encoding is the first of: a byte order mark, the `charset` of the `Content-Type` header,
 //! for HTML a `<meta charset>` (or `http-equiv` content type) in the first 1024 bytes, then
-//! UTF-8 if the bytes are valid UTF-8 and windows-1252 if not. Bytes a declared encoding cannot
+//! UTF-8 unless invalid UTF-8 sequences outnumber the valid non-ASCII characters, in which case
+//! windows-1252. Bytes a declared encoding cannot
 //! decode become U+FFFD.
 
 use encoding_rs::{Encoding, UTF_8};
@@ -18,9 +19,8 @@ pub fn decode(bytes: &[u8], charset: Option<&str>, html: bool) -> String {
         html.then(|| meta_charset(&bytes[..bytes.len().min(META_PREFIX)]))
             .flatten()
     };
-    // Old pages often declare nothing and are not UTF-8; those read best as windows-1252.
     let fallback = || {
-        if std::str::from_utf8(bytes).is_ok() || Encoding::for_bom(bytes).is_some() {
+        if Encoding::for_bom(bytes).is_some() || mostly_utf8(bytes) {
             UTF_8
         } else {
             encoding_rs::WINDOWS_1252
@@ -30,6 +30,19 @@ pub fn decode(bytes: &[u8], charset: Option<&str>, html: bool) -> String {
     // `decode` lets a byte order mark override the choice and strips it.
     let (text, _, _) = encoding.decode(bytes);
     text.into_owned()
+}
+
+/// Whether undeclared bytes read better as UTF-8 than as windows-1252. Old pages often declare
+/// nothing and are windows-1252, where nearly every non-ASCII byte is invalid UTF-8; a UTF-8 page
+/// with a stray byte or two is mostly valid. So UTF-8 wins unless invalid sequences outnumber the
+/// valid non-ASCII characters.
+fn mostly_utf8(bytes: &[u8]) -> bool {
+    let (mut valid, mut invalid) = (0usize, 0usize);
+    for chunk in bytes.utf8_chunks() {
+        valid += chunk.valid().chars().filter(|c| !c.is_ascii()).count();
+        invalid += usize::from(!chunk.invalid().is_empty());
+    }
+    invalid <= valid
 }
 
 /// The `charset` value of a `Content-Type` header, if it names one.

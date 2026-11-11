@@ -153,7 +153,8 @@ on-link prefixes are affected. Outside Linux the routing table comes from `netst
 which is killed after two seconds (refusing the fetch); that wait does not shorten with the
 fetch's own deadline. Elements with `hidden="until-found"` are dropped like other hidden ones,
 and text a malformed page puts inside `<head>` is not read. A page that declares no encoding is
-read as UTF-8 when it is valid UTF-8 and as windows-1252 when not. The HTML tokenizer logs page text at debug and trace level, so whoever
+read as UTF-8 unless its invalid UTF-8 sequences outnumber its valid non-ASCII characters,
+and then as windows-1252. The HTML tokenizer logs page text at debug and trace level, so whoever
 installs a log subscriber drops the events `spade_fetch::is_parser_log` names, in a filter
 RUST_LOG cannot override.
 
