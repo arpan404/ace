@@ -6,6 +6,10 @@ import SwiftUI
 struct ForgeMergeCommitSheet: View {
     @State var target: ForgeWriteTarget
     let title: String
+    var current = true
+    @State private var discarding = false
+    /// The title and message the sheet opened with: only a change from them is a draft to keep.
+    @State private var opened: [String]?
     let confirm: (ForgeWriteTarget) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -16,11 +20,17 @@ struct ForgeMergeCommitSheet: View {
         Binding(get: { target.commit?.message ?? "" }, set: { target.commit?.message = $0 })
     }
 
+    private var edited: Bool {
+        guard let opened else { return false }
+        return [commitTitle.wrappedValue, commitMessage.wrappedValue] != opened
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.md) {
                     Text(title).meta().lineLimit(2)
+                    if !current { Text("Pull request changed. Your draft is kept here; merging is disabled for this head or method.").meta() }
                     TextField("Commit title", text: commitTitle)
                         .aceFont(AceTheme.Typography.body, relativeTo: .body)
                         .padding(AceTheme.Spacing.md)
@@ -32,19 +42,25 @@ struct ForgeMergeCommitSheet: View {
             }
             .background(AceTheme.Colours.background)
             .safeAreaInset(edge: .bottom, spacing: AceTheme.Spacing.none) {
-                Button { confirm(target) } label: {
+                Button { if current { confirm(target) } } label: {
                     Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
                 .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
                 .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
-                .disabled(commitTitle.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!current || commitTitle.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
                 .background(AceTheme.Colours.background)
                 .accessibilityIdentifier("forge.commit.confirm")
             }
             .navigationTitle("Commit")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited { discarding = true } else { dismiss() } } } }
+        }
+        .interactiveDismissDisabled(edited)
+        .onAppear { if opened == nil { opened = [commitTitle.wrappedValue, commitMessage.wrappedValue] } }
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
         }
         .presentationDetents([.medium, .large])
     }

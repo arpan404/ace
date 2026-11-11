@@ -5,22 +5,28 @@ import SwiftUI
 /// before it goes, and sent once; what GitHub opened is read back, never assumed.
 struct ForgeRevertSheet: View {
     let number: Int
+    /// What the sheet opened with: only a change from it is a draft to keep.
+    private let draft: ForgeManage.Revert
     @State var title: String
     @State var body_: String
     let create: (String, String) async -> ForgeWorkOutcome
     let openPull: (Int) -> Void
     @State private var asking = false
+    @State private var discarding = false
     @State private var writing = false
     @State private var outcome: ForgeWorkOutcome?
     @Environment(\.dismiss) private var dismiss
 
     init(number: Int, draft: ForgeManage.Revert, create: @escaping (String, String) async -> ForgeWorkOutcome, openPull: @escaping (Int) -> Void) {
         self.number = number
+        self.draft = draft
         _title = State(initialValue: draft.title)
         _body_ = State(initialValue: draft.body)
         self.create = create
         self.openPull = openPull
     }
+
+    private var edited: Bool { title != draft.title || body_ != draft.body }
 
     var body: some View {
         NavigationStack {
@@ -49,13 +55,17 @@ struct ForgeRevertSheet: View {
             .navigationTitle("Revert #\(number)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(outcome?.ok == true ? "Done" : "Cancel") { if outcome?.ok == true || !edited { dismiss() } else { discarding = true } }.disabled(writing) }
             }
             .confirmationDialog("Open a draft that reverts #\(number)?", isPresented: $asking, titleVisibility: .visible) {
                 Button("Open revert draft") { send() }
             }
             .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
-            .interactiveDismissDisabled(writing)
+            .interactiveDismissDisabled(writing || (outcome?.ok != true && edited))
+        }
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
         }
         .presentationDetents([.medium, .large])
     }

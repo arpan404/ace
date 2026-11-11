@@ -45,6 +45,10 @@ import XCTest
         app.buttons["forge.pick.comment"].tap()
         XCTAssertTrue(app.buttons["forge.write.suggest"].waitForExistence(timeout: 10))
         app.buttons["forge.write.suggest"].tap()
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["Keep editing"].waitForExistence(timeout: 5))
+        app.buttons["Keep editing"].tap()
+        XCTAssertTrue((app.textFields["forge.editor"].firstMatch.value as? String)?.contains("suggestion") == true)
         screenshot("line-comment")
         let threads = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'forge.thread.RT_'"))
         let before = threads.count
