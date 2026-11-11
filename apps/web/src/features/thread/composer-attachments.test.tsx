@@ -15,7 +15,7 @@ import userEvent from "@testing-library/user-event";
 import { ThreadId } from "@ace/protocol";
 import { createHash } from "node:crypto";
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, onTestFinished, test } from "vitest";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { harness } from "@/test/harness.tsx";
 import { AttachmentChips, useAttachments } from "./composer/attachments.tsx";
@@ -59,6 +59,29 @@ async function openComposer() {
   return { app, feed, message };
 }
 
+/** Pretend the window is phone-sized: its width, and media queries answering as a browser's. */
+function phoneWindow(width = 400) {
+  const before = { width: globalThis.innerWidth, matchMedia: globalThis.matchMedia };
+  Object.defineProperty(globalThis, "innerWidth", { configurable: true, value: width });
+  globalThis.matchMedia = (query: string) =>
+    ({
+      matches: [...query.matchAll(/\((min|max)-width:\s*([\d.]+)rem\)/g)].some(([, bound, rem]) =>
+        bound === "min" ? width >= Number(rem) * 16 : width <= Number(rem) * 16,
+      ),
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) satisfies MediaQueryList;
+  onTestFinished(() => {
+    globalThis.matchMedia = before.matchMedia;
+    Object.defineProperty(globalThis, "innerWidth", { configurable: true, value: before.width });
+  });
+}
+
 const pasteText = (target: HTMLElement, text: string) =>
   fireEvent.paste(target, { clipboardData: { files: [], items: [], getData: () => text } });
 
@@ -74,7 +97,9 @@ test("a long paste goes along as a text file, not into the message", async () =>
   expect(message.textContent).not.toContain("error at line");
 });
 
-test("a pasted file can be edited before sending, and the edited text is what goes", async () => {
+test("on a phone-sized window a pasted file edits in a dialog, and the edited text is what goes", async () => {
+  // The side panel would take the conversation's place: the text opens over it instead.
+  phoneWindow();
   const user = userEvent.setup();
   const { app, message } = await openComposer();
   await user.click(message);

@@ -3,6 +3,7 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
 import { attachmentLimits, attachmentSizeProblem, type DraftFile } from "@ace/ui-core";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PanelEdit } from "@/components/attachment-chips.tsx";
 import type { ChipAttachment } from "@/components/attachment-format.ts";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { imageStill } from "@/components/image-still.ts";
@@ -557,6 +558,8 @@ export function AttachmentChips(props: {
   onRetry?: ((key: number) => void) | undefined;
   /** Save edited text in place of a text file this device holds. */
   onEdit?: ((key: number, text: string) => void) | undefined;
+  /** Edit a text file this device holds in the thread's side panel, where there is one. */
+  panelEdit?: PanelEdit | undefined;
   /** The thread the files go to, for previewing a restored draft's files; none for a draft. */
   threadId?: string | undefined;
 }) {
