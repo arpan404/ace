@@ -31,6 +31,7 @@ struct OpenOnHostMenu<Label: View>: View {
     @State private var openers: OpenersReply?
     @State private var problem: String?
     @State private var opened = 0
+    @State private var readProblem: String?
 
     var body: some View {
         Menu {
@@ -43,6 +44,9 @@ struct OpenOnHostMenu<Label: View>: View {
                     Button("Show in \(files)") { open(["kind": "files"]) }
                 }
                 if openers.editors.isEmpty && openers.fileManager == nil { Text("No editors on this machine") }
+            } else if let readProblem {
+                Text(readProblem)
+                Button("Retry") { Task { await read() } }
             } else {
                 Text("Looking for editors…")
             }
@@ -57,7 +61,10 @@ struct OpenOnHostMenu<Label: View>: View {
 
     private func read() async {
         guard model.connection == "ready", openers == nil else { return }
-        openers = try? await model.service(["type": "native.project", "request": ["op": "openers"]], as: OpenersReply.self)
+        do {
+            openers = try await model.service(["type": "native.project", "request": ["op": "openers"]], as: OpenersReply.self)
+            readProblem = nil
+        } catch { if !Task.isCancelled { readProblem = error.localizedDescription } }
     }
     private func open(_ app: [String: Any]) {
         Task {

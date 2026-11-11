@@ -27,7 +27,9 @@ struct ProjectDefaultsSheet: View {
                 if let project {
                     EditProjectView(model: model, project: project) { _ in done() }
                 } else if let problem {
-                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem)
+                    EmptyState(systemImage: "folder", title: "Project unavailable", line: problem) {
+                        Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
+                    }
                 } else {
                     SkeletonPage(label: "Opening the project")
                 }
@@ -42,6 +44,7 @@ struct ProjectDefaultsSheet: View {
     }
 
     private func load() async {
+        problem = nil
         let request: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.get", "workspaceId": projectId]]
         do {
             let reply = try await model.service(request, as: ProjectGetReply.self)

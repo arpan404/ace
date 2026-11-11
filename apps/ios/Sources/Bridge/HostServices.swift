@@ -2,6 +2,7 @@ import Foundation
 
 /// Native capabilities a runtime may use beyond its socket and outbox database.
 struct HostServices: Sendable {
+    var isCancelled: @Sendable () -> Bool = { false }
     var secrets: any SecretStore = KeychainSecrets()
     var secretAccess: SecretAccess = .none
     /// Non-secret machine directory written by `@ace/client/machines`; nil outside access runtimes.
@@ -29,6 +30,7 @@ struct HostServices: Sendable {
 
     /// Secret, directory, attachment, download and result operations. Returns nil for operations owned elsewhere.
     func perform(_ request: HostRequest) throws -> String? {
+        guard !isCancelled() else { throw CancellationError() }
         let operation = request.operation, input = request.input
         switch operation {
         case "secret.get", "secret.delete":

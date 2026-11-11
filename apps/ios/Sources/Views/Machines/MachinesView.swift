@@ -92,9 +92,9 @@ struct MachineRow: View {
             Image(systemName: facts.symbol).font(AceDesign.Typeface.title).foregroundStyle(AceDesign.Ink.primary)
                 .frame(width: AceDesign.Size.icon + AceDesign.Space.related).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(facts.name).font(AceDesign.Typeface.body).fontWeight(.semibold)
+                Text(facts.name).font(AceDesign.Typeface.body)
                     .foregroundStyle(AceDesign.Ink.primary)
-                Text(facts.subtitle).font(AceDesign.Typeface.code)
+                Text(facts.subtitle).font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceDesign.Ink.muted).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
             }
         }

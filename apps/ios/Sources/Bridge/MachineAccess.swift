@@ -85,11 +85,18 @@ struct BridgeMachineAccess: MachineAccess {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.unknown) }
         let once = Once()
+        // Only a pairing in progress stops with its task (the person went back). Listing, renaming,
+        // removing and remembering always finish: a view going away mid-read must not read as
+        // "nothing paired" or drop a rename.
+        let stopsWithTask: Bool = if case .pair = request { true } else { false }
         var services = HostServices(secrets: secrets, secretAccess: .directory, directoryURL: directoryURL)
-        let outcome: Result<AccessOutcome, ProblemNotice> = await withCheckedContinuation { continuation in
+        services.isCancelled = { once.isCancelled }
+        let outcome: Result<AccessOutcome, ProblemNotice> = await withTaskCancellationHandler {
+          await withCheckedContinuation { continuation in
             let finish: @Sendable (Result<AccessOutcome, ProblemNotice>) -> Void = { result in
                 if once.claim() { continuation.resume(returning: result) }
             }
+            guard once.begin(finish) else { finish(.failure(.cancelled)); return }
             services.result = { json in
                 guard let value = try? JSONDecoder().decode(AccessOutcome.self, from: Data(json.utf8)) else { finish(.failure(.unknown)); return }
                 finish(value.ok ? .success(value) : .failure(value.problem ?? .unknown))
@@ -99,19 +106,37 @@ struct BridgeMachineAccess: MachineAccess {
             // the person waits on.
             let priority: QualityOfService = switch request { case .list, .remember: .utility; default: .userInitiated }
             let runtime = ClientRuntime(access: target, services: services, priority: priority, fail: { _ in finish(.failure(.unknown)) })
-            once.runtime = runtime
+            guard once.install(runtime) else { return }
             runtime.startAccess(String(decoding: data, as: UTF8.self))
-        }
+          }
+        } onCancel: { if stopsWithTask { once.cancel() } }
         await withCheckedContinuation { continuation in
             if let runtime = once.runtime { runtime.stop { continuation.resume() } } else { continuation.resume() }
         }
+        once.release()
         return outcome
     }
 }
 private final class Once: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed = false
-    var runtime: ClientRuntime?
+    private var cancelled = false
+    private var storedRuntime: ClientRuntime?
+    private var finish: (@Sendable (Result<AccessOutcome, ProblemNotice>) -> Void)?
+    var isCancelled: Bool { lock.withLock { cancelled } }
+    var runtime: ClientRuntime? { lock.withLock { storedRuntime } }
+    func begin(_ finish: @escaping @Sendable (Result<AccessOutcome, ProblemNotice>) -> Void) -> Bool {
+        lock.withLock { self.finish = finish; return !cancelled }
+    }
+    func install(_ runtime: ClientRuntime) -> Bool {
+        lock.withLock { guard !cancelled else { return false }; storedRuntime = runtime; return true }
+    }
+    func cancel() {
+        let state = lock.withLock { cancelled = true; return (storedRuntime, finish) }
+        state.0?.stop()
+        state.1?(.failure(.cancelled))
+    }
+    func release() { lock.withLock { storedRuntime = nil; finish = nil } }
     func claim() -> Bool { lock.withLock { if claimed { return false }; claimed = true; return true } }
 }
 
