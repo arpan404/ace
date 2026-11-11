@@ -503,6 +503,7 @@ mod tests {
             skills: None,
             images: crate::images::ImageStore::open(&dir.join("images"))?,
             adopt: None,
+            keychain: None,
         })?)
     }
 

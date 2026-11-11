@@ -556,3 +556,126 @@ async fn a_preset_used_for_another_host_does_not_take_the_presets_key_there() ->
     );
     Ok(())
 }
+
+async fn gate_with_key(spade: &Spade) -> Result {
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "https://gate.example/v1" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    spade.put("/v1/keys/gate", json!({ "key": KEY })).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_keychain_that_fails_to_answer_refuses_a_host_change_instead_of_passing_it() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    gate_with_key(&spade).await?;
+    spade.fail_keychain_once("gate")?;
+    let (status, body) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://evil.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 503, "{body}");
+    let error = body["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains("keychain") && !error.contains('\n') && !error.contains(KEY),
+        "{error}"
+    );
+    assert_eq!(
+        endpoint(&spade, "gate").await?["base_url"],
+        "https://gate.example/v1/"
+    );
+    let (status, _) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://evil.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "once the keychain answers, the key is there");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_endpoint_whose_key_cannot_be_removed_stays_and_its_id_never_passes_a_key_on() -> Result
+{
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    gate_with_key(&spade).await?;
+    spade.fail_keychain_once("gate")?;
+    let (status, body) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(
+        endpoint(&spade, "gate").await?["id"],
+        "gate",
+        "kept while its key is"
+    );
+    assert_eq!(spade.keys.get("gate")?.as_deref(), Some(KEY));
+    let (status, _) = spade.delete("/v1/endpoints/gate").await?;
+    assert_eq!(status, 204);
+    assert_eq!(spade.keys.get("gate")?, None);
+
+    // A key left under an id with no endpoint (from an older build) is never inherited.
+    spade.keys.set("gate", KEY)?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "https://other.example/v1" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(body["endpoint"]["id"], "gate-2");
+    assert_eq!(body["endpoint"]["key_set"], false);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_endpoint_a_reply_still_runs_on_cannot_be_deleted() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let slow = spade_testkit::FakeProvider::start_with(
+        Script::reply("a b c d e f")
+            .chunks(6)
+            .delay(Duration::from_millis(200)),
+    )
+    .await?;
+    let other = spade_testkit::FakeProvider::start("Other.").await?;
+    for (name, root) in [("One", &slow.root), ("Two", &other.root)] {
+        let (status, body) = spade
+            .post(
+                "/v1/endpoints",
+                json!({ "name": name, "format": "openai-chat", "base_url": root, "needs_key": false }),
+            )
+            .await?;
+        assert_eq!(status, 201, "{body}");
+    }
+    spade
+        .put("/v1/settings", json!({ "fast_model": "fake/m" }))
+        .await?;
+    let (_, agent) = spade
+        .post("/v1/agents", json!({ "name": "Mover", "model": "one/m" }))
+        .await?;
+    let id = agent["agent"]["id"].as_str().unwrap_or_default().to_owned();
+    let conversation = agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Go").await?;
+    spade.wait_for(&conversation, "reply_progress").await?;
+    let (status, _) = patch(
+        &spade,
+        &format!("/v1/agents/{id}"),
+        json!({ "model": "two/m" }),
+    )
+    .await?;
+    assert_eq!(status, 200);
+    let (status, body) = spade.delete("/v1/endpoints/one").await?;
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(body["agents"], json!(["Mover"]));
+    spade.wait_for(&conversation, "reply_finished").await?;
+    let (status, _) = spade.delete("/v1/endpoints/one").await?;
+    assert_eq!(status, 204, "free once the reply is done");
+    Ok(())
+}

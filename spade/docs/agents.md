@@ -40,33 +40,39 @@ Every agent has two tools:
 - `bots_list`: the other agents on this machine (id, name, task summary, state).
 - `bot_message {bot, text}`: `bot` is an id or exact name. The text is stored in that bot's
   conversation as a `user_message` with `from_agent: {id, name, depth}`, which wakes it. It runs as
-  a background job, so the caller carries on; the bot's next finished reply comes back to the
-  caller as the job's `<job_result>` (a stop, failure or restart comes back as an error). A restart
-  reports it lost like any job. It is a write: the person approves it (once with "always"), and its
-  result counts as untrusted, so a write after it asks. A bot cannot message itself. A turn that another
+  a background job, so the caller carries on; the bot's next finished reply comes back to the caller
+  as the job's `<job_result>` (a stop, failure or restart comes back as an error). A restart reports
+  it lost like any job. It is a write: the person approves it (once with "always"), and its result
+  counts as untrusted, so a write after it asks. A bot cannot message itself. A turn that another
   bot's message started or steered counts as untrusted, so every write in it asks the person, even
-  one they allowed "always". `depth` is 1
-  when the caller was answering the person and one more per hop; a message deeper than 3 is
-  refused.
+  one they allowed "always". `depth` is 1 when the caller was answering the person and one more per
+  hop; a message deeper than 3 is refused.
 
 ## Endpoints and models
 
-The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain
-(ADR 0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read from there on every start, holds presets: endpoint
-templates and known facts about model ids (context, capabilities, prices). On the first start
-with schema 2, every preset whose key is already present becomes one of the person's endpoints
-with the same id, so existing keys keep working.
+The person's endpoints and saved models are in Spade's database; keys stay in the OS keychain (ADR
+0119) or the endpoint's environment variable. `config/models.json`, built into the binary and read
+from there on every start, holds presets: endpoint templates and known facts about model ids
+(context, capabilities, prices). On the first start with schema 2, every preset whose key is already
+present becomes one of the person's endpoints with the same id, so existing keys keep working.
 
-**Credentials stay with their host.** Spade follows no redirect on any model call or listing,
-since each carries a key or the person's headers; a redirect answers as an error. A base URL is
-read with the HTTP client's own URL parser: only `http` and `https`, no user name or password, no
-backslash, no query or fragment. Changing an endpoint's `base_url` to another origin (scheme,
-host and port as that parser reads them) is refused with `409` while a key is stored for it in the
-keychain or found in its environment variable, whatever `needs_key` says (remove it with
-`DELETE /v1/keys/{id}` first), while it takes its key from an environment variable (add a new
-endpoint for the other host), or while it has extra headers (send `"headers": {}` with the new
-URL). An endpoint made from a preset but pointing at another origin than the preset's keeps
-neither the preset's key variable nor its headers. Headers that carry credentials
+**Credentials stay with their host.** Spade follows no redirect on any model call or listing, since
+each carries a key or the person's headers; a redirect answers as an error. A base URL is read with
+the HTTP client's own URL parser: only `http` and `https`, no user name or password, no backslash,
+no query or fragment. Changing an endpoint's `base_url` to another origin (scheme, host and port as
+that parser reads them) is refused with `409` while a key is stored for it in the keychain or found
+in its environment variable, whatever `needs_key` says (remove it with `DELETE /v1/keys/{id}`
+first), while it takes its key from an environment variable (add a new endpoint for the other host),
+or while it has extra headers (send `"headers": {}` with the new URL). An endpoint made from a
+preset but pointing at another origin than the preset's keeps neither the preset's key variable nor
+its headers. If the keychain cannot be read, the change is refused (`503`) rather than taken as "no
+key".
+
+**Deleting an endpoint** removes its keychain key first. If the keychain cannot do that, the delete
+is refused (`503`) and the endpoint keeps its id. A new endpoint never takes an id that still has a
+key in the keychain: it gets the next free one (`gate-2`). An endpoint is in use, and cannot be
+deleted (`409` naming the agents), while an agent's model is on it or an agent's open or paused
+reply still runs on one of its models. Headers that carry credentials
 (`authorization`, `proxy-authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `cookie`,
 `set-cookie`, any case) are refused as extra headers and as the session header: keys go to the
 keychain. Listing errors hide the key and every configured header value.

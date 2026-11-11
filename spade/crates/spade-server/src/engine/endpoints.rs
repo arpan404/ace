@@ -29,6 +29,9 @@ pub enum EndpointError {
     /// The change would hand credentials to another host.
     #[error("{0}")]
     Conflict(String),
+    /// The keychain could not be read or changed, so the change was not made.
+    #[error("the keychain did not answer ({0}); nothing was changed, try again")]
+    Keychain(String),
     /// The endpoint's own model list could not be read.
     #[error("{0}")]
     Listing(String),
@@ -259,17 +262,31 @@ impl Engine {
             .or_else(|| preset.as_ref().map(|p| p.name.clone()))
             .unwrap_or_default();
         let taken: HashSet<String> = self.store.endpoints()?.into_iter().map(|e| e.id).collect();
+        // An id that still has a key in the keychain is taken too: a new endpoint never inherits
+        // a key left from another (whose delete could not remove it).
         let base = slug(&name);
-        let id = (1..)
-            .map(|n| {
-                if n == 1 {
-                    base.clone()
-                } else {
-                    format!("{base}-{n}")
-                }
-            })
-            .find(|candidate| !taken.contains(candidate))
-            .unwrap_or(base);
+        let mut id = None;
+        for n in 1..=1_000 {
+            let candidate = if n == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{n}")
+            };
+            if taken.contains(&candidate) {
+                continue;
+            }
+            let keyed = match &self.keychain {
+                Some(keychain) => keychain
+                    .has(&candidate)
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?,
+                None => false,
+            };
+            if !keyed {
+                id = Some(candidate);
+                break;
+            }
+        }
+        let id = id.ok_or_else(|| invalid("too many endpoints share this name"))?;
         let mut stored = match &preset {
             Some(preset) => self.stored_preset(preset, id, name),
             None => StoredEndpoint {
@@ -307,9 +324,18 @@ impl Engine {
         // Checked whatever `needs_key` says now, since it can be turned back on later.
         let was = base_url::origin(&before.base_url).unwrap_or_default();
         if !same_origin(&stored.base_url, &before.base_url) {
-            let key = self
-                .endpoint_of(&before)
-                .is_some_and(|e| self.models.key_found(&e));
+            // The keychain itself, so a failed read refuses the change instead of passing as
+            // "no key" (the old key would then go to the new host once the keychain is back).
+            let in_keychain = match &self.keychain {
+                Some(keychain) => keychain
+                    .has(id)
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?,
+                None => false,
+            };
+            let key = in_keychain
+                || self
+                    .endpoint_of(&before)
+                    .is_some_and(|e| self.models.key_found(&e));
             if key {
                 return Err(EndpointError::Conflict(format!(
                     "this endpoint has a key for {}; remove it first (DELETE /v1/keys/{id}{}) and \
@@ -345,9 +371,22 @@ impl Engine {
         if !self.store.endpoints()?.iter().any(|e| e.id == id) {
             return Err(EndpointError::NotFound);
         }
-        let users = self.store.agents_using_endpoint(id)?;
+        let mut users = self.store.agents_using_endpoint(id)?;
+        // An agent moved to another model may still have a reply open (or paused) on this one.
+        for name in self.replies_on_endpoint(id)? {
+            if !users.contains(&name) {
+                users.push(name);
+            }
+        }
         if !users.is_empty() {
             return Err(EndpointError::InUse(users));
+        }
+        // The key goes first: if it cannot, the endpoint (and its id) stays, so nothing can
+        // later pick up a key left behind.
+        if let Some(keychain) = &self.keychain {
+            keychain
+                .delete(id)
+                .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
         if self
             .fast_model()?
@@ -362,6 +401,32 @@ impl Engine {
             .remove(id);
         self.sync_endpoints()?;
         Ok(())
+    }
+
+    /// Names of agents with a reply open (or paused) on a model of `endpoint`.
+    fn replies_on_endpoint(&self, endpoint: &str) -> Result<Vec<String>, StoreError> {
+        let prefix = format!("{endpoint}/");
+        let mut names = Vec::new();
+        for agent in self.store.agents()? {
+            if !self.activity(&agent.conversation)?.answering {
+                continue;
+            }
+            let events = self.load(&agent.conversation)?;
+            let open = spade_core::Transcript::fold(&events)
+                .open_reply()
+                .and_then(|m| m.reply.clone());
+            let pinned = events.iter().any(|event| {
+                matches!(
+                    event,
+                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model })
+                        if Some(reply) == open.as_ref() && model.starts_with(&prefix)
+                )
+            });
+            if pinned {
+                names.push(agent.name);
+            }
+        }
+        Ok(names)
     }
 
     /// The endpoint's own model list, live. Remembered, so a model saved from it counts as

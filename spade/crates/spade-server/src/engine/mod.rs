@@ -88,6 +88,7 @@ pub struct Engine {
     maintenance: std::sync::atomic::AtomicU64,
     /// Each endpoint's latest live model list, so a model saved from it counts as listed.
     listed: Mutex<HashMap<String, Vec<Listed>>>,
+    keychain: Option<spade_keys::KeyStore>,
     /// Conversations whose agent is being deleted: nothing new is delivered to them, and no turn
     /// or job starts. Changed under `record_lock`.
     deleting: Mutex<std::collections::HashSet<String>>,
@@ -102,6 +103,7 @@ impl Engine {
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
         let handle = EngineHandle::default();
         let adopt = setup.adopt;
+        let keychain = setup.keychain;
         let tools = setup
             .tools
             .with_tool(Arc::new(BotsList(handle.clone())))
@@ -125,6 +127,7 @@ impl Engine {
             pause: watch::channel(Pause::Off).0,
             maintenance: std::sync::atomic::AtomicU64::new(0),
             listed: Mutex::default(),
+            keychain,
             deleting: Mutex::default(),
             agent_lock: Mutex::default(),
         });

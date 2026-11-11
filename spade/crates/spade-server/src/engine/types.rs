@@ -59,6 +59,9 @@ pub struct Setup {
     /// An edited `models.json` an earlier Spade left in the data folder, adopted once into the
     /// person's endpoints (see `presets`).
     pub adopt: Option<spade_models::Catalog>,
+    /// The OS keychain the endpoints' keys live in, when this machine has one. Read here (not
+    /// only through `Models`' lookup) so a keychain failure is seen as one, never as "no key".
+    pub keychain: Option<spade_keys::KeyStore>,
 }
 
 /// What a live subscriber receives.

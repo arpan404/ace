@@ -122,6 +122,8 @@ pub struct Spade {
     pub engine: Arc<Engine>,
     /// The (mock) keychain this server keeps keys and the ace grant in.
     pub keys: KeyStore,
+    /// The mock store behind `keys`, to make the keychain fail on purpose.
+    pub mock: Arc<mock::Store>,
     /// The connection to ace, when started with `ace_home`.
     pub ace: Option<Arc<AceLink>>,
     stop: Option<oneshot::Sender<()>>,
@@ -217,7 +219,8 @@ impl Spade {
         mut tools: Toolbox,
         options: Options,
     ) -> Result<Self> {
-        let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
+        let mock = mock::Store::new()?;
+        let keys = KeyStore::with_store(mock.clone(), spade_keys::SERVICE);
         let ace = options.ace_home.clone().map(|home| {
             AceLink::start(
                 AceTarget::Discover(home),
@@ -265,6 +268,7 @@ impl Spade {
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
             adopt: options.adopt.clone(),
+            keychain: Some(keys.clone()),
         })?;
         engine.open_for_work();
         let state = AppState {
@@ -286,6 +290,7 @@ impl Spade {
             dir,
             engine,
             keys,
+            mock,
             ace,
             stop: Some(stop),
             task,
@@ -339,6 +344,23 @@ impl Spade {
             .await?;
         let status = response.status().as_u16();
         Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    /// Makes the keychain's next read or change of `endpoint`'s key fail, once.
+    pub fn fail_keychain_once(&self, endpoint: &str) -> Result {
+        use keyring_core::api::CredentialStoreApi;
+        let entry = self
+            .mock
+            .build(spade_keys::SERVICE, &format!("endpoint:{endpoint}"), None)?;
+        let cred: &mock::Cred = entry
+            .as_any()
+            .downcast_ref()
+            .ok_or("not a mock credential")?;
+        cred.set_error(keyring_core::Error::Invalid(
+            "store".to_owned(),
+            "locked".to_owned(),
+        ));
+        Ok(())
     }
 
     /// Shuts the server down the graceful way; fails if it does not finish within `within`.

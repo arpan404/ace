@@ -174,6 +174,7 @@ async fn run() -> Result<(), Failure> {
         skills,
         images: ImageStore::open(&home.images()).map_err(other)?,
         adopt: startup.adopt,
+        keychain: keychain.clone(),
     })
     .map_err(other)?;
     if let Some(path) = startup.set_aside

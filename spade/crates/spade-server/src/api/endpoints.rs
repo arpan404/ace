@@ -119,6 +119,7 @@ fn endpoint_problem(error: &EndpointError) -> Response {
             problem(StatusCode::BAD_REQUEST, &error.to_string())
         }
         EndpointError::Conflict(_) => problem(StatusCode::CONFLICT, &error.to_string()),
+        EndpointError::Keychain(_) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
         EndpointError::Listing(_) => problem(StatusCode::BAD_GATEWAY, &error.to_string()),
         EndpointError::Store(spade_store::StoreError::Exists(_)) => {
             problem(StatusCode::CONFLICT, "an endpoint with that id exists")
@@ -187,17 +188,10 @@ pub(super) async fn update(
     }
 }
 
-/// Deletes an endpoint no agent uses, and its key in the keychain.
+/// Deletes an endpoint no agent uses, its key in the keychain first.
 pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     match state.engine.delete_endpoint(&id) {
-        Ok(()) => {
-            if let Some(keys) = &state.keys
-                && let Err(error) = keys.delete(&id)
-            {
-                tracing::warn!(%error, endpoint = %id, "the endpoint's key could not be removed");
-            }
-            StatusCode::NO_CONTENT.into_response()
-        }
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => endpoint_problem(&error),
     }
 }
