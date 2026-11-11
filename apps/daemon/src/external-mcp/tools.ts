@@ -173,18 +173,16 @@ export function externalTools(
         { limit: input.limit, ...(only ? { project: only } : {}) },
         input.before,
       );
-      // A grant limited to several projects sees only theirs.
+      // Only the grant's threads and the cursor to the next page: the sidebar's window holds
+      // per-project counts and attention for every project, which a limited grant can't see.
       return {
         ok: true,
-        data:
-          grant.projects === "all"
-            ? page
-            : {
-                ...page,
-                threads: page.threads.filter((entry) =>
-                  projectAllowed(grant.projects, entry.workspaceId),
-                ),
-              },
+        data: {
+          threads: page.threads.filter((entry) =>
+            projectAllowed(grant.projects, entry.workspaceId),
+          ),
+          before: page.window?.before ?? null,
+        },
       };
     },
   });

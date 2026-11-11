@@ -118,6 +118,19 @@ test("a grant limited to one project neither sees nor starts work in another", a
   expect(
     toolResult(await call(wide, "ace_thread_read", { threadId: f.caller.threadId })).isError,
   ).toBe(true);
+  // A thread in the other project: the limited grant's listing never names that project.
+  const elsewhere = f.controls.delegations.command("other-project-thread", {
+    type: "thread.create",
+    workspaceId: other,
+    provider: "codex",
+    input: [{ type: "text", text: "elsewhere" }],
+  });
+  expect(elsewhere.ok).toBe(true);
+  await f.daemon.engine?.flush();
+  const listing = await call(lease, "ace_threads_list", { limit: 100 });
+  expect(toolResult(listing).isError).not.toBe(true);
+  expect(listing.body).not.toContain(other);
+  expect(listing.body).not.toContain(String(elsewhere.threadId));
 });
 
 test("revoking or expiring a grant ends its token on the next request", async () => {
