@@ -20,8 +20,12 @@ import {
   PhoneNotificationPrefs,
   alertDelivery,
   defaultPhonePrefs,
+  phoneDelivery,
   type PhoneDelivery,
 } from "./notification-delivery.ts";
+import { accountView } from "@ace/ui-core";
+import { host } from "./host.ts";
+import { LimitWatch, type LimitAlert } from "./limit-alerts.ts";
 
 const boundedId = z.string().min(1).max(200);
 export const NotificationAction = z.discriminatedUnion("type", [
@@ -103,6 +107,8 @@ export class NotificationBridge {
   readonly detailsMs: number;
   /** How long an alert waits to read its request before posting without it. */
   readonly requestMs: number;
+  /** Usage-limit alerts: read while notifications are on, the machine is ready and limits are wanted. */
+  #limits: LimitWatch | undefined;
 
   constructor(
     client: ClientCore,
@@ -111,6 +117,8 @@ export class NotificationBridge {
     minuteOfDay: MinuteOfDay,
     detailsMs = 8000,
     requestMs = 1500,
+    /** The phone's clock in milliseconds, for usage-limit alerts; none watched without it. */
+    now?: () => number,
   ) {
     this.requestMs = requestMs;
     this.#client = client;
@@ -118,11 +126,25 @@ export class NotificationBridge {
     this.#put = put;
     this.#schedule = schedule;
     this.detailsMs = detailsMs;
+    if (now)
+      this.#limits = new LimitWatch(
+        async () =>
+          (
+            await client.request(
+              { type: "accounts.list", requestId: host.uuid() },
+              { timeoutMs: 15_000 },
+            )
+          ).accounts.map(accountView),
+        schedule,
+        now,
+        (alert) => this.#limit(alert),
+      );
     const connection = client.connectionState();
     this.#stop.push(
       connection.subscribe(() => {
         if (connection.getSnapshot() === "ready") void this.#connected();
         else {
+          this.#limits?.stop();
           this.#connection++;
           this.#daemon = undefined;
         }
@@ -133,6 +155,7 @@ export class NotificationBridge {
     );
   }
   close(): void {
+    this.#limits?.stop();
     for (const stop of this.#stop.splice(0)) stop();
   }
   handle(action: NotificationAction): void {
@@ -143,6 +166,7 @@ export class NotificationBridge {
         this.#synced = true;
         this.#appState = action.appState;
         if (action.phone) this.#phone = action.phone;
+        this.#watchLimits();
         this.#cursor = Math.max(this.#cursor, action.cursor);
         if (this.#client.state === "ready") {
           if (changed) this.#presence();
@@ -170,7 +194,29 @@ export class NotificationBridge {
         void this.#reply(action).catch(() => this.#outcome(action.requestId, "unsaved"));
     }
   }
+  /** Watches usage limits only while an alert could show: on, ready, and the category wanted. */
+  #watchLimits(): void {
+    const wanted =
+      this.#enabled &&
+      this.#client.state === "ready" &&
+      (this.#phone.inApp.limits || this.#phone.system.limits);
+    if (wanted) this.#limits?.start();
+    else this.#limits?.stop();
+  }
+  /** One usage-limit change, with how this phone shows it now. */
+  #limit(alert: LimitAlert): void {
+    const delivery = phoneDelivery("limits", this.#phone, {
+      foreground: this.#appState === "foreground",
+      minuteOfDay: this.#minuteOfDay(),
+    });
+    this.#put(`notifications:limit:${alert.key}`, () => ({
+      type: "notifications.limit",
+      ...alert,
+      delivery,
+    }));
+  }
   async #connected(): Promise<void> {
+    this.#watchLimits();
     this.#presence();
     // Native state (on/off, app state, cursor) may postdate this runtime; ask for it again.
     this.#put("notifications:connected", () => ({ type: "notifications.connected" }));
