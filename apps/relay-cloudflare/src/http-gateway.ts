@@ -3,6 +3,7 @@ import {
   HTTP_RESPONSE_WINDOW,
   ResponseHead,
   abortFrame,
+  callerHeaders,
   bodyFrame,
   chunks,
   creditFrame,
@@ -217,6 +218,13 @@ export class HttpGateway {
         ? new Response(null, { status: 499 })
         : plain(504, "The machine didn't answer in time.");
     }
+    let headers: [string, string][];
+    try {
+      headers = callerHeaders(answer);
+    } catch {
+      finish(abortFrame());
+      return plain(502, "The machine sent an invalid response.");
+    }
     const stream = isEventStream(answer);
     if (stream && this.#streams >= httpLimits.maxStreams) {
       finish(abortFrame());
@@ -229,7 +237,7 @@ export class HttpGateway {
     clearTimeout(timer);
     if (answer.status === 204 || answer.status === 304 || request.method === "HEAD") {
       finish();
-      return new Response(null, { status: answer.status, headers: answer.headers });
+      return new Response(null, { status: answer.status, headers });
     }
 
     let received = 0;
@@ -277,7 +285,7 @@ export class HttpGateway {
     );
     return new Response(body$, {
       status: answer.status,
-      headers: answer.headers,
+      headers,
     });
   }
 }

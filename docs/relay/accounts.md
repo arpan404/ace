@@ -232,6 +232,26 @@ cookies or origin-wide policy (`Set-Cookie`, `Strict-Transport-Security`, `Alt-S
 `Clear-Site-Data` and the like), since every machine shares the relay's host name, and
 bodies pass as sent, so handlers don't compress.
 
+Every machine's pages are served from the relay's own origin, which also serves the
+account API and sets the HttpOnly `ace_login_*` cookie during sign-in. Any machine on any
+account can serve HTML under its `/m/<hostId>/`, so the relay filters the daemon's response
+headers again itself and forces these on every forwarded response, whatever the daemon
+sends:
+
+- `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups
+allow-popups-to-escape-sandbox; frame-ancestors 'none'`. Without `allow-same-origin`, each
+  page runs in an opaque origin: no cookies, no storage, no same-origin reads of the account
+  API or other machines' pages. A daemon's own CSP is kept as a second header; browsers
+  enforce both, so it can only tighten.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`.
+  Daemon-sent values of these are dropped.
+
+The daemon's OAuth `/authorize` page (a later task) must work under that sandbox. Forms,
+links and self-navigation work. Cookies and `localStorage` don't. A page waiting for
+approval in ace polls with `fetch`, which works from an opaque origin only without
+credentials, so the poll carries its state in the URL or body.
+
 Each object holds at most 32 requests in flight and 4 event-stream responses
 (`subscriptions/listen`); over either, 429 with `Retry-After`. An open exchange keeps the
 object awake and billed, so a response is cut after 30 minutes and the client reconnects.

@@ -109,6 +109,7 @@ it("a request reaches the daemon as its public URL and the response streams back
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("text/event-stream");
   expect(response.headers.get("set-cookie")).toBeNull();
+  expect(response.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
 
   const reader = response.body!.getReader();
   stream.push("data: one\n\n");

@@ -149,7 +149,30 @@ const originWide = new Set([
   "content-encoding",
   "public-key-pins",
   "service-worker-allowed",
+  // The relay sets these itself on every forwarded response; see `relayPolicy`.
+  "x-content-type-options",
+  "referrer-policy",
+  "cross-origin-opener-policy",
+  "cross-origin-resource-policy",
 ]);
+
+/**
+ * Forced on every forwarded response, whatever the daemon sends. Every machine's pages share
+ * the relay's origin with the account API and its sign-in cookies, so a hostile daemon's page
+ * must not run as that origin: the sandbox without `allow-same-origin` gives each page an
+ * opaque origin (no cookies, storage or same-origin reads of the relay or other machines).
+ * A daemon's own `Content-Security-Policy` stays as a second header; browsers enforce both.
+ */
+export const relayPolicy: readonly [string, string][] = [
+  [
+    "content-security-policy",
+    "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox; frame-ancestors 'none'",
+  ],
+  ["x-content-type-options", "nosniff"],
+  ["referrer-policy", "no-referrer"],
+  ["cross-origin-opener-policy", "same-origin"],
+  ["cross-origin-resource-policy", "same-origin"],
+];
 
 function listed(headers: Headers): Set<string> {
   const named = new Set<string>();
@@ -175,6 +198,16 @@ export function responseHeaders(headers: Headers): [string, string][] {
     if (!hopByHop.has(name) && !named.has(name) && !originWide.has(name) && !relayAdded.test(name))
       kept.push([name, value]);
   return kept;
+}
+
+/**
+ * The headers the relay sends the caller for a daemon's response head: filtered again here,
+ * since a daemon may not have filtered them, then {@link relayPolicy} added.
+ */
+export function callerHeaders(head: ResponseHead): [string, string][] {
+  const headers = new Headers();
+  for (const [name, value] of head.headers) headers.append(name, value);
+  return [...responseHeaders(headers), ...relayPolicy];
 }
 
 /** Whether a response is a long-lived event stream, which the relay caps per host. */

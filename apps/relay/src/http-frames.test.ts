@@ -4,6 +4,7 @@ import {
   RequestHead,
   abortFrame,
   bodyFrame,
+  callerHeaders,
   chunks,
   creditFrame,
   decodeFrame,
@@ -102,4 +103,30 @@ it("only event-stream responses count as long-lived streams", () => {
   expect(isEventStream(typed("text/event-stream; charset=utf-8"))).toBe(true);
   expect(isEventStream(typed("application/json"))).toBe(false);
   expect(isEventStream({ status: 204, headers: [] })).toBe(false);
+});
+
+it("every forwarded response carries the relay's sandbox and policy headers, whatever the daemon sets", () => {
+  const sent = callerHeaders({
+    status: 200,
+    headers: [
+      ["content-type", "text/html"],
+      ["content-security-policy", "default-src 'self'"],
+      ["x-content-type-options", "sniff-away"],
+      ["referrer-policy", "unsafe-url"],
+      ["cross-origin-opener-policy", "unsafe-none"],
+      ["cross-origin-resource-policy", "cross-origin"],
+      ["set-cookie", "ace_login_x=1; Path=/"],
+    ],
+  });
+  const all = (name: string) => sent.filter(([key]) => key === name).map(([, value]) => value);
+  expect(all("content-security-policy")).toEqual([
+    "default-src 'self'",
+    "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox; frame-ancestors 'none'",
+  ]);
+  expect(all("x-content-type-options")).toEqual(["nosniff"]);
+  expect(all("referrer-policy")).toEqual(["no-referrer"]);
+  expect(all("cross-origin-opener-policy")).toEqual(["same-origin"]);
+  expect(all("cross-origin-resource-policy")).toEqual(["same-origin"]);
+  expect(all("set-cookie")).toEqual([]);
+  expect(all("content-type")).toEqual(["text/html"]);
 });
