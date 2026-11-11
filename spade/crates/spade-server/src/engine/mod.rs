@@ -57,6 +57,9 @@ pub struct Engine {
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
     record_lock: Mutex<()>,
+    /// Each conversation's activity, so listing conversations folds only those that changed.
+    /// Every stored event goes through `append_events`, which drops the entry.
+    activity: Mutex<HashMap<String, Activity>>,
 }
 
 impl Engine {
@@ -76,6 +79,7 @@ impl Engine {
             images: setup.images,
             live: Mutex::default(),
             record_lock: Mutex::default(),
+            activity: Mutex::default(),
         });
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
@@ -112,11 +116,30 @@ impl Engine {
             .conversations()?
             .into_iter()
             .map(|c| {
-                let transcript = Transcript::fold(&self.load(&c.id)?);
-                let activity = Activity {
-                    answering: transcript.open_reply().is_some(),
-                    jobs: transcript.jobs.len(),
-                    waiting_on_you: !transcript.awaiting.is_empty(),
+                let known = self
+                    .activity
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(&c.id)
+                    .copied();
+                let activity = match known {
+                    Some(activity) => activity,
+                    None => {
+                        // Under the lock every write holds, so no event lands between reading
+                        // and caching.
+                        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+                        let transcript = Transcript::fold(&self.load(&c.id)?);
+                        let activity = Activity {
+                            answering: transcript.open_reply().is_some(),
+                            jobs: transcript.jobs.len(),
+                            waiting_on_you: !transcript.awaiting.is_empty(),
+                        };
+                        self.activity
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .insert(c.id.clone(), activity);
+                        activity
+                    }
                 };
                 Ok((c, activity))
             })
@@ -210,12 +233,7 @@ impl Engine {
                 // Stored together, so a crash can never keep the input without its reply.
                 let model = self.models.for_role(Role::Main).to_owned();
                 let started = Event::reply_started(self.ids.next("r"), model);
-                for stored in self
-                    .store
-                    .append_all(id, &[event.clone(), started], self.now_ms())?
-                {
-                    let _ = self.live(id).frames.send(Frame::Stored(stored));
-                }
+                self.append_events(id, &[event.clone(), started])?;
                 true
             }
         };
@@ -348,8 +366,25 @@ impl Engine {
 
     /// Stores and broadcasts; the caller holds `record_lock`.
     fn append(&self, id: &str, event: &Event) -> Result<StoredEvent, StoreError> {
-        let stored = self.store.append(id, event, self.now_ms())?;
-        let _ = self.live(id).frames.send(Frame::Stored(stored.clone()));
+        let mut stored = self.append_events(id, std::slice::from_ref(event))?;
+        stored
+            .pop()
+            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
+    }
+
+    /// Stores `events` together and sends them to subscribers, in order; the caller holds
+    /// `record_lock`. The only way events are written, so the activity cache stays true.
+    fn append_events(&self, id: &str, events: &[Event]) -> Result<Vec<StoredEvent>, StoreError> {
+        let stored = self.store.append_all(id, events, self.now_ms());
+        // Dropped whether or not the write succeeded: a failed write may still have landed.
+        self.activity
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
+        let stored = stored?;
+        for event in &stored {
+            let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
+        }
         Ok(stored)
     }
 

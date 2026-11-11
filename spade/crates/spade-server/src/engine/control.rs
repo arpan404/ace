@@ -9,7 +9,7 @@ use spade_core::{Event, Transcript};
 use spade_models::Role;
 use spade_store::StoreError;
 
-use super::{AnswerError, Engine, Frame, jobs};
+use super::{AnswerError, Engine, jobs};
 
 impl Engine {
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
@@ -96,12 +96,7 @@ impl Engine {
         if unanswered_after(&events, reply) {
             let model = self.models.for_role(Role::Main).to_owned();
             let started = Event::reply_started(self.ids.next("r"), model);
-            for stored in self
-                .store
-                .append_all(id, &[close.clone(), started], self.now_ms())?
-            {
-                let _ = self.live(id).frames.send(Frame::Stored(stored));
-            }
+            self.append_events(id, &[close.clone(), started])?;
         } else {
             self.append(id, close)?;
         }
