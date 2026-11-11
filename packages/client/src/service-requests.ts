@@ -51,7 +51,7 @@ type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storag
             : Q["type"] extends "spade.status"
               ? Replies<"spade.status.result">
               : Q["type"] extends "spade.http"
-                ? Replies<"spade.http.result">
+                ? Replies<"spade.http.result" | "spade.http.open">
                 : Q["type"] extends "diagnostics.request"
                   ? Replies<"diagnostics.result">
                   : Q["type"] extends "notification.config"
@@ -191,7 +191,8 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "prompts.request": ["prompts.result"],
   "skills.request": ["skills.result"],
   "spade.status": ["spade.status.result"],
-  "spade.http": ["spade.http.result"],
+  // A request with parts is answered with spade.http.open first; its result comes later.
+  "spade.http": ["spade.http.result", "spade.http.open"],
   "host.identity": ["host.identity.result"],
   "machine.code.status": ["machine.code.result"],
   "machine.code.set": ["machine.code.result"],

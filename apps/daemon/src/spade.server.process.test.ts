@@ -283,7 +283,7 @@ test("spade.http carries images back as base64 and streams a message with images
     JSON.stringify({ text: "look", images: [{ data: imageBytes(size).toString("base64") }] }),
   );
   const expected = { status: 202, body: { bytes: message.length, sha256: sha256(message) } };
-  const upload = (
+  const upload = async (
     requestId: string,
     text: string,
     encoding: "text" | "base64",
@@ -299,6 +299,12 @@ test("spade.http carries images back as base64 and streams a message with images
       encoding,
       parts,
     });
+    // Parts go only once the daemon says the request is open.
+    await until(
+      client,
+      (m): m is Extract<ServerMessage, { type: "spade.http.open" }> =>
+        m.type === "spade.http.open" && m.requestId === requestId,
+    );
     for (let index = 0; index < parts; index++)
       client.send({
         type: "spade.http.part",
@@ -311,7 +317,7 @@ test("spade.http carries images back as base64 and streams a message with images
     ["text-parts", "text"],
     ["base64-parts", "base64"],
   ] as const) {
-    upload(
+    await upload(
       requestId,
       encoding === "text" ? message.toString("utf8") : message.toString("base64"),
       encoding,
@@ -324,6 +330,6 @@ test("spade.http carries images back as base64 and streams a message with images
   }
 
   // Any other route keeps the small cap, refused before Spade sees the body.
-  upload("too-big", "x".repeat(600 * 1024), "text", 150_000, "/v1/conversations/c2/stop");
+  await upload("too-big", "x".repeat(600 * 1024), "text", 150_000, "/v1/conversations/c2/stop");
   expect(await result("too-big")).toMatchObject({ kind: "error", code: "too_large" });
 }, 30_000);

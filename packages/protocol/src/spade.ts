@@ -66,7 +66,7 @@ export type SpadeMethod = z.infer<typeof SpadeMethod>;
 /**
  * `GET` needs the read scope; every other method needs operate. A body comes inline in `body`,
  * or, when `parts` is set, in that many `spade.http.part` messages, which the daemon streams to
- * Spade as they arrive.
+ * Spade as they arrive, once `spade.http.open` says the request is open.
  */
 export const SpadeHttpRequest = z.object({
   type: z.literal("spade.http"),
@@ -94,6 +94,14 @@ export const SpadeHttpPart = z.object({
   body: z.string().max(maxSpadePartChars),
 });
 export type SpadeHttpPart = z.infer<typeof SpadeHttpPart>;
+/**
+ * A request with `parts` is open: the daemon took it and holds a place for its parts. Send the
+ * parts only after this; a refusal comes as `spade.http.result` instead, before any part.
+ */
+export const SpadeHttpOpen = z.object({
+  type: z.literal("spade.http.open"),
+  requestId: z.string(),
+});
 
 /**
  * Asks for one more piece of a long answer (`index` from 1). The daemon holds an answer's
@@ -206,6 +214,7 @@ export const SpadeServerMessage = z.discriminatedUnion("type", [
   SpadeStatusResult,
   SpadeStatusChanged,
   SpadeHttpResult,
+  SpadeHttpOpen,
   SpadeHttpChunk,
   SpadeLiveFrame,
   SpadeLiveEnded,

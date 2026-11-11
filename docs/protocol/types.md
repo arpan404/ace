@@ -32047,6 +32047,24 @@ Example:
 }
 ```
 
+## SpadeHttpOpen
+
+[JSON Schema](schema/SpadeHttpOpen.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.open"` |  |
+| requestId | yes | string |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.http.open"
+}
+```
+
 ## SpadeHttpPart
 
 [JSON Schema](schema/SpadeHttpPart.json), input validation.
@@ -32316,6 +32334,22 @@ Example:
 }
 ```
 
+### spade.http.open
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.open"` |  |
+| requestId | yes | string |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "type": "spade.http.open"
+}
+```
+
 ### spade.http.chunk
 
 | Field | Required | Type | Constraints |
@@ -32370,9 +32404,8 @@ Example:
 
 ```json
 {
-  "reason": "restarted",
+  "reason": "too_large",
   "requestId": "example",
-  "status": 100,
   "type": "spade.live.ended"
 }
 ```

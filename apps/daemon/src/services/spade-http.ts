@@ -219,6 +219,8 @@ export function createSpadeHttp(context: {
     };
     uploads.set(message.requestId, upload);
     arm(message.requestId, upload);
+    if (context.connected())
+      context.send({ type: "spade.http.open", requestId: message.requestId });
   }
 
   async function part(message: SpadeHttpPart) {

@@ -12,6 +12,9 @@
       "$ref": "https://ace.local/protocol/v1/SpadeHttpResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpOpen.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/SpadeHttpChunk.json"
     },
     {
