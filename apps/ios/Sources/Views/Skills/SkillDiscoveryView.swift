@@ -92,6 +92,7 @@ struct SkillDiscoveryView: View {
         do {
             let all = try await model.allProjects()
             projects = all
+            problem = nil
             if !all.contains(where: { $0.id == project }) { project = all.first?.id ?? "" }
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
