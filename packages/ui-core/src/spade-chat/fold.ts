@@ -1,4 +1,4 @@
-import type { SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
+import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
 /*
  * A Spade conversation as the person sees it, folded from its stored events and live frames
@@ -40,7 +40,13 @@ export interface SpadeReplyEntry {
 }
 
 export type SpadeEntry =
-  | { kind: "user"; key: string; text: string; pending?: true }
+  | {
+      kind: "user";
+      key: string;
+      text: string;
+      images: readonly SpadeImageRef[];
+      pending?: true;
+    }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
@@ -59,10 +65,12 @@ export interface SpadeConversationState {
   lastSeq: number;
   /** At least one stored event has arrived. */
   loaded: boolean;
+  /** The live stream has sent everything stored so far; later events are new. */
+  caughtUp: boolean;
   title: string;
   entries: SpadeEntry[];
   /** Messages sent from here that Spade hasn't stored yet. */
-  pending: { key: string; text: string }[];
+  pending: { key: string; text: string; images: readonly SpadeImageRef[] }[];
   /** The open reply's id and its entry's index. */
   open: { reply: string; index: number } | undefined;
   /** Where each call of the open reply is shown: its entry's index. */
@@ -79,13 +87,14 @@ export interface SpadeConversationState {
 export type SpadeFoldInput =
   | SpadeLiveInput
   /** The person sent `text`; it shows at once and stays until Spade stores it or refuses it. */
-  | { kind: "sent"; key: string; text: string }
+  | { kind: "sent"; key: string; text: string; images?: readonly SpadeImageRef[] }
   | { kind: "refused"; key: string };
 
 export function emptySpadeConversation(): SpadeConversationState {
   return {
     lastSeq: 0,
     loaded: false,
+    caughtUp: false,
     title: "",
     entries: [],
     pending: [],
@@ -112,8 +121,17 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
         input.text ? { ...entry, live: entry.live + input.text } : undefined,
       );
     case "sent":
-      state.pending = [...state.pending, { key: input.key, text: input.text }];
+      state.pending = [
+        ...state.pending,
+        { key: input.key, text: input.text, images: input.images ?? [] },
+      ];
       return true;
+    case "caught_up": {
+      const changed = !state.caughtUp || !state.loaded;
+      state.caughtUp = true;
+      state.loaded = true;
+      return changed;
+    }
     case "refused": {
       const before = state.pending.length;
       state.pending = state.pending.filter((message) => message.key !== input.key);
@@ -139,9 +157,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
   const key = `s${stored.seq}`;
   switch (event.type) {
     case "user_message": {
-      const mine = state.pending.findIndex((message) => message.text === event.text);
+      const mine = state.pending.findIndex(
+        (message) => message.text === event.text && sameImages(message.images, event.images),
+      );
       if (mine >= 0) state.pending = state.pending.filter((_, index) => index !== mine);
-      steer(state, { kind: "user", key, text: event.text });
+      steer(state, { kind: "user", key, text: event.text, images: event.images });
       return true;
     }
     case "reply_started":
@@ -217,12 +237,18 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "context_compacted":
       state.entries.push({ kind: "compacted", key });
       return true;
+    // Stop's own record: the reply's end and the jobs' ends that follow it say what happened.
+    case "stop_requested":
+      return false;
     case "renamed":
       if (state.title === event.title) return false;
       state.title = event.title;
       return true;
   }
 }
+
+const sameImages = (a: readonly SpadeImageRef[], b: readonly SpadeImageRef[]) =>
+  a.length === b.length && a.every((image, index) => image.sha256 === b[index]?.sha256);
 
 /**
  * A message while a reply is open steers it: the reply carries on under the message, so what

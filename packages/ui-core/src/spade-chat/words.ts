@@ -111,3 +111,16 @@ export function spadeStateLine(
 export function spadeRowWorking(row: { answering: boolean; jobs: number }): boolean {
   return row.answering || row.jobs > 0;
 }
+
+/**
+ * What a list row says: an approval waiting on the person first (it needs them), then working,
+ * else nothing but its age. Never idle while anything in it is open.
+ */
+export function spadeRowState(row: {
+  answering: boolean;
+  jobs: number;
+  waitingOnYou: boolean;
+}): "needs-you" | "working" | "idle" {
+  if (row.waitingOnYou) return "needs-you";
+  return spadeRowWorking(row) ? "working" : "idle";
+}

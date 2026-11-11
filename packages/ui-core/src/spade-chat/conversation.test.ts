@@ -299,3 +299,61 @@ test("compaction leaves a quiet marker and a rename sets the title", () => {
   expect(said(c.view().entries)).toEqual(["person: Hi", "compacted"]);
   expect(c.view().title).toBe("Greetings");
 });
+
+describe("the Spade API's later details", () => {
+  const hash = (digit: string) => digit.repeat(64);
+
+  test("caught_up marks an empty conversation loaded and caught up", () => {
+    const c = conversation();
+    expect(c.view()).toMatchObject({ loaded: false, caughtUp: false });
+    c.frame("caught_up", { seq: 0 });
+    expect(c.view()).toMatchObject({ loaded: true, caughtUp: true, entries: [] });
+  });
+
+  test("a message's images show with it, and a sent one is replaced by its stored copy", () => {
+    const c = conversation();
+    const image = { sha256: hash("a"), mediaType: "image/png", bytes: 120 };
+    foldSpade(c.state, { kind: "sent", key: "local-1", text: "", images: [image] });
+    expect(c.view().entries).toEqual([
+      { kind: "user", key: "local-1", text: "", images: [image], pending: true },
+    ]);
+    c.stored({
+      type: "user_message",
+      text: "",
+      images: [{ sha256: hash("a"), media_type: "image/png", bytes: 120 }, { sha256: "bad" }],
+    });
+    expect(c.view().entries).toEqual([{ kind: "user", key: "s1", text: "", images: [image] }]);
+  });
+
+  test("a sent message isn't taken for a stored one with other images", () => {
+    const c = conversation();
+    foldSpade(c.state, { kind: "sent", key: "local-1", text: "Look" });
+    c.stored({
+      type: "user_message",
+      text: "Look",
+      images: [{ sha256: hash("b"), media_type: "image/jpeg", bytes: 9 }],
+    });
+    expect(c.view().entries.map((entry) => entry.key)).toEqual(["s1", "local-1"]);
+  });
+
+  test("stop_requested shows nothing; the ends that follow it do", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "stop_requested", reply: "r1", jobs: [] });
+    expect(c.view().answering).toBe(true);
+    expect(c.state.unknown).toBe(0);
+    c.stored({ type: "reply_stopped", reply: "r1", text: "" });
+    expect(c.view().answering).toBe(false);
+  });
+
+  test("a background job running beside an open reply is named on the Working line", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" }, 7000);
+    c.stored({ type: "job_started", reply: "r1", job: "j1", name: "research" });
+    expect(c.view().working).toEqual({
+      label: "Researching in the background",
+      since: 7000,
+      moving: true,
+    });
+  });
+});

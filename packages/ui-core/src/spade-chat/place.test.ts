@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   parseSpadeConversations,
+  parseSpadeEvents,
   parseSpadeModels,
   spadeCallLine,
+  spadeRowState,
   spadeRowWorking,
   spadeStateLine,
 } from "./index.ts";
@@ -51,7 +53,7 @@ describe("the conversation list", () => {
 
   test("a row it can't read is left out; a body that isn't a list reads as nothing", () => {
     expect(parseSpadeConversations(JSON.stringify([{ title: "no id" }, { id: "x" }]))).toEqual([
-      { id: "x", title: "", updatedAt: 0, answering: false, jobs: 0 },
+      { id: "x", title: "", updatedAt: 0, answering: false, jobs: 0, waitingOnYou: false },
     ]);
     expect(parseSpadeConversations("{}")).toBeUndefined();
   });
@@ -96,4 +98,46 @@ test("a call reads as what it did, or why it didn't run", () => {
   expect(spadeCallLine("send_email", "declined")).toBe("You declined: send an email");
   expect(spadeCallLine("ace__thread_start", "running")).toBe("Using thread start");
   expect(spadeCallLine("web_fetch", "skipped")).toBe("Didn't read a web page");
+});
+
+test("a row waiting on the person says so before it says working", () => {
+  const rows = parseSpadeConversations(
+    JSON.stringify([
+      { id: "a", answering: true, jobs: 0, waiting_on_you: true },
+      { id: "b", answering: false, jobs: 1, waiting_on_you: false },
+      { id: "c", answering: false, jobs: 0 },
+    ]),
+  );
+  expect(rows?.map(spadeRowState)).toEqual(["needs-you", "working", "idle"]);
+});
+
+test("only a keychain key is marked as one this app can remove", () => {
+  const models = parseSpadeModels(
+    JSON.stringify({
+      endpoints: [
+        { id: "a", needs_key: true, key_set: true, key_source: "keychain" },
+        { id: "b", needs_key: true, key_set: true, key_source: "environment" },
+        { id: "c", needs_key: true, key_set: false, key_source: null },
+      ],
+    }),
+  );
+  expect(models?.endpoints.map((endpoint) => endpoint.keySource)).toEqual([
+    "keychain",
+    "environment",
+    undefined,
+  ]);
+});
+
+test("an events page keeps every event it can read, in order", () => {
+  const page = parseSpadeEvents(
+    JSON.stringify([
+      { seq: 1, at: 5, event: { type: "user_message", text: "Hi" } },
+      { at: 6, event: { type: "renamed", title: "x" } },
+      { seq: 3, at: 7, event: { type: "something_new" } },
+    ]),
+  );
+  expect(page?.map((stored) => [stored.seq, stored.event.type])).toEqual([
+    [1, "user_message"],
+    [3, "unknown"],
+  ]);
 });

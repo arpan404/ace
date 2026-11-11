@@ -13,6 +13,8 @@ export interface SpadeWorking {
 export interface SpadeView {
   title: string;
   loaded: boolean;
+  /** Everything stored so far is shown; anything after is new. */
+  caughtUp: boolean;
   /** Stored entries, then messages sent from here that Spade hasn't stored yet. */
   entries: readonly SpadeEntry[];
   /** A reply is open: Stop is offered and a message steers it. */
@@ -43,11 +45,13 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     kind: "user",
     key: message.key,
     text: message.text,
+    images: message.images,
     pending: true,
   }));
   return {
     title: state.title,
     loaded: state.loaded,
+    caughtUp: state.caughtUp,
     // A new array each time: the fold changes its own in place, and a view is a snapshot.
     entries: [...state.entries, ...pending],
     answering: reply !== undefined,
@@ -71,5 +75,6 @@ function working(
   const tool = [...state.running.values()].at(-1);
   if (tool) return { label: spadeToolWords(tool.name).doing, since, moving: true };
   if (waiting) return { label: "Waiting for you", since, moving: false };
+  if (jobs.length) return { label: backgroundWords(jobs), since, moving: true };
   return { label: "Working", since, moving: true };
 }

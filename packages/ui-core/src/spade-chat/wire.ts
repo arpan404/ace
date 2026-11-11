@@ -9,9 +9,43 @@ import { z } from "zod";
 const text = z.string();
 const reply = z.string();
 
+/** An image the person attached, stored by Spade under its hash. */
+const imageRef = z.object({
+  sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  media_type: z.string().default("image/png"),
+  bytes: z.number().int().nonnegative().default(0),
+});
+export interface SpadeImageRef {
+  sha256: string;
+  mediaType: string;
+  bytes: number;
+}
+
 /** The stored event types the person's view reads. Anything else is kept as `unknown`. */
 const known = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("user_message"), text }),
+  z.object({
+    type: z.literal("user_message"),
+    text: text.default(""),
+    // An image this client can't read is left out; the message still shows.
+    images: z
+      .array(z.unknown())
+      .optional()
+      .default([])
+      .transform((images) =>
+        images.flatMap((image): SpadeImageRef[] => {
+          const parsed = imageRef.safeParse(image);
+          return parsed.success
+            ? [
+                {
+                  sha256: parsed.data.sha256,
+                  mediaType: parsed.data.media_type,
+                  bytes: parsed.data.bytes,
+                },
+              ]
+            : [];
+        }),
+      ),
+  }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
   z.object({
@@ -62,6 +96,11 @@ const known = z.discriminatedUnion("type", [
     is_error: z.boolean().optional(),
   }),
   z.object({ type: z.literal("context_compacted") }),
+  z.object({
+    type: z.literal("stop_requested"),
+    reply: z.string().nullish(),
+    jobs: z.array(z.string()).optional().default([]),
+  }),
   z.object({ type: z.literal("renamed"), title: z.string() }),
 ]);
 
@@ -96,11 +135,14 @@ export function parseSpadeStored(raw: unknown): SpadeStored | undefined {
 }
 
 const replyText = z.object({ reply: z.string(), text: z.string() });
+const caughtUpShape = z.object({ seq: z.number().int().nonnegative() });
 
 /** One frame of `GET /v1/conversations/{id}/live`, ready to fold. */
 export type SpadeLiveInput =
   | { kind: "stored"; stored: SpadeStored }
   | { kind: "snapshot"; reply: string; text: string }
+  /** The backlog is out: everything stored up to `seq` has been sent; what follows is new. */
+  | { kind: "caught_up"; seq: number }
   | { kind: "delta"; reply: string; text: string };
 
 function json(data: string): unknown {
@@ -118,11 +160,25 @@ export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput
     const stored = parseSpadeStored(body);
     return stored && { kind: "stored", stored };
   }
+  if (event === "caught_up") {
+    const parsed = caughtUpShape.safeParse(body);
+    return parsed.success ? { kind: "caught_up", seq: parsed.data.seq } : undefined;
+  }
   if (event === "snapshot" || event === "delta") {
     const parsed = replyText.safeParse(body);
     return parsed.success ? { kind: event, ...parsed.data } : undefined;
   }
   return undefined;
+}
+
+/** A page of `GET /v1/conversations/{id}/events`; undefined when the body isn't a list. */
+export function parseSpadeEvents(body: string): SpadeStored[] | undefined {
+  const rows = json(body);
+  if (!Array.isArray(rows)) return undefined;
+  return rows.flatMap((row) => {
+    const stored = parseSpadeStored(row);
+    return stored ? [stored] : [];
+  });
 }
 
 /** A row of `GET /v1/conversations`. */
@@ -133,6 +189,8 @@ export interface SpadeConversationRow {
   answering: boolean;
   /** Background jobs still running. */
   jobs: number;
+  /** An approval waits on the person. */
+  waitingOnYou: boolean;
 }
 
 const conversationRow = z.object({
@@ -141,6 +199,7 @@ const conversationRow = z.object({
   updated_at: z.number().default(0),
   answering: z.boolean().default(false),
   jobs: z.number().int().nonnegative().default(0),
+  waiting_on_you: z.boolean().default(false),
 });
 
 /** The conversation list, newest first as Spade sends it; a row it can't read is left out. */
@@ -150,8 +209,17 @@ export function parseSpadeConversations(body: string): SpadeConversationRow[] | 
   return rows.flatMap((row) => {
     const parsed = conversationRow.safeParse(row);
     if (!parsed.success) return [];
-    const { id, title, updated_at, answering, jobs } = parsed.data;
-    return [{ id, title: title ?? "", updatedAt: updated_at, answering, jobs }];
+    const { id, title, updated_at, answering, jobs, waiting_on_you } = parsed.data;
+    return [
+      {
+        id,
+        title: title ?? "",
+        updatedAt: updated_at,
+        answering,
+        jobs,
+        waitingOnYou: waiting_on_you,
+      },
+    ];
   });
 }
 
@@ -164,6 +232,7 @@ const modelsShape = z.object({
         format: z.string().nullish(),
         needs_key: z.boolean().default(false),
         key_set: z.boolean().default(false),
+        key_source: z.string().nullish(),
         models: z.array(z.object({ id: z.string(), name: z.string().nullish() })).default([]),
       }),
     )
@@ -177,6 +246,8 @@ export interface SpadeEndpoint {
   name: string;
   needsKey: boolean;
   keySet: boolean;
+  /** Where the key in use comes from: only a keychain key can be removed from here. */
+  keySource: "keychain" | "environment" | undefined;
   models: { id: string; name: string }[];
 }
 
@@ -199,6 +270,10 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
       name: endpoint.name || endpoint.id,
       needsKey: endpoint.needs_key,
       keySet: endpoint.key_set,
+      keySource:
+        endpoint.key_source === "keychain" || endpoint.key_source === "environment"
+          ? endpoint.key_source
+          : undefined,
       models: endpoint.models.map((model) => ({ id: model.id, name: model.name || model.id })),
     })),
     roles,
