@@ -119,6 +119,12 @@ test("an approved decision with no approving reviewer known says approved, never
   expect(said(facts({ reviewDecision: "APPROVED" })).reviews).toBe("Approved (done)");
 });
 
+test("a GitLab branch that must be rebased shows as behind its base", () => {
+  const behind = facts({ mergeState: mergeState("BEHIND") });
+  expect(said(behind).branch).toBe("Behind (needs-you)");
+  expect(prFacts(behind).find((gate) => gate.key === "branch")?.value).toBe("Behind main");
+});
+
 test("a merged PR shows who merged it, where it went and what became of the branch", () => {
   expect(
     said(

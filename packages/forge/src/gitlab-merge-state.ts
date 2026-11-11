@@ -80,11 +80,16 @@ export function gitlabMergeState(raw: unknown, requiresPipeline?: boolean): Forg
     mergeState:
       mr.has_conflicts === true || status === "conflict"
         ? "DIRTY"
-        : status === "mergeable" && blockers.length === 0
-          ? "CLEAN"
-          : ["unknown", "checking", "unchecked", "preparing", "approvals_syncing"].includes(status)
-            ? "UNKNOWN"
-            : "BLOCKED",
+        : // The source branch must be rebased onto the target first: GitHub's BEHIND.
+          status === "need_rebase"
+          ? "BEHIND"
+          : status === "mergeable" && blockers.length === 0
+            ? "CLEAN"
+            : ["unknown", "checking", "unchecked", "preparing", "approvals_syncing"].includes(
+                  status,
+                )
+              ? "UNKNOWN"
+              : "BLOCKED",
     reviewDecision: status === "not_approved" ? "REVIEW_REQUIRED" : null,
     checksState: pipeline
       ? pipeline.sha === mr.sha

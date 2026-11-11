@@ -180,6 +180,10 @@ test("unknown host fields survive while merge and checks use consumer states", (
   expect(gitlabMergeState(raw)).toMatchObject({ mergeState: "CLEAN", checksState: "SUCCESS", raw });
   expect(gitlabMergeState({ ...mr, detailed_merge_status: "conflict" }).mergeState).toBe("DIRTY");
   expect(gitlabMergeState({ ...mr, detailed_merge_status: "checking" }).mergeState).toBe("UNKNOWN");
+  // A branch GitLab says must be rebased is behind, never blocked for another reason.
+  expect(gitlabMergeState({ ...mr, detailed_merge_status: "need_rebase" }).mergeState).toBe(
+    "BEHIND",
+  );
   expect(gitlabMergeState({ ...mr, detailed_merge_status: "not_approved" })).toMatchObject({
     mergeState: "BLOCKED",
     reviewDecision: "REVIEW_REQUIRED",
