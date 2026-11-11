@@ -5,6 +5,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use axum::Extension;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
@@ -26,6 +27,10 @@ use crate::engine::{AnswerError, CompactError, Engine, Frame, SendError};
 #[derive(Clone)]
 pub struct Closing(pub watch::Receiver<bool>);
 
+/// The largest message body: eight 5 MB images as base64, plus the text. Other routes keep the
+/// default limit.
+const MESSAGE_BODY: usize = 60 * 1024 * 1024;
+
 #[derive(Clone)]
 pub struct AppState {
     pub engine: Arc<Engine>,
@@ -36,9 +41,17 @@ pub struct AppState {
 
 pub fn router(state: AppState) -> Router {
     let v1 = Router::new()
-        .route("/conversations", get(list).post(create))
+        .route(
+            "/conversations",
+            get(list)
+                .post(create)
+                .layer(DefaultBodyLimit::max(MESSAGE_BODY)),
+        )
         .route("/conversations/{id}/events", get(events))
-        .route("/conversations/{id}/messages", post(message))
+        .route(
+            "/conversations/{id}/messages",
+            post(message).layer(DefaultBodyLimit::max(MESSAGE_BODY)),
+        )
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))

@@ -62,6 +62,17 @@ async fn an_attached_image_is_stored_once_shown_to_the_model_and_served_back() -
     assert_eq!(served.headers()["content-type"], "image/png");
     assert_eq!(served.bytes().await?.as_ref(), PNG);
 
+    // A full-size image, past the server's default 2 MB body limit, is taken too.
+    let mut large = PNG.to_vec();
+    large.resize(4 * 1024 * 1024, 7);
+    let (big, body) = spade
+        .post(
+            &format!("/v1/conversations/{id}/messages"),
+            json!({ "text": "And this one?", "images": [{ "data": STANDARD.encode(&large) }] }),
+        )
+        .await?;
+    assert_eq!(big, 202, "{body}");
+
     let (bad, _) = spade
         .post(
             &format!("/v1/conversations/{id}/messages"),
