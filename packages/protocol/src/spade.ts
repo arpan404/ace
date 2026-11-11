@@ -10,6 +10,24 @@ import { ThreadId } from "./ids.ts";
 export const maxSpadeRequestBytes = 512 * 1024;
 /** Largest response body or live frame `data` the daemon forwards. */
 export const maxSpadeResponseBytes = 1024 * 1024;
+/** Largest answer from `GET /v1/images/...`: one stored image. */
+export const maxSpadeImageBytes = 5 * 1024 * 1024;
+/**
+ * Largest request body for `POST /v1/conversations` and `POST /v1/conversations/{id}/messages`,
+ * sent in parts: room for 8 images of 5 MiB as base64 in JSON. Every other route keeps
+ * `maxSpadeRequestBytes`.
+ */
+export const maxSpadeUploadBytes = 56 * 1024 * 1024;
+/** Characters in one `spade.http.part`, so each fits every transport's message limit. */
+export const maxSpadePartChars = 192 * 1024;
+/**
+ * Characters of an answer's body in one message: a longer answer comes in pieces of this size,
+ * the first in `spade.http.result` and the rest read with `spade.http.read`.
+ */
+export const maxSpadeChunkChars = 768 * 1024;
+/** A body as text, or as base64 for bytes that aren't text (an image). */
+export const SpadeBodyEncoding = z.enum(["text", "base64"]);
+export type SpadeBodyEncoding = z.infer<typeof SpadeBodyEncoding>;
 
 export const SpadeState = z.enum(["off", "starting", "ready", "failed"]);
 export type SpadeState = z.infer<typeof SpadeState>;
@@ -45,16 +63,57 @@ export const SpadeStatusChanged = z.object({
 
 export const SpadeMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 export type SpadeMethod = z.infer<typeof SpadeMethod>;
-/** `GET` needs the read scope; every other method needs operate. */
+/**
+ * `GET` needs the read scope; every other method needs operate. A body comes inline in `body`,
+ * or, when `parts` is set, in that many `spade.http.part` messages, which the daemon streams to
+ * Spade as they arrive.
+ */
 export const SpadeHttpRequest = z.object({
   type: z.literal("spade.http"),
   requestId,
   method: SpadeMethod,
   path,
-  /** Sent as is with `content-type: application/json`. */
   body: z.string().max(maxSpadeRequestBytes).optional(),
+  /** How `body` and every part are written; text by default. */
+  encoding: SpadeBodyEncoding.default("text"),
+  /** Sent to Spade as `content-type`; `application/json` by default. */
+  contentType: z.string().min(1).max(256).optional(),
+  /** The body follows in this many parts instead of `body`. */
+  parts: z.number().int().min(1).max(1024).optional(),
 });
 export type SpadeHttpRequest = z.infer<typeof SpadeHttpRequest>;
+
+/**
+ * One piece of a request body, `index` counting from 0, in the request's encoding. Base64 parts
+ * other than the last hold a multiple of 4 characters; text parts never split a surrogate pair.
+ */
+export const SpadeHttpPart = z.object({
+  type: z.literal("spade.http.part"),
+  requestId,
+  index: z.number().int().min(0).max(1023),
+  body: z.string().max(maxSpadePartChars),
+});
+export type SpadeHttpPart = z.infer<typeof SpadeHttpPart>;
+
+/**
+ * Asks for one more piece of a long answer (`index` from 1). The daemon holds an answer's
+ * pieces for 60 seconds, and lets them go once the last is read.
+ */
+export const SpadeHttpRead = z.object({
+  type: z.literal("spade.http.read"),
+  requestId,
+  index: z.number().int().min(1).max(63),
+});
+export type SpadeHttpRead = z.infer<typeof SpadeHttpRead>;
+/** One piece of a long answer. `gone`: the daemon no longer holds it; send the request again. */
+export const SpadeHttpChunk = z.object({
+  type: z.literal("spade.http.chunk"),
+  requestId: z.string(),
+  index: z.number().int().min(1).max(63),
+  body: z.string().max(maxSpadeChunkChars),
+  gone: z.literal(true).optional(),
+});
+export type SpadeHttpChunk = z.infer<typeof SpadeHttpChunk>;
 
 export const SpadeErrorCode = z.enum([
   "forbidden",
@@ -62,8 +121,10 @@ export const SpadeErrorCode = z.enum([
   "invalid_path",
   /** Spade is off, starting or failed. */
   "unavailable",
-  /** Spade's answer was larger than the daemon forwards. */
+  /** The request or Spade's answer was larger than the daemon forwards for that route. */
   "too_large",
+  /** A body or part the daemon can't send: bad base64, a part out of order or missing. */
+  "invalid_body",
   /** The request reached Spade but no answer came back. */
   "failed",
   /** Too many live streams on this connection. */
@@ -77,7 +138,16 @@ export const SpadeHttpResult = z.object({
     z.object({
       kind: z.literal("response"),
       status: z.number().int().min(100).max(599),
-      body: z.string().max(maxSpadeResponseBytes),
+      /**
+       * Text for textual content types (JSON, `text/*`), else base64 of the bytes. When `parts`
+       * is set this is the first piece; the whole body is every piece joined in order.
+       */
+      body: z.string().max(maxSpadeChunkChars),
+      encoding: SpadeBodyEncoding.default("text"),
+      /** Spade's `content-type`, when it sent one. */
+      contentType: z.string().max(256).optional(),
+      /** How many pieces the body has, when more than one: read pieces 1 to parts - 1. */
+      parts: z.number().int().min(2).max(64).optional(),
     }),
     z.object({ kind: z.literal("error"), code: SpadeErrorCode, message: z.string().max(1024) }),
   ]),
@@ -126,6 +196,8 @@ export type SpadeLiveEnded = z.infer<typeof SpadeLiveEnded>;
 export const SpadeClientMessage = z.discriminatedUnion("type", [
   SpadeStatusRequest,
   SpadeHttpRequest,
+  SpadeHttpPart,
+  SpadeHttpRead,
   SpadeLiveSubscribe,
   SpadeLiveUnsubscribe,
 ]);
@@ -134,6 +206,7 @@ export const SpadeServerMessage = z.discriminatedUnion("type", [
   SpadeStatusResult,
   SpadeStatusChanged,
   SpadeHttpResult,
+  SpadeHttpChunk,
   SpadeLiveFrame,
   SpadeLiveEnded,
 ]);

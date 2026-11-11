@@ -9,6 +9,12 @@
       "$ref": "https://ace.local/protocol/v1/SpadeHttpRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpPart.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpRead.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/SpadeLiveSubscribe.json"
     },
     {

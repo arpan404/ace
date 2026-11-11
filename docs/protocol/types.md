@@ -31884,6 +31884,18 @@ Example:
 }
 ```
 
+## SpadeBodyEncoding
+
+[JSON Schema](schema/SpadeBodyEncoding.json), input validation.
+
+Type: ["text","base64"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"base64"
+```
+
 ## SpadeClientMessage
 
 [JSON Schema](schema/SpadeClientMessage.json), input validation.
@@ -31913,15 +31925,56 @@ Example:
 | method | yes | [SpadeMethod.json](schema/SpadeMethod.json) |  |
 | path | yes | string | {"minLength":4,"maxLength":2048} |
 | body | no | string | {"maxLength":524288} |
+| encoding | no | [SpadeBodyEncoding.json](schema/SpadeBodyEncoding.json) | {"default":"text"} |
+| contentType | no | string | {"minLength":1,"maxLength":256} |
+| parts | no | integer | {"minimum":1,"maximum":1024} |
 
 Example:
 
 ```json
 {
-  "method": "PATCH",
+  "method": "POST",
   "path": "example",
   "requestId": "example",
   "type": "spade.http"
+}
+```
+
+### spade.http.part
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.part"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| index | yes | integer | {"minimum":0,"maximum":1023} |
+| body | yes | string | {"maxLength":196608} |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "index": 3,
+  "requestId": "example",
+  "type": "spade.http.part"
+}
+```
+
+### spade.http.read
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.read"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| index | yes | integer | {"minimum":1,"maximum":63} |
+
+Example:
+
+```json
+{
+  "index": 2,
+  "requestId": "example",
+  "type": "spade.http.read"
 }
 ```
 
@@ -31963,12 +32016,77 @@ Example:
 
 [JSON Schema](schema/SpadeErrorCode.json), input validation.
 
-Type: ["forbidden","invalid_path","unavailable","too_large","failed","limit"]. See JSON Schema for constraints.
+Type: ["forbidden","invalid_path","unavailable","too_large","invalid_body","failed","limit"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"too_large"
+"invalid_body"
+```
+
+## SpadeHttpChunk
+
+[JSON Schema](schema/SpadeHttpChunk.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.chunk"` |  |
+| requestId | yes | string |  |
+| index | yes | integer | {"minimum":1,"maximum":63} |
+| body | yes | string | {"maxLength":786432} |
+| gone | no | `true` |  |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "index": 10,
+  "requestId": "example",
+  "type": "spade.http.chunk"
+}
+```
+
+## SpadeHttpPart
+
+[JSON Schema](schema/SpadeHttpPart.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.part"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| index | yes | integer | {"minimum":0,"maximum":1023} |
+| body | yes | string | {"maxLength":196608} |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "index": 7,
+  "requestId": "example",
+  "type": "spade.http.part"
+}
+```
+
+## SpadeHttpRead
+
+[JSON Schema](schema/SpadeHttpRead.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.read"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| index | yes | integer | {"minimum":1,"maximum":63} |
+
+Example:
+
+```json
+{
+  "index": 7,
+  "requestId": "example",
+  "type": "spade.http.read"
+}
 ```
 
 ## SpadeHttpRequest
@@ -31982,13 +32100,16 @@ Example:
 | method | yes | [SpadeMethod.json](schema/SpadeMethod.json) |  |
 | path | yes | string | {"minLength":4,"maxLength":2048} |
 | body | no | string | {"maxLength":524288} |
+| encoding | no | [SpadeBodyEncoding.json](schema/SpadeBodyEncoding.json) | {"default":"text"} |
+| contentType | no | string | {"minLength":1,"maxLength":256} |
+| parts | no | integer | {"minimum":1,"maximum":1024} |
 
 Example:
 
 ```json
 {
-  "body": "example",
-  "method": "GET",
+  "method": "DELETE",
+  "parts": 7,
   "path": "example",
   "requestId": "example",
   "type": "spade.http"
@@ -32003,7 +32124,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"spade.http.result"` |  |
 | requestId | yes | string |  |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":1048576}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":786432},"encoding":{"default":"text","$ref":"https://ace.local/protocol/v1/SpadeBodyEncoding.json"},"contentType":{"type":"string","maxLength":256},"parts":{"type":"integer","minimum":2,"maximum":64}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
 
 Example:
 
@@ -32034,7 +32155,7 @@ Example:
 
 ```json
 {
-  "reason": "invalid_path",
+  "reason": "unavailable",
   "requestId": "example",
   "type": "spade.live.ended"
 }
@@ -32044,12 +32165,12 @@ Example:
 
 [JSON Schema](schema/SpadeLiveEndReason.json), input validation.
 
-Type: ["closed","restarted","unsubscribed","refused","forbidden","invalid_path","unavailable","too_large","limit"]. See JSON Schema for constraints.
+Type: ["closed","restarted","unsubscribed","refused","forbidden","invalid_path","unavailable","too_large","invalid_body","limit"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"too_large"
+"invalid_body"
 ```
 
 ## SpadeLiveFrame
@@ -32179,7 +32300,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"spade.http.result"` |  |
 | requestId | yes | string |  |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":1048576}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"response"},"status":{"type":"integer","minimum":100,"maximum":599},"body":{"type":"string","maxLength":786432},"encoding":{"default":"text","$ref":"https://ace.local/protocol/v1/SpadeBodyEncoding.json"},"contentType":{"type":"string","maxLength":256},"parts":{"type":"integer","minimum":2,"maximum":64}},"required":["kind","status","body"]},{"type":"object","properties":{"kind":{"type":"string","const":"error"},"code":{"$ref":"https://ace.local/protocol/v1/SpadeErrorCode.json"},"message":{"type":"string","maxLength":1024}},"required":["kind","code","message"]}]} |
 
 Example:
 
@@ -32187,11 +32308,32 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "code": "failed",
+    "code": "invalid_body",
     "kind": "error",
     "message": "example"
   },
   "type": "spade.http.result"
+}
+```
+
+### spade.http.chunk
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"spade.http.chunk"` |  |
+| requestId | yes | string |  |
+| index | yes | integer | {"minimum":1,"maximum":63} |
+| body | yes | string | {"maxLength":786432} |
+| gone | no | `true` |  |
+
+Example:
+
+```json
+{
+  "body": "example",
+  "index": 4,
+  "requestId": "example",
+  "type": "spade.http.chunk"
 }
 ```
 
@@ -32228,8 +32370,9 @@ Example:
 
 ```json
 {
-  "reason": "unsubscribed",
+  "reason": "restarted",
   "requestId": "example",
+  "status": 100,
   "type": "spade.live.ended"
 }
 ```

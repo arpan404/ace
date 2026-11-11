@@ -10,6 +10,7 @@
     "invalid_path",
     "unavailable",
     "too_large",
+    "invalid_body",
     "limit"
   ],
   "type": "string"

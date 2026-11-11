@@ -6,8 +6,22 @@
       "maxLength": 524288,
       "type": "string"
     },
+    "contentType": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "encoding": {
+      "$ref": "https://ace.local/protocol/v1/SpadeBodyEncoding.json",
+      "default": "text"
+    },
     "method": {
       "$ref": "https://ace.local/protocol/v1/SpadeMethod.json"
+    },
+    "parts": {
+      "maximum": 1024,
+      "minimum": 1,
+      "type": "integer"
     },
     "path": {
       "maxLength": 2048,

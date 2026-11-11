@@ -6,6 +6,7 @@
     "invalid_path",
     "unavailable",
     "too_large",
+    "invalid_body",
     "failed",
     "limit"
   ],
