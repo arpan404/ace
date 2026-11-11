@@ -7,6 +7,8 @@ import { createHash } from "node:crypto";
 import type { RandomBytes } from "../tokens.ts";
 
 export const codeTtlMs = 60_000;
+/** How long a traded code is remembered, to catch it being presented again. */
+export const spentCodeKeptMs = 10 * 60_000;
 const maxCodes = 256;
 const verifierShape = /^[A-Za-z0-9._~-]{43,128}$/;
 /** An S256 challenge: base64url of a SHA-256, without padding. */
@@ -19,7 +21,11 @@ export interface CodeBinding {
   challenge: string;
   resource: string;
 }
-export type Redemption = { grantId: string } | { refused: string };
+/**
+ * `reused`: the code was presented before, so someone else holds it; the grant it was issued
+ * for should lose its tokens (OAuth 2.1 §4.1.3).
+ */
+export type Redemption = { grantId: string } | { refused: string; reused?: string };
 
 function digest(text: string, encoding: "hex" | "base64url"): string {
   return createHash("sha256").update(text).digest(encoding);
@@ -31,6 +37,7 @@ export function pkceMatches(verifier: string, challenge: string): boolean {
 
 export class AuthorizationCodes {
   private codes = new Map<string, CodeBinding & { expiresAt: number }>();
+  private spent = new Map<string, { grantId: string; until: number }>();
   private now: () => number;
   private random: RandomBytes;
   constructor(options: { now: () => number; random: RandomBytes }) {
@@ -59,9 +66,14 @@ export class AuthorizationCodes {
     presented: { clientId: string; redirectUri: string; verifier: string; resource: string },
   ): Redemption {
     const key = digest(code, "hex");
+    const now = this.now();
     const entry = this.codes.get(key);
     this.codes.delete(key);
-    if (!entry || entry.expiresAt <= this.now()) return { refused: "The code is unknown or used." };
+    const before = this.spent.get(key);
+    if (!entry && before && before.until > now)
+      return { refused: "The code was already used.", reused: before.grantId };
+    if (!entry || entry.expiresAt <= now) return { refused: "The code is unknown or used." };
+    this.remember(key, entry.grantId, now);
     if (entry.clientId !== presented.clientId)
       return { refused: "The code was issued to another client." };
     if (entry.redirectUri !== presented.redirectUri)
@@ -71,5 +83,15 @@ export class AuthorizationCodes {
     if (!pkceMatches(presented.verifier, entry.challenge))
       return { refused: "code_verifier doesn't match the code challenge." };
     return { grantId: entry.grantId };
+  }
+  private remember(key: string, grantId: string, now: number): void {
+    for (const [spentKey, spent] of this.spent)
+      if (spent.until <= now) this.spent.delete(spentKey);
+    while (this.spent.size >= maxCodes) {
+      const oldest = this.spent.keys().next().value;
+      if (oldest === undefined) break;
+      this.spent.delete(oldest);
+    }
+    this.spent.set(key, { grantId, until: now + spentCodeKeptMs });
   }
 }

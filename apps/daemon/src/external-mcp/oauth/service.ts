@@ -48,7 +48,16 @@ export function outsideOAuth(deps: {
   return outsideSurface({
     authorizations,
     registrations,
-    token: { grants: outside.grants, tokens: outside.tokens, codes, now },
+    token: {
+      grants: outside.grants,
+      tokens: outside.tokens,
+      codes,
+      now,
+      revoke(grantId) {
+        if (outside.revoke(grantId))
+          deps.note?.(`Outside grant ${grantId} revoked: its authorization code was used twice.`);
+      },
+    },
     machine: deps.machine,
   });
 }

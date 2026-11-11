@@ -61,3 +61,12 @@ test("a code presented with another client, redirect, resource or verifier is re
     });
   }
 });
+
+test("a code presented again names the grant it was issued for, so its tokens can end", () => {
+  const f = codes();
+  const code = f.codes.issue(binding);
+  expect(f.codes.redeem(code, presented)).toEqual({ grantId: "grant-1" });
+  expect(f.codes.redeem(code, presented)).toMatchObject({ reused: "grant-1" });
+  // A code nobody ever issued names nothing.
+  expect(f.codes.redeem("never-issued", presented)).not.toHaveProperty("reused");
+});

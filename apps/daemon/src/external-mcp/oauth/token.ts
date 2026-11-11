@@ -14,6 +14,8 @@ export interface TokenDeps {
   tokens: Pick<GrantTokens, "issuePair" | "rotate">;
   codes: AuthorizationCodes;
   now: () => number;
+  /** A code was presented twice: end the grant it was issued for and everything it issued. */
+  revoke(grantId: string): void;
 }
 
 const noStore = { "cache-control": "no-store", pragma: "no-cache" };
@@ -55,7 +57,10 @@ export function tokenRequest(form: URLSearchParams, base: OutsideBase, deps: Tok
       // RFC 8707 and MCP: the client names the resource when it trades the code, too.
       if (named === null) return error(400, "invalid_target", `resource must be ${resource}.`);
       const redeemed = deps.codes.redeem(code, { clientId, redirectUri, verifier, resource });
-      if ("refused" in redeemed) return error(400, "invalid_grant", redeemed.refused);
+      if ("refused" in redeemed) {
+        if (redeemed.reused !== undefined) deps.revoke(redeemed.reused);
+        return error(400, "invalid_grant", redeemed.refused);
+      }
       const grant = deps.grants.live(redeemed.grantId);
       if (!grant) return error(400, "invalid_grant", "The grant has ended.");
       return issued(deps.tokens.issuePair(grant, resource), grant.scopes, deps.now());
