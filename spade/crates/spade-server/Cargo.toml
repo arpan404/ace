@@ -8,13 +8,27 @@ publish.workspace = true
 
 [dependencies]
 axum.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+spade-core = { path = "../spade-core" }
+spade-keys = { path = "../spade-keys" }
+spade-models = { path = "../spade-models" }
+spade-search = { path = "../spade-search" }
+spade-store = { path = "../spade-store" }
+thiserror.workspace = true
 tokio.workspace = true
+tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-reqwest.workspace = true
+keyring-core.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+spade-testkit = { path = "../spade-testkit" }
+tempfile.workspace = true
 
 [lints]
 workspace = true

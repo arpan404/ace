@@ -103,6 +103,14 @@ extension ClientModel {
     func forgeIssues(project: String, filter: IssuesFilter, query: String, screens: Int, fresh: Bool) async throws -> ForgeIssueList {
         try await read(Self.forgeIssuesRead(project: project, filter: filter, query: query, screens: screens, fresh: fresh), as: ForgeIssueList.self)
     }
+    static func forgeHostedFilesRead(project: String, number: Int, repository: ForgeRepository?, page: Int, headSha: String?) -> [String: Any] {
+        var read: [String: Any] = ["type": "forge.pull.hosted-files", "project": project, "number": number, "page": page]
+        if let headSha { read["headSha"] = headSha }
+        return on(repository, read)
+    }
+    func forgeHostedFiles(project: String, number: Int, repository: ForgeRepository?, page: Int, headSha: String?) async throws -> ForgeHostedFiles {
+        try await read(Self.forgeHostedFilesRead(project: project, number: number, repository: repository, page: page, headSha: headSha), as: ForgeHostedFiles.self)
+    }
     func forgePull(project: String, number: Int, repository: ForgeRepository? = nil, method: String) async throws -> ForgePullPage {
         try await read(Self.forgePullRead(project: project, number: number, repository: repository, method: method), as: ForgePullPage.self)
     }

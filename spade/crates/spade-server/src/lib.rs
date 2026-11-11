@@ -1,34 +1,25 @@
-//! Spade's HTTP server: routes and the serve loop. Configuration lives in [`config`].
+//! Spade's server: the local API ([`api`]) over the engine ([`engine`]) that runs turns.
 
+pub mod api;
+pub mod clock;
 pub mod config;
+pub mod engine;
+pub mod home;
+pub mod tools;
 
 use std::future::Future;
 
-use axum::{Json, Router, http::StatusCode, routing::get};
-use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
-/// Every route Spade answers. Unknown paths get a JSON 404.
-pub fn router() -> Router {
-    Router::new()
-        .route("/health", get(health))
-        .fallback(not_found)
-}
+pub use api::{AppState, router};
 
-/// Serves [`router`] on `listener` until `shutdown` resolves, then finishes open requests.
+/// Serves the API on `listener` until `shutdown` resolves, then finishes open requests.
 pub async fn serve(
     listener: TcpListener,
+    state: AppState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router())
+    axum::serve(listener, router(state))
         .with_graceful_shutdown(shutdown)
         .await
-}
-
-async fn health() -> Json<Value> {
-    Json(json!({ "ok": true }))
-}
-
-async fn not_found() -> (StatusCode, Json<Value>) {
-    (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" })))
 }

@@ -23,11 +23,12 @@ import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
 import {
   inboxGroups,
   inboxProjects,
+  sameInboxRepository,
   repositoryCounts,
   rowsForProjects,
   type InboxSearch,
 } from "./inbox-model.ts";
-import { useProjectRepositories } from "./inbox-projects.ts";
+import { useInboxRepositories } from "./inbox-projects.ts";
 import { InboxRow } from "./inbox-row.tsx";
 import { InboxSide } from "./inbox-side.tsx";
 import { ListFrame } from "./list-frame.tsx";
@@ -103,12 +104,13 @@ export function InboxPage(props: {
   const choice = useProjectChoice(search);
   // Notifications are the account's: one read, through the first project, for every choice.
   const project = choice.all[0];
-  const repositories = useProjectRepositories(choice.all);
-  const projectOf = inboxProjects(repositories);
   const listKey = JSON.stringify([project, search.view, search.only, search.repo]);
   const [paging, setPaging] = useState({ key: listKey, pages: 1 });
   const pages = paging.key === listKey ? paging.pages : 1;
   const read = useInboxPages(project, search, pages);
+  // Rows from any repository a project uses belong to it (ADR 0116).
+  const repositories = useInboxRepositories(choice.all);
+  const projectOf = inboxProjects(repositories.repositories);
   const list = { ...read, rows: rowsForProjects(read.rows, choice.picked, projectOf) };
   const writes = useInboxWrites(project);
   // The unfiltered first page the sidebar polls: shared with it, and it keeps the filters'
@@ -332,7 +334,13 @@ export function InboxPage(props: {
                   row={row}
                   to={{
                     project: owner ?? project,
-                    repo: owner || repo.toLowerCase() === own?.toLowerCase() ? undefined : repo,
+                    // Only a project's primary opens without naming its repository.
+                    repo:
+                      (owner &&
+                        sameInboxRepository(row.repository, repositories.primary.get(owner))) ||
+                      (!owner && repo.toLowerCase() === own?.toLowerCase())
+                        ? undefined
+                        : repo,
                     back: `/inbox${listAddress}`,
                   }}
                   selected={picked.has(row.id)}

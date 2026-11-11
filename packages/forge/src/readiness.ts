@@ -1,7 +1,8 @@
 import { isForgeMutation } from "./mutation.ts";
 import { z } from "zod";
 import { SourceControlReadiness, type SourceControlPreferences } from "@ace/protocol";
-import type { CommandRunner, CommandRequest } from "./command.ts";
+import type { CommandRunner } from "./command.ts";
+import { pinnedRunner, type IdentityRunnerOptions } from "./pinned-runner.ts";
 import { ForgeError } from "./errors.ts";
 import { GhApi } from "./http.ts";
 
@@ -28,19 +29,11 @@ export async function githubIdentity(
   return parsed.data.login;
 }
 
-/** How long a verified identity admits reads without another `/user` probe. */
-export const identityVerificationMs = 60_000;
+export { identityVerificationMs, type IdentityRunnerOptions } from "./pinned-runner.ts";
 
-export type IdentityRunnerOptions = {
-  now: () => number;
-  /** When the caller last verified the account itself, so the first read needs no probe. */
-  verifiedAt?: number;
-  ttlMs?: number;
-};
-
-/** Pin every operation to its admitted account. Never switch shared CLI configuration.
- * Reads reuse a verification for a short window; every write is verified immediately before
- * dispatch. Without `options` (no clock), every request is verified. */
+/** Pin every `gh` operation to its admitted account. Reads reuse a verification for a short
+ * window; every write is verified immediately before dispatch. Without `options` (no clock),
+ * every request is verified. */
 export function identityRunner(
   runner: CommandRunner,
   host: string,
@@ -48,73 +41,16 @@ export function identityRunner(
   assertCurrent: () => void | Promise<void> = () => {},
   options?: IdentityRunnerOptions,
 ): CommandRunner {
-  let verifiedAt = options?.verifiedAt;
-  const ttl = options?.ttlMs ?? identityVerificationMs;
   const clock = options?.now ?? (() => 0);
-  const fresh = () => {
-    if (!options || verifiedAt === undefined) return false;
-    const age = options.now() - verifiedAt;
-    return age >= 0 && age < ttl;
-  };
-  const verify = async (signal: AbortSignal) => {
-    if ((await githubIdentity(runner, host, signal, clock)) !== account) {
-      verifiedAt = undefined;
-      throw new ForgeError("forbidden");
-    }
-    verifiedAt = options?.now();
-  };
-  // Reads that need a probe at the same moment share one.
-  let probing: Promise<void> | undefined;
-  const verifyRead = async (signal: AbortSignal) => {
-    const shared = (probing ??= verify(signal).finally(() => (probing = undefined)));
-    try {
-      await shared;
-    } catch (error) {
-      // Another read's cancellation proves nothing about this one: probe for it alone.
-      if (error instanceof ForgeError && error.kind === "cancelled" && !signal.aborted)
-        return verify(signal);
-      throw error;
-    }
-  };
-  return async (request: CommandRequest) => {
-    await assertCurrent();
-    if (request.command !== "gh") return runner(request);
-    const write = isForgeMutation(request);
-    if (!write && !fresh()) {
-      // A read has no effect, so it runs beside its identity probe instead of after it; its
-      // answer is only returned once the probe proves the account it was read as.
-      const [checked, read] = await Promise.allSettled([
-        verifyRead(request.signal),
-        runner(request),
-      ]);
-      if (checked.status === "rejected") throw checked.reason;
-      // Preferences may change while the identity process is running.
-      await assertCurrent();
-      if (read.status === "rejected") throw read.reason;
-      return read.value;
-    }
-    if (write) {
-      await verify(request.signal);
-      await assertCurrent();
-    }
-    const result = await runner(request);
-    if (!write) return result;
-    // A dispatched write keeps its response. Only a confirmed different account, or changed
-    // preferences, make its outcome uncertain; an unavailable probe proves nothing.
-    try {
-      if ((await githubIdentity(runner, host, request.signal, clock)) !== account)
-        return { ...result, identityChanged: true };
-      verifiedAt = options?.now();
-    } catch {
-      /* Offline, rate limited or cancelled after the write: no evidence of a switch. */
-    }
-    try {
-      await assertCurrent();
-    } catch {
-      return { ...result, identityChanged: true };
-    }
-    return result;
-  };
+  return pinnedRunner({
+    runner,
+    account,
+    identify: (signal) => githubIdentity(runner, host, signal, clock),
+    pins: (request) => request.command === "gh",
+    isWrite: isForgeMutation,
+    assertCurrent,
+    options,
+  });
 }
 
 export async function githubReadiness(

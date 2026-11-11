@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAttention } from "./pr-attention.tsx";
@@ -29,24 +30,28 @@ export function PrSummary(props: {
 }) {
   const { context } = props;
   const { detail } = context;
-  const comments = detail.status.comments.length;
+  const comments = can(detail, "reviews.comments.read") ? detail.status.comments.length : 0;
   return (
     <div className="space-y-5 px-[var(--forge-gutter,1rem)] pt-3 pb-10">
-      <PrAttention
-        workspaceId={context.workspaceId}
-        detail={detail}
-        hostThreadId={props.hostThreadId}
-        disabled={context.disabled}
-        onRefresh={context.refresh}
-        onOpenCode={(path, line) => props.onOpenCode(path, line)}
-        onOpenCheck={props.onOpenCheck}
-      />
+      {can(detail, "reviews.merge") && (
+        <PrAttention
+          workspaceId={context.workspaceId}
+          detail={detail}
+          hostThreadId={props.hostThreadId}
+          disabled={context.disabled}
+          onRefresh={context.refresh}
+          onOpenCode={(path, line) => props.onOpenCode(path, line)}
+          onOpenCheck={props.onOpenCheck}
+        />
+      )}
       {props.about}
-      <PrChangesGlance
-        workspaceId={context.workspaceId}
-        detail={detail}
-        onOpenCode={props.onOpenCode}
-      />
+      {can(detail, "reviews.files") && !detail.unavailableResources?.includes("files") && (
+        <PrChangesGlance
+          workspaceId={context.workspaceId}
+          detail={detail}
+          onOpenCode={props.onOpenCode}
+        />
+      )}
       <PrDescription
         context={context}
         extensions={props.extensions}
@@ -63,17 +68,19 @@ export function PrSummary(props: {
           onOpen={props.onOpen}
         />
       )}
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        {comments
-          ? `${comments} ${comments === 1 ? "comment" : "comments"} in the Timeline`
-          : "No comments yet"}
-        <span aria-hidden className="text-subtle-foreground">
-          ·
-        </span>
-        <TextAction strong onClick={props.onTimeline}>
-          {comments ? "Open the conversation" : "Leave a comment"}
-        </TextAction>
-      </p>
+      {(can(detail, "reviews.comments.read") || can(detail, "reviews.comments.write")) && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          {comments
+            ? `${comments} ${comments === 1 ? "comment" : "comments"} in the Timeline`
+            : "No comments yet"}
+          <span aria-hidden className="text-subtle-foreground">
+            ·
+          </span>
+          <TextAction strong onClick={props.onTimeline}>
+            {comments ? "Open the conversation" : "Leave a comment"}
+          </TextAction>
+        </p>
+      )}
       {props.extensions?.summary?.(context)}
     </div>
   );

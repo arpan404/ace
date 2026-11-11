@@ -13,6 +13,9 @@ import type { FileSource } from "./attachment-format.ts";
 /** How much of a text file the preview dialog reads: one bounded daemon read. */
 export const textPreviewBytes = 64 * 1024;
 
+/** The largest unsent text file the preview opens for editing, read whole. */
+export const editableTextBytes = 1024 * 1024;
+
 /** The largest sent file the preview loads whole: the client's own budget for originals. */
 export const wholePreviewBytes = 32 * 1024 * 1024;
 

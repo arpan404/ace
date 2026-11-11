@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useMemo, useState } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
 import { GitPullRequestIcon } from "@phosphor-icons/react";
@@ -19,18 +20,27 @@ export function PrActivity(props: {
   onOpenCommit?: ((sha: string) => void) | undefined;
   className?: string | undefined;
 }) {
+  const commentsReadable = can(props.detail, "reviews.comments.read");
+  const commitsReadable = can(props.detail, "reviews.commits");
+  const detail = useMemo(
+    () =>
+      commentsReadable
+        ? props.detail
+        : { ...props.detail, status: { ...props.detail.status, comments: [], reviewThreads: [] } },
+    [props.detail, commentsReadable],
+  );
   const ref = props.detail.status.ref;
   const commits = usePrCommits({ ...props, repository: ref.repository });
   const activity = usePrActivityEvents(props);
   const rows = useMemo(
     () =>
       prTimelineItems(
-        props.detail,
-        commits.data?.commits ?? [],
-        activity.data?.events ?? [],
+        detail,
+        commitsReadable ? (commits.data?.commits ?? []) : [],
+        commentsReadable ? (activity.data?.events ?? []) : [],
         props.order,
       ),
-    [props.detail, commits.data, activity.data, props.order],
+    [detail, commitsReadable, commentsReadable, commits.data, activity.data, props.order],
   );
   // Lives here, not in the rows, so a virtualized row keeps its state when it remounts.
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
@@ -46,11 +56,13 @@ export function PrActivity(props: {
     }),
     [open],
   );
-  const settled = !commits.isPending && !activity.isPending;
+  const settled =
+    (!can(props.detail, "reviews.commits") || !commits.isPending) &&
+    (!can(props.detail, "reviews.comments.read") || !activity.isPending);
   // Older pages are still on their way; a failed read says so through its own state.
   const arriving =
-    (commits.data?.complete === false && !commits.error) ||
-    (activity.data?.complete === false && !activity.error);
+    (commitsReadable && commits.data?.complete === false && !commits.error) ||
+    (commentsReadable && activity.data?.complete === false && !activity.error);
   const older = arriving && <ListSkeleton label="older history" shape="row" rows={2} />;
   return (
     <section
@@ -60,9 +72,12 @@ export function PrActivity(props: {
         props.className,
       )}
     >
-      <QueryState label="commits" query={commits} />
-      <QueryState label="timeline" query={activity} />
-      {(activity.data?.truncated || commits.data?.truncated) && (
+      {can(props.detail, "reviews.commits") && <QueryState label="commits" query={commits} />}
+      {can(props.detail, "reviews.comments.read") && (
+        <QueryState label="timeline" query={activity} />
+      )}
+      {((commentsReadable && activity.data?.truncated) ||
+        (commitsReadable && commits.data?.truncated)) && (
         <p role="status" className="mb-4 text-sm text-muted-foreground">
           This history is longer than ace reads at once, so some older entries are left out.
         </p>

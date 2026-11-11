@@ -9,6 +9,7 @@ pub mod config;
 mod error;
 mod format;
 mod prompt;
+mod thoughts;
 mod typed;
 
 pub use catalog::{Capability, Catalog, CatalogError, Endpoint, Model, Price, Resolved, Role};
@@ -16,5 +17,5 @@ pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use error::ModelError;
 pub use format::Format;
-pub use prompt::{Delta, Message, Prompt, Reply, Speaker, Usage};
+pub use prompt::{Delta, Generated, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage};
 pub use spade_keys::{KeyRequest, Keys};

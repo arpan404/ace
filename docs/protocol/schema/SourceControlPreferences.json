@@ -18,18 +18,7 @@
     },
     "hosts": {
       "items": {
-        "properties": {
-          "account": {
-            "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
-          },
-          "host": {
-            "$ref": "https://ace.local/protocol/v1/GitHubHost.json"
-          }
-        },
-        "required": [
-          "host"
-        ],
-        "type": "object"
+        "$ref": "https://ace.local/protocol/v1/SourceControlHost.json"
       },
       "maxItems": 32,
       "minItems": 1,
@@ -47,5 +36,5 @@
     "remote"
   ],
   "type": "object",
-  "x-ace-constraint": "Hosts are unique and the selected host must be configured"
+  "x-ace-constraint": "Hosts are unique, the selected host must be configured, and a public host keeps its own provider"
 }

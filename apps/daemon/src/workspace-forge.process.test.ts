@@ -8,6 +8,7 @@ import { Command, Thread } from "@ace/protocol";
 import { Store } from "./store.ts";
 import { migrateEngine } from "./engine/migrations.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
+import { ProjectRepositoryConfigs } from "./project-repository-config.ts";
 const execute = promisify(execFile);
 
 test("forge failures produce durable error receipts and a later command can use a recovered injected runner", async () => {
@@ -253,6 +254,105 @@ test("a draft PR stays identified until unlink, which survives restart and in-fl
   } finally {
     await resumed.close();
     await reopened.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a project lists every remote's repository, and hiding one moves the primary and refuses writes to it", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-forge-repositories-"));
+  await execute("git", ["init", "-q", "-b", "main", root]);
+  await execute("git", ["-C", root, "remote", "add", "origin", "git@github.com:test/project.git"]);
+  await execute("git", ["-C", root, "remote", "add", "mirror", "https://gitlab.com/test/project"]);
+  const store = new Store(join(root, "events.sqlite"));
+  store.atomic((db) => migrateEngine(db));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const runtime = new WorkspaceRuntime(store, root, () => 1000);
+  const github = { forge: "github", host: "github.com", owner: "test", name: "project" } as const;
+  const gitlab = { forge: "gitlab", host: "gitlab.com", owner: "test", name: "project" } as const;
+  const read = async (op: "forge.repository" | "forge.repositories") => {
+    const reply = await runtime.read({
+      type: "workspace.request",
+      requestId: op,
+      operation: { op, workspaceId },
+    });
+    return reply.result.kind === "forge" ? reply.result.data : reply.result;
+  };
+  try {
+    const listed = await read("forge.repositories");
+    expect(listed).toMatchObject({
+      resource: "repositories",
+      value: {
+        workspaceId,
+        repositories: [
+          {
+            repository: github,
+            source: "remote",
+            remote: "origin",
+            visible: true,
+            primary: true,
+            available: true,
+          },
+          {
+            repository: gitlab,
+            source: "remote",
+            remote: "mirror",
+            visible: true,
+            primary: false,
+            available: true,
+          },
+        ],
+        primary: github,
+        config: null,
+      },
+    });
+    // Each repository reports what its own host supports.
+    const capabilities =
+      "value" in listed && "repositories" in listed.value
+        ? listed.value.repositories.map((entry) => entry.capabilities ?? [])
+        : [];
+    expect(capabilities[0]).toContain("reviews.stacks");
+    expect(capabilities[1]).toContain("issues.write");
+    expect(capabilities[1]).not.toContain("reviews.stacks");
+    new ProjectRepositoryConfigs(store).set(workspaceId, {
+      added: [],
+      hidden: [github],
+      primary: null,
+    });
+    expect(await read("forge.repository")).toEqual({ resource: "repository", value: gitlab });
+    const refused = await runtime.execute(
+      Command.parse({
+        id: "hidden-write",
+        deviceId: "device",
+        payload: {
+          type: "forge.hosted.checks",
+          workspaceId,
+          pr: { repository: github, number: 3 },
+          action: { kind: "cancel", runId: 1, attempt: 1 },
+        },
+      }),
+    );
+    expect(refused).toMatchObject({ ok: false, error: "repository_hidden" });
+    const issue = await runtime.execute(
+      Command.parse({
+        id: "hidden-issue-write",
+        deviceId: "device",
+        payload: {
+          type: "forge.issue.write",
+          workspaceId,
+          repository: github,
+          input: { action: "comment", number: 4, body: "Never sent" },
+        },
+      }),
+    );
+    expect(issue).toMatchObject({
+      ok: false,
+      error: "repository_hidden",
+      code: "action_not_dispatched",
+      issueAction: { state: "failed", error: "repository_hidden" },
+    });
+  } finally {
+    await runtime.close();
+    await store.close();
     await rm(root, { recursive: true, force: true });
   }
 });

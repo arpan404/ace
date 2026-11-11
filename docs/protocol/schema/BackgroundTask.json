@@ -9,6 +9,10 @@
       "default": false,
       "type": "boolean"
     },
+    "blocksPrompts": {
+      "const": true,
+      "type": "boolean"
+    },
     "childAgentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },

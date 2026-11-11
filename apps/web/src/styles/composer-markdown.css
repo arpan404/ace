@@ -1,0 +1,37 @@
+/*
+ * The composer as rich text (`features/thread/composer/editor-render.ts`): a heading a little
+ * larger, bold words bold, a list item's bullet or number drawn in its indent. No Markdown syntax
+ * is ever shown; the composer sends the Markdown these stand for.
+ */
+.message-input [data-md="h1"] {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.message-input [data-md="h2"] {
+  font-size: 1.075em;
+  font-weight: 600;
+}
+.message-input [data-md="h3"] {
+  font-weight: 600;
+}
+.message-input strong {
+  font-weight: 600;
+  font-style: normal;
+}
+.message-input [data-md="item"] {
+  --indent: 1.375em;
+  position: relative;
+  padding-left: calc(var(--depth, 1) * var(--indent));
+}
+.message-input [data-md="item"]::before {
+  content: attr(data-glyph);
+  position: absolute;
+  left: calc((var(--depth, 1) - 1) * var(--indent));
+  width: var(--indent);
+  padding-right: 0.375em;
+  text-align: right;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
