@@ -1,7 +1,7 @@
 import { useContext, useRef, useState, useSyncExternalStore } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
-import { baseName, placeAttachmentMarkers, sendBusyReason, tokensFromInput } from "@ace/ui-core";
+import { baseName, sendBusyReason } from "@ace/ui-core";
 import { retrySend, type SendOp } from "@ace/client";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
@@ -18,7 +18,12 @@ import {
   type ReturnedStart,
 } from "@/lib/returned-start.ts";
 import { dismissSend } from "../composer/dismissed-sends.ts";
-import { draftOf, restoreReturnedDraft, type SendPayload } from "../composer/returned-draft.ts";
+import {
+  draftFromMessage,
+  draftOf,
+  restoreReturnedDraft,
+  type SendPayload,
+} from "../composer/returned-draft.ts";
 import {
   leasable,
   markEditing,
@@ -251,21 +256,15 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     const key = `thread:${props.threadId}`;
     const take = (send: StagedSend) => {
       if (editing) return saveOpenDraft(key);
-      const draft = {
-        // Each file's marker back where it was sent from.
-        ...placeAttachmentMarkers(
-          send.text,
-          send.input ? tokensFromInput(send.input).tokens : [],
-          send.attachments.flatMap((file) =>
-            file.sha256 ? [{ sha256: file.sha256, at: file.at, name: file.name }] : [],
-          ),
-        ),
+      // Built as any sent message is: quotes out of the words, each file's marker in its place.
+      const draft = draftFromMessage({
+        input: send.input ?? [{ type: "text", text: send.text }],
         mentions: send.mentions,
-        attachments: send.attachments.flatMap((file) =>
-          file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],
+        files: send.attachments.flatMap((file) =>
+          file.sha256 ? [{ sha256: file.sha256, at: file.at, name: file.name }] : [],
         ),
         options: send.options,
-      };
+      });
       const taken = returnDraft(key, draft);
       if (taken !== undefined) setEditing(true);
       return taken ?? restoreReturnedDraft(storage, key, draft);

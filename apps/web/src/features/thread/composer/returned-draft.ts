@@ -1,3 +1,4 @@
+import type { ContentPart } from "@ace/protocol";
 import {
   boundedAnnotations,
   mergeQuotes,
@@ -25,32 +26,50 @@ export type SendPayload = Extract<
  * browser annotations rebuilt from their block, with their images taken out of the files.
  */
 export function draftOf(payload: SendPayload): ReturnedDraft {
-  const annotatedParts = splitAnnotationParts(payload.input);
+  return draftFromMessage({
+    input: payload.input,
+    mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
+    files: (payload.context?.attachments ?? []).map((file) => ({
+      sha256: file.sha256,
+      at: file.at,
+      name: localAttachment(file.sha256)?.name ?? "Attachment",
+    })),
+    options: payload.options,
+  });
+}
+
+/**
+ * A message as the composer takes it back to edit: its quotes and annotations out of the words,
+ * and each file's marker where it was sent from. File offsets count the quoted block before the
+ * words, so the words come back with the markers moved back by its length. Pure.
+ */
+export function draftFromMessage(message: {
+  input: readonly ContentPart[];
+  mentions: string[];
+  files: readonly { sha256: string; at?: number | undefined; name: string }[];
+  options?: ReturnedDraft["options"];
+}): ReturnedDraft {
+  const annotatedParts = splitAnnotationParts(message.input);
   const quoted = splitQuoteParts(annotatedParts.parts);
   const split = { ...annotatedParts, parts: quoted.parts };
-  const files = (payload.context?.attachments ?? []).map((file) => ({
-    sha256: file.sha256,
-    name: localAttachment(file.sha256)?.name ?? "Attachment",
-  }));
+  const files = message.files.map(({ sha256, name }) => ({ sha256, name }));
   const annotated = split.annotations && returnedAnnotations(split.annotations, files);
-  // Offsets count the quoted block before the words; the words come back without it.
   const lead = textPartsText(annotatedParts.parts).length - textPartsText(quoted.parts).length;
   const words = tokensFromInput(split.parts);
   return {
     ...placeAttachmentMarkers(
       words.text,
       words.tokens,
-      (payload.context?.attachments ?? []).map((file) => ({
-        sha256: file.sha256,
+      message.files.map((file) => ({
+        ...file,
         at: file.at === undefined ? undefined : Math.max(0, file.at - lead),
-        name: localAttachment(file.sha256)?.name ?? "Attachment",
       })),
     ),
-    mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
+    mentions: message.mentions,
     attachments: annotated?.attachments ?? files,
     ...(annotated ? { annotations: annotated.annotations } : {}),
     ...(quoted.quotes ? { quotes: returnedQuotes(quoted.quotes, (index) => `sent:${index}`) } : {}),
-    options: payload.options,
+    options: message.options,
   };
 }
 
