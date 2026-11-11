@@ -13,10 +13,6 @@ import { clipText } from "./host-text.ts";
 export const teaReviewWrites: readonly HostApiWrite[] = [
   { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/issues\/[1-9]\d*\/comments$/ },
   { method: "POST", endpoint: /^repos\/[^/?]+\/[^/?]+\/pulls\/[1-9]\d*\/reviews$/ },
-  {
-    method: "POST",
-    endpoint: /^repos\/[^/?]+\/[^/?]+\/pulls\/[1-9]\d*\/comments\/[1-9]\d*\/replies$/,
-  },
 ];
 const person = z.object({ login: z.string() });
 const comment = z.looseObject({
@@ -250,6 +246,10 @@ export class TeaReviews {
     allowed: () => boolean,
     dispatch?: WriteDispatch,
   ) {
+    // Released Gitea (1.25) and Forgejo have no endpoint to reply inside a review thread, so a
+    // reply is refused before anything is read or sent.
+    if (!["conversation", "line.comment", "submit"].includes(action.kind))
+      throw new ForgeError("unsupported");
     const host = await this.host(number, signal);
     if (!host.pr.viewerCanComment || !allowed()) throw new ForgeError("forbidden");
     let path: string;
@@ -260,14 +260,6 @@ export class TeaReviews {
         : marker(operation);
     if (action.kind === "conversation") {
       path = `issues/${number}/comments`;
-      body = { body: text };
-    } else if (action.kind === "reply") {
-      if (action.pendingReview) throw new ForgeError("unsupported");
-      const source = (await this.conversation(number, signal)).comments.find(
-        (c) => c.id === action.commentId && c.kind === "inline",
-      );
-      if (!source) throw new ForgeError("not_found");
-      path = `pulls/${number}/comments/${action.commentId}/replies`;
       body = { body: text };
     } else if (action.kind === "line.comment") {
       if (action.anchor.startLine !== undefined || action.anchor.commit !== action.headSha)
@@ -323,7 +315,7 @@ export class TeaReviews {
     signal: AbortSignal,
     _drafts: readonly ForgeReviewDraft[],
   ) {
-    if (!["conversation", "reply", "line.comment", "submit"].includes(action.kind))
+    if (!["conversation", "line.comment", "submit"].includes(action.kind))
       throw new ForgeError("unsupported");
     return (await this.conversation(number, signal)).comments.some((c) =>
       c.body.includes(marker(operation)),

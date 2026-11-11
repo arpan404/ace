@@ -149,7 +149,10 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
 
 export function threadView(conversation: Conversation, thread: ReviewThread): ThreadView {
   const { state } = conversation;
-  const answers = !!state?.canComment || conversation.locked;
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const answers =
+    (!!state?.canComment || conversation.locked) &&
+    can(conversation.capabilities, "reviews.comments.reply");
   return {
     id: thread.id,
     place: conversation.preview(threadPlace(thread), 4_200),

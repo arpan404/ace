@@ -101,7 +101,7 @@ for (const forge of ["gitea", "forgejo"] as const) {
       ],
     });
   });
-  test(`${forge} posts comments and replies only to inline comments on this PR`, async () => {
+  test(`${forge} posts conversation comments, and refuses thread replies it has no API for before sending`, async () => {
     const { adapter, writes } = fixture();
     await adapter.write(
       7,
@@ -112,33 +112,26 @@ for (const forge of ["gitea", "forgejo"] as const) {
       () => true,
       new WriteDispatch(),
     );
-    await adapter.write(
-      7,
-      { kind: "reply", commentId: 5, body: "Reply" },
-      [],
-      "reply",
-      signal,
-      () => true,
-      new WriteDispatch(),
-    );
     expect(writes).toMatchObject([
       {
         path: "repos/team/app/issues/7/comments",
         body: { body: "Hello\n\n<!-- ace-review-action:new -->" },
       },
-      { path: "repos/team/app/pulls/7/comments/5/replies" },
     ]);
+    const dispatch = new WriteDispatch();
     await expect(
       adapter.write(
         7,
-        { kind: "reply", commentId: 999, body: "Wrong" },
+        { kind: "reply", commentId: 5, body: "Reply" },
         [],
-        "wrong",
+        "reply",
         signal,
         () => true,
+        dispatch,
       ),
-    ).rejects.toMatchObject({ kind: "not_found" });
-    expect(writes).toHaveLength(2);
+    ).rejects.toMatchObject({ kind: "unsupported" });
+    expect(dispatch.definitelyFailed).toBe(true);
+    expect(writes).toHaveLength(1);
   });
   test(`${forge} pins new inline comments to the requested head and recovers a marked comment`, async () => {
     const { adapter, writes, move } = fixture();

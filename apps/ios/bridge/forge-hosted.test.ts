@@ -614,3 +614,66 @@ test("suggestion application without its capability is refused before issuing a 
   });
   expect(ops.map((op) => op.op)).toEqual(["forge.repositories"]);
 });
+
+test("a review thread offers Reply only where the host can reply inside a thread", async () => {
+  const comments = ["reviews.read", "reviews.comments.read", "reviews.comments.write"];
+  const reviewThread = {
+    id: "T1",
+    resolved: false,
+    outdated: false,
+    file: "src/parse.ts",
+    line: 3,
+    comments: [
+      {
+        kind: "inline" as const,
+        id: 5,
+        body: "Rename this?",
+        author: "ola",
+        file: "src/parse.ts",
+        line: 3,
+        updatedAt: "2026-10-10T10:00:00Z",
+        replyTo: null,
+      },
+    ],
+  };
+  for (const [capabilities, canReply] of [
+    [comments, false],
+    [[...comments, "reviews.comments.reply"], true],
+  ] as const) {
+    const { ask } = service((op) => {
+      if (op.op === "forge.pr.detail") {
+        const value = detail(gitlab, { capabilities: [...capabilities] });
+        return {
+          resource: "prDetail",
+          value: {
+            ...value,
+            status: {
+              ...value.status,
+              comments: reviewThread.comments,
+              reviewThreads: [reviewThread],
+            },
+          },
+        };
+      }
+      if (op.op === "forge.pr.review-state")
+        return {
+          resource: "prReviewState",
+          value: {
+            viewer: "reader",
+            headSha: head,
+            drafts: [],
+            viewed: null,
+            canReview: true,
+            canComment: true,
+            resolvableThreads: [],
+            operations: [],
+          },
+        };
+      return { error: "forge_unsupported" };
+    });
+    const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
+      rows: { kind: string; thread?: { id: string; canReply: boolean } }[];
+    };
+    expect(page.rows.find((row) => row.thread?.id === "T1")?.thread?.canReply).toBe(canReply);
+  }
+});

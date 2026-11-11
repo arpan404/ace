@@ -6,9 +6,9 @@ import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { PrComment } from "./pr-comment.tsx";
-import { plural, previewOf, threadPlace } from "@ace/ui-core";
+import { can, plural, previewOf, threadPlace } from "@ace/ui-core";
 import { appendTo, useQuotedInto } from "./pr-quote.tsx";
-import { lockedText, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
+import { lockedText, usePrDetail, usePrIdentity, usePrReview } from "./pr-review-context.tsx";
 import { useFocusAsk, useFold, useReplyOpen } from "./pr-ui-store.tsx";
 import { PrThreadEarlierCode } from "./pr-earlier-code.tsx";
 import { useFixingNow } from "./pr-fix-marks.ts";
@@ -76,7 +76,9 @@ export function PrReplyField(props: {
     place === "thread",
   );
   const own = useOwnWrite();
-  const canComment = !!review?.state?.canComment;
+  const detail = usePrDetail();
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const canComment = !!review?.state?.canComment && can(detail, "reviews.comments.reply");
   const locked = !!review?.commentsLocked;
   const disabled = !review?.ready || own.saving || !canComment || locked;
   if (!review?.state || (!canComment && !locked)) return null;

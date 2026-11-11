@@ -14,8 +14,10 @@ export const ForgeCapability = z.enum([
   "reviews.commits",
   /** Comments and review threads on a review, read. */
   "reviews.comments.read",
-  /** Comment, reply, resolve and reopen threads on a review. */
+  /** Comment, resolve and reopen threads on a review. */
   "reviews.comments.write",
+  /** Reply inside a review thread. */
+  "reviews.comments.reply",
   /** Approvals and requested reviewers, read. */
   "reviews.approvals.read",
   /** Approve and request changes. */

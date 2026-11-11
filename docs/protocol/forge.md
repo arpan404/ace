@@ -1023,7 +1023,7 @@ Example:
 
 [JSON Schema](schema/ForgeCapability.json), input validation.
 
-Type: ["reviews.read","reviews.files","reviews.commits","reviews.comments.read","reviews.comments.write","reviews.approvals.read","reviews.approvals.write","reviews.reviewers.request","reviews.checks","reviews.checks.write","reviews.create","reviews.edit","reviews.merge","reviews.autoMerge","reviews.stacks","reviews.suggestions","issues.read","issues.write","inbox","reactions","media"]. See JSON Schema for constraints.
+Type: ["reviews.read","reviews.files","reviews.commits","reviews.comments.read","reviews.comments.write","reviews.comments.reply","reviews.approvals.read","reviews.approvals.write","reviews.reviewers.request","reviews.checks","reviews.checks.write","reviews.create","reviews.edit","reviews.merge","reviews.autoMerge","reviews.stacks","reviews.suggestions","issues.read","issues.write","inbox","reactions","media"]. See JSON Schema for constraints.
 
 Example:
 

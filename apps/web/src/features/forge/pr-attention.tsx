@@ -284,7 +284,9 @@ export function PrAttention(props: {
               actions={
                 <>
                   {fixAction}
-                  {thread && root && <ReplyAction threadId={thread.id} title={title} />}
+                  {thread && root && can(props.detail, "reviews.comments.reply") && (
+                    <ReplyAction threadId={thread.id} title={title} />
+                  )}
                   {item.kind === "review" && !masked && quote && (
                     <TextAction
                       aria-label={`Reply: ${title}`}
