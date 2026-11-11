@@ -12,7 +12,9 @@ use spade_core::context::{self, SYSTEM};
 use spade_core::event::{Call, Known, ReplyEnd, Tokens};
 use spade_core::gate::{self, Decision};
 use spade_core::tools::{CALL_TOOL, TOOL_SEARCH, describe, unwrap_call_tool};
-use spade_core::turn::{Next, Pending, Status, next_step, progress, unique_call_ids};
+use spade_core::turn::{
+    Next, Pending, Status, next_step, progress, stop_requested, unique_call_ids,
+};
 use spade_core::{Event, Transcript, spending, title};
 use spade_models::{Delta, Role, ToolCall};
 use tokio::sync::watch;
@@ -89,7 +91,15 @@ async fn drive(
             Ok(events) => events,
             Err(error) => return Ended::Failed(String::new(), error.to_string()),
         };
-        match next_step(&events) {
+        let next = next_step(&events);
+        // The stored stop is the truth: it may have landed before this worker had a signal.
+        if let Next::CallModel { reply } | Next::Calls { reply, .. } = &next
+            && stop_requested(&events, reply)
+        {
+            *driven = Some(reply.clone());
+            return Ended::Stopped(String::new());
+        }
+        match next {
             Next::Idle => return Ended::Finished,
             Next::CallModel { reply } => {
                 *driven = Some(reply.clone());

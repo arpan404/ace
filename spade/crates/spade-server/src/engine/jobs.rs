@@ -57,7 +57,9 @@ pub(super) fn start(
         job: job.to_owned(),
         name: name.to_owned(),
     });
-    engine.record(id, &started)?;
+    if !engine.record_unless_stopped(id, reply, &started)? {
+        return Ok(Started::Stopped);
+    }
     let task = {
         let (engine, id, job, name) = (
             engine.clone(),
@@ -111,7 +113,7 @@ async fn run(engine: &Engine, job: &str, name: &str, arguments: Value) -> ToolOu
 
 /// Stores a job's end, retrying with waits up to 30 seconds for as long as Spade runs: the end is
 /// known only here, and losing it would leave the job running forever in the record.
-async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
+pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
     let mut wait = Duration::from_millis(250);
     while let Err(error) = store() {
         tracing::error!(%error, "could not store a job's end; trying again");

@@ -142,10 +142,13 @@ async fn message(
 }
 
 async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    if state.engine.stop(&id) {
-        StatusCode::ACCEPTED.into_response()
-    } else {
-        problem(StatusCode::NOT_FOUND, "nothing is answering")
+    match state.engine.stop(&id) {
+        Ok(true) => StatusCode::ACCEPTED.into_response(),
+        Ok(false) => problem(StatusCode::NOT_FOUND, "nothing is answering"),
+        Err(error) => problem(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("stopped, but the stop could not be saved yet ({error}); Spade keeps trying"),
+        ),
     }
 }
 

@@ -569,3 +569,34 @@ async fn a_paid_title_that_fails_to_parse_is_still_paid_for() -> Result {
     assert_eq!(spent, step + 92);
     Ok(())
 }
+
+#[tokio::test]
+async fn stop_while_a_write_waits_for_approval_ends_the_reply_and_the_write_never_runs() -> Result {
+    let email = FakeTool::new("send_email", Risk::Write, "sent");
+    let sent = email.calls();
+    let spade = Spade::start(
+        vec![Script::reply("").call("c1", "send_email", json!({}))],
+        tools(vec![email]),
+    )
+    .await?;
+    let id = spade.ask("Email Sam").await?;
+    spade.wait_for(&id, "approval_requested").await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    spade.wait_for(&id, "reply_stopped").await?;
+    let (late, _) = spade
+        .post(
+            &format!("/v1/conversations/{id}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(late, 409, "a stopped turn's approval cannot be answered");
+    let (idle, _) = spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    assert_eq!(idle, 404, "nothing is left to stop");
+    assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(1), 0);
+    Ok(())
+}

@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use spade_core::event::Known;
-use spade_core::turn::job_stopped;
+use spade_core::turn::{job_stopped, stop_requested};
 use spade_core::{Event, Transcript, TurnState, spending};
 use spade_models::{Models, Role};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
@@ -270,10 +270,21 @@ impl Engine {
 
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
     /// running.
-    pub fn stop(self: &Arc<Self>, id: &str) -> bool {
-        // Stored first, so jobs finishing now or found lost after a restart stay quiet.
-        if let Err(error) = self.record(id, &Event::Known(Known::StopRequested {})) {
-            tracing::error!(%error, "could not store a stop");
+    ///
+    /// The stop is stored first: the turn's worker, job starts, job results and restart recovery
+    /// all honour it. If storing it fails, everything running is still stopped now, the stop is
+    /// retried in the background, and the error is returned so the person is told.
+    pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        if !Transcript::fold(&self.load(id)?).busy() {
+            return Ok(false);
+        }
+        let marker = Event::Known(Known::StopRequested {});
+        let stored = self.record(id, &marker);
+        if stored.is_err() {
+            let (engine, id) = (self.clone(), id.to_owned());
+            tokio::spawn(async move {
+                jobs::keep_trying(|| engine.record(&id, &marker).map(|_| ())).await;
+            });
         }
         let live = self.live(id);
         let turn = {
@@ -287,7 +298,24 @@ impl Engine {
             }
         };
         let jobs = jobs::stop_all(self, id);
-        turn || jobs > 0
+        stored?;
+        Ok(turn || jobs > 0)
+    }
+
+    /// Stores `event` unless the person pressed Stop after `reply` began. Returns whether it was
+    /// stored. Checked under the lock Stop records under.
+    fn record_unless_stopped(
+        &self,
+        id: &str,
+        reply: &str,
+        event: &Event,
+    ) -> Result<bool, StoreError> {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if stop_requested(&self.load(id)?, reply) {
+            return Ok(false);
+        }
+        self.append(id, event)?;
+        Ok(true)
     }
 
     /// Answers an approval the open turn is waiting on.
