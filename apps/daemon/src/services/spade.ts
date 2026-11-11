@@ -9,6 +9,8 @@ import type { ServiceContext } from "./types.ts";
 
 /** Test seams for the Spade host; production uses the defaults. */
 export interface DaemonSpadeOptions {
+  /** The environment Spade's binary is looked up in and inherits; the daemon's by default. */
+  env?: NodeJS.ProcessEnv;
   runtime?: SpadeHostRuntime;
   backoff?: Backoff;
   readyTimeoutMs?: number;
@@ -21,33 +23,34 @@ export interface DaemonSpadeOptions {
 export async function startSpade(context: ServiceContext): Promise<void> {
   const { config, log, services } = context;
   const options = context.options.spade ?? {};
+  const env = options.env ?? process.env;
   let daemonUrl: string | undefined;
   const host = new SpadeHost({
     dataDir: join(config.dataDir, "spade"),
     binary: () =>
       findSpadeBinary({
-        env: process.env,
+        env,
         runtimeDirectory: dirname(process.execPath),
         platform: process.platform,
         isExecutable,
       }),
     credentials: async () => {
-      const env: Record<string, string> = {};
+      const issued: Record<string, string> = {};
       if (daemonUrl) {
-        env.SPADE_ACE_URL = daemonUrl;
-        env.SPADE_ACE_TOKEN = loadToken(config.dataDir).token;
+        issued.SPADE_ACE_URL = daemonUrl;
+        issued.SPADE_ACE_TOKEN = loadToken(config.dataDir).token;
       }
       const mcp = services.externalMcp?.issueForSpade();
       if (mcp) {
-        env.SPADE_ACE_MCP_URL = mcp.url;
-        env.SPADE_ACE_MCP_TOKEN = mcp.bearer;
+        issued.SPADE_ACE_MCP_URL = mcp.url;
+        issued.SPADE_ACE_MCP_TOKEN = mcp.bearer;
       } else log.log("warn", "Spade starts without ace's tools: the MCP endpoint is unavailable");
-      return { env, revoke: () => mcp?.revoke() };
+      return { env: issued, revoke: () => mcp?.revoke() };
     },
     runtime:
       options.runtime ??
       nodeSpadeRuntime({
-        env: process.env,
+        env,
         now: context.now,
         output: (stream, line) =>
           log.log(
