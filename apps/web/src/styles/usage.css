@@ -56,20 +56,20 @@
 }
 
 /*
- * A limit's spare: what its pace still leaves when it resets, drawn as a net over a faint wash
- * of the ink, so it reads apart from the solid amber the pace will use, without colour.
+ * What a limit's pace will still use before it resets: an amber net over a faint amber wash, so
+ * it reads as projected, apart from the solid spare and the solid red of a limit that runs out.
  */
-.usage-spare {
-  background-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+.usage-pace {
+  background-color: color-mix(in oklab, var(--status-needs-you) 18%, transparent);
   background-image:
     repeating-linear-gradient(
       45deg,
-      color-mix(in oklab, var(--foreground) 55%, transparent) 0 1px,
+      color-mix(in oklab, var(--status-needs-you) 80%, transparent) 0 1px,
       transparent 1px 5px
     ),
     repeating-linear-gradient(
       -45deg,
-      color-mix(in oklab, var(--foreground) 55%, transparent) 0 1px,
+      color-mix(in oklab, var(--status-needs-you) 80%, transparent) 0 1px,
       transparent 1px 5px
     );
 }

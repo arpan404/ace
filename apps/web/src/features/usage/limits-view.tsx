@@ -245,18 +245,13 @@ function Bar(props: { window: AccountWindow; runsOut: boolean }) {
           <>
             <span
               style={{ width: `${marker ?? left}%` }}
-              data-spare={marker !== null ? "" : undefined}
-              className={cn(
-                "absolute inset-y-0 left-0",
-                // What will still be left at the reset is a net; with no marker, what is left now.
-                marker !== null ? "usage-spare" : "bg-foreground/85",
-              )}
+              className="absolute inset-y-0 left-0 bg-foreground/85"
             />
             {marker !== null && marker < left && (
               <span
                 data-pace=""
                 style={{ left: `${marker}%`, width: `${left - marker}%` }}
-                className="absolute inset-y-0 bg-status-needs-you"
+                className="usage-pace absolute inset-y-0"
               />
             )}
           </>
