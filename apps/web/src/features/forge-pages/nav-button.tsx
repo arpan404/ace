@@ -5,8 +5,9 @@ import { useLinkedThreads } from "./linked-threads.ts";
 import { useInboxPages } from "./inbox-data.ts";
 import { useLastListPath } from "./last-list.ts";
 import { usePrPages } from "./lists.ts";
+import { useReviewSources } from "./review-sources.ts";
 import { inboxProjects, rowsForProjects } from "./inbox-model.ts";
-import { useProjectRepositories } from "./inbox-projects.ts";
+import { useInboxRepositories } from "./inbox-projects.ts";
 import { useProjectChoice } from "./project-choice.ts";
 
 /**
@@ -18,9 +19,9 @@ import { useProjectChoice } from "./project-choice.ts";
  */
 export function ForgeNavButton(props: { active: boolean }) {
   const choice = useProjectChoice({});
-  const list = usePrPages(choice.projects, prQuery({}, 1), 1);
+  const list = usePrPages(useReviewSources(choice.projects).sources, prQuery({}, 1), 1);
   const inbox = useInboxPages(choice.all[0], {}, 1);
-  const projectOf = inboxProjects(useProjectRepositories(choice.all));
+  const projectOf = inboxProjects(useInboxRepositories(choice.all).repositories);
   const linked = useLinkedThreads().pulls;
   const runs = useVerifyRuns(choice.one).data?.runs ?? [];
   const viewer = list.first?.viewer;

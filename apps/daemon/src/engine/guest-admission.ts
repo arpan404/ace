@@ -31,3 +31,22 @@ export function guestRefusal(
     detail: `This thread holds work from ${guest.name || "another machine"}; it has no agent here.`,
   };
 }
+
+/**
+ * The refusal for a command that would run an agent on a host thread (ADR 0117): the daemon holds
+ * it for Spade, whose tools act as it, and no provider ever runs it.
+ */
+export function hostRefusal(
+  commandId: CommandId,
+  payload: CommandPayload,
+  host: "spade" | undefined,
+): CommandResult | undefined {
+  if (!host || (!startsAgent.has(payload.type) && payload.type !== "thread.fork")) return undefined;
+  return {
+    commandId,
+    ok: false,
+    error: "host_thread",
+    title: "Spade's own thread",
+    detail: "Spade works through this thread; nothing runs in it.",
+  };
+}

@@ -1,3 +1,4 @@
+import { can, forgeDisplayName } from "@ace/ui-core";
 import { useState, type MouseEvent, type ReactNode } from "react";
 import type { MergeMethod } from "@ace/ui-core";
 import {
@@ -216,6 +217,17 @@ export function PrPrimaryControl(props: {
   blockingCount?: number | undefined;
 }) {
   const { actions } = props;
+  if (
+    !can(
+      actions.context.detail,
+      actions.primary.kind === "ready"
+        ? "reviews.edit"
+        : actions.primary.kind === "auto-merge" || actions.primary.kind === "auto-merge-ready"
+          ? "reviews.autoMerge"
+          : "reviews.merge",
+    )
+  )
+    return null;
   const working = actions.writes.pending || actions.mergeState.pending || actions.lifecycle.pending;
   return (
     <span className="inline-flex items-center gap-0.5">
@@ -305,7 +317,7 @@ export function PrHeader(props: {
             #{status.ref.number}
           </span>
           <ArrowSquareOutIcon aria-hidden size={12} />
-          <span className="sr-only">{`${status.state}, open on GitHub`}</span>
+          <span className="sr-only">{`${status.state}, open on ${forgeDisplayName(status.ref.repository.forge)}`}</span>
         </button>
         {props.condensed && (
           <div className="min-w-0 flex-1 pl-1">

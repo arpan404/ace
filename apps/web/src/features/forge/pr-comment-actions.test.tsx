@@ -182,6 +182,32 @@ test("a review comment that needs attention can be answered from its row", async
   }
 });
 
+test("a host that takes comments but no thread replies offers no Reply on a review thread", async () => {
+  const detail = {
+    ...reviewDetail({ reviewThreads: [thread()] }),
+    capabilities: ["reviews.read", "reviews.comments.read", "reviews.comments.write"],
+  };
+  const f = await reviewHarness({
+    detail,
+    // Resolving is still offered, so its button says the review state has been read.
+    state: reviewState({ resolvableThreads: ["T1"] }),
+    ui: (
+      <>
+        <PrThread thread={thread()} />
+        <PrAttention workspaceId="api" detail={detail} disabled={false} />
+      </>
+    ),
+  });
+  try {
+    await screen.findByRole("button", { name: "Resolve conversation" });
+    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reply: Rename this?" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Reply" })).toBeNull();
+  } finally {
+    await f.close();
+  }
+});
+
 const shown = (on: boolean) => (on ? <PrThread thread={thread()} /> : <p>Scrolled away</p>);
 
 test("an edit and an open reply survive their row scrolling away and back, which takes no focus", async () => {

@@ -32,6 +32,7 @@ import {
   seedLongIssue,
   movingPullRequest,
   seedProjectForge,
+  seedGitLabMirror,
   seedLongLists,
   withLongAutomations,
 } from "@ace/fake-daemon";
@@ -161,6 +162,8 @@ export function bootFake(): {
     seedLongIssue(daemon, Date.now());
     // The other projects' pull requests, issues and notifications, for the lists across projects.
     seedProjectForge(daemon, Date.now());
+    // Merge requests on ace's GitLab mirror, beside its GitHub reviews.
+    seedGitLabMirror(daemon, Date.now());
     // #229's checks with runs to read, so a failing one quotes its first failure line.
     seedPrChecks(daemon, Date.now());
     seedFakeSkills(daemon, Date.now());

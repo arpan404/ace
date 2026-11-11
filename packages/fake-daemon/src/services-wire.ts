@@ -12,6 +12,8 @@ import { FakeMcpWire } from "./mcp-wire.ts";
 import { FakeNotificationFeed } from "./notification-feed.ts";
 import {
   SourceControlPreferences,
+  configuredForge,
+  readableForges,
   BrowserClientMessage,
   ServerMessage,
   ThreadId,
@@ -459,9 +461,29 @@ export class FakeServicesWire {
             const preferences = SourceControlPreferences.parse(
               this.settings.get("sourceControl.preferences"),
             );
-            const expected = preferences.hosts.find(
-              (entry) => entry.host === preferences.host,
-            )?.account;
+            const selected = preferences.hosts.find((entry) => entry.host === preferences.host);
+            const expected = selected?.account;
+            const forge = selected ? configuredForge(selected) : "github";
+            const supported = readableForges.includes(forge);
+            // Each CLI's own version line and sign-in command, as the daemon reports them.
+            const cli =
+              forge === "gitlab"
+                ? {
+                    version: "1.55.0",
+                    name: "GitLab",
+                    signIn: `Run glab auth login --hostname ${preferences.host} on this computer to sign in as ${expected}, then Rescan.`,
+                  }
+                : forge === "origin"
+                  ? {
+                      version: "0.9.0",
+                      name: "Cursor Origin",
+                      signIn: `Run origin auth login on this computer to sign in as ${expected}, then Rescan.`,
+                    }
+                  : {
+                      version: "2.90.0",
+                      name: "GitHub",
+                      signIn: `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`,
+                    };
             emit({
               type: "source-control.result",
               requestId: message.requestId,
@@ -469,15 +491,20 @@ export class FakeServicesWire {
                 kind: "readiness",
                 readiness: {
                   preferences,
-                  cli: "available",
-                  version: "2.90.0",
-                  accounts: [{ login: "ada", active: true }],
-                  account: "ada",
-                  api: expected && expected !== "ada" ? "account_mismatch" : "ready",
-                  instructions:
-                    expected && expected !== "ada"
-                      ? `Run gh auth switch --hostname ${preferences.host} --user ${expected} on this computer, then Rescan.`
-                      : `GitHub API access verified as ada on ${preferences.host}.`,
+                  cli: supported ? "available" : "unavailable",
+                  version: supported ? cli.version : null,
+                  accounts: supported ? [{ login: "ada", active: true }] : [],
+                  account: supported ? "ada" : null,
+                  api: !supported
+                    ? "unavailable"
+                    : expected && expected !== "ada"
+                      ? "account_mismatch"
+                      : "ready",
+                  instructions: !supported
+                    ? "Host saved. Pull requests, issues and API connection checks for this provider are not available yet."
+                    : expected && expected !== "ada"
+                      ? cli.signIn
+                      : `${cli.name} API access verified as ada on ${preferences.host}.`,
                   transport: "unchecked",
                   transportInstructions:
                     "API sign-in does not verify Git clone or push access. Configure your Git credential helper / SSH key on this computer.",

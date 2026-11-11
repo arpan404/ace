@@ -3,6 +3,7 @@ import {
   BrowserIcon,
   DeviceMobileIcon,
   FileIcon,
+  FileTextIcon,
   FilesIcon,
   GitDiffIcon,
   GitPullRequestIcon,
@@ -17,6 +18,7 @@ import {
   filePreviewTabData,
   filePreviewTabKind,
   PullRequestTabData,
+  textEditTabKind,
   type TabKind,
 } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
@@ -107,6 +109,19 @@ export const filePreviewKind = defineTabKind({
   icon: FileIcon,
   title: (tab) => filePreviewTabData(tab)?.name ?? tab.title ?? "File",
   load: () => import("./files/file-preview-tab.tsx"),
+});
+
+/**
+ * Text the composer holds (a long paste), edited beside the thread. The tab lasts as long as
+ * the edit: it is never stored, and nothing brings it back once closed.
+ */
+export const textEditKind = defineTabKind({
+  kind: textEditTabKind,
+  label: "Text",
+  icon: FileTextIcon,
+  title: (tab) => tab.title ?? "Text",
+  reopenable: () => false,
+  load: () => import("./files/text-edit-tab.tsx"),
 });
 
 /**
@@ -236,6 +251,7 @@ export const threadKinds: readonly TabKind[] = [
   terminalKind,
   filesKind,
   filePreviewKind,
+  textEditKind,
   browserKind,
   previewKind,
   portKind,

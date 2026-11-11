@@ -37,6 +37,14 @@ export function uncertainWriteExpired(at: number, now: number): boolean {
   return now - at >= uncertainWriteWindowMs;
 }
 
+/**
+ * HTTP statuses after which a host has certainly not applied a write (ADR 0117), when seen
+ * under an unchanged identity. Any other failure after dispatch is uncertain.
+ */
+export const refusedWriteStatuses: ReadonlySet<number> = new Set([
+  400, 401, 403, 404, 405, 409, 412, 422, 429,
+]);
+
 /** The remote accepted a write, but its result cannot be published under the current identity. */
 export class ForgeMutationOutcome extends ForgeError {
   readonly receipt: unknown;

@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRepositories.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "config": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProjectRepositoryConfig.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "primary": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "repositories": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProjectRepository.json"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "workspaceId",
+    "repositories",
+    "primary",
+    "config"
+  ],
+  "type": "object"
+}

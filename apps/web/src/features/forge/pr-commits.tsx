@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import type { ForgePrDetail, ForgeRepository } from "@ace/protocol";
 import { keptForgeMs } from "@/lib/query-persistence.ts";
 import { readForge } from "@/lib/forge-read.ts";
@@ -13,6 +14,7 @@ export function usePrCommits(props: {
   const ref = props.detail.status.ref;
   return useHistoryQuery<CommitHistory>({
     queryKey: ["forge", props.workspaceId, ref, "workspace-commits", props.detail.status.headSha],
+    enabled: can(props.detail, "reviews.commits"),
     gcTime: keptForgeMs,
     read: (client, signal, progress) =>
       readCommitHistory(async (before) => {

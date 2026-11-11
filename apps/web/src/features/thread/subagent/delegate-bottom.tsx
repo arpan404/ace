@@ -20,6 +20,7 @@ import { ComposerDock } from "../composer/composer-dock.tsx";
 import { runsNow } from "../composer/execution.ts";
 import { branchEqual, readSubagentBranch } from "../lib/subagent-group.ts";
 import { barAction, SubagentStatusBar } from "./subagent-status-bar.tsx";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 /**
  * The bottom of a thread: its composer (`children`), unless ace delegated it and its whole tree
@@ -33,7 +34,8 @@ export function DelegateBottom(props: {
   onFork: (() => void) | undefined;
   children: ReactNode;
 }) {
-  const parentThreadId = props.thread.delegatedBy;
+  // A thread Spade delegated has no parent the person can open (Spade's hidden host thread).
+  const parentThreadId = useVisibleParent(props.thread.delegatedBy);
   return parentThreadId ? (
     <Delegated thread={props.thread} parentThreadId={parentThreadId} onFork={props.onFork}>
       {props.children}

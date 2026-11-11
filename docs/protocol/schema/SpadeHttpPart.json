@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpPart.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "maxLength": 196608,
+      "type": "string"
+    },
+    "index": {
+      "maximum": 1023,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.http.part",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "index",
+    "body"
+  ],
+  "type": "object"
+}

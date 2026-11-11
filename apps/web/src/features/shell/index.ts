@@ -4,7 +4,7 @@ export { useClaimConnectionNotice } from "./connection-owner.tsx";
 export { GlobalHotkeys } from "./global-hotkeys.tsx";
 export { OfflineWaiting } from "./offline-notice.tsx";
 export { Page, PageTitle, Screen, type ScreenWorkspace } from "./screen.tsx";
-export { SidebarFrame } from "./sidebar-frame.tsx";
+export { SidebarFrame, useViewFrame } from "./sidebar-frame.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
 export { PanelHeader, ViewFrame, ViewListPage, ViewSidebar } from "./view-frame.tsx";
 export { views, type View, type RailPlace } from "./views.ts";
@@ -14,3 +14,5 @@ export { ShortcutHost } from "./shortcut-host.tsx";
 export { UpdateRestartDialog } from "./update-restart-dialog.tsx";
 export { updateAction, updateActionWords, updateSummary } from "./update-status.ts";
 export { NoMachineSidebar } from "./no-machine-sidebar.tsx";
+/** Spade's plain rail place, shown until Spade's own (with its signal) has loaded. */
+export { SpadePlace } from "./app-rail.tsx";

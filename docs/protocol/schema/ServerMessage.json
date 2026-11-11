@@ -497,6 +497,27 @@
       "$ref": "https://ace.local/protocol/v1/SkillsChanged.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeStatusChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpOpen.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeHttpChunk.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveFrame.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SpadeLiveEnded.json"
+    },
+    {
       "properties": {
         "outcome": {
           "$ref": "https://ace.local/protocol/v1/AccountResetOutcome.json"

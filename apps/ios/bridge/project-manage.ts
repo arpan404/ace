@@ -31,6 +31,7 @@ import { FolderRequest, ProjectFolders } from "./project-folders.ts";
 import { answerHostOpen, HostOpenRequest } from "./host-open.ts";
 import { Repositories, RepositoryRequest } from "./repositories.ts";
 import { ProjectScripts, ScriptRequest } from "./project-scripts.ts";
+import { RepositorySettings, RepositorySettingsRequest } from "./project-repository-settings.ts";
 
 /*
  * Managing a project from the phone, as the web's Edit project and Remove dialogs do: what a
@@ -84,6 +85,7 @@ export const NativeProjectRequest = z.object({
     ...HostOpenRequest.options,
     ...RepositoryRequest.options,
     ...ScriptRequest.options,
+    ...RepositorySettingsRequest.options,
   ]),
 });
 export type NativeProjectRequest = z.infer<typeof NativeProjectRequest>;
@@ -112,6 +114,7 @@ export class ProjectManage {
   readonly #folders: ProjectFolders;
   readonly #repositories: Repositories;
   readonly #scripts: ProjectScripts;
+  readonly #repositorySettings: RepositorySettings;
   /** Queued writes' eventual receipts, by write id. */
   readonly #queued = new Map<string, Kept>();
   constructor(owner: ProjectManageOwner, schedule: (delay: number, run: () => void) => () => void) {
@@ -120,6 +123,9 @@ export class ProjectManage {
     this.#folders = new ProjectFolders(owner, (raw) => this.write(raw));
     this.#repositories = new Repositories(owner, (raw) => this.write(raw));
     this.#scripts = new ProjectScripts(owner, (raw) => this.write(raw));
+    this.#repositorySettings = new RepositorySettings(owner, (raw, words) =>
+      this.write(raw, words),
+    );
   }
 
   /**
@@ -168,6 +174,10 @@ export class ProjectManage {
       case "runScript":
       case "previews":
         return this.#scripts.answer(request);
+      case "repositories.read":
+      case "repositories.change":
+      case "repositories.add":
+        return this.#repositorySettings.answer(request);
       case "openers":
       case "open":
         return answerHostOpen(this.#owner, request);
@@ -187,9 +197,13 @@ export class ProjectManage {
   /**
    * Send a project command durably and wait for the daemon's receipt. One that takes longer
    * than `receiptWait` answers `queued` with a `writeId`: the command stays in the outbox and
-   * its eventual receipt, taken or refused, is kept for `outcome` to give.
+   * its eventual receipt, taken or refused, is kept for `outcome` to give. `words` names a
+   * refusal the project table doesn't.
    */
-  write(raw: unknown): Promise<WriteOutcome> {
+  write(
+    raw: unknown,
+    words: (code: string) => string | undefined = () => undefined,
+  ): Promise<WriteOutcome> {
     const payload = CommandPayload.safeParse(raw);
     if (!payload.success)
       return Promise.resolve(refused("invalid", projectProblem("invalid").message));
@@ -211,7 +225,7 @@ export class ProjectManage {
             });
           else {
             const code = result.error ?? "project_failed";
-            resolve(refused(code, projectProblem(code).message));
+            resolve(refused(code, words(code) ?? projectProblem(code).message));
           }
         },
       ).catch(() =>

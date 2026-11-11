@@ -96,6 +96,11 @@ export const SettingsValues = z.object({
    */
   "computer.lockedUse": z.boolean(),
   /**
+   * Run Spade, ace's assistant, beside the daemon (ADR 0117). Off by default; it also needs the
+   * Spade binary, from the release bundle or `ACE_SPADE_BIN`. Global, admin only.
+   */
+  "spade.enabled": z.boolean(),
+  /**
    * Android emulators ace starts open their own window too, for its extended controls
    * (sensors, camera, fingerprint). Off by default: ace shows and drives the device itself.
    * Read when an emulator boots, so a change applies to the next boot. Emulators the person

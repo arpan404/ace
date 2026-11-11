@@ -85,6 +85,13 @@ test("each row says its state in words, in the tone of its status", () => {
   expect(words(row(1, { state: "merged" }))).toEqual({ words: "Merged", tone: "waiting" });
 });
 
+test("a row the host reported no review or checks for says its review status is unavailable and offers only View", () => {
+  const unreported = row(1, { author: "sam", ci: undefined, reviewDecision: undefined });
+  expect(words(unreported)).toEqual({ words: "Review status unavailable", tone: undefined });
+  expect(action(unreported)).toBe("View");
+  expect(grouped([unreported])).toEqual({ "Waiting on others": [1] });
+});
+
 function action(pr: ForgePrRow) {
   const { step } = rowStep(pr, "me", undefined, []);
   return prNextAction(pr, step, undefined, "me");

@@ -2,6 +2,8 @@ import type { ForgeComment, ForgePrStatus, ForgeReviewState } from "@ace/protoco
 import {
   authoredReviewComment,
   canHide,
+  can,
+  type ForgeCapabilitySource,
   commentUrl,
   forgeReactions,
   hiddenReasonOf,
@@ -76,6 +78,7 @@ export const shownKey = (source: CommentSource, id: number) => `${source}:${id}`
 
 export interface Conversation {
   state: ForgeReviewState | undefined;
+  capabilities?: ForgeCapabilitySource;
   /** The pull request's address, under which each comment has its own. */
   url: string;
   /** Its repository, for GitHub's links in comment text. */
@@ -97,6 +100,7 @@ const writable = (conversation: Conversation) => !!conversation.state && !conver
 function reactionsOf(conversation: Conversation, comment: ForgeComment): ReactionView[] {
   const known = conversation.state?.reactions;
   // Without the viewer's own reactions a press can't know whether it adds or removes.
+  if (conversation.capabilities && !can(conversation.capabilities, "reactions")) return [];
   if (!known || comment.kind === "review" || !writable(conversation)) return [];
   const groups =
     known.find(
@@ -145,7 +149,10 @@ export function commentView(conversation: Conversation, comment: ForgeComment): 
 
 export function threadView(conversation: Conversation, thread: ReviewThread): ThreadView {
   const { state } = conversation;
-  const answers = !!state?.canComment || conversation.locked;
+  // Replying inside a thread is its own capability: some hosts take comments but no replies.
+  const answers =
+    (!!state?.canComment || conversation.locked) &&
+    can(conversation.capabilities, "reviews.comments.reply");
   return {
     id: thread.id,
     place: conversation.preview(threadPlace(thread), 4_200),

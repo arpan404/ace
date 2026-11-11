@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import {
   createContext,
   useCallback,
@@ -98,6 +99,8 @@ export function PrReviewWorkspace(props: {
   );
   const query = useDaemonQuery({
     queryKey: ["forge", props.workspaceId, pr, "review-state", props.detail.status.headSha],
+    enabled:
+      can(props.detail, "reviews.comments.write") || can(props.detail, "reviews.approvals.write"),
     retry: false,
     gcTime: keptForgeMs,
     refetchOnReconnect: "always",
@@ -163,9 +166,23 @@ export function PrReviewWorkspace(props: {
     [head],
   );
   const clearBatch = useCallback(() => setBatch({ head, ids: noBatch }), [head]);
+  const state = useMemo(
+    () =>
+      query.data
+        ? {
+            ...query.data,
+            canComment: query.data.canComment && can(props.detail, "reviews.comments.write"),
+            canReview: query.data.canReview && can(props.detail, "reviews.approvals.write"),
+            resolvableThreads: can(props.detail, "reviews.comments.write")
+              ? query.data.resolvableThreads
+              : [],
+          }
+        : undefined,
+    [query.data, props.detail],
+  );
   const value = useMemo(
     () => ({
-      state: query.data,
+      state,
       stateFailed: query.isError,
       pending: pending > 0 || disabled,
       ready: ready && !disabled,
@@ -178,7 +195,7 @@ export function PrReviewWorkspace(props: {
       commentsLocked,
     }),
     [
-      query.data,
+      state,
       query.isError,
       pending,
       ready,

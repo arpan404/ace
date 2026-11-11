@@ -362,6 +362,9 @@
     "sourceControl.preferences": {
       "$ref": "https://ace.local/protocol/v1/SourceControlPreferences.json"
     },
+    "spade.enabled": {
+      "type": "boolean"
+    },
     "storage.backupWorktrees": {
       "type": "boolean"
     },
@@ -493,6 +496,7 @@
     "browser.userChrome.storageReads",
     "computer.blockedApps",
     "computer.lockedUse",
+    "spade.enabled",
     "devices.emulatorWindow",
     "devices.enabled",
     "access.defaultMode",

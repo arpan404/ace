@@ -85,6 +85,8 @@ export interface ServerOptions {
   providerActivation?: Promise<void>;
   promptFiles?: import("@ace/commands").PromptFiles | undefined;
   skillLibrary?: import("@ace/commands").SkillLibrary | undefined;
+  /** Spade, ace's assistant, when this daemon hosts it (ADR 0117). */
+  spade?: import("./spade/host.ts").SpadeHost | undefined;
   commands?: CommandService | undefined;
   files?: FilesService;
   threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;

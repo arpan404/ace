@@ -3,12 +3,14 @@ import { useClient, useConnectionState } from "@ace/client-react";
 import type { Attachment } from "@ace/protocol";
 import { attachmentLimits, attachmentSizeProblem, type DraftFile } from "@ace/ui-core";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { PanelEdit } from "@/components/attachment-chips.tsx";
 import type { ChipAttachment } from "@/components/attachment-format.ts";
 import type { LocalAttachment } from "@/components/attachment-format.ts";
 import { imageStill } from "@/components/image-still.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
+import { editedName, isPasted } from "./large-paste.ts";
 
 export interface PendingAttachment extends ChipAttachment {
   /** Size in bytes; unknown for a draft restored after a reload. */
@@ -264,11 +266,13 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
   /**
    * Attach files: each gets its chip and starts uploading. A file already attached (same name,
    * size and date) is skipped; one over the per-file or per-message size limit gets a chip that
-   * says so. Returns how many didn't fit the message's file count and were left out.
+   * says so. Returns how many didn't fit the message's file count and were left out, and the
+   * chips made, so the message can mark where each was added.
    */
   const add = useCallback(
-    (added: Iterable<File>): number => {
+    (added: Iterable<File>): { left: number; added: { key: number; name: string }[] } => {
       let left = 0;
+      const made: { key: number; name: string }[] = [];
       for (const file of added) {
         const held = [...known.current.values()];
         if (
@@ -285,6 +289,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
           continue;
         }
         const key = ++next.current;
+        made.push({ key, name: file.name });
         const preview =
           file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
@@ -304,6 +309,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
             bytes: file.size,
             state: error ? "failed" : "uploading",
             progress: 0,
+            editable: isPasted(file.name),
             ...(error ? { error, retryable: false } : {}),
           },
         ]);
@@ -322,7 +328,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
               );
           });
       }
-      return left;
+      return { left, added: made };
     },
     [upload],
   );
@@ -367,6 +373,60 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
           description: "Check the connection and try again.",
         }),
     );
+  };
+  /**
+   * Put edited text in an editable chip's place: a new file under the chip's name (a paste's name
+   * follows its new line count) uploads where the old one stood, and the old one goes as Remove
+   * would take it, released in the background once no other chip holds the same bytes. Returns
+   * the new chip's key and name.
+   */
+  const edit = (key: number, text: string): { key: number; name: string } | undefined => {
+    const old = known.current.get(key)?.file;
+    if (!old) return undefined;
+    const file = new File([text], editedName(old.name, text), { type: old.type || "text/plain" });
+    const fresh = ++next.current;
+    const others = [...known.current].filter(([other]) => other !== key);
+    const error = attachmentSizeProblem(
+      file.size,
+      others.reduce((sum, [, held]) => sum + held.bytes, 0),
+    );
+    known.current.set(fresh, { file, bytes: error ? 0 : file.size });
+    setItems((list) =>
+      list.map((item) =>
+        item.key === key
+          ? {
+              key: fresh,
+              name: file.name,
+              file,
+              mimeType: file.type || undefined,
+              bytes: file.size,
+              state: error ? "failed" : "uploading",
+              progress: 0,
+              editable: item.editable,
+              ...(error ? { error, retryable: false } : {}),
+            }
+          : item,
+      ),
+    );
+    if (!error) files.current.set(fresh, file);
+    const outcome = error ? Promise.resolve<Outcome>({ error }) : upload(fresh, file);
+    // The message sends its files in chip order, so the new one takes the old one's place.
+    outcomes.current = new Map(
+      [...outcomes.current].map(([other, value]) =>
+        other === key ? [fresh, outcome] : [other, value],
+      ),
+    );
+    const hash = known.current.get(key)?.id?.split("\0")[0];
+    if (inFlight.current.has(key)) removed.current.add(key);
+    drop(key);
+    if (hash && ![...known.current.values()].some((held) => held.id?.startsWith(`${hash}\0`)))
+      void sources.context.release(thread, hash).catch(() =>
+        toast.error({
+          title: "Couldn't remove the unedited copy",
+          description: "Open Attachments from the thread menu and try removing it again.",
+        }),
+      );
+    return { key: fresh, name: file.name };
   };
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);
@@ -477,6 +537,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
     add,
     remove,
     retry,
+    edit,
     clear,
     settled,
     handOff,
@@ -495,6 +556,10 @@ export function AttachmentChips(props: {
   items: readonly PendingAttachment[];
   onRemove(key: number): void;
   onRetry?: ((key: number) => void) | undefined;
+  /** Save edited text in place of a text file this device holds. */
+  onEdit?: ((key: number, text: string) => void) | undefined;
+  /** Edit a text file this device holds in the thread's side panel, where there is one. */
+  panelEdit?: PanelEdit | undefined;
   /** The thread the files go to, for previewing a restored draft's files; none for a draft. */
   threadId?: string | undefined;
 }) {

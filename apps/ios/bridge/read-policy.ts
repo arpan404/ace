@@ -73,6 +73,9 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return "settings-page";
     case "source-control.request":
       return operation(value) === "readiness" ? "source-control" : undefined;
+    // The phone's Source control screen (`source-control-screen.ts`).
+    case "source-control.screen":
+      return "source-control";
     case "automation.list":
     case "automation.inbox":
     case "automations.page":
@@ -106,6 +109,7 @@ export function readFamily(request: unknown): ReadFamily | undefined {
     case "forge.pull.timeline":
     case "forge.pull.file":
     case "forge.pull.files":
+    case "forge.pull.hosted-files":
     case "forge.pull.commits":
     case "forge.pull.reviewers":
     case "forge.inbox":
@@ -141,6 +145,7 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
     case "host.reset":
       return ["host", "settings", "settings-page", "providers"];
     case "settings.page.set":
+    case "source-control.write":
       return ["settings", "settings-page", "source-control", "host", "providers"];
     case "settings.models.star":
       return ["settings", "settings-page", "providers"];

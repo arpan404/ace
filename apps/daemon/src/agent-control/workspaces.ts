@@ -1,4 +1,5 @@
 import { realpath } from "node:fs/promises";
+import { delegationWorkspace } from "./host-delegation.ts";
 import type { ModelLoadBudget } from "./model-load-budget.ts";
 import {
   Command,
@@ -80,13 +81,14 @@ export function createWorkspaceDelegations(
     try {
       const parent = context.store.getThread(caller.threadId);
       if (!parent) throw new Error("parent_missing");
+      const workspaceId = delegationWorkspace(context.store, caller, request);
       const command = Command.parse({
         id: controlCommandId(caller.threadId, request.requestId, "workspace"),
         deviceId: "ace-agent",
         payload: {
           type: "thread.prepare",
           threadId: reservation.record.childId,
-          workspaceId: parent.workspaceId,
+          workspaceId,
           provider: request.provider,
           title: request.role.slice(0, 256),
           mode: "worktree",
@@ -105,7 +107,7 @@ export function createWorkspaceDelegations(
         const record = service.prepareReserved(
           caller,
           reservation,
-          parent.workspaceId,
+          workspaceId,
           undefined,
           prepared ? { preparedWorkspace: prepared.workspace } : undefined,
         );

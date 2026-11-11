@@ -1,5 +1,7 @@
+import { useRepositoryCapabilities } from "@/lib/repository-capabilities.ts";
+import { can } from "@ace/ui-core";
 import { useThreadMeta } from "@ace/client-react";
-import { mergeMethods, nextGitStep, type Checkout } from "@ace/ui-core";
+import { mergeMethods, nextGitStep, type Checkout, type ForgeCapabilitySource } from "@ace/ui-core";
 import {
   CaretDownIcon,
   CloudArrowUpIcon,
@@ -22,8 +24,8 @@ type GitFlow = ReturnType<typeof useGitFlow>;
 const glyph = (Glyph: typeof GitCommitIcon) => <Glyph aria-hidden size={16} />;
 
 /** The next git step as one primary action: Commit & push, Push or Create PR. */
-function primaryStep(git: GitFlow, checkout: Checkout) {
-  const step = nextGitStep(checkout);
+function primaryStep(git: GitFlow, checkout: Checkout, source: ForgeCapabilitySource | undefined) {
+  const step = nextGitStep(checkout, source);
   if (step.kind === "commit")
     return { label: "Commit & push", icon: CloudArrowUpIcon, run: () => git.open("commit-push") };
   if (step.kind === "push") return { label: "Push", icon: UploadSimpleIcon, run: git.push };
@@ -48,7 +50,8 @@ export function GitAction(props: {
   className?: string | undefined;
 }) {
   const { git, checkout } = props;
-  const primary = primaryStep(git, checkout);
+  const source = useRepositoryCapabilities(git.workspaceId, checkout.repository);
+  const primary = primaryStep(git, checkout, source);
   const Icon = primary.icon;
   const blocked = "blocked" in primary ? primary.blocked : undefined;
   return (
@@ -133,34 +136,41 @@ function LoadedGitAction(props: {
  * An open PR's actions: merge by any of the forge's methods (the one picked becomes Merge's
  * default) and ask for a review.
  */
-function PrMenuItems(props: { git: GitFlow; draft: boolean }) {
+function PrMenuItems(props: {
+  git: GitFlow;
+  draft: boolean;
+  source: ForgeCapabilitySource | undefined;
+}) {
   const { git } = props;
   const current = useMergeMethod();
   const { merge, checking } = useMergePr(git);
   const blocked = props.draft ? "Mark this PR ready on GitHub before merging" : undefined;
   return (
     <>
-      {mergeMethods.map((each) => (
+      {can(props.source, "reviews.merge") &&
+        mergeMethods.map((each) => (
+          <MenuItem
+            key={each.method}
+            icon={glyph(GitMergeIcon)}
+            disabled={git.pending || checking || !!blocked}
+            reason={each.method === current ? blocked : undefined}
+            onClick={() => void merge(each.method)}
+          >
+            {each.label}
+            {each.method === current && (
+              <span className="ml-auto pl-3 text-xs text-subtle-foreground">default</span>
+            )}
+          </MenuItem>
+        ))}
+      {can(props.source, "reviews.reviewers.request") && (
         <MenuItem
-          key={each.method}
-          icon={glyph(GitMergeIcon)}
-          disabled={git.pending || checking || !!blocked}
-          reason={each.method === current ? blocked : undefined}
-          onClick={() => void merge(each.method)}
+          icon={glyph(UserPlusIcon)}
+          disabled={git.pending}
+          onClick={() => git.open("request-review")}
         >
-          {each.label}
-          {each.method === current && (
-            <span className="ml-auto pl-3 text-xs text-subtle-foreground">default</span>
-          )}
+          Request review…
         </MenuItem>
-      ))}
-      <MenuItem
-        icon={glyph(UserPlusIcon)}
-        disabled={git.pending}
-        onClick={() => git.open("request-review")}
-      >
-        Request review…
-      </MenuItem>
+      )}
       <MenuSeparator />
     </>
   );
@@ -178,7 +188,11 @@ function NextHint(props: { on: boolean }) {
 /** Every git step for the checkout, the next one marked: the git action's menu and the card's. */
 export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
   const { git, checkout } = props;
-  const next = nextGitStep(checkout).kind;
+  const source = useRepositoryCapabilities(
+    git.workspaceId,
+    checkout.pr?.repo ?? checkout.repository,
+  );
+  const next = nextGitStep(checkout, source).kind;
   const pr = checkout.pr;
   const live = pr?.state === "open" || pr?.state === "draft";
   const nothing = checkout.changed === 0 ? "No changes to commit" : undefined;
@@ -210,7 +224,7 @@ export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
         <NextHint on={next === "push"} />
       </MenuItem>
       <MenuSeparator />
-      {!live && (
+      {!live && can(source, "reviews.create") && (
         <>
           <MenuItem
             icon={glyph(GitPullRequestIcon)}
@@ -230,17 +244,20 @@ export function GitMenuItems(props: { git: GitFlow; checkout: Checkout }) {
           </MenuItem>
         </>
       )}
-      {live && pr && <PrMenuItems git={git} draft={pr.state === "draft"} />}
-      {checkout.repository?.forge !== "gitlab" && (
-        <MenuItem
-          icon={glyph(LinkSimpleIcon)}
-          disabled={!!git.linkBlocked || git.pending}
-          reason={git.linkBlocked}
-          onClick={() => git.open("link-pr")}
-        >
-          Link a pull request…
-        </MenuItem>
-      )}
+      {live &&
+        pr &&
+        !!(pr.repo ?? checkout.repository) &&
+        (can(source, "reviews.merge") || can(source, "reviews.reviewers.request")) && (
+          <PrMenuItems git={git} draft={pr.state === "draft"} source={source} />
+        )}
+      <MenuItem
+        icon={glyph(LinkSimpleIcon)}
+        disabled={!!git.linkBlocked || git.pending}
+        reason={git.linkBlocked}
+        onClick={() => git.open("link-pr")}
+      >
+        Link a pull request…
+      </MenuItem>
       {pr && (
         <MenuItem
           disabled={git.pending}

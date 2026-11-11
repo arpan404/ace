@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCapability.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "reviews.read",
+    "reviews.files",
+    "reviews.commits",
+    "reviews.comments.read",
+    "reviews.comments.write",
+    "reviews.comments.reply",
+    "reviews.approvals.read",
+    "reviews.approvals.write",
+    "reviews.reviewers.request",
+    "reviews.checks",
+    "reviews.checks.write",
+    "reviews.create",
+    "reviews.edit",
+    "reviews.merge",
+    "reviews.autoMerge",
+    "reviews.stacks",
+    "reviews.suggestions",
+    "issues.read",
+    "issues.write",
+    "inbox",
+    "reactions",
+    "media"
+  ],
+  "type": "string"
+}

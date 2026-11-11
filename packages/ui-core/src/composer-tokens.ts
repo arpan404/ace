@@ -18,6 +18,11 @@ export interface ComposerToken {
   thread?: ThreadRefContextItem | undefined;
   /** A tab of the thread's browser (`@` a tab). */
   browserTab?: BrowserTabContextItem | undefined;
+  /**
+   * A file attached where this marker stands (`composer-markers.ts`): its chip's key in this
+   * composer, and its hash once the daemon holds it.
+   */
+  attachment?: { key?: number | undefined; sha256?: string | undefined } | undefined;
 }
 
 /** An edit touching a reference removes it; edits around it preserve its position. */

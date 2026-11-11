@@ -113,6 +113,10 @@
     "hasSentMessage": {
       "type": "boolean"
     },
+    "host": {
+      "const": "spade",
+      "type": "string"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

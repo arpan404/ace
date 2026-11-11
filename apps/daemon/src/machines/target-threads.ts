@@ -49,6 +49,15 @@ import { checkAccountModel, machineAccount } from "./target-accounts.ts";
 const NoticeRow = z.object({ command_id: z.string(), code: z.string(), text: z.string() });
 const ProjectRows = z.array(z.object({ id: z.string(), name: z.string() }));
 
+/**
+ * The projects other machines may see and delegate into: registered ones the person opened,
+ * never a hidden kind (a chat's folder, or Spade's own, ADR 0117), as for agents here.
+ */
+const listedProjects = `SELECT w.id AS id, w.name AS name FROM workspaces w
+  LEFT JOIN workspace_metadata m ON m.workspace_id=w.id
+  WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered u WHERE u.workspace_id=w.id)
+  AND m.kind IS NULL ORDER BY w.rowid DESC`;
+
 export interface TargetThreadDeps {
   store: Store;
   registry?(): import("@ace/accounts").AccountRegistry | undefined;
@@ -247,13 +256,7 @@ export class TargetThreads {
     ]);
   }
   project(name: string | undefined): WorkspaceId {
-    const rows = this.deps.store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 64",
-        )
-        .all(),
-    );
+    const rows = this.deps.store.atomic((db) => db.prepare(`${listedProjects} LIMIT 64`).all());
     const projects = ProjectRows.parse(rows);
     const found =
       name === undefined
@@ -272,13 +275,7 @@ export class TargetThreads {
     return WorkspaceId.parse(found.id);
   }
   projects(): { workspaceId: WorkspaceId; name: string }[] {
-    const rows = this.deps.store.atomic((db) =>
-      db
-        .prepare(
-          "SELECT id,name FROM workspaces WHERE NOT EXISTS(SELECT 1 FROM workspace_unregistered WHERE workspace_id=workspaces.id) ORDER BY rowid DESC LIMIT 32",
-        )
-        .all(),
-    );
+    const rows = this.deps.store.atomic((db) => db.prepare(`${listedProjects} LIMIT 32`).all());
     return ProjectRows.parse(rows).map((row) => ({
       workspaceId: WorkspaceId.parse(row.id),
       name: row.name.slice(0, 256),

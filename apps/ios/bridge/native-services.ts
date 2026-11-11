@@ -57,6 +57,7 @@ import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
 import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
 import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { answerSourceControlScreen, SourceControlScreenRequest } from "./source-control-screen.ts";
 import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
@@ -389,6 +390,16 @@ export class NativeServices {
       const page = settingsPageRequest(raw);
       if (page) {
         this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
+        return;
+      }
+      const sourceControl = SourceControlScreenRequest.safeParse(raw);
+      if (sourceControl.success) {
+        const value = await answerSourceControlScreen(
+          this.owner,
+          sourceControl.data,
+          controller.signal,
+        );
+        this.#answer(id, raw, value, read);
         return;
       }
       const manage = SettingsManageRequest.safeParse(raw);
