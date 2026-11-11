@@ -47,11 +47,7 @@ export interface AxisTick {
  * "Now", then every second hour in the detailed part, then each midnight after it, named by its
  * weekday. A midnight inside the detailed part is named by its weekday instead of its hour.
  */
-export function axisTicks(
-  axis: AvailabilityAxis,
-  timeZone?: string,
-  locale?: string,
-): AxisTick[] {
+export function axisTicks(axis: AvailabilityAxis, timeZone?: string, locale?: string): AxisTick[] {
   const ticks: AxisTick[] = [{ at: axis.from, label: "Now", kind: "now" }];
   const weekday = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone });
   const midnights = new Set<number>();
