@@ -48,7 +48,7 @@ test("chips sit inside the styles around them, and their text never styles", () 
     { start: 4, end: 11, label: "@a**.ts", file: { path: "a**.ts" } },
     { start: 14, end: 15, label: "shot.png", attachment: { key: 1 } },
   ];
-  expect(drawn("# **@a**.ts** ￼", tokens)).toBe(
+  expect(drawn("# **@a**.ts** \uFFFC", tokens)).toBe(
     "<h1><mark># </mark><bold><mark>**</mark>[@a**.ts]<mark>**</mark></bold> [shot.png]</h1>",
   );
 });

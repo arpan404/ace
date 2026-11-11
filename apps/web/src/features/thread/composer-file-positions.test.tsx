@@ -144,3 +144,36 @@ test("a heading is drawn as one as soon as its marks are typed", async () => {
   pasteText(message, "## Plan");
   await waitFor(() => expect(message.querySelector('[data-md="h2"]')?.textContent).toBe("## Plan"));
 });
+
+test("a kept draft brings its file's marker back where it was, and it still goes with its place", async () => {
+  const { app, message, commands } = await openComposer();
+  pasteText(message, "look ");
+  pasteFile(message, screenshot());
+  pasteText(message, " here");
+  await uploaded();
+  await app.open("/");
+  await app.open("/t/thread-router");
+  const reopened = await screen.findByRole("combobox", { name: "Message" });
+  await waitFor(() => expect(within(reopened).getByLabelText("screen.png")).toBeTruthy());
+  expect(reopened.textContent).toBe("look screen.png here");
+  fireEvent.keyDown(reopened, { key: "Enter" });
+  await waitFor(() =>
+    expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash, at: 5 }]),
+  );
+});
+
+test("editing a pasted file renames its marker with it", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `line ${line}`).join("\n"));
+  const chips = await uploaded();
+  expect(within(message).getByLabelText("Pasted 60 lines.txt")).toBeTruthy();
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
+  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  await user.clear(contents);
+  await user.type(contents, "one{Enter}two");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
+  expect(within(message).queryByLabelText("Pasted 60 lines.txt")).toBeNull();
+});

@@ -86,6 +86,12 @@ export function MessageInput({
       // Chips moved with the text around them: point each at its token, keep the DOM.
       const nodes = [...el.querySelectorAll<HTMLElement>("[data-token-text]")];
       const ordered = tokens.toSorted((a, b) => a.start - b.start);
+      // A chip renamed in place (an edited file) reads by its new name.
+      nodes.forEach((node, index) => {
+        const label = ordered[index]?.label;
+        if (label !== undefined && node.getAttribute("aria-label") !== label)
+          node.setAttribute("aria-label", label);
+      });
       setSlots((current) =>
         current.length === nodes.length &&
         current.every((slot, index) => slot.node === nodes[index] && slot.token === ordered[index])
