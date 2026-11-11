@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { ClientMetadata, metadataMaxBytes, metadataUrl, type MetadataFetch } from "./cimd.ts";
+import {
+  ClientMetadata,
+  metadataFetchesAtOnce,
+  metadataMaxBytes,
+  metadataUrl,
+  type MetadataFetch,
+} from "./cimd.ts";
+import { publicMetadataFetch } from "./cimd-fetch.ts";
 
 const id = "https://client.example/oauth/metadata.json";
 const document = {
@@ -96,4 +103,40 @@ test("a failed fetch is a problem the page can show, not a throw", async () => {
   expect(await clients.resolve(id)).toEqual({
     problem: "Couldn't fetch client.example's client metadata.",
   });
+});
+
+test("only a few documents are fetched at once, across clients", async () => {
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const fetched: string[] = [];
+  const clients = new ClientMetadata({
+    now: () => 0,
+    fetch: async (url) => {
+      fetched.push(url.href);
+      await held;
+      return { status: 404, headers: new Headers(), body: new Uint8Array() };
+    },
+  });
+  const ids = Array.from(
+    { length: metadataFetchesAtOnce + 1 },
+    (_, i) => `https://c${i}.example/m.json`,
+  );
+  const results = ids.map((clientId) => clients.resolve(clientId));
+  expect(await results.at(-1)).toMatchObject({ problem: expect.stringContaining("busy") });
+  expect(fetched).toHaveLength(metadataFetchesAtOnce);
+  release();
+  await Promise.all(results);
+  // Once they finish, the next sign-in fetches again.
+  void clients.resolve(ids.at(-1) ?? "");
+  expect(fetched).toHaveLength(metadataFetchesAtOnce + 1);
+});
+
+test("the daemon's own fetch gives up on a slow lookup at the deadline and never reaches private hosts", async () => {
+  const url = new URL("https://slow.example/m.json");
+  const stuck = publicMetadataFetch(() => new Promise(() => {}));
+  await expect(stuck(url, AbortSignal.timeout(20))).rejects.toBeDefined();
+  const local = publicMetadataFetch(async () => ["93.184.215.14", "10.0.0.5"]);
+  await expect(local(url, AbortSignal.timeout(1000))).rejects.toThrow("not public");
+  const mapped = publicMetadataFetch(async () => ["64:ff9b::7f00:1"]);
+  await expect(mapped(url, AbortSignal.timeout(1000))).rejects.toThrow("not public");
 });

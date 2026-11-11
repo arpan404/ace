@@ -13,6 +13,8 @@ export const metadataTimeoutMs = 5_000;
 const cacheDefaultMs = 5 * 60_000;
 const cacheMaxMs = 60 * 60_000;
 const cacheEntries = 64;
+/** Metadata documents fetched at once, across clients; more sign-ins wait for none of them. */
+export const metadataFetchesAtOnce = 4;
 
 /** One GET of a metadata URL; never follows redirects, rejects on network failure. */
 export type MetadataFetch = (
@@ -111,6 +113,8 @@ export class ClientMetadata {
     if (cached && cached.until > this.now()) return Promise.resolve(cached.client);
     const running = this.pending.get(clientId);
     if (running) return running;
+    if (this.pending.size >= metadataFetchesAtOnce)
+      return Promise.resolve({ problem: "ace is busy checking other sign-ins. Try again soon." });
     const next = this.load(url).finally(() => this.pending.delete(clientId));
     this.pending.set(clientId, next);
     return next;

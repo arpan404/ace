@@ -14,10 +14,21 @@ import { metadataMaxBytes, type MetadataFetch } from "./cimd.ts";
 export const systemResolve: ResolveHost = async (host) =>
   (await lookup(host, { all: true, verbatim: true })).map((entry) => entry.address);
 
+/** `work`, or a rejection as soon as `signal` aborts. */
+function beforeAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolved, rejected) => {
+    const abort = () => rejected(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(resolved, rejected).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 export function publicMetadataFetch(resolve: ResolveHost = systemResolve): MetadataFetch {
   return async (url, signal) => {
     const host = url.hostname.replace(/^\[|\]$/g, "");
-    const addresses = isIP(host) ? [host] : await resolve(host);
+    // The lookup is under the same deadline as the request.
+    const addresses = isIP(host) ? [host] : await beforeAbort(resolve(host), signal);
     const address = addresses[0];
     if (address === undefined || addresses.some(privateAddress))
       throw new Error("Client metadata host is not public");
