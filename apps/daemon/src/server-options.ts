@@ -92,6 +92,11 @@ export interface ServerOptions {
   /** Set by `startServer`: serves a relayed main channel with the main-socket handler. */
   relayMain?: ((entry: import("./relay-socket.ts").RelayedMain) => void) | undefined;
   settings?: SettingsService;
+  /**
+   * Serves outside MCP requests that ace's hosted relay forwards (ADR 0117), once outside MCP
+   * grants exist; unset, the relay path answers 404 (`relay-http.ts`).
+   */
+  outsideMcpHttp?: import("./relay-http.ts").RelayHttpHandler | undefined;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;
   usage?: UsageCommands;

@@ -169,6 +169,12 @@ export const SettingsValues = z.object({
    * matches its version; the hosted one may not.
    */
   "remote.hostedPairingLink": z.boolean(),
+  /**
+   * Whether outside MCP clients, such as hosted assistants, reach this machine through ace's
+   * relay at `https://relay.acehq.dev/m/<hostId>/` (ADR 0117). Off by default. On this path the
+   * relay ends TLS and carries the requests in plain text; the daemon authorizes every one.
+   */
+  "remote.relayMcp": z.boolean(),
   "remote.relayUrl": z
     .string()
     .max(2048)

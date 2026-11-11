@@ -4,7 +4,9 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-01",
   // node:net for the shared IP normalization.
-  "compatibility_flags": ["nodejs_compat"],
+  // node:net for the shared IP normalization; request.signal so a caller leaving cancels the
+  // daemon's work on forwarded HTTP.
+  "compatibility_flags": ["nodejs_compat", "enable_request_signal"],
   "durable_objects": {
     "bindings": [{ "name": "RELAY", "class_name": "RelayObject" }],
   },
@@ -25,6 +27,13 @@
       "name": "ACCOUNT_REQUESTS",
       "namespace_id": "1002",
       "simple": { "limit": 120, "period": 60 },
+    },
+    // Forwarded HTTP to a machine (ADR 0117): per caller address, then per host id.
+    { "name": "HTTP_REQUESTS", "namespace_id": "1003", "simple": { "limit": 300, "period": 60 } },
+    {
+      "name": "HTTP_HOST_REQUESTS",
+      "namespace_id": "1004",
+      "simple": { "limit": 600, "period": 60 },
     },
   ],
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
@@ -59,6 +68,16 @@
           "name": "ACCOUNT_REQUESTS",
           "namespace_id": "1002",
           "simple": { "limit": 120, "period": 60 },
+        },
+        {
+          "name": "HTTP_REQUESTS",
+          "namespace_id": "1003",
+          "simple": { "limit": 300, "period": 60 },
+        },
+        {
+          "name": "HTTP_HOST_REQUESTS",
+          "namespace_id": "1004",
+          "simple": { "limit": 600, "period": 60 },
         },
       ],
       "triggers": { "crons": ["17 * * * *"] },

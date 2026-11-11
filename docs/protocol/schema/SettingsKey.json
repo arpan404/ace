@@ -63,6 +63,7 @@
     "remote.agentTransfers",
     "remote.transferIgnoredFiles",
     "remote.hostedPairingLink",
+    "remote.relayMcp",
     "remote.relayUrl",
     "notifications.remotePush",
     "notifications.pushGatewayUrl",

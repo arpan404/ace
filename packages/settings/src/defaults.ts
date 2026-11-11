@@ -74,6 +74,7 @@ export const defaults: SettingsValues = {
   "remote.agentTransfers": true,
   "remote.transferIgnoredFiles": true,
   "remote.hostedPairingLink": false,
+  "remote.relayMcp": false,
   "remote.relayUrl": "",
   "notifications.remotePush": true,
   "notifications.pushGatewayUrl": "https://push.acehq.dev",

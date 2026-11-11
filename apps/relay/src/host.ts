@@ -14,7 +14,9 @@ import {
   CONTROL_PROLOGUE,
   STREAM_PROLOGUE,
 } from "./handshake.ts";
-import { ControlMessage, HostOptionsSchema } from "./config.ts";
+import { ControlMessage, HTTP_FEATURE, HostOptionsSchema } from "./config.ts";
+import { serveHttpExchange } from "./http-host.ts";
+import type { HostHttpOptions } from "./http-host.ts";
 import { ClientSlots } from "./admission.ts";
 import { GRANT_SUBPROTOCOL_PREFIX } from "@ace/account-grant";
 import { systemClock, delay } from "./clock.ts";
@@ -63,6 +65,11 @@ export async function connectHostToRelay(options: {
    * a confirmed registration is lost and the connection starts registering again.
    */
   onRegistration?: (registered: boolean) => void;
+  /**
+   * Serves HTTP requests ace's hosted relay forwards from `/m/<hostId>/…` (ADR 0117). Given,
+   * the host registers with the `http` feature, so the relay sends it `http` tickets.
+   */
+  http?: HostHttpOptions;
 }): Promise<HostRelayConnection> {
   relayAddress(options.relayUrl, "/host");
   if (hostId(keyPair(options.hostKeys.privateKey).publicKey) !== hostId(options.hostKeys.publicKey))
@@ -77,6 +84,7 @@ export async function connectHostToRelay(options: {
   const tasks = new Set<Promise<void>>();
   const slots = new ClientSlots(limits.maxClientChannels);
   const pending = new Map<string, AbortController>();
+  let httpActive = 0;
   let generation = 0;
   const waiters: { after: number; resolve(value: number): void; reject(error: Error): void }[] = [];
   const id = hostId(options.hostKeys.publicKey);
@@ -158,6 +166,40 @@ export async function connectHostToRelay(options: {
       if (channel) channels.delete(channel);
     }
   }
+  async function openHttp(ticket: string): Promise<void> {
+    const http = options.http;
+    if (!http) return;
+    httpActive++;
+    try {
+      const { socket, reader } = await dial(
+        relayAddress(options.relayUrl, "/serve", { ticket, hostId: id }),
+        controller.signal,
+        clock,
+        limits.handshakeTimeoutMs,
+      );
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+      const stopLiveness = watchLiveness(
+        socket,
+        clock,
+        limits.idleTimeoutMs,
+        limits.pingIntervalMs,
+      );
+      try {
+        await serveHttpExchange(socket, reader, http.handle, { clock, signal: controller.signal });
+      } finally {
+        stopLiveness();
+      }
+    } finally {
+      httpActive--;
+    }
+  }
+  /** Whether to take an `http` ticket, or why not. */
+  async function httpAnswer(): Promise<"open" | "off" | "busy"> {
+    const http = options.http;
+    if (!http || !(await Promise.resolve(http.enabled()).catch(() => false))) return "off";
+    return httpActive >= (http.maxConcurrent ?? 32) ? "busy" : "open";
+  }
   const run = (async () => {
     let retryMs = limits.retryInitialMs;
     while (!controller.signal.aborted) {
@@ -174,6 +216,7 @@ export async function connectHostToRelay(options: {
             hostId: id,
             ...(account?.name ? { name: account.name } : {}),
             ...(account?.platform ? { platform: account.platform } : {}),
+            ...(options.http ? { features: HTTP_FEATURE } : {}),
           }),
           controller.signal,
           clock,
@@ -220,6 +263,28 @@ export async function connectHostToRelay(options: {
                 new TextDecoder().decode(transport.receive.decrypt(await connection.reader.next())),
               ),
             );
+            if (message.type === "http") {
+              const ticket = message.ticket;
+              const control = socket;
+              const task = httpAnswer().then((answer) => {
+                if (answer === "open") return openHttp(ticket);
+                // The session may have ended while the setting was read; the relay's own
+                // deadline answers the caller then.
+                if (controller.signal.aborted || control.readyState !== control.OPEN) return;
+                void sendFrame(
+                  control,
+                  transport.send.encrypt(
+                    new TextEncoder().encode(
+                      JSON.stringify({ type: "reject", ticket, reason: answer }),
+                    ),
+                  ),
+                ).catch(() => {});
+              });
+              const settled = task.catch(() => {});
+              tasks.add(settled);
+              void settled.finally(() => tasks.delete(settled));
+              continue;
+            }
             if (message.type !== "client") throw new Error("Invalid client ticket");
             const reservation = slots.reserve(message.ticket);
             if (!reservation.accepted) {
