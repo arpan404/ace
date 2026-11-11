@@ -78,12 +78,31 @@ first, then Spade:
 
 ## The desktop app talks to Spade directly
 
-The desktop main process reads `<ACE_HOME>/spade/server.json` and the token file, watches them for
-changes, and exposes `window.aceDesktop.spade` through the preload bridge:
-`{ endpoint(): Promise<{ address: string; token: string; api: number } | null> }`. The renderer
-calls Spade's HTTP API and live stream at that address with the token; when it is `null` or a
-request fails to connect, it falls back to the daemon's `spade.*` family. The token never leaves
-the desktop process tree and is never persisted by the renderer.
+The desktop main process reads `<ACE_HOME>/spade/server.json` and the token file (the same
+ACE_HOME it resolved for the daemon), watches the folder for changes, and accepts the endpoint
+only for a loopback address and an `api` it speaks (the current one, and the previous one once
+there is one). The renderer is served from `app://ace` under a CSP that lets it reach only the
+daemon, and Spade's API sends no CORS headers, so the main process makes the requests itself:
+the token stays in the main process and never reaches the page. The preload bridge exposes
+`window.ace.spade` (beside the app's other `window.ace` features):
+
+- `endpoint(): Promise<{ address: string; version: string; api: number } | null>`;
+- `health()`: Spade's `GET /health`, null when nothing answers;
+- `request({method, path, body?, contentType?})`: one request to a `/v1/` path, with the same
+  route rules and caps as `spade.http`. An upload is one plain request with its whole body; an
+  image answers as bytes. The answer is `text` or `bytes` with Spade's status, `unreachable`
+  (nobody listened, nothing was sent) or an `error` (`invalid_path`, `too_large`, `failed`: cut
+  off after it may have reached Spade);
+- `openLive({streamId, path})` / `closeLive(streamId)` with `onLive` events: each frame, then
+  one end (`closed`, `unreachable`, `refused` with Spade's status, `too_large`, `invalid_path`,
+  `limit`); a window's streams end when it reloads or closes;
+- `onEndpointChanged`: Spade's files changed (it started, stopped or restarted).
+
+When nobody listens at the old address or Spade answers 401 (it restarted with a new token), the
+main process reads the files again and sends once more. The renderer falls back to the daemon's
+`spade.*` family when `endpoint()` is null or a request is `unreachable`, and looks again after
+five seconds; a `failed` request is never resent. Spade's status in the app is ready whenever its
+`/health` answers directly, even while the daemon is down.
 
 ## Other clients reach Spade through the daemon
 
