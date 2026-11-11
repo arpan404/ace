@@ -4,6 +4,7 @@ import {
   WorkspaceId,
   type AgentControlResult,
   type CliOperation,
+  type OutsideEndpoint,
   type OutsideScope,
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
@@ -123,6 +124,8 @@ export async function externalMcp(context: ServiceContext) {
     /** Grants, tokens, access requests and screen use, for the admin protocol and OAuth. */
     outside,
     url: server.url,
+    /** Where outside clients can reach this machine, best first. The OAuth task adds the rest. */
+    endpoints: (): OutsideEndpoint[] => [{ path: "local", url: server.url, on: true }],
     /**
      * What this endpoint serves, as `ace capabilities` reports it: the server's own `context`
      * and tool search/dispatch, then every registered tool. Each client is offered only the

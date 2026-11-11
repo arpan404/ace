@@ -92,6 +92,17 @@ export const OutsideScreenUse = z.object({
 });
 export type OutsideScreenUse = z.infer<typeof OutsideScreenUse>;
 
+/** One way outside clients reach this machine (ADR 0117, Reach). */
+export const OutsideEndpoint = z.object({
+  path: z.enum(["local", "tailscale", "relay", "custom"]),
+  /** The URL to paste into a client; null while this path is off or can't serve. */
+  url: z.url().max(2048).nullable(),
+  on: z.boolean(),
+  /** Why an on path can't serve right now (signed out, no ts.net certificate, ...). */
+  problem: z.string().min(1).max(512).optional(),
+});
+export type OutsideEndpoint = z.infer<typeof OutsideEndpoint>;
+
 const OutsideOperation = z.discriminatedUnion("op", [
   /** Every grant, revoked ones included, with the threads each started or messaged. */
   z.object({ op: z.literal("grants") }),
@@ -106,6 +117,8 @@ const OutsideOperation = z.discriminatedUnion("op", [
   }),
   /** Pending access requests and screen use, now and on every change (`outside.state`). */
   z.object({ op: z.literal("watch") }),
+  /** The addresses outside clients can use, best first. */
+  z.object({ op: z.literal("endpoints") }),
   /** End an outside client's screen work at once. */
   z.object({ op: z.literal("stopScreen"), grantId }),
   z.object({
@@ -140,6 +153,7 @@ const OutsideOutcome = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("watching") }),
   z.object({ kind: z.literal("screenStopped") }),
   z.object({ kind: z.literal("decided") }),
+  z.object({ kind: z.literal("endpoints"), endpoints: z.array(OutsideEndpoint).max(8) }),
 ]);
 export type OutsideOutcome = z.infer<typeof OutsideOutcome>;
 

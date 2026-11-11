@@ -92,6 +92,26 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "endpoints": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/OutsideEndpoint.json"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            "kind": {
+              "const": "endpoints",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "endpoints"
+          ],
+          "type": "object"
         }
       ]
     },

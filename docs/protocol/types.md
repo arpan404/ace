@@ -20732,6 +20732,27 @@ Example:
 "dcr"
 ```
 
+## OutsideEndpoint
+
+[JSON Schema](schema/OutsideEndpoint.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| path | yes | ["local","tailscale","relay","custom"] |  |
+| url | yes | union | {"anyOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"null"}]} |
+| on | yes | boolean |  |
+| problem | no | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "on": false,
+  "path": "tailscale",
+  "url": "https://example.invalid/"
+}
+```
+
 ## OutsideGrant
 
 [JSON Schema](schema/OutsideGrant.json), input validation.
@@ -20850,14 +20871,14 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.request"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"grants"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"revoke"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"update"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"},"scopes":{"minItems":1,"maxItems":6,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}},"projects":{"$ref":"https://ace.local/protocol/v1/OutsideProjects.json"},"expiresAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"watch"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"endpoints"}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"stopScreen"},"grantId":{"type":"string","pattern":"^[a-zA-Z0-9_-]{1,128}$"}},"required":["op","grantId"]},{"type":"object","properties":{"op":{"type":"string","const":"decide"},"accessRequestId":{"type":"string","minLength":1,"maxLength":128},"choice":{"$ref":"https://ace.local/protocol/v1/OutsideAccessDecision.json"}},"required":["op","accessRequestId","choice"]}]} |
 
 Example:
 
 ```json
 {
   "operation": {
-    "op": "watch"
+    "op": "endpoints"
   },
   "requestId": "example",
   "type": "outside.request"
@@ -20872,7 +20893,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"grants"},"grants":{"maxItems":20000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideGrantEntry.json"}}},"required":["kind","grants"]},{"type":"object","properties":{"kind":{"type":"string","const":"revoked"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"updated"},"grant":{"$ref":"https://ace.local/protocol/v1/OutsideGrant.json"}},"required":["kind","grant"]},{"type":"object","properties":{"kind":{"type":"string","const":"watching"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"screenStopped"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"decided"}},"required":["kind"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"grants"},"grants":{"maxItems":20000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideGrantEntry.json"}}},"required":["kind","grants"]},{"type":"object","properties":{"kind":{"type":"string","const":"revoked"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"updated"},"grant":{"$ref":"https://ace.local/protocol/v1/OutsideGrant.json"}},"required":["kind","grant"]},{"type":"object","properties":{"kind":{"type":"string","const":"watching"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"screenStopped"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"decided"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"endpoints"},"endpoints":{"maxItems":8,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideEndpoint.json"}}},"required":["kind","endpoints"]}]} |
 
 Example:
 

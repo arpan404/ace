@@ -769,7 +769,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"outside.result"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":128} |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"grants"},"grants":{"maxItems":20000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideGrantEntry.json"}}},"required":["kind","grants"]},{"type":"object","properties":{"kind":{"type":"string","const":"revoked"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"updated"},"grant":{"$ref":"https://ace.local/protocol/v1/OutsideGrant.json"}},"required":["kind","grant"]},{"type":"object","properties":{"kind":{"type":"string","const":"watching"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"screenStopped"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"decided"}},"required":["kind"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"grants"},"grants":{"maxItems":20000,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideGrantEntry.json"}}},"required":["kind","grants"]},{"type":"object","properties":{"kind":{"type":"string","const":"revoked"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"updated"},"grant":{"$ref":"https://ace.local/protocol/v1/OutsideGrant.json"}},"required":["kind","grant"]},{"type":"object","properties":{"kind":{"type":"string","const":"watching"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"screenStopped"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"decided"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"endpoints"},"endpoints":{"maxItems":8,"type":"array","items":{"$ref":"https://ace.local/protocol/v1/OutsideEndpoint.json"}}},"required":["kind","endpoints"]}]} |
 
 Example:
 
@@ -777,7 +777,7 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "kind": "screenStopped"
+    "kind": "decided"
   },
   "type": "outside.result"
 }

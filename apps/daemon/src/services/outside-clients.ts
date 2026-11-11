@@ -39,6 +39,8 @@ export function createOutsideClientsSession(context: SocketContext): SocketServi
       case "watch":
         if (!stops.length) stops.push(owner.requests.subscribe(push), owner.screen.subscribe(push));
         return { kind: "watching" };
+      case "endpoints":
+        return { kind: "endpoints", endpoints: context.options.externalMcp?.endpoints() ?? [] };
       case "stopScreen":
         return owner.stopScreen(operation.grantId, by()) ? { kind: "screenStopped" } : "not_found";
       case "decide": {

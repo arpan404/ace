@@ -87,6 +87,18 @@
         },
         {
           "properties": {
+            "op": {
+              "const": "endpoints",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "grantId": {
               "pattern": "^[a-zA-Z0-9_-]{1,128}$",
               "type": "string"

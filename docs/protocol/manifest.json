@@ -33,12 +33,12 @@
       "sha256": "93f395ba88bd7bc4b5f7814adf92492ba93cddfc74cb4ff4161dc8d2deb42e98"
     },
     "push.md": {
-      "bytes": 116991,
-      "sha256": "13ba2936348312a2f34a469f328a32828b3d1b23b447855552313599237fe3ec"
+      "bytes": 117207,
+      "sha256": "8d6f207ac4528b9305e47cbce92d395d69f5fdf77762845cc72d5390a85e466c"
     },
     "requests.md": {
-      "bytes": 110898,
-      "sha256": "0d98199834af3d58ef95695f30f4a558a922f3e9c012f7df3343c1f47495903c"
+      "bytes": 110854,
+      "sha256": "afc76f07b07161f14eda61b72a5fc3cab4fc0b84d357c185c15537dc12585f9a"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2812,6 +2812,10 @@
       "bytes": 199,
       "sha256": "641c41e7686c87e4fe4175bb5baea403034f581a7306888d54a1cc93221dfcde"
     },
+    "schema/OutsideEndpoint.json": {
+      "bytes": 1124,
+      "sha256": "37ea7f60048a4284522ae1294574cc667dfee153f4da6c3e996274374b6a4e6e"
+    },
     "schema/OutsideGrant.json": {
       "bytes": 2031,
       "sha256": "2ba81f5a810d31f9e7ae77048a32cce4271278dc23457cc5b9f5e2c0a7eeaba6"
@@ -2825,12 +2829,12 @@
       "sha256": "f4267d7b25a9c5ebcde6103a3070a4343274dc8b55f35aa82fdfb1dae8eb659a"
     },
     "schema/OutsideRequest.json": {
-      "bytes": 3306,
-      "sha256": "b8571ebfef9096d4b04c32e718597a872eb9e8da64b4076bb515aa5f89ed3677"
+      "bytes": 3548,
+      "sha256": "a5c8c8222d33a788443915b6deabd34ea80c276ca2392431964f6ffa6f45e2be"
     },
     "schema/OutsideResult.json": {
-      "bytes": 2295,
-      "sha256": "92e342087d770ca1cac7400c2dc5839c97c7e317bdbedafb57d0398dbb04df80"
+      "bytes": 2786,
+      "sha256": "41f458582df8819a324f410f48be1b0f1745214461db6d738a270c2885c376e0"
     },
     "schema/OutsideScope.json": {
       "bytes": 275,
@@ -4941,10 +4945,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1006719,
-      "sha256": "0edb24e09914da8c0c72c2bd931d85617568fb1b264f58a45f8fee792c1e9e65"
+      "bytes": 1007958,
+      "sha256": "9b66bdb2d752540724afff0cd83cce8ff939e946fd40fc6606dc1b44803cc022"
     }
   },
-  "input": "a6f7ac5518a332dac5ac50bb0d7214b080a6e052f2e8809346676f0de8d49923",
+  "input": "81b26289168e14ced153832701b882622a786fe00c6ed1b16f7a791fa1e9b863",
   "version": 1
 }
