@@ -47,6 +47,12 @@ export class FakeSpadeApi implements FakeSpadeServer {
   endpoints: Json[] = [];
   presets: Json[] = [];
   fastModel: string | null = null;
+  /** False: this machine has no keychain, so key writes answer 503. */
+  keychain = true;
+  /** A status every key write answers with, to stage a failure. */
+  keyFailure: number | undefined;
+  /** `PUT /v1/main`: false leaves the main agent out of the list, as Spade does. */
+  mainEnabled = true;
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
   /** Every request the app sent, in order. */
@@ -113,7 +119,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** A reply that opens and asks the person to approve a call. */
-  ask(agent: FakeSpadeAgent, callId: string, name: string, id = `r${++this.sequence}`): void {
+  ask(
+    agent: FakeSpadeAgent,
+    callId: string,
+    name: string,
+    args?: unknown,
+    id = `r${++this.sequence}`,
+  ): void {
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, {
       type: "step_finished",
@@ -126,6 +138,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
       reply: id,
       call_id: callId,
       name,
+      ...(args === undefined ? {} : { arguments: args }),
     });
     this.status(agent, "waiting", "Waiting for you");
   }
@@ -168,7 +181,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         endpoints: this.endpoints,
         presets: this.presets,
         fast_model: this.fastModel,
-        keychain: true,
+        keychain: this.keychain,
       });
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
@@ -176,7 +189,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;
       return { status: 204 };
     }
-    if (root === "main") return { status: 204 };
+    if (root === "main") {
+      this.mainEnabled = body.enabled !== false;
+      return { status: 204 };
+    }
     if (root === "conversations" && id)
       return this.conversationRoute(request, id, sub, subId, query);
     if (root === "images") return { status: 404, body: "" };
@@ -186,11 +202,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   private agentRoute(method: string, id: string | undefined, body: Json): FakeSpadeAnswer {
     if (!id && method === "GET")
       return reply({
-        agents: this.agents.toSorted(
-          (a, b) =>
-            Number(b.kind === "main") - Number(a.kind === "main") ||
-            b.last_activity - a.last_activity,
-        ),
+        agents: this.agents
+          .filter((agent) => agent.kind !== "main" || this.mainEnabled)
+          .toSorted(
+            (a, b) =>
+              Number(b.kind === "main") - Number(a.kind === "main") ||
+              b.last_activity - a.last_activity,
+          ),
       });
     if (!id && method === "POST") {
       const avatar = body.avatar as Json | undefined;
@@ -246,7 +264,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         base_url: body.base_url,
         header_names: Object.keys((body.headers as Json | undefined) ?? {}),
         session_header: body.session_header ?? null,
-        needs_key: true,
+        needs_key: body.needs_key !== false,
         key_set: false,
         key_source: null,
         models: [],
@@ -293,6 +311,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   private keyRoute(method: string, id: string): FakeSpadeAnswer {
     const endpoint = this.endpoints.find((candidate) => candidate.id === id);
     if (!endpoint) return problem(404, "No such endpoint.");
+    if (!this.keychain) return problem(503, "This machine has no keychain.");
+    if (this.keyFailure) return problem(this.keyFailure, "The keychain refused the key.");
     endpoint.key_set = method === "PUT";
     endpoint.key_source = method === "PUT" ? "keychain" : null;
     return { status: 204 };

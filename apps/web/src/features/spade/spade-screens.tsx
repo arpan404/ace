@@ -130,6 +130,19 @@ export function SpadeAgentScreen(props: { agentId: string; machine: string | und
         </div>
       </Screen>
     );
+  if (bot.unavailable)
+    return (
+      <BotScreen bot={bot}>
+        <div className={`${readingColumn} pt-6 text-ui text-muted-foreground`}>
+          {/* This machine's Spade says why, with Turn on while it is off. */}
+          {bot.machine.primary ? (
+            <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
+          ) : (
+            `Spade isn't running on ${machine.name}. ${bot.name} is back when it is.`
+          )}
+        </div>
+      </BotScreen>
+    );
   return (
     <SpadeMachineScope
       machine={machine}
@@ -159,7 +172,7 @@ function BotScreen(props: { bot: RosterBot; children: ReactNode }) {
       title={bot.name}
       mark={<SpadeFace avatar={bot.avatar} size={20} />}
       menu={
-        bot.away ? undefined : (
+        bot.away || bot.unavailable ? undefined : (
           <>
             <MenuItem onClick={() => setEditing(true)}>{main ? "Edit Spade" : "Edit bot"}</MenuItem>
             {!main && (

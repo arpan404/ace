@@ -64,14 +64,17 @@ export function EndpointSection(props: { endpoint: SpadeEndpoint; keychain: bool
           density="compact"
           inline
         >
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label={`Remove ${model.name}`}
-            onClick={() => void dropModel(model.id)}
-          >
-            Remove
-          </Button>
+          {/* Only the person's saved models can go; the preset's come with the endpoint. */}
+          {model.source !== "preset" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Remove ${model.name}`}
+              onClick={() => void dropModel(model.id)}
+            >
+              Remove
+            </Button>
+          )}
         </SettingRow>
       ))}
       <AddModelRow endpoint={endpoint} />

@@ -87,6 +87,8 @@ export interface SpadeEndpointDraft {
   base_url: string;
   headers?: Record<string, string>;
   session_header?: string;
+  /** False for a local server that takes no key; true when absent. */
+  needs_key?: boolean;
   preset?: string;
 }
 

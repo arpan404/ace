@@ -41,8 +41,12 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
   const ids = { name: useId(), task: useId(), model: useId(), machine: useId() };
   const cache = useQueryClient();
   const navigate = useNavigate();
-  const [hostKey, setHostKey] = useState(props.hosts[0]?.spade.key ?? "");
-  const host = props.hosts.find((candidate) => candidate.spade.key === hostKey) ?? props.hosts[0];
+  // The machine the person chose, kept while it is out of reach: never another one silently.
+  const [chosen, setChosen] = useState(() => ({
+    key: props.hosts[0]?.spade.key ?? "",
+    name: props.hosts[0]?.machine.name ?? "",
+  }));
+  const host = props.hosts.find((candidate) => candidate.spade.key === chosen.key);
   const [name, setName] = useState("");
   const [task, setTask] = useState("");
   const [avatar, setAvatar] = useState<AvatarDraft>({ kind: "generated", color: "teal" });
@@ -116,20 +120,30 @@ export function NewBotDialog(props: { hosts: readonly SpadeHost[]; onClose(): vo
             <Select
               id={ids.machine}
               label="Runs on"
-              value={host?.spade.key ?? ""}
-              options={props.hosts.map((each) => ({
-                value: spadeMachineKey(each.machine),
-                label: each.machine.primary
-                  ? `${each.machine.name} (this machine)`
-                  : each.machine.name,
-              }))}
+              value={chosen.key}
+              options={[
+                ...props.hosts.map((each) => ({
+                  value: spadeMachineKey(each.machine),
+                  label: each.machine.primary
+                    ? `${each.machine.name} (this machine)`
+                    : each.machine.name,
+                })),
+                ...(host ? [] : [{ value: chosen.key, label: chosen.name, disabled: true }]),
+              ]}
               onValueChange={(next) => {
-                setHostKey(next);
+                const picked = props.hosts.find((each) => each.spade.key === next);
+                if (!picked) return;
+                setChosen({ key: next, name: picked.machine.name });
                 // Another machine has its own endpoints.
                 setModel("");
               }}
               className="w-72"
             />
+            {!host && (
+              <p role="status" className="text-xs text-muted-foreground">
+                {`${chosen.name} isn't reachable right now. Wait for it, or pick another machine.`}
+              </p>
+            )}
           </Field>
           {problem && (
             <p role="alert" className="text-ui text-destructive">

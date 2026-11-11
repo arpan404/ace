@@ -12,12 +12,13 @@ import { NewBotDialog } from "./spade-bot-dialog.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
-import { useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
+import { useOneSpade, useSpadeRoster, type RosterBot } from "./use-spade-roster.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 /** The second line of a bot's row: what it does now, else its latest message. */
 export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "needs-you" } {
   if (bot.away) return { text: `Away · ${bot.machine.name} is offline` };
+  if (bot.unavailable) return { text: `Unavailable · Spade isn't running on ${bot.machine.name}` };
   if (bot.state === "waiting") return { text: bot.status ?? "Waiting for you", tone: "needs-you" };
   if (bot.state === "working") return { text: bot.status ?? "Working", tone: "working" };
   const last = bot.lastMessage;
@@ -30,14 +31,16 @@ export function rosterLine(bot: RosterBot): { text: string; tone?: "working" | "
  * Spade's panel, a messenger's list (ADR 0127): Spade first, then every bot on every machine
  * this window reaches by latest activity. A row is the bot's face, its name and when it was last
  * active, then what it does now in its state's colour, or its latest message. A bot on an
- * offline machine reads as away. "New bot" opens the form. While Spade isn't running, its state
- * in one sentence (with Turn on while it is off).
+ * offline machine reads as away, one whose Spade stopped as unavailable. "New bot" opens the
+ * form. While Spade isn't running, its state in one sentence (with Turn on while it is off). The
+ * panel sees every machine, so it keeps Spade, the main bot, on one (`useOneSpade`).
  */
 export function SpadeSidebar() {
   const status = useSpadeStatus();
   const [enabled] = useSpadeEnabled();
   const line = spadeStateLine(status, enabled);
   const roster = useSpadeRoster(line.ready);
+  useOneSpade(roster.hosting);
   const open = useParams({ strict: false, select: (params) => params.agentId });
   const now = useNow();
   const [creating, setCreating] = useState(false);
@@ -91,7 +94,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
         size={32}
         working={bot.state === "working" && !bot.away}
         ring="bg-(--sidebar-panel) shadow-[0_0_0_2px_var(--sidebar-panel)]"
-        className={cn(bot.away && "opacity-45")}
+        className={cn((bot.away || bot.unavailable) && "opacity-45")}
       />
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-baseline gap-2">
@@ -99,7 +102,7 @@ function Row(props: { bot: RosterBot; current: boolean; now: number }) {
             data-view-row-title=""
             className={cn(
               "min-w-0 flex-1 truncate text-md",
-              bot.away ? "text-muted-foreground" : "text-foreground",
+              bot.away || bot.unavailable ? "text-muted-foreground" : "text-foreground",
             )}
           >
             {bot.name}

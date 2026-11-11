@@ -44,8 +44,10 @@ export function SpadeChat(props: {
 }) {
   const { view, bot } = props;
   const bubbles = spadeBubbles(view);
-  // Working: anything open that isn't waiting on the person, whose ask is its own bubble.
-  const working = view.busy && view.approvals.length === 0;
+  // Busy: anything open. Stop stays while it is, waiting on the person too; the face moves only
+  // while the bot works itself.
+  const busy = view.busy;
+  const waiting = view.approvals.length > 0;
   return (
     <div
       role="feed"
@@ -57,16 +59,16 @@ export function SpadeChat(props: {
         const next = bubbles[index + 1];
         // The face sits by the last of a run of the bot's bubbles, or by the working line.
         const lastOfRun =
-          !(next && botSide(next) && botSide(item)) && !(working && index === bubbles.length - 1);
+          !(next && botSide(next) && botSide(item)) && !(busy && index === bubbles.length - 1);
         return (
           <Bubble key={item.key} item={item} bot={bot} face={lastOfRun} onAnswer={props.onAnswer} />
         );
       })}
-      {working && (
+      {busy && (
         <div role="status" className="flex items-center gap-2.5">
-          <SpadeFace avatar={bot.avatar} size={28} working />
+          <SpadeFace avatar={bot.avatar} size={28} working={!waiting} />
           <span className="min-w-0 truncate text-ui text-muted-foreground">
-            {view.status ?? "Working"}
+            {waiting ? "Waiting for you" : (view.status ?? "Working")}
           </span>
           <Button
             size="xs"
@@ -151,6 +153,7 @@ const Bubble = memo(function Bubble(props: {
         <BotRow bot={bot} face={props.face}>
           <Ask
             sentence={spadeApprovalSentence(item.name, bot.name)}
+            details={item.arguments}
             onAnswer={(allowed) => props.onAnswer(item.callId, allowed)}
           />
         </BotRow>
@@ -171,9 +174,15 @@ function BotRow(props: { bot: ChatBot; face: boolean; children: React.ReactNode 
   );
 }
 
-/** The bot asks to use a tool: its sentence, then Allow and Deny. */
-function Ask(props: { sentence: string; onAnswer(allowed: boolean): Promise<boolean> }) {
+/** The bot asks to use a tool: its sentence, then Allow, Deny and Details (what the call would do). */
+function Ask(props: {
+  sentence: string;
+  details: unknown;
+  onAnswer(allowed: boolean): Promise<boolean>;
+}) {
   const [answering, setAnswering] = useState<boolean>();
+  const [open, setOpen] = useState(false);
+  const details = callDetails(props.details);
   const answer = (allowed: boolean) => {
     setAnswering(allowed);
     void props.onAnswer(allowed).then((sent) => {
@@ -183,6 +192,14 @@ function Ask(props: { sentence: string; onAnswer(allowed: boolean): Promise<bool
   return (
     <div className={botBubble}>
       <p>{props.sentence}</p>
+      {open && details && (
+        <pre
+          aria-label="Details"
+          className="no-scrollbar mt-1.5 max-h-48 overflow-auto rounded-md bg-code px-2.5 py-2 font-mono text-xs leading-normal whitespace-pre-wrap shadow-[inset_0_0_0_1px_var(--border)]"
+        >
+          {details}
+        </pre>
+      )}
       <div className="-mx-2 mt-1 -mb-1 flex gap-1">
         <Button
           size="xs"
@@ -200,9 +217,38 @@ function Ask(props: { sentence: string; onAnswer(allowed: boolean): Promise<bool
         >
           {answering === false ? "Denying…" : "Deny"}
         </Button>
+        {details && (
+          <Button
+            size="xs"
+            variant="ghost"
+            aria-expanded={open}
+            onClick={() => setOpen((shown) => !shown)}
+          >
+            Details
+          </Button>
+        )}
       </div>
     </div>
   );
+}
+
+/** Most of a call's arguments a bubble shows; the rest is cut with an ellipsis. */
+const maxDetailChars = 20_000;
+
+/**
+ * What an approval would do, as text: its arguments as the bot sent them, indented JSON (text
+ * stays text: React escapes it). Undefined when the call carries none.
+ */
+export function callDetails(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  let text: string;
+  try {
+    text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "");
+  } catch {
+    return undefined;
+  }
+  if (!text || text === "{}") return undefined;
+  return text.length > maxDetailChars ? `${text.slice(0, maxDetailChars)}…` : text;
 }
 
 /** The person's images, right-aligned above their words, each read once and kept by hash. */

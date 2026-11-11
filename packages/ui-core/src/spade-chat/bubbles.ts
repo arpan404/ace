@@ -28,7 +28,15 @@ export type SpadeBubble =
       error: string | undefined;
     }
   /** `name`: the tool it asks to use, for `spadeApprovalSentence` with the bot's name. */
-  | { kind: "ask"; key: string; callId: string; name: string; sentence: string };
+  | {
+      kind: "ask";
+      key: string;
+      callId: string;
+      name: string;
+      sentence: string;
+      /** What the call would do, as the bot sent it: shown on request before the answer. */
+      arguments: unknown;
+    };
 
 export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const bubbles: SpadeBubble[] = [];
@@ -69,6 +77,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       key: `ask:${approval.callId}`,
       callId: approval.callId,
       name: approval.name,
+      arguments: approval.arguments,
       sentence: approval.sentence,
     });
   return bubbles;

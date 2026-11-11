@@ -181,3 +181,27 @@ test("Spade itself can be edited but never deleted", async () => {
   expect(await screen.findByRole("menuitem", { name: "Edit Spade" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Delete bot" })).toBeNull();
 });
+
+test("an approval shows what the call would do on request, as plain text", async () => {
+  await spadeApp("/spade/inbox", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    const inbox = api.addAgent({ id: "inbox", name: "Inbox" });
+    api.ask(inbox, "k7", "send_email", { to: "marta@example.com", body: "<b>Thursday</b> works" });
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Details" }));
+  const details = await screen.findByLabelText("Details");
+  expect(details.textContent).toContain('"to": "marta@example.com"');
+  expect(details.textContent).toContain("<b>Thursday</b> works");
+  expect(details.querySelector("b")).toBeNull();
+});
+
+test("Stop stays while a bot waits on the person", async () => {
+  await spadeApp("/spade/inbox", (api) => {
+    withEndpoint(api);
+    api.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
+    api.ask(api.addAgent({ id: "inbox", name: "Inbox" }), "k7", "send_email");
+  });
+  await screen.findByText("Inbox wants to send an email.");
+  expect(await screen.findByRole("button", { name: "Stop Inbox" })).toBeTruthy();
+});

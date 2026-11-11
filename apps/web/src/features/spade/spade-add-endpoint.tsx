@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { Select, type SelectOption } from "@/components/ui/select.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
 import { addEndpoint } from "./spade-api.ts";
 import { modelsKey } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -51,7 +52,8 @@ const formatOptions = spadeFormats.map((value): SelectOption<SpadeFormat> => ({
 
 /**
  * Add endpoint: from one of Spade's presets (its address, format and session header filled in)
- * or custom: name, format, base URL, extra headers and a session header. The key is set on the
+ * or custom: name, format, base URL, extra headers, a session header, and whether it needs a key
+ * (a local server doesn't). The key is set on the
  * endpoint's row once it is added, never here.
  */
 export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onClose(): void }) {
@@ -62,6 +64,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     url: useId(),
     headers: useId(),
     session: useId(),
+    key: useId(),
   };
   const client = useSpadeClient();
   const cache = useQueryClient();
@@ -71,6 +74,8 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
   const [url, setUrl] = useState("");
   const [headers, setHeaders] = useState("");
   const [session, setSession] = useState("");
+  // A local server (Ollama, LM Studio) takes no key.
+  const [needsKey, setNeedsKey] = useState(true);
   const [saving, setSaving] = useState(false);
   const [problem, setProblem] = useState<string>();
   const choose = (next: string) => {
@@ -94,6 +99,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
         base_url: url.trim(),
         ...(Object.keys(extra).length ? { headers: extra } : {}),
         ...(session.trim() ? { session_header: session.trim() } : {}),
+        ...(needsKey ? {} : { needs_key: false }),
         ...(from === custom ? {} : { preset: from }),
       });
       await cache.invalidateQueries({ queryKey: modelsKey });
@@ -165,6 +171,12 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
               onChange={(event) => setSession(event.target.value)}
             />
           </Field>
+          <div className="flex items-center justify-between gap-4">
+            <label htmlFor={ids.key} className="text-ui font-medium">
+              Needs a key
+            </label>
+            <Switch id={ids.key} checked={needsKey} onCheckedChange={setNeedsKey} />
+          </div>
           {problem && (
             <p role="alert" className="text-ui text-destructive">
               {problem}

@@ -7,3 +7,4 @@ export * from "./words.ts";
 export * from "./agents.ts";
 export * from "./endpoints.ts";
 export * from "./markup.ts";
+export * from "./hosting.ts";
