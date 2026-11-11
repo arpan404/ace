@@ -139,7 +139,7 @@ struct ProviderSignInView: View {
                 if problem != nil {
                     Button("Retry") {
                         if let failedRequest { request(failedRequest) } else { problem = nil; pollAttempt += 1 }
-                    }.buttonStyle(.textAction())
+                    }.buttonStyle(.textAction()).disabled(busy)
                 }
             }
             .insetRowBackground()

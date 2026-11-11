@@ -10,20 +10,21 @@ struct AceAccountView: View {
     private var model: AceAccountModel { shared ?? own }
     @State private var forgetting: AceMachine?
     @State private var notice: ProblemNotice?
+    @State private var browserProblem: String?
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     var body: some View {
         List {
             Section {
-                HStack(spacing: 12) {
+                HStack(spacing: AceDesign.Space.row) {
                     // The same disc as the header's avatar.
                     AccountAvatar(name: model.account?.name ?? "", picture: model.picture, size: AceDesign.Size.tap)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                         Text(model.account.map { $0.name.isEmpty ? $0.email : $0.name } ?? "Your profile")
-                            .fontWeight(.medium)
+                            .font(AceDesign.Typeface.body).fontWeight(AceDesign.Typeface.strong)
                         Text(model.account?.email ?? (model.login == nil ? "Not signed in" : "Complete sign-in in your browser"))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.muted)
                     }
                     Spacer()
                     if model.account != nil {
@@ -39,6 +40,16 @@ struct AceAccountView: View {
             }
             .insetRowBackground()
             if let error = model.error { Section { ServiceProblem(message: error) }.insetRowBackground() }
+            if let browserProblem {
+                Section {
+                    ServiceProblem(message: browserProblem)
+                    Button("Retry") {
+                        if let url = model.login?.loginUrl { Task { await authenticate(url) } }
+                        else { browserProblem = nil; model.signIn() }
+                    }
+                        .buttonStyle(.textAction())
+                }.insetRowBackground()
+            }
             if model.account != nil, let machines { accountMachines(machines) }
         }
         .insetGroupedList()
@@ -47,7 +58,7 @@ struct AceAccountView: View {
         .task { await model.restore() }
         .refreshable { await machines?.refreshAccount() }
         // Signing in or out changes which machines this phone reaches through the account.
-        .onChange(of: model.account?.id) { _, _ in Task { await machines?.refreshAccount() } }
+        .onChange(of: model.account?.id) { _, _ in browserProblem = nil; Task { await machines?.refreshAccount() } }
         .onChange(of: model.login?.loginUrl) { _, url in if let url { Task { await authenticate(url) } } }
         .onDisappear { model.cancel() }
         .confirmationDialog("Forget \(forgetting?.name ?? "machine")?", isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } }),
@@ -57,20 +68,21 @@ struct AceAccountView: View {
             }.accessibilityIdentifier("account.machine.forget.confirm")
         } message: { _ in Text("It leaves your ace account's list on every device. It comes back when it signs in to ace again.") }
         .alert("Couldn't forget", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("OK") { notice = nil }
+            Button("Dismiss") { notice = nil }
         } message: { Text(notice?.message ?? "") }
     }
 
     /// Sign-in in a browser sheet that closes itself when the backend sends it back to
     /// `ace://account/signed-in`. The session arrives through the model's claim either way.
     private func authenticate(_ url: URL) async {
+        browserProblem = nil
         do {
             let returned = try await webAuthenticationSession.authenticate(using: url, callbackURLScheme: AceLink.scheme)
             model.returned(returned)
         } catch let failure as ASWebAuthenticationSessionError where failure.code == .canceledLogin {
             // The person closed the sheet before WorkOS finished: stop waiting for this sign-in.
             if model.account == nil { model.cancel() }
-        } catch {}
+        } catch { browserProblem = error.localizedDescription }
     }
 
     @ViewBuilder private func accountMachines(_ machines: MachinesModel) -> some View {

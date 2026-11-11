@@ -10,6 +10,7 @@ struct CustomAccentPicker: View {
     let choose: (CustomAccent) -> Void
     @State private var picked: Color
     @State private var failed = false
+    @State private var problem: String?
     /// The colour last shown or fitted: only a different pick is sent.
     @State private var settled: String?
 
@@ -23,8 +24,9 @@ struct CustomAccentPicker: View {
     }
 
     var body: some View {
-        ColorPicker("Custom", selection: $picked, supportsOpacity: false)
-            .labelsHidden()
+        VStack(spacing: AceDesign.Space.tight) {
+            ColorPicker("Custom", selection: $picked, supportsOpacity: false)
+                .labelsHidden()
             .frame(width: AceDesign.Size.swatch, height: AceDesign.Size.swatch)
             .padding(AceDesign.Space.tight)
             .overlay { Circle().strokeBorder(AceDesign.Ink.accent, lineWidth: AceDesign.Size.ring).opacity(chosen ? 1 : 0).allowsHitTesting(false) }
@@ -37,6 +39,11 @@ struct CustomAccentPicker: View {
             // Dragging in the picker sends many colours; fit the one it settles on.
             .task(id: picked.hexString) { await fit(picked.hexString) }
             .sensoryFeedback(.error, trigger: failed) { _, now in now }
+            if let problem {
+                ServiceProblem(message: problem)
+                Button("Retry") { Task { await fit(picked.hexString) } }.buttonStyle(.textAction()).disabled(runtime == nil)
+            }
+        }
     }
 
     /// Any machine whose runtime is up: fitting is pure, so whichever answers is the same.
@@ -49,11 +56,14 @@ struct CustomAccentPicker: View {
         do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
         do {
             let reply = try await runtime.service(["type": "appearance.customAccent", "colour": hex], as: Reply.self)
-                failed = false
+            guard !Task.isCancelled, picked.hexString == hex else { return }
+            failed = false; problem = nil
             settled = hex
             choose(reply.accent)
         } catch is CancellationError {
-        } catch { failed = true }
+        } catch {
+            if !Task.isCancelled && picked.hexString == hex { failed = true; problem = error.localizedDescription }
+        }
     }
 
     /// `appearance.customAccent`'s answer: theme → scheme → the accent and its label.

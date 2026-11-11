@@ -116,11 +116,12 @@ struct HostDiagnosticsView: View {
                 ForEach(health.rows, id: \.self) { row in LabeledContent(row.label) { Text(row.value).monospacedDigit() } }
                 ForEach(health.queues, id: \.self) { queue in LabeledContent(queue.name) { Text(queue.depth.formatted()).monospacedDigit() } }
                 Button("Copy diagnostics") { UIPasteboard.general.string = health.json; copied += 1 }
-            } else if let message = page?.healthProblem ?? problem {
-                ServiceProblem(message: message)
-                Button("Retry") { Task { await load() } }
-            } else {
+            } else if page?.healthProblem == nil && problem == nil {
                 ForEach(0..<5, id: \.self) { _ in LabeledContent("Memory", value: "000 MB").redacted(reason: .placeholder) }
+            }
+            if let message = problem ?? page?.healthProblem {
+                ServiceProblem(message: message)
+                Button("Retry") { Task { await load() } }.buttonStyle(.textAction())
             }
         } header: { InsetHeader("ace health") }
     }
@@ -134,7 +135,7 @@ struct HostDiagnosticsView: View {
         .confirmationDialog("Reset all settings?", isPresented: $confirmingReset, titleVisibility: .visible) {
             Button("Reset settings", role: .destructive) { reset() }.accessibilityIdentifier("diagnostics.reset.confirm")
         } message: {
-            Text("Defaults for new threads, shortcuts and thresholds are restored on this machine, for every device that uses it. Appearance, themes and notifications stay.")
+            Text("Defaults for new threads and thresholds are restored on this machine, for every device that uses it. This phone's shortcuts, appearance and notifications stay.")
         }
     }
 

@@ -22,6 +22,8 @@ struct AutomationEditor: View {
     @State private var unchecked: Set<String> = []
     @State private var saving = false
     @State private var problem: String?
+    @State private var failedPreviewChange: [String: Any]?
+    @State private var retrySave = false
     @State private var choosingModel = false
     @State private var sequence = 0
     @State private var savedCount = 0
@@ -56,6 +58,11 @@ struct AutomationEditor: View {
                 .scrollDismissesKeyboard(.interactively)
                 .safeAreaInset(edge: .bottom) { footer }
                 .transition(.opacity)
+            } else if let problem {
+                VStack {
+                    ServiceProblem(message: problem)
+                    Button("Retry") { Task { await open() } }.buttonStyle(.textAction())
+                }.padding(AceDesign.Space.margin)
             } else {
                 SkeletonPage(label: "Opening the automation")
                     .transition(.opacity)
@@ -181,6 +188,9 @@ struct AutomationEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentTransition(.opacity)
             .animation(motion, value: shownProblem)
+            if problem != nil {
+                Button("Retry") { Task { if retrySave { await save() } else { await preview(failedPreviewChange) } } }.buttonStyle(.textAction())
+            }
             Button { Task { await save() } } label: {
                 Text(saving ? "Saving…" : "Save").fontWeight(.semibold)
                     .padding(.horizontal, AceDesign.Space.margin).frame(minHeight: AceDesign.Size.tap)
@@ -244,13 +254,14 @@ struct AutomationEditor: View {
     // MARK: Bridge
 
     private func open() async {
+        problem = nil
         model.composeAction(["kind": "open"])
         var request: [String: Any] = ["type": "automations.form.open", "zone": zone]
         if let editing { request["automation"] = editing.automation.any }
         else if let first = model.compose.projects.first { request["workspace"] = first.path }
         do {
             let reply = try await model.service(request, as: AutomationFormView.self)
-            guard reply.ok else { problem = reply.error ?? "Couldn't open this automation."; return }
+            guard reply.ok, reply.form != nil else { problem = reply.error ?? "Couldn't open this automation."; return }
             withAnimation(motion) {
                 view = reply
                 choices = reply.choices
@@ -270,7 +281,18 @@ struct AutomationEditor: View {
         let mine = sequence
         var request: [String: Any] = ["type": "automations.form.preview", "form": form.json]
         if let change { request["change"] = change }
-        guard let reply = try? await model.service(request, as: AutomationFormView.self), reply.ok, mine == sequence else { return }
+        let reply: AutomationFormView
+        do {
+            reply = try await model.service(request, as: AutomationFormView.self)
+            guard mine == sequence else { return }
+            guard reply.ok else { throw ServiceFailure(message: reply.error ?? "Couldn't check this automation.") }
+            problem = nil; failedPreviewChange = nil; retrySave = false
+        } catch {
+            if mine == sequence && !Task.isCancelled {
+                failedPreviewChange = change; retrySave = false; problem = error.localizedDescription
+            }
+            return
+        }
         if reply.form == self.form || change != nil { unchecked = [] }
         withAnimation(motion) {
             view = reply
@@ -291,13 +313,13 @@ struct AutomationEditor: View {
     }
 
     private func save() async {
-        guard let form else { return }
+        guard let form, !saving else { return }
+        saving = true
+        defer { saving = false }
         attempted = true
         problem = nil
         await preview(nil)
-        if view?.problem != nil { return }
-        saving = true
-        defer { saving = false }
+        if problem != nil || view?.problem != nil { return }
         var request: [String: Any] = ["type": "automations.save", "form": form.json, "id": newId]
         if pickChanged, let pick { request["pick"] = pick.json }
         if let editing {
@@ -306,11 +328,11 @@ struct AutomationEditor: View {
         }
         do {
             let reply = try await model.service(request, as: AutomationWrite.self)
-            guard reply.ok, let id = reply.id else { problem = reply.error ?? "Couldn't save this automation. Try again."; return }
+            guard reply.ok, let id = reply.id else { retrySave = true; problem = reply.error ?? "Couldn't save this automation. Try again."; return }
             savedCount += 1
             saved(id)
             dismiss()
-        } catch { problem = error.localizedDescription }
+        } catch { retrySave = true; problem = error.localizedDescription }
     }
 }
 

@@ -61,7 +61,7 @@ struct SourceControlView: View {
                         ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
                         Text(status.instructions).textSelection(.enabled)
                     }
-                    Button("Rescan") { Task { await read() } }.disabled(busy)
+                    Button("Rescan") { Task { await rescan() } }.buttonStyle(.textAction()).disabled(busy)
                 } header: { InsetHeader("GitHub CLI on your machine") }
                 Section {
                     LabeledContent("GitHub host") { TextField("github.com", text: $host).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
@@ -82,6 +82,7 @@ struct SourceControlView: View {
                 } header: { InsetHeader("Repository transport") }
                 if busy, status == nil { SkeletonRows(count: 2, label: "Checking source control").listRowInsets(EdgeInsets()) }
                 ServiceProblem(message: problem)
+                if problem != nil { Button("Retry") { Task { await rescan() } }.buttonStyle(.textAction()).disabled(busy) }
             }
             .insetRowBackground()
         }
@@ -97,11 +98,17 @@ struct SourceControlView: View {
         }
         .task(id: project) { if model.connection == "ready" { await read() } }
     }
-    private func read() async {
+    private func rescan() async {
+        var request = Self.readinessRead(project)
+        request["fresh"] = true
+        await read(request)
+    }
+    private func read() async { await read(Self.readinessRead(project)) }
+    private func read(_ request: [String: Any]) async {
         busy = true; problem = nil
         defer { busy = false }
         do {
-            let reply = try await model.read(Self.readinessRead(project), as: NativeSourceControlReply.self)
+            let reply = try await model.read(request, as: NativeSourceControlReply.self)
             guard let status = reply.result.readiness else { throw ServiceFailure(message: "Couldn't check source control: \(reply.result.code ?? "unavailable")") }
             self.status = status; host = status.preferences.host; remote = status.preferences.remote
             account = status.preferences.hosts.first { $0.host == host }?.account ?? ""
