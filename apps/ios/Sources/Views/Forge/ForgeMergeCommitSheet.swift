@@ -35,8 +35,7 @@ struct ForgeMergeCommitSheet: View {
                 Button { confirm(target) } label: {
                     Text(target.action.label).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap)
                 }
-                .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                .tint(AceTheme.Colours.foreground).foregroundStyle(AceTheme.Colours.background)
+                .buttonStyle(.textAction(.prominent))
                 .disabled(commitTitle.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .padding(.horizontal, AceTheme.Spacing.lg).padding(.vertical, AceTheme.Spacing.sm)
                 .background(AceTheme.Colours.background)
