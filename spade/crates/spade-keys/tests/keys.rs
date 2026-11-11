@@ -55,6 +55,25 @@ fn keys_are_filed_under_spades_service_and_the_endpoint() -> Result {
 }
 
 #[test]
+fn the_ace_grant_is_filed_under_its_own_account_apart_from_endpoint_keys() -> Result {
+    let (keys, store) = mock_store()?;
+    assert_eq!(keys.ace_grant()?, None);
+    keys.set_ace_grant(" grant-123 ")?;
+    keys.set("ace:grant", "an endpoint that happens to share the name")?;
+    assert_eq!(keys.ace_grant()?, Some("grant-123".to_owned()));
+    let entry = store.build(SERVICE, "ace:grant", None)?;
+    assert_eq!(entry.get_password()?, "grant-123");
+    assert!(keys.delete_ace_grant()?);
+    assert_eq!(keys.ace_grant()?, None);
+    assert!(!keys.delete_ace_grant()?);
+    assert_eq!(
+        keys.get("ace:grant")?,
+        Some("an endpoint that happens to share the name".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
 fn an_empty_key_or_one_with_line_breaks_is_refused() -> Result {
     let (keys, _) = mock_store()?;
     assert!(matches!(

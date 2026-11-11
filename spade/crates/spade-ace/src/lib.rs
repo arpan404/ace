@@ -7,16 +7,22 @@
 //! - [`AceSkills`]: the person's skill library through `skills.request` (ADR 0103) on the
 //!   daemon's WebSocket, so Spade and ace share one library.
 //!
-//! The daemon starts Spade with the four `SPADE_ACE_*` variables; [`AceConfig::from_env`] reads
-//! them. Credentials are kept in [`Secret`] and never appear in errors or debug output.
+//! Spade finds the daemon from its files in ace's home ([`discover`]) and calls its MCP endpoint
+//! with the grant the daemon handed over; in development the four `SPADE_ACE_*` variables
+//! override that ([`AceConfig::from_env`]). Credentials are kept in [`Secret`] and never appear in
+//! errors or debug output.
 
 mod config;
+mod discovery;
 mod secret;
 pub mod skills;
 pub mod tools;
 mod url;
 
 pub use config::{AceConfig, ConfigError, DEFAULT_TIMEOUT, SkillsConfig, ToolsConfig};
+pub use discovery::{
+    DiscoveryError, FIRST_RETRY, LONGEST_RETRY, daemon_urls, discover, next_retry,
+};
 pub use secret::Secret;
 pub use skills::{AceSkills, Skill, SkillErrorCode, SkillList, SkillScope, SkillText, SkillsError};
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsError};

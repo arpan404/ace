@@ -17,6 +17,9 @@ pub use lookup::{KeyRequest, Keys};
 /// The keychain service every Spade key is filed under.
 pub const SERVICE: &str = "dev.acehq.spade";
 
+/// The keychain account Spade's ace grant is filed under (docs/ace-integration.md).
+pub const ACE_GRANT: &str = "ace:grant";
+
 /// The longest key accepted.
 const LONGEST: usize = 8192;
 
@@ -64,7 +67,29 @@ impl KeyStore {
 
     /// The key for `endpoint`, if one is stored.
     pub fn get(&self, endpoint: &str) -> Result<Option<String>, KeyError> {
-        match self.entry(endpoint)?.get_password() {
+        self.read(&self.entry(endpoint)?)
+    }
+
+    /// The ace grant the daemon handed Spade, if one is stored.
+    pub fn ace_grant(&self) -> Result<Option<String>, KeyError> {
+        self.read(&self.account(ACE_GRANT)?)
+    }
+
+    /// Stores the ace grant, replacing any earlier one.
+    pub fn set_ace_grant(&self, grant: &str) -> Result<(), KeyError> {
+        let grant = checked(grant)?;
+        self.account(ACE_GRANT)?
+            .set_password(grant)
+            .map_err(|error| classify(&error))
+    }
+
+    /// Forgets the ace grant. Returns whether there was one.
+    pub fn delete_ace_grant(&self) -> Result<bool, KeyError> {
+        Self::remove(&self.account(ACE_GRANT)?)
+    }
+
+    fn read(&self, entry: &Entry) -> Result<Option<String>, KeyError> {
+        match entry.get_password() {
             Ok(key) => Ok(Some(key)),
             Err(Error::NoEntry) => Ok(None),
             Err(error) => Err(classify(&error)),
@@ -78,15 +103,7 @@ impl KeyStore {
 
     /// Stores `key` for `endpoint`, replacing any earlier one. Surrounding whitespace is removed.
     pub fn set(&self, endpoint: &str, key: &str) -> Result<(), KeyError> {
-        let key = key.trim();
-        if key.is_empty() {
-            return Err(KeyError::Invalid("the key is empty"));
-        }
-        if key.len() > LONGEST || key.chars().any(char::is_control) {
-            return Err(KeyError::Invalid(
-                "the key is too long or contains line breaks or control characters",
-            ));
-        }
+        let key = checked(key)?;
         self.entry(endpoint)?
             .set_password(key)
             .map_err(|error| classify(&error))
@@ -94,7 +111,11 @@ impl KeyStore {
 
     /// Deletes the key for `endpoint`. Returns whether there was one.
     pub fn delete(&self, endpoint: &str) -> Result<bool, KeyError> {
-        match self.entry(endpoint)?.delete_credential() {
+        Self::remove(&self.entry(endpoint)?)
+    }
+
+    fn remove(entry: &Entry) -> Result<bool, KeyError> {
+        match entry.delete_credential() {
             Ok(()) => Ok(true),
             Err(Error::NoEntry) => Ok(false),
             Err(error) => Err(classify(&error)),
@@ -105,10 +126,28 @@ impl KeyStore {
         if endpoint.trim().is_empty() {
             return Err(KeyError::Invalid("the endpoint id is empty"));
         }
+        self.account(&format!("endpoint:{endpoint}"))
+    }
+
+    fn account(&self, account: &str) -> Result<Entry, KeyError> {
         self.store
-            .build(&self.service, &format!("endpoint:{endpoint}"), None)
+            .build(&self.service, account, None)
             .map_err(|error| classify(&error))
     }
+}
+
+/// A secret as stored: trimmed, not empty, one line, not huge.
+fn checked(secret: &str) -> Result<&str, KeyError> {
+    let secret = secret.trim();
+    if secret.is_empty() {
+        return Err(KeyError::Invalid("the key is empty"));
+    }
+    if secret.len() > LONGEST || secret.chars().any(char::is_control) {
+        return Err(KeyError::Invalid(
+            "the key is too long or contains line breaks or control characters",
+        ));
+    }
+    Ok(secret)
 }
 
 /// Turns a store error into one that names the problem but never carries secret data.
