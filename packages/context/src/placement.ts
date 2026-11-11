@@ -81,7 +81,7 @@ export function markPlaces(
       continue;
     }
     let cursor = 0;
-    for (const k of [...at.keys()].sort((a, b) => a - b)) {
+    for (const k of [...at.keys()].toSorted((a, b) => a - b)) {
       if (k > cursor) output.push({ type: "text", text: part.text.slice(cursor, k) });
       const path = `${prefix}${slots.size}`;
       slots.set(path, { files: at.get(k) ?? [], before: k > 0, after: k < part.text.length });

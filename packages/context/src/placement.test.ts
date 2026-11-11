@@ -15,7 +15,7 @@ const mentionText = text("Attachment from @src/a.ts");
 function place(
   input: ContentPart[],
   context: ContentPart[],
-  files: { part: number; name: string; at?: number }[],
+  files: { part: number; name: string; at?: number | undefined }[],
   interleaved: boolean,
 ): ContentPart[] {
   const marked = markPlaces(
@@ -100,7 +100,6 @@ describe("a file reaches an interleaving provider where the person put it", () =
   });
 
   it("leaves mentions and unpositioned files after the text as today", () => {
-    const shot = image("shot");
     const later = image("later");
     expect(
       place(
@@ -123,7 +122,6 @@ describe("a file reaches an interleaving provider where the person put it", () =
   });
 
   it("sends a message without text exactly as today", () => {
-    const shot = image("shot");
     expect(place([], [shot], [{ part: 0, name: "shot.png", at: 0 }], true)).toEqual([shot]);
   });
 });
