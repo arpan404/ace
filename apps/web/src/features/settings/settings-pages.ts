@@ -15,6 +15,7 @@ import {
   WrenchIcon,
 } from "@phosphor-icons/react";
 import { ComputerUseIcon, SpadeIcon } from "@/components/ace-icons.tsx";
+import { spadeAvailable } from "@/lib/spade-available.ts";
 import type { IconGlyph } from "@/components/icon.tsx";
 
 export type SettingsPath =
@@ -70,7 +71,9 @@ export const settingsPages: readonly SettingsPage[] = [
   },
   { to: "/settings/browser", title: "Browser", icon: GlobeSimpleIcon, group: "machine" },
   { to: "/settings/computer-use", title: "Computer use", icon: ComputerUseIcon, group: "machine" },
-  { to: "/settings/spade", title: "Spade", icon: SpadeIcon, group: "machine" },
+  ...(spadeAvailable
+    ? [{ to: "/settings/spade", title: "Spade", icon: SpadeIcon, group: "machine" } as const]
+    : []),
   { to: "/settings/simulators", title: "Simulators", icon: DeviceMobileIcon, group: "machine" },
   { to: "/settings/storage", title: "Storage", icon: DatabaseIcon, group: "machine" },
   { to: "/settings/advanced", title: "Advanced", icon: WrenchIcon, group: "machine" },

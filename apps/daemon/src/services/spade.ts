@@ -24,6 +24,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   const { config, log, services } = context;
   const options = context.options.spade ?? {};
   const env = options.env ?? process.env;
+  const disabled = spadeDisabled(env);
   let daemonUrl: string | undefined;
   const dataDir = join(config.dataDir, "spade");
   // Bound once the host exists: credentials report the host thread through it.
@@ -65,7 +66,8 @@ export async function startSpade(context: ServiceContext): Promise<void> {
   context.onListen.push(async (server) => {
     daemonUrl = server.url;
     const settings = services.settings;
-    if (!settings) return;
+    // Left out of this build: Spade stays off whatever the setting says.
+    if (!settings || disabled) return;
     const stop = await settings.subscribe(
       { keys: ["spade.enabled"], scope: {} },
       (notification) => {
@@ -77,4 +79,12 @@ export async function startSpade(context: ServiceContext): Promise<void> {
     context.resources.own(stop, "spade setting");
     host.setEnabled((await settings.get("spade.enabled")).value === true);
   });
+}
+
+/**
+ * Whether Spade is left out: built with `DISABLE_SPADE=1` (the release bundle bakes it in) or
+ * started with `DISABLE_SPADE=1` in the daemon's environment.
+ */
+export function spadeDisabled(env: Record<string, string | undefined>): boolean {
+  return process.env.ACE_BUILD_DISABLE_SPADE === "1" || env.DISABLE_SPADE === "1";
 }
