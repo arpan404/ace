@@ -1,5 +1,5 @@
 import { useState, type MouseEvent, type ReactNode } from "react";
-import { prWords, type MergeMethod } from "@ace/ui-core";
+import { prTone, prWords, type MergeMethod } from "@ace/ui-core";
 import {
   Menu,
   MenuContent,
@@ -12,6 +12,8 @@ import {
 import {
   ArrowLeftIcon,
   CaretDownIcon,
+  GitMergeIcon,
+  GitPullRequestIcon,
   ArrowSquareOutIcon,
   PencilSimpleIcon,
 } from "@phosphor-icons/react";
@@ -22,7 +24,6 @@ import { pullRequestTone } from "@/components/pull-request-state.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
-import { PrAvatar, PrTime } from "./pr-presentation.tsx";
 import type { PrWorkspaceExtensions } from "./pr-extensions.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { PrPrimaryButton } from "./pr-primary-button.tsx";
@@ -189,13 +190,13 @@ export function PrPrimaryControl(props: {
   );
 }
 
-/** A branch name: mono, in ink, struck through once the branch is deleted. */
+/** A branch name: mono on a grey chip, struck through once the branch is deleted. */
 function BranchName(props: { name: string; deleted?: boolean | undefined }) {
   return (
     <span
       title={props.name}
       className={cn(
-        "font-mono text-xs whitespace-nowrap",
+        "rounded-sm bg-fill-strong px-1.5 py-0.5 font-mono text-xs whitespace-nowrap",
         props.deleted ? "text-subtle-foreground line-through" : "text-foreground",
       )}
     >
@@ -205,48 +206,46 @@ function BranchName(props: { name: string; deleted?: boolean | undefined }) {
   );
 }
 
-/** The state as its glyph and word, in the state's colour, with nothing around it. */
-function StateMark(props: { state: "open" | "draft" | "merged" | "closed" }) {
+/** The state as a solid pill in its colour, its glyph and word on it. */
+function StatePill(props: { state: "open" | "draft" | "merged" | "closed" }) {
+  const tone = prTone[props.state];
   return (
-    <span className={cn("font-semibold whitespace-nowrap", pullRequestTone(props.state))}>
+    <span
+      data-tone={props.state === "draft" ? undefined : tone}
+      className={cn(
+        "mr-2 inline-flex h-6.5 items-center gap-1 rounded-full pr-2.5 pl-2 align-middle text-ui font-medium",
+        props.state === "draft"
+          ? "bg-subtle-foreground text-background"
+          : "bg-(--tone) text-background",
+      )}
+    >
+      {props.state === "merged" ? (
+        <GitMergeIcon aria-hidden size={14} weight="bold" />
+      ) : (
+        <GitPullRequestIcon aria-hidden size={14} weight="bold" />
+      )}
       {prWords[props.state]}
     </span>
   );
 }
 
 /**
- * Under the title, one sentence: the state in its colour, "mira wants to merge 3 commits into
- * main from fix/socket", and when it was last updated. The checkout command is in ⋯.
+ * Under the title, as GitHub sets it: the state's solid pill, then "mira wants to merge 3 commits
+ * into main from fix/socket" with the branches on chips. The checkout command is in ⋯.
  */
 export function PrByline(props: { actions: PrActions }) {
   const { detail } = props.actions.context;
   const { status } = detail;
   const commits = `${detail.commits} ${detail.commits === 1 ? "commit" : "commits"}`;
   const deleted = props.actions.lifecycle.snapshot?.headBranch?.exists === false;
-  // One sentence that wraps as prose: names and branches stay whole, the avatar stays with its name.
+  // One sentence that wraps as prose: names and branches stay whole.
   return (
-    <p className="min-w-0 text-ui leading-6 text-muted-foreground">
-      {status.state !== "unknown" && (
-        <>
-          <StateMark state={status.state} />
-          <span aria-hidden className="px-1.5 text-faint-foreground">
-            ·
-          </span>
-        </>
-      )}
-      <span className="inline-flex items-center gap-1.5 align-top whitespace-nowrap">
-        <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-        <span className="font-medium text-foreground">{detail.author}</span>
-      </span>{" "}
+    <p className="min-w-0 text-ui leading-7 text-muted-foreground">
+      {status.state !== "unknown" && <StatePill state={status.state} />}
+      <span className="font-semibold text-foreground">{detail.author}</span>{" "}
       {status.state === "merged" ? `merged ${commits} into` : `wants to merge ${commits} into`}{" "}
       <BranchName name={detail.baseBranch} /> from{" "}
       <BranchName name={detail.headBranch} deleted={deleted} />
-      <span aria-hidden className="px-1.5 text-faint-foreground">
-        ·
-      </span>
-      <span className="whitespace-nowrap text-subtle-foreground">
-        <PrTime at={detail.updatedAt} prefix="updated " />
-      </span>
     </p>
   );
 }

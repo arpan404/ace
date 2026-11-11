@@ -1,8 +1,6 @@
 import type { ForgePrRow } from "@ace/protocol";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { prWords } from "@ace/ui-core";
-import { pullRequestTone } from "@/components/pull-request-state.tsx";
-import { PersonAvatar } from "@/components/person-avatar.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useBackLabel } from "@/components/back-label.tsx";
@@ -16,11 +14,16 @@ export type PrSeed = Pick<
 
 const tabs = ["Summary", "Timeline", "Code", "Checks"];
 /** A branch name, as the loaded header sets it. */
-const branch = "font-mono text-xs text-foreground";
+const branch = "rounded-sm bg-fill-strong px-1.5 py-0.5 font-mono text-xs text-foreground";
+const stateFill = {
+  open: "bg-status-done",
+  draft: "bg-subtle-foreground",
+  merged: "bg-status-waiting",
+  closed: "bg-status-failed",
+} as const;
 /** Two blockers, their quotes as widths of the column (%). */
 const blockers = [82, 64];
 const about = ["Reviewers", "Assignee", "Labels"];
-const gateLabels = ["Checks", "Reviews", "Conflicts", "Branch"];
 
 /**
  * A pull request's page while it loads, built like the page: back, title, the state line
@@ -74,14 +77,15 @@ export function PrPageSkeleton(props: {
           <div className="mt-2 flex min-h-6 flex-wrap items-center gap-x-1.5 gap-y-1 text-ui text-muted-foreground">
             {seed ? (
               <>
-                <span className={cn("font-semibold", pullRequestTone(seed.state))}>
+                <span
+                  className={cn(
+                    "inline-flex h-6.5 items-center rounded-full px-2.5 text-ui font-medium text-background",
+                    stateFill[seed.state],
+                  )}
+                >
                   {prWords[seed.state]}
                 </span>
-                <span aria-hidden className="text-faint-foreground">
-                  ·
-                </span>
-                <PersonAvatar name={seed.author} url={seed.authorAvatarUrl} />
-                <span className="font-medium text-foreground/90">{seed.author}</span>
+                <span className="font-semibold text-foreground">{seed.author}</span>
                 {seed.baseBranch && seed.headBranch ? (
                   <>
                     <span>{merged ? "merged into" : "wants to merge into"}</span>
@@ -120,57 +124,38 @@ export function PrPageSkeleton(props: {
         </div>
       </div>
       <div aria-hidden className={props.readable}>
-        <div className="grid gap-8 px-[var(--forge-gutter,1rem)] pt-6 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_14.5rem] @min-[50rem]/pr:gap-10">
-          <div className="min-w-0 space-y-8">
-            <section>
-              <h3 className="mb-2.5 flex min-h-6 items-center text-md font-semibold text-foreground">
-                Merge status
-              </h3>
-              <div className="overflow-hidden rounded-lg border border-border bg-background">
-                <div className="px-4 py-3.5">
-                  <Skeleton className="h-3.5 w-48" />
-                </div>
-                <div className="grid grid-cols-2 border-t border-border-soft @min-[40rem]/pr:grid-cols-4">
-                  {gateLabels.map((label) => (
-                    <span key={label} className="flex flex-col gap-1.5 px-4 pt-2.5 pb-3">
-                      <span className="text-xs text-subtle-foreground">{label}</span>
-                      <Skeleton className="h-3 w-20" />
-                    </span>
-                  ))}
-                </div>
-                {open && (
-                  <ul className="divide-y divide-border-soft border-t border-border-soft">
-                    {blockers.map((width) => (
-                      <li key={width} className="flex gap-2.5 px-4 py-3">
-                        <Skeleton className="size-4.5 shrink-0 rounded-full" />
-                        <span className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
-                          <Skeleton className="h-3 w-40" />
-                          <Skeleton className="h-3" style={{ width: `${width}%` }} />
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+        <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-5 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15.5rem] @min-[50rem]/pr:gap-8">
+          <div className="min-w-0 space-y-5">
+            <section className="rounded-lg border border-border bg-background">
+              <div className="flex min-h-10 items-center gap-2 rounded-t-lg border-b border-border bg-surface-1 px-3.5">
+                <Skeleton className="size-4 rounded-full" />
+                <Skeleton className="h-3 w-36" />
               </div>
-            </section>
-            <section>
-              <h3 className="mb-2.5 flex min-h-6 items-center text-md font-semibold text-foreground">
-                Description
-              </h3>
-              <div className="flex flex-col gap-2 rounded-lg border border-border bg-background px-4 py-3.5">
+              <div className="flex flex-col gap-2 px-4 py-3.5">
                 <Skeleton className="h-3 w-[92%]" />
                 <Skeleton className="h-3 w-[86%]" />
                 <Skeleton className="h-3 w-[48%]" />
               </div>
             </section>
+            <section className="divide-y divide-border-soft rounded-lg border border-border bg-background">
+              {(open ? blockers : [60]).map((width) => (
+                <div key={width} className="flex gap-3 px-4 py-3.5">
+                  <Skeleton className="size-5.5 shrink-0 rounded-full" />
+                  <span className="flex min-w-0 flex-1 flex-col gap-2 pt-1">
+                    <Skeleton className="h-3 w-48" />
+                    <Skeleton className="h-3" style={{ width: `${width}%` }} />
+                  </span>
+                </div>
+              ))}
+            </section>
           </div>
-          <div className="min-w-0 @min-[50rem]/pr:pt-0.5">
+          <div className="min-w-0">
             {about.map((term) => (
-              <div key={term} className="pb-5 last:pb-0">
-                <p className="flex h-6 items-center text-xs font-semibold text-foreground">
+              <div key={term} className="border-b border-border py-3 first:pt-0 last:border-b-0">
+                <p className="flex h-6 items-center text-xs font-semibold text-muted-foreground">
                   {term}
                 </p>
-                <div className="mt-0.5 flex h-6 items-center gap-1.5">
+                <div className="mt-1 flex h-6 items-center gap-1.5">
                   <Skeleton className="size-4 rounded-full" />
                   <Skeleton className="h-3 w-28" />
                 </div>

@@ -6,7 +6,7 @@ import { usePrReviewers } from "./pr-reviewers-query.ts";
 import { DetailRow } from "./pr-details.tsx";
 import { PrAgentLine } from "./pr-agent-chip.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
-import { cn } from "@/lib/cn.ts";
+import { LabelPill } from "@/components/forge-marks.tsx";
 
 /**
  * The people on the pull request, as the About section's first rows: each reviewer with their
@@ -54,11 +54,6 @@ export function PrPeople(props: {
   const assignees = props.assignees;
   return (
     <>
-      {detail.relatedThreads.some((thread) => !thread.archived) && (
-        <DetailRow label="Agent">
-          <PrAgentLine detail={detail} />
-        </DetailRow>
-      )}
       <DetailRow label="Reviewers" action={reviewerPicker}>
         <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
           {rows.length ? (
@@ -101,33 +96,25 @@ export function PrPeople(props: {
           </p>
         </DetailRow>
       )}
+      {detail.relatedThreads.some((thread) => !thread.archived) && (
+        <DetailRow label="Agent">
+          <PrAgentLine detail={detail} />
+        </DetailRow>
+      )}
     </>
   );
 }
 
-/**
- * Labels as their names in ink, each led by a dot of its GitHub colour: the colour says which
- * label it is without turning the sidebar into a row of coloured badges.
- */
+/** Labels as GitHub's coloured pills, wrapping in the sidebar's width. */
 function LabelNames(props: {
   names: readonly string[];
   colors?: Readonly<Record<string, string>> | undefined;
 }) {
   return (
-    <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 py-1">
-      {props.names.map((name) => {
-        const color = props.colors?.[name];
-        return (
-          <span key={name} className="inline-flex min-w-0 items-center gap-1.5 text-foreground/90">
-            <span
-              aria-hidden
-              className={cn("size-2 shrink-0 rounded-full", !color && "bg-faint-foreground")}
-              style={color ? { backgroundColor: `#${color}` } : undefined}
-            />
-            <span className="truncate">{name}</span>
-          </span>
-        );
-      })}
+    <span className="flex min-w-0 flex-wrap gap-1 py-1">
+      {props.names.map((name) => (
+        <LabelPill key={name} name={name} color={props.colors?.[name]} />
+      ))}
     </span>
   );
 }

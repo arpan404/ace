@@ -9,24 +9,24 @@ import type { PrDialog } from "./pr-dialogs.tsx";
 import { lockReasonLabels } from "@ace/ui-core";
 
 /**
- * One group of the sidebar: "Reviewers", "Labels", "Milestone"… as a quiet heading with its
- * action at the right and what it holds under it; groups are set apart by space alone.
+ * One block of the sidebar: "Reviewers", "Labels", "Milestone"… as a small heading with its
+ * action at the right, what it holds under it, and a hairline below.
  */
 export function DetailRow(props: { label: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="pb-5 text-ui last:pb-0">
+    <div className="border-b border-border py-3 text-ui first:pt-0 last:border-b-0">
       <div className="flex h-6 items-center gap-2">
-        <h4 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+        <h4 className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">
           {props.label}
         </h4>
         {/* The action's words, not its box, end on the column's edge. */}
         {props.action && (
-          <div className="-mr-1.5 flex shrink-0 items-center [&_button]:text-subtle-foreground [&_button:hover]:text-foreground">
+          <div className="-mr-1.5 flex shrink-0 items-center [&_button]:font-normal [&_button]:text-subtle-foreground [&_button:hover]:text-foreground">
             {props.action}
           </div>
         )}
       </div>
-      <div className="mt-0.5 flex min-w-0 flex-col gap-0.5">{props.children}</div>
+      <div className="mt-1 flex min-w-0 flex-col gap-0.5">{props.children}</div>
     </div>
   );
 }
@@ -115,7 +115,7 @@ export function PrDetails(props: {
     rows.push(
       <DetailRow
         key="issues"
-        label="Linked issues"
+        label="Development"
         action={
           lifecycle.can("issue.link") && (
             <Button
@@ -149,7 +149,7 @@ export function PrDetails(props: {
           />
         ))}
         {!issues.length && (
-          <span className="flex h-7 items-center text-subtle-foreground">None</span>
+          <span className="flex h-7 items-center text-subtle-foreground">No linked issues</span>
         )}
       </DetailRow>,
     );

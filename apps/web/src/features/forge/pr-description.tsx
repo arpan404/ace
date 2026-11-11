@@ -4,12 +4,12 @@ import { cn } from "@/lib/cn.ts";
 import { PrMarkdown } from "./pr-markdown.tsx";
 import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.ts";
 import { PrAvatar, PrTime } from "./pr-presentation.tsx";
-import { SectionAction, SummarySection, summaryCard } from "./pr-summary-section.tsx";
+import { PrBoxHead, prBox } from "./pr-box.tsx";
 import { PrReactionPicker, PrReactions } from "./pr-reactions.tsx";
 
 /**
- * The PR's description: who opened it and when, a reaction and Edit beside the heading, and the
- * markdown on a card, capped with Show more when it runs long.
+ * The PR's description as the first comment: a box headed by who opened it and when, with a
+ * reaction and Edit, and the markdown under it, capped with Show more when it runs long.
  */
 export function PrDescription(props: {
   context: PrWorkspaceContext;
@@ -39,30 +39,28 @@ export function PrDescription(props: {
   const { detail } = props.context;
   const at = detail.createdAt ?? detail.updatedAt;
   return (
-    <SummarySection
-      title="Description"
-      right={
-        <>
-          <span className="mr-1 inline-flex min-w-0 items-center gap-1.5 text-ui">
-            <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
-            <span className="truncate">{detail.author}</span>
-            {at && (
-              <span className="shrink-0 text-subtle-foreground">
-                <span aria-hidden>· </span>
-                <PrTime at={at} />
-              </span>
+    <section aria-label="Description" className={prBox}>
+      <PrBoxHead
+        actions={
+          <>
+            <PrReactionPicker subject={{ kind: "pr" }} />
+            {edit && (
+              <Button variant="ghost" size="xs" disabled={props.context.disabled} onClick={edit}>
+                Edit
+              </Button>
             )}
+          </>
+        }
+      >
+        <PrAvatar name={detail.author} url={detail.authorAvatarUrl} />
+        <span className="truncate font-semibold text-foreground">{detail.author}</span>
+        {at && (
+          <span className="shrink-0">
+            <PrTime at={at} prefix={detail.createdAt ? "opened " : "updated "} />
           </span>
-          <PrReactionPicker subject={{ kind: "pr" }} />
-          {edit && (
-            <SectionAction disabled={props.context.disabled} onClick={edit}>
-              Edit
-            </SectionAction>
-          )}
-        </>
-      }
-    >
-      <div className={cn(summaryCard, "px-4 pt-3 pb-3.5")}>
+        )}
+      </PrBoxHead>
+      <div className="px-4 pt-3 pb-3.5">
         {body.trim() ? (
           <div>
             <div
@@ -99,10 +97,10 @@ export function PrDescription(props: {
             )}
           </div>
         ) : (
-          <p className="text-ui text-subtle-foreground">No description.</p>
+          <p className="text-ui text-subtle-foreground">No description provided.</p>
         )}
         <PrReactions subject={{ kind: "pr" }} className="mt-2.5" onlyWhenAny />
       </div>
-    </SummarySection>
+    </section>
   );
 }

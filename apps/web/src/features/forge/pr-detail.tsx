@@ -42,7 +42,7 @@ import { PrWriteStatus } from "./pr-write-status.tsx";
 import { PrFailure } from "./pr-detail-states.tsx";
 import { PrPageSkeleton, type PrSeed } from "./pr-page-skeleton.tsx";
 import { PrMergeBox } from "./pr-merge-box.tsx";
-import { PrAttention, useBlockingItems } from "./pr-attention.tsx";
+import { useBlockingItems } from "./pr-attention.tsx";
 import { prShortcut } from "./pr-shortcuts.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { ForgeContentScope } from "./rich/scope.ts";
@@ -343,23 +343,19 @@ function PrDetailLoaded(props: {
                         stack={actions.stack}
                         onOpen={props.onOpen}
                         onOpenCode={openCode}
-                        onTimeline={() => props.onTab("timeline")}
                         onEdit={editable ? () => setDialog("edit") : undefined}
                         merge={
                           <PrMergeBox
                             actions={actions}
                             onGate={onGate}
-                            attention={
-                              <PrAttention
-                                workspaceId={context.workspaceId}
-                                detail={detail}
-                                hostThreadId={props.hostThreadId}
-                                disabled={context.disabled}
-                                onRefresh={context.refresh}
-                                onOpenCode={openCode}
-                                onOpenCheck={openCheck}
-                              />
-                            }
+                            attention={{
+                              workspaceId: context.workspaceId,
+                              hostThreadId: props.hostThreadId,
+                              disabled: context.disabled,
+                              onRefresh: context.refresh,
+                              onOpenCode: openCode,
+                              onOpenCheck: openCheck,
+                            }}
                           />
                         }
                         about={

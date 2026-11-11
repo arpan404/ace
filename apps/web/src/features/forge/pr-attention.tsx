@@ -65,7 +65,7 @@ function Row(props: {
 }) {
   const { item } = props;
   return (
-    <li className="flex items-start gap-2.5 px-4 py-3">
+    <li className="flex items-start gap-2.5 px-3 py-2.5">
       <Lead item={item} avatar={props.avatar} />
       <div className="min-w-0 flex-1">
         <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-ui">
@@ -185,6 +185,11 @@ export function PrAttention(props: {
   onOpenCode?: ((path: string, line?: number) => void) | undefined;
   /** Opens a check's log in the Checks tab; without it there is no Open log. */
   onOpenCheck?: ((id: string) => void) | undefined;
+  /**
+   * Only the reviews' part (requested changes and open conversations) or the checks' part, as a
+   * bare list for the merge box's section of that gate.
+   */
+  only?: "reviews" | "checks" | undefined;
 }) {
   const { detail } = props;
   const onOpenCode = props.onOpenCode;
@@ -192,7 +197,10 @@ export function PrAttention(props: {
   const state = review?.state;
   const quote = useQuote();
   // Hidden comments stay out of the list, and so out of any agent's request.
-  const items = useBlockingItems(detail);
+  const all = useBlockingItems(detail);
+  const items = props.only
+    ? all.filter((item) => (item.kind === "check") === (props.only === "checks"))
+    : all;
   const threads = useMemo(
     () => new Map(detail.status.reviewThreads.map((t) => [`thread:${t.id}`, t])),
     [detail.status.reviewThreads],
@@ -220,8 +228,13 @@ export function PrAttention(props: {
   const avatarOf = (author: string) =>
     detail.status.comments.find((c) => c.author === author && c.authorAvatarUrl)?.authorAvatarUrl;
   return (
-    <section id="pr-attention" aria-label="Blocking the merge">
-      <ul className="divide-y divide-border-soft">
+    <ListFrame only={props.only}>
+      <ul
+        aria-label={
+          props.only === "checks" ? "Failing checks" : props.only ? "To address" : undefined
+        }
+        className="divide-y divide-border-soft"
+      >
         {items.map((item) => {
           const masked = item.kind !== "check" && !hiddenKnown;
           const title =
@@ -309,6 +322,17 @@ export function PrAttention(props: {
           );
         })}
       </ul>
+    </ListFrame>
+  );
+}
+
+/** Standalone, the list is its own region; in the merge box, a bordered list in its section. */
+function ListFrame(props: { only: "reviews" | "checks" | undefined; children: ReactNode }) {
+  if (props.only)
+    return <div className="mt-2 rounded-md border border-border-soft">{props.children}</div>;
+  return (
+    <section id="pr-attention" aria-label="Blocking the merge">
+      {props.children}
     </section>
   );
 }

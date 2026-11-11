@@ -167,11 +167,11 @@ async function openPage(value: ForgePrDetail, merge = mergeState()) {
 }
 
 const blocking = (page: ReturnType<typeof within>) =>
-  within(page.getByRole("region", { name: "Blocking the merge" }));
+  within(page.getByRole("region", { name: "Merge status" }));
 
 test("the Summary leads with what blocks the merge, each in its author's words", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   const rows = blocking(page);
@@ -187,9 +187,9 @@ test("the Summary leads with what blocks the merge, each in its author's words",
   expect(
     await rows.findByText("reconnects after visibility change: expected 1 call, got 0"),
   ).toBeTruthy();
-  // The header says the same facts in words.
+  // Each gate heads its section of the merge box.
   const facts = within(page.getByRole("navigation", { name: "Merge gates" }));
-  expect(facts.getByRole("button", { name: "Checks: 1 of 2 checks failing" })).toBeTruthy();
+  expect(facts.getByRole("button", { name: "Checks: 1 failing · 1 ok" })).toBeTruthy();
   // Show in code opens the conversation's file in the Code tab.
   await userEvent.click(rows.getByRole("button", { name: "Show in code: src/socket.ts:42" }));
   await waitFor(() =>
@@ -199,7 +199,7 @@ test("the Summary leads with what blocks the merge, each in its author's words",
 
 test("Open log takes a failing check to the Checks tab, failures first, with how long it ran", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   await userEvent.click(blocking(page).getByRole("button", { name: "Open log" }));
@@ -219,7 +219,7 @@ test("Open log takes a failing check to the Checks tab, failures first, with how
 
 test("Fix with agent on a PR no thread works on starts a new thread with the request in its composer", async () => {
   const { page } = await openPage(detail());
-  await waitFor(() => page.getByRole("region", { name: "Blocking the merge" }), {
+  await waitFor(() => page.getByRole("region", { name: "Merge status" }), {
     timeout: 10_000,
   });
   const fix = () =>

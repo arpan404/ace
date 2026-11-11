@@ -28,7 +28,7 @@ export function PrPageHeader(props: {
   const backLabel = useBackLabel("Pull requests");
   const blocking = useBlockingItems(detail);
   return (
-    <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4 pb-4">
+    <header className="shrink-0 px-[var(--forge-gutter,1rem)] pt-4">
       <WorkHeading
         back={props.onBack && { label: backLabel, onBack: props.onBack }}
         title={<PrTitle actions={actions} condensed={false} page />}
@@ -49,7 +49,7 @@ export function PrPageHeader(props: {
           </>
         }
       />
-      <div className="mt-2">
+      <div className="mt-2.5 border-b border-border pb-4">
         <PrByline actions={actions} />
       </div>
     </header>

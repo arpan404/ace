@@ -1,28 +1,22 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import {
-  formatAgo,
-  prFacts,
-  prGates,
-  type Gate,
-  type GateKey,
-  type GateTone,
-  type MergeMethod,
-} from "@ace/ui-core";
+  CheckIcon,
+  ExclamationMarkIcon,
+  GitMergeIcon,
+  HourglassMediumIcon,
+  XIcon,
+  type Icon,
+} from "@phosphor-icons/react";
+import { formatAgo, prFacts, prGates, type Gate, type GateKey, type GateTone } from "@ace/ui-core";
+import { Button } from "@/components/ui/button.tsx";
 import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import type { PrActions } from "./pr-actions.ts";
 import { usePrActivityEvents } from "./pr-activity-events.ts";
 import { useReviewOutcomes } from "./pr-reviewers-query.ts";
 import { PrMergeLines } from "./pr-merge-lines.tsx";
-import { useBlockingItems } from "./pr-attention.tsx";
-import { TextAction } from "./pr-text-action.tsx";
-import { SummarySection, summaryCard } from "./pr-summary-section.tsx";
-
-const methodWords: Record<MergeMethod, string> = {
-  squash: "Squash",
-  merge: "Merge",
-  rebase: "Rebase",
-};
+import { PrAttention, useBlockingItems } from "./pr-attention.tsx";
+import { prBox, prBoxFoot } from "./pr-box.tsx";
 
 /** How a finished PR ended, from its activity: who and when, and what became of the branch. */
 function useEnding(actions: PrActions) {
@@ -44,105 +38,117 @@ function useEnding(actions: PrActions) {
   };
 }
 
-const things = (count: number) => `${count} ${count === 1 ? "thing blocks" : "things block"}`;
+const glyphs: Record<GateTone, Icon> = {
+  done: CheckIcon,
+  failed: XIcon,
+  "needs-you": ExclamationMarkIcon,
+  working: HourglassMediumIcon,
+  waiting: GitMergeIcon,
+  idle: CheckIcon,
+};
 
-/** The panel's one sentence: where the merge stands, in the tone of what decides it. */
-function headline(
-  gates: readonly Gate[],
-  blocking: number,
-  base: string,
-  draft: boolean,
-): { tone: GateTone; text: string } {
-  const tone = (key: GateKey) => gates.find((gate) => gate.key === key)?.tone;
-  const failed = gates.filter((gate) => gate.tone === "failed").length;
-  if (blocking || failed)
-    return { tone: "failed", text: `${things(Math.max(blocking, failed))} the merge` };
-  if (draft) return { tone: "idle", text: "Draft · mark it ready when it is" };
-  if (tone("checks") === "working") return { tone: "working", text: "Waiting on checks" };
-  if (tone("reviews") === "needs-you")
-    return { tone: "needs-you", text: "Waiting for an approving review" };
-  if (tone("branch") === "needs-you") return { tone: "needs-you", text: `Behind ${base}` };
-  if (tone("conflicts") === "working") return { tone: "working", text: "Checking for conflicts" };
-  return { tone: "done", text: "Ready to merge" };
-}
-
-/** Update · Rebase after "Behind main", where GitHub lets this account bring the branch up. */
-function UpdateActions(props: { actions: PrActions }) {
-  const { lifecycle } = props.actions;
-  const updates = (["update.merge", "update.rebase"] as const).filter(lifecycle.can);
-  return updates.map((kind) => (
-    <TextAction
-      key={kind}
-      strong={kind === "update.merge"}
-      disabled={lifecycle.blocked}
-      className="mr-3"
-      onClick={() => void lifecycle.apply({ kind })}
-    >
-      {kind === "update.merge" ? "Update branch" : "Rebase"}
-    </TextAction>
-  ));
-}
-
-/**
- * The four gates as labelled cells between hairlines, four across or two by two in a narrow
- * column: the gate's name, then its fact, in the failed colour when it blocks. Each jumps to
- * its detail.
- */
-function GateCells(props: {
-  gates: readonly Gate[];
-  branchLoading: boolean;
-  after: ReactNode;
-  onSelect(key: GateKey): void;
-}) {
+/** A section's mark: a solid disc in the state's colour with its glyph on it. */
+function Mark(props: { tone: GateTone; glyph?: Icon | undefined }) {
+  const Glyph = props.glyph ?? glyphs[props.tone];
   return (
-    <nav
-      aria-label="Merge gates"
-      className="grid grid-cols-2 border-t border-border-soft @min-[40rem]/pr:grid-cols-4 [&>*]:border-border-soft @max-[40rem]/pr:[&>*:nth-child(n+3)]:border-t @max-[40rem]/pr:[&>*:nth-child(even)]:border-l @min-[40rem]/pr:[&>*+*]:border-l"
+    <span
+      aria-hidden
+      data-tone={props.tone === "idle" ? undefined : props.tone}
+      className={cn(
+        "mt-px grid size-5.5 shrink-0 place-items-center rounded-full text-background",
+        props.tone === "idle" ? "bg-subtle-foreground" : "bg-(--tone)",
+      )}
     >
-      {props.gates.map((gate) => {
-        const loading = gate.key === "branch" && props.branchLoading;
-        const tone = loading ? "idle" : gate.tone;
-        const loud = tone === "failed" || tone === "needs-you";
-        return (
-          <div key={gate.key} className="flex min-w-0 flex-col">
-            <button
-              type="button"
-              onClick={() => props.onSelect(gate.key)}
-              aria-label={`${gate.label}: ${loading ? "checking" : gate.value}`}
-              className="flex min-w-0 flex-col px-4 pt-2.5 pb-1 text-left transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover"
-            >
-              <span className="text-xs text-subtle-foreground">{gate.label}</span>
-              <span
-                data-tone={loud ? tone : undefined}
-                className={cn(
-                  "truncate text-ui font-medium tabular-nums",
-                  loud ? "text-(--tone-text)" : "text-foreground",
-                )}
-              >
-                {loading ? "Checking…" : gate.value}
-              </span>
-            </button>
-            <div className="flex min-h-2 flex-wrap px-4 pb-2">
-              {gate.key === "branch" && gate.tone === "needs-you" && props.after}
-            </div>
-          </div>
-        );
-      })}
-    </nav>
+      <Glyph size={12} weight="bold" />
+    </span>
   );
 }
 
+/** One section of the box: its mark, a heading that jumps to the gate, a line, then more. */
+function Section(props: {
+  tone: GateTone;
+  glyph?: Icon | undefined;
+  title: string;
+  sub?: string | undefined;
+  /** The gate it opens, named for assistive tech; without it the heading is words. */
+  gate?: { key: GateKey; label: string } | undefined;
+  onSelect?: ((key: GateKey) => void) | undefined;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
+  const { gate, onSelect } = props;
+  return (
+    <div className="flex gap-3 px-4 py-3.5">
+      <Mark tone={props.tone} glyph={props.glyph} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0 flex-1">
+            {gate && onSelect ? (
+              <button
+                type="button"
+                onClick={() => onSelect(gate.key)}
+                aria-label={gate.label}
+                className="rounded-xs text-left text-ui font-semibold text-foreground focus-ring hover:underline"
+              >
+                {props.title}
+              </button>
+            ) : (
+              <p className="text-ui font-semibold text-foreground">{props.title}</p>
+            )}
+            {props.sub && <p className="text-ui text-muted-foreground">{props.sub}</p>}
+          </div>
+          {props.action && <div className="flex shrink-0 gap-1.5">{props.action}</div>}
+        </div>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+/** Update branch · Update with rebase, where GitHub lets this account bring the branch up. */
+function UpdateButtons(props: { actions: PrActions }) {
+  const { lifecycle } = props.actions;
+  const updates = (["update.merge", "update.rebase"] as const).filter(lifecycle.can);
+  return updates.map((kind) => (
+    <Button
+      key={kind}
+      size="xs"
+      variant={kind === "update.merge" ? "secondary" : "ghost"}
+      disabled={lifecycle.blocked}
+      onClick={() => void lifecycle.apply({ kind })}
+    >
+      {kind === "update.merge" ? "Update branch" : "Update with rebase"}
+    </Button>
+  ));
+}
+
+/** "1 failing and 3 successful checks", from the checks' own counts. */
+function checksLine(status: PrActions["context"]["detail"]["status"]): string {
+  const count = (state: string) => status.checks.filter((c) => c.status === state).length;
+  const failed = count("failure");
+  const running = count("pending");
+  const ok = count("success");
+  const parts = [
+    failed && `${failed} failing`,
+    running && `${running} running`,
+    ok && `${ok} successful`,
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  const last = parts.pop();
+  return `${parts.length ? `${parts.join(", ")} and ${last}` : last} ${status.checks.length === 1 ? "check" : "checks"}`;
+}
+
 /**
- * The Summary's Merge status: how and into what it merges beside the heading, then one card with
- * a sentence in the colour of what decides it ("3 things block the merge", "Waiting on checks",
- * "Ready to merge"), the four gates as cells, what blocks the merge in its authors' words
- * (`attention`), and the branch rules and deployments. Merge itself stays in the header, in reach from every tab. A
- * finished PR says how it ended.
+ * The merge box, GitHub's way: one box with a section per gate. Reviews say whether changes
+ * were asked for, with the asks and open conversations under it; checks say whether they
+ * passed, with the failing ones under it; then conflicts and how fresh the branch is (with
+ * Update), the branch rules and deployments, and a foot saying whether it can merge. Merge
+ * itself is in the header, in reach from every tab. A finished PR says how it ended.
  */
 export function PrMergeBox(props: {
   actions: PrActions;
-  /** What blocks the merge (`PrAttention`); nothing when nothing does. */
-  attention?: ReactNode;
+  /** What the blocking rows need: the PR's workspace, the task it's for, its tabs. */
+  attention: Omit<ComponentProps<typeof PrAttention>, "only" | "detail">;
   onGate(key: GateKey): void;
 }) {
   const { actions } = props;
@@ -157,25 +163,16 @@ export function PrMergeBox(props: {
     const by = ended?.by ? ` by ${ended.by}` : "";
     const when = ended?.ago ? ` ${ended.ago}` : "";
     const branch =
-      branchDeleted === undefined
-        ? ""
-        : branchDeleted
-          ? "The branch was deleted"
-          : "The branch was kept";
+      branchDeleted === undefined ? "" : branchDeleted ? " · branch deleted" : " · branch kept";
     return (
-      <SummarySection id="pr-merge" title="Merge status">
-        <div className={cn(summaryCard, "px-4 py-3")}>
-          <p
-            data-tone={merged ? "waiting" : "failed"}
-            className="text-md font-semibold text-(--tone-text)"
-          >
-            {merged
-              ? `Merged into ${detail.baseBranch}${by}${when}`
-              : `Closed without merging${by}${when}`}
-          </p>
-          {branch && <p className="mt-0.5 text-ui text-muted-foreground">{branch}</p>}
-        </div>
-      </SummarySection>
+      <section id="pr-merge" aria-label="Merge status" className={cn(prBox, "scroll-mt-16")}>
+        <Section
+          tone={merged ? "waiting" : "failed"}
+          glyph={merged ? GitMergeIcon : XIcon}
+          title={merged ? "Pull request merged" : "Pull request closed"}
+          sub={`${merged ? `Merged into ${detail.baseBranch}` : "Closed without merging"}${by}${when}${branch}`}
+        />
+      </section>
     );
   }
   const facts = {
@@ -186,45 +183,104 @@ export function PrMergeBox(props: {
     outcomes,
     local: actions.local.result,
   };
-  // The headline weighs the sentences; the cells say the short words.
-  const sentences = prFacts(facts);
-  // Checks read best counted ("1 of 4 checks failing"); the rest in their short words.
-  const checks = sentences.find((fact) => fact.key === "checks")?.value;
-  const cells: Gate[] = prGates(facts).map((gate) =>
-    gate.key === "checks" && checks ? Object.assign({}, gate, { value: checks }) : gate,
-  );
+  const short = new Map(prGates(facts).map((gate) => [gate.key, gate]));
+  const said = new Map(prFacts(facts).map((gate) => [gate.key, gate]));
+  const gate = (key: GateKey): Gate | undefined => short.get(key);
+  const label = (key: GateKey) => {
+    const g = gate(key);
+    return g ? `${g.label}: ${g.value}` : key;
+  };
+  const reviews = gate("reviews");
+  const checks = gate("checks");
+  const conflicts = gate("conflicts");
+  const branch = gate("branch");
+  const hasReviewItems = blocking.some((item) => item.kind !== "check");
+  const hasCheckItems = blocking.some((item) => item.kind === "check");
+  const reviewsTone = reviews?.tone === "idle" ? "idle" : (reviews?.tone ?? "idle");
+  const reviewsHead =
+    reviews?.tone === "failed"
+      ? { title: "Changes requested", sub: `${said.get("reviews")?.value ?? ""}.` }
+      : reviews?.tone === "done"
+        ? { title: "Changes approved", sub: `${said.get("reviews")?.value ?? ""}.` }
+        : reviews?.tone === "needs-you"
+          ? { title: "Review required", sub: "An approving review is required to merge." }
+          : { title: "No reviews yet", sub: undefined };
+  const checksHead =
+    checks?.tone === "failed"
+      ? "Some checks were not successful"
+      : checks?.tone === "working"
+        ? "Some checks haven't finished"
+        : checks?.tone === "done"
+          ? "All checks have passed"
+          : (said.get("checks")?.value ?? "No checks");
   const branchLoading = actions.mergeState.query.isPending;
-  const head = headline(sentences, blocking.length, detail.baseBranch, state === "draft");
+  const behind = branch?.tone === "needs-you";
+  const conflicted = conflicts?.tone === "failed";
+  const blocked = actions.primary.kind === "blocked";
   return (
-    <SummarySection
-      id="pr-merge"
-      title="Merge status"
-      right={
-        <span className="px-1.5 text-ui">
-          {`${methodWords[actions.method]} into `}
-          <span className="font-mono text-xs text-foreground/90">{detail.baseBranch}</span>
+    <section id="pr-merge" aria-label="Merge status" className={cn(prBox, "scroll-mt-16")}>
+      <nav aria-label="Merge gates" className="divide-y divide-border-soft">
+        {reviews && (
+          <Section
+            tone={hasReviewItems && reviewsTone !== "failed" ? "needs-you" : reviewsTone}
+            title={reviewsHead.title}
+            sub={reviewsHead.sub}
+            gate={{ key: "reviews", label: label("reviews") }}
+            onSelect={props.onGate}
+          >
+            {hasReviewItems && <PrAttention {...props.attention} detail={detail} only="reviews" />}
+          </Section>
+        )}
+        {checks && (
+          <Section
+            tone={checks.tone}
+            title={checksHead}
+            sub={checksLine(detail.status) || undefined}
+            gate={{ key: "checks", label: label("checks") }}
+            onSelect={props.onGate}
+          >
+            {hasCheckItems && <PrAttention {...props.attention} detail={detail} only="checks" />}
+          </Section>
+        )}
+        {conflicts && (
+          <Section
+            tone={conflicted ? "failed" : behind ? "needs-you" : conflicts.tone}
+            title={
+              conflicted
+                ? "This branch has conflicts that must be resolved"
+                : conflicts.tone === "working"
+                  ? "Checking for conflicts…"
+                  : behind
+                    ? "This branch is out of date with the base branch"
+                    : "No conflicts with the base branch"
+            }
+            sub={
+              conflicted
+                ? `Conflicts with ${detail.baseBranch}.`
+                : behind
+                  ? `Bring the latest changes from ${detail.baseBranch} into this branch.`
+                  : branchLoading
+                    ? undefined
+                    : branch?.tone === "done"
+                      ? `Up to date with ${detail.baseBranch}.`
+                      : undefined
+            }
+            gate={{ key: "conflicts", label: label("conflicts") }}
+            onSelect={props.onGate}
+            action={behind ? <UpdateButtons actions={actions} /> : undefined}
+          />
+        )}
+      </nav>
+      <PrMergeLines actions={actions} className="border-t border-border-soft px-4 py-2.5" />
+      <div className={prBoxFoot}>
+        <span className={cn("text-ui", blocked ? "text-muted-foreground" : "text-foreground")}>
+          {blocked
+            ? "Merging is blocked"
+            : actions.primaryBlocked
+              ? actions.primaryBlocked.split("\n")[0]
+              : `Ready to merge into ${detail.baseBranch}`}
         </span>
-      }
-    >
-      <div className={summaryCard}>
-        <p
-          data-tone={head.tone === "idle" ? undefined : head.tone}
-          className={cn(
-            "px-4 py-3 text-md font-semibold",
-            head.tone === "idle" ? "text-foreground" : "text-(--tone-text)",
-          )}
-        >
-          {head.text}
-        </p>
-        <GateCells
-          gates={cells}
-          branchLoading={branchLoading}
-          after={<UpdateActions actions={actions} />}
-          onSelect={props.onGate}
-        />
-        <div className="border-t border-border-soft empty:hidden">{props.attention}</div>
-        <PrMergeLines actions={actions} className="border-t border-border-soft px-4 py-2.5" />
       </div>
-    </SummarySection>
+    </section>
   );
 }

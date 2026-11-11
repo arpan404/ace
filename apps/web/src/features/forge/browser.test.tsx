@@ -233,7 +233,7 @@ test("the Summary leaves the checks and the conversation to their own tabs", asy
   expect(summaryRegions()).toEqual(["Description"]);
   expect(panel().getByText(/Preserve reconnect ordering\./)).toBeTruthy();
   // The conversation is one step away, in the Timeline, where its comment box is.
-  await userEvent.click(panel().getByRole("button", { name: /^(Timeline|Leave a comment)$/ }));
+  await userEvent.click(panel().getByRole("tab", { name: /Timeline/ }));
   expect(panel().getByRole("tab", { name: /Timeline/, selected: true })).toBeTruthy();
   expect(panel().getByText(/Keep the context\./)).toBeTruthy();
   await userEvent.click(panel().getByRole("tab", { name: /Checks/ }));

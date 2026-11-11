@@ -3,12 +3,12 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { PrChangesGlance } from "./pr-changes-glance.tsx";
 import { PrDescription } from "./pr-description.tsx";
 import { PrStackSummary } from "./pr-stack-summary.tsx";
-import { PrLatest } from "./pr-latest.tsx";
 
 /**
- * The Summary tab: a main column of sections (Merge status, Description, Files changed, the
- * stack, Latest) and a sidebar (`about`) with the agent, the people, labels and what it's filed
- * under. A narrow view stacks the sidebar under the column.
+ * The Summary tab, laid out as GitHub lays out a pull request: a main column of boxes (the
+ * description, the merge box, the files changed, the stack) and a sidebar (`about`) with the
+ * people, labels, the agent and what it's filed under. A narrow view stacks the sidebar under
+ * the column.
  */
 export function PrSummary(props: {
   context: PrWorkspaceContext;
@@ -16,7 +16,6 @@ export function PrSummary(props: {
   stack?: { number: number; size: number; position: number } | undefined;
   onOpen(number: number): void;
   onOpenCode(path?: string, line?: number): void;
-  onTimeline(): void;
   /** Opens the details editor, when GitHub lets this account edit them. */
   onEdit: (() => void) | undefined;
   /** Reviewers, assignees, labels, the agent, the milestone and linked issues. */
@@ -29,9 +28,8 @@ export function PrSummary(props: {
   const { context } = props;
   const { detail } = context;
   return (
-    <div className="grid gap-8 px-[var(--forge-gutter,1rem)] pt-6 pb-12 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_14.5rem] @min-[50rem]/pr:gap-10">
-      <div className="min-w-0 space-y-8">
-        {props.merge}
+    <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-5 pb-12 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15.5rem] @min-[50rem]/pr:gap-8">
+      <div className="min-w-0 space-y-5">
         <PrDescription
           context={context}
           extensions={props.extensions}
@@ -39,6 +37,7 @@ export function PrSummary(props: {
           onEdit={props.onEdit}
           onTasks={props.onTasks}
         />
+        {props.merge}
         <PrChangesGlance
           workspaceId={context.workspaceId}
           detail={detail}
@@ -53,7 +52,6 @@ export function PrSummary(props: {
             onOpen={props.onOpen}
           />
         )}
-        <PrLatest detail={detail} onTimeline={props.onTimeline} />
         {props.extensions?.summary?.(context)}
       </div>
       {props.about && <div className="min-w-0 @min-[50rem]/pr:pt-0.5">{props.about}</div>}
