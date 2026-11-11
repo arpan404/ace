@@ -146,6 +146,8 @@ async fn run_tools(
     let mut finished: VecDeque<(Call, String, ToolOutput)> = VecDeque::new();
     let mut storing: Option<Storing<'_>> = None;
     loop {
+        // Set when the turn ends while starting a call.
+        let mut ended: Option<Handled> = None;
         // No new call starts while a result is not stored yet.
         while storing.is_none() && finished.is_empty() && running.len() < limit {
             if *stop.borrow() {
@@ -183,14 +185,15 @@ async fn run_tools(
                     Ok(super::jobs::Started::Running) => {}
                     Ok(super::jobs::Started::Stopped) => {
                         // Known not to have run: Stop came before the job started.
-                        let not_run = ToolOutput::error(context::NOT_RUN);
-                        finish_tool(engine, id, reply, &call, &name, not_run).await;
-                        return Handled::Stopped;
+                        finished.push_back((call, name, ToolOutput::error(context::NOT_RUN)));
+                        ended = Some(Handled::Stopped);
+                        break;
                     }
                     Err(error) => return Handled::Failed(error.to_string()),
                 }
+                // Stored like any result, alongside the calls still running.
                 let started = ToolOutput::ok(context::job_started(&call.id));
-                finish_tool(engine, id, reply, &call, &name, started).await;
+                finished.push_back((call, name, started));
                 continue;
             }
             let (engine, id) = (engine.clone(), id.to_owned());
@@ -206,22 +209,25 @@ async fn run_tools(
                 finish_tool(engine, id, reply, &call, &name, output).await;
             }));
         }
-        if running.is_empty() && storing.is_none() {
+        if ended.is_none() && running.is_empty() && storing.is_none() {
             return Handled::Continue;
         }
-        let ended = tokio::select! {
-            changed = stop.changed() => {
-                (changed.is_err() || *stop.borrow()).then_some(Handled::Stopped)
-            }
-            Some(done) = running.next() => {
-                finished.push_back(done);
-                None
-            }
-            () = stored(&mut storing) => {
-                storing = None;
-                None
-            }
-            _ = super::turn::pausing(pause, Point::RunningTools) => Some(Handled::Paused),
+        let ended = match ended {
+            Some(ended) => Some(ended),
+            None => tokio::select! {
+                changed = stop.changed() => {
+                    (changed.is_err() || *stop.borrow()).then_some(Handled::Stopped)
+                }
+                Some(done) = running.next() => {
+                    finished.push_back(done);
+                    None
+                }
+                () = stored(&mut storing) => {
+                    storing = None;
+                    None
+                }
+                _ = super::turn::pausing(pause, Point::RunningTools) => Some(Handled::Paused),
+            },
         };
         if let Some(ended) = ended {
             // The calls still in flight are cancelled now; results already back are kept.

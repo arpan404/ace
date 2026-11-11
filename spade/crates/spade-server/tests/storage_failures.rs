@@ -244,3 +244,46 @@ async fn a_stopped_reply_still_closes_when_reading_the_conversation_fails_for_a_
     assert_eq!(count(&events, "reply_stopped"), 1);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_cancels_a_call_in_flight_while_a_background_jobs_start_cannot_be_stored() -> Result {
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let endless = Endless {
+        cancelled: cancelled.clone(),
+    };
+    let research = FakeTool::new("research", Risk::Read, "Found it").background();
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .call("c1", "watch_page", json!({}))
+                .call("c2", "research", json!({ "topic": "weather" })),
+            Script::reply("").plain(r#"{"title":"Weather"}"#),
+        ],
+        vec![Arc::new(endless) as Arc<dyn Tool>, Arc::new(research)],
+    )
+    .await?;
+    // The job's "started in the background" answer is a tool result too: refused.
+    refuse(&spade.database(), "tool_finished")?;
+    let id = spade.ask("Weather?").await?;
+    spade.wait_for(&id, "job_started").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while !cancelled.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        cancelled.load(Ordering::SeqCst),
+        "watch_page kept running while storage refused the job's start"
+    );
+
+    allow(&spade.database(), "tool_finished")?;
+    let events = spade.wait_for(&id, "reply_stopped").await?;
+    let acknowledged = events
+        .iter()
+        .any(|e| e["type"] == "tool_finished" && e["call_id"] == "c2");
+    assert!(acknowledged, "the job's start is still stored");
+    Ok(())
+}
