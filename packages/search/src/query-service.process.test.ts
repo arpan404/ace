@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import { SearchQueries } from "./index.ts";
 import { Log, message, thread } from "./test-support.ts";
 
@@ -82,6 +83,37 @@ test("palette requests remain available when transcript query admission is full"
     expect((await transcripts).every((result) => result.status === "fulfilled")).toBe(true);
   } finally {
     await queries.close();
+    log.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a search worker from another build refuses to answer, so queries fail instead of returning another shape", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ace-search-worker-"));
+  const path = join(directory, "events.sqlite");
+  const log = new Log(path);
+  log.append([
+    { type: "thread.created", thread },
+    { type: "item.created", item: message("buildword") },
+  ]);
+  // What a daemon of another build sends: its own channel shape (or none, before shapes).
+  const other = (shape: string | undefined) =>
+    new SearchQueries(
+      path,
+      (from) =>
+        new IdleWorker(new URL("./query-worker.ts", import.meta.url), {
+          workerData: { path: from, shape },
+        }),
+    );
+  const same = new SearchQueries(path);
+  const changed = other("another build");
+  const older = other(undefined);
+  try {
+    expect((await same.query({ text: "buildword" })).hits).toHaveLength(1);
+    await expect(changed.query({ text: "buildword" })).rejects.toThrow("search_failed");
+    await expect(older.query({ text: "buildword" })).rejects.toThrow("search_failed");
+  } finally {
+    await Promise.allSettled([same.close(), changed.close(), older.close()]);
     log.close();
     rmSync(directory, { recursive: true, force: true });
   }
