@@ -188,3 +188,22 @@ test("fenced code shows exactly what was typed", async () => {
   await waitFor(() => expect(seen(message)).toBe("```\n# **x**\n```"));
   expect(message.querySelector("strong, [data-md='h1']")).toBeNull();
 });
+
+test("copying gives the words as seen: no Markdown marks, chips by name", async () => {
+  const { message } = await openComposer();
+  pasteText(message, "**ab** Plan\n- milk");
+  await waitFor(() => expect(message.querySelector("strong")).not.toBeNull());
+  const range = document.createRange();
+  range.selectNodeContents(message);
+  document.getSelection()?.removeAllRanges();
+  document.getSelection()?.addRange(range);
+  let copied = "";
+  fireEvent.copy(message, {
+    clipboardData: {
+      setData: (type: string, value: string) => {
+        if (type === "text/plain") copied = value;
+      },
+    },
+  });
+  expect(copied).toBe("ab Plan\nmilk");
+});

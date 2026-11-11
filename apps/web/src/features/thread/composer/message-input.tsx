@@ -1,4 +1,10 @@
-import { composerBlocks, pointOffset, serializeBlocks, type ComposerToken } from "@ace/ui-core";
+import {
+  blocksText,
+  composerBlocks,
+  pointOffset,
+  serializeBlocks,
+  type ComposerToken,
+} from "@ace/ui-core";
 import {
   useEffect,
   useEffectEvent,
@@ -6,6 +12,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type ComponentProps,
   type RefObject,
 } from "react";
@@ -62,6 +69,21 @@ function shown(el: HTMLElement, slots: readonly Slot[], tokens: readonly Compose
 }
 
 /** The same chip at any place: everything but where it is. */
+/** Copy or cut: the words as seen (`blocksText`), never the Markdown or a chip's own drawing. */
+function copyShown(event: ClipboardEvent<HTMLDivElement>, slots: readonly Slot[]): boolean {
+  const el = event.currentTarget;
+  const selection = el.ownerDocument.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+  if (!range || range.collapsed || !el.contains(range.commonAncestorContainer)) return false;
+  const bySlot = new Map(slots.map((slot) => [slot.node, slot.token]));
+  const read = readEditor(el, (node) => bySlot.get(node));
+  const from = pointAt(read, range.startContainer, range.startOffset);
+  const to = pointAt(read, range.endContainer, range.endOffset);
+  event.clipboardData.setData("text/plain", blocksText(read.blocks, from, to));
+  event.preventDefault();
+  return true;
+}
+
 function sameToken(a: ComposerToken, b: ComposerToken): boolean {
   return (
     JSON.stringify(Object.assign({}, a, { start: 0, end: 0 })) ===
@@ -195,6 +217,15 @@ export function MessageInput({
           if (chips.some((chip) => range?.intersectsNode(chip) || chip.contains(target)))
             event.preventDefault();
           props.onDragStart?.(event);
+        }}
+        onCopy={(event) => {
+          copyShown(event, slots);
+          props.onCopy?.(event);
+        }}
+        onCut={(event) => {
+          // The words go to the clipboard as seen; the browser's own delete takes them out.
+          if (copyShown(event, slots)) event.currentTarget.ownerDocument.execCommand?.("delete");
+          props.onCut?.(event);
         }}
         onCompositionStart={() => {
           composing.current = true;

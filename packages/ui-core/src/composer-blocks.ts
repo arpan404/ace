@@ -277,3 +277,30 @@ export function blockSignature(blocks: readonly ComposerBlock[]): string {
 export function emptyBlock(block: ComposerBlock): boolean {
   return block.runs.every(blank) && !block.runs.some((run) => run.type === "chip");
 }
+
+/**
+ * The words the person sees between two places, as copied text: no Markdown marks, a chip by
+ * its name, one line per line.
+ */
+export function blocksText(
+  blocks: readonly ComposerBlock[],
+  from: BlockPoint,
+  to: BlockPoint,
+): string {
+  const lines: string[] = [];
+  for (let line = from.line; line <= to.line; line++) {
+    const runs = blocks[line]?.runs ?? [];
+    let words = "";
+    runs.forEach((run, index) => {
+      const shown = run.type === "chip" ? (run.token?.label ?? run.text) : run.text;
+      const length = run.type === "chip" ? 1 : run.text.length;
+      const start = line === from.line && index === from.run ? from.offset : 0;
+      const end = line === to.line && index === to.run ? to.offset : length;
+      if ((line === from.line && index < from.run) || (line === to.line && index > to.run)) return;
+      if (end <= start) return;
+      words += run.type === "chip" ? shown : shown.slice(start, end);
+    });
+    lines.push(words);
+  }
+  return lines.join("\n");
+}

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  blocksText,
   composerBlocks,
   offsetPoint,
   pointOffset,
@@ -131,5 +132,18 @@ describe("caret places", () => {
     ["on the second line", "a\n# |b", "a\n# |b"],
   ])("%s", (_name, marked, expected) => {
     expect(shown(marked)).toBe(expected);
+  });
+});
+
+describe("copied words", () => {
+  test("are what the person sees between two places: no marks, chips by name, lines by line", () => {
+    const text = "**ab** ￼ Plan\n- milk\n## end";
+    const tokens: ComposerToken[] = [
+      { start: 7, end: 8, label: "screen.png", attachment: { key: 1 } },
+    ];
+    const blocks = composerBlocks(text, tokens);
+    expect(blocksText(blocks, { line: 0, run: 0, offset: 1 }, { line: 2, run: 0, offset: 2 })).toBe(
+      "b screen.png Plan\nmilk\nen",
+    );
   });
 });
