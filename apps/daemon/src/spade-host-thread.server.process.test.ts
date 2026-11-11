@@ -54,7 +54,7 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
   });
   home = join(f.h.home, "daemon");
   let daemon = f.daemon;
-  const opened: McpClient[] = [];
+  const opened: Awaited<ReturnType<typeof connectSpadeMcp>>[] = [];
   try {
     const spade = await startSpade(daemon);
     const { hostId } = spade;

@@ -2825,8 +2825,8 @@
       "sha256": "3d27a06eaa65006c04689e97052d9089d498ed75bda6388accb3f9a5f0c03dbd"
     },
     "schema/OutsideClientKind.json": {
-      "bytes": 199,
-      "sha256": "641c41e7686c87e4fe4175bb5baea403034f581a7306888d54a1cc93221dfcde"
+      "bytes": 212,
+      "sha256": "de813ebb1ec19ae19b943c4574c83f1ea4bf5d0c834382f971c02e914f32f96f"
     },
     "schema/OutsideEndpoint.json": {
       "bytes": 1124,
@@ -5077,10 +5077,10 @@
       "sha256": "326c4363558fb07a275e1864fb409008dd263601f205b8caaf79afe7141a9242"
     },
     "types.md": {
-      "bytes": 1028405,
-      "sha256": "aa1eaab200f46e876045b7db8d39c33df0bf83e825df40b3cd13b66c48a4477a"
+      "bytes": 1028415,
+      "sha256": "0291100a3cc099b049470dbbee019c9389d664c6ec0428e3c379eb4be660fa87"
     }
   },
-  "input": "0882a796dac95dce91d42da61211280689cbf70c074c759ce1bb9cc36f5dde73",
+  "input": "036194fac68e2b275133b43540b0fdf8e470c5d05896df145c4221ee2ee3c12c",
   "version": 1
 }

@@ -40,15 +40,15 @@ describe("server.json", () => {
   });
 });
 
+const facts = (change: Partial<SpadeFacts>): SpadeFacts => ({
+  enabled: true,
+  service: "running",
+  healthy: false,
+  silentForMs: 0,
+  ...change,
+});
 describe("spade.status from the service and its files", () => {
   const endpoint = { host: "127.0.0.1", port: 4100, pid: 42, version: "0.4.0" };
-  const facts = (change: Partial<SpadeFacts>): SpadeFacts => ({
-    enabled: true,
-    service: "running",
-    healthy: false,
-    silentForMs: 0,
-    ...change,
-  });
   test("is off while Spade is turned off, whatever is registered", () => {
     expect(spadeState(facts({ enabled: false, endpoint, healthy: true }))).toEqual({
       state: "off",

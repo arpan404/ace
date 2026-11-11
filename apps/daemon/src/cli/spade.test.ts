@@ -46,7 +46,9 @@ test("with no daemon running, ace spade on|off registers or removes Spade's serv
     if (typeof done === "function") done();
     return true;
   });
-  onTestFinished(() => vi.restoreAllMocks());
+  onTestFinished(() => {
+    vi.restoreAllMocks();
+  });
   const manager = serviceManager();
 
   await spadeCommand(parseArgs(["spade", "on"]), home, manager.control);

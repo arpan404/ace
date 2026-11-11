@@ -33,6 +33,8 @@ export class SpadeGrantDelivery {
   private attempt = 0;
   private cancelRetry: (() => void) | undefined;
   private closed = false;
+  /** The grant last handed over, and to which Spade instance (its address and API token). */
+  private handed: { grantId: string; spade: string } | undefined;
   constructor(options: SpadeDeliveryOptions) {
     this.options = options;
   }
@@ -46,6 +48,9 @@ export class SpadeGrantDelivery {
       this.cancelRetry = undefined;
       const grant = this.options.grants.current();
       if (!grant || this.closed) return;
+      const spade = `${connection.host}:${connection.port}:${connection.token}`;
+      // Already handed to this very Spade: a second token would only revoke the first.
+      if (this.handed?.grantId === grant.id && this.handed.spade === spade) return;
       if (!fresh && grant.lastUsedAt !== null && (await this.holds(connection))) {
         this.attempt = 0;
         return;
@@ -54,6 +59,7 @@ export class SpadeGrantDelivery {
       const answer = await this.options.call(connection, "PUT", { grant: token });
       if (answer && answer.status >= 200 && answer.status < 300) {
         this.attempt = 0;
+        this.handed = { grantId: grant.id, spade };
         this.options.log("info", "Handed Spade its grant for ace");
         return;
       }
@@ -75,6 +81,7 @@ export class SpadeGrantDelivery {
       this.cancelRetry?.();
       this.cancelRetry = undefined;
       this.attempt = 0;
+      this.handed = undefined;
       if (connection) await this.options.call(connection, "DELETE");
     });
   }

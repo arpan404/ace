@@ -36,11 +36,7 @@ test("Spade's grant reaches Spade when it appears, acts only as its host thread,
     // Spade's server.json appears later: it is handed the grant then.
     service.release();
     await ready(daemon);
-    const env = await until(async () => {
-      const seen = await spadeEnv(daemon);
-      return seen.grant ? seen : undefined;
-    }, "Spade to be handed its grant");
-    const token = env.grant;
+    const token = await until(async () => (await spadeEnv(daemon)).grant, "Spade's grant");
     const mcpUrl = daemon.mcp?.url ?? "";
 
     // The grant is the host thread's lease: the agent tool set, with nothing that waits on the
@@ -97,7 +93,7 @@ test("turning Spade off retires its grant and removes its service; turning it on
   try {
     await daemon.settings.set("spade.enabled", true, { kind: "global" });
     await ready(daemon);
-    const first = await until(async () => (await spadeEnv(daemon)).grant || undefined, "a grant");
+    const first = await until(async () => (await spadeEnv(daemon)).grant, "a grant");
     const pid = service.pid();
 
     await daemon.settings.set("spade.enabled", false, { kind: "global" });
@@ -111,7 +107,7 @@ test("turning Spade off retires its grant and removes its service; turning it on
     await daemon.settings.set("spade.enabled", true, { kind: "global" });
     await ready(daemon);
     expect(service.pid()).not.toBe(pid);
-    const second = await until(async () => (await spadeEnv(daemon)).grant || undefined, "a grant");
+    const second = await until(async () => (await spadeEnv(daemon)).grant, "a grant");
     expect(second).not.toBe(first);
     expect(await mcpStatus(daemon.mcp?.url ?? "", second)).toBe(200);
     expect(spadeGrants(daemon).filter((grant) => grant.revokedAt === null)).toHaveLength(1);

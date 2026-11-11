@@ -20646,12 +20646,12 @@ Example:
 
 [JSON Schema](schema/OutsideClientKind.json), input validation.
 
-Type: ["cli","cimd","dcr"]. See JSON Schema for constraints.
+Type: ["cli","cimd","dcr","spade"]. See JSON Schema for constraints.
 
 Example:
 
 ```json
-"dcr"
+"spade"
 ```
 
 ## OutsideEndpoint
@@ -20700,7 +20700,7 @@ Example:
 {
   "approvedBy": "example",
   "clientId": "example",
-  "clientKind": "cli",
+  "clientKind": "cimd",
   "createdAt": 6,
   "domain": null,
   "expiresAt": null,
@@ -20742,7 +20742,7 @@ Example:
 {
   "approvedBy": "example",
   "clientId": "example",
-  "clientKind": "cimd",
+  "clientKind": "dcr",
   "createdAt": 2,
   "domain": "example",
   "expiresAt": 6,
