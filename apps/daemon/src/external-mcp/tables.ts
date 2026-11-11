@@ -23,9 +23,12 @@ export const outsideGrantTables = `
     grant_id TEXT NOT NULL REFERENCES outside_grants(id) ON DELETE CASCADE,
     kind TEXT NOT NULL,
     expires_at INTEGER,
-    rotated_at INTEGER
+    rotated_at INTEGER,
+    pair TEXT,
+    successor TEXT
   );
   CREATE INDEX IF NOT EXISTS outside_grant_tokens_grant ON outside_grant_tokens(grant_id);
+  CREATE INDEX IF NOT EXISTS outside_grant_tokens_pair ON outside_grant_tokens(pair);
   CREATE TABLE IF NOT EXISTS outside_grant_threads (
     grant_id TEXT NOT NULL REFERENCES outside_grants(id) ON DELETE CASCADE,
     thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,

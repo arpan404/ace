@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { accessTokenTtlMs } from "./tokens.ts";
+import { accessTokenTtlMs, refreshGraceMs, spentRefreshKeptMs } from "./tokens.ts";
 import { draft, grantFixture } from "./grant-test-support.ts";
 
 test("an access token works for an hour and no longer", () => {
@@ -47,12 +47,13 @@ test("a refresh token trades once for a new pair and then stops working", () => 
   expect("accessToken" in third).toBe(true);
 });
 
-test("presenting a refresh token that was already traded revokes the whole grant", () => {
+test("presenting a refresh token traded more than a minute ago revokes the whole grant", () => {
   const f = grantFixture();
   const grant = f.grants.create(draft());
   const first = f.tokens.issuePair(grant);
   const second = f.tokens.rotate(first.refreshToken);
   if ("refused" in second) throw new Error("first rotation refused");
+  f.clock.now += refreshGraceMs + 1;
   expect(f.tokens.rotate(first.refreshToken)).toEqual({ refused: "reused" });
   expect(f.revoked).toEqual([grant.id]);
   expect(f.grants.get(grant.id)?.revokedAt).toBe(f.clock.now);
@@ -102,4 +103,61 @@ test("malformed and unknown tokens authenticate nobody", () => {
   for (const token of ["", "x", "a".repeat(43), "' OR 1=1 --"])
     expect(f.tokens.verify(token)).toBeUndefined();
   expect(f.tokens.rotate("a".repeat(43))).toEqual({ refused: "unknown" });
+});
+
+test("a client that lost its /token reply may trade the same refresh token again within a minute", () => {
+  const f = grantFixture();
+  const grant = f.grants.create(draft());
+  const first = f.tokens.issuePair(grant);
+  const lost = f.tokens.rotate(first.refreshToken);
+  if ("refused" in lost) throw new Error("first rotation refused");
+  f.clock.now += refreshGraceMs;
+  const retried = f.tokens.rotate(first.refreshToken);
+  if ("refused" in retried) throw new Error(`retry refused: ${retried.refused}`);
+  expect(f.revoked).toEqual([]);
+  expect(f.tokens.verify(retried.accessToken)?.id).toBe(grant.id);
+  // The pair whose reply never arrived stops working, without costing the grant.
+  expect(f.tokens.verify(lost.accessToken)).toBeUndefined();
+  expect(f.tokens.rotate(lost.refreshToken)).toEqual({ refused: "unknown" });
+  expect(f.grants.live(grant.id)).toBeDefined();
+  expect("accessToken" in f.tokens.rotate(retried.refreshToken)).toBe(true);
+});
+
+test("a refresh token traded twice since is reuse, even within the minute", () => {
+  const f = grantFixture();
+  const grant = f.grants.create(draft());
+  const first = f.tokens.issuePair(grant);
+  const second = f.tokens.rotate(first.refreshToken);
+  if ("refused" in second) throw new Error("refused");
+  expect("accessToken" in f.tokens.rotate(second.refreshToken)).toBe(true);
+  expect(f.tokens.rotate(first.refreshToken)).toEqual({ refused: "reused" });
+  expect(f.revoked).toEqual([grant.id]);
+});
+
+test("extending a CLI grant extends its pasted token", () => {
+  const f = grantFixture();
+  const grant = f.grants.create(draft({ clientKind: "cli", expiresAt: f.clock.now + 60_000 }));
+  const bearer = f.tokens.issueBearer(grant);
+  f.grants.update(grant.id, { expiresAt: f.clock.now + 86_400_000 });
+  f.clock.now += 120_000;
+  expect(f.tokens.verify(bearer)?.id).toBe(grant.id);
+});
+
+test("traded refresh tokens of a grant without expiry are dropped after their keeping time", () => {
+  const f = grantFixture();
+  const grant = f.grants.create(draft({ expiresAt: null }));
+  const first = f.tokens.issuePair(grant);
+  const second = f.tokens.rotate(first.refreshToken);
+  if ("refused" in second) throw new Error("refused");
+  const spent = () =>
+    f.db
+      .prepare("SELECT COUNT(*) AS n FROM outside_grant_tokens WHERE rotated_at IS NOT NULL")
+      .get()?.["n"];
+  expect(spent()).toBe(1);
+  f.clock.now += spentRefreshKeptMs;
+  expect("accessToken" in f.tokens.rotate(second.refreshToken)).toBe(true);
+  // The first is gone; the one just traded is kept.
+  expect(spent()).toBe(1);
+  expect(f.tokens.rotate(first.refreshToken)).toEqual({ refused: "unknown" });
+  expect(f.grants.live(grant.id)).toBeDefined();
 });
