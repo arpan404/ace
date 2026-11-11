@@ -354,6 +354,10 @@ export class FakeDaemon implements Host {
   get admission(): Pick<import("./admission-wire.ts").FakeAdmission, "set" | "held"> {
     return this.servicesWire.admission;
   }
+  /** Outside MCP clients behind `outside.request`: seed grants, ask for access, read decisions. */
+  get outside(): import("./outside-wire.ts").FakeOutside {
+    return this.servicesWire.outside;
+  }
   /** This machine's own update, behind `machineUpdate.request`. */
   get machineUpdate(): FakeMachineUpdate {
     return this.servicesWire.machineUpdate;
