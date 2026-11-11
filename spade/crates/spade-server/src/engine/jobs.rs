@@ -3,12 +3,12 @@
 //!
 //! A job stays in the live map until its end is stored. Running, Stop owns its end: it cancels the
 //! job and records it stopped before returning. Once the job has its result it is finishing: it
-//! stores the result itself, and a Stop meanwhile only keeps that result from opening a reply.
+//! stores the result itself, and the `stop_requested` event Stop stores first keeps that result
+//! (or a restart's "lost" report) from opening a reply.
 //! Starting a job and Stop take the same lock, and a start checks the turn's stop signal under it,
 //! so Stop never misses a job that is just starting.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -24,10 +24,9 @@ use crate::tools::ToolOutput;
 /// A job in the live map.
 pub(super) enum Job {
     Running(tokio::task::AbortHandle),
-    /// Has its result and is storing it. `quiet` is set by Stop: store it without opening a reply.
-    Finishing {
-        quiet: Arc<AtomicBool>,
-    },
+    /// Has its result and is storing it. A Stop meanwhile is stored as `stop_requested`, which
+    /// keeps that result from opening a reply.
+    Finishing,
 }
 
 /// What starting a job came to.
@@ -68,7 +67,6 @@ pub(super) fn start(
         );
         tokio::spawn(async move {
             let output = run(&engine, &job, &name, arguments).await;
-            let quiet = Arc::new(AtomicBool::new(false));
             {
                 let live = engine.live(&id);
                 let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
@@ -76,12 +74,7 @@ pub(super) fn start(
                 if !matches!(jobs.get(&job), Some(Job::Running(_))) {
                     return;
                 }
-                jobs.insert(
-                    job.clone(),
-                    Job::Finishing {
-                        quiet: quiet.clone(),
-                    },
-                );
+                jobs.insert(job.clone(), Job::Finishing);
             }
             let content = super::turn::trim(&output.content, engine.limits.result_chars);
             let finished = Event::Known(Known::JobFinished {
@@ -90,14 +83,7 @@ pub(super) fn start(
                 content,
                 is_error: output.is_error,
             });
-            keep_trying(|| {
-                if quiet.load(Ordering::SeqCst) {
-                    engine.record(&id, &finished).map(|_| ())
-                } else {
-                    engine.deliver(&id, &finished)
-                }
-            })
-            .await;
+            keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
                 .live(&id)
                 .jobs
@@ -135,8 +121,8 @@ async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
 }
 
 /// Stops the conversation's jobs. A running job is cancelled and stored as stopped before this
-/// returns, so a restart can never bring it back; a finishing one keeps its result but will not
-/// open a reply. Returns how many were stopped.
+/// returns, so a restart can never bring it back; a finishing one keeps its result, which opens
+/// no reply because the caller stored `stop_requested` first. Returns how many were stopped.
 pub(super) fn stop_all(engine: &Arc<Engine>, id: &str) -> usize {
     let mut cancelled: Vec<String> = Vec::new();
     let mut quietened = 0;
@@ -149,8 +135,7 @@ pub(super) fn stop_all(engine: &Arc<Engine>, id: &str) -> usize {
                 cancelled.push(job.clone());
                 false
             }
-            Job::Finishing { quiet } => {
-                quiet.store(true, Ordering::SeqCst);
+            Job::Finishing => {
                 quietened += 1;
                 true
             }

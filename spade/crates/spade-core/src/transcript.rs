@@ -124,6 +124,7 @@ impl Transcript {
             Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
             Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
             Known::StepFinished { .. }
+            | Known::StopRequested {}
             | Known::SkillsIndexed { .. }
             | Known::ContextCompacted { .. } => {}
         }
