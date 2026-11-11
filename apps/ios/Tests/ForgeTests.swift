@@ -4,17 +4,26 @@ import Foundation
 
 @Suite @MainActor struct ForgeTests {
     @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
-        let was = (title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"])
-        // Unchanged, in another order: nothing to send.
-        #expect(ForgeIssueEdit.from(was: was, title: "Crash ", body: "Steps", labels: "ios\nbug", assignees: "mona").isEmpty)
+        let was = ForgeIssueBaseline(title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"],
+                                     revision: "2026-11-11T00:00:00Z", bodyComplete: true)
+        // Unchanged, in another order or case: nothing to send (GitHub matches names without case).
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash ", body: "Steps", labels: "IOS\nbug", assignees: "Mona").isEmpty)
         let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Steps", labels: "bug\nmobile", assignees: "")
-        let inputs = edit.inputs(number: 7, revision: "2026-11-11T00:00:00Z", base: (was.title, was.body))
-        #expect(inputs.map { $0["action"] as? String } == ["edit", "labels", "assignees"])
+        let inputs = edit.inputs(number: 7, was: was)
+        #expect(inputs.map(\.step) == ["text", "labels", "assignees"])
         // The edit names the text it started from, so only a field changed elsewhere conflicts.
-        #expect((inputs[0]["base"] as? [String: String])?["title"] == "Crash")
-        #expect(inputs[1]["add"] as? [String] == ["mobile"])
-        #expect(inputs[1]["remove"] as? [String] == ["ios"])
-        #expect(inputs[2]["remove"] as? [String] == ["mona"])
+        #expect((inputs[0].input["base"] as? [String: String])?["title"] == "Crash")
+        #expect(inputs[1].input["add"] as? [String] == ["mobile"])
+        #expect(inputs[1].input["remove"] as? [String] == ["ios"])
+        #expect(inputs[2].input["remove"] as? [String] == ["mona"])
+    }
+
+    @Test func aShortenedDescriptionIsNeverSentBackAsTheIssuesText() {
+        let was = ForgeIssueBaseline(title: "Crash", body: "Long…", labels: [], assignees: [], revision: "r", bodyComplete: false)
+        // Typing in a body the phone only has part of changes nothing; a title edit keeps it as read.
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash", body: "Long… edited", labels: "", assignees: "").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Long… edited", labels: "", assignees: "")
+        #expect(edit.body == "Long…")
     }
 
     @Test func aPullRequestEditSendsOnlyTheEditableFieldsThatChanged() {

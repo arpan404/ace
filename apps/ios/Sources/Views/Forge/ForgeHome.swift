@@ -93,9 +93,9 @@ struct ForgeHome: View {
                 if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
             }
             .sheet(isPresented: $creatingIssue) {
-                if let session, let chosen {
-                    ForgeNewIssueSheet(client: session.client, project: chosen) { number in
-                        actions.open(ForgeRoute(kind: .issue, machineId: session.hostId, project: chosen, number: number))
+                if let session, let chosen, let repository = issues.list?.createOn {
+                    ForgeNewIssueSheet(client: session.client, project: chosen, repository: repository) { number in
+                        actions.open(ForgeRoute(kind: .issue, machineId: session.hostId, project: chosen, number: number, repository: repository))
                     }
                 }
             }
@@ -184,7 +184,7 @@ struct ForgeHome: View {
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
             }
-            if kind == .issues, session?.client.canOperate == true, chosen != nil, features?.create == true {
+            if kind == .issues, session?.client.canOperate == true, chosen != nil, issues.list?.createOn != nil {
                 Button("New issue") { creatingIssue = true }.buttonStyle(.forgeWord)
                     .accessibilityIdentifier("forge.newissue")
             }
