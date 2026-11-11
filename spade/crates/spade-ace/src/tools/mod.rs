@@ -83,8 +83,6 @@ impl AceTools {
         {
             return Ok(tools.clone());
         }
-        // Cleared before listing, so a change announced while listing marks the result stale.
-        self.stale.store(false, Ordering::Release);
         let tools = match self.list_once().await {
             Err(ToolsError::Unavailable(_)) => self.list_once().await,
             other => other,
@@ -133,6 +131,9 @@ impl AceTools {
 
     async fn list_once(&self) -> Result<Vec<AceTool>, ToolsError> {
         let (peer, epoch) = self.peer().await?;
+        // Cleared once the session is open and before listing, so a change announced while
+        // listing leaves the result stale.
+        self.stale.store(false, Ordering::Release);
         let mut tools = Vec::new();
         let mut cursor: Option<String> = None;
         for _ in 0..MOST_PAGES {

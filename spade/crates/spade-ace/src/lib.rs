@@ -17,5 +17,7 @@ pub mod tools;
 
 pub use config::{AceConfig, ConfigError};
 pub use secret::Secret;
-pub use skills::{AceSkills, Skill, SkillScope, SkillText, SkillsConfig, SkillsError};
+pub use skills::{
+    AceSkills, Skill, SkillErrorCode, SkillScope, SkillText, SkillsConfig, SkillsError,
+};
 pub use tools::{AceTool, AceToolResult, AceTools, Part, Risk, ToolsConfig, ToolsError};
