@@ -24,6 +24,8 @@ import Foundation
         #expect(range.suggestion(in: [whole, shortened]) == nil)
         let left = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "LEFT"))
         #expect(left.suggestion(in: [whole]) == nil)
+    }
+
     @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
         let was = ForgeIssueBaseline(title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"],
                                      revision: "2026-11-11T00:00:00Z", bodyComplete: true)
