@@ -85,6 +85,10 @@ struct BridgeMachineAccess: MachineAccess {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.unknown) }
         let once = Once()
+        // Only a pairing in progress stops with its task (the person went back). Listing, renaming,
+        // removing and remembering always finish: a view going away mid-read must not read as
+        // "nothing paired" or drop a rename.
+        let stopsWithTask: Bool = if case .pair = request { true } else { false }
         var services = HostServices(secrets: secrets, secretAccess: .directory, directoryURL: directoryURL)
         services.isCancelled = { once.isCancelled }
         let outcome: Result<AccessOutcome, ProblemNotice> = await withTaskCancellationHandler {
@@ -105,7 +109,7 @@ struct BridgeMachineAccess: MachineAccess {
             guard once.install(runtime) else { return }
             runtime.startAccess(String(decoding: data, as: UTF8.self))
           }
-        } onCancel: { once.cancel() }
+        } onCancel: { if stopsWithTask { once.cancel() } }
         await withCheckedContinuation { continuation in
             if let runtime = once.runtime { runtime.stop { continuation.resume() } } else { continuation.resume() }
         }

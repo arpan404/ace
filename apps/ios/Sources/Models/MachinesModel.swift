@@ -200,10 +200,10 @@ import Observation
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            guard !Task.isCancelled else { return .cancelled }
+            // The machine took the pairing: it is the commit point. Record it whole (listing,
+            // grants) even if the person has gone back, so nothing is left saved but half set up.
             // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
             if let listed = outcome.machines { paired = listed; await follow(merged()) }
-            guard !Task.isCancelled else { return .cancelled }
             guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
             grants.set(paired.scopes, for: entry)
             saveGrants()
