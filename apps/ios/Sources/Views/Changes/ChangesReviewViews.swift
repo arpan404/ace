@@ -8,7 +8,9 @@ extension ClientModel {
         var action = fields
         action["kind"] = kind
         action["requestId"] = id
-        if !sheet(action) {
+        if sheet(action) {
+            sheets.sent(id)
+        } else {
             sheets.notices[id] = ChangesNotice(requestId: id, action: kind, ok: false, message: "Reconnect to send this request.")
         }
         return id
@@ -264,6 +266,10 @@ struct ReviewRepliesSheet: View {
             }
             .navigationTitle("Replies").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            // The words typed stay with the comment while the thread is open, so closing the
+            // sheet to look at the code doesn't lose them.
+            .onAppear { if replyDraft.text.isEmpty, let kept = model.sheets.replyTexts[draft.key] { replyDraft.text = kept } }
+            .onChange(of: replyDraft.text) { _, text in model.sheets.replyTexts[draft.key] = text.isEmpty ? nil : text }
             .onChange(of: notice) { _, notice in
                 if let notice { replyDraft.finish(ok: notice.ok) }
             }
