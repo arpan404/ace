@@ -9,6 +9,8 @@ struct QuietProblemRow: View {
     /// The action's words ("Try again"); nil when there is nothing to ask again.
     var action: String? = nil
     let identifier: String
+    /// Holds the action back while what it starts is already under way.
+    var disabled = false
     var run: () -> Void = {}
 
     var body: some View {
@@ -17,6 +19,7 @@ struct QuietProblemRow: View {
                 Text(title).aceFont(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                     .foregroundStyle(AceTheme.StatusText.failed)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("service.problem")
                 if let detail, !detail.isEmpty {
                     Text(detail).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
                         .foregroundStyle(AceDesign.Ink.muted)
@@ -27,6 +30,7 @@ struct QuietProblemRow: View {
             if let action {
                 Button(action, action: run)
                     .buttonStyle(.textAction(.prominent))
+                    .disabled(disabled)
                     .accessibilityIdentifier(identifier)
             }
         }

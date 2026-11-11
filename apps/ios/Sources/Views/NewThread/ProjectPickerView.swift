@@ -185,7 +185,7 @@ struct AddProjectView: View {
                 if let failure {
                     QuietProblemRow(title: failure,
                                     action: allowable != nil && client.canOperate ? "Allow this folder" : nil,
-                                    identifier: "folder.allow") {
+                                    identifier: "folder.allow", disabled: adding != nil) {
                         if let allowable { Task { await allow(allowable) } }
                     }
                     .transition(.opacity)
