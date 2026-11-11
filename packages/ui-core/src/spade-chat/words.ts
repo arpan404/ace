@@ -28,11 +28,30 @@ const tools: Record<string, ToolWords> = {
   call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
+  // ace's own tools, reached through its MCP endpoint.
+  ace_threads_list: { base: "list your threads", doing: "Listing threads", done: "Listed threads" },
+  ace_thread_read: { base: "read a thread", doing: "Reading a thread", done: "Read a thread" },
+  ace_thread_status: {
+    base: "check a thread",
+    doing: "Checking a thread",
+    done: "Checked a thread",
+  },
+  ace_thread_run: { base: "start a thread", doing: "Starting a thread", done: "Started a thread" },
+  ace_thread_send: {
+    base: "send a message to a thread",
+    doing: "Sending a message to a thread",
+    done: "Sent a message to a thread",
+  },
+  ace_task_control: {
+    base: "control a task",
+    doing: "Controlling a task",
+    done: "Controlled a task",
+  },
 };
 
-/** `ace__thread_start` → "thread start". */
+/** `ace__thread_start` or `ace_thread_start` → "thread start". */
 function plainName(name: string): string {
-  const last = name.split("__").at(-1) ?? name;
+  const last = (name.split("__").at(-1) ?? name).replace(/^ace_/, "");
   return last.replaceAll(/[_-]+/g, " ").trim() || name;
 }
 

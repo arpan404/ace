@@ -3,6 +3,7 @@ import {
   parseSpadeConversations,
   parseSpadeEvents,
   parseSpadeModels,
+  spadeApprovalSentence,
   spadeCallLine,
   spadeRowState,
   spadeRowWorking,
@@ -98,6 +99,10 @@ test("a call reads as what it did, or why it didn't run", () => {
   expect(spadeCallLine("send_email", "declined")).toBe("You declined: send an email");
   expect(spadeCallLine("ace__thread_start", "running")).toBe("Using thread start");
   expect(spadeCallLine("web_fetch", "skipped")).toBe("Didn't read a web page");
+  expect(spadeApprovalSentence("ace_thread_send")).toBe(
+    "Spade wants to send a message to a thread.",
+  );
+  expect(spadeCallLine("ace_new_thing", "done")).toBe("Used new thing");
 });
 
 test("a row waiting on the person says so before it says working", () => {

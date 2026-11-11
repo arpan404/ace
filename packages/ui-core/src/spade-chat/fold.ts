@@ -295,9 +295,18 @@ function setCall(
   if (at && entry?.kind === "reply") {
     const index = entry.parts.findIndex((part) => part.kind === "call" && part.key === callId);
     const part = entry.parts[index];
-    if (part?.kind !== "call" || part.state === callState) return;
+    // `call_tool` reaches a deferred tool; once Spade names that tool, the call reads as it.
+    const named = name && part?.kind === "call" && part.name === "call_tool" ? name : part?.name;
+    if (part?.kind !== "call" || !named || (part.state === callState && named === part.name))
+      return;
+    // Spade answers a declined call with an errored result; it stays what the person chose.
+    if (part.state === "declined" && callState === "failed" && named === part.name) return;
     const parts = entry.parts.slice();
-    parts[index] = { ...part, state: callState };
+    parts[index] = {
+      ...part,
+      name: named,
+      state: part.state === "declined" && callState === "failed" ? "declined" : callState,
+    };
     state.entries[at.index] = { ...entry, parts };
     return;
   }

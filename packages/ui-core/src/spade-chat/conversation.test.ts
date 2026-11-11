@@ -357,3 +357,32 @@ describe("the Spade API's later details", () => {
     });
   });
 });
+
+test("a call made through call_tool reads as the tool it reached", () => {
+  const c = conversation();
+  c.stored({ type: "reply_started", reply: "r1" });
+  c.stored({
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "c1", name: "call_tool", arguments: { name: "ace_thread_send" } }],
+  });
+  c.stored({
+    type: "approval_requested",
+    reply: "r1",
+    call_id: "c1",
+    name: "ace_thread_send",
+    arguments: {},
+  });
+  c.stored({ type: "approval_answered", reply: "r1", call_id: "c1", allowed: false });
+  // Spade then answers the call for the model; the person still declined it.
+  c.stored({
+    type: "tool_finished",
+    reply: "r1",
+    call_id: "c1",
+    name: "ace_thread_send",
+    content: "The person declined this action.",
+    is_error: true,
+  });
+  expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined]"]);
+});

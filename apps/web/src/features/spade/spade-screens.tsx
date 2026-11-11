@@ -75,7 +75,10 @@ export function SpadeNewScreen() {
     );
     if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
     void cache.invalidateQueries({ queryKey: conversationsKey });
-    await navigate({ to: "/spade/$conversationId", params: { conversationId: id } });
+    // After the composer has heard the send went, so it clears its saved draft before it unmounts.
+    setTimeout(
+      () => void navigate({ to: "/spade/$conversationId", params: { conversationId: id } }),
+    );
   };
   return (
     <Screen title="Spade" namedByPanel>
