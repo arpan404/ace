@@ -38,8 +38,8 @@ describe("Git host read failures", () => {
   });
 
   it("send providers without a CLI to the host's website", () => {
-    expect(forgeErrorText("forge_cli", "gitea")).toBe(
-      "ace can't read Gitea yet: open it on Gitea.",
+    expect(forgeErrorText("forge_cli", "gitbucket")).toBe(
+      "ace can't read GitBucket yet: open it on GitBucket.",
     );
   });
 
