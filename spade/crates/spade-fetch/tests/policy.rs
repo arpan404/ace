@@ -95,3 +95,39 @@ fn allowing_loopback_opens_loopback_and_nothing_else() {
         assert!(!policy.allows(ip(text)), "{text} should still be refused");
     }
 }
+
+#[test]
+fn the_nat64_local_use_prefix_is_refused_whatever_it_carries() {
+    let policy = Policy::default();
+    for text in [
+        "64:ff9b:1::a00:1",
+        "64:ff9b:1::808:808",
+        "64:ff9b:1:ffff::1",
+    ] {
+        assert!(!policy.allows(ip(text)), "{text} should be refused");
+    }
+}
+
+#[test]
+fn an_interface_network_holds_its_own_address_and_its_link_only() {
+    use spade_fetch::Network;
+    let laptop = Network {
+        addr: ip("2a00:1450:4001::5"),
+        prefix: 64,
+    };
+    assert!(laptop.contains(ip("2a00:1450:4001::5")));
+    assert!(laptop.contains(ip("2a00:1450:4001::ffff")));
+    assert!(!laptop.contains(ip("2a00:1450:4002::5")));
+    let office = Network {
+        addr: ip("93.184.216.34"),
+        prefix: 24,
+    };
+    assert!(office.contains(ip("::ffff:93.184.216.1")));
+    assert!(!office.contains(ip("93.184.217.1")));
+    let everything = Network {
+        addr: ip("8.8.8.8"),
+        prefix: 0,
+    };
+    assert!(everything.contains(ip("8.8.8.8")));
+    assert!(!everything.contains(ip("1.1.1.1")));
+}

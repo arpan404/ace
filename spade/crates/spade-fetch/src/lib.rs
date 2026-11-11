@@ -2,11 +2,12 @@
 //!
 //! Pages are untrusted. Only http and https are fetched. Spade resolves the host itself, refuses
 //! any address the [`Policy`] does not allow (loopback, private, link-local, CGNAT, multicast and
-//! their IPv6 forms by default), and connects only to the addresses it checked, so DNS cannot
+//! their IPv6 forms by default) or that belongs to this machine's own networks, and connects only to the addresses it checked, so DNS cannot
 //! swap them between the check and the connection. Every redirect is checked the same way, at
 //! most [`MOST_REDIRECTS`] of them, and no more than [`MOST_BYTES`] are read.
 
 pub mod extract;
+mod local;
 pub mod page;
 pub mod policy;
 mod resolve;
@@ -19,6 +20,7 @@ use std::time::Duration;
 use reqwest::header::{ACCEPT, CONTENT_LENGTH, CONTENT_TYPE, LOCATION};
 use reqwest::{Response, Url};
 
+pub use local::{LocalNetworks, Network, SystemNetworks};
 pub use page::{DEFAULT_PAGE_CHARS, Page};
 pub use policy::Policy;
 pub use resolve::{Lookup, Resolve, SystemResolver};
@@ -53,6 +55,8 @@ pub enum FetchError {
     Scheme(String),
     #[error("{0} is a local or private address, which Spade does not fetch")]
     Refused(String),
+    #[error("could not read this machine's network addresses, so nothing was fetched")]
+    LocalNetworks,
     #[error("could not find the host {0}")]
     UnknownHost(String),
     #[error("could not reach {host}: {reason}")]
@@ -79,6 +83,7 @@ pub struct Fetcher {
     policy: Policy,
     timeout: Duration,
     resolver: Arc<dyn Resolve>,
+    local: Arc<dyn LocalNetworks>,
 }
 
 /// A body read in full, with where it came from.
@@ -90,21 +95,30 @@ struct Body {
 }
 
 impl Fetcher {
-    /// A fetcher using the system resolver. A whole fetch, redirects included, gives up after
-    /// `timeout`.
+    /// A fetcher using the system resolver and this machine's interface list. A whole fetch,
+    /// redirects included, gives up after `timeout`.
     #[must_use]
     pub fn new(policy: Policy, timeout: Duration) -> Self {
-        Self::with_resolver(policy, timeout, Arc::new(SystemResolver))
-    }
-
-    /// A fetcher that looks hosts up with `resolver`.
-    #[must_use]
-    pub fn with_resolver(policy: Policy, timeout: Duration, resolver: Arc<dyn Resolve>) -> Self {
         Self {
             policy,
             timeout,
-            resolver,
+            resolver: Arc::new(SystemResolver),
+            local: Arc::new(SystemNetworks),
         }
+    }
+
+    /// Looks hosts up with `resolver` instead of the system's.
+    #[must_use]
+    pub fn with_resolver(mut self, resolver: Arc<dyn Resolve>) -> Self {
+        self.resolver = resolver;
+        self
+    }
+
+    /// Reads this machine's networks from `local` instead of the operating system.
+    #[must_use]
+    pub fn with_local_networks(mut self, local: Arc<dyn LocalNetworks>) -> Self {
+        self.local = local;
+        self
     }
 
     /// Fetches `url` and returns the window `page` of its readable text.
@@ -133,9 +147,14 @@ impl Fetcher {
 
     async fn body(&self, url: &str) -> Result<Body, FetchError> {
         let mut url = Url::parse(url.trim()).map_err(|e| FetchError::BadUrl(e.to_string()))?;
+        // Read once per fetch; failing to read them refuses the fetch rather than guessing.
+        let networks = self
+            .local
+            .networks()
+            .map_err(|_| FetchError::LocalNetworks)?;
         let mut redirects = 0;
         loop {
-            let response = self.get(&url).await?;
+            let response = self.get(&url, &networks).await?;
             let status = response.status();
             if status.is_redirection() {
                 if redirects == MOST_REDIRECTS {
@@ -158,8 +177,8 @@ impl Fetcher {
     }
 
     /// One GET of `url`, connecting only to addresses the policy allows.
-    async fn get(&self, url: &Url) -> Result<Response, FetchError> {
-        let host = self.checked_host(url).await?;
+    async fn get(&self, url: &Url, networks: &[Network]) -> Result<Response, FetchError> {
+        let host = self.checked_host(url, networks).await?;
         let mut builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .no_proxy()
@@ -185,14 +204,18 @@ impl Fetcher {
             .map_err(|e| network(&label, &e))
     }
 
-    async fn checked_host(&self, url: &Url) -> Result<CheckedHost, FetchError> {
+    async fn checked_host(
+        &self,
+        url: &Url,
+        networks: &[Network],
+    ) -> Result<CheckedHost, FetchError> {
         let scheme = url.scheme();
         if !matches!(scheme, "http" | "https") {
             return Err(FetchError::Scheme(scheme.to_owned()));
         }
         let port = url.port_or_known_default().unwrap_or(80);
         let refuse = |ip: IpAddr| -> Result<(), FetchError> {
-            if self.policy.allows(ip) {
+            if self.allows(ip, networks) {
                 Ok(())
             } else {
                 Err(FetchError::Refused(
@@ -220,6 +243,20 @@ impl Fetcher {
             }
             None => Err(FetchError::BadUrl("it has no host".to_owned())),
         }
+    }
+}
+
+impl Fetcher {
+    /// The policy's rule, and no address on this machine or its links (loopback aside, when the
+    /// policy allows it).
+    fn allows(&self, ip: IpAddr, networks: &[Network]) -> bool {
+        if !self.policy.allows(ip) {
+            return false;
+        }
+        if self.policy.allow_loopback && ip.to_canonical().is_loopback() {
+            return true;
+        }
+        !networks.iter().any(|n| n.contains(ip))
     }
 }
 

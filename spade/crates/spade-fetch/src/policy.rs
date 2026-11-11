@@ -62,6 +62,7 @@ impl Policy {
             || (s[0] & 0xffc0) == 0xfe80 // link-local fe80::/10
             || (s[0] & 0xffc0) == 0xfec0 // old site-local fec0::/10
             || (s[0] & 0xff00) == 0xff00 // multicast
+            || (s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0x0001) // NAT64 local use, /48
             || (s[0] == 0x2001 && s[1] == 0x0db8) // documentation
             || (s[0] == 0x2001 && s[1] == 0) // Teredo hides an IPv4 address
             || (s[0] == 0x0100 && s[1..4] == [0, 0, 0]) // discard 100::/64
