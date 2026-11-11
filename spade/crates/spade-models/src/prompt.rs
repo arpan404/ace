@@ -1,5 +1,7 @@
 //! Spade's own request and reply types. Nothing outside this crate sees the SDK's types.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -37,11 +39,20 @@ pub enum Thought {
     Block { data: Value },
 }
 
+/// An image sent to the model: its media type (`image/png`) and its bytes in base64.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    pub media_type: String,
+    pub data: Arc<str>,
+}
+
 /// One entry in the conversation sent to a model.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Message {
     Person {
         text: String,
+        /// Images the person attached, sent after the text.
+        images: Vec<Image>,
     },
     /// Spade's earlier turn: its text, the tool calls it made, and the model's thoughts, which
     /// must be sent back unchanged for multi-step tool use to keep working.
@@ -86,7 +97,19 @@ impl Prompt {
     }
 
     pub fn person(mut self, text: impl Into<String>) -> Self {
-        self.messages.push(Message::Person { text: text.into() });
+        self.messages.push(Message::Person {
+            text: text.into(),
+            images: Vec::new(),
+        });
+        self
+    }
+
+    /// A message from the person with images attached.
+    pub fn person_with_images(mut self, text: impl Into<String>, images: Vec<Image>) -> Self {
+        self.messages.push(Message::Person {
+            text: text.into(),
+            images,
+        });
         self
     }
 
