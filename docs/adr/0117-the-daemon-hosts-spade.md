@@ -81,17 +81,20 @@ are owned by it, and notices land in it. So Spade gets a thread of its own to ac
   engine refuses every command that would run an agent there with `host_thread`: send, resume,
   limit, switch, merge, goal, queue resume and resend, and fork. When a child settles, its result
   is held for Spade to read with `wait` and `agents_status` instead of waking the host thread.
-- **Its ceiling.** The host thread takes the person's `access.defaultMode`, and its provider is
-  `providers.default` (a delegation that names no provider gets it, as from any parent). Spade's
-  children can never run with more access than a thread the person starts would. When the
-  default is full access, the host thread also acts for the person across projects
+- **Its ceiling and provider.** The host thread takes the person's `access.defaultMode` and
+  `providers.default`, on every Spade start and whenever either setting changes, keeping the
+  same thread, lease and receipts. Spade's children never run with more access than a thread the
+  person starts would, and a delegation that names no provider takes the current default. When
+  the default access is full access, the host thread also acts for the person across projects
   (`actsForPerson`), as any full-access top-level thread does.
 - **Where children run.** Spade's own project is an empty folder, so a host thread may name a
   local project with `project` (id, path or name, as `projects_find` shows) when it delegates
   without `machine`; the child runs there and stays the host thread's child. Every other agent
   still keeps to its own project, and `project` without `machine` is still refused for them.
-- **Hidden.** The Threads panel (its SQL), the client projection's thread list and global search
-  leave the host thread out; project lists leave out Spade's project. The children are ordinary
+- **Hidden.** The Threads panel (its SQL), the client projection's thread list, global search and
+  notifications leave the host thread out; project lists, agents' project lookups and what
+  paired machines see (`machines`, and delegations from them) leave out Spade's project. A
+  child Spade delegated shows no parent to open in the apps. The children are ordinary
   threads, shown as usual, with the host thread as their parent, so their status rolls up the
   usual way. `spade.status` carries `thread: {id, busy}`, where `busy` means the host thread's
   tree has a child still working or waiting on a person, so Spade's place in the apps can say
@@ -108,7 +111,8 @@ are owned by it, and notices land in it. So Spade gets a thread of its own to ac
   session gets (`daemonMcpCapabilities`: agents, notify, thread control, automations, projects,
   browser, and devices and screen where this daemon has them). The daemon applies its usual
   per-tool rules, such as the apps agents can't use; Spade's own approval gate runs before every
-  write. The lease is revoked when that run ends (crash, stop, `spade.enabled` off) and a new one
+  write. `ask` and `browser_request_help` are withheld: they wait on the person inside the
+  caller's thread, which for Spade is the hidden host thread. The lease is revoked when that run ends (crash, stop, `spade.enabled` off) and a new one
   is issued on each start; a daemon restart ends them all, as for every bearer. The bearer lives
   in memory and Spade's environment only.
 - **Listing.** Spade sends no `X-Ace-Tools` header, which lists every tool, each with

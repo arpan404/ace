@@ -88,7 +88,9 @@ ADR 0117 records the daemon side.
 - **ace tools** (threads, agent status and messages, delegation, browser, screen and computer
   use, notifications, automations, skills and guides): Spade is an MCP client of the daemon's
   loopback MCP endpoint, using `SPADE_ACE_MCP_URL` and `SPADE_ACE_MCP_TOKEN`. The lease is a
-  provider session's: operate scope, every agent tool group, the daemon's usual per-tool rules.
+  provider session's: operate scope, every agent tool group, the daemon's usual per-tool rules,
+  except `ask` and `browser_request_help`, which wait on the person inside the hidden host
+  thread; Spade asks through its own `ask_user`.
   Spade's approval gate runs before every write. The bearer is new on each start and revoked
   when Spade stops, crashes or is turned off.
 - **Spade's host thread.** Spade's calls act as a hidden ace thread the daemon holds for it
