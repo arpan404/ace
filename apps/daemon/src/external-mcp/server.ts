@@ -1,4 +1,14 @@
-import { aceToolDispatch, aceToolSearch, startMcpServer } from "@ace/mcp-server";
+import { randomBytes } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { TLSSocket } from "node:tls";
+import {
+  aceToolDispatch,
+  aceToolSearch,
+  nodeListener,
+  nodeScheduler,
+  startMcpServer,
+  type ResourceFetch,
+} from "@ace/mcp-server";
 import { computerToolNames } from "@ace/screen";
 import {
   WorkspaceId,
@@ -9,6 +19,21 @@ import {
 } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
+import { computerName } from "../computer-name.ts";
+import type { RelayHttpHandler } from "../relay-http.ts";
+import { baseOfResource, resourceMetadataUrl, type OutsideBase } from "./oauth/base.ts";
+import { publicMetadataFetch } from "./oauth/cimd-fetch.ts";
+import { outsideOAuth } from "./oauth/service.ts";
+import {
+  loopbackBase,
+  outsidePath,
+  reachEndpoints,
+  relayBase,
+  tailscaleBase,
+  unreachable,
+  type ReachFacts,
+  type ReachSettings,
+} from "./reach.ts";
 import { outsideBrowserToolkit } from "./browser.ts";
 import { endpointPort } from "./endpoint-port.ts";
 import { OutsideAccess } from "./outside.ts";
@@ -30,13 +55,16 @@ export type ExternalMcp = Awaited<ReturnType<typeof externalMcp>>;
 export async function externalMcp(context: ServiceContext) {
   const files = tokenFiles(context.config.dataDir);
   let toolsChanged: (() => void) | undefined;
+  const testing = context.options.outsideClients;
+  const sql = {
+    statement: (text: string) => context.store.statement(text),
+    atomic: <T>(run: () => T) => context.store.atomic(() => run()),
+  };
   const outside = new OutsideAccess({
-    sql: {
-      statement: (text) => context.store.statement(text),
-      atomic: (run) => context.store.atomic(() => run()),
-    },
+    sql,
     now: context.now,
     id: context.id,
+    ...(testing?.requestTtlMs === undefined ? {} : { requestTtlMs: testing.requestTtlMs }),
     ended: (grantId) => files.remove(grantId),
     closeBrowser(grantId) {
       void context.services.browser
@@ -51,8 +79,21 @@ export async function externalMcp(context: ServiceContext) {
   // Token files whose grants ended while the daemon was stopped.
   files.sweep((grantId) => outside.grants.live(grantId) !== undefined);
   let admit: (() => boolean) | undefined;
+  let reach: () => ReachFacts = () => unreachable;
   context.onListen.push((server) => {
     admit = () => server.maintenance.admit();
+    reach = () => server.outsideReach();
+  });
+  const reachSettings = await outsideReachSettings(context);
+  const oauth = outsideOAuth({
+    outside,
+    sql,
+    now: context.now,
+    random: randomBytes,
+    after: nodeScheduler.after,
+    fetchMetadata: testing?.fetchClientMetadata ?? publicMetadataFetch(),
+    machine: reachSettings.machine,
+    note: (text) => context.log.log("info", text),
   });
   const live = (threadId: string) => {
     const id = grantOfCaller(threadId);
@@ -79,6 +120,7 @@ export async function externalMcp(context: ServiceContext) {
   }).register(registry);
   const ports = endpointPort(context.config.dataDir);
   const saved = ports.read();
+  let port = saved ?? 0;
   const server = await startMcpServer({
     registry,
     ...(saved === undefined ? {} : { port: saved }),
@@ -88,7 +130,17 @@ export async function externalMcp(context: ServiceContext) {
         `The outside MCP endpoint's port ${port} is taken; it moves to a new one, and pasted client configs need the new URL from ace mcp list.`,
       ),
     credentials: outside.principals,
+    // Loopback requests: this endpoint's own address, or the person's public URL by its Host.
+    loopback: async (request, serve) => {
+      const base = loopbackBase(request.headers.get("host"), port, reachSettings.current().custom);
+      return base ? oauth(request, base, serve) : new Response("Host not allowed", { status: 403 });
+    },
     challenge: {
+      // Challenges point at the metadata of the URL the request came in on (RFC 9728 §5.1).
+      parameters: (resource): Record<string, string> =>
+        resource
+          ? { resource_metadata: resourceMetadataUrl(baseOfResource("local", resource)) }
+          : {},
       missingScope(principal, tool, args) {
         const grant = live(principal.scope.threadId);
         return grant ? missingScope(grant.scopes, tool, args) : undefined;
@@ -118,14 +170,48 @@ export async function externalMcp(context: ServiceContext) {
     },
   });
   toolsChanged = () => server.toolsChanged();
-  const port = Number(new URL(server.url).port);
+  port = Number(new URL(server.url).port);
   if (port !== saved) ports.save(port);
+  const serve: ResourceFetch = server.serve;
+  // The ts.net base the Tailscale listener last accepted; it is the same for every request.
+  let tailnet: OutsideBase | undefined;
+  const onTailscale = await nodeListener((request) =>
+    tailnet ? oauth(request, tailnet, serve) : Promise.resolve(new Response(null, { status: 404 })),
+  );
   return {
     /** Grants, tokens, access requests and screen use, for the admin protocol and OAuth. */
     outside,
     url: server.url,
-    /** Where outside clients can reach this machine, best first. The OAuth task adds the rest. */
-    endpoints: (): OutsideEndpoint[] => [{ path: "local", url: server.url, on: true }],
+    /** Where outside clients can reach this machine: loopback, Tailscale, ace's relay, own URL. */
+    endpoints: (): OutsideEndpoint[] =>
+      reachEndpoints(server.url, reach(), reachSettings.current()),
+    /** Requests ace's relay forwards (`remote.relayMcp` is checked before they get here). */
+    relay: ((request, _signal, forwarded) => {
+      const base = relayBase(forwarded);
+      return base
+        ? oauth(request, base, serve)
+        : Promise.resolve(new Response(null, { status: 404 }));
+    }) satisfies RelayHttpHandler,
+    /**
+     * A request on the Tailscale listener: served here when it is for outside clients at the
+     * ts.net name with `remote.tailscaleMcp` on; false hands it back to the daemon's own routes.
+     */
+    tailscale(request: IncomingMessage, response: ServerResponse): boolean {
+      const path = (request.url ?? "/").split("?")[0] ?? "/";
+      if (!outsidePath(path)) return false;
+      const socket = request.socket;
+      const servername = socket instanceof TLSSocket ? socket.servername : null;
+      const host = request.headers.host ?? null;
+      const base = tailscaleBase(
+        { host, servername: typeof servername === "string" ? servername : null },
+        reach().tailscale(),
+        reachSettings.current(),
+      );
+      if (!base) return false;
+      tailnet = base;
+      void onTailscale(request, response);
+      return true;
+    },
     /**
      * What this endpoint serves, as `ace capabilities` reports it: the server's own `context`
      * and tool search/dispatch, then every registered tool. Each client is offered only the
@@ -188,8 +274,52 @@ export async function externalMcp(context: ServiceContext) {
       }
     },
     async close() {
+      reachSettings.close();
       outside.close();
       await server.close();
     },
+  };
+}
+
+const reachKeys = [
+  "remote.tailscaleMcp",
+  "remote.relayMcp",
+  "remote.mcpPublicUrl",
+  "host.displayName",
+] as const;
+/**
+ * The person's reach choices and the machine's name, kept current from settings so each
+ * request reads them without waiting.
+ */
+async function outsideReachSettings(context: ServiceContext) {
+  let current: ReachSettings = { tailscale: false, relay: false, custom: null };
+  const name = (await computerName().catch(() => undefined)) ?? "this computer";
+  let display: string | undefined;
+  const settings = context.services.settings;
+  const read = async () => {
+    const entries = (
+      await settings?.read({ keys: [...reachKeys], scope: {} }).catch(() => undefined)
+    )?.entries;
+    const value = (key: (typeof reachKeys)[number]) =>
+      entries?.find((entry) => entry.key === key)?.value;
+    const custom = value("remote.mcpPublicUrl");
+    const shown = value("host.displayName");
+    current = {
+      tailscale: value("remote.tailscaleMcp") === true,
+      relay: value("remote.relayMcp") === true,
+      custom: typeof custom === "string" ? custom : null,
+    };
+    display = typeof shown === "string" && shown ? shown : undefined;
+  };
+  await read();
+  const stop = await settings
+    ?.subscribe({ keys: [...reachKeys], scope: {} }, (event) => {
+      if (event.type === "changed") void read();
+    })
+    .catch(() => undefined);
+  return {
+    current: () => current,
+    machine: () => display ?? name,
+    close: () => stop?.(),
   };
 }

@@ -53,7 +53,7 @@ export async function scopeRefusal(
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of body) {
-    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    const bytes = chunk instanceof Uint8Array ? Buffer.from(chunk) : Buffer.from(String(chunk));
     size += bytes.length;
     if (size > maxBytes) return { kind: "refuse", status: 413, headers: {}, body: "" };
     chunks.push(bytes);

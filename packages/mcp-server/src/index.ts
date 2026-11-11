@@ -22,6 +22,7 @@ export {
 } from "./registry.ts";
 export { aceToolDispatch, aceToolSearch, bareToolName, toolNamePattern } from "./tool-names.ts";
 export {
+  nodeListener,
   startMcpServer,
   type McpServerOptions,
   type NotificationStreamLimits,

@@ -24,7 +24,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
 import { PrincipalEventBus, listenStreamsPerLease } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { CredentialRegistry, type Authenticator, type Principal } from "./credentials.ts";
 import { bearerChallenge, scopeRefusal, type ScopeChallenge } from "./scope-challenge.ts";
 import {
@@ -207,16 +207,7 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       void Promise.all([load(), loopbackHandler()])
         .then(([{ nodeHandler, validateHost, validateOrigin }, hosted]) => {
           if (closing || response.destroyed) return;
-          if (hosted)
-            return hosted(
-              {
-                headers: request.headers,
-                method: request.method ?? "GET",
-                url: request.url ?? "/",
-                [Symbol.asyncIterator]: () => request[Symbol.asyncIterator](),
-              },
-              response,
-            );
+          if (hosted) return hosted(nodeRequest(request), response);
           if (!validateHost(request, response) || !validateOrigin(request, response)) return;
           if (request.url !== "/mcp") {
             response.writeHead(404).end();
@@ -329,6 +320,28 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       })();
       return stopped;
     },
+  };
+}
+/**
+ * A Node request listener over a web handler, for hosts serving outside requests on listeners of
+ * their own (the Tailscale listener). Bodies are capped like the MCP listener's.
+ */
+export async function nodeListener(
+  fetch: (request: Request) => Promise<Response>,
+  maxBodyBytes = 64 * 1024,
+) {
+  const { toNodeHandler } = await import("@modelcontextprotocol/node");
+  const handle = toNodeHandler({ fetch }, { maxRequestBodySize: maxBodyBytes });
+  return (request: IncomingMessage, response: ServerResponse) =>
+    handle(nodeRequest(request), response);
+}
+/** The parts of a Node request the SDK's adapter reads, with no optional fields left unset. */
+function nodeRequest(request: IncomingMessage) {
+  return {
+    headers: request.headers,
+    method: request.method ?? "GET",
+    url: request.url ?? "/",
+    [Symbol.asyncIterator]: () => request[Symbol.asyncIterator](),
   };
 }
 function isAddressInUse(error: unknown): boolean {

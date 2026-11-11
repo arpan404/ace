@@ -106,6 +106,11 @@ export type DaemonOptions = {
   modelInstances?: readonly InstanceInput[];
   workload?: HealthOptions["workload"];
   browser?: Omit<BrowserServiceOptions, "dataDir" | "onArtifact">;
+  /** Outside MCP clients (ADR 0117), for tests: how client metadata is fetched, request lifetime. */
+  outsideClients?: {
+    fetchClientMetadata?: import("../external-mcp/oauth/cimd.ts").MetadataFetch;
+    requestTtlMs?: number;
+  };
   /** "Use my Chrome" overrides for tests: where browsers keep native hosts, and which Node runs one. */
   userBrowser?: Partial<
     Pick<import("../user-browser.ts").UserBrowserOptions, "home" | "node" | "extraHostDirs">

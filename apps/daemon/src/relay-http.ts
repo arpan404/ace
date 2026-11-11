@@ -3,7 +3,7 @@ import type { SettingsService } from "@ace/settings";
 
 export type { RelayHttpHandler } from "@ace/relay";
 
-/** Nothing is served on the relay path until outside MCP grants land. */
+/** Nothing is served on the relay path until the outside MCP endpoint runs. */
 export const notServed: RelayHttpHandler = async () => new Response(null, { status: 404 });
 
 /**

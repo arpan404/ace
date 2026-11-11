@@ -11,6 +11,7 @@ import { remoteDirect } from "./remote-direct.ts";
 import { remoteRelays } from "./remote-relays.ts";
 import { startRelayTransport } from "./services/transports.ts";
 import { remoteNetworksStatus } from "./remote-status.ts";
+import type { ReachFacts } from "./external-mcp/reach.ts";
 import {
   addedDirect,
   remotePlan,
@@ -240,6 +241,26 @@ export function remoteRuntime(
     get relayHostId() {
       return relays.relayHostId();
     },
+    /** Where outside MCP clients can reach this machine beyond loopback (ADR 0117). */
+    outsideReach: (): ReachFacts => ({
+      tailscale: () =>
+        direct.tailnet() ?? {
+          problem:
+            direct.errors().tailscale ??
+            direct.warnings().tailscale ??
+            (direct.serving().tailscale
+              ? "Tailscale hasn't issued this machine's HTTPS certificate yet."
+              : "Turn on Tailscale in Remote access."),
+        },
+      relay: () => {
+        const hosted = relays.hosted();
+        if (!hosted)
+          return { problem: "Sign in to an ace account and turn on ace's relay in Remote access." };
+        const url = new URL(hosted.url);
+        const scheme = url.protocol === "ws:" ? "http:" : "https:";
+        return { origin: `${scheme}//${url.host}`, hostId: hosted.hostId };
+      },
+    }),
     set(key: string, value: unknown, commit: () => Promise<void>) {
       if (!keys.some((item) => item === key)) return commit();
       return serialize(async () => {

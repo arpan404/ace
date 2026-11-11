@@ -14,6 +14,8 @@ export interface OutsideAccessOptions {
   id: () => string;
   random?: RandomBytes;
   scheduler?: Scheduler;
+  /** How long a sign-in request waits for the person; tests shorten it. */
+  requestTtlMs?: number;
   /** A grant ended (revoked or expired): remove its token file. Never throws. */
   ended: (grantId: string) => void;
   /** Close the grant's browser session (it ended, or lost `browser`). Never throws. */
@@ -44,7 +46,13 @@ export class OutsideAccess {
     const scheduler = options.scheduler ?? nodeScheduler;
     this.grants = new GrantStore(sql, now, id);
     this.screen = new OutsideScreen(scheduler.after);
-    this.requests = new AccessRequests({ now, id, random, after: scheduler.after });
+    this.requests = new AccessRequests({
+      now,
+      id,
+      random,
+      after: scheduler.after,
+      ...(options.requestTtlMs === undefined ? {} : { ttlMs: options.requestTtlMs }),
+    });
     this.tokens = new GrantTokens({
       sql,
       grants: this.grants,
