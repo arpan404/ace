@@ -1,42 +1,75 @@
-//! Calls go through the real SDK and HTTP to a local fake gateway.
+//! Calls go through the real SDK and HTTP to a local fake endpoint, one per wire format.
 
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use spade_testkit::FakeProvider;
-use std::path::{Path, PathBuf};
-
-use spade_models::{
-    ApiKey, Catalog, Delta, Gateway, ModelError, Models, ModelsConfig, Prompt, Usage,
-};
+use spade_models::{Catalog, Delta, KEYLESS, Keys, ModelError, Models, Prompt, Usage};
+use spade_testkit::{FakeProvider, Script, Seen};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-/// The catalogue Spade ships, so these tests also cover its routes.
-fn shipped_catalog() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json")
+/// Endpoints of every format, all pointing at `fake`:
+/// `chat` (OpenAI Chat Completions), `resp` (OpenAI Responses), `msgs` (Anthropic Messages),
+/// `router` (a model id with a slash), `local` (no key) and `nokey` (key not set).
+fn catalog(fake: &FakeProvider) -> Result<Catalog> {
+    let root = &fake.root;
+    let json = json!({
+        "roles": { "main": "chat/kimi", "fast": "msgs/haiku", "deep": "resp/sol" },
+        "endpoints": [
+            { "id": "chat", "name": "Chat", "format": "openai-chat", "base_url": root,
+              "key": { "env": "CHAT_KEY" }, "headers": { "x-team": "spade" },
+              "models": [ { "id": "kimi", "name": "Kimi" } ] },
+            { "id": "resp", "name": "Responses", "format": "openai-responses", "base_url": root,
+              "key": { "env": "RESP_KEY" }, "models": [ { "id": "sol", "name": "Sol" } ] },
+            { "id": "msgs", "name": "Messages", "format": "anthropic", "base_url": root,
+              "key": { "env": "MSGS_KEY" }, "models": [ { "id": "haiku", "name": "Haiku" } ] },
+            { "id": "router", "name": "Router", "format": "openai-chat", "base_url": root,
+              "key": { "env": "CHAT_KEY" },
+              "models": [ { "id": "anthropic/claude-sonnet-5.5", "name": "Sonnet" } ] },
+            { "id": "local", "name": "Local", "format": "openai-chat", "base_url": root,
+              "models": [ { "id": "llama", "name": "Llama" } ] },
+            { "id": "nokey", "name": "No key", "format": "anthropic", "base_url": root,
+              "key": { "env": "UNSET_KEY" }, "models": [ { "id": "x", "name": "X" } ] },
+            { "id": "vault", "name": "Keychain only", "format": "openai-chat", "base_url": root,
+              "key": {}, "models": [ { "id": "v", "name": "V" } ] }
+        ]
+    });
+    Ok(Catalog::from_json(&json.to_string())?)
 }
 
-fn config(gateway: Gateway, fake: &FakeProvider) -> ModelsConfig {
-    ModelsConfig {
-        gateway,
-        key: ApiKey::new("test-key"),
-        root: Some(fake.root.clone()),
-        catalog: shipped_catalog(),
-    }
+/// The keychain holds keys for `vault` and `msgs`; the environment holds the rest.
+fn models(fake: &FakeProvider) -> Result<Models> {
+    let keychain = |endpoint: &str| match endpoint {
+        "vault" => Some("vault-key".to_owned()),
+        "msgs" => Some("msgs-keychain-key".to_owned()),
+        _ => None,
+    };
+    let env = |name: &str| match name {
+        "CHAT_KEY" => Some("chat-key".to_owned()),
+        "RESP_KEY" => Some("resp-key".to_owned()),
+        "MSGS_KEY" => Some("msgs-env-key".to_owned()),
+        _ => None,
+    };
+    Ok(Models::new(
+        catalog(fake)?,
+        Keys::keychain_then_env(keychain, env),
+    )?)
 }
 
-fn models(gateway: Gateway, fake: &FakeProvider) -> Result<Models> {
-    let config = config(gateway, fake);
-    let catalog = Catalog::load(&config.catalog)?;
-    Ok(Models::new(config, catalog)?)
-}
-
-fn only_request(fake: &FakeProvider) -> Result<spade_testkit::Seen> {
+fn only_request(fake: &FakeProvider) -> Result<Seen> {
     let mut seen = fake.seen();
     assert_eq!(seen.len(), 1, "expected one request, got {seen:?}");
     seen.pop().ok_or_else(|| "no request".into())
+}
+
+fn usage(input: u32, read: Option<u32>, write: Option<u32>) -> Usage {
+    Usage {
+        input_tokens: Some(input),
+        output_tokens: Some(7),
+        cache_read_tokens: read,
+        cache_write_tokens: write,
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema, PartialEq)]
@@ -46,53 +79,119 @@ struct Verdict {
 }
 
 #[tokio::test]
-async fn opencode_go_sends_openai_style_models_to_its_openai_endpoint() -> Result {
+async fn an_openai_chat_endpoint_gets_its_key_model_and_headers() -> Result {
     let fake = FakeProvider::start("Hello from Kimi").await?;
-    let reply = models(Gateway::OpenCodeGo, &fake)?
-        .chat("kimi-k3.1-pro", &Prompt::ask("hi"))
-        .await?;
+    let reply = models(&fake)?.chat("chat/kimi", &Prompt::ask("hi")).await?;
 
-    assert_eq!(reply.text, "Hello from Kimi");
-    assert_eq!(reply.model, "kimi-k3.1-pro");
     assert_eq!(
-        reply.usage,
-        Usage {
-            input_tokens: Some(11),
-            output_tokens: Some(7)
-        }
+        (reply.model.as_str(), reply.text.as_str()),
+        ("chat/kimi", "Hello from Kimi")
     );
     let request = only_request(&fake)?;
-    assert_eq!(request.path, "/openai/v1/chat/completions");
-    assert_eq!(request.key.as_deref(), Some("Bearer test-key"));
-    assert_eq!(request.body["model"], "kimi-k3.1-pro");
+    assert_eq!(request.path, "/chat/completions");
+    assert_eq!(request.key.as_deref(), Some("Bearer chat-key"));
+    assert_eq!(request.body["model"], "kimi");
+    assert!(
+        request
+            .headers
+            .contains(&("x-team".to_owned(), "spade".to_owned()))
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn opencode_go_sends_claude_haiku_through_its_anthropic_endpoint() -> Result {
+async fn an_openai_responses_endpoint_is_called_at_responses() -> Result {
+    let fake = FakeProvider::start("Hello from Sol").await?;
+    let reply = models(&fake)?.chat("resp/sol", &Prompt::ask("hi")).await?;
+
+    assert_eq!(reply.text, "Hello from Sol");
+    // Nothing was cached, which the SDK reports as no count rather than zero.
+    assert_eq!(reply.usage, usage(11, None, None));
+    let request = only_request(&fake)?;
+    assert_eq!(request.path, "/responses");
+    assert_eq!(request.key.as_deref(), Some("Bearer resp-key"));
+    assert_eq!(request.body["model"], "sol");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_anthropic_endpoint_gets_its_key_in_x_api_key() -> Result {
     let fake = FakeProvider::start("Hello from Haiku").await?;
-    let reply = models(Gateway::OpenCodeGo, &fake)?
-        .chat("claude-haiku-5-5", &Prompt::ask("hi"))
+    let reply = models(&fake)?
+        .chat("msgs/haiku", &Prompt::ask("hi"))
         .await?;
 
     assert_eq!(reply.text, "Hello from Haiku");
     let request = only_request(&fake)?;
-    assert_eq!(request.path, "/anthropic/v1/messages");
-    assert_eq!(request.key.as_deref(), Some("test-key"));
-    assert_eq!(request.body["model"], "claude-haiku-5-5");
+    assert_eq!(request.path, "/messages");
+    // The keychain's key wins over MSGS_KEY in the environment.
+    assert_eq!(request.key.as_deref(), Some("msgs-keychain-key"));
+    assert_eq!(request.body["model"], "haiku");
     Ok(())
 }
 
 #[tokio::test]
-async fn openrouter_calls_use_openrouter_model_ids() -> Result {
-    let fake = FakeProvider::start("Hello from Sonnet").await?;
-    models(Gateway::OpenRouter, &fake)?
-        .chat("claude-sonnet-5-5", &Prompt::ask("hi"))
+async fn a_model_id_with_a_slash_is_sent_whole() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    models(&fake)?
+        .chat("router/anthropic/claude-sonnet-5.5", &Prompt::ask("hi"))
         .await?;
+    assert_eq!(
+        only_request(&fake)?.body["model"],
+        "anthropic/claude-sonnet-5.5"
+    );
+    Ok(())
+}
 
+#[tokio::test]
+async fn a_local_endpoint_without_a_key_gets_only_the_placeholder() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    let reply = models(&fake)?
+        .chat("local/llama", &Prompt::ask("hi"))
+        .await?;
+    assert_eq!(reply.text, "ok");
     let request = only_request(&fake)?;
-    assert_eq!(request.path, "/chat/completions");
-    assert_eq!(request.body["model"], "anthropic/claude-sonnet-5.5");
+    assert_eq!(request.key, Some(format!("Bearer {KEYLESS}")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_missing_key_names_the_variable_and_never_calls_the_endpoint() -> Result {
+    let fake = FakeProvider::start("unused").await?;
+    let reply = models(&fake)?.chat("nokey/x", &Prompt::ask("hi")).await;
+    assert_eq!(
+        reply,
+        Err(ModelError::MissingKey {
+            endpoint: "nokey".to_owned(),
+            var: Some("UNSET_KEY".to_owned())
+        })
+    );
+    assert!(fake.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_keychain_only_endpoint_uses_its_keychain_key() -> Result {
+    let fake = FakeProvider::start("ok").await?;
+    models(&fake)?.chat("vault/v", &Prompt::ask("hi")).await?;
+    assert_eq!(
+        only_request(&fake)?.key.as_deref(),
+        Some("Bearer vault-key")
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_model_outside_the_catalogue_never_reaches_the_network() -> Result {
+    let fake = FakeProvider::start("unused").await?;
+    let reply = models(&fake)?
+        .chat("chat/gpt-5.4", &Prompt::ask("hi"))
+        .await;
+    assert_eq!(
+        reply,
+        Err(ModelError::UnknownModel("chat/gpt-5.4".to_owned()))
+    );
+    assert!(fake.seen().is_empty());
     Ok(())
 }
 
@@ -103,9 +202,7 @@ async fn instructions_and_history_are_sent_in_order() -> Result {
         .system("Be brief.")
         .spade("noted")
         .person("second");
-    models(Gateway::OpenCodeGo, &fake)?
-        .chat("glm-5.3", &prompt)
-        .await?;
+    models(&fake)?.chat("chat/kimi", &prompt).await?;
 
     let request = only_request(&fake)?;
     let turns: Vec<(Value, Value)> = request.body["messages"]
@@ -130,41 +227,29 @@ async fn instructions_and_history_are_sent_in_order() -> Result {
 }
 
 #[tokio::test]
-async fn typed_output_asks_for_the_schema_and_returns_the_type() -> Result {
-    let fake = FakeProvider::start(r#"{"relevant": true, "score": 7}"#).await?;
-    let verdict: Verdict = models(Gateway::OpenCodeGo, &fake)?
-        .generate("glm-5.3", &Prompt::ask("Is this relevant?"))
-        .await?;
-
+async fn typed_output_works_in_every_format() -> Result {
+    let fake = FakeProvider::start_with(Script::reply(r#"{"relevant": true, "score": 7}"#)).await?;
+    let models = models(&fake)?;
+    for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
+        let verdict: Verdict = models
+            .generate(reference, &Prompt::ask("Relevant?"))
+            .await?;
+        assert_eq!(
+            verdict,
+            Verdict {
+                relevant: true,
+                score: 7
+            },
+            "{reference}"
+        );
+    }
+    let chat = fake
+        .seen()
+        .into_iter()
+        .find(|s| s.path == "/chat/completions");
     assert_eq!(
-        verdict,
-        Verdict {
-            relevant: true,
-            score: 7
-        }
-    );
-    let request = only_request(&fake)?;
-    assert_eq!(request.body["response_format"]["type"], "json_schema");
-    assert_eq!(
-        request.body["response_format"]["json_schema"]["name"],
-        "Verdict"
-    );
-    Ok(())
-}
-
-#[tokio::test]
-async fn typed_output_works_through_the_anthropic_protocol() -> Result {
-    let fake = FakeProvider::start(r#"{"relevant": false, "score": 2}"#).await?;
-    let verdict: Verdict = models(Gateway::OpenCodeGo, &fake)?
-        .generate("claude-haiku-5-5", &Prompt::ask("Is this relevant?"))
-        .await?;
-
-    assert_eq!(
-        verdict,
-        Verdict {
-            relevant: false,
-            score: 2
-        }
+        chat.map(|s| s.body["response_format"]["json_schema"]["name"].clone()),
+        Some(json!("Verdict"))
     );
     Ok(())
 }
@@ -172,109 +257,62 @@ async fn typed_output_works_through_the_anthropic_protocol() -> Result {
 #[tokio::test]
 async fn typed_output_that_does_not_match_is_an_error() -> Result {
     let fake = FakeProvider::start(r#"{"relevant": "maybe"}"#).await?;
-    let verdict = models(Gateway::OpenCodeGo, &fake)?
-        .generate::<Verdict>("glm-5.3", &Prompt::ask("Is this relevant?"))
+    let verdict = models(&fake)?
+        .generate::<Verdict>("chat/kimi", &Prompt::ask("Relevant?"))
         .await;
-
     assert!(
-        matches!(&verdict, Err(ModelError::Shape { model, .. }) if model == "glm-5.3"),
+        matches!(&verdict, Err(ModelError::Shape { model, .. }) if model == "chat/kimi"),
         "{verdict:?}"
     );
     Ok(())
 }
 
-async fn streamed(gateway: Gateway, model: &str, fake: &FakeProvider) -> Result<Vec<Delta>> {
-    let stream = models(gateway, fake)?
-        .stream(model, &Prompt::ask("hi"))
-        .await?;
-    let deltas: Vec<_> = stream.collect().await;
-    Ok(deltas.into_iter().collect::<std::result::Result<_, _>>()?)
-}
-
-fn text_of(deltas: &[Delta]) -> String {
-    deltas
-        .iter()
-        .filter_map(|delta| match delta {
-            Delta::Text(text) => Some(text.as_str()),
-            _ => None,
-        })
-        .collect()
-}
-
 #[tokio::test]
-async fn an_openai_style_stream_arrives_in_pieces_and_ends_with_usage() -> Result {
-    let fake = FakeProvider::start("Streaming works").await?;
-    let deltas = streamed(Gateway::OpenCodeGo, "kimi-k3.1-pro", &fake).await?;
-
-    assert!(
-        deltas
+async fn every_format_streams_in_pieces_and_ends_with_usage() -> Result {
+    let fake = FakeProvider::start_with(Script::reply("Streaming works fine").chunks(3)).await?;
+    let models = models(&fake)?;
+    for reference in ["chat/kimi", "resp/sol", "msgs/haiku"] {
+        let stream = models.stream(reference, &Prompt::ask("hi")).await?;
+        let deltas: Vec<Delta> = stream
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<std::result::Result<_, _>>()?;
+        let text: String = deltas
             .iter()
-            .filter(|d| matches!(d, Delta::Text(_)))
-            .count()
-            >= 2
-    );
-    assert_eq!(text_of(&deltas), "Streaming works");
-    assert!(matches!(
-        deltas.last(),
-        Some(Delta::Done {
-            usage: Usage {
-                output_tokens: Some(7),
-                ..
-            }
-        })
-    ));
+            .filter_map(|d| match d {
+                Delta::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(text, "Streaming works fine", "{reference}");
+        assert!(
+            deltas
+                .iter()
+                .filter(|d| matches!(d, Delta::Text(_)))
+                .count()
+                >= 2,
+            "{reference}"
+        );
+        assert!(
+            matches!(deltas.last(), Some(Delta::Done { usage }) if usage.output_tokens == Some(7)),
+            "{reference}: {:?}",
+            deltas.last()
+        );
+    }
     Ok(())
 }
 
 #[tokio::test]
-async fn an_anthropic_stream_arrives_in_pieces_and_ends_with_usage() -> Result {
-    let fake = FakeProvider::start("Streaming works").await?;
-    let deltas = streamed(Gateway::OpenCodeGo, "claude-haiku-5-5", &fake).await?;
-
-    assert!(
-        deltas
-            .iter()
-            .filter(|d| matches!(d, Delta::Text(_)))
-            .count()
-            >= 2
-    );
-    assert_eq!(text_of(&deltas), "Streaming works");
-    assert!(matches!(
-        deltas.last(),
-        Some(Delta::Done {
-            usage: Usage {
-                output_tokens: Some(7),
-                ..
-            }
-        })
-    ));
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_model_outside_the_catalogue_never_reaches_the_network() -> Result {
-    let fake = FakeProvider::start("unused").await?;
-    let reply = models(Gateway::OpenRouter, &fake)?
-        .chat("gpt-5.4", &Prompt::ask("hi"))
-        .await;
-
-    assert_eq!(reply, Err(ModelError::UnknownModel("gpt-5.4".to_owned())));
-    assert!(fake.seen().is_empty());
-    Ok(())
-}
-
-#[tokio::test]
-async fn a_catalogue_without_defaults_for_the_gateway_is_refused_at_startup() -> Result {
-    let fake = FakeProvider::start("unused").await?;
-    let catalog = Catalog::from_json(
-        r#"{ "defaults": {}, "models": [
-            { "id": "glm-5.3", "name": "GLM-5.3", "routes": { "opencode-go": { "model": "glm-5.3" } } }
-        ] }"#,
-    )?;
-    let models = Models::new(config(Gateway::OpenCodeGo, &fake), catalog);
-    assert_eq!(
-        models.err(),
-        Some(ModelError::NoDefaults(Gateway::OpenCodeGo))
-    );
+async fn cached_input_is_reported_apart_from_the_rest() -> Result {
+    let fake = FakeProvider::start_with(Script::reply("ok").cached(30, 5)).await?;
+    let models = models(&fake)?;
+    // Anthropic reports 11 uncached, 30 read and 5 written: 46 input in all.
+    let anthropic = models.chat("msgs/haiku", &Prompt::ask("hi")).await?;
+    assert_eq!(anthropic.usage, usage(46, Some(30), Some(5)));
+    // OpenAI counts the 30 cached tokens inside its 41 prompt tokens.
+    let openai = models.chat("chat/kimi", &Prompt::ask("hi")).await?;
+    assert_eq!(openai.usage.input_tokens, Some(41));
+    assert_eq!(openai.usage.cache_read_tokens, Some(30));
     Ok(())
 }

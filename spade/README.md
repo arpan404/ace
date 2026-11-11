@@ -35,13 +35,16 @@ curl localhost:3000/health   # {"ok":true}
 
 ```
 crates/
-  spade-models/    model catalogue, gateways, chat, typed output, streaming
+  spade-models/    endpoints and models, chat, typed output, streaming, cache counts
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
+  spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
+  spade-search/    web search: your own SearXNG, then Brave with your key
   spade-server/    local API and reply engine (in progress)
-  spade-testkit/   test-only fake model gateway
+  spade-testkit/   test-only fake model endpoint (all three formats)
 config/
   models.json      the model catalogue, read at startup
+  search.json      search backends, tried in order
 docs/
   design.md        features, architecture, decisions, build order
   chat-core.md     step 1 contract: events, API, live stream, spending
@@ -49,25 +52,31 @@ docs/
 
 ## Settings
 
-| Variable                                                        | Default              | Meaning                                                       |
-| --------------------------------------------------------------- | -------------------- | ------------------------------------------------------------- |
-| `SPADE_LISTEN`                                                  | `127.0.0.1:3000`     | Address to listen on (loopback)                               |
-| `RUST_LOG`                                                      | `info`               | Log filter                                                    |
-| `SPADE_MODEL_GATEWAY`                                           | `openrouter`         | `openrouter`, `opencode-go` (development only) or `anthropic` |
-| `OPENROUTER_API_KEY` / `OPENCODE_API_KEY` / `ANTHROPIC_API_KEY` |                      | Key for the chosen gateway                                    |
-| `SPADE_MODEL_ROOT`                                              |                      | Replaces the gateway's address (a proxy or test server)       |
-| `SPADE_MODEL_CATALOG`                                           | `config/models.json` | The model catalogue file                                      |
+| Variable                  | Default              | Meaning                                                                               |
+| ------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `SPADE_LISTEN`            | `127.0.0.1:3000`     | Address to listen on (loopback)                                                       |
+| `RUST_LOG`                | `info`               | Log filter                                                                            |
+| `SPADE_MODEL_CATALOG`     | `config/models.json` | The model catalogue file                                                              |
+| Each endpoint's `key.env` |                      | That endpoint's key when it is not in the OS keychain, for example `OPENCODE_API_KEY` |
 
 ## Models
 
-Models are listed in `config/models.json`, read when Spade starts: one entry per model, with how
-each gateway reaches it, and the default model per role (main, fast, deep) for each gateway.
-Changing models means editing the file and restarting; nothing is recompiled. Point
-`SPADE_MODEL_CATALOG` at another copy to use a different list.
+Spade calls any endpoint that speaks one of three formats: **OpenAI Chat Completions**
+(`openai-chat`: OpenAI and every OpenAI-compatible server, such as OpenRouter, Groq, Ollama or vLLM),
+**OpenAI Responses** (`openai-responses`) or **Anthropic Messages** (`anthropic`).
 
-Keep the list short: the current model of each family worth running. Spade checks the file at
-startup and refuses to start on any problem (unknown fields, duplicate ids, a default that is not
-listed or that its gateway cannot run), listing every problem it found.
+`config/models.json`, read at startup, lists the endpoints (id, name, format, base URL, the
+key, optional extra headers) and each endpoint's models (id,
+name, context size, capabilities such as `tools`, `images` or `native-tool-search`, and an optional
+price per million tokens, including cache read and write prices). Models are named
+`endpoint/model`, for example `anthropic/claude-sonnet-5-5`; `roles` sets the main, fast and deep
+models. Keys live in the OS keychain (ADR 0116): Spade reads the keychain first, then the variable named in `key.env` (how a headless machine runs it). `"key": {}` means keychain only; an endpoint without `key` needs none (a local server). To add an endpoint, add an entry
+and restart; nothing is recompiled.
+
+The shipped file lists OpenCode Go (the development default), Anthropic, OpenAI, Google Gemini,
+Moonshot and Z.AI, with model ids and prices from models.dev. Spade checks the file at startup and
+refuses to start on any problem (unknown fields, duplicate or malformed ids, a bad URL or key name,
+a negative price, a role that names nothing), listing every problem it found.
 
 ## How it runs
 

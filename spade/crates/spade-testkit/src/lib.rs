@@ -1,6 +1,6 @@
-//! Test-only helpers. `FakeProvider` stands in for a model gateway: it answers OpenAI Chat
-//! Completions and Anthropic Messages, plain or streamed, following a [`Script`], and records
-//! every request it receives.
+//! Test-only helpers. `FakeProvider` stands in for a model endpoint: it answers OpenAI Chat
+//! Completions, OpenAI Responses and Anthropic Messages, plain or streamed, following a
+//! [`Script`], and records every request it receives.
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -29,6 +29,9 @@ pub struct Script {
     pub delay: Duration,
     /// Answer every call with this HTTP status instead.
     pub fail: Option<u16>,
+    /// Input tokens reported as read from the cache, and as written to it.
+    pub cache_read: u32,
+    pub cache_write: u32,
 }
 
 impl Script {
@@ -39,7 +42,16 @@ impl Script {
             chunks: 2,
             delay: Duration::ZERO,
             fail: None,
+            cache_read: 0,
+            cache_write: 0,
         }
+    }
+
+    /// Reports `read` input tokens served from the cache and `write` written to it.
+    pub fn cached(mut self, read: u32, write: u32) -> Self {
+        self.cache_read = read;
+        self.cache_write = write;
+        self
     }
 
     pub fn plain(mut self, text: &str) -> Self {
@@ -71,6 +83,7 @@ pub struct Seen {
     pub path: String,
     /// `Authorization` for OpenAI-style calls, `x-api-key` for Anthropic.
     pub key: Option<String>,
+    pub headers: Vec<(String, String)>,
     pub body: Value,
 }
 
@@ -81,7 +94,7 @@ struct Shared {
 }
 
 pub struct FakeProvider {
-    /// The fake's address, to use as the gateway root.
+    /// The fake's address, to use as an endpoint's base URL.
     pub root: String,
     seen: Arc<Mutex<Vec<Seen>>>,
 }
@@ -134,6 +147,7 @@ async fn answer(
     };
     let path = uri.path().to_owned();
     let anthropic = path.ends_with("/messages");
+    let responses = path.ends_with("/responses");
     let streamed = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if let Ok(mut seen) = shared.seen.lock() {
         seen.push(Seen {
@@ -143,13 +157,17 @@ async fn answer(
             } else {
                 header("authorization")
             },
+            headers: headers
+                .iter()
+                .filter_map(|(k, v)| Some((k.as_str().to_owned(), v.to_str().ok()?.to_owned())))
+                .collect(),
             body,
         });
     }
     let script = &shared.script;
     if let Some(status) = script.fail {
         let status = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let error = json!({ "error": { "message": "fake gateway failure", "type": "fake" } });
+        let error = json!({ "error": { "message": "fake endpoint failure", "type": "fake" } });
         return (
             status,
             [("content-type", "application/json")],
@@ -158,11 +176,17 @@ async fn answer(
             .into_response();
     }
     let pieces = split(&script.reply, script.chunks);
-    match (anthropic, streamed) {
-        (false, false) => json_response(openai_reply(&script.plain)),
-        (false, true) => sse(openai_stream(&pieces), script.delay),
-        (true, false) => json_response(anthropic_reply(&script.plain)),
-        (true, true) => sse(anthropic_stream(&pieces), script.delay),
+    let usage = Tokens {
+        read: script.cache_read,
+        write: script.cache_write,
+    };
+    match (anthropic, responses, streamed) {
+        (true, _, false) => json_response(anthropic_reply(&script.plain, usage)),
+        (true, _, true) => sse(anthropic_stream(&pieces, usage), script.delay),
+        (false, true, false) => json_response(responses_reply(&script.plain, usage)),
+        (false, true, true) => sse(responses_stream(&pieces, usage), script.delay),
+        (false, false, false) => json_response(openai_reply(&script.plain, usage)),
+        (false, false, true) => sse(openai_stream(&pieces, usage), script.delay),
     }
 }
 
@@ -202,7 +226,40 @@ fn split(reply: &str, count: usize) -> Vec<String> {
         .collect()
 }
 
-fn openai_reply(reply: &str) -> Value {
+/// Cached input tokens to report: 11 input and 7 output tokens are always reported on top.
+#[derive(Clone, Copy)]
+struct Tokens {
+    read: u32,
+    write: u32,
+}
+
+impl Tokens {
+    /// OpenAI counts cached tokens inside `prompt_tokens`.
+    fn openai(self) -> Value {
+        json!({
+            "prompt_tokens": 11 + self.read, "completion_tokens": 7,
+            "total_tokens": 18 + self.read,
+            "prompt_tokens_details": { "cached_tokens": self.read }
+        })
+    }
+
+    fn responses(self) -> Value {
+        json!({
+            "input_tokens": 11 + self.read, "output_tokens": 7, "total_tokens": 18 + self.read,
+            "input_tokens_details": { "cached_tokens": self.read }
+        })
+    }
+
+    /// Anthropic reports uncached input apart from cache reads and writes.
+    fn anthropic(self) -> Value {
+        json!({
+            "input_tokens": 11, "output_tokens": 7,
+            "cache_read_input_tokens": self.read, "cache_creation_input_tokens": self.write
+        })
+    }
+}
+
+fn openai_reply(reply: &str, tokens: Tokens) -> Value {
     json!({
         "id": "chatcmpl-1",
         "object": "chat.completion",
@@ -213,12 +270,12 @@ fn openai_reply(reply: &str) -> Value {
             "message": { "role": "assistant", "content": reply },
             "finish_reason": "stop"
         }],
-        "usage": { "prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18 }
+        "usage": tokens.openai()
     })
 }
 
 /// `(is_text, frame)` pairs.
-fn openai_stream(pieces: &[String]) -> Vec<(bool, String)> {
+fn openai_stream(pieces: &[String], tokens: Tokens) -> Vec<(bool, String)> {
     let frame = |value: Value| format!("data: {value}\n\n");
     let mut frames: Vec<(bool, String)> = pieces
         .iter()
@@ -245,14 +302,14 @@ fn openai_stream(pieces: &[String]) -> Vec<(bool, String)> {
         frame(json!({
             "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "fake",
             "choices": [],
-            "usage": { "prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18 }
+            "usage": tokens.openai()
         })),
     ));
     frames.push((false, "data: [DONE]\n\n".to_owned()));
     frames
 }
 
-fn anthropic_reply(reply: &str) -> Value {
+fn anthropic_reply(reply: &str, tokens: Tokens) -> Value {
     json!({
         "id": "msg_1",
         "type": "message",
@@ -261,11 +318,11 @@ fn anthropic_reply(reply: &str) -> Value {
         "content": [{ "type": "text", "text": reply }],
         "stop_reason": "end_turn",
         "stop_sequence": null,
-        "usage": { "input_tokens": 11, "output_tokens": 7 }
+        "usage": tokens.anthropic()
     })
 }
 
-fn anthropic_stream(pieces: &[String]) -> Vec<(bool, String)> {
+fn anthropic_stream(pieces: &[String], tokens: Tokens) -> Vec<(bool, String)> {
     let frame = |name: &str, data: Value| format!("event: {name}\ndata: {data}\n\n");
     let mut frames = vec![
         (
@@ -277,7 +334,9 @@ fn anthropic_stream(pieces: &[String]) -> Vec<(bool, String)> {
                     "message": {
                         "id": "msg_1", "type": "message", "role": "assistant", "model": "fake",
                         "content": [], "stop_reason": null, "stop_sequence": null,
-                        "usage": { "input_tokens": 11, "output_tokens": 0 }
+                        "usage": { "input_tokens": 11, "output_tokens": 0,
+                                   "cache_read_input_tokens": tokens.read,
+                                   "cache_creation_input_tokens": tokens.write }
                     }
                 }),
             ),
@@ -320,6 +379,54 @@ fn anthropic_stream(pieces: &[String]) -> Vec<(bool, String)> {
     frames.push((
         false,
         frame("message_stop", json!({ "type": "message_stop" })),
+    ));
+    frames
+}
+
+fn responses_message(text: &str) -> Value {
+    json!({
+        "type": "message", "id": "msg_1", "status": "completed", "role": "assistant",
+        "content": [{ "type": "output_text", "text": text, "annotations": [] }]
+    })
+}
+
+fn responses_reply(reply: &str, tokens: Tokens) -> Value {
+    json!({
+        "id": "resp_1", "object": "response", "status": "completed", "model": "fake",
+        "output": [responses_message(reply)],
+        "usage": tokens.responses()
+    })
+}
+
+fn responses_stream(pieces: &[String], tokens: Tokens) -> Vec<(bool, String)> {
+    let frame = |name: &str, data: Value| format!("event: {name}\ndata: {data}\n\n");
+    let full: String = pieces.concat();
+    let mut frames = vec![(
+        false,
+        frame(
+            "response.created",
+            json!({ "type": "response.created",
+                    "response": { "id": "resp_1", "status": "in_progress", "model": "fake", "output": [] } }),
+        ),
+    )];
+    for text in pieces {
+        frames.push((
+            true,
+            frame(
+                "response.output_text.delta",
+                json!({ "type": "response.output_text.delta", "output_index": 0,
+                        "content_index": 0, "delta": text }),
+            ),
+        ));
+    }
+    frames.push((
+        false,
+        frame(
+            "response.completed",
+            json!({ "type": "response.completed",
+                    "response": { "id": "resp_1", "status": "completed", "model": "fake",
+                                  "output": [responses_message(&full)], "usage": tokens.responses() } }),
+        ),
     ));
     frames
 }

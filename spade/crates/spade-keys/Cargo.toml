@@ -1,0 +1,27 @@
+[package]
+name = "spade-keys"
+version = "0.1.0"
+description = "Spade's endpoint API keys in the OS keychain (ADR 0116)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+keyring-core.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[lints]
+workspace = true

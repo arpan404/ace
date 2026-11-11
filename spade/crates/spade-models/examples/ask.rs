@@ -1,15 +1,14 @@
-//! Development check against a real gateway. Spends quota, so it only runs by hand:
+//! Development check against a real endpoint. Spends quota, so it only runs by hand:
 //!
-//!     SPADE_MODEL_GATEWAY=opencode-go OPENCODE_API_KEY=… \
-//!         cargo run -p spade-models --example ask -- [model] "question"
+//!     OPENCODE_API_KEY=… cargo run -p spade-models --example ask -- [endpoint/model] "question"
 //!
 //! Run from the repository root so `config/models.json` is found (or set `SPADE_MODEL_CATALOG`).
-//! Without a model id it uses the gateway's main model. The reply streams to stdout.
+//! Without a model it uses the main role's model. The reply streams to stdout.
 
 use std::io::Write;
 
 use futures_util::StreamExt;
-use spade_models::{Catalog, Delta, Models, ModelsConfig, Prompt, Role};
+use spade_models::{Catalog, Delta, Keys, Models, ModelsConfig, Prompt, Role};
 
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
@@ -25,13 +24,13 @@ async fn main() -> std::process::ExitCode {
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let question = args.pop().ok_or("usage: ask [model] \"question\"")?;
-    let config = ModelsConfig::from_env(|key| std::env::var(key).ok())?;
+    let config = ModelsConfig::from_env(|key| std::env::var(key).ok());
     let catalog = Catalog::load(&config.catalog)?;
-    let models = Models::new(config, catalog)?;
+    let models = Models::new(catalog, Keys::from_process_env())?;
     let model = args
         .pop()
         .unwrap_or_else(|| models.for_role(Role::Main).to_owned());
-    eprintln!("{model} via {}", models.gateway());
+    eprintln!("{model}");
 
     let mut stream = Box::pin(
         models
