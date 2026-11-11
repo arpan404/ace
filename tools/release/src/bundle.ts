@@ -34,6 +34,12 @@ export async function bundleDaemon(
     format: "esm" as const,
     external: runtimePackages.map((pkg) => pkg.name),
     legalComments: "eof" as const,
+    // `DISABLE_SPADE=1` at build time leaves Spade out of this daemon: it never starts.
+    define: {
+      "process.env.ACE_BUILD_DISABLE_SPADE": JSON.stringify(
+        process.env.DISABLE_SPADE === "1" ? "1" : "",
+      ),
+    },
     banner: {
       js: 'import { createRequire as __aceCreateRequire } from "node:module"; const require = __aceCreateRequire(import.meta.url);',
     },

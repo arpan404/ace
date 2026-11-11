@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
+import { spadeAvailable } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { UpdateButton } from "./update-button.tsx";
@@ -113,8 +114,12 @@ export function AppRail(props: {
           last={chats}
           signal={signals.chats}
         />
-        {props.spade?.(current === "spade", spade.to, spade.search) ?? (
-          <SpadePlace current={current === "spade"} last={spade} />
+        {spadeAvailable ? (
+          (props.spade?.(current === "spade", spade.to, spade.search) ?? (
+            <SpadePlace current={current === "spade"} last={spade} />
+          ))
+        ) : (
+          <SpadeComingSoon />
         )}
         <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}
@@ -146,6 +151,21 @@ export function AppRail(props: {
         <AccountMenu />
       </TooltipSide>
     </nav>
+  );
+}
+
+/** Spade in a build without it: its mark, which goes nowhere yet. */
+export function SpadeComingSoon() {
+  return (
+    <Tip label="Spade · Coming soon">
+      <span
+        role="img"
+        aria-label="Spade, coming soon"
+        className={`${railPlaceClass} cursor-default`}
+      >
+        <SpadeMark size={20} />
+      </span>
+    </Tip>
   );
 }
 
