@@ -38,6 +38,8 @@ function machine(options: {
   runs?: string;
   /** The record an interrupted swap left; its snapshot holds the database before it began. */
   pending?: SpadePendingSwap;
+  /** Protected copies earlier failed rollbacks left, oldest past the bound. */
+  kept?: string[];
 }) {
   const log: string[] = [];
   let clock = 0;
@@ -54,6 +56,7 @@ function machine(options: {
   let turnPolls = options.turnPolls ?? 1;
   const snapshots = new Map<string, string>();
   let pending = options.pending;
+  for (const name of options.kept ?? []) snapshots.set(name, "0.3.0");
   if (pending?.snapshot !== undefined) snapshots.set(pending.snapshot, pending.from ?? schema);
   const status = (): SpadeMaintenance => ({
     admission,
@@ -127,6 +130,11 @@ function machine(options: {
     },
     async clearSwap() {
       pending = undefined;
+    },
+    async pruneKeptSnapshots() {
+      // The real port keeps the newest two; this machine's older copies are all past that.
+      for (const name of snapshots.keys())
+        if (name.startsWith("old-") && name !== pending?.snapshot) snapshots.delete(name);
     },
     async flip(version) {
       log.push(`flip ${version}`);
@@ -335,6 +343,15 @@ test("a swap to a newer version first keeps an interrupted swap's snapshot", asy
   const world = machine({ installed: "0.5.0", runs: "0.5.0", pending: interrupted });
   expect(await swapSpade("0.6.0", "now", world.ports)).toMatchObject({ kind: "swapped" });
   expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+});
+
+test("old protected copies are pruned only once a swap is verified healthy", async () => {
+  const failing = machine({ broken: ["0.5.0"], restores: false, kept: ["old-0.3.0"] });
+  await swapSpade("0.5.0", "now", failing.ports);
+  expect(failing.snapshots.has("old-0.3.0")).toBe(true);
+  const healthy = machine({ kept: ["old-0.3.0"] });
+  await swapSpade("0.5.0", "now", healthy.ports);
+  expect(healthy.snapshots.has("old-0.3.0")).toBe(false);
 });
 
 test("a swap's record is written before the flip and gone once it is done", async () => {

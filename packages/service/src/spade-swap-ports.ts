@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
+import { durableJson, durableRemove, syncDirectory } from "./files.ts";
 import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { runProcess, type Runner } from "./process.ts";
 import { spadeBinaryName, type SpadeServicePlan } from "./spade-plan.ts";
@@ -41,6 +43,43 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
   const snapshotDir = join(home, ".spade-update-snapshot");
   const checkDir = join(home, ".spade-migration-check");
   const swapRecord = join(home, ".spade-update-swap.json");
+  const keptPrefix = "spade.sqlite.";
+  /** The record on disk, or undefined; throws when it can't be read or parsed. */
+  const readRecord = async () => {
+    if (!existsSync(swapRecord)) return undefined;
+    return SwapRecord.parse(JSON.parse(await readFile(swapRecord, "utf8")));
+  };
+  /**
+   * Moves `snapshot` beside the live database as `spade.sqlite.<label>`, out of the next
+   * snapshot's way. The destination goes into the swap's record first, so a run that dies
+   * mid-move is finished by the next one instead of failing it.
+   */
+  const protect = async (
+    snapshot: string,
+    label: string,
+    record: z.infer<typeof SwapRecord> | undefined,
+  ) => {
+    await mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const kept = freeName(join(dataDir, `${keptPrefix}${label}`));
+    if (record) await durableJson(swapRecord, { ...record, kept });
+    await rename(snapshot, kept);
+    await syncDirectory(dataDir);
+    await rm(snapshotDir, { recursive: true, force: true });
+    await syncDirectory(home);
+    return kept;
+  };
+  /**
+   * A record that can't be read says nothing worth trusting: it is set aside (never deleted),
+   * any snapshot left on disk is protected from the next one, and the swap goes on from what is
+   * installed and running.
+   */
+  const healUnreadable = async () => {
+    await rename(swapRecord, freeNumbered(`${swapRecord}.unreadable`));
+    await syncDirectory(home);
+    const left = join(snapshotDir, "spade.sqlite");
+    if (existsSync(left)) await protect(left, "before-unknown", undefined);
+    return undefined;
+  };
   /** Where Spade says it listens (`server.json`) and the token it wrote, read afresh each time. */
   const endpoint = async () => {
     const server = readSpadeServerFile(await readFile(join(dataDir, "server.json"), "utf8"));
@@ -106,6 +145,9 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
         db.close();
       }
       await flush(copy);
+      // Its directory entries reach the disk before a swap record can name the copy.
+      await syncDirectory(snapshotDir);
+      await syncDirectory(home);
       return copy;
     },
     async checkMigrations(snapshot) {
@@ -138,29 +180,50 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
     },
     async removeSnapshot() {
       await rm(snapshotDir, { recursive: true, force: true });
+      await syncDirectory(home);
     },
     async keepSnapshot(snapshot, failedVersion) {
-      // Beside the live database, where the next update's snapshot folder never reaches.
-      await mkdir(dataDir, { recursive: true, mode: 0o700 });
-      const kept = freeName(`${database}.before-${failedVersion}`);
-      await rename(snapshot, kept);
-      await rm(snapshotDir, { recursive: true, force: true });
-      return kept;
+      // An earlier run may have moved it already and died before clearing the record.
+      const record = await readRecord();
+      if (snapshot === record?.kept) return snapshot;
+      if (!existsSync(snapshot)) {
+        if (record?.kept !== undefined && existsSync(record.kept)) return record.kept;
+        throw new Error(`Spade's copy from before the swap is missing at ${snapshot}`);
+      }
+      return protect(snapshot, `before-${failedVersion}`, record);
     },
     async pendingSwap() {
-      if (!existsSync(swapRecord)) return undefined;
-      // An unreadable record fails the swap rather than risk the snapshot it names.
-      const record = SpadePendingSwap.parse(JSON.parse(await readFile(swapRecord, "utf8")));
-      return { from: record.from, to: record.to, snapshot: record.snapshot };
+      const record = await readRecord().catch(() => healUnreadable());
+      if (!record) return undefined;
+      // Already moved to safety, or already removed after a healthy finish: never a fatal ENOENT.
+      const snapshot =
+        record.snapshot !== undefined && existsSync(record.snapshot)
+          ? record.snapshot
+          : record.kept !== undefined && existsSync(record.kept)
+            ? record.kept
+            : undefined;
+      return { from: record.from, to: record.to, snapshot };
     },
     async recordSwap(swap) {
-      const temporary = `${swapRecord}.tmp`;
-      await writeFile(temporary, JSON.stringify(swap) + "\n", { mode: 0o600 });
-      await flush(temporary);
-      await rename(temporary, swapRecord);
+      await durableJson(swapRecord, swap);
     },
     async clearSwap() {
-      await rm(swapRecord, { force: true });
+      await durableRemove(swapRecord);
+    },
+    async pruneKeptSnapshots() {
+      const record = await readRecord().catch(() => undefined);
+      const needed = new Set([record?.snapshot, record?.kept]);
+      const names = await readdir(dataDir).catch(() => [] as string[]);
+      const kept: { path: string; at: number }[] = [];
+      for (const name of names) {
+        if (!name.startsWith(`${keptPrefix}before-`)) continue;
+        const path = join(dataDir, name);
+        kept.push({ path, at: (await stat(path)).mtimeMs });
+      }
+      kept.sort((a, b) => b.at - a.at);
+      for (const { path } of kept.slice(keptSnapshots))
+        if (!needed.has(path)) await rm(path, { force: true });
+      await syncDirectory(dataDir).catch(() => {});
     },
     flip: (target) => flipSpadeCurrent(home, target),
     async serverPid() {
@@ -208,6 +271,19 @@ function schemaOf(path: string): number {
   } finally {
     db.close();
   }
+}
+
+/** The swap record on disk: the swap's fields, and where its snapshot was moved, once it was. */
+const SwapRecord = SpadePendingSwap.extend({ kept: z.string().min(1).max(4096).optional() });
+
+/** How many protected pre-swap copies are kept once a swap is verified healthy. */
+export const keptSnapshots = 2;
+
+/** `path-1`, `path-2`… : the first that's free. */
+function freeNumbered(path: string): string {
+  let n = 1;
+  while (existsSync(`${path}-${n}`)) n++;
+  return `${path}-${n}`;
 }
 
 /** `path`, or `path-2`, `path-3`… when an earlier rollback already used it. */

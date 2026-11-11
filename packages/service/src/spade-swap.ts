@@ -78,6 +78,11 @@ export interface SpadeSwapPorts {
   /** Writes the swap's record durably; called before the flip. */
   recordSwap(swap: SpadePendingSwap): Promise<void>;
   clearSwap(): Promise<void>;
+  /**
+   * Once a swap or rollback is verified healthy: removes all but the newest few protected
+   * copies, never one a swap record still names.
+   */
+  pruneKeptSnapshots(): Promise<void>;
   /** Points `releases/spade/current` at `version`. */
   flip(version: string): Promise<void>;
   /** The pid in Spade's `server.json`, if any: the process a restart must replace. */
@@ -217,16 +222,14 @@ async function complete(
     const old = await ports.serverPid();
     await ports.restart();
     if (await ports.health(swap.to, old)) {
-      await drop(ports, swap.snapshot);
-      await ports.clearSwap().catch(() => {});
+      await settle(ports, swap.snapshot);
       return { kind: "swapped", from: swap.from, to: swap.to };
     }
     throw new Error(`Spade ${swap.to} didn't come up ${when}`);
   } catch (error) {
     const rolled = await rollBack(ports, swap.from, swap.snapshot, failed(reason(error)));
     if (rolled.recovered) {
-      await drop(ports, swap.snapshot);
-      await ports.clearSwap().catch(() => {});
+      await settle(ports, swap.snapshot);
       return rolled.result;
     }
     const kept = await keep(ports, swap.snapshot, rolled.result);
@@ -259,10 +262,7 @@ async function finish(
   });
   try {
     if (state === "running" && (await ports.health(version, undefined))) {
-      if (pending) {
-        await drop(ports, pending.snapshot);
-        await ports.clearSwap().catch(() => {});
-      }
+      if (pending) await settle(ports, pending.snapshot);
       return { kind: "skipped", reason: "current" };
     }
   } catch (error) {
@@ -303,6 +303,15 @@ async function keep(
     },
     safe,
   };
+}
+
+/** A swap or rollback verified healthy: its snapshot, record and old protected copies go. */
+async function settle(ports: SpadeSwapPorts, snapshot: string | undefined): Promise<void> {
+  await drop(ports, snapshot);
+  try {
+    await ports.clearSwap();
+    await ports.pruneKeptSnapshots();
+  } catch {}
 }
 
 async function drop(ports: SpadeSwapPorts, snapshot: string | undefined): Promise<void> {
