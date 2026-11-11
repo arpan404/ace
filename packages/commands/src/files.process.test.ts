@@ -338,3 +338,28 @@ it("a folder with exactly the entry limit is indexed whole, and one over it is r
     "Directory entry limit exceeded",
   );
 });
+it("a skill root never walks inside a skill's own folder, but still finds skills in grouping folders", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-walk-")));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  const root = join(home, "skills");
+  await mkdir(join(root, "alpha/references/deep"), { recursive: true });
+  await writeFile(join(root, "alpha/SKILL.md"), "---\ndescription: Alpha\n---\nBody");
+  for (let i = 0; i < 40; i++) await writeFile(join(root, `alpha/references/deep/${i}.md`), "x");
+  await mkdir(join(root, "group/nested"), { recursive: true });
+  await writeFile(join(root, "group/nested/SKILL.md"), "---\ndescription: Nested\n---\nBody");
+  const catalog = new CommandCatalog(() => 0);
+  const files = new CommandFiles(catalog, [
+    { path: root, format: "claude", scope: "user", instance: "personal", skill: true },
+  ]);
+  cleanups.push(() => files.close());
+  await files.start();
+  const names = catalog
+    .list(target, "")
+    .commands.filter((d) => d.namespace === "provider")
+    .map((d) => d.name);
+  expect(names).toEqual(expect.arrayContaining(["alpha", "nested"]));
+  // The root, the grouping folder, two skill folders and their SKILL.md files: the 40 reference
+  // files, and the folders holding them, are never seen.
+  expect(files.metrics().metadataChecks).toBeLessThan(12);
+  expect(files.metrics().directoryEntries).toBeLessThan(12);
+});
