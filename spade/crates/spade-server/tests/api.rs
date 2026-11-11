@@ -18,6 +18,10 @@ async fn health_is_open_and_everything_else_needs_the_token() -> Result {
         .send()
         .await?;
     assert_eq!(health.status(), 200);
+    let health: serde_json::Value = health.json().await?;
+    assert_eq!(health["ok"], true);
+    assert_eq!(health["api"], 1);
+    assert_eq!(health["version"], env!("CARGO_PKG_VERSION"));
     let bare = spade
         .http
         .get(format!("{}/v1/conversations", spade.base))

@@ -62,9 +62,18 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state);
     Router::new()
-        .route("/health", get(|| async { Json(json!({ "ok": true })) }))
+        .route("/health", get(health))
         .nest("/v1", v1)
         .fallback(|| async { problem(StatusCode::NOT_FOUND, "not found") })
+}
+
+/// Open without a token, so the daemon and updater can tell Spade is up and which API it speaks.
+async fn health() -> Json<Value> {
+    Json(json!({
+        "ok": true,
+        "version": env!("CARGO_PKG_VERSION"),
+        "api": crate::home::API_VERSION,
+    }))
 }
 
 async fn authorize(State(state): State<AppState>, request: Request, next: Next) -> Response {
