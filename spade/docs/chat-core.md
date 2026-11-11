@@ -31,8 +31,9 @@ Each conversation is an append-only log of numbered events (`seq` from 1). Store
 | `renamed`           | `title`                                                           | New title                                                |
 
 A reply is open from `reply_started` until one of finished, stopped, failed or interrupted. At most
-one reply is open per conversation. On startup Spade closes every open reply with
-`reply_interrupted`, so nothing is ever shown as still answering after a restart.
+one reply is open per conversation. On startup Spade closes every open reply a crash cut off with
+`reply_interrupted`, so nothing is ever shown as still answering after a restart. A reply paused
+for a planned restart (`turn_paused`, see [harness.md](harness.md)) instead carries on.
 
 Steering is the default: a `user_message` sent while a reply is open joins that turn. It is
 stored at once, and the next model call in the turn (after the current call ends, or at the next
@@ -46,7 +47,7 @@ startup, so only processes that can read the person's files can talk to Spade.
 
 | Method and path                             | Body     | Answer                                                                              |
 | ------------------------------------------- | -------- | ----------------------------------------------------------------------------------- |
-| `GET /health`                               |          | `{"ok":true}`                                                                       |
+| `GET /health`                               |          | `{"ok":true,"version","api"}`; `api` is the HTTP API version (1)                    |
 | `GET /v1/conversations`                     |          | `[{id, title, updated_at, answering}]`, newest first                                |
 | `POST /v1/conversations`                    | `{text}` | `201 {id}`; the message is sent and a reply starts                                  |
 | `GET /v1/conversations/{id}/events?after=N` |          | `[{seq, at, event}]` after `seq` N                                                  |

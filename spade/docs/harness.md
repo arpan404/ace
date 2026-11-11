@@ -17,6 +17,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `job_started`                    | `reply`, `job`, `name`                                                   | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                  |
 | `job_finished`                   | `job`, `name`, `content`, `is_error`                                     | The job ended; the model reads it as a `<job_result>`                                                                                                                               |
 | `stop_requested`                 | `reply?`, `jobs[]`                                                       | The person pressed Stop on that reply and those jobs. They stop; a result of a named job, or of a job the reply started, opens no reply. Later work is untouched                    |
+| `turn_paused`                    | `reply`                                                                  | Spade paused the open reply for an update or a stop, with nothing of it running. It stays open (the conversation still reads as working) and resumes from its events on start       |
 
 `reply_finished` closes a turn whose last step made no tool calls; its `cost_micros` is the
 turn's total.
@@ -49,14 +50,22 @@ turn's total.
   "not run" in later prompts.
 - **Limits:** 30 steps, $2 per turn, the daily cap; each ends the turn with `reply_failed` and a
   reason.
-- **Restart:** a turn cut off mid-stream or mid-tool closes as `reply_interrupted`; a turn only
-  waiting for an approval resumes.
+- **Restart:** a turn cut off mid-stream or mid-tool by a crash closes as `reply_interrupted`; a
+  turn only waiting for an approval resumes, and so does a paused one (below).
+- **Pausing** (docs/ace-integration.md, "Updates" and "Stop"): while admission is closed, messages
+  and job results are stored but start no turn; they are answered when admission reopens or Spade
+  starts. Each turn worker pauses at the next point where nothing of it runs: a streaming model
+  step may finish first (30 s for an update, 5 s for SIGTERM, then it is cut and asked for again
+  on resume), tools still running are cut and answered "unknown outcome", and a turn waiting on an
+  approval pauses at once. The pause is stored as `turn_paused`. Stop on a paused reply closes it as
+  stopped. The rules are in `spade_core::maintenance`.
 
 ## Tools
 
 Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
 `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, and, when ace started Spade, `skill_search` and `skill_load`. Output from `web_search`,
+`todo`, and, when Spade knows where ace is (`SPADE_ACE_HOME`), `skill_search` and `skill_load`
+(they say ace is away while it is). Output from `web_search`,
 `web_fetch` and most of ace's tools is untrusted, so a write later in that turn asks.
 
 ace's tools (threads, agents, browser, screen, automations) come from the daemon's MCP endpoint
@@ -85,12 +94,30 @@ turns (409 mid-reply).
 
 ## API added
 
-| Method and path                                   | Body                 | Answer                                                                       |
-| ------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------- |
-| `POST /v1/conversations/{id}/approvals/{call_id}` | `{allowed, always?}` | `202`; `409` if that call is not waiting                                     |
-| `POST /v1/conversations/{id}/compact`             | `{focus?}`           | `204`; `409` mid-reply or nothing to compact                                 |
-| `GET /v1/models`                                  |                      | Endpoints (`needs_key`, `key_set`, models), roles, whether a keychain exists |
-| `PUT /v1/keys/{endpoint}`                         | `{key}`              | `204`; stored in the OS keychain, never returned                             |
-| `DELETE /v1/keys/{endpoint}`                      |                      | `204`; `404` if none                                                         |
+| Method and path                                   | Body                   | Answer                                                                                     |
+| ------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
+| `POST /v1/conversations/{id}/approvals/{call_id}` | `{allowed, always?}`   | `202`; `409` if that call is not waiting                                                   |
+| `POST /v1/conversations/{id}/compact`             | `{focus?}`             | `204`; `409` mid-reply or nothing to compact                                               |
+| `GET /v1/models`                                  |                        | Endpoints (`needs_key`, `key_set`, models), roles, whether a keychain exists               |
+| `PUT /v1/keys/{endpoint}`                         | `{key}`                | `204`; stored in the OS keychain, never returned                                           |
+| `DELETE /v1/keys/{endpoint}`                      |                        | `204`; `404` if none                                                                       |
+| `POST /v1/maintenance`                            | `{mode, deadline_ms?}` | `202` with the state below; closes admission and starts pausing. `400` for an unknown mode |
+| `GET /v1/maintenance`                             |                        | `{admission: "open"\|"closed", running_turns, running_jobs}`                               |
+| `DELETE /v1/maintenance`                          |                        | `200` with the state; reopens admission, paused turns carry on                             |
+| `PUT /v1/ace`                                     | `{grant}`              | `204`; kept in the keychain (account `ace:grant`), used at once                            |
+| `DELETE /v1/ace`                                  |                        | `204`; forgets the grant and disconnects                                                   |
+| `GET /v1/ace`                                     |                        | `{grant: bool, connected: bool}`, never the grant                                          |
+
+Maintenance details the contract leaves open: `POST` answers at once and the updater polls `GET`
+until `running_turns` is 0 (and, for `idle`, `running_jobs` too). For `idle`, `deadline_ms` bounds
+the wait for idleness: when it passes first, admission reopens and nothing is paused. For `now`,
+it shortens the 30 s a running step gets. If no restart comes within five minutes of every turn
+pausing (the updater died), admission reopens by itself. A `POST` while closed replaces the
+earlier one. Without a keychain (Linux with no Secret Service) the ace grant is kept in memory
+for that run only.
+
+`spade-server --check-migrations <path>` migrates and integrity-checks the SQLite file at `path`
+(a copy) and exits 0 if this build can use it, else 1 with one line saying why. It never opens
+the data folder.
 
 `POST /v1/conversations/{id}/messages` while a reply is open steers it (`202`).
