@@ -14,7 +14,27 @@ import Testing
         #expect(prefs.system["limits"])
     }
 
-    @Test func aUsageLimitChangePostsOnceUnderItsOwnKeyAsThePhoneDecided() throws {
+    @Test func usageLimitChangesPostPerMachineUnlessTheyShouldNotAndGoWhenTheirMachineIsTurnedOff() async throws {
+        let center = FakeCenter()
+        let coordinator = NotificationCoordinator(center: center, authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, makeId: { "tap-1" }, connectInBackground: { _ in [] })
+        await coordinator.setEnabled(true)
+        func limit(_ key: String, post: Bool) throws -> NotificationPatch {
+            let frame = #"{"type":"notifications.limit","key":"\#(key)","title":"t","body":"b","delivery":{"post":\#(post),"interrupt":true,"banner":true}}"#
+            return try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8))
+        }
+        coordinator.receive(try limit("reached:work:1", post: true), from: "studio")
+        coordinator.receive(try limit("reached:work:1", post: true), from: "laptop")
+        // Off for this phone (the category or quiet hours): nothing reaches Notification Center.
+        coordinator.receive(try limit("near:work:2", post: false), from: "studio")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(center.delivered.keys) == ["limit:studio:reached:work:1", "limit:laptop:reached:work:1"])
+        coordinator.turnedOff("studio")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(Set(center.delivered.keys) == ["limit:laptop:reached:work:1"])
+    }
+
+    @Test func aUsageLimitNotificationNamesItsMachineAndChangeAndShowsAsThePhoneDecided() throws {
         let frame = #"{"type":"notifications.limit","key":"reached:claude-work:123","title":"Claude Code · work reached its usage limit","body":"Resets 17:00 · in 2h.","delivery":{"post":true,"interrupt":false,"banner":false}}"#
         guard case .limit(let alert) = try JSONDecoder().decode(NotificationPatch.self, from: Data(frame.utf8)) else {
             Issue.record("not a limit patch"); return

@@ -82,3 +82,36 @@ test("stopping ends the reads: nothing more is scheduled or said", async () => {
   expect(phone.timers).toEqual([]);
   expect(phone.said).toEqual([]);
 });
+
+test("a read still out when the watch stops and starts again is dropped: one timer, not two", async () => {
+  let release: (views: AccountView[]) => void = () => {};
+  const timers: (() => void)[] = [];
+  const said: LimitAlert[] = [];
+  let reads = 0;
+  const limits = new LimitWatch(
+    () => {
+      reads++;
+      return reads === 1
+        ? new Promise<AccountView[]>((resolve) => (release = resolve))
+        : Promise.resolve([account(40, start)]);
+    },
+    (_delay, run) => {
+      timers.push(run);
+      return () => timers.splice(timers.indexOf(run), 1);
+    },
+    () => start,
+    (alert) => said.push(alert),
+  );
+  limits.start();
+  limits.stop();
+  limits.start();
+  await Promise.resolve();
+  await Promise.resolve();
+  // The first run's read lands late: it neither alerts nor schedules alongside the second.
+  release([account(100, start)]);
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(timers).toHaveLength(1);
+  limits.stop();
+  expect(timers).toHaveLength(0);
+});

@@ -38,6 +38,8 @@ export class LimitWatch {
   readonly #said = new Set<string>();
   #cancel: (() => void) | undefined;
   #running = false;
+  /** Bumped by every start and stop: a read from an earlier run is dropped, never scheduled. */
+  #run = 0;
 
   constructor(
     read: () => Promise<readonly AccountView[]>,
@@ -59,11 +61,12 @@ export class LimitWatch {
   start(): void {
     if (this.#running) return;
     this.#running = true;
-    void this.#tick();
+    void this.#tick(++this.#run);
   }
 
   stop(): void {
     this.#running = false;
+    this.#run++;
     this.#cancel?.();
     this.#cancel = undefined;
   }
@@ -82,9 +85,9 @@ export class LimitWatch {
     }
   }
 
-  async #tick(): Promise<void> {
+  async #tick(run: number): Promise<void> {
     const views = await this.#read().catch(() => undefined);
-    if (!this.#running) return;
+    if (run !== this.#run) return;
     if (views) this.see(views);
     const now = this.#now();
     const reset = views ? nextLimitReset(views, now) : undefined;
@@ -92,6 +95,6 @@ export class LimitWatch {
       reset === undefined
         ? refreshMs
         : Math.min(refreshMs, Math.max(0, reset - now) + resetGraceMs);
-    this.#cancel = this.#schedule(delay, () => void this.#tick());
+    this.#cancel = this.#schedule(delay, () => void this.#tick(run));
   }
 }
