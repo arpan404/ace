@@ -14,7 +14,8 @@ struct ForgeManageSection: View {
     @State private var deleting = false
     @State private var linking = false
     @State private var reverting = false
-    @State private var editing = false
+    /// The edit sheet's starting point: the text and the version it was read at, held while it is open.
+    @State private var editing: ForgePullEditTarget?
     private var client: ClientModel { desk.client }
     private var request: [String: Any] { ClientModel.forgeManageRead(project: desk.target.project, number: desk.target.number, repository: route.repository) }
 
@@ -38,11 +39,9 @@ struct ForgeManageSection: View {
         .sheet(isPresented: $linking) {
             ForgeLinkIssueSheet(completer: desk.completer) { number in apply(["kind": "issue.link", "issue": number]) }
         }
-        .sheet(isPresented: $editing) {
-            if let manage {
-                ForgePullEditSheet(metadata: manage.metadata, editable: manage.editable) { changes in
-                    apply(["kind": "edit", "changes": changes])
-                }
+        .sheet(item: $editing) { target in
+            ForgePullEditSheet(metadata: target.metadata, editable: target.editable) { changes in
+                await edit(changes, at: target.version)
             }
         }
         .sheet(isPresented: $reverting) {
@@ -69,7 +68,9 @@ struct ForgeManageSection: View {
             if client.canOperate {
                 ForgeLifecycleRow(steps: manage.lifecycle, enabled: ready) { kind in apply(["kind": kind]) }
                 if !manage.editable.isEmpty {
-                    Button("Edit title, description and labels") { editing = true }
+                    Button("Edit title, description and labels") {
+                        editing = ForgePullEditTarget(version: manage.version, metadata: manage.metadata, editable: manage.editable)
+                    }
                         .buttonStyle(.textAction())
                         .padding(.horizontal, AceTheme.Spacing.lg)
                         .disabled(!ready)
@@ -211,6 +212,15 @@ struct ForgeManageSection: View {
         let outcome = await client.forgeWorkWrite(["type": "forge.manage", "project": target.project, "number": target.number,
                                                    "repository": target.repository.json,
                                                    "operation": ["kind": "apply", "version": version, "action": ["kind": "revert", "title": title, "body": body]]])
+        await load()
+        return outcome
+    }
+
+    /// An edit pinned to the version its sheet opened at, so one changed elsewhere since is refused
+    /// rather than overwritten. The section reads GitHub again after it either way.
+    private func edit(_ changes: [String: Any], at version: String) async -> ForgeReviewOutcome {
+        let outcome = await client.forgeManageWrite(desk.target, operation: ["kind": "apply", "version": version,
+                                                                             "action": ["kind": "edit", "changes": changes]])
         await load()
         return outcome
     }
