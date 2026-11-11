@@ -167,7 +167,8 @@ struct NewThreadSheet: View {
                        chooseModel: { choosingModel = true }, chooseTune: { choosingTune = true },
                        chooseWorktree: { on in drafts.edit { $0.worktree = on } },
                        chooseBase: { base in drafts.edit { $0.base = base } },
-                       chooseAccess: { mode in drafts.edit { $0.access = mode } })
+                       chooseAccess: { mode in drafts.edit { $0.access = mode } },
+                       retryBranches: readBranches)
             .padding(.horizontal, AceDesign.Space.margin)
             .padding(.top, AceDesign.Space.tight)
     }
@@ -178,6 +179,7 @@ struct NewThreadSheet: View {
         var place: NewThreadPillsModel.Place?
         if draft.projectId != nil, !draft.isChat, draft.pullRequest == nil {
             place = .init(worktree: draft.worktree, noWorktree: branches?.noWorktree, reading: branches?.state != "ready",
+                          problem: branches?.state == "failed" ? "Couldn't read this project's branches." : nil,
                           bases: branches?.bases ?? [], base: draft.base ?? branches?.start)
         }
         let access = compose?.access.flatMap { $0.provider == choice.agent?.provider ? $0 : nil }
@@ -193,6 +195,11 @@ struct NewThreadSheet: View {
         guard id != machineId else { return }
         drafts.edit { $0 = memory.load().open($0, on: id) }
         memory.remember(draft)
+    }
+    /// Asks the machine for the chosen project's branches again, after a failed read.
+    private func readBranches() {
+        guard let client, let project = draft.projectId, !draft.isChat else { return }
+        client.composeAction(["kind": "branches", "workspaceId": project])
     }
     /// The effort part of the model pill: the level in brief and a speed other than standard.
     /// Nothing at all rather than a word that says nothing ("Default") when no level is known.
