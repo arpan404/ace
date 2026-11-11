@@ -43,6 +43,29 @@ import Testing
         #expect(!inbox.allReady)
     }
 
+    @Test func readingAheadIsToldToEveryMachinesRuntimeIncludingOnesStartedAfterItWasAllowed() async throws {
+        let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
+        defer { fixture.cleanUp() }
+        // Wi-Fi, outside Low Power Mode, before any machine connected.
+        fixture.model.readAhead(true)
+        await fixture.model.load()
+        /// What each runtime was told about reading ahead, in order.
+        func told(_ session: FakeMachineSession) -> [Bool] {
+            session.invoked.compactMap { json in
+                guard let object = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                      object["type"] as? String == "readAhead" else { return nil }
+                return object["allowed"] as? Bool
+            }
+        }
+        #expect(fixture.sessions.started.count == 2)
+        #expect(fixture.sessions.started.allSatisfy { told($0) == [true] })
+        // Off Wi-Fi: every runtime stops reading ahead.
+        fixture.model.readAhead(false)
+        #expect(fixture.sessions.started.allSatisfy { told($0) == [true, false] })
+        for session in fixture.model.inbox.sessions { session.client.disconnect() }
+        for session in fixture.sessions.started { session.finishShutdown() }
+    }
+
     @Test func aRowsCommandsGoOnlyToTheRuntimeOfItsMachine() async throws {
         let fixture = try Fixture(machines: [machine("studio", device: "phone-1"), machine("laptop", device: "phone-2")])
         defer { fixture.cleanUp() }

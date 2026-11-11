@@ -69,6 +69,7 @@ import QuartzCore
             for (index, spike) in targets.enumerated() {
                 let model = ClientModel(now: { Date().timeIntervalSince1970 * 1000 })
                 if SpikeConfiguration.viewOnly { model.canOperate = false }
+                model.readAheadAllowed = SpikeConfiguration.readAhead
                 // The fixture's host token is an administrator's.
                 model.canAdmin = true
                 spikeInbox.attach(spike.target.hostId, name: spike.name, client: model)
@@ -104,6 +105,7 @@ import QuartzCore
     /// Each remembered machine's runtime evaluates the client bundle from the first moment.
     private let warmup = RuntimeWarmup()
     private let network = NetworkMonitor()
+    private let readAhead = ReadAheadGate()
 
     private init(directory: URL) {
         self.directory = directory
@@ -146,9 +148,13 @@ import QuartzCore
         let machines = self.machines ?? Self.machines(directory: directory, notifications: notifications, warmup: warmup)
         if self.machines == nil {
             self.machines = machines
-            network.start { change in
+            network.start({ change in
                 Task { @MainActor in machines.network(online: change.online, interfaceChanged: change.interfaceChanged) }
-            }
+            }, roomy: { [readAhead] roomy in
+                Task { @MainActor in readAhead.roomy = roomy }
+            })
+            readAhead.changed = { [weak machines] allowed in machines?.readAhead(allowed) }
+            readAhead.start()
         }
         return RootView(machines: machines, lock: lock)
     }
