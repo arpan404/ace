@@ -174,10 +174,12 @@ export class BrowserPageTools {
       "Couldn't read the page source",
       { action: "page_source" },
       shownId,
+      undefined,
+      "source",
     );
     const source = Source.safeParse(raw);
     if (!source.success) {
-      if (raw !== undefined) this.#problem("Couldn't read the page source.");
+      if (raw !== undefined) this.#problem("Couldn't read the page source.", "source");
       return;
     }
     const text = source.data.source;
@@ -230,14 +232,17 @@ export class BrowserPageTools {
   }
   async #extensions(): Promise<void> {
     this.#host.sink.put("browser:extensions", () => ({ type: "browser.extensions", items: null }));
-    const raw = await this.#run("Couldn't list the extensions", {
-      action: "extensions",
-      operation: "list",
-    });
+    const raw = await this.#run(
+      "Couldn't list the extensions",
+      { action: "extensions", operation: "list" },
+      undefined,
+      undefined,
+      "extensions",
+    );
     if (raw === undefined) return;
     const listed = Extensions.safeParse(raw);
     if (!listed.success) {
-      this.#problem("Couldn't list the extensions.");
+      this.#problem("Couldn't list the extensions.", "extensions");
       return;
     }
     const items = listed.data.extensions;
@@ -318,6 +323,7 @@ export class BrowserPageTools {
     command: BrowserCommand,
     tab?: string,
     timeoutMs?: number,
+    origin?: ProblemOrigin,
   ): Promise<unknown> {
     const current = this.#host.current();
     if (!current) return undefined;
@@ -329,6 +335,7 @@ export class BrowserPageTools {
         command: tab ? { ...command, tabId: tab } : command,
       },
       timeoutMs,
+      origin,
     );
   }
   async #request(
@@ -337,13 +344,14 @@ export class BrowserPageTools {
       | { type: "browser.execute"; threadId: ThreadId; command: BrowserCommand }
       | { type: "browser.recording.start" | "browser.recording.stop"; threadId: ThreadId },
     timeoutMs?: number,
+    origin?: ProblemOrigin,
   ): Promise<unknown> {
     try {
       const reply = await this.#host.owner.request(request, timeoutMs ? { timeoutMs } : {});
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       return reply.result ?? null;
     } catch (error) {
-      this.#problem(`${title}. ${reason(error)}`);
+      this.#problem(`${title}. ${reason(error)}`, origin);
       return undefined;
     }
   }
@@ -360,12 +368,21 @@ export class BrowserPageTools {
       detail: detail ? preview(detail, 256) : null,
     }));
   }
-  #problem(message: string): void {
+  /** `origin`: the sheet the failure belongs to, so another sheet's content is never replaced by it. */
+  #problem(message: string, origin?: ProblemOrigin): void {
     const at = this.#host.now();
     const text = this.#host.preview(message, 512);
-    this.#host.sink.put("browser:problem", () => ({ type: "browser.problem", at, message: text }));
+    this.#host.sink.put("browser:problem", () => ({
+      type: "browser.problem",
+      at,
+      message: text,
+      ...(origin ? { origin } : {}),
+    }));
   }
 }
+
+/** The sheet a failure belongs to; downloads, recordings and saves name none. */
+type ProblemOrigin = "source" | "extensions";
 
 const savingKey = (threadId: string, downloadId: string) => `${threadId}:${downloadId}`;
 const fileName = (path: string) => path.split(/[\\/]/).at(-1) ?? path;

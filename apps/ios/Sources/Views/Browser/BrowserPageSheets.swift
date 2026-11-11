@@ -44,7 +44,7 @@ struct BrowserSourceSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if let problem = model.browser.problem {
+                if let problem = model.browser.problem, problem.origin == "source" {
                     VStack {
                         Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
                         Button("Retry") { model.browser.problem = nil; model.browserSource(open: true) }.buttonStyle(.textAction())
@@ -255,7 +255,7 @@ struct BrowserExtensionsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: AceDesign.Space.group) {
-                    if let problem = model.browser.problem {
+                    if let problem = model.browser.problem, problem.origin == "extensions" {
                         QuietSectionRow {
                             VStack(alignment: .leading) {
                                 Text(problem.message).foregroundStyle(AceTheme.StatusText.failed)
@@ -271,7 +271,7 @@ struct BrowserExtensionsSheet: View {
                                     QuietRowText(title: item.name, detail: [item.version, item.enabled ? nil : "Off"].compactMap { $0 }.joined(separator: " · "))
                                 }
                             }
-                        } else if model.browser.problem == nil {
+                        } else if model.browser.problem?.origin != "extensions" {
                             SkeletonRows(count: 2, label: "Reading extensions")
                         }
                     }

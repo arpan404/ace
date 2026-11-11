@@ -28,6 +28,8 @@ for (const kind of ["source", "extensions"] as const) {
     page.handle(kind === "source" ? { kind, open: true } : { kind });
     await until(() => sink.read("browser:problem") !== undefined, "failure");
     expect(sink.read("browser:problem")?.message).toContain("Disconnected");
+    // The failure names its sheet, so another sheet's content is never replaced by it.
+    expect(sink.read("browser:problem")?.origin).toBe(kind);
     if (kind === "extensions") expect(sink.read("browser:extensions")?.items).toBeNull();
     else expect(sink.read("browser:source")).toBeUndefined();
     page.close();

@@ -161,7 +161,9 @@ extension BrowserViewInfo {
 /// One-shot answers from the browser's tools (`bridge/browser-tools.ts`).
 struct BrowserFindResult: Codable, Sendable, Equatable { let text: String; let message: String }
 struct BrowserShot: Codable, Sendable, Equatable { let at: Double; let data: String?; let path: String }
-struct BrowserProblem: Codable, Sendable, Equatable { let at: Double; let message: String }
+/// One sentence about the browser that failed. `origin` names the sheet it belongs to ("source",
+/// "extensions"); other sheets don't show it. Nil for downloads, recordings and saves.
+struct BrowserProblem: Codable, Sendable, Equatable { let at: Double; let message: String; var origin: String? = nil }
 struct BrowserLog: Codable, Sendable, Equatable {
     struct Entry: Codable, Sendable, Equatable, Identifiable {
         let key: String
