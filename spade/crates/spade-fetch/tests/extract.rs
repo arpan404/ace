@@ -191,3 +191,64 @@ fn a_plain_code_block_gets_three_backticks() {
     let (_, text) = read("<main><pre>x = `y`</pre></main>");
     assert_eq!(text, "```\nx = `y`\n```");
 }
+
+#[test]
+fn a_self_closed_raw_text_element_still_hides_its_contents() {
+    for (open, close) in [
+        ("<script/>", "</script>"),
+        ("<style/>", "</style>"),
+        ("<textarea/>", "</textarea>"),
+        ("<title/>", "</title>"),
+    ] {
+        let source =
+            format!("<div>{open}var x=\"</div><main>hidden code</main>\";{close}<main>real</main>");
+        let (_, text) = read(&source);
+        assert_eq!(text, "real", "{open}");
+    }
+}
+
+#[test]
+fn a_script_inside_an_escaped_script_comment_does_not_end_the_script() {
+    let (_, text) =
+        read("<script><!--<script></script><main>hidden</main>--></script><main>real</main>");
+    assert_eq!(text, "real");
+}
+
+#[test]
+fn cdata_inside_svg_hides_what_looks_like_markup() {
+    let (_, text) = read("<svg><![CDATA[x > </svg><main>hidden</main>]]></svg><main>real</main>");
+    assert_eq!(text, "real");
+}
+
+#[test]
+fn a_self_closed_svg_element_does_not_swallow_the_page() {
+    let (_, text) = read("<body><svg><path d=\"M0\"/><circle/></svg><main>after</main></body>");
+    assert_eq!(text, "after");
+}
+
+#[test]
+fn html_after_svg_content_is_read_again() {
+    let (_, text) = read("<main><svg><g><p>Visible</p></g></svg></main>");
+    assert_eq!(text, "Visible");
+}
+
+#[test]
+fn every_way_a_comment_can_end_ends_it() {
+    for comment in [
+        "<!-- banner --!>",
+        "<!-->",
+        "<!--->",
+        "<!---->",
+        "<!-- a -- b -->",
+    ] {
+        let (_, text) = read(&format!("<main>{comment}<p>Visible</p></main>"));
+        assert_eq!(text, "Visible", "{comment}");
+    }
+}
+
+#[test]
+fn a_new_table_section_closes_the_one_before() {
+    let (_, text) =
+        read("<main><table><tbody hidden><tr><td>secret<tbody><tr><td>visible</table></main>");
+    assert_eq!(text, "visible");
+}

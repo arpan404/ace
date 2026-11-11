@@ -38,12 +38,21 @@ pub struct Readable {
 #[must_use]
 pub fn html(source: &str, page_url: &Url) -> Readable {
     let tree = tree::build(source);
+    // Relative links resolve against a base of at most MOST_URL_BYTES, so no link costs more
+    // than that to write out. With no such base they are written as their text.
+    let short =
+        |u: &Url| matches!(u.scheme(), "http" | "https") && u.as_str().len() <= MOST_URL_BYTES;
+    let page_base = Some(page_url).filter(|u| short(u));
     let base = tree
         .base
         .as_deref()
-        .and_then(|href| page_url.join(href.trim()).ok())
-        .filter(|u| matches!(u.scheme(), "http" | "https") && u.as_str().len() <= MOST_URL_BYTES)
-        .unwrap_or_else(|| page_url.clone());
+        .filter(|href| href.len() <= MOST_URL_BYTES)
+        .and_then(|href| match page_base {
+            Some(page) => page.join(href.trim()).ok(),
+            None => Url::parse(href.trim()).ok(),
+        })
+        .filter(short)
+        .or_else(|| page_base.cloned());
     let main = find(&tree, Tree::ROOT, &|el| {
         el.name.as_ref() == "main" || el.role.as_deref() == Some("main")
     })
@@ -55,7 +64,7 @@ pub fn html(source: &str, page_url: &Url) -> Readable {
     let mut out = Out::new(MOST_TEXT_BYTES);
     let ctx = Ctx {
         tree: &tree,
-        base: &base,
+        base: base.as_ref(),
         list_depth: 0,
         in_article,
     };
@@ -82,7 +91,8 @@ pub fn html(source: &str, page_url: &Url) -> Readable {
 #[derive(Clone, Copy)]
 struct Ctx<'a> {
     tree: &'a Tree,
-    base: &'a Url,
+    /// What relative links resolve against, when there is a short enough base.
+    base: Option<&'a Url>,
     list_depth: usize,
     in_article: bool,
 }
@@ -195,7 +205,10 @@ fn link(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
         .as_deref()
         .map(str::trim)
         .filter(|href| !href.starts_with('#') && href.len() <= MOST_URL_BYTES)
-        .and_then(|href| ctx.base.join(href).ok())
+        .and_then(|href| match ctx.base {
+            Some(base) => base.join(href).ok(),
+            None => Url::parse(href).ok(),
+        })
         .filter(|u| matches!(u.scheme(), "http" | "https" | "mailto"))
         .filter(|u| u.as_str().len() <= MOST_URL_BYTES);
     match target {

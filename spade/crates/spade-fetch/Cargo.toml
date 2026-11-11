@@ -9,7 +9,7 @@ publish.workspace = true
 
 [dependencies]
 encoding_rs = "0.8"
-htmlize = { version = "1.1", features = ["unescape"] }
+html5ever = "0.40"
 if-addrs = "0.15"
 reqwest = { workspace = true, features = ["gzip"] }
 thiserror.workspace = true

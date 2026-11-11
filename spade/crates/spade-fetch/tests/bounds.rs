@@ -14,9 +14,13 @@ const FIVE_MIB: usize = 5 * 1024 * 1024;
 
 /// Reads `source` on its own thread and fails if that takes longer than two seconds.
 fn read_within_two_seconds(source: String) -> Readable {
+    read_from_within_two_seconds("https://example.com/docs/page.html".to_owned(), source)
+}
+
+fn read_from_within_two_seconds(page_url: String, source: String) -> Readable {
     let (done, finished) = mpsc::channel();
     thread::spawn(move || {
-        let base = Url::parse("https://example.com/docs/page.html").ok();
+        let base = Url::parse(&page_url).ok();
         let _ = done.send(base.map(|b| html(&source, &b)));
     });
     match finished.recv_timeout(Duration::from_secs(2)) {
@@ -58,15 +62,44 @@ fn deep_nesting_with_text_everywhere_is_bounded() {
 }
 
 #[test]
-fn text_past_the_depth_limit_still_reads() {
+fn nesting_past_the_depth_limit_is_cut_and_marked() {
     let depth = MOST_DEPTH + 50;
     let source = format!(
-        "<main>{}bottom{}</main>",
+        "<main>top{}bottom{}</main>",
         "<div>".repeat(depth),
         "</div>".repeat(depth)
     );
     let read = read_within_two_seconds(source);
-    assert_eq!(read.text, "bottom");
+    assert_eq!(read.text, "top");
+    assert!(read.truncated);
+}
+
+#[test]
+fn hidden_and_left_out_elements_just_past_the_depth_limit_stay_hidden() {
+    // `<main>` and 255 divs fill the limit; the next element is one too deep.
+    let divs = MOST_DEPTH - 1;
+    for hidden in [
+        "<span hidden>SECRET</span>",
+        "<script>SECRET</script>",
+        "<nav>SECRET</nav>",
+        "<span style=\"display:none\">SECRET</span>",
+    ] {
+        let source = format!("<main>{}{hidden}</main>", "<div>".repeat(divs));
+        let read = read_within_two_seconds(source);
+        assert!(!read.text.contains("SECRET"), "{hidden}");
+        assert!(read.truncated, "{hidden}");
+    }
+}
+
+#[test]
+fn hidden_elements_at_the_depth_limit_are_hidden_and_not_truncated() {
+    let divs = MOST_DEPTH - 2;
+    let source = format!(
+        "<main>{}<span hidden>SECRET</span>shown</main>",
+        "<div>".repeat(divs)
+    );
+    let read = read_within_two_seconds(source);
+    assert_eq!(read.text, "shown");
     assert!(!read.truncated);
 }
 
@@ -123,4 +156,17 @@ fn text_past_the_output_cap_is_cut_and_marked() {
     assert!(read.truncated);
     assert!(read.text.len() <= MOST_TEXT_BYTES);
     assert!(read.text.len() > MOST_TEXT_BYTES - 16);
+}
+
+#[test]
+fn a_huge_page_address_cannot_be_copied_into_every_link() {
+    let page_url = format!("https://example.com/{}/page", "p".repeat(300 * 1024));
+    let links = "<a href=x>t</a> ".repeat(99_999);
+    let read = read_from_within_two_seconds(
+        page_url,
+        format!("<main><a href=\"https://other.example/\">abs</a> {links}</main>"),
+    );
+    // Relative links have nothing short enough to resolve against, so they are text.
+    assert!(read.text.starts_with("[abs](https://other.example/) t t t"));
+    assert!(read.text.len() < 300_000);
 }

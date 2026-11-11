@@ -1,5 +1,5 @@
-//! HTML reading without a third-party tree builder: a tokenizer and a bounded tree.
+//! HTML reading: html5ever's tokenizer feeding a bounded tree builder of our own.
 
+mod names;
 pub mod out;
-mod tokens;
 pub mod tree;
