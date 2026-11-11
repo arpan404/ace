@@ -43,6 +43,7 @@ export async function startSpade(context: ServiceContext): Promise<void> {
       home: config.dataDir,
       env,
       version: () => cliVersion(env, process.argv[1]),
+      entry: process.argv[1],
     });
   const link = new SpadeLink({
     dataDir,

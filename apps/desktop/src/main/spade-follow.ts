@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { join } from "node:path";
-import { spadeBinaryName } from "@ace/service/spade-plan";
+import { bundledSpadeServer } from "@ace/service/spade-layout";
 
 /**
  * After the app starts its daemon, Spade follows it to the app's version (ADR 0123): the daemon
@@ -21,7 +20,7 @@ export async function followDaemonWithSpade(options: {
   log(level: "info" | "warn", message: string): void;
 }): Promise<void> {
   await options.daemonReady();
-  const source = join(options.resourcesPath, "spade", spadeBinaryName(options.platform));
+  const source = bundledSpadeServer(options.resourcesPath, options.platform);
   await new Promise<void>((resolve) => {
     execFile(
       options.node,

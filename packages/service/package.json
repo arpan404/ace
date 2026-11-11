@@ -13,6 +13,7 @@
     "./spade": "./src/spade/index.ts",
     "./spade-update-mode": "./src/spade-update-mode.ts",
     "./spade-plan": "./src/spade-plan.ts",
+    "./spade-layout": "./src/spade-layout.ts",
     "./spade-service": "./src/spade-api.ts"
   },
   "scripts": {

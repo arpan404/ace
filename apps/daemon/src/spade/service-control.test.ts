@@ -1,14 +1,22 @@
 import { expect, test } from "vitest";
 import { bundledSpadeBinary, spadeInstallVersion } from "./service-control.ts";
 
-test("the binary installed for Spade is ACE_SPADE_BIN in development, else the one beside the runtime", () => {
-  expect(bundledSpadeBinary({ ACE_SPADE_BIN: "/dev/spade" }, "/app/bin/node", "darwin")).toBe(
+const none = () => false;
+const desktop = (path: string) => path === "/App/Resources/daemon/desktop-app.json";
+
+test("the binary installed for Spade is ACE_SPADE_BIN in development, else the one in the daemon's bundle", () => {
+  expect(bundledSpadeBinary({ ACE_SPADE_BIN: "/dev/spade" }, undefined, "darwin", none)).toBe(
     "/dev/spade",
   );
-  expect(bundledSpadeBinary({}, "/app/bin/node", "linux")).toBe("/app/bin/spade-server");
-  expect(bundledSpadeBinary({ ACE_SPADE_BIN: "  " }, "/app/bin/node", "darwin")).toBe(
-    "/app/bin/spade-server",
+  // A standalone release: `<release>/ace.mjs`, `<release>/spade/spade-server`.
+  expect(bundledSpadeBinary({}, "/home/.ace/releases/0.5.0/ace.mjs", "linux", none)).toBe(
+    "/home/.ace/releases/0.5.0/spade/spade-server",
   );
+  // The desktop app: `<resources>/daemon/ace.mjs` beside the app's marker, `<resources>/spade/`.
+  expect(
+    bundledSpadeBinary({ ACE_SPADE_BIN: "  " }, "/App/Resources/daemon/ace.mjs", "darwin", desktop),
+  ).toBe("/App/Resources/spade/spade-server");
+  expect(() => bundledSpadeBinary({}, undefined, "linux", none)).toThrow("ACE_SPADE_BIN");
 });
 
 const ace = async () => "0.0.19";
