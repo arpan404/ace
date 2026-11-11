@@ -207,3 +207,39 @@ test("text dropped into the composer goes in as plain words, never as a file's m
   });
   await waitFor(() => expect(message.textContent).toBe("a bc"));
 });
+
+test("undo takes a file's marker away but keeps the file, and redo puts the marker back", async () => {
+  const { message, commands } = await openComposer();
+  pasteText(message, "see ");
+  pasteFile(message, screenshot());
+  await uploaded();
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(within(message).queryByLabelText("screen.png")).toBeNull());
+  const chips = screen.getByRole("list", { name: "Attachments" });
+  expect(within(chips).getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
+  fireEvent.keyDown(message, { key: "z", metaKey: true, shiftKey: true });
+  await waitFor(() => expect(within(message).getByLabelText("screen.png")).toBeTruthy());
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(within(message).queryByLabelText("screen.png")).toBeNull());
+  // Without its marker it goes with no place: after the words.
+  fireEvent.keyDown(message, { key: "Enter" });
+  await waitFor(() => expect(sent(commands).context?.attachments).toEqual([{ sha256: pngHash }]));
+});
+
+test("undo after editing a pasted file keeps the marker, named for the edited copy", async () => {
+  const user = userEvent.setup();
+  const { message } = await openComposer();
+  pasteText(message, Array.from({ length: 60 }, (_, line) => `line ${line}`).join("\n"));
+  const chips = await uploaded();
+  pasteText(message, " and more");
+  await user.click(within(chips).getByRole("button", { name: "Preview Pasted 60 lines.txt" }));
+  const dialog = await screen.findByRole("dialog", { name: "Pasted 60 lines.txt" });
+  const contents = await within(dialog).findByRole("textbox", { name: "File contents" });
+  await user.clear(contents);
+  await user.type(contents, "one{Enter}two");
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy());
+  fireEvent.keyDown(message, { key: "z", metaKey: true });
+  await waitFor(() => expect(message.textContent).not.toContain("and more"));
+  expect(within(message).getByLabelText("Pasted 2 lines.txt")).toBeTruthy();
+});

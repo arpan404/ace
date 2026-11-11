@@ -20,6 +20,7 @@ import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { editorSelection, placeEditorSelection } from "./editor-dom.ts";
 import {
   emptyHistory,
+  mapHistoryTokens,
   recordEdit,
   redoEdit,
   undoEdit,
@@ -181,12 +182,18 @@ export function useMessageState(
     },
     /** A file replaced by an edited copy: its marker names the copy now. */
     rekey: (key: number, fresh: number, name: string) => {
-      const next = tokens.map((token) =>
-        token.attachment?.key === key
-          ? { ...token, label: name, attachment: { key: fresh } }
-          : token,
-      );
-      if (next.some((token, index) => token !== tokens[index])) setTokens(next);
+      const renamed = (list: readonly ComposerToken[]) => {
+        const next = list.map((token) =>
+          token.attachment?.key === key
+            ? { ...token, label: name, attachment: { key: fresh } }
+            : token,
+        );
+        return next.some((token, index) => token !== list[index]) ? next : list;
+      };
+      // Undo and redo find the same marker under the copy's key.
+      history.current = mapHistoryTokens(history.current, renamed);
+      const next = renamed(tokens);
+      if (next !== tokens) setTokens(next);
     },
     /** Undo or redo; the snapshot shown, or undefined when there was nothing to step to. */
     step: (direction: "undo" | "redo"): EditSnapshot | undefined => {
@@ -195,9 +202,9 @@ export function useMessageState(
       if (!taken) return undefined;
       history.current = taken.history;
       show(taken.snapshot);
+      // Undo and redo never add or take away files: a file whose marker this takes away stays
+      // attached, with no place, and a step back to its marker puts it back.
       placeSelection.current = { start: taken.snapshot.caret, end: taken.snapshot.caret };
-      const gone = goneMarkers(tokens, taken.snapshot.tokens);
-      if (gone.length) onMarkersGone(gone);
       return taken.snapshot;
     },
     remember: (path: string) => setPicked((paths) => new Set(paths).add(path)),
