@@ -35,6 +35,7 @@ function environment(
     identityChanged?: true;
     loseWrite?: boolean;
     squashOption?: string;
+    requiresPipeline?: boolean;
     version?: string;
     writeCode?: number;
   } = {},
@@ -54,7 +55,13 @@ function environment(
       body = options.writeBody ?? { ...mr, state: "merged" };
     } else if (endpoint === "version") body = { version: options.version ?? "18.4.1-ee" };
     else if (endpoint === path) body = { ...mr, ...options.source };
-    else if (endpoint === root) body = { squash_option: options.squashOption ?? "default_off" };
+    else if (endpoint === root)
+      body = {
+        squash_option: options.squashOption ?? "default_off",
+        ...(options.requiresPipeline === undefined
+          ? {}
+          : { only_allow_merge_if_pipeline_succeeds: options.requiresPipeline }),
+      };
     else if (endpoint === `${path}/pipelines?per_page=100&page=1`)
       body = [{ id: 12, sha: head, status: "success" }];
     else if (endpoint === `${root}/pipelines/12/jobs?per_page=100&page=1&include_retried=false`) {
@@ -144,6 +151,28 @@ test("empty jobs cannot establish successful checks", async () => {
   expect((await backend.read(7, signal)).checksState).toBe("UNKNOWN");
   await expect(backend.merge(7, head, "merge", signal)).rejects.toMatchObject({ kind: "conflict" });
   expect(writes).toEqual([]);
+});
+
+test("an MR with no pipeline merges where the project doesn't require one, and nowhere else", async () => {
+  const noPipeline = { source: { head_pipeline: null } };
+  const open = environment({ ...noPipeline, requiresPipeline: false });
+  expect(await open.backend.read(7, signal)).toMatchObject({
+    mergeState: "CLEAN",
+    checksState: "NONE",
+    blockers: [],
+  });
+  await open.backend.merge(7, head, "merge", signal);
+  expect(open.writes).toHaveLength(1);
+  for (const requiresPipeline of [true, undefined]) {
+    const { backend, writes } = environment({ ...noPipeline, requiresPipeline });
+    const state = await backend.read(7, signal);
+    expect(state.mergeState).toBe("BLOCKED");
+    expect(state.checksState).toBe("UNKNOWN");
+    await expect(backend.merge(7, head, "merge", signal)).rejects.toMatchObject({
+      kind: "conflict",
+    });
+    expect(writes).toEqual([]);
+  }
 });
 
 test("unknown host fields survive while merge and checks use consumer states", () => {

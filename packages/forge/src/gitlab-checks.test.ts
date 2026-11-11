@@ -95,10 +95,62 @@ describe("GitLab pipeline checks", () => {
             : [job(12, status)],
       );
       const value = await new GitLabReader({ repository, runner: f.runner }).status(7, signal());
-      expect(value.ci).toBe(status === "skipped" ? "failure" : "pending");
+      // A skipped job is neutral: it neither passes nor fails the pipeline.
+      expect(value.ci).toBe(status === "skipped" ? "none" : "pending");
       expect(value.checks[0]?.conclusion).toBe(status);
     },
   );
+  it.each<[string, { status: string; allow_failure?: boolean }[], string]>([
+    [
+      "a skipped job beside a passed one passes",
+      [{ status: "success" }, { status: "skipped" }],
+      "success",
+    ],
+    [
+      "an optional manual job never blocks and never counts as passed",
+      [{ status: "success" }, { status: "manual", allow_failure: true }],
+      "success",
+    ],
+    [
+      "only an optional manual job is no verdict",
+      [{ status: "manual", allow_failure: true }],
+      "none",
+    ],
+    [
+      "a manual job that must run keeps it pending",
+      [{ status: "manual", allow_failure: false }],
+      "pending",
+    ],
+    [
+      "a failure GitLab allows is a warning, not a failure",
+      [{ status: "success" }, { status: "failed", allow_failure: true }],
+      "success",
+    ],
+    [
+      "a failure GitLab doesn't allow fails it",
+      [{ status: "success" }, { status: "failed" }],
+      "failure",
+    ],
+    ...["running", "created", "pending", "waiting_for_resource", "preparing", "scheduled"].map(
+      (status): [string, { status: string }[], string] => [
+        `a ${status} job is never passed`,
+        [{ status: "success" }, { status }],
+        "pending",
+      ],
+    ),
+  ])("GitLab job rules: %s", async (_, jobs, ci) => {
+    const f = fixture((path) =>
+      path.includes("/pipelines?")
+        ? [pipeline("success")]
+        : path.includes("merge_requests")
+          ? { iid: 7, title: "MR", state: "opened", updated_at: "today", sha }
+          : jobs.map((each, index) => ({ ...job(12 + index, each.status), ...each })),
+    );
+    const value = await new GitLabReader({ repository, runner: f.runner }).status(7, signal());
+    expect(value.ci).toBe(ci);
+    const allowed = value.checks.find((check) => check.conclusion === "warning");
+    if (allowed) expect(allowed.status).not.toBe("failure");
+  });
   it("reads the newest matching MR pipeline and ignores another head", async () => {
     const f = fixture((path) =>
       path.includes("/pipelines?")

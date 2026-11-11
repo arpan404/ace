@@ -42,11 +42,15 @@ const source = z.looseObject({
 });
 const project = z.looseObject({
   squash_option: z.enum(["never", "always", "default_on", "default_off"]),
+  /** "Pipelines must succeed" (docs.gitlab.com/api/projects/); absent when not readable. */
+  only_allow_merge_if_pipeline_succeeds: z.boolean().optional(),
 });
 
 /** Detailed merge status is GitLab's authoritative aggregation of approval and branch rules.
- * Missing, computing and future statuses never become a clean merge. Raw fields survive. */
-export function gitlabMergeState(raw: unknown): ForgeMergeState {
+ * Missing, computing and future statuses never become a clean merge. Raw fields survive.
+ * `requiresPipeline` is the project's "pipelines must succeed": an MR with no pipeline merges
+ * only where it is known to be false. */
+export function gitlabMergeState(raw: unknown, requiresPipeline?: boolean): ForgeMergeState {
   const decoded = source.safeParse(raw);
   if (!decoded.success) throw new ForgeError("invalid_data");
   const mr = decoded.data;
@@ -60,7 +64,12 @@ export function gitlabMergeState(raw: unknown): ForgeMergeState {
   if (mr.has_conflicts) blockers.push("The source branch has conflicts.");
   if (mr.blocking_discussions_resolved === false) blockers.push("Discussions must be resolved.");
   const pipeline = mr.head_pipeline;
-  if (!pipeline) blockers.push("Head pipeline is unknown.");
+  if (!pipeline && requiresPipeline !== false)
+    blockers.push(
+      requiresPipeline
+        ? "A pipeline must succeed, and none has run."
+        : "Whether a pipeline must succeed is unknown.",
+    );
   if (pipeline && (pipeline.sha !== mr.sha || pipeline.status !== "success"))
     blockers.push(
       pipeline.sha !== mr.sha ? "Pipeline belongs to another head." : `Checks: ${pipeline.status}.`,
@@ -81,7 +90,9 @@ export function gitlabMergeState(raw: unknown): ForgeMergeState {
       ? pipeline.sha === mr.sha
         ? gitLabCi(pipeline.status).toUpperCase()
         : "UNKNOWN"
-      : "UNKNOWN",
+      : requiresPipeline === false
+        ? "NONE"
+        : "UNKNOWN",
     // GitLab exposes no enable timestamp. Do not invent one from updated_at.
     autoMerge: mr.merge_when_pipeline_succeeds
       ? {
@@ -120,7 +131,8 @@ export class GitLabMergeState {
   async read(number: number, signal: AbortSignal): Promise<ForgeMergeState> {
     const budget = new ReadBudget();
     const page = await this.#api.get(this.#path(number), signal, budget);
-    const state = gitlabMergeState(page.body);
+    const settings = await this.#project(signal, budget);
+    const state = gitlabMergeState(page.body, settings.requiresPipeline);
     if (source.parse(page.body).iid !== number) throw new ForgeError("invalid_data");
     const pipeline = source.parse(page.body).head_pipeline;
     if (pipeline) {
@@ -138,16 +150,22 @@ export class GitLabMergeState {
         state.blockers.push(`Head pipeline jobs: ${checksState}.`);
       }
     }
-    return { ...state, methods: await this.#methods(signal, budget) };
+    return { ...state, methods: settings.methods };
   }
   async #methods(signal: AbortSignal, budget = new ReadBudget()): Promise<MergeMethod[]> {
+    return (await this.#project(signal, budget)).methods;
+  }
+  /** The project's merge methods and whether its MRs need a passing pipeline. */
+  async #project(signal: AbortSignal, budget: ReadBudget) {
     const parsed = project.safeParse((await this.#api.get(this.#root, signal, budget)).body);
     if (!parsed.success) throw new ForgeError("invalid_data");
-    return parsed.data.squash_option === "always"
-      ? ["squash"]
-      : parsed.data.squash_option === "never"
-        ? ["merge"]
-        : ["merge", "squash"];
+    const methods: MergeMethod[] =
+      parsed.data.squash_option === "always"
+        ? ["squash"]
+        : parsed.data.squash_option === "never"
+          ? ["merge"]
+          : ["merge", "squash"];
+    return { methods, requiresPipeline: parsed.data.only_allow_merge_if_pipeline_succeeds };
   }
   async #preflight(number: number, headSha: string, method: MergeMethod, signal: AbortSignal) {
     sha.parse(headSha);
