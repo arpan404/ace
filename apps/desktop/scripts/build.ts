@@ -12,6 +12,8 @@ import {
   stageLinuxScreenHelper,
 } from "@ace/release";
 import { stageBunRuntime } from "@ace/release/daemon-runtime";
+import { stageSpadeServer } from "@ace/release/spade-server";
+import { ReleaseTarget } from "@ace/protocol";
 import { DesktopApp, desktopAppMarker } from "@ace/service/desktop-update";
 import {
   desktop,
@@ -36,6 +38,7 @@ import { verifyNatives } from "./verify-natives.ts";
  *   packages (playwright-core, the Claude SDK), `descriptor.node` and `desktop-app.json` (the app's version, so the bundled `ace update` defers to the app);
  * - `helpers/`: the screen helper for this platform;
  * - `bin/rg`: ripgrep for workspace search;
+ * - `spade/`: Spade's server (`spade-server`), unless `DISABLE_SPADE=1`;
  * - `runtime/`: the pinned Bun runtime the daemon runs on.
  * Native code is built for the host, so a build targets the host's OS and architecture
  * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
@@ -104,6 +107,17 @@ await copyFile(join(repo, "LICENSE"), join(daemon, "ACE-LICENSE"));
 await writeFile(
   join(daemon, desktopAppMarker),
   JSON.stringify(DesktopApp.parse({ version: appVersion })) + "\n",
+);
+
+// Spade's server, copied out to <ACE_HOME>/releases/spade on install (ADR 0123).
+log("spade-server");
+log(
+  `spade-server: ${await stageSpadeServer({
+    repo,
+    root: dist,
+    target: ReleaseTarget.parse(`${process.platform}-${arch}`),
+    env: process.env,
+  })}`,
 );
 
 log("ripgrep");

@@ -35,7 +35,7 @@ export async function verifyNatives(
   ];
   const problems = required.filter((path) => !existsSync(path)).map((path) => `missing ${path}`);
   for (const found of await mismatchedBinaries(
-    ["daemon", "node_modules", "bin", "helpers", "runtime"]
+    ["daemon", "node_modules", "bin", "helpers", "runtime", "spade"]
       .map((name) => join(dist, name))
       .filter((path) => existsSync(path)),
     platform,

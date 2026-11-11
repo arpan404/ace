@@ -76,6 +76,33 @@ export function signingIdentity(env: NodeJS.ProcessEnv): SigningIdentity {
   return { ok: true, name: identities[0] ?? "" };
 }
 
+/**
+ * Every release carries Spade's server (ADR 0123): a prebuilt `ACE_SPADE_SERVER_BIN`, or cargo
+ * to build it from `spade/`. Only `DISABLE_SPADE=1` releases without it.
+ */
+export function spadeServerCheck(env: NodeJS.ProcessEnv, cargo: boolean): Check {
+  const prebuilt = env.ACE_SPADE_SERVER_BIN;
+  if (env.DISABLE_SPADE === "1")
+    return { name: "Spade server", ok: true, detail: "left out (DISABLE_SPADE=1)", for: "any" };
+  if (prebuilt)
+    return {
+      name: "Spade server",
+      ok: existsSync(prebuilt),
+      detail: existsSync(prebuilt)
+        ? `prebuilt ${prebuilt}`
+        : `ACE_SPADE_SERVER_BIN names a missing file: ${prebuilt}`,
+      for: "any",
+    };
+  return {
+    name: "Spade server",
+    ok: cargo,
+    detail: cargo
+      ? "cargo builds spade-server from spade/"
+      : "install Rust (spade/rust-toolchain.toml), set ACE_SPADE_SERVER_BIN, or DISABLE_SPADE=1",
+    for: "any",
+  };
+}
+
 export interface Check {
   name: string;
   ok: boolean;
@@ -153,6 +180,7 @@ export function releaseChecks(env: NodeJS.ProcessEnv): Check[] {
       "ACE_RELEASE_PUBLIC_KEY_FILE and ACE_RELEASE_PRIVATE_KEY_FILE (tools/release/README.md)",
     for: "daemon",
   });
+  add(spadeServerCheck(env, capture("cargo", ["--version"]).ok));
   add({
     name: `Node ${nodeVersion}`,
     ok: process.versions.node === nodeVersion,
