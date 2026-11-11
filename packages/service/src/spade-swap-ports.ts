@@ -138,6 +138,14 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
     async removeSnapshot() {
       await rm(snapshotDir, { recursive: true, force: true });
     },
+    async keepSnapshot(snapshot, failedVersion) {
+      // Beside the live database, where the next update's snapshot folder never reaches.
+      await mkdir(dataDir, { recursive: true, mode: 0o700 });
+      const kept = freeName(`${database}.before-${failedVersion}`);
+      await rename(snapshot, kept);
+      await rm(snapshotDir, { recursive: true, force: true });
+      return kept;
+    },
     flip: (target) => flipSpadeCurrent(home, target),
     async serverPid() {
       return (await endpoint().catch(() => undefined))?.pid;

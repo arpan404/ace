@@ -51,6 +51,11 @@ export interface SpadeSwapPorts {
    */
   restoreDatabase(snapshot: string, failedVersion: string): Promise<string | undefined>;
   removeSnapshot(snapshot: string): Promise<void>;
+  /**
+   * After a rollback that didn't bring the old Spade back, moves `snapshot` where the next
+   * update's snapshot won't replace it, and answers where it went.
+   */
+  keepSnapshot(snapshot: string, failedVersion: string): Promise<string>;
   /** Points `releases/spade/current` at `version`. */
   flip(version: string): Promise<void>;
   /** The pid in Spade's `server.json`, if any: the process a restart must replace. */
@@ -107,10 +112,10 @@ export async function swapSpade(
     state = await ports.state();
     if (state === "absent") return { kind: "skipped", reason: "absent" };
     from = await ports.installedVersion();
-    if (from === version) return { kind: "skipped", reason: "current" };
   } catch (error) {
     return failed(reason(error));
   }
+  if (from === version) return finish(version, state, ports);
   // A stopped Spade has no turns to pause; a running one closes admission first.
   let closed = false;
   if (state === "running") {
@@ -162,10 +167,49 @@ export async function swapSpade(
     }
     throw new Error(`Spade ${version} didn't come up after its restart`);
   } catch (error) {
-    const result = await rollBack(ports, from, snapshot, failed(reason(error)));
-    await drop(ports, snapshot);
-    return result;
+    const rolled = await rollBack(ports, from, snapshot, failed(reason(error)));
+    if (rolled.recovered) {
+      await drop(ports, snapshot);
+      return rolled.result;
+    }
+    return keep(ports, snapshot, rolled.result);
   }
+}
+
+/**
+ * `current` already names `version`. Usually the swap is done and Spade runs it; but an updater
+ * that died after the flip and before the restart leaves the old process running with admission
+ * closed. So only a Spade proving `version` counts as current; otherwise the swap is finished:
+ * restart on `current`, then check the new one came up (a fresh process opens admission).
+ */
+async function finish(
+  version: string,
+  state: SpadeServiceState,
+  ports: SpadeSwapPorts,
+): Promise<SpadeSwapResult> {
+  try {
+    if (state === "running" && (await ports.health(version, undefined)))
+      return { kind: "skipped", reason: "current" };
+    const old = await ports.serverPid();
+    await ports.restart();
+    if (await ports.health(version, old)) return { kind: "swapped", from: undefined, to: version };
+    throw new Error(`Spade ${version} didn't come up after finishing an interrupted update`);
+  } catch (error) {
+    // Whatever still runs shouldn't stay closed to new work.
+    await ports.reopenAdmission().catch(() => {});
+    return { kind: "failed", from: version, to: version, error: reason(error) };
+  }
+}
+
+/** The rollback didn't bring the old Spade back: its database copy is kept, and said where. */
+async function keep(
+  ports: SpadeSwapPorts,
+  snapshot: string | undefined,
+  result: Failed,
+): Promise<Failed> {
+  if (snapshot === undefined) return result;
+  const kept = await ports.keepSnapshot(snapshot, result.to).catch(() => snapshot);
+  return { ...result, error: `${result.error}; Spade's data from before the swap is in ${kept}` };
 }
 
 async function drop(ports: SpadeSwapPorts, snapshot: string | undefined): Promise<void> {
@@ -186,15 +230,20 @@ async function abort(
  * After the flip: the new version may have migrated the database, which the old one refuses to
  * open. So Spade is stopped, the pre-flip snapshot put back if (only if) the schema moved on,
  * `current` pointed at the old version and the old Spade started and checked; the result says
- * whether it came back and where any set-aside changes are.
+ * whether it came back and where any set-aside changes are. `recovered` only when the database
+ * is one the old version opens and the old version proved healthy on it.
  */
 async function rollBack(
   ports: SpadeSwapPorts,
   from: string | undefined,
   snapshot: string | undefined,
   result: Failed,
-): Promise<Failed> {
-  if (from === undefined) return { ...result, error: `${result.error}; no older Spade to restore` };
+): Promise<{ result: Failed; recovered: boolean }> {
+  if (from === undefined)
+    return {
+      result: { ...result, error: `${result.error}; no older Spade to restore` },
+      recovered: false,
+    };
   try {
     const failedPid = await ports.serverPid();
     await ports.stop();
@@ -208,15 +257,21 @@ async function rollBack(
         ? ""
         : `; Spade's data changed since the swap began was set aside in ${setAside}`;
     return {
-      ...result,
-      error: back
-        ? `${result.error}; Spade ${from} is running again${aside}`
-        : `${result.error}; Spade ${from} was restored but didn't come back up${aside}`,
+      result: {
+        ...result,
+        error: back
+          ? `${result.error}; Spade ${from} is running again${aside}`
+          : `${result.error}; Spade ${from} was restored but didn't come back up${aside}`,
+      },
+      recovered: back,
     };
   } catch (error) {
     return {
-      ...result,
-      error: `${result.error}; restoring Spade ${from} failed: ${reason(error)}`,
+      result: {
+        ...result,
+        error: `${result.error}; restoring Spade ${from} failed: ${reason(error)}`,
+      },
+      recovered: false,
     };
   }
 }

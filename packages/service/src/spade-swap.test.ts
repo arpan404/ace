@@ -28,14 +28,24 @@ function machine(options: {
   hasDatabase?: boolean;
   /** The restore puts the snapshot back (a broken restore leaves the migrated database). */
   restores?: boolean;
+  /** Putting the snapshot back throws, after the live database was moved aside. */
+  restoreThrows?: boolean;
+  /**
+   * The version the running process is at, when it isn't `installed`: an updater died after
+   * flipping `current` and before restarting Spade, with admission still closed.
+   */
+  runs?: string;
 }) {
   const log: string[] = [];
   let clock = 0;
   let current = options.installed ?? "0.4.0";
-  let running = options.state === "running" || options.state === undefined ? current : undefined;
+  let running =
+    options.state === "running" || options.state === undefined
+      ? (options.runs ?? current)
+      : undefined;
   let pid = running ? 100 : undefined;
-  let schema = current;
-  let admission: SpadeMaintenance["admission"] = "open";
+  let schema = running ?? current;
+  let admission: SpadeMaintenance["admission"] = options.runs ? "closed" : "open";
   let turns = options.turns ?? 0;
   const jobs = options.jobs ?? 0;
   let turnPolls = options.turnPolls ?? 1;
@@ -89,6 +99,7 @@ function machine(options: {
     async restoreDatabase(snapshot, failed) {
       log.push(`restore ${snapshot}`);
       if (running) throw new Error("Spade is still running");
+      if (options.restoreThrows) throw new Error("copyfile: no space left on device");
       const before = snapshots.get(snapshot) ?? schema;
       if (schema <= before) return undefined;
       if (options.restores !== false) schema = before;
@@ -96,6 +107,12 @@ function machine(options: {
     },
     async removeSnapshot(snapshot) {
       snapshots.delete(snapshot);
+    },
+    async keepSnapshot(snapshot, failed) {
+      const kept = `spade.sqlite.before-${failed}`;
+      snapshots.set(kept, snapshots.get(snapshot) ?? schema);
+      snapshots.delete(snapshot);
+      return kept;
     },
     async flip(version) {
       log.push(`flip ${version}`);
@@ -226,6 +243,36 @@ test("a rollback whose old Spade doesn't come back says so", async () => {
     /0.4.0 was restored but didn't come back up/,
   );
   expect(world.running()).toBeUndefined();
+  expect(result.kind === "failed" && result.error).toMatch(
+    /data from before the swap is in spade\.sqlite\.before-0\.5\.0/,
+  );
+  expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+});
+
+test("a rollback that couldn't put the database back keeps the only good copy", async () => {
+  const world = machine({ broken: ["0.5.0"], restoreThrows: true });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(/restoring Spade 0.4.0 failed/);
+  expect(result.kind === "failed" && result.error).toMatch(/spade\.sqlite\.before-0\.5\.0/);
+  expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+});
+
+test("an update that died after the flip is finished on the retry", async () => {
+  // `current` names 0.5.0, but the old 0.4.0 process still runs with admission closed.
+  const world = machine({ installed: "0.5.0", runs: "0.4.0" });
+  expect(await swapSpade("0.5.0", "now", world.ports)).toMatchObject({
+    kind: "swapped",
+    to: "0.5.0",
+  });
+  expect(world.log).toEqual(["restart"]);
+  expect(world.running()).toBe("0.5.0");
+  expect(world.admission()).toBe("open");
+});
+
+test("a retry that can't bring the flipped version up reports the update failed", async () => {
+  const world = machine({ installed: "0.5.0", runs: "0.4.0", dead: ["0.5.0"] });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(/finishing an interrupted update/);
 });
 
 test("now mode waits past Spade's 30 s step allowance to see Spade pause its turns", async () => {
