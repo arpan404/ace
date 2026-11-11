@@ -115,6 +115,40 @@ test("a usage-limit choice is saved on the machine and the page says so", async 
   expect(limit.source?.label).toBe("This machine");
 });
 
+test("a machine's icon is picked from the web's set, kept in its colour, and saved on the machine", async () => {
+  const p = await ports();
+  await p.owner.request({
+    type: "settings.set",
+    key: "host.icon",
+    value: { kind: "laptop", color: "green" },
+    layer: { kind: "global" },
+  });
+  const icon = row(await page(p, "remote"), "host.icon");
+  expect(labels(icon)).toEqual([
+    "Laptop",
+    "Desktop",
+    "Monitor",
+    "Server",
+    "Cloud",
+    "CPU",
+    "Terminal",
+    "Phone",
+  ]);
+  const server =
+    icon.control.kind === "choice"
+      ? icon.control.choices.find((choice) => choice.label === "Server")
+      : undefined;
+  const written = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "remote",
+    row: "host.icon",
+    value: server?.id,
+  });
+  expect(written.ok).toBe(true);
+  expect(p.daemon.services.settings.get("host.icon")).toEqual({ kind: "server", color: "green" });
+  expect(row(written.page!, "host.icon").value).toBe(server?.id);
+});
+
 test("the child limit saves a count and No limit saves none", async () => {
   const p = await ports();
   const write = (value: string) =>
