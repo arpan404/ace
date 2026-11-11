@@ -81,6 +81,9 @@ struct ProviderSignInView: View {
     @State private var code = ""
     @State private var returnAddress = ""
     @State private var query = ""
+    @State private var lifetime = SignInLifetime()
+    @State private var pollAttempt = 0
+    @State private var failedRequest: [String: Any]?
     /// Past this many choices the list is searched by name (OpenCode offers about 240 services).
     private static let searchFrom = 12
     var body: some View {
@@ -133,28 +136,40 @@ struct ProviderSignInView: View {
                     } header: { InsetHeader(progress.finished ? "Result" : "Continue sign-in") }.disabled(busy || !model.canOperate)
                 }
                 ServiceProblem(message: problem)
+                if problem != nil {
+                    Button("Retry") {
+                        if let failedRequest { request(failedRequest) } else { problem = nil; pollAttempt += 1 }
+                    }.buttonStyle(.textAction())
+                }
             }
             .insetRowBackground()
         }
         .insetGroupedList()
         .modifier(ServiceSearch(enabled: (progress?.choices?.count ?? 0) > Self.searchFrom, query: $query))
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
-        .onAppear { if progress == nil { progress = initial } }
-        .task(id: progress?.session) {
+        .onAppear {
+            lifetime.cancel = { [weak model] session in
+                guard let model else { return }
+                Task { _ = try? await model.service(["type": "provider.login.cancel", "session": session], as: LoginReply.self) }
+            }
+            if progress == nil { progress = initial }
+            lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+        }
+        .onChange(of: progress?.state) { _, _ in
+            lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+        }
+        .task(id: "\(progress?.session ?? "")/\(pollAttempt)") {
             while let current = progress, !current.finished, !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(2))
                     let reply = try await model.service(["type": "provider.login.poll", "session": current.session], as: LoginReply.self)
                     guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
+                    failedRequest = nil
                     progress = reply.result.progress
-                } catch { if !Task.isCancelled { problem = error.localizedDescription }; return }
+                    lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+                } catch { if !Task.isCancelled { failedRequest = nil; problem = error.localizedDescription }; return }
             }
             if progress?.state == "succeeded" { model.refreshMachine() }
-        }
-        .onDisappear {
-            code = ""
-            returnAddress = ""
-            if let progress, !progress.finished { request(["type": "provider.login.cancel", "session": progress.session]) }
         }
     }
     /// The choices whose name or id holds every typed word; "other" (any provider) always stays.
@@ -176,8 +191,10 @@ struct ProviderSignInView: View {
             do {
                 let reply = try await model.service(payload, as: LoginReply.self)
                 guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
+                failedRequest = nil
                 progress = reply.result.progress
-            } catch { problem = error.localizedDescription }
+                lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
+            } catch { failedRequest = payload; problem = error.localizedDescription }
         }
     }
 }
