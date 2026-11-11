@@ -191,7 +191,7 @@ struct ForgeFileView: View {
         let head = file.headSha
         let picked = file.lines.filter { pick.holds($0) }
         // A suggestion replaces lines of the new side; deleted lines have none to change.
-        let suggestion = pick.side == "RIGHT" ? picked.map(\.text).joined(separator: "\n") : nil
+        let suggestion = pick.suggestion(in: file.lines)
         let done: (Bool) -> Bool = { ok in
             if ok { withAnimation { self.pick = nil } }
             return ok
@@ -206,6 +206,7 @@ struct ForgeFileView: View {
                 done(await desk.run(["kind": "line.comment", "headSha": head, "anchor": place, "body": body]))
             },
             suggestion: suggestion,
+            suggestionOff: pick.side == "RIGHT" && picked.contains(where: \.clipped) ? "Suggestions unavailable because selected lines are shortened." : nil,
             off: off)
     }
 }

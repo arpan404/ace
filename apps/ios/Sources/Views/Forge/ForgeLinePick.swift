@@ -29,6 +29,13 @@ struct ForgeLinePick: Equatable {
         return (start...end).contains(number)
     }
 
+    /// Display previews must never become a destructive replacement.
+    func suggestion(in lines: [ForgeFileDiff.Line]) -> String? {
+        let picked = lines.filter { holds($0) }
+        guard side == "RIGHT", !picked.isEmpty, !picked.contains(where: \.clipped) else { return nil }
+        return picked.map(\.text).joined(separator: "\n")
+    }
+
     /// Extends the span to `anchor`; false when it is on another side or change.
     mutating func extend(to anchor: ForgeFileDiff.Anchor, hunk other: Int) -> Bool {
         guard other == hunk, anchor.side == side else { return false }

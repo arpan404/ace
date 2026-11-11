@@ -9,6 +9,7 @@ struct ForgeWriteSheet: View {
     let desk: ForgeReviewDesk
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
+    @State private var discarding = false
 
     var body: some View {
         NavigationStack {
@@ -24,6 +25,7 @@ struct ForgeWriteSheet: View {
                     .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
                     .accessibilityIdentifier("forge.write.suggest")
                 }
+                if let reason = compose.suggestionOff { Text(reason).meta() }
                 if let off = compose.off { Text(off).meta() }
                 if let message = desk.message { Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text) }
                 Spacer(minLength: AceTheme.Spacing.none)
@@ -34,10 +36,15 @@ struct ForgeWriteSheet: View {
             .navigationTitle(compose.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if compose.text.isEmpty { dismiss() } else { discarding = true } }.disabled(desk.writing) }
             }
         }
         .onAppear { desk.clearMessage(); focused = true }
+        .interactiveDismissDisabled(!compose.text.isEmpty || desk.writing)
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
+        }
         .presentationDetents([.medium, .large])
     }
 
