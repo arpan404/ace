@@ -10,7 +10,10 @@ struct SkillDiscoveryView: View {
     @State private var provider = "codex"
     @State private var entries: [CatalogReply.Entry] = []
     @State private var query = ""
-    @State private var problem: String?
+    /// Each read keeps its own failure: the projects read succeeding never erases the catalog's.
+    @State private var projectsProblem: String?
+    @State private var catalogProblem: String?
+    private var problem: String? { projectsProblem ?? catalogProblem }
     @State private var loading = false
     @State private var loaded = false
     @State private var stale = false
@@ -92,18 +95,18 @@ struct SkillDiscoveryView: View {
         do {
             let all = try await model.allProjects()
             projects = all
-            problem = nil
+            projectsProblem = nil
             if !all.contains(where: { $0.id == project }) { project = all.first?.id ?? "" }
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch { if !Task.isCancelled { projectsProblem = error.localizedDescription } }
     }
     private func read() async {
         guard !project.isEmpty, model.connection == "ready" else { return }
-        loading = true; loaded = false; problem = nil; entries = []
+        loading = true; loaded = false; catalogProblem = nil; entries = []
         defer { loading = false }
         do {
             let reply = try await model.service(["type": "catalog.list", "workspace": ["workspaceId": project, "provider": provider], "limit": 512], as: CatalogReply.self)
             guard !Task.isCancelled else { return }
             entries = reply.entries; stale = reply.stale; loaded = true
-        } catch { if !Task.isCancelled { problem = error.localizedDescription } }
+        } catch { if !Task.isCancelled { catalogProblem = error.localizedDescription } }
     }
 }
