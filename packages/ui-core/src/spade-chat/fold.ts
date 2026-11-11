@@ -1,5 +1,27 @@
 import type { SpadeImageRef, SpadeKnownEvent, SpadeLiveInput, SpadeStored } from "./wire.ts";
 
+/** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
+export interface SpadeJob {
+  name: string;
+  agents: number | undefined;
+}
+
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+
+/**
+ * How many tasks a delegation's call handed out, from its arguments (`{tasks: [...]}`, or the
+ * same inside `call_tool`'s `{name, arguments}`); undefined when they don't say.
+ */
+function delegatedTasks(argumentsValue: unknown): number | undefined {
+  const outer = record(argumentsValue);
+  const inner = record(outer?.arguments) ?? outer;
+  const tasks = inner?.tasks;
+  return Array.isArray(tasks) && tasks.length > 0 ? tasks.length : undefined;
+}
+
 /*
  * A Spade conversation as the person sees it, folded from its stored events and live frames
  * (spade/docs/chat-core.md, harness.md). Pure: no I/O, no clock. Each input does work in
@@ -74,12 +96,12 @@ export interface SpadeConversationState {
   /** The open reply's id and its entry's index. */
   open: { reply: string; index: number } | undefined;
   /** Where each call of the open reply is shown: its entry's index. */
-  calls: Map<string, { reply: string; index: number }>;
+  calls: Map<string, { reply: string; index: number; arguments?: unknown }>;
   /** Running tool calls by call id. */
   running: Map<string, { reply: string; name: string }>;
   approvals: SpadeApproval[];
-  /** Background jobs still running, by job id. */
-  jobs: Map<string, string>;
+  /** Background jobs still running, by job id (the id of the call that started each). */
+  jobs: Map<string, SpadeJob>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
 }
@@ -185,7 +207,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     case "step_finished":
       if (state.open?.reply === event.reply)
         for (const call of event.calls)
-          state.calls.set(call.id, { reply: event.reply, index: state.open.index });
+          state.calls.set(call.id, {
+            reply: event.reply,
+            index: state.open.index,
+            arguments: call.arguments,
+          });
       return updateOpen(state, event.reply, (entry) => ({
         ...entry,
         live: "",
@@ -220,7 +246,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       setCall(state, event.reply, event.call_id, event.name, event.is_error ? "failed" : "done");
       return true;
     case "job_started":
-      state.jobs.set(event.job, event.name);
+      state.jobs.set(event.job, {
+        name: event.name,
+        agents: delegatedTasks(state.calls.get(event.job)?.arguments),
+      });
       return true;
     case "job_finished":
       state.jobs.delete(event.job);

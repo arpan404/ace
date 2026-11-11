@@ -28,6 +28,12 @@ const tools: Record<string, ToolWords> = {
   call_tool: { base: "use a tool", doing: "Using a tool", done: "Used a tool" },
   send_email: { base: "send an email", doing: "Sending an email", done: "Sent an email" },
   research: { base: "research", doing: "Researching", done: "Researched" },
+  delegate: {
+    base: "hand work to agents",
+    doing: "Handing work to agents",
+    done: "Handed work to agents",
+  },
+  wait: { base: "wait for agents", doing: "Waiting for agents", done: "Waited for agents" },
   // ace's own tools, reached through its MCP endpoint.
   ace_threads_list: { base: "list your threads", doing: "Listing threads", done: "Listed threads" },
   ace_thread_read: { base: "read a thread", doing: "Reading a thread", done: "Read a thread" },
@@ -142,4 +148,41 @@ export function spadeRowState(row: {
 }): "needs-you" | "working" | "idle" {
   if (row.waitingOnYou) return "needs-you";
   return spadeRowWorking(row) ? "working" : "idle";
+}
+
+/** Background jobs that wait on ace's agents: a delegation, or a wait for agents already out. */
+const agentJobs = new Set(["delegate", "wait"]);
+
+const agentsWord = (count: number) => `${count} ${count === 1 ? "agent" : "agents"}`;
+
+/**
+ * The Working line while background jobs run. Agents come first: "Waiting for 2 agents" when
+ * every delegation says how many tasks it handed out, else "Waiting for agents"; other jobs
+ * by their tool ("Researching in the background", "… and 1 more").
+ */
+export function spadeJobsLine(jobs: readonly { name: string; agents: number | undefined }[]) {
+  const agents = jobs.filter((job) => agentJobs.has(job.name));
+  const others = jobs.filter((job) => !agentJobs.has(job.name));
+  const background = (list: typeof others) => {
+    const words = spadeToolWords(list[0]?.name ?? "").doing;
+    return list.length > 1
+      ? `${words} and ${list.length - 1} more in the background`
+      : `${words} in the background`;
+  };
+  if (!agents.length) return background(others);
+  const delegations = agents.filter((job) => job.name === "delegate");
+  const counted = delegations.length > 0 && delegations.every((job) => job.agents !== undefined);
+  const total = delegations.reduce((sum, job) => sum + (job.agents ?? 0), 0);
+  const waiting = counted ? `Waiting for ${agentsWord(total)}` : "Waiting for agents";
+  return others.length
+    ? `${waiting}, and ${background(others).replace(/^\w/, (c) => c.toLowerCase())}`
+    : waiting;
+}
+
+/** The quiet line when a background job ends. */
+export function spadeJobEndLine(name: string, failed: boolean): string {
+  if (name === "delegate") return failed ? "The agents' work failed" : "The agents finished";
+  if (name === "wait") return failed ? "Couldn't wait for the agents" : "Done waiting for agents";
+  const words = spadeToolWords(name);
+  return failed ? `Couldn't ${words.base} in the background` : `${words.done} in the background`;
 }

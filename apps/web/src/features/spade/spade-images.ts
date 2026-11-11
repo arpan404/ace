@@ -5,7 +5,8 @@ import { spadeBlob, segment } from "./spade-requests.ts";
 /** Spade's own limits on a message's images. */
 export const maxSpadeImages = 8;
 const spadeTypes = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-const maxImageBytes = 5 * 1024 * 1024;
+/** Spade's own cap: providers count 5 MB on the base64, which is 3.75 MB of image. */
+const maxImageBytes = 3_750_000;
 
 export interface PreparedImage {
   /** Base64 of the file as it is, as Spade takes it. */
@@ -35,7 +36,7 @@ async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
 
 /**
  * The message's files as Spade images, sent as they are: PNG, JPEG, GIF or WebP, at most eight,
- * 5 MB each, Spade's own limits. Throws `SpadeImageError` with words for the person otherwise.
+ * 3.75 MB each, Spade's own limits. Throws `SpadeImageError` with words for the person otherwise.
  */
 export async function prepareSpadeImages(files: readonly File[]): Promise<PreparedImage[]> {
   if (files.length > maxSpadeImages)
@@ -44,7 +45,7 @@ export async function prepareSpadeImages(files: readonly File[]): Promise<Prepar
     if (!spadeTypes.has(file.type))
       throw new SpadeImageError("Spade takes PNG, JPEG, GIF and WebP images, not other files.");
     if (file.size > maxImageBytes)
-      throw new SpadeImageError(`${file.name} is larger than 5 MB, the most Spade takes.`);
+      throw new SpadeImageError(`${file.name} is larger than 3.75 MB, the most Spade takes.`);
   }
   return Promise.all(
     files.map(async (file) => {

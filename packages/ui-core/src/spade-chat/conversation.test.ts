@@ -386,3 +386,55 @@ test("a call made through call_tool reads as the tool it reached", () => {
   });
   expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined]"]);
 });
+
+describe("delegation", () => {
+  const delegated = (
+    c: ReturnType<typeof conversation>,
+    calls: { id: string; args: unknown }[],
+  ) => {
+    c.stored({ type: "reply_started", reply: "r1" }, 9000);
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "",
+      calls: calls.map((call) => ({ id: call.id, name: "call_tool", arguments: call.args })),
+    });
+    for (const call of calls)
+      c.stored({ type: "job_started", reply: "r1", job: call.id, name: "delegate" });
+  };
+
+  test("a delegation keeps the conversation working, counting its agents, until they settle", () => {
+    const c = conversation();
+    delegated(c, [
+      {
+        id: "c1",
+        args: { name: "delegate", arguments: { tasks: [{ task: "a" }, { task: "b" }] } },
+      },
+    ]);
+    c.stored({ type: "step_finished", reply: "r1", text: "Two agents are on it." });
+    c.stored({ type: "reply_finished", reply: "r1", text: "Two agents are on it." });
+    expect(c.view()).toMatchObject({
+      answering: false,
+      busy: true,
+      working: { label: "Waiting for 2 agents", since: undefined },
+    });
+    c.stored({ type: "job_finished", job: "c1", name: "delegate", content: "done" });
+    expect(c.view()).toMatchObject({ busy: false, working: undefined });
+  });
+
+  test("delegations add up; one that doesn't say how many reads as agents", () => {
+    const counted = conversation();
+    delegated(counted, [
+      { id: "c1", args: { tasks: [{}] } },
+      { id: "c2", args: { tasks: [{}, {}] } },
+    ]);
+    expect(counted.view().working?.label).toBe("Waiting for 3 agents");
+
+    const uncounted = conversation();
+    delegated(uncounted, [
+      { id: "c1", args: { tasks: [{}] } },
+      { id: "c2", args: {} },
+    ]);
+    expect(uncounted.view().working?.label).toBe("Waiting for agents");
+  });
+});

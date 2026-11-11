@@ -1,6 +1,6 @@
 import {
   spadeCallLine,
-  spadeToolWords,
+  spadeJobEndLine,
   type SpadeEntry,
   type SpadeImageRef,
   type SpadeReplyEntry,
@@ -94,13 +94,7 @@ const Entry = memo(function Entry(props: { entry: SpadeEntry; conversation: stri
         </p>
       );
     case "job":
-      return (
-        <p className={quiet}>
-          {entry.failed
-            ? `Couldn't ${spadeToolWords(entry.name).base} in the background`
-            : `${spadeToolWords(entry.name).done} in the background`}
-        </p>
-      );
+      return <p className={quiet}>{spadeJobEndLine(entry.name, entry.failed)}</p>;
   }
 });
 

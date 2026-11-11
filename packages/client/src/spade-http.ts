@@ -150,9 +150,11 @@ async function attempt(
   return finish(client, requestId, answer.result, requestOptions);
 }
 
+const noop = () => {};
+
 /** The `spade.http.result` that ends the upload `requestId`, however it arrives. */
 function uploadResult(client: SpadeHttpOwner, requestId: string, signal: AbortSignal | undefined) {
-  let stop = () => {};
+  let stop: () => void = noop;
   const result = new Promise<SpadeHttpResult["result"]>((resolve, reject) => {
     const unsubscribe = client.onMessage((message) => {
       if (message.type === "spade.http.result" && message.requestId === requestId)

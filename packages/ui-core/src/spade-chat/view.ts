@@ -1,5 +1,5 @@
 import type { SpadeApproval, SpadeConversationState, SpadeEntry } from "./fold.ts";
-import { spadeApprovalSentence, spadeToolWords } from "./words.ts";
+import { spadeApprovalSentence, spadeJobsLine, spadeToolWords } from "./words.ts";
 
 /** The conversation's Working line: what runs, in words, and since when. */
 export interface SpadeWorking {
@@ -25,14 +25,6 @@ export interface SpadeView {
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
 }
-
-const backgroundWords = (names: readonly string[]) => {
-  const first = names[0] ?? "";
-  const words = spadeToolWords(first).doing;
-  return names.length > 1
-    ? `${words} and ${names.length - 1} more in the background`
-    : `${words} in the background`;
-};
 
 export function spadeView(state: SpadeConversationState): SpadeView {
   const open = state.open && state.entries[state.open.index];
@@ -69,12 +61,10 @@ function working(
 ): SpadeWorking | undefined {
   const jobs = [...state.jobs.values()];
   if (since === undefined)
-    return jobs.length
-      ? { label: backgroundWords(jobs), since: undefined, moving: true }
-      : undefined;
+    return jobs.length ? { label: spadeJobsLine(jobs), since: undefined, moving: true } : undefined;
   const tool = [...state.running.values()].at(-1);
   if (tool) return { label: spadeToolWords(tool.name).doing, since, moving: true };
   if (waiting) return { label: "Waiting for you", since, moving: false };
-  if (jobs.length) return { label: backgroundWords(jobs), since, moving: true };
+  if (jobs.length) return { label: spadeJobsLine(jobs), since, moving: true };
   return { label: "Working", since, moving: true };
 }

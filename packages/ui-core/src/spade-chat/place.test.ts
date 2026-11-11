@@ -5,6 +5,7 @@ import {
   parseSpadeModels,
   spadeApprovalSentence,
   spadeCallLine,
+  spadeJobEndLine,
   spadeRowState,
   spadeRowWorking,
   spadeStateLine,
@@ -145,4 +146,9 @@ test("an events page keeps every event it can read, in order", () => {
     [1, "user_message"],
     [3, "unknown"],
   ]);
+});
+
+test("a background job's end reads in words, agents' work as the agents'", () => {
+  expect(spadeJobEndLine("delegate", false)).toBe("The agents finished");
+  expect(spadeJobEndLine("research", true)).toBe("Couldn't research in the background");
 });

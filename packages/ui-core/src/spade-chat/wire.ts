@@ -53,7 +53,7 @@ const known = z.discriminatedUnion("type", [
     reply,
     text: text.default(""),
     calls: z
-      .array(z.looseObject({ id: z.string(), name: z.string() }))
+      .array(z.looseObject({ id: z.string(), name: z.string(), arguments: z.unknown().optional() }))
       .optional()
       .default([]),
   }),
