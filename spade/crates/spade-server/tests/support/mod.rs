@@ -239,6 +239,7 @@ impl Spade {
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
         })?;
+        engine.open_for_work();
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),

@@ -57,15 +57,15 @@ fn keys_are_filed_under_spades_service_and_the_endpoint() -> Result {
 #[test]
 fn the_ace_grant_is_filed_under_its_own_account_apart_from_endpoint_keys() -> Result {
     let (keys, store) = mock_store()?;
-    assert_eq!(keys.ace_grant()?, None);
-    keys.set_ace_grant(" grant-123 ")?;
+    assert_eq!(keys.ace_grant("home-a")?, None);
+    keys.set_ace_grant("home-a", " grant-123 ")?;
     keys.set("ace:grant", "an endpoint that happens to share the name")?;
-    assert_eq!(keys.ace_grant()?, Some("grant-123".to_owned()));
-    let entry = store.build(SERVICE, "ace:grant", None)?;
+    assert_eq!(keys.ace_grant("home-a")?, Some("grant-123".to_owned()));
+    let entry = store.build(SERVICE, "ace:grant:home-a", None)?;
     assert_eq!(entry.get_password()?, "grant-123");
-    assert!(keys.delete_ace_grant()?);
-    assert_eq!(keys.ace_grant()?, None);
-    assert!(!keys.delete_ace_grant()?);
+    assert!(keys.delete_ace_grant("home-a")?);
+    assert_eq!(keys.ace_grant("home-a")?, None);
+    assert!(!keys.delete_ace_grant("home-a")?);
     assert_eq!(
         keys.get("ace:grant")?,
         Some("an endpoint that happens to share the name".to_owned())
@@ -136,4 +136,16 @@ fn platform() -> Result<Arc<CredentialStore>> {
 #[cfg(not(target_os = "macos"))]
 fn platform() -> Result<Arc<CredentialStore>> {
     Err("the manual keychain check is wired for macOS only".into())
+}
+
+#[test]
+fn each_ace_home_keeps_its_own_grant() -> Result {
+    let keys = KeyStore::with_store(mock::Store::new()?, SERVICE);
+    keys.set_ace_grant("real", "grant-real")?;
+    keys.set_ace_grant("dev", "grant-dev")?;
+    assert_eq!(keys.ace_grant("real")?.as_deref(), Some("grant-real"));
+    assert_eq!(keys.ace_grant("dev")?.as_deref(), Some("grant-dev"));
+    assert!(keys.delete_ace_grant("dev")?);
+    assert_eq!(keys.ace_grant("real")?.as_deref(), Some("grant-real"));
+    Ok(())
 }

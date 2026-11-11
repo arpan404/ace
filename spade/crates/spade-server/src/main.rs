@@ -40,7 +40,11 @@ async fn main() -> std::process::ExitCode {
     // The HTML parser's own logs carry page text, so they are dropped by a separate layer that no
     // RUST_LOG setting can turn back on.
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        // Plain text when not on a terminal: the service writes to a log file.
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout())),
+        )
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .with(filter_fn(|meta| !spade_fetch::is_parser_log(meta.target())))
         .init();
@@ -172,6 +176,19 @@ async fn run() -> Result<(), Failure> {
     home.write_token(&token).map_err(other)?;
     let listener = TcpListener::bind(config.listen).await.map_err(other)?;
     let address = listener.local_addr().map_err(other)?;
+    // Resume once ace's tools are back, so a paused turn about to use one finds it; never wait
+    // long, since Spade works without ace.
+    {
+        let (engine, ace) = (engine.clone(), ace.clone());
+        tokio::spawn(async move {
+            if let Some(link) = ace
+                && link.holds_grant(Duration::from_secs(3)).await
+            {
+                link.ready_within(Duration::from_secs(10)).await;
+            }
+            engine.open_for_work();
+        });
+    }
     home.write_server_json(address, std::process::id())
         .map_err(other)?;
     tracing::info!(%address, "spade listening");

@@ -127,14 +127,27 @@ async fn the_grant_is_kept_in_the_keychain_and_never_returned() -> Result {
     spade
         .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
         .await?;
-    assert_eq!(spade.keys.ace_grant()?.as_deref(), Some(fake_mcp::TOKEN));
+    assert_eq!(
+        spade
+            .keys
+            .ace_grant(&spade_server::tools::grant_slot(
+                &spade_server::tools::AceTarget::Discover(home.path().to_path_buf())
+            ))?
+            .as_deref(),
+        Some(fake_mcp::TOKEN)
+    );
     let state = wait_connected(&spade, true).await?;
     assert_eq!(state, json!({ "grant": true, "connected": true }));
     assert!(!state.to_string().contains(fake_mcp::TOKEN));
 
     let (status, _) = spade.delete("/v1/ace").await?;
     assert_eq!(status, 204);
-    assert_eq!(spade.keys.ace_grant()?, None);
+    assert_eq!(
+        spade.keys.ace_grant(&spade_server::tools::grant_slot(
+            &spade_server::tools::AceTarget::Discover(home.path().to_path_buf())
+        ))?,
+        None
+    );
     assert_eq!(
         spade.get("/v1/ace").await?.1,
         json!({ "grant": false, "connected": false })

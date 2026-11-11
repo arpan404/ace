@@ -513,10 +513,14 @@ async fn end_maintenance(State(state): State<AppState>) -> Response {
 
 /// Whether Spade holds a grant for ace and is connected; never the grant itself.
 async fn ace_state(State(state): State<AppState>) -> Response {
-    let (grant, connected) = state
-        .ace
-        .as_ref()
-        .map_or((false, false), |ace| (ace.has_grant(), ace.connected()));
+    let (grant, connected) = match state.ace.as_ref() {
+        // The stored grant is read in the background at start; answer once it has been.
+        Some(ace) => (
+            ace.holds_grant(std::time::Duration::from_secs(3)).await,
+            ace.connected(),
+        ),
+        None => (false, false),
+    };
     Json(json!({ "grant": grant, "connected": connected })).into_response()
 }
 

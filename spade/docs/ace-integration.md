@@ -68,7 +68,10 @@ first, then Spade:
   the grant ends it.
 - **Handed to Spade** over Spade's local API, authenticated with Spade's token file:
   `PUT /v1/ace` `{"grant":"<token>"}` → 204. Spade stores it in the OS keychain (service
-  `dev.acehq.spade`, account `ace:grant`), never in its database or logs, and starts using it.
+  `dev.acehq.spade`, account `ace:grant:<slot>`, where the slot is the first 16 hex characters of
+  the SHA-256 of the canonical `SPADE_ACE_HOME`, so each ace home keeps its own grant), never in
+  its database or logs, and starts using it. Spade reads the keychain after it is listening, never
+  before, so a keychain prompt can't hold up its start.
   `DELETE /v1/ace` forgets it. `GET /v1/ace` answers `{"grant":true|false,"connected":bool}`
   and never returns the token. If Spade is not running when the grant is made, the daemon hands it
   over when Spade's `server.json` next appears.
@@ -205,8 +208,9 @@ ADR 0121 records the daemon side.
 
 - Every MCP request carries `X-Ace-Notifications: stream` and no `X-Ace-Tools` or
   `X-Ace-Client` header, so Spade gets the full listing with `readOnlyHint` and
-  `destructiveHint` and a list-changed stream. The bearer lives in memory only and is new on
-  every start.
+  `destructiveHint` and a list-changed stream. The bearer is the `spade` grant above.
+- Turns paused by an update or interrupted by a restart resume only once Spade holds no grant or
+  is connected to ace (waiting at most ten seconds), so a resumed turn sees ace's tools.
 - The list is fetched at start, on every change notice and every five minutes. Every ace tool is
   offered deferred (found with `tool_search`, run through `call_tool`), so the tools sent to the
   model never change. Risk comes from the annotations; an unlabelled tool is a write.

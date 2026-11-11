@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import {
   installSpadeBinary,
   installSpadeService,
@@ -36,12 +38,35 @@ export function bundledSpadeBinary(
   return env.ACE_SPADE_BIN?.trim() || join(dirname(runtime), spadeBinaryName(platform));
 }
 
+/**
+ * The release folder Spade's binary is installed as. A release's binary is stamped with ace's
+ * version; a development build (`ACE_SPADE_BIN`) reports its own stamp, and installing it under
+ * any other name would make the updater's health check (which compares the two) fail.
+ */
+export async function spadeInstallVersion(
+  env: Readonly<Record<string, string | undefined>>,
+  aceVersion: () => Promise<string>,
+  binaryVersion: (binary: string) => Promise<string>,
+): Promise<string> {
+  const development = env.ACE_SPADE_BIN?.trim();
+  if (!development) return aceVersion();
+  const reported = (await binaryVersion(development)).trim();
+  if (!/^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(reported))
+    throw new Error(`${development} --version answered "${reported.slice(0, 80)}"`);
+  return reported;
+}
+
+async function versionOf(binary: string): Promise<string> {
+  const { stdout } = await promisify(execFile)(binary, ["--version"], { timeout: 5_000 });
+  return stdout;
+}
+
 /** `@ace/service`'s Spade service for `home` on this machine and account. */
 export function aceSpadeService(input: {
   home: string;
   /** `ACE_SPADE_BIN` is read from it. */
   env: Readonly<Record<string, string | undefined>>;
-  /** ace's version: the release folder the binary is installed as. */
+  /** ace's version: the release folder a release's binary is installed as. */
   version(): Promise<string>;
 }): SpadeServiceControl {
   let plan: ReturnType<typeof localSpadePlan> | undefined;
@@ -51,7 +76,8 @@ export function aceSpadeService(input: {
     async installBinary() {
       if ((await installedSpadeVersion(input.home)) !== undefined) return;
       const source = bundledSpadeBinary(input.env, process.execPath, process.platform);
-      await installSpadeBinary(input.home, source, await input.version());
+      const version = await spadeInstallVersion(input.env, input.version, versionOf);
+      await installSpadeBinary(input.home, source, version);
     },
     async register() {
       await installSpadeService(await planned());

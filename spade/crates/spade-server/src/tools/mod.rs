@@ -16,7 +16,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use spade_core::tools::{Registry, ToolDef};
 
-pub use ace_link::{AceLink, AceTarget, GrantError, Retry};
+pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
 pub use skills::{AceLibrary, LibraryFuture, SkillLibrary, SkillLoad, SkillSearch};
 pub use todo::Todo;
 pub use web_fetch::WebFetch;
