@@ -8299,7 +8299,7 @@ Example:
 | planMode | yes | boolean |  |
 | tokenUsage | yes | boolean |  |
 | imageInput | yes | boolean |  |
-| attachmentInput | no | object | {"properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"]} |
+| attachmentInput | no | object | {"properties":{"format":{"type":"string","enum":["claude","codex","opencode","acp"]},"documents":{"maxItems":32,"type":"array","items":{"type":"string","maxLength":128}},"embeddedContext":{"type":"boolean"},"interleaved":{"type":"boolean"},"maxInlineBytes":{"type":"integer","minimum":0,"maximum":33554432}},"required":["format","documents","embeddedContext","maxInlineBytes"]} |
 | rewindFiles | yes | boolean |  |
 
 Example:
@@ -8311,7 +8311,7 @@ Example:
     "documents": [],
     "embeddedContext": true,
     "format": "acp",
-    "maxInlineBytes": 4
+    "maxInlineBytes": 2
   },
   "backgroundTaskControl": false,
   "backgroundVisibility": "full",
@@ -8328,7 +8328,7 @@ Example:
   },
   "planMode": false,
   "resume": true,
-  "rewindFiles": true,
+  "rewindFiles": false,
   "sessionOptions": true,
   "steer": true,
   "steeringMode": "queue",
@@ -19629,7 +19629,7 @@ Example:
 | draftId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[\\w-]+$"} |
 | items | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/MessageContextItem.json"}} |
 | mentions | no | array | {"default":[],"maxItems":64,"items":{"$ref":"https://ace.local/protocol/v1/Mention.json"}} |
-| attachments | no | array | {"default":[],"maxItems":64,"items":{"type":"object","properties":{"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"}},"required":["sha256"]}} |
+| attachments | no | array | {"default":[],"maxItems":64,"items":{"type":"object","properties":{"sha256":{"$ref":"https://ace.local/protocol/v1/BlobHash.json"},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sha256"]}} |
 
 Example:
 
