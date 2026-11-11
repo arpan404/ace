@@ -145,6 +145,9 @@ function sortGrants(rows: ReturnType<typeof grantRow>[]) {
 async function projectNames(owner: OutsideOwner): Promise<Project[]> {
   return readProjects(owner, quiet, 256).catch(() => []);
 }
+/** Projects a person can pick for a client: a chat's hidden project is never one (ADR 0099). */
+const choosable = (projects: readonly Project[]) =>
+  projects.filter((project) => project.kind !== "chat").map(({ id, name }) => ({ id, name }));
 
 export async function answerOutside(
   owner: OutsideOwner,
@@ -166,13 +169,13 @@ export async function answerOutside(
         return {
           ok: true,
           grants: sortGrants(grants.map((grant) => grantRow(grant, at, (id) => names.get(id)))),
-          projects: projects.map((project) => ({ id: project.id, name: project.name })),
+          projects: choosable(projects),
           expiries: outsideExpiryChoices.map(({ id, label }) => ({ id, label })),
         };
       }
       case "projects": {
         const projects = await projectNames(owner);
-        return { ok: true, projects: projects.map(({ id, name }) => ({ id, name })) };
+        return { ok: true, projects: choosable(projects) };
       }
       case "revoke":
         await ask({ op: "revoke", grantId: request.grantId });

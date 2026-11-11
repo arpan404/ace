@@ -93,10 +93,13 @@ export const outsideExpiryChoices = [
 export type OutsideExpiryChoice = (typeof outsideExpiryChoices)[number]["id"];
 export const defaultOutsideExpiry: OutsideExpiryChoice = "month";
 
-/** When the chosen expiry ends, from `now`; null: until revoked. */
+/**
+ * When the chosen expiry ends, from `now`, in whole milliseconds as the protocol counts them
+ * (a phone's clock has fractions); null: until revoked.
+ */
 export function outsideExpiresAt(choice: OutsideExpiryChoice, now: number): number | null {
   const found = outsideExpiryChoices.find((entry) => entry.id === choice);
-  return found?.ms == null ? null : now + found.ms;
+  return found?.ms == null ? null : Math.floor(now) + found.ms;
 }
 
 /** Where a grant stands now. */

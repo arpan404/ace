@@ -142,7 +142,7 @@ struct ConnectedAppDetailView: View {
                 if grant.started > 0 || grant.messaged > 0 {
                     LabeledContent("Threads", value: threadsLine)
                 }
-            } header: { InsetHeader(grant.name) }
+            }
             .insetRowBackground()
             OutsideAccessSections(choices: grant.choices, scopes: $scopes, projects: apps.projects,
                                   allProjects: $allProjects, chosen: $chosen, expiries: apps.expiries, expiry: $expiry,

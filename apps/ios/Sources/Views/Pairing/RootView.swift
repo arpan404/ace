@@ -33,7 +33,6 @@ struct RootView: View {
     private var content: some View {
         InboxView(inbox: machines.inbox, machines: machines, lock: lock)
             .machineCodePrompt(machines.inbox)
-            .outsideAccessPrompt(machines.inbox)
     }
 }
 

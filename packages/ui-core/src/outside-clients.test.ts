@@ -65,6 +65,8 @@ test("expiry choices end a day or 30 days from now, or never", () => {
   expect(outsideExpiresAt("day", 1_000)).toBe(1_000 + day);
   expect(outsideExpiresAt("month", 1_000)).toBe(1_000 + 30 * day);
   expect(outsideExpiresAt("never", 1_000)).toBeNull();
+  // A phone's clock reads fractions of a millisecond; the protocol takes whole ones.
+  expect(outsideExpiresAt("day", 1_000.75)).toBe(1_000 + day);
 });
 
 test("a grant is revoked, expired or active", () => {

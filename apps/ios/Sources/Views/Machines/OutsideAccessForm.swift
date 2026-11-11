@@ -48,7 +48,7 @@ struct OutsideAccessSections: View {
                         .accessibilityIdentifier("outside.project.\(project.id)")
                 }
             }
-        } header: { InsetHeader("Projects") }
+        }
         .insetRowBackground()
         Section {
             Picker("How long", selection: $expiry) {
@@ -56,7 +56,7 @@ struct OutsideAccessSections: View {
                 ForEach(expiries) { Text($0.label).tag(Optional($0.id)) }
             }
             .accessibilityIdentifier("outside.expiry")
-        } header: { InsetHeader("How long") } footer: {
+        } footer: {
             if let expiryNote { Text(expiryNote) }
         }
         .insetRowBackground()

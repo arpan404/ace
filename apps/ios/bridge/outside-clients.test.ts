@@ -118,7 +118,8 @@ test("approving sends the chosen access with read included, and the sheet's requ
         expiry: "day",
       },
     },
-    () => 1_000,
+    // The phone's clock reads fractions of a millisecond.
+    () => 1_000.5,
   );
   expect(answer).toEqual({ ok: true });
   expect(daemon.outside.decisions).toEqual([
@@ -243,4 +244,33 @@ test("a phone that isn't the machine's administrator is told so and shows no sig
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(sink.read(OutsideWatch.key)).toBeUndefined();
+});
+
+test("a chat's hidden project is never offered as a project to choose", async () => {
+  const { daemon, client } = await connected();
+  daemon.createThread({
+    id: "chat-1",
+    workspaceId: "chat-1",
+    title: "A chat",
+    provider: "claude",
+    details: {
+      workspace: { id: "chat-1", name: "Chat", path: "/c/1", kind: "chat" },
+      mode: "local",
+    },
+  });
+  daemon.createThread({
+    id: "t-ace",
+    workspaceId: "ace",
+    title: "Work",
+    provider: "claude",
+    details: { workspace: { id: "ace", name: "ace", path: "/w/ace" }, mode: "local" },
+  });
+  const answer = (await answerOutside(
+    client,
+    { type: "native.outside", machine: "studio", request: { op: "projects" } },
+    () => 1_000,
+  )) as { ok: boolean; projects: { id: string; name: string }[] };
+  expect(answer.ok).toBe(true);
+  expect(answer.projects.map((project) => project.id)).toContain("ace");
+  expect(answer.projects.map((project) => project.id)).not.toContain("chat-1");
 });
