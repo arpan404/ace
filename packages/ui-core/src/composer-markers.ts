@@ -196,7 +196,7 @@ export function placeAttachmentMarkers(
     let at = file.at;
     for (const token of picks) if (token.start <= at) at += token.end - token.start;
     at = Math.min(at, text.length);
-    for (const token of remaining.filter((token) => token.end <= at)) next.push(shift(token));
+    for (const token of remaining.filter((kept) => kept.end <= at)) next.push(shift(token));
     remaining = remaining.filter((token) => token.end > at);
     out += text.slice(from, at) + attachmentMarker;
     next.push({
@@ -240,4 +240,12 @@ export function shiftAttachmentOffsets<File extends { at?: number | undefined }>
     if (file.at === undefined || file.at <= start) return file;
     return { ...file, at: file.at >= end ? file.at + nextEnd - end : start };
   });
+}
+
+/** A message's context once its words went from `before` to `after`: its files' offsets follow. */
+export function contextAfterEdit<
+  Context extends { attachments: readonly { at?: number | undefined }[] },
+>(context: Context, before: readonly ContentPart[], after: readonly ContentPart[]): Context {
+  if (!context.attachments.some((file) => file.at !== undefined)) return context;
+  return { ...context, attachments: shiftAttachmentOffsets(before, after, context.attachments) };
 }

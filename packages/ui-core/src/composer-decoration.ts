@@ -100,12 +100,16 @@ function lineSpans(text: string, tokens: readonly ComposerToken[]): Span[] {
 function leaves(start: number, end: number, tokens: readonly ComposerToken[]): DecorationNode[] {
   const nodes: DecorationNode[] = [];
   let at = start;
-  tokens.forEach((token, index) => {
-    if (token.start < start || token.end > end) return;
+  const inside = tokens
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.start >= start && token.end <= end)
+    .toSorted((a, b) => a.token.start - b.token.start);
+  for (const { token, index } of inside) {
+    if (token.start < at) continue;
     if (token.start > at) nodes.push({ type: "text", start: at, end: token.start });
     nodes.push({ type: "token", index });
     at = token.end;
-  });
+  }
   if (end > at) nodes.push({ type: "text", start: at, end });
   return nodes;
 }

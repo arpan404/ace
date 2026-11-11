@@ -119,8 +119,9 @@ describe("keeping markers tied to their files", () => {
   });
 });
 
+const text = (value: string) => [{ type: "text" as const, text: value }];
+
 describe("editing a queued message's words", () => {
-  const text = (value: string) => [{ type: "text" as const, text: value }];
   test.each([
     ["moves a file after the edit", "ab cd", "ab XX cd", 4, 7],
     ["keeps a file before the edit", "ab cd", "ab cdXX", 2, 2],

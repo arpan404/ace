@@ -1,7 +1,14 @@
 import { FloatingContents } from "@/components/ui/floating-material.tsx";
 import { LocalBoundary } from "@/components/ui/local-boundary.tsx";
-import type { ComposerDraft } from "@ace/ui-core";
-import { useId, useImperativeHandle, useRef, useState, type KeyboardEvent } from "react";
+import { withMarkerHashes, type ComposerDraft } from "@ace/ui-core";
+import {
+  useId,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { cn } from "@/lib/cn.ts";
 import { useKeys } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
@@ -20,6 +27,7 @@ import { composerSurface, inputLine, inputMinLines } from "./composer-styles.ts"
 import type { Trigger } from "./draft.ts";
 import { readDraft, recentFiles, rememberFile, writeDraft } from "./draft-store.ts";
 import { carriesFiles, takeTransfer, type Intake } from "./file-intake.ts";
+import { linkMarkers } from "./marker-links.ts";
 import { MessageInput } from "./message-input.tsx";
 import { matchesSubmittedDraft } from "./submitted-draft.ts";
 import type { Suggestion } from "./suggestions.tsx";
@@ -98,22 +106,32 @@ function ComposerBody({
   const surface = useRef<HTMLDivElement>(null);
   const addMenu = useRef<AddHandle>(null);
   const listId = useId();
-  const message = useMessageState(
-    input,
-    restored ?? { ...emptyDraft, text: props.initialText ?? "" },
+  const restoredFiles =
+    props.replacedDraft?.attachments ??
+    (props.keepsAttachments ? restored?.attachments : undefined);
+  const attachments = useAttachments(props.thread, restoredFiles);
+  const [initial] = useState(() =>
+    restored
+      ? linkMarkers(
+          restored,
+          (restoredFiles ?? []).map((file, index) => ({ key: -1 - index, sha256: file.sha256 })),
+        )
+      : { ...emptyDraft, text: props.initialText ?? "" },
   );
+  // A file's marker taken out of the words takes the file away, as its chip's Remove does.
+  const message = useMessageState(input, initial, (keys) => {
+    for (const key of keys) attachments.remove(key);
+  });
   const { text, tokens, caret } = message;
+  // A file removed from its chip (or never held: a twin, a restored draft's missing upload)
+  // takes its marker out of the words.
+  useLayoutEffect(() => message.prune(new Set(attachments.items.map((item) => item.key))));
   const [showAttachments, setShowAttachments] = useState(false);
   const [argumentsFor, setArgumentsFor] = useState<{ item: Suggestion; trigger: Trigger }>();
   // What the last drop or paste couldn't attach in full (a large folder, too many files).
   const [notice, setNotice] = useState<string>();
   const width = useElementWidth(box);
   const handheld = useHandheld();
-  const attachments = useAttachments(
-    props.thread,
-    props.replacedDraft?.attachments ??
-      (props.keepsAttachments ? restored?.attachments : undefined),
-  );
   const annotations = useComposerAnnotations(
     props.thread,
     props.replacedDraft?.annotations ?? restored?.annotations,
@@ -125,7 +143,8 @@ function ComposerBody({
   });
   const attach = (files: Iterable<File>, note?: string) => {
     const selected = [...files];
-    const left = attachments.add(selected);
+    const { left, added } = attachments.add(selected);
+    message.markFiles(added);
     if (selected.length > left) props.onFilesAdded?.();
     setNotice(
       left
@@ -141,9 +160,13 @@ function ComposerBody({
   const { trigger, suggestions, items, active, adding, setAdding, setDismissed } = list;
   const empty = !text.trim() && !attachments.items.length && !annotations.count && !quotes.count;
   const compact = width > 0 && width < compactWidth;
+  const markerFiles = attachments.items.map((item) => ({
+    key: item.key,
+    sha256: item.state === "ready" ? item.sha256 : undefined,
+  }));
   const current: ComposerDraft = {
     text,
-    tokens,
+    tokens: withMarkerHashes(tokens, markerFiles),
     mentions: [...message.picked],
     attachments: props.keepsAttachments ? attachments.ready : [],
     annotations: annotations.draft,
@@ -157,6 +180,7 @@ function ComposerBody({
     attachments,
     keepsAttachments: !!props.keepsAttachments,
     take: message.take,
+    link: (draft) => linkMarkers(draft, markerFiles),
     replace: props.onReplaced,
     takeAnnotations: annotations.replace,
     takeQuotes: quotes.replace,
@@ -293,6 +317,8 @@ function ComposerBody({
             }
           : undefined,
       newline: message.newline,
+      bold: message.bold,
+      indent: message.indent,
       history: step,
       recall,
       stopKey: canStop && !props.stopping ? props.onStopKey : undefined,
@@ -378,7 +404,10 @@ function ComposerBody({
               items={attachments.items}
               onRemove={attachments.remove}
               onRetry={attachments.retry}
-              onEdit={attachments.edit}
+              onEdit={(key, edited) => {
+                const copy = attachments.edit(key, edited);
+                if (copy) message.rekey(key, copy.key, copy.name);
+              }}
               threadId={props.thread.draft ? undefined : props.thread.id}
             />
             <ReplyQuotes quotes={quotes} />
@@ -397,8 +426,8 @@ function ComposerBody({
                 aria-expanded={expanded}
                 aria-controls={expanded ? listId : undefined}
                 aria-activedescendant={expanded ? `${listId}-${active}` : undefined}
-                onChange={(next, at) => {
-                  message.type(next, at);
+                onChange={(next, at, composing, shown) => {
+                  message.type(next, at, composing, shown);
                   setDismissed(undefined);
                 }}
                 onCaret={message.setCaret}

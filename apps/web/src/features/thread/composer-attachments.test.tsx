@@ -69,7 +69,9 @@ test("a long paste goes along as a text file, not into the message", async () =>
   pasteText(message, log);
   const chips = await screen.findByRole("list", { name: "Attachments" });
   expect(within(chips).getByRole("button", { name: "Remove Pasted 60 lines.txt" })).toBeTruthy();
-  expect(message.textContent).toBe("");
+  // Only its marker is in the words, where the paste went.
+  expect(within(message).getByLabelText("Pasted 60 lines.txt")).toBeTruthy();
+  expect(message.textContent).not.toContain("error at line");
 });
 
 test("a pasted file can be edited before sending, and the edited text is what goes", async () => {
@@ -135,7 +137,7 @@ test("pasting an image preserves an attached file without sending until the pers
   await waitFor(() => expect(within(chips).queryByRole("progressbar")).toBeNull());
   expect(within(chips).getByRole("button", { name: "Remove notes.txt" })).toBeTruthy();
   expect(within(chips).getByRole("button", { name: "Remove screen.png" })).toBeTruthy();
-  expect(message.textContent).toBe("");
+  expect(message.textContent).toBe("notes.txtscreen.png");
   const before = app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(thread.id) });
   if (!before || !("items" in before)) throw new Error("Missing transcript");
   expect(

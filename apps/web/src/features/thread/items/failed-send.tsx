@@ -1,7 +1,7 @@
 import { useContext, useRef, useState, useSyncExternalStore } from "react";
 import { TimeContext } from "@/lib/time.ts";
 import { uploadClock } from "@/features/thread/composer/upload-interruption.ts";
-import { baseName, sendBusyReason, tokensFromInput } from "@ace/ui-core";
+import { baseName, placeAttachmentMarkers, sendBusyReason, tokensFromInput } from "@ace/ui-core";
 import { retrySend, type SendOp } from "@ace/client";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { ArrowClockwiseIcon, PencilSimpleIcon, WarningIcon } from "@phosphor-icons/react";
@@ -252,8 +252,14 @@ export function FailedHeld(props: { threadId: string; staged: StagedSend }) {
     const take = (send: StagedSend) => {
       if (editing) return saveOpenDraft(key);
       const draft = {
-        text: send.text,
-        tokens: send.input ? tokensFromInput(send.input).tokens : [],
+        // Each file's marker back where it was sent from.
+        ...placeAttachmentMarkers(
+          send.text,
+          send.input ? tokensFromInput(send.input).tokens : [],
+          send.attachments.flatMap((file) =>
+            file.sha256 ? [{ sha256: file.sha256, at: file.at, name: file.name }] : [],
+          ),
+        ),
         mentions: send.mentions,
         attachments: send.attachments.flatMap((file) =>
           file.sha256 ? [{ sha256: file.sha256, name: file.name }] : [],
