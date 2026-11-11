@@ -5,7 +5,7 @@ import {
   guardianSourcePath,
   stageTerminalGuardian,
 } from "./terminal-assets.ts";
-import { readFile, cp } from "node:fs/promises";
+import { readFile, cp, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { assertAsciiScripts } from "./ascii-output.ts";
 import { assertNoKoffi, daemonWithoutKoffi } from "./no-koffi.ts";
@@ -215,6 +215,9 @@ export async function bundleDaemon(
     recursive: true,
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
+  // For measuring which sources land in which output: ACE_BUNDLE_METAFILE=<path>.
+  if (process.env.ACE_BUNDLE_METAFILE)
+    await writeFile(process.env.ACE_BUNDLE_METAFILE, JSON.stringify(daemon.metafile));
   const scripts = Object.keys(daemon.metafile.outputs);
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
