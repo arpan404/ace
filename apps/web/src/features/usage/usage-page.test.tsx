@@ -283,7 +283,7 @@ test("Refresh asks each environment for current limits and shows what comes back
   expect((await accountBlock("Codex", "Personal")).textContent).toContain("3 banked resets");
 });
 
-test("the range changes the total, and a ledger row drills into it until a crumb climbs back", async () => {
+test("the range changes the total, and a ledger row opens in place to its parts", async () => {
   const app = harness();
   app.daemon.services.usage.sources = [
     source("claude", "claude-personal", "claude-opus-4-6", 15),
@@ -296,20 +296,22 @@ test("the range changes the total, and a ledger row drills into it until a crumb
   await userEvent.click(screen.getByRole("button", { name: "30 days" }));
   await waitFor(() => expect(total()).toBe("6M"));
 
-  await userEvent.click(await ledgerRow("Codex"));
-  await waitFor(() => expect(total()).toBe("3M"));
-  const scope = screen.getByRole("navigation", { name: "Scope" });
-  expect(within(scope).getByText("Codex").getAttribute("aria-current")).toBe("location");
-  // Inside a provider, the ledger lists its accounts.
-  expect(screen.getByRole("button", { name: "Group by: Account" })).toBeTruthy();
-  expect(await ledgerRow("Codex · Personal")).toBeTruthy();
-
-  await userEvent.click(within(scope).getByRole("button", { name: "All" }));
-  await waitFor(() => expect(total()).toBe("6M"));
+  const codex = await ledgerRow("Codex");
+  await userEvent.click(codex);
+  expect(codex.getAttribute("aria-expanded")).toBe("true");
+  // Its accounts open under it, by their own names; the total, the grouping and the other
+  // providers stay as they were.
+  const accounts = await screen.findByRole("list", { name: "Codex by account" });
+  expect(await within(accounts).findByRole("button", { name: /^Personal: 3M/ })).toBeTruthy();
+  expect(total()).toBe("6M");
+  expect(screen.getByRole("button", { name: "Group by: Provider" })).toBeTruthy();
   expect(await ledgerRow("Claude Code")).toBeTruthy();
+
+  await userEvent.click(codex);
+  expect(screen.queryByRole("list", { name: "Codex by account" })).toBeNull();
 });
 
-test("an account's name shows that account's spend, and Limits still list every account", async () => {
+test("an account's name lists Spend by account with that one open, and Limits still list every account", async () => {
   const app = harness();
   report(app.daemon, "codex-personal", { five_hour: [20, hour] });
   report(app.daemon, "claude-personal", { five_hour: [20, hour] });
@@ -324,11 +326,11 @@ test("an account's name shows that account's spend, and Limits still list every 
   await userEvent.click(
     within(codex).getByRole("button", { name: "Codex · Personal: show its spend" }),
   );
-  await waitFor(() => expect(total()).toBe("3M"));
-  const scope = screen.getByRole("navigation", { name: "Scope" });
-  expect(within(scope).getByText("Personal").getAttribute("aria-current")).toBe("location");
-  expect(screen.getByRole("button", { name: "Group by: Project" })).toBeTruthy();
-  // Spend's scope is Spend's alone: the other provider's account stays in Limits.
+  expect(await screen.findByRole("button", { name: "Group by: Account" })).toBeTruthy();
+  const row = await ledgerRow("Codex · Personal");
+  expect(row.getAttribute("aria-expanded")).toBe("true");
+  expect(await screen.findByRole("list", { name: "Codex · Personal by project" })).toBeTruthy();
+  expect(total()).toBe("6M");
   expect(await accountBlock("Claude Code", "Personal")).toBeTruthy();
 });
 

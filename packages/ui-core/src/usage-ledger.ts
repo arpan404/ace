@@ -70,21 +70,6 @@ export function ledgerScope(steps: readonly LedgerStep[]): {
   return { filters, machine };
 }
 
-/** Groups already fixed by the scope have one row, so they aren't offered. */
-export function openLedgerGroups(steps: readonly LedgerStep[]): LedgerGroup[] {
-  const fixed = new Set(steps.map((step) => step.group));
-  return ledgerGroups.map((group) => group.value).filter((group) => !fixed.has(group));
-}
-
-/** The group a fresh scope shows: the level under its last step, else providers. */
-export function ledgerGroupFor(steps: readonly LedgerStep[]): LedgerGroup {
-  const last = steps.at(-1);
-  const next = last && nextLedgerGroup(last.group);
-  return next && openLedgerGroups(steps).includes(next)
-    ? next
-    : (openLedgerGroups(steps)[0] ?? "thread");
-}
-
 export interface LedgerFigure {
   tokens: number;
   usd: number;

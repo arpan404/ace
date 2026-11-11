@@ -2,11 +2,9 @@ import type { UsageRow } from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   ledgerChange,
-  ledgerGroupFor,
   ledgerLines,
   ledgerScope,
   machineLedgerLines,
-  openLedgerGroups,
   type LedgerStep,
 } from "./usage-ledger.ts";
 
@@ -89,7 +87,7 @@ test("machines are one line each, from their own reads", () => {
   expect(ledgerChange(lines[0]!, "tokens").label).toBe("No change");
 });
 
-test("drilling narrows the queries to each step and offers the next level down", () => {
+test("an opened row narrows its parts' queries to every step above it", () => {
   const steps: LedgerStep[] = [
     { group: "provider", key: "claude", label: "Claude" },
     { group: "account", key: "acct-work", label: "Work" },
@@ -98,13 +96,9 @@ test("drilling narrows the queries to each step and offers the next level down",
     filters: { provider: ["claude"], account: ["acct-work"] },
     machine: undefined,
   });
-  expect(ledgerGroupFor(steps)).toBe("workspace");
-  expect(openLedgerGroups(steps)).not.toContain("account");
-  expect(ledgerGroupFor([])).toBe("provider");
 });
 
-test("a machine step keeps the page to that machine instead of filtering a query", () => {
+test("a machine step keeps its parts to that machine instead of filtering a query", () => {
   const steps: LedgerStep[] = [{ group: "machine", key: "mini", label: "Mac mini" }];
   expect(ledgerScope(steps)).toEqual({ filters: {}, machine: "mini" });
-  expect(ledgerGroupFor(steps)).toBe("workspace");
 });

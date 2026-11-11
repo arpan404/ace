@@ -8,9 +8,6 @@ import {
   formatAgo,
   formatTokens,
   growthSentence,
-  ledgerGroupFor,
-  ledgerScope,
-  openLedgerGroups,
   previousSpan,
   priceNote,
   tokenTable,
@@ -77,6 +74,8 @@ const metrics = [
   { value: "tokens", label: "Tokens" },
 ] as const satisfies readonly { value: Metric; label: string }[];
 const all = "all";
+/** Spend reads everything on the machines shown; a row opens to its parts in place. */
+const noFilters = {};
 
 const readTitles = (reader: SidebarReader) =>
   new Map(
@@ -99,17 +98,13 @@ export function UsagePage() {
   const [range, setRange] = useState<Range>("30");
   const [metric, setMetric] = useState<Metric>("cost");
   const [environmentId, setEnvironmentId] = useState<string>(all);
-  const [steps, setSteps] = useState<readonly LedgerStep[]>([]);
+  const [openRow, setOpenRow] = useState<string>();
   const [group, setGroup] = useState<LedgerGroup>("provider");
   const [tokenTypes, setTokenTypes] = useState(false);
   const machines = useMachines();
-  const scope = useMemo(() => ledgerScope(steps), [steps]);
   // Offline machines stay in scope so the coverage line names them; nothing reads from them.
   const environments = machines.filter(
     (machine) => environmentId === all || machine.id === environmentId,
-  );
-  const spending = environments.filter(
-    (machine) => scope.machine === undefined || machine.id === scope.machine,
   );
   const online = environments.filter((machine) => machine.client !== undefined);
   const accounts = useEnvironmentAccounts(environments);
@@ -119,8 +114,8 @@ export function UsagePage() {
     to: usageDay(now, zone.timeZone),
     ready: zone.ready,
   };
-  const usage = useEnvironmentUsage(spending, span, scope.filters);
-  const ledger = useLedger(spending, span, scope.filters, group);
+  const usage = useEnvironmentUsage(environments, span, noFilters);
+  const ledger = useLedger(environments, span, noFilters, group);
   const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
@@ -177,8 +172,14 @@ export function UsagePage() {
       )?.automation.title,
     modelName,
   });
-  const name = (kind: LedgerGroup, key: string) =>
-    kind === "thread" ? (titles?.get(key) ?? "Thread") : kind === "skill" ? key : namer(kind, key);
+  const name = (kind: LedgerGroup, key: string, parent: LedgerStep | undefined) => {
+    if (kind === "thread") return titles?.get(key) ?? "Thread";
+    if (kind === "skill") return key;
+    const full = namer(kind, key);
+    // Under its provider, an account is just its own name: "Personal", not "Codex · Personal".
+    const prefix = parent?.group === "provider" ? `${parent.label} · ` : "";
+    return prefix && full.startsWith(prefix) ? full.slice(prefix.length) : full;
+  };
   const icon = (kind: LedgerGroup, key: string) => {
     const provider =
       kind === "provider"
@@ -204,15 +205,12 @@ export function UsagePage() {
   );
   const machineFor = (id: string | undefined): Machine | undefined =>
     machines.find((machine) => (id === primaryMachineId ? machine.primary : machine.id === id));
-  const scopeTo = (next: readonly LedgerStep[]) => {
-    setSteps(next);
-    setGroup(ledgerGroupFor(next));
+  // An account chosen in Limits: Spend lists accounts with that one open, and comes into view.
+  const showAccount = (entry: AccountLimits) => {
+    setGroup("account");
+    setOpenRow(entry.account.id);
+    document.getElementById("usage-spend")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
-  const showAccount = (entry: AccountLimits) =>
-    scopeTo([
-      { group: "provider", key: entry.account.provider, label: entry.account.providerLabel },
-      { group: "account", key: entry.account.id, label: entry.account.label },
-    ]);
   const value = (figure: { usd: number; tokens: number }) =>
     metric === "cost" ? money(figure.usd) : formatTokens(figure.tokens);
   const change =
@@ -351,7 +349,7 @@ export function UsagePage() {
                     {value(report)}
                   </span>
                   <span className="text-ui text-muted-foreground">
-                    {[steps.at(-1)?.label, periods[range]].filter(Boolean).join(", ")}
+                    {periods[range]}
                     {change ? `. ${change}` : ""}
                   </span>
                 </p>
@@ -359,11 +357,13 @@ export function UsagePage() {
                   lines={ledger.lines}
                   loading={ledger.loading}
                   group={group}
-                  groups={openLedgerGroups(steps)}
-                  onGroup={setGroup}
-                  steps={steps}
-                  onCrumb={(index) => scopeTo(steps.slice(0, index + 1))}
-                  onStep={(step) => scopeTo([...steps, step])}
+                  onGroup={(next) => {
+                    setOpenRow(undefined);
+                    setGroup(next);
+                  }}
+                  open={openRow}
+                  machines={environments}
+                  span={span}
                   metric={metric}
                   money={money}
                   name={name}
