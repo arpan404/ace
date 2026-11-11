@@ -1,6 +1,8 @@
 import SwiftUI
 
 /// Files in the chosen project to `@`-mention, searched on the computer before the thread exists.
+/// A page of quiet rows over hairlines, each path in mono; a search that failed says so and can be
+/// asked again.
 struct MentionSearchView: View {
     @Bindable var compose: ComposeModel
     let workspaceId: String
@@ -11,20 +13,31 @@ struct MentionSearchView: View {
         compose.mentions.flatMap { $0.workspaceId == workspaceId && $0.query == query ? $0 : nil }
     }
     var body: some View {
-        List {
-            switch result?.state {
-            case "ready":
-                if result?.paths.isEmpty == true { EmptyState.search(query) }
-                ForEach(result?.paths ?? [], id: \.self) { path in
-                    Button { choose(path) } label: { FilePathRow(path: path) }
-                        .buttonStyle(.plain).accessibilityIdentifier("mention.\(path)")
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                switch result?.state {
+                case "ready":
+                    if result?.paths.isEmpty == true {
+                        EmptyState.search(query)
+                    } else {
+                        QuietSection("Files") {
+                            ForEach(result?.paths ?? [], id: \.self) { path in
+                                Button { choose(path) } label: { FilePathRow(path: path) }
+                                    .buttonStyle(.row)
+                                    .accessibilityIdentifier("mention.\(path)")
+                            }
+                        }
+                    }
+                case "failed":
+                    QuietProblemRow(title: "Couldn't search files.", detail: "Check the connection and try again.",
+                                    action: "Try again", identifier: "mention.retry") { search(query) }
+                default:
+                    SkeletonRows(count: 3, label: "Searching files")
                 }
-            case "failed":
-                EmptyState(systemImage: "wifi.exclamationmark", title: "Couldn't search files", line: "Check the connection and try again.")
-            default:
-                SkeletonRows(count: 3, label: "Searching files").listRowSeparator(.hidden).listRowInsets(EdgeInsets())
             }
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
         }
+        .background(AceDesign.Surface.background)
         .searchable(text: $query, prompt: "Search files")
         .navigationTitle("Mention a file").navigationBarTitleDisplayMode(.inline)
         .task(id: query) {
@@ -35,23 +48,27 @@ struct MentionSearchView: View {
     }
 }
 
-/// A file as lists show it: its name, then the folder it sits in, in SF Mono.
+/// A file as lists show it: its name over the folder it sits in, both in SF Mono.
 struct FilePathRow: View {
     let path: String
     var folder: Bool = false
     var body: some View {
         let parts = path.split(separator: "/", omittingEmptySubsequences: true)
-        HStack(spacing: AceTheme.Spacing.md) {
-            Image(systemName: folder ? "folder" : "doc.text").foregroundStyle(AceTheme.Colours.decoration)
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(String(parts.last ?? Substring(path))).aceMonospace(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
+        QuietSectionRow {
+            AceIcon(folder ? .folder : .file, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                .foregroundStyle(AceDesign.Ink.subtle)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                Text(verbatim: String(parts.last ?? Substring(path)))
+                    .aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
+                    .foregroundStyle(AceDesign.Ink.primary).lineLimit(1)
                 if parts.count > 1 {
-                    Text(parts.dropLast().joined(separator: "/")).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1).truncationMode(.head)
+                    Text(verbatim: parts.dropLast().joined(separator: "/"))
+                        .aceMonospace(AceDesign.TextRole.branch, relativeTo: .caption)
+                        .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.head)
                 }
             }
-            Spacer(minLength: AceTheme.Spacing.none)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minHeight: AceDesign.Size.tap).contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
