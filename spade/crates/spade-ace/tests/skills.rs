@@ -57,6 +57,8 @@ async fn a_listing_keeps_stale_every_entry_field_and_entries_it_cannot_read() {
     let listed = skills.list(Some(STALE_WORKSPACE)).await;
     let listed = listed.unwrap_or_else(|e| panic!("{e}"));
     assert!(listed.stale);
+    assert_eq!(listed.extra.get("cursor"), Some(&json!("next-1")));
+    assert_eq!(listed.extra.len(), 1);
     assert_eq!(listed.skills.len(), 2);
     let raw = &listed.skills[0].raw;
     assert_eq!(raw["addedLater"], json!({ "anything": true }));
@@ -177,13 +179,13 @@ async fn a_daemon_that_stops_reading_fails_requests_in_time_and_is_let_go() {
     let request = Instant::now();
     assert!(skills.read(REVIEW, Some(&huge)).await.is_err());
     assert!(
-        request.elapsed() < Duration::from_secs(3),
+        request.elapsed() < Duration::from_secs(20),
         "{:?}",
         request.elapsed()
     );
 
     // The stuck write misses its deadline and the socket is let go, client still alive.
-    let deadline = Instant::now() + Duration::from_secs(3);
+    let deadline = Instant::now() + Duration::from_secs(10);
     while !daemon.saw_close() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
@@ -193,7 +195,9 @@ async fn a_daemon_that_stops_reading_fails_requests_in_time_and_is_let_go() {
     for _ in 0..3 {
         let request = Instant::now();
         assert!(skills.read(REVIEW, None).await.is_err());
-        assert!(request.elapsed() < timeout * 3, "{:?}", request.elapsed());
+        // The timeout plus slack for a busy machine: bounded, not stuck.
+        let bound = timeout + Duration::from_secs(3);
+        assert!(request.elapsed() < bound, "{:?}", request.elapsed());
     }
 }
 

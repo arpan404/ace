@@ -55,6 +55,8 @@ pub struct SkillList {
     pub stale: bool,
     /// Entries Spade could not read, as sent.
     pub unreadable: Vec<Value>,
+    /// Every other field of the list result (fields added later), as sent.
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// A skill with its full SKILL.md text.
@@ -137,18 +139,35 @@ impl AceSkills {
     /// Personal, plugin and builtin skills, and the project's when `workspace_id` names one.
     pub async fn list(&self, workspace_id: Option<&str>) -> Result<SkillList, SkillsError> {
         let result = self.request(Operation::List { workspace_id }).await?;
-        if kind(&result) != "list" {
+        let Value::Object(mut fields) = result else {
             return Err(unexpected(result));
+        };
+        if fields.get("kind").and_then(Value::as_str) != Some("list") {
+            return Err(unexpected(Value::Object(fields)));
         }
-        let stale = result.get("stale").and_then(Value::as_bool) == Some(true);
-        let entries = match result.get("entries") {
-            Some(Value::Array(entries)) => entries.clone(),
-            _ => return Err(unexpected(result)),
+        let entries = match fields.remove("entries") {
+            Some(Value::Array(entries)) => entries,
+            other => {
+                if let Some(other) = other {
+                    fields.insert("entries".into(), other);
+                }
+                return Err(unexpected(Value::Object(fields)));
+            }
+        };
+        fields.remove("kind");
+        let stale = match fields.remove("stale") {
+            Some(Value::Bool(stale)) => stale,
+            Some(other) => {
+                fields.insert("stale".into(), other);
+                false
+            }
+            None => false,
         };
         let mut list = SkillList {
             skills: Vec::new(),
             stale,
             unreadable: Vec::new(),
+            extra: fields,
         };
         for entry in entries {
             match skill(entry) {

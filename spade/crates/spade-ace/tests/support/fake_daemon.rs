@@ -169,7 +169,7 @@ async fn serve(
                     json!({
                         "type": "skills.result",
                         "requestId": request_id,
-                        "result": { "kind": "list", "entries": entries, "stale": stale }
+                        "result": { "kind": "list", "entries": entries, "stale": stale, "cursor": "next-1" }
                     }),
                 );
             }
