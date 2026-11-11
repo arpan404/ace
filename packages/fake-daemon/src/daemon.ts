@@ -106,6 +106,7 @@ type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionRes
  */
 export class FakeDaemon implements Host {
   readonly hostId: HostId;
+  readonly databaseId: string;
   get displayName(): string {
     const name = this.services.settings.get("host.displayName");
     return typeof name === "string" && name ? name : (this.options.displayName ?? "Fake machine");
@@ -203,6 +204,7 @@ export class FakeDaemon implements Host {
       (command) => this.servicesWire.workspace.git.creationFailure(command.payload),
     );
     this.hostId = HostId.parse(options.hostId ?? "fake-host");
+    this.databaseId = options.databaseId ?? globalThis.crypto.randomUUID();
     this.version = options.version ?? "fake";
     this.platform = options.platform;
     this.longThreads = new FakeLongThreadWire({
