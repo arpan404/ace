@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { ThreadId, type SpadeStatus } from "@ace/protocol";
 import { SpadeLink } from "./link.ts";
+import { spadeProof } from "@ace/service/spade";
 import { spadeStartGraceMs, type SpadeServiceState } from "./rules.ts";
 
 /** A machine with a service manager, Spade's files and a clock, all under the test's control. */
@@ -8,17 +9,33 @@ function machine() {
   const files = new Map<string, string>();
   const world = {
     service: "absent" as SpadeServiceState,
-    /** Ports whose `/health` answers. */
-    answering: new Set<number>(),
+    /**
+     * Ports whose `/health` answers `ok`, with the key each proves nonces with: a Spade proves
+     * with its token file's token; null answers with no proof at all.
+     */
+    answering: new Map<number, string | null>(),
+    /** Pids of running processes. */
+    alive: new Set<number>(),
     now: 0,
     files,
     watched: undefined as (() => void) | undefined,
+    nonces: 1,
   };
   const link = new SpadeLink({
     dataDir: "/ace/spade",
     runtime: {
       readText: async (path) => files.get(path),
-      healthy: async (endpoint) => world.answering.has(endpoint.port),
+      health: async (endpoint, nonce) => {
+        const key = world.answering.get(endpoint.port);
+        if (key === undefined) return undefined;
+        return {
+          version: "0.4.0",
+          api: 1,
+          proof: key === null ? undefined : spadeProof(key, nonce),
+        };
+      },
+      alive: (pid) => world.alive.has(pid),
+      nonce: () => (world.nonces++).toString(16).padStart(32, "0"),
       serviceState: async () => world.service,
       watch: (_directory, changed) => {
         world.watched = changed;
@@ -34,12 +51,14 @@ function machine() {
   link.subscribe((status) => seen.push(status));
   /** Spade starts: token, then server.json, as the contract orders them. */
   const spadeStarts = (pid: number, port: number, version = "0.4.0") => {
-    files.set("/ace/spade/token", `token-for-${pid}-xxxxxxxx`);
+    const token = `token-for-${pid}-xxxxxxxx`;
+    files.set("/ace/spade/token", token);
     files.set(
       "/ace/spade/server.json",
       JSON.stringify({ address: `127.0.0.1:${port}`, pid, version, api: 1 }),
     );
-    world.answering.add(port);
+    world.alive.add(pid);
+    world.answering.set(port, token);
   };
   return { link, world, seen, spadeStarts, state: () => link.status().state };
 }
@@ -143,4 +162,47 @@ test("the host thread rides along with every status, on or off", async () => {
   link.setThread({ id: ThreadId.parse("thread-spade"), busy: true });
   expect(link.status()).toEqual({ state: "off", thread: { id: "thread-spade", busy: true } });
   expect(seen.at(-1)).toEqual(link.status());
+});
+
+test("nothing but the registered, running Spade that proves its token is ready or handed anything", async () => {
+  const { link, world, spadeStarts } = machine();
+  const arrived: number[] = [];
+  link.onReady((ready) => arrived.push(ready.connection.port));
+  world.service = "running";
+  link.setEnabled(true);
+  spadeStarts(41, 4100);
+
+  // Another program now listens at server.json's port: it answers ok but can't prove the token.
+  for (const impostor of [null, "some-other-key-xxxxxxxx"]) {
+    world.answering.set(4100, impostor);
+    await link.refresh();
+    expect(link.status()).toMatchObject({
+      state: "failed",
+      reason: expect.stringContaining("can't prove it is Spade"),
+    });
+    expect(link.ready()).toBeUndefined();
+  }
+
+  // server.json's pid is gone, though its port answers as Spade did: not ready.
+  spadeStarts(41, 4100);
+  world.alive.delete(41);
+  await link.refresh();
+  expect(link.ready()).toBeUndefined();
+  expect(link.status().state).toBe("starting");
+
+  // A Spade proving itself, while the service is stopped or not registered: not ready either.
+  world.alive.add(41);
+  for (const service of ["stopped", "absent"] as const) {
+    world.service = service;
+    await link.refresh();
+    expect(link.ready()).toBeUndefined();
+    expect(link.status().state).toBe(service === "stopped" ? "failed" : "off");
+  }
+  expect(arrived).toEqual([]);
+
+  // Registered and running again: now it is Spade, and only now is it told of.
+  world.service = "running";
+  await link.refresh();
+  expect(link.status()).toEqual({ state: "ready", version: "0.4.0" });
+  expect(arrived).toEqual([4100]);
 });

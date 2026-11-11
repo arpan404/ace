@@ -57,12 +57,31 @@ describe("spade.status from the service and its files", () => {
   test("is off when no service is registered", () => {
     expect(spadeState(facts({ service: "absent" }))).toMatchObject({ state: "off" });
   });
-  test("is ready once /health answers at server.json's address", () => {
-    expect(spadeState(facts({ endpoint, healthy: true }))).toEqual({
+  test("is ready once the running service's Spade answers /health with a valid proof", () => {
+    expect(spadeState(facts({ endpoint, healthy: true, proof: "ok" }))).toEqual({
       state: "ready",
       version: "0.4.0",
     });
   });
+  test.each(["missing", "wrong"] as const)(
+    "is failed, never ready, when the listener's proof is %s",
+    (proof) => {
+      const status = spadeState(facts({ endpoint, healthy: true, proof }));
+      expect(status.state).toBe("failed");
+      expect(status.state === "failed" && status.reason).toContain("can't prove it is Spade");
+    },
+  );
+  test.each([
+    ["absent", "off"],
+    ["stopped", "failed"],
+  ] as const)(
+    "is not ready with the service %s, even with Spade proving itself",
+    (service, state) => {
+      expect(spadeState(facts({ service, endpoint, healthy: true, proof: "ok" })).state).toBe(
+        state,
+      );
+    },
+  );
   test("is starting while the service runs and Spade hasn't answered yet", () => {
     expect(spadeState(facts({ silentForMs: spadeStartGraceMs - 1 }))).toEqual({
       state: "starting",

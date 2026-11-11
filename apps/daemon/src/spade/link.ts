@@ -1,9 +1,11 @@
 import { join } from "node:path";
 import type { SpadeStatus } from "@ace/protocol";
+import { checkSpadeProof, type SpadeHealth } from "@ace/service/spade";
 import type { SpadeConnection } from "./forward.ts";
 import {
   readServerFile,
   readTokenFile,
+  spadeAnswering,
   spadeState,
   type SpadeEndpoint,
   type SpadeFacts,
@@ -13,7 +15,16 @@ import {
 /** Everything the link reads of the outside world, so tests can substitute any of it. */
 export interface SpadeLinkRuntime {
   readText(path: string): Promise<string | undefined>;
-  healthy(endpoint: SpadeEndpoint, signal: AbortSignal): Promise<boolean>;
+  /** `GET /health?nonce=…` (`spadeHealth`): undefined when nothing answered `ok`. */
+  health(
+    endpoint: SpadeEndpoint,
+    nonce: string,
+    signal: AbortSignal,
+  ): Promise<SpadeHealth | undefined>;
+  /** Whether a process with this pid is running. */
+  alive(pid: number): boolean;
+  /** A fresh nonce for `/health`: 16 to 64 lowercase hex characters. */
+  nonce(): string;
   /** Spade's registration with the service manager (`spadeServiceState` from `@ace/service`). */
   serviceState(): Promise<SpadeServiceState>;
   /** Calls `changed` when files in `directory` change; returns a stop. */
@@ -167,30 +178,47 @@ export class SpadeLink {
       error: error instanceof Error ? error.message : String(error),
     }));
     const text = await runtime.readText(join(dataDir, "server.json"));
-    const endpoint = text === undefined ? undefined : readServerFile(text);
+    const named = text === undefined ? undefined : readServerFile(text);
+    // A server.json left by a Spade that is gone names nothing.
+    const endpoint = named && runtime.alive(named.pid) ? named : undefined;
     const tokenText = endpoint && (await runtime.readText(join(dataDir, "token")));
     const token = tokenText ? readTokenFile(tokenText) : undefined;
-    const healthy =
-      endpoint !== undefined &&
-      token !== undefined &&
-      (await runtime
-        .healthy(endpoint, AbortSignal.timeout(this.options.healthTimeoutMs ?? 2000))
-        .catch(() => false));
+    // Only a nonce goes out; the token stays here until the answer proves it is Spade's.
+    const nonce = runtime.nonce();
+    const answer =
+      endpoint && token
+        ? await runtime
+            .health(endpoint, nonce, AbortSignal.timeout(this.options.healthTimeoutMs ?? 2000))
+            .catch(() => undefined)
+        : undefined;
+    const healthy = answer !== undefined;
+    // `checkSpadeProof` from @ace/service/spade, the same check `proveSpade` makes.
+    const proof =
+      answer && token
+        ? answer.proof === undefined
+          ? "missing"
+          : checkSpadeProof(token, nonce, answer.proof)
+            ? "ok"
+            : "wrong"
+        : undefined;
     const now = runtime.now();
-    if (healthy || service !== "running") this.silentSince = undefined;
-    else this.silentSince ??= now;
     if (this.closed || !this.facts.enabled) return;
     const facts: SpadeFacts = {
       ...this.facts,
       service,
       endpoint: endpoint && token ? endpoint : undefined,
       healthy,
-      silentForMs: this.silentSince === undefined ? 0 : now - this.silentSince,
+      proof,
+      silentForMs: 0,
     };
-    this.apply(facts, healthy && endpoint && token ? { endpoint, token } : undefined);
+    if (spadeAnswering(facts) || service !== "running") this.silentSince = undefined;
+    else this.silentSince ??= now;
+    facts.silentForMs = this.silentSince === undefined ? 0 : now - this.silentSince;
+    const answering = spadeAnswering(facts) && endpoint && token ? { endpoint, token } : undefined;
+    this.apply(facts, answering);
     const poll = this.options.pollMs ?? defaultPoll;
     this.cancelTimer?.();
-    this.cancelTimer = runtime.after(healthy ? poll.ready : poll.waiting, () => {
+    this.cancelTimer = runtime.after(answering ? poll.ready : poll.waiting, () => {
       void this.refresh();
     });
   }

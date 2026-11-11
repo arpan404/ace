@@ -36,25 +36,34 @@ export function spadeSwitch(deps: SpadeSwitchDeps) {
     link.setEnabled(true);
     link.setSwitch({ installing: true });
     let problem: string | undefined;
+    let made = false;
+    // Whatever fails, `installing` is cleared and the failure shows as `failed`: Spade never
+    // stays `starting` because a step threw.
     try {
-      if ((await service.state()) !== "running") {
-        await service.installBinary();
-        await service.register();
+      try {
+        if ((await service.state()) !== "running") {
+          await service.installBinary();
+          await service.register();
+        }
+      } catch (error) {
+        problem = `Spade couldn't be registered as a service: ${words(error)}`;
+      }
+      const make = cause === "changed" ? grants.current() === undefined : grants.wanted();
+      // The host thread is made or healed with the grant; a live grant's heals at start too.
+      if (make || grants.current()) await deps.host.ensure();
+      if (make) {
+        grants.ensure();
+        made = true;
+        deps.log("info", "Made Spade's grant for ace");
       }
     } catch (error) {
-      problem = `Spade couldn't be registered as a service: ${words(error)}`;
-      deps.log("warn", problem);
+      problem ??= `Turning Spade on failed: ${words(error)}`;
+    } finally {
+      if (problem) deps.log("warn", problem);
+      link.setSwitch({ problem });
     }
-    const make = cause === "changed" ? grants.current() === undefined : grants.wanted();
-    // The host thread is made or healed with the grant; a live grant's thread heals at start too.
-    if (make || grants.current()) await deps.host.ensure();
-    if (make) {
-      grants.ensure();
-      deps.log("info", "Made Spade's grant for ace");
-    }
-    link.setSwitch({ problem });
     const ready = link.ready();
-    if (make && ready) await deps.delivery.deliver(ready.connection, true);
+    if (made && ready) await deps.delivery.deliver(ready.connection, true);
   }
 
   async function off(cause: SpadeSwitchCause): Promise<void> {

@@ -16,7 +16,7 @@
  * - `GET /v1/images/{n}`: `n` bytes of `image/png` (`imageBytes`).
  * - `POST /v1/crash`: `202`, then exits with code 1.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { closeSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -64,8 +64,15 @@ const json = (response: ServerResponse, status: number, value: unknown) => {
 
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", "http://spade.invalid");
-  if (request.method === "GET" && url.pathname === "/health")
-    return json(response, 200, { ok: true, version, api: 1 });
+  if (request.method === "GET" && url.pathname === "/health") {
+    // The proof: HMAC-SHA256 of the nonce keyed with the token file's contents.
+    const nonce = url.searchParams.get("nonce");
+    const proof =
+      nonce && /^[0-9a-f]{16,64}$/.test(nonce)
+        ? createHmac("sha256", Buffer.from(token, "utf8")).update(nonce, "utf8").digest("hex")
+        : undefined;
+    return json(response, 200, { ok: true, version, api: 1, ...(proof ? { proof } : {}) });
+  }
   if (request.headers.authorization !== `Bearer ${token}`) return json(response, 401, {});
   const chunks: Buffer[] = [];
   request.on("data", (chunk: Buffer) => chunks.push(chunk));

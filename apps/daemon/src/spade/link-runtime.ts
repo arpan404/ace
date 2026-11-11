@@ -1,6 +1,7 @@
 import { mkdirSync, watch } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { spadeHealthy, spadeRequest, type SpadeConnection } from "./forward.ts";
+import { newSpadeNonce, spadeHealth } from "@ace/service/spade";
+import { spadeRequest, type SpadeConnection } from "./forward.ts";
 import type { SpadeAceCall } from "./delivery.ts";
 import type { SpadeLinkRuntime } from "./link.ts";
 import type { SpadeServiceControl } from "./service-control.ts";
@@ -18,7 +19,17 @@ export function nodeSpadeLinkRuntime(input: {
         return undefined;
       }
     },
-    healthy: (endpoint, signal) => spadeHealthy(endpoint, signal),
+    health: (endpoint, nonce, signal) => spadeHealth(endpoint, signal, nonce),
+    alive(pid) {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        // Gone, or (EPERM) another user's process: Spade runs as this user, so not Spade.
+        return false;
+      }
+    },
+    nonce: newSpadeNonce,
     serviceState: () => input.service.state(),
     watch(directory, changed) {
       // Spade writes here once it starts; the folder is made first so it can be watched now.

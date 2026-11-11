@@ -12,7 +12,9 @@ function session(scopes: readonly DeviceScope[]) {
     dataDir: "/ace/spade",
     runtime: {
       readText: async () => undefined,
-      healthy: async () => false,
+      health: async () => undefined,
+      alive: () => false,
+      nonce: () => "0".repeat(32),
       serviceState: async () => "absent",
       watch: () => () => {},
       now: () => 0,
