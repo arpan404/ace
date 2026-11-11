@@ -205,9 +205,14 @@ async fn model_step(
             next = stream.next() => match next {
                 Some(Ok(Delta::Text(piece))) => {
                     text.push_str(&piece);
-                    *live.current.lock().unwrap_or_else(|p| p.into_inner()) =
-                        Some(Snapshot { reply: reply.to_owned(), text: text.clone() });
-                    let _ = live.frames.send(Frame::Delta { reply: reply.to_owned(), text: piece });
+                    {
+                        // Updated and sent under one lock, which `subscribe` also takes, so a
+                        // joining subscriber gets each piece in the snapshot or as a delta, never
+                        // both.
+                        let mut current = live.current.lock().unwrap_or_else(|p| p.into_inner());
+                        *current = Some(Snapshot { reply: reply.to_owned(), text: text.clone() });
+                        let _ = live.frames.send(Frame::Delta { reply: reply.to_owned(), text: piece });
+                    }
                     if checkpoints.due(engine.now_ms()) {
                         let _ = engine.record(id, &Event::reply_progress(reply, text.clone()));
                     }

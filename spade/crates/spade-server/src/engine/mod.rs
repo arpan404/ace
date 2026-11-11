@@ -233,13 +233,13 @@ impl Engine {
         let live = self.live(id);
         // Subscribe before reading the backlog, so nothing falls between them; the API drops
         // stored frames it has already sent.
-        let frames = live.frames.subscribe();
+        // The snapshot is read and the subscription opened under the lock deltas are sent under,
+        // so each piece of the open reply arrives once: in the snapshot or as a delta.
+        let (frames, snapshot) = {
+            let current = live.current.lock().unwrap_or_else(|p| p.into_inner());
+            (live.frames.subscribe(), current.clone())
+        };
         let backlog = self.store.events(id, after)?;
-        let snapshot = live
-            .current
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
         Ok(Some(Subscription {
             frames,
             backlog,
