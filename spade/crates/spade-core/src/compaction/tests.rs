@@ -145,6 +145,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
             name: name.into(),
             content: "".into(),
             is_error,
+            images: Vec::new(),
         })
     };
     let events = vec![
@@ -225,6 +226,7 @@ fn compaction_never_cuts_at_a_message_sent_while_tools_ran() {
             name: "search".into(),
             content: "word ".repeat(400),
             is_error: false,
+            images: Vec::new(),
         }),
     ]);
     assert!(matches!(

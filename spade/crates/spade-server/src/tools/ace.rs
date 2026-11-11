@@ -77,6 +77,7 @@ pub fn with_request_ids(name: &str, key: &str, mut arguments: Value) -> Value {
 pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
     match result {
         Ok(result) => {
+            let mut images = Vec::new();
             let parts: Vec<String> = result
                 .parts
                 .iter()
@@ -84,9 +85,15 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
                     Part::Text { text, .. } => text.clone(),
                     Part::Image {
                         mime_type, data, ..
-                    } => {
-                        format!("[an image, {mime_type}, {} bytes]", data.len() * 3 / 4)
-                    }
+                    } => match crate::images::decode(data) {
+                        Ok(bytes) => {
+                            images.push(bytes);
+                            format!("[an image, {mime_type}, shown below]")
+                        }
+                        Err(error) => {
+                            format!("[an image, {mime_type}, that could not be read: {error}]")
+                        }
+                    },
                     Part::Other(value) => value.to_string(),
                 })
                 .collect();
@@ -99,6 +106,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
             ToolOutput {
                 content: text,
                 is_error: result.is_error,
+                images,
             }
         }
         Err(ToolsError::NotRun(why)) => {
@@ -249,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn a_result_reads_as_its_text_with_images_named_and_errors_kept() {
+    fn a_result_reads_as_its_text_with_images_passed_on_and_errors_kept() {
         let result = AceToolResult {
             parts: vec![
                 Part::text("Opened the page."),
@@ -266,8 +274,10 @@ mod tests {
         let shown = output(Ok(result));
         assert_eq!(
             shown.content,
-            "Opened the page.\n[an image, image/png, 6 bytes]"
+            "Opened the page.
+[an image, image/png, shown below]"
         );
+        assert_eq!(shown.images, vec![b"hello!".to_vec()]);
         assert!(shown.is_error);
     }
 }

@@ -122,6 +122,9 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
     let mut held: Vec<(String, Vec<Image>)> = Vec::new();
+    // Images tools returned in this step; providers take tool results as text, so they follow the
+    // step's results as one message.
+    let mut returned = Returned::default();
     // Calls that started running, so a missing result is "unknown", not "not run".
     let mut started: Vec<String> = Vec::new();
     for event in events {
@@ -191,6 +194,7 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 name,
                 content,
                 is_error,
+                images: kept,
                 ..
             } => {
                 if let Some(at) = pending.iter().position(|c| &c.id == call_id) {
@@ -201,10 +205,9 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
                         content: content.clone(),
                         is_error: *is_error,
                     });
+                    returned.add(name, kept, images);
                     if pending.is_empty() {
-                        for (text, shown) in held.drain(..) {
-                            push_person(&mut out, text, shown);
-                        }
+                        release(&mut out, &mut held, &mut returned);
                     }
                 }
             }
@@ -212,7 +215,7 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
             Known::ReplyStopped { text, .. }
             | Known::ReplyFailed { text, .. }
             | Known::ReplyInterrupted { text, .. } => {
-                close(&mut out, &mut pending, &mut held, &started);
+                close(&mut out, &mut pending, &mut held, &mut returned, &started);
                 // Text that arrived before the turn ended, not yet part of a finished step.
                 if !text.is_empty() && !ends_with_spade_text(&out, text) {
                     out.push(Message::Spade {
@@ -222,7 +225,9 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     });
                 }
             }
-            Known::ReplyFinished { .. } => close(&mut out, &mut pending, &mut held, &started),
+            Known::ReplyFinished { .. } => {
+                close(&mut out, &mut pending, &mut held, &mut returned, &started)
+            }
             _ => {}
         }
     }
@@ -271,6 +276,7 @@ fn close(
     out: &mut Vec<Message>,
     pending: &mut Vec<ToolCall>,
     held: &mut Vec<(String, Vec<Image>)>,
+    returned: &mut Returned,
     started: &[String],
 ) {
     for call in pending.drain(..) {
@@ -285,6 +291,53 @@ fn close(
             content: content.to_owned(),
             is_error: true,
         });
+    }
+    release(out, held, returned);
+}
+
+/// Images tools returned in the current step, and notes for ones that could not be shown.
+#[derive(Default)]
+struct Returned {
+    tools: Vec<String>,
+    images: Vec<Image>,
+    notes: Vec<String>,
+}
+
+impl Returned {
+    fn add(&mut self, tool: &str, kept: &[ImageRef], images: &dyn Images) {
+        for image in kept {
+            match images.get(image) {
+                Ok(image) => {
+                    self.images.push(image);
+                    if !self.tools.iter().any(|t| t == tool) {
+                        self.tools.push(tool.to_owned());
+                    }
+                }
+                Err(why) => self.notes.push(format!(
+                    "[{tool} returned an image ({}), but {why}.]",
+                    image.media_type
+                )),
+            }
+        }
+    }
+}
+
+/// After a step's results: the images its tools returned, then messages held back meanwhile.
+fn release(out: &mut Vec<Message>, held: &mut Vec<(String, Vec<Image>)>, returned: &mut Returned) {
+    let taken = std::mem::take(returned);
+    if !taken.images.is_empty() || !taken.notes.is_empty() {
+        let mut text = if taken.images.is_empty() {
+            String::new()
+        } else {
+            format!("[Images returned by {}]", taken.tools.join(", "))
+        };
+        for note in &taken.notes {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(note);
+        }
+        push_person(out, text, taken.images);
     }
     for (text, shown) in held.drain(..) {
         push_person(out, text, shown);

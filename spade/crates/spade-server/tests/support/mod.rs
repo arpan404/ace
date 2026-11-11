@@ -29,6 +29,8 @@ pub const TOKEN: &str = "test-token";
 pub struct FakeTool {
     pub def: ToolDef,
     pub answer: String,
+    /// Images it returns with its answer.
+    pub images: Vec<Vec<u8>>,
     pub delay: Duration,
     pub calls: Arc<Mutex<Vec<Value>>>,
 }
@@ -48,6 +50,7 @@ impl FakeTool {
                 background: false,
             },
             answer: answer.to_owned(),
+            images: Vec::new(),
             delay: Duration::ZERO,
             calls: Arc::default(),
         }
@@ -69,6 +72,11 @@ impl FakeTool {
         self
     }
 
+    pub fn returning_image(mut self, bytes: &[u8]) -> Self {
+        self.images.push(bytes.to_vec());
+        self
+    }
+
     pub fn slow(mut self, delay: Duration) -> Self {
         self.delay = delay;
         self
@@ -87,6 +95,7 @@ impl Tool for FakeTool {
     fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
         let answer = self.answer.clone();
+        let images = self.images.clone();
         let delay = self.delay;
         Box::pin(async move {
             if !delay.is_zero() {
@@ -95,7 +104,10 @@ impl Tool for FakeTool {
             if let Ok(mut calls) = calls.lock() {
                 calls.push(arguments);
             }
-            ToolOutput::ok(answer)
+            ToolOutput {
+                images,
+                ..ToolOutput::ok(answer)
+            }
         })
     }
 }

@@ -486,13 +486,23 @@ fn finish_tool(
     name: &str,
     output: ToolOutput,
 ) {
-    let content = trim(&output.content, engine.limits.result_chars);
+    let mut content = trim(&output.content, engine.limits.result_chars);
+    let mut images = Vec::new();
+    for bytes in output.images.iter().take(crate::images::MOST_IMAGES) {
+        match engine.images.put(bytes) {
+            Ok(image) => images.push(image),
+            Err(error) => {
+                content.push_str(&format!("\n[An image it returned was not kept: {error}]"))
+            }
+        }
+    }
     let event = Event::Known(Known::ToolFinished {
         reply: reply.to_owned(),
         call_id: call.id.clone(),
         name: name.to_owned(),
         content,
         is_error: output.is_error,
+        images,
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a tool result");

@@ -67,6 +67,9 @@ pub enum Known {
         content: String,
         #[serde(default)]
         is_error: bool,
+        /// Images the tool returned (a screenshot), kept in the image store.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageRef>,
     },
     /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
     /// job's own result comes later as `job_finished`.

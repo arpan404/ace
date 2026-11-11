@@ -27,6 +27,8 @@ pub type ToolFuture = Pin<Box<dyn Future<Output = ToolOutput> + Send>>;
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// Images the tool returned, as bytes; Spade stores them and shows them to the model.
+    pub images: Vec<Vec<u8>>,
 }
 
 impl ToolOutput {
@@ -34,6 +36,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: false,
+            images: Vec::new(),
         }
     }
 
@@ -41,6 +44,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: true,
+            images: Vec::new(),
         }
     }
 }

@@ -154,3 +154,40 @@ async fn the_list_says_when_a_conversation_waits_on_the_person_and_keys_say_wher
     assert_eq!(models["endpoints"][0]["key_source"], "keychain");
     Ok(())
 }
+
+#[tokio::test]
+async fn an_image_a_tool_returns_is_kept_and_shown_to_the_model_after_the_results() -> Result {
+    let shot = FakeTool::new("screenshot", Risk::Read, "Took a screenshot.").returning_image(PNG);
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "screenshot", json!({})),
+            Script::reply("The page shows a login form."),
+            Script::reply("").plain(r#"{"title":"Page"}"#),
+        ],
+        vec![std::sync::Arc::new(shot) as std::sync::Arc<dyn Tool>],
+    )
+    .await?;
+    let id = spade.ask("What is on the page?").await?;
+    let events = spade.wait_for(&id, "renamed").await?;
+    let finished = events.iter().find(|e| e["type"] == "tool_finished");
+    assert_eq!(
+        finished.map(|e| e["images"][0]["media_type"].clone()),
+        Some(json!("image/png"))
+    );
+    let second = &spade.fake.seen()[1].body["messages"];
+    let last = second
+        .as_array()
+        .and_then(|m| m.last())
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(last["role"], "user");
+    assert_eq!(
+        last["content"][0]["text"],
+        "[Images returned by screenshot]"
+    );
+    assert_eq!(
+        last["content"][1]["image_url"]["url"],
+        format!("data:image/png;base64,{}", STANDARD.encode(PNG))
+    );
+    Ok(())
+}

@@ -31,6 +31,7 @@ fn result(reply: &str, call_id: &str, name: &str, content: &str) -> Event {
         name: name.into(),
         content: content.into(),
         is_error: false,
+        images: Vec::new(),
     })
 }
 
@@ -378,4 +379,44 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
     assert!(
         matches!(described.first(), Some(Message::Person { images, text }) if images.is_empty() && text.matches("attached an image").count() == 2)
     );
+}
+
+#[test]
+fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
+    let shot = crate::event::ImageRef {
+        sha256: "kept".into(),
+        media_type: "image/png".into(),
+        bytes: 3,
+    };
+    let events = [
+        Event::user_message("Show me the page"),
+        Event::reply_started("r1", "m"),
+        step(
+            "r1",
+            "",
+            &[("c1", "browser_screenshot"), ("c2", "browser_read")],
+        ),
+        Event::Known(Known::ToolFinished {
+            reply: "r1".into(),
+            call_id: "c1".into(),
+            name: "browser_screenshot".into(),
+            content: "Took a screenshot.".into(),
+            is_error: false,
+            images: vec![shot],
+        }),
+        Event::user_message("Zoom in"),
+        result("r1", "c2", "browser_read", "Page text"),
+    ];
+    let shown = messages_with(&events, &Shelf);
+    assert_eq!(
+        shape(&shown),
+        vec![
+            "person:Show me the page",
+            "spade::c1,c2",
+            "result:c1:Took a screenshot.",
+            "result:c2:Page text",
+            "person:[Images returned by browser_screenshot]\n\nZoom in"
+        ]
+    );
+    assert!(matches!(shown.last(), Some(Message::Person { images, .. }) if images.len() == 1));
 }
