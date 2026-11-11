@@ -1,4 +1,8 @@
 //! One authenticated daemon WebSocket: hello, then requests matched to answers by `requestId`.
+//!
+//! The socket is owned by one task. It writes queued frames, routes answers and answers every
+//! waiter when the socket ends. Writes have a deadline, the queue and the waiters are bounded,
+//! and dropping the last handle stops the task even in the middle of a stuck write.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -6,7 +10,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::wire::{self, Incoming, Operation};
@@ -15,47 +19,61 @@ use crate::secret::Secret;
 
 /// The daemon closes a socket whose credential it refused with these (`apps/daemon/src/server.ts`).
 const REFUSED_CLOSE_CODES: [u16; 2] = [4001, 4003];
+/// Frames waiting to be written. A full queue means the daemon stopped reading.
+const MOST_QUEUED: usize = 32;
+/// Requests waiting for an answer at once.
+const MOST_PENDING: usize = 256;
+/// How long a closing socket waits for its close frame to go out.
+const CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 type Waiter = oneshot::Sender<Result<Value, SkillsError>>;
-/// `None` once the socket closed.
+/// `None` once the socket closed: every waiter has been answered and no new one is taken.
 type Pending = Option<HashMap<String, Waiter>>;
 type Waiters = Arc<Mutex<Pending>>;
 
 #[derive(Clone)]
 pub(super) struct Socket {
-    outgoing: mpsc::UnboundedSender<Message>,
-    /// `None` once the socket closed: every waiter has been answered and no new one is taken.
+    outgoing: mpsc::Sender<Message>,
     waiters: Waiters,
     token: Secret,
+    /// Shared by every handle; the last one dropped stops the task.
+    _owner: Arc<Owner>,
+}
+
+struct Owner {
+    stop: Arc<Notify>,
+}
+
+impl Drop for Owner {
+    fn drop(&mut self) {
+        self.stop.notify_one();
+    }
 }
 
 impl Socket {
     pub(super) async fn open(config: &SkillsConfig) -> Result<Self, SkillsError> {
-        tokio::time::timeout(config.timeout, Self::handshake(config))
+        tokio::time::timeout(config.timeout(), Self::handshake(config))
             .await
             .map_err(|_| SkillsError::Timeout)?
     }
 
     async fn handshake(config: &SkillsConfig) -> Result<Self, SkillsError> {
-        let token = config.token.clone();
-        let (mut stream, _) = tokio_tungstenite::connect_async(config.url.as_str())
+        let token = config.token().clone();
+        let unreachable = |error: &dyn std::fmt::Display| {
+            SkillsError::Unreachable(token.scrub(error.to_string()))
+        };
+        let (mut stream, _) = tokio_tungstenite::connect_async(config.url().as_str())
             .await
-            .map_err(|error| SkillsError::Unreachable(token.scrub(error.to_string())))?;
-        let hello = serde_json::to_string(&wire::Hello {
-            kind: "hello",
-            protocol_version: 1,
-            device_id: &config.device_id,
-            token: token.expose(),
-        })
-        .map_err(|error| SkillsError::Protocol(error.to_string()))?;
+            .map_err(|error| unreachable(&error))?;
+        let hello = serde_json::to_string(&wire::Hello::new(config.device_id(), &token))
+            .map_err(|error| unreachable(&error))?;
         stream
             .send(Message::text(hello))
             .await
-            .map_err(|error| SkillsError::Unreachable(token.scrub(error.to_string())))?;
+            .map_err(|error| unreachable(&error))?;
         // Before `welcome` the daemon may send `starting`; a refusal is an `error`, then a close.
         loop {
-            let frame = stream.next().await;
-            match frame {
+            match stream.next().await {
                 Some(Ok(Message::Text(text))) => match serde_json::from_str::<Incoming>(&text) {
                     Ok(Incoming::Welcome) => break,
                     Ok(Incoming::Error(error)) if error.code == "unauthorized" => {
@@ -72,19 +90,28 @@ impl Socket {
                     return Err(closed(frame.map(|f| u16::from(f.code)), &token));
                 }
                 Some(Ok(_)) => {}
-                Some(Err(error)) => {
-                    return Err(SkillsError::Unreachable(token.scrub(error.to_string())));
-                }
+                Some(Err(error)) => return Err(unreachable(&error)),
                 None => return Err(closed(None, &token)),
             }
         }
-        let (outgoing, rx) = mpsc::unbounded_channel();
+        let (outgoing, rx) = mpsc::channel(MOST_QUEUED);
         let waiters: Waiters = Arc::new(Mutex::new(Some(HashMap::new())));
-        tokio::spawn(run(stream, rx, waiters.clone(), token.clone()));
+        let stop = Arc::new(Notify::new());
+        tokio::spawn(run(
+            stream,
+            rx,
+            waiters.clone(),
+            Task {
+                token: token.clone(),
+                stop: stop.clone(),
+                timeout: config.timeout(),
+            },
+        ));
         Ok(Self {
             outgoing,
             waiters,
             token,
+            _owner: Arc::new(Owner { stop }),
         })
     }
 
@@ -107,59 +134,104 @@ impl Socket {
             request_id,
             operation: *operation,
         })
-        .map_err(|error| SkillsError::Protocol(error.to_string()))?;
+        .map_err(|error| SkillsError::Unreachable(error.to_string()))?;
         let (tx, rx) = oneshot::channel();
-        match lock(&self.waiters).as_mut() {
-            Some(waiters) => waiters.insert(request_id.to_owned(), tx),
-            None => return Err(SkillsError::Unreachable("the socket closed".into())),
+        {
+            let mut pending = lock(&self.waiters);
+            let Some(waiters) = pending.as_mut() else {
+                return Err(SkillsError::Unreachable("the socket closed".into()));
+            };
+            if waiters.len() >= MOST_PENDING {
+                return Err(SkillsError::Backlogged);
+            }
+            waiters.insert(request_id.to_owned(), tx);
+        }
+        // From here on, however this future ends (answer, error, timeout or being dropped),
+        // the waiter is removed.
+        let _forget = Forget {
+            waiters: &self.waiters,
+            request_id,
         };
-        if self.outgoing.send(Message::text(frame)).is_err() {
-            self.forget(request_id);
-            return Err(SkillsError::Unreachable("the socket closed".into()));
+        match self.outgoing.try_send(Message::text(frame)) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => return Err(SkillsError::Backlogged),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                return Err(SkillsError::Unreachable("the socket closed".into()));
+            }
         }
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(answer)) => answer,
             Ok(Err(_)) => Err(SkillsError::Unreachable(
                 self.token.scrub("the socket closed before the answer"),
             )),
-            Err(_) => {
-                self.forget(request_id);
-                Err(SkillsError::Timeout)
-            }
-        }
-    }
-
-    fn forget(&self, request_id: &str) {
-        if let Some(waiters) = lock(&self.waiters).as_mut() {
-            waiters.remove(request_id);
+            Err(_) => Err(SkillsError::Timeout),
         }
     }
 }
 
-/// Owns the socket: writes queued frames, routes answers to their waiters, and on close answers
-/// every waiter left.
+/// Removes a request's waiter when the request ends, including when its future is dropped.
+struct Forget<'a> {
+    waiters: &'a Waiters,
+    request_id: &'a str,
+}
+
+impl Drop for Forget<'_> {
+    fn drop(&mut self) {
+        if let Some(waiters) = lock(self.waiters).as_mut() {
+            waiters.remove(self.request_id);
+        }
+    }
+}
+
+struct Task {
+    token: Secret,
+    stop: Arc<Notify>,
+    timeout: Duration,
+}
+
+/// Owns the socket until the daemon closes it, a write misses its deadline, or Spade drops the
+/// last handle; then answers every waiter left.
 async fn run<S>(
     mut stream: tokio_tungstenite::WebSocketStream<S>,
-    mut rx: mpsc::UnboundedReceiver<Message>,
+    mut rx: mpsc::Receiver<Message>,
     waiters: Waiters,
-    token: Secret,
+    task: Task,
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
+    let Task {
+        token,
+        stop,
+        timeout,
+    } = task;
+    let grace = timeout.min(CLOSE_GRACE);
     let ending = loop {
         tokio::select! {
             outgoing = rx.recv() => match outgoing {
                 Some(message) => {
-                    if let Err(error) = stream.send(message).await {
-                        break SkillsError::Unreachable(token.scrub(error.to_string()));
+                    tokio::select! {
+                        sent = tokio::time::timeout(timeout, stream.send(message)) => match sent {
+                            Ok(Ok(())) => {}
+                            Ok(Err(error)) => {
+                                break SkillsError::Unreachable(token.scrub(error.to_string()));
+                            }
+                            Err(_) => {
+                                break SkillsError::Unreachable("the daemon stopped reading".into());
+                            }
+                        },
+                        // Dropped mid-write: the socket can't be closed cleanly, only let go.
+                        () = stop.notified() => break SkillsError::Unreachable("closed".into()),
                     }
                 }
-                // Every `AceSkills` handle to this socket is gone.
                 None => {
-                    let _ = stream.close(None).await;
-                    break SkillsError::Unreachable("the socket closed".into());
+                    let _ = tokio::time::timeout(grace, stream.close(None)).await;
+                    break SkillsError::Unreachable("closed".into());
                 }
             },
+            () = stop.notified() => {
+                let _ = tokio::time::timeout(grace, stream.close(None)).await;
+                break SkillsError::Unreachable("closed".into());
+            }
             incoming = stream.next() => match incoming {
                 Some(Ok(Message::Text(text))) => route(&text, &waiters, &token),
                 Some(Ok(Message::Close(frame))) => {
@@ -171,6 +243,7 @@ async fn run<S>(
             },
         }
     };
+    drop(stream);
     let left = lock(&waiters).take().unwrap_or_default();
     for (_, waiter) in left {
         let _ = waiter.send(Err(ending.clone()));

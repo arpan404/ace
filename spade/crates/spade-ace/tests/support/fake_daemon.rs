@@ -4,7 +4,7 @@
 //! late so concurrent requests come back out of order; `skl_…silent` reads never answer.
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -19,16 +19,31 @@ pub const LOCAL_TOKEN: &str = "local-token-for-tests";
 pub const REVIEW: &str = "skl_1111111111111111111111111111111111111111";
 pub const DEPLOY: &str = "skl_2222222222222222222222222222222222222222";
 pub const SILENT: &str = "skl_9999999999999999999999999999999999999999";
+/// Read answers with a result kind Spade doesn't know.
+pub const FUTURE: &str = "skl_7777777777777777777777777777777777777777";
+/// A list for this workspace is stale and holds an entry Spade can't read.
+pub const STALE_WORKSPACE: &str = "ws_stale";
 
 pub struct FakeDaemon {
     addr: SocketAddr,
     hellos: Arc<Mutex<Vec<Value>>>,
     connections: Arc<AtomicUsize>,
     drop_all: broadcast::Sender<()>,
+    saw_close: Arc<AtomicBool>,
 }
 
 impl FakeDaemon {
     pub async fn start() -> Self {
+        Self::start_as(false).await
+    }
+
+    /// Authenticates, then never reads again; it keeps writing small frames and notes when the
+    /// client's side of the socket is gone.
+    pub async fn start_deaf() -> Self {
+        Self::start_as(true).await
+    }
+
+    async fn start_as(deaf: bool) -> Self {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .unwrap_or_else(|e| panic!("bind: {e}"));
@@ -38,14 +53,20 @@ impl FakeDaemon {
         let hellos = Arc::new(Mutex::new(Vec::new()));
         let connections = Arc::new(AtomicUsize::new(0));
         let (drop_all, _) = broadcast::channel(4);
+        let saw_close = Arc::new(AtomicBool::new(false));
         let accept = (hellos.clone(), connections.clone(), drop_all.clone());
+        let closes = saw_close.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
                 let Ok(socket) = tokio_tungstenite::accept_async(stream).await else {
                     continue;
                 };
                 accept.1.fetch_add(1, Ordering::SeqCst);
-                tokio::spawn(serve(socket, accept.0.clone(), accept.2.subscribe()));
+                if deaf {
+                    tokio::spawn(serve_deaf(socket, closes.clone()));
+                } else {
+                    tokio::spawn(serve(socket, accept.0.clone(), accept.2.subscribe()));
+                }
             }
         });
         Self {
@@ -53,7 +74,13 @@ impl FakeDaemon {
             hellos,
             connections,
             drop_all,
+            saw_close,
         }
+    }
+
+    /// A deaf daemon found the client's side of its socket closed.
+    pub fn saw_close(&self) -> bool {
+        self.saw_close.load(Ordering::SeqCst)
     }
 
     pub fn url(&self) -> String {
@@ -131,14 +158,21 @@ async fn serve(
         // Frames Spade doesn't know arrive between answers and must be skipped.
         send(&out, json!({ "type": "pong" }));
         match operation["op"].as_str() {
-            Some("list") => send(
-                &out,
-                json!({
-                    "type": "skills.result",
-                    "requestId": request_id,
-                    "result": { "kind": "list", "entries": [entry(REVIEW), entry(DEPLOY)], "stale": false }
-                }),
-            ),
+            Some("list") => {
+                let stale = operation["workspaceId"] == STALE_WORKSPACE;
+                let mut entries = vec![entry(REVIEW), entry(DEPLOY)];
+                if stale {
+                    entries.push(json!({ "id": "skl_broken", "scope": "personal" }));
+                }
+                send(
+                    &out,
+                    json!({
+                        "type": "skills.result",
+                        "requestId": request_id,
+                        "result": { "kind": "list", "entries": entries, "stale": stale }
+                    }),
+                );
+            }
             Some("read") => {
                 let id = operation["id"].as_str().unwrap_or_default().to_owned();
                 if id == SILENT {
@@ -147,7 +181,9 @@ async fn serve(
                 let out = out.clone();
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(100)).await;
-                    let result = if id == REVIEW || id == DEPLOY {
+                    let result = if id == FUTURE {
+                        json!({ "kind": "hologram", "beam": 3 })
+                    } else if id == REVIEW || id == DEPLOY {
                         json!({ "kind": "skill", "entry": entry(&id), "text": text_of(&id), "kept": [] })
                     } else {
                         json!({ "kind": "error", "code": "not_found", "message": "No skill with that id." })
@@ -166,6 +202,44 @@ async fn serve(
     }
     drop(out);
     let _ = writer.await;
+}
+
+async fn serve_deaf(
+    mut socket: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
+    saw_close: Arc<AtomicBool>,
+) {
+    let hello = socket.next().await;
+    let Some(Ok(Message::Text(text))) = hello else {
+        return;
+    };
+    let ok = serde_json::from_str::<Value>(&text)
+        .map(|hello| hello["token"] == LOCAL_TOKEN)
+        .unwrap_or(false);
+    if !ok {
+        return;
+    }
+    let welcome =
+        json!({ "type": "welcome", "hostId": "host_test", "protocolVersion": 1, "headSeq": 0 });
+    if socket
+        .send(Message::text(welcome.to_string()))
+        .await
+        .is_err()
+    {
+        return;
+    }
+    // Never reads again. A write fails once the client has let the socket go.
+    for _ in 0..400 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let sent = tokio::time::timeout(
+            Duration::from_millis(500),
+            socket.send(Message::text(json!({ "type": "pong" }).to_string())),
+        )
+        .await;
+        if !matches!(sent, Ok(Ok(()))) {
+            saw_close.store(true, Ordering::SeqCst);
+            return;
+        }
+    }
 }
 
 pub fn text_of(id: &str) -> String {

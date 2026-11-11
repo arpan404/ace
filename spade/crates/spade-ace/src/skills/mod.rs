@@ -3,32 +3,20 @@
 //!
 //! One socket is kept open; answers are matched to requests by `requestId`. A socket the daemon
 //! dropped is opened again on the next request, and a list or read that hit a dropped socket is
-//! sent once more on a fresh one (both only read).
+//! sent once more on a fresh one (both only read). Dropping `AceSkills` closes the socket, even
+//! one stuck writing to a peer that stopped reading.
 
 mod socket;
 mod wire;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Duration;
 
 use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::secret::Secret;
+pub use crate::config::SkillsConfig;
 use socket::Socket;
-use wire::{Operation, SkillResult};
-
-#[derive(Debug, Clone)]
-pub struct SkillsConfig {
-    /// `SPADE_ACE_URL`, the daemon's loopback WebSocket, for example `ws://127.0.0.1:4300/`.
-    pub url: String,
-    /// `SPADE_ACE_TOKEN`, the daemon's local token.
-    pub token: Secret,
-    /// The device id `hello` names. The local token isn't tied to one, so any stable id works.
-    pub device_id: String,
-    /// Connecting, the hello and each request give up after this.
-    pub timeout: Duration,
-}
+use wire::Operation;
 
 /// Where a skill lives (`SkillScope` in `packages/protocol/src/skill-library.ts`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,7 +30,7 @@ pub enum SkillScope {
 }
 
 /// One skill in the library, with what Spade needs to offer and load it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Skill {
     /// Opaque and stable, `skl_…`; `read` takes it.
     pub id: String,
@@ -55,13 +43,27 @@ pub struct Skill {
     pub argument_hint: Option<String>,
     /// SHA-256 of SKILL.md.
     pub hash: String,
+    /// The whole entry as the daemon sent it (agents, path, source, fields added later).
+    pub raw: Value,
+}
+
+/// The library as the daemon listed it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SkillList {
+    pub skills: Vec<Skill>,
+    /// The daemon served a listing it could not refresh.
+    pub stale: bool,
+    /// Entries Spade could not read, as sent.
+    pub unreadable: Vec<Value>,
 }
 
 /// A skill with its full SKILL.md text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SkillText {
     pub skill: Skill,
     pub text: String,
+    /// The whole result as the daemon sent it.
+    pub raw: Value,
 }
 
 /// The daemon's typed refusals (`SkillErrorCode` in `packages/protocol/src/skill-library.ts`).
@@ -93,7 +95,7 @@ impl SkillErrorCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SkillsError {
     /// The daemon refused the local token in `hello`.
     #[error("ace refused Spade's local token")]
@@ -103,13 +105,17 @@ pub enum SkillsError {
     Unreachable(String),
     #[error("ace did not answer in time")]
     Timeout,
+    /// Too many requests are waiting on a daemon that isn't keeping up; nothing was sent.
+    #[error("too many skill requests are waiting on ace")]
+    Backlogged,
     #[error("ace refused the skill request ({code:?}): {message}")]
     Daemon {
         code: SkillErrorCode,
         message: String,
     },
-    #[error("ace sent something Spade could not read: {0}")]
-    Protocol(String),
+    /// The daemon answered with a result Spade didn't ask for or doesn't know, kept as sent.
+    #[error("ace answered with an unexpected `{kind}` result")]
+    UnexpectedResult { kind: String, raw: Value },
 }
 
 pub struct AceSkills {
@@ -129,11 +135,28 @@ impl AceSkills {
     }
 
     /// Personal, plugin and builtin skills, and the project's when `workspace_id` names one.
-    pub async fn list(&self, workspace_id: Option<&str>) -> Result<Vec<Skill>, SkillsError> {
-        match self.request(Operation::List { workspace_id }).await? {
-            SkillResult::List { entries } => Ok(entries.into_iter().map(skill).collect()),
-            other => Err(unexpected(&other)),
+    pub async fn list(&self, workspace_id: Option<&str>) -> Result<SkillList, SkillsError> {
+        let result = self.request(Operation::List { workspace_id }).await?;
+        if kind(&result) != "list" {
+            return Err(unexpected(result));
         }
+        let stale = result.get("stale").and_then(Value::as_bool) == Some(true);
+        let entries = match result.get("entries") {
+            Some(Value::Array(entries)) => entries.clone(),
+            _ => return Err(unexpected(result)),
+        };
+        let mut list = SkillList {
+            skills: Vec::new(),
+            stale,
+            unreadable: Vec::new(),
+        };
+        for entry in entries {
+            match skill(entry) {
+                Ok(skill) => list.skills.push(skill),
+                Err(raw) => list.unreadable.push(raw),
+            }
+        }
+        Ok(list)
     }
 
     /// One skill and its SKILL.md text. An id the daemon doesn't know is `not_found`.
@@ -142,41 +165,47 @@ impl AceSkills {
         id: &str,
         workspace_id: Option<&str>,
     ) -> Result<SkillText, SkillsError> {
-        match self.request(Operation::Read { id, workspace_id }).await? {
-            SkillResult::Skill { entry, text } => Ok(SkillText {
-                skill: skill(entry),
+        let result = self.request(Operation::Read { id, workspace_id }).await?;
+        let text = result
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let entry = result.get("entry").cloned().map(skill);
+        match (kind(&result) == "skill", text, entry) {
+            (true, Some(text), Some(Ok(skill))) => Ok(SkillText {
+                skill,
                 text,
+                raw: result,
             }),
-            other => Err(unexpected(&other)),
+            _ => Err(unexpected(result)),
         }
     }
 
-    async fn request(&self, operation: Operation<'_>) -> Result<SkillResult, SkillsError> {
+    /// The raw `result` of a `skills.result`, or the daemon's typed refusal.
+    async fn request(&self, operation: Operation<'_>) -> Result<Value, SkillsError> {
         let (socket, fresh) = self.socket().await?;
         let first = self.send(&socket, &operation).await;
-        let raw = match first {
+        let result = match first {
             Err(SkillsError::Unreachable(_)) if !fresh => {
-                self.drop_socket(&socket).await;
                 let (socket, _) = self.socket().await?;
                 self.send(&socket, &operation).await
             }
             other => other,
-        };
-        let raw = raw?;
-        let result: SkillResult = serde_json::from_value(raw)
-            .map_err(|error| SkillsError::Protocol(self.config.token.scrub(error.to_string())))?;
-        match result {
-            SkillResult::Error { code, message } => Err(SkillsError::Daemon {
-                code: SkillErrorCode::parse(&code),
-                message: self.config.token.scrub(message),
-            }),
-            other => Ok(other),
+        }?;
+        if kind(&result) == "error" {
+            let code = result.get("code").and_then(Value::as_str).unwrap_or("");
+            let message = result.get("message").and_then(Value::as_str).unwrap_or("");
+            return Err(SkillsError::Daemon {
+                code: SkillErrorCode::parse(code),
+                message: self.config.token().scrub(message),
+            });
         }
+        Ok(result)
     }
 
     async fn send(&self, socket: &Socket, operation: &Operation<'_>) -> Result<Value, SkillsError> {
         let id = format!("spade-{}", self.next_id.fetch_add(1, Ordering::Relaxed) + 1);
-        let result = socket.request(&id, operation, self.config.timeout).await;
+        let result = socket.request(&id, operation, self.config.timeout()).await;
         if matches!(
             result,
             Err(SkillsError::Unreachable(_) | SkillsError::Refused)
@@ -207,7 +236,22 @@ impl AceSkills {
     }
 }
 
-fn skill(entry: wire::SkillEntry) -> Skill {
+fn kind(result: &Value) -> &str {
+    result.get("kind").and_then(Value::as_str).unwrap_or("")
+}
+
+fn unexpected(raw: Value) -> SkillsError {
+    SkillsError::UnexpectedResult {
+        kind: kind(&raw).to_owned(),
+        raw,
+    }
+}
+
+/// A skill from its raw entry, or the entry back when it can't be read.
+fn skill(raw: Value) -> Result<Skill, Value> {
+    let Ok(entry) = serde_json::from_value::<wire::SkillEntry>(raw.clone()) else {
+        return Err(raw);
+    };
     let scope = match entry.scope.as_str() {
         "project" => SkillScope::Project,
         "personal" => SkillScope::Personal,
@@ -215,7 +259,7 @@ fn skill(entry: wire::SkillEntry) -> Skill {
         "builtin" => SkillScope::Builtin,
         _ => SkillScope::Other(entry.scope),
     };
-    Skill {
+    Ok(Skill {
         id: entry.id,
         name: entry.name,
         title: entry.title,
@@ -224,14 +268,6 @@ fn skill(entry: wire::SkillEntry) -> Skill {
         manual: entry.manual,
         argument_hint: entry.argument_hint,
         hash: entry.hash,
-    }
-}
-
-fn unexpected(result: &SkillResult) -> SkillsError {
-    let kind = match result {
-        SkillResult::List { .. } => "list",
-        SkillResult::Skill { .. } => "skill",
-        SkillResult::Error { .. } => "error",
-    };
-    SkillsError::Protocol(format!("unexpected `{kind}` result"))
+        raw,
+    })
 }

@@ -26,8 +26,8 @@ async fn lists_a_real_daemons_tools_and_skills() {
         .list(None)
         .await
         .unwrap_or_else(|e| panic!("skills: {e}"));
-    println!("{} skills", listed.len());
-    if let Some(first) = listed.first() {
+    println!("{} skills", listed.skills.len());
+    if let Some(first) = listed.skills.first() {
         let read = skills.read(&first.id, None).await;
         let read = read.unwrap_or_else(|e| panic!("read {}: {e}", first.id));
         println!("{}: {} bytes", read.skill.name, read.text.len());

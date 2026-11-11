@@ -1,20 +1,45 @@
 //! Hand-written mirrors of the few daemon messages Spade sends and reads, with only the fields
-//! Spade needs. Unknown fields are ignored and unknown message types skipped, so a newer daemon
-//! never breaks Spade. Each type names the Zod schema it mirrors; generated types come later.
+//! Spade needs. Each type names the Zod schema it mirrors; generated types come later. Unknown
+//! message types are skipped, and every skill entry keeps its raw JSON beside what is read.
+
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::secret::Secret;
+
 /// Mirrors the `hello` arm of `CoreClientMessage` in `packages/protocol/src/wire-core.ts`, with
-/// the local token as its one credential.
-#[derive(Debug, Serialize)]
+/// the local token as its one credential. Its `Debug` never shows the token.
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Hello<'a> {
     #[serde(rename = "type")]
-    pub kind: &'static str,
-    pub protocol_version: u8,
-    pub device_id: &'a str,
-    pub token: &'a str,
+    kind: &'static str,
+    protocol_version: u8,
+    device_id: &'a str,
+    token: &'a str,
+}
+
+impl<'a> Hello<'a> {
+    pub(crate) fn new(device_id: &'a str, token: &'a Secret) -> Self {
+        Self {
+            kind: "hello",
+            protocol_version: 1,
+            device_id,
+            token: token.expose(),
+        }
+    }
+}
+
+impl fmt::Debug for Hello<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Hello")
+            .field("protocol_version", &self.protocol_version)
+            .field("device_id", &self.device_id)
+            .field("token", &"[redacted]")
+            .finish()
+    }
 }
 
 /// Mirrors `SkillsRequest` and the `list` and `read` arms of `SkillOperation` in
@@ -70,8 +95,8 @@ pub(crate) struct ErrorFrame {
     pub request_id: Option<String>,
 }
 
-/// Mirrors `SkillsResult` in `packages/protocol/src/skill-library.ts`. `result` stays raw here
-/// so a result kind Spade doesn't know still reaches its request as an error, not a parse failure.
+/// Mirrors `SkillsResult` in `packages/protocol/src/skill-library.ts`. `result` stays raw, so a
+/// result kind Spade doesn't know still reaches its request whole.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillsResult {
@@ -79,26 +104,7 @@ pub(crate) struct SkillsResult {
     pub result: Value,
 }
 
-/// Mirrors the `list`, `skill` and `error` arms of `SkillResult` in
-/// `packages/protocol/src/skill-library.ts`.
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub(crate) enum SkillResult {
-    List {
-        entries: Vec<SkillEntry>,
-    },
-    Skill {
-        entry: SkillEntry,
-        text: String,
-    },
-    Error {
-        code: String,
-        #[serde(default)]
-        message: String,
-    },
-}
-
-/// Mirrors `SkillEntry` in `packages/protocol/src/skill-library.ts`.
+/// Mirrors the fields Spade reads of `SkillEntry` in `packages/protocol/src/skill-library.ts`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillEntry {
@@ -112,4 +118,18 @@ pub(crate) struct SkillEntry {
     pub manual: bool,
     pub argument_hint: Option<String>,
     pub hash: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hello_debug_never_shows_the_token_but_the_frame_carries_it() {
+        let token = Secret::new("local-token-value");
+        let hello = Hello::new("spade", &token);
+        assert!(!format!("{hello:?}").contains("local-token-value"));
+        let frame = serde_json::to_string(&hello).unwrap_or_default();
+        assert!(frame.contains("\"token\":\"local-token-value\""));
+    }
 }
