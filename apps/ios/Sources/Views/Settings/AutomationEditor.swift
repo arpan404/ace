@@ -11,6 +11,9 @@ struct AutomationEditor: View {
     let saved: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var form: AutomationFormValues?
+    /// New automation's starting points, kept from the form's opening: a preview of the form
+    /// describes it again without them.
+    @State private var ideas: [AutomationIdea] = []
     @State private var view: AutomationFormView?
     @State private var choices: AutomationFormView.Choices?
     @State private var pick: AutomationPick?
@@ -254,7 +257,7 @@ struct AutomationEditor: View {
 
     /// A new automation's starting points while nothing is written yet: one fills the form.
     @ViewBuilder private func ideasSection(_ current: AutomationFormValues) -> some View {
-        if editing == nil, current.prompt.isEmpty, let ideas = view?.ideas, !ideas.isEmpty {
+        if editing == nil, current.prompt.isEmpty, !ideas.isEmpty {
             Section {
                 ForEach(ideas) { idea in
                     Button {
@@ -293,6 +296,7 @@ struct AutomationEditor: View {
             guard reply.ok, reply.form != nil else { problem = reply.error ?? "Couldn't open this automation."; return }
             withAnimation(motion) {
                 view = reply
+                ideas = reply.ideas ?? []
                 choices = reply.choices
                 pick = reply.pick
                 form = reply.form
