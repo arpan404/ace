@@ -10,6 +10,9 @@ struct ForgeWriteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
     @State private var discarding = false
+    /// The text the sheet opened with (an edit's body, a quote): only a change from it is a draft.
+    @State private var opened: String?
+    private var edited: Bool { opened.map { compose.text != $0 } ?? false }
 
     var body: some View {
         NavigationStack {
@@ -36,11 +39,11 @@ struct ForgeWriteSheet: View {
             .navigationTitle(compose.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if compose.text.isEmpty { dismiss() } else { discarding = true } }.disabled(desk.writing) }
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { if edited { discarding = true } else { dismiss() } }.disabled(desk.writing) }
             }
         }
-        .onAppear { desk.clearMessage(); focused = true }
-        .interactiveDismissDisabled(!compose.text.isEmpty || desk.writing)
+        .onAppear { desk.clearMessage(); focused = true; if opened == nil { opened = compose.text } }
+        .interactiveDismissDisabled(edited || desk.writing)
         .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
             Button("Discard", role: .destructive) { dismiss() }
             Button("Keep editing", role: .cancel) {}

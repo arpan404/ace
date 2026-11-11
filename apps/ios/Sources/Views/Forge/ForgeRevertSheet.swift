@@ -62,10 +62,10 @@ struct ForgeRevertSheet: View {
             }
             .sensoryFeedback(.success, trigger: outcome) { _, now in now?.ok == true }
             .interactiveDismissDisabled(writing || (outcome?.ok != true && edited))
-            .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
-                Button("Discard", role: .destructive) { dismiss() }
-                Button("Keep editing", role: .cancel) {}
-            }
+        }
+        .confirmationDialog("Discard draft?", isPresented: $discarding, titleVisibility: .visible) {
+            Button("Discard", role: .destructive) { dismiss() }
+            Button("Keep editing", role: .cancel) {}
         }
         .presentationDetents([.medium, .large])
     }
