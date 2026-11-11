@@ -43,7 +43,7 @@ impl Tool for Todo {
         }
     }
 
-    fn run(&self, arguments: Value) -> ToolFuture {
+    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         Box::pin(async move {
             let args: Args = match parse(arguments) {
                 Ok(args) => args,

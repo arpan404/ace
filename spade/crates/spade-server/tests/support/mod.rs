@@ -78,7 +78,7 @@ impl Tool for FakeTool {
         self.def.clone()
     }
 
-    fn run(&self, arguments: Value) -> ToolFuture {
+    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let calls = self.calls.clone();
         let answer = self.answer.clone();
         let delay = self.delay;

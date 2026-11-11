@@ -40,7 +40,7 @@ impl Tool for WebSearch {
         }
     }
 
-    fn run(&self, arguments: Value) -> ToolFuture {
+    fn run(&self, _call_id: &str, arguments: Value) -> ToolFuture {
         let search = self.0.clone();
         Box::pin(async move {
             let args: Args = match parse(arguments) {

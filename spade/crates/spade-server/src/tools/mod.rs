@@ -41,7 +41,9 @@ impl ToolOutput {
 
 pub trait Tool: Send + Sync {
     fn def(&self) -> ToolDef;
-    fn run(&self, arguments: Value) -> ToolFuture;
+    /// Runs one call. `call_id` is stable for this call across retries and restarts: tools that
+    /// change things pass it on as an idempotency key, so a repeated call cannot act twice.
+    fn run(&self, call_id: &str, arguments: Value) -> ToolFuture;
 }
 
 /// Every tool by name, and the registry built from their definitions.

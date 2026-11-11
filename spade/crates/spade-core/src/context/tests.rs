@@ -113,6 +113,30 @@ fn calls_left_without_results_when_a_turn_stops_are_answered_not_run() {
 }
 
 #[test]
+fn a_call_that_started_but_never_finished_is_reported_as_unknown_not_unrun() {
+    let events = [
+        Event::user_message("Email Sam"),
+        Event::reply_started("r1", "m"),
+        step("r1", "", &[("c1", "send_email"), ("c2", "send_email")]),
+        Event::Known(Known::ToolStarted {
+            reply: "r1".into(),
+            call_id: "c1".into(),
+            name: "send_email".into(),
+        }),
+        Event::reply_ended(ReplyEnd::Interrupted, "r1", ""),
+    ];
+    assert_eq!(
+        shape(&messages(&events)),
+        vec![
+            "person:Email Sam".to_owned(),
+            "spade::c1,c2".to_owned(),
+            format!("result:c1:{MAYBE_RAN}"),
+            format!("result:c2:{NOT_RUN}"),
+        ]
+    );
+}
+
+#[test]
 fn text_received_before_a_stop_is_kept_once() {
     let events = [
         Event::user_message("Tell me"),

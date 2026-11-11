@@ -351,7 +351,7 @@ async fn run_tools(
             );
             let engine = engine.clone();
             running.push(async move {
-                let output = run_one(&engine, &name, arguments).await;
+                let output = run_one(&engine, &call.id, &name, arguments).await;
                 (call, name, output)
             });
         }
@@ -371,7 +371,7 @@ async fn run_tools(
     }
 }
 
-async fn run_one(engine: &Arc<Engine>, name: &str, arguments: Value) -> ToolOutput {
+async fn run_one(engine: &Arc<Engine>, call_id: &str, name: &str, arguments: Value) -> ToolOutput {
     if name == TOOL_SEARCH {
         let query = arguments.get("query").and_then(Value::as_str).unwrap_or("");
         let found = engine.tools.registry().search(query, 5);
@@ -380,7 +380,7 @@ async fn run_one(engine: &Arc<Engine>, name: &str, arguments: Value) -> ToolOutp
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
-    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(arguments)).await {
+    match tokio::time::timeout(engine.limits.tool_timeout, tool.run(call_id, arguments)).await {
         Ok(output) => output,
         Err(_) => ToolOutput::error(format!(
             "{name} did not finish within {} seconds.",
