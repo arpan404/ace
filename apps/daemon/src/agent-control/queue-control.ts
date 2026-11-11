@@ -1,5 +1,6 @@
 import {
   type CommandId,
+  type ContentPart,
   type AgentControlOperation,
   type AgentControlResult,
   type CommandPayload,
@@ -8,6 +9,7 @@ import {
   type QueuedMessage,
 } from "@ace/protocol";
 import { controlCommandId } from "./command-id.ts";
+import { editedContext } from "../engine/edited-context.ts";
 import type { DelegationService } from "./delegations.ts";
 
 /** The queue reads and commands an agent's queue edits go through. */
@@ -70,11 +72,10 @@ export function queueControl(
       return run("queue.edit", {
         type: "queue.edit",
         ...target,
-        input: [
+        ...edit(message, [
           { type: "text", text: operation.text },
           ...message.input.filter((part) => part.type !== "text"),
-        ],
-        ...(message.context ? { context: editedContext(message, operation.text) } : {}),
+        ]),
       });
     case "queue.steer":
       return run("queue.steer", {
@@ -87,15 +88,10 @@ export function queueControl(
   }
 }
 
-/**
- * A file's spot is an offset into the message's text, so it only holds while that text does.
- * New text sends the files after it, as a message without spots always has.
- */
-function editedContext(message: QueuedMessage, text: string): QueuedMessage["context"] {
-  const context = message.context;
-  const old = message.input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
-  if (!context || old === text) return context;
-  return { ...context, attachments: context.attachments.map(({ sha256 }) => ({ sha256 })) };
+/** New input for a queued message, with the context the edit keeps. */
+function edit(message: QueuedMessage, input: ContentPart[]) {
+  const context = editedContext(message, input, message.context);
+  return { input, ...(context ? { context } : {}) };
 }
 
 /** Moves each named entry after the one before it, so they lead the queue in the given order. */
