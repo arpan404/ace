@@ -40,6 +40,9 @@ pub struct Transcript {
     pub jobs: Vec<String>,
     /// The person pressed Stop while the open reply ran; it ends as stopped.
     pub stopping: bool,
+    /// The open reply was paused for a planned restart and nothing of it has run since. It is
+    /// still open (the conversation is still working) and resumes when Spade starts.
+    pub paused: bool,
     /// Tools the person allowed "always" in this conversation.
     pub always_allowed: Vec<String>,
     /// Which tool each approval asked about, by call id.
@@ -77,6 +80,7 @@ impl Transcript {
             }),
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
+                self.paused = false;
                 self.messages.push(Message {
                     speaker: Speaker::Spade,
                     text: String::new(),
@@ -84,7 +88,10 @@ impl Transcript {
                     outcome: Outcome::Answering,
                 });
             }
-            Known::ReplyProgress { reply, text } => self.update(reply, text, None),
+            Known::ReplyProgress { reply, text } => {
+                self.paused = false;
+                self.update(reply, text, None);
+            }
             Known::ReplyFinished { reply, text, .. } => {
                 self.update(reply, text, Some(Outcome::Finished));
             }
@@ -98,12 +105,28 @@ impl Transcript {
                 self.update(reply, text, Some(Outcome::Interrupted));
             }
             Known::Renamed { title } => self.title = Some(title.clone()),
-            Known::StepFinished { reply, text, .. } if !text.is_empty() => {
-                self.update(reply, text, None);
+            Known::StepFinished { reply, text, .. } => {
+                self.paused = false;
+                if !text.is_empty() {
+                    self.update(reply, text, None);
+                }
             }
-            Known::ToolStarted { call_id, .. } => self.running.push(call_id.clone()),
-            Known::ToolFinished { call_id, .. } => self.running.retain(|id| id != call_id),
+            Known::ToolStarted { call_id, .. } => {
+                self.paused = false;
+                self.running.push(call_id.clone());
+            }
+            Known::ToolFinished { call_id, .. } => {
+                self.paused = false;
+                self.running.retain(|id| id != call_id);
+            }
+            Known::TurnPaused { reply } => {
+                let open = self.open_reply().and_then(|m| m.reply.as_deref());
+                if open == Some(reply.as_str()) {
+                    self.paused = true;
+                }
+            }
             Known::ApprovalRequested { call_id, name, .. } => {
+                self.paused = false;
                 if !self.stopping {
                     self.awaiting.push(call_id.clone());
                 }
@@ -128,7 +151,10 @@ impl Transcript {
                     self.always_allowed.push(tool);
                 }
             }
-            Known::JobStarted { job, .. } => self.jobs.push(job.clone()),
+            Known::JobStarted { job, .. } => {
+                self.paused = false;
+                self.jobs.push(job.clone());
+            }
             Known::JobFinished { job, .. } => self.jobs.retain(|id| id != job),
             Known::StopRequested { reply, .. } => {
                 let open = self.open_reply().and_then(|m| m.reply.clone());
@@ -138,13 +164,12 @@ impl Transcript {
                     self.awaiting.clear();
                 }
             }
-            Known::StepFinished { .. }
-            | Known::SkillsIndexed { .. }
-            | Known::ContextCompacted { .. } => {}
+            Known::SkillsIndexed { .. } | Known::ContextCompacted { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();
             self.awaiting.clear();
+            self.paused = false;
         }
     }
 
@@ -183,7 +208,8 @@ impl Transcript {
     }
 
     /// The event that closes the open reply after a restart, keeping its last checkpoint. A reply
-    /// only waiting for the person's approval stays open: the approval survives the restart.
+    /// only waiting for the person's approval stays open: the approval survives the restart. So
+    /// does a paused one: nothing of it was running, so it resumes from its events.
     pub fn close_after_restart(&self) -> Option<Event> {
         let open = self.open_reply()?;
         let reply = open.reply.clone()?;
@@ -195,7 +221,7 @@ impl Transcript {
                 open.text.clone(),
             ));
         }
-        if self.turn_state() == Some(TurnState::WaitingOnYou) {
+        if self.paused || self.turn_state() == Some(TurnState::WaitingOnYou) {
             return None;
         }
         Some(Event::reply_ended(
@@ -397,6 +423,76 @@ mod tests {
             transcript.close_after_restart(),
             Some(Event::Known(Known::ReplyInterrupted { .. }))
         ));
+    }
+
+    fn paused(reply: &str) -> Event {
+        Event::Known(Known::TurnPaused {
+            reply: reply.into(),
+        })
+    }
+
+    #[test]
+    fn a_paused_reply_is_still_working_and_resumes_after_a_restart() {
+        let events = [
+            Event::user_message("Plan a trip"),
+            Event::reply_started("r1", "m"),
+            Event::reply_progress("r1", "Looking"),
+            paused("r1"),
+            // A message stored while Spade was paused does not end the pause.
+            Event::user_message("Also check trains"),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.paused);
+        assert!(transcript.busy(), "a paused reply keeps the conversation working");
+        assert_eq!(transcript.turn_state(), Some(TurnState::Answering));
+        assert_eq!(transcript.close_after_restart(), None);
+    }
+
+    #[test]
+    fn a_paused_reply_that_ran_again_is_interrupted_by_a_crash() {
+        let events = [
+            Event::user_message("Search"),
+            Event::reply_started("r1", "m"),
+            paused("r1"),
+            step_with("r1", vec![call("c1")]),
+            Event::Known(Known::ToolStarted {
+                reply: "r1".into(),
+                call_id: "c1".into(),
+                name: "web_search".into(),
+            }),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert!(!transcript.paused);
+        assert!(matches!(
+            transcript.close_after_restart(),
+            Some(Event::Known(Known::ReplyInterrupted { .. }))
+        ));
+    }
+
+    #[test]
+    fn a_pause_of_another_reply_or_a_stop_wins_over_resuming() {
+        let stale = [
+            Event::user_message("Hi"),
+            Event::reply_started("r1", "m"),
+            finished("r1", "Hello"),
+            Event::user_message("Again"),
+            Event::reply_started("r2", "m"),
+            paused("r1"),
+        ];
+        assert!(!Transcript::fold(&stale).paused);
+        let stopped = [
+            Event::user_message("Hi"),
+            Event::reply_started("r1", "m"),
+            paused("r1"),
+            Event::Known(Known::StopRequested {
+                reply: Some("r1".into()),
+                jobs: Vec::new(),
+            }),
+        ];
+        assert_eq!(
+            Transcript::fold(&stopped).close_after_restart(),
+            Some(Event::reply_ended(ReplyEnd::Stopped, "r1", ""))
+        );
     }
 
     #[test]

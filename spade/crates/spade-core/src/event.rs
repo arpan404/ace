@@ -100,6 +100,11 @@ pub enum Known {
         reply: String,
         model: String,
     },
+    /// Spade paused the open reply for a planned restart (an update or a stop): nothing of it was
+    /// running when this was stored. It stays open and resumes from its events when Spade starts.
+    TurnPaused {
+        reply: String,
+    },
     ReplyProgress {
         reply: String,
         text: String,

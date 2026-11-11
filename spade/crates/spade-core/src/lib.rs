@@ -6,6 +6,7 @@ pub mod compaction;
 pub mod context;
 pub mod event;
 pub mod gate;
+pub mod maintenance;
 pub mod skills;
 pub mod spending;
 pub mod title;
