@@ -1,8 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
-import { durableJson, withInstallLock } from "./files.ts";
+import { withInstallLock } from "./files.ts";
 import { localSpadePlan } from "./spade-local.ts";
 import type { SpadeServicePlan } from "./spade-plan.ts";
 import { pruneSpadeReleases } from "./spade-release.ts";
@@ -58,29 +56,4 @@ export async function reopenSpadeAdmission(home: string): Promise<void> {
     version: "0.0.0",
   });
   await ports.reopenAdmission().catch(() => {});
-}
-
-/**
- * The desktop app restarts into its update before Spade's turn comes, so the mode the person
- * chose (`now` for a confirmed Restart, `idle` for `ace update apply`) waits in this file for
- * the next launch.
- */
-export const spadeUpdateModeFile = "spade-update-mode.json";
-const PendingMode = z.object({ mode: z.enum(["idle", "now"]) });
-
-export async function rememberSpadeUpdateMode(home: string, mode: SpadeSwapMode): Promise<void> {
-  await durableJson(join(home, spadeUpdateModeFile), { mode });
-}
-
-/** The remembered mode, removed as it is read; `idle` when none was left. */
-export async function takeSpadeUpdateMode(home: string): Promise<SpadeSwapMode> {
-  const file = join(home, spadeUpdateModeFile);
-  const text = await readFile(file, "utf8").catch(() => undefined);
-  await rm(file, { force: true });
-  if (text === undefined) return "idle";
-  try {
-    return PendingMode.parse(JSON.parse(text)).mode;
-  } catch {
-    return "idle";
-  }
 }

@@ -42,10 +42,9 @@ export {
   type SpadeSwapResult,
 } from "./spade-swap.ts";
 export { localSpadeSwapPorts, type SpadeSwapIo } from "./spade-swap-ports.ts";
+export { updateSpade, reopenSpadeAdmission } from "./spade-update.ts";
 export {
-  updateSpade,
-  reopenSpadeAdmission,
   rememberSpadeUpdateMode,
   takeSpadeUpdateMode,
   spadeUpdateModeFile,
-} from "./spade-update.ts";
+} from "./spade-update-mode.ts";

@@ -17,6 +17,7 @@ function setup(
 ) {
   const reported: UpdateStatus[] = [];
   const effects: string[] = [];
+  const spadeModes: string[] = [];
   let found = options.found;
   let checkError: Error | undefined;
   let checkGate: Promise<void> | undefined;
@@ -60,8 +61,9 @@ function setup(
       options.busy instanceof Error
         ? Promise.reject(options.busy)
         : Promise.resolve(options.busy ?? 0),
-    prepareQuit: async () => {
+    prepareQuit: async (spadeMode) => {
       effects.push("stop daemon");
+      spadeModes.push(spadeMode);
     },
     quit: () => effects.push("quit"),
     report: (status) => reported.push(status),
@@ -71,6 +73,7 @@ function setup(
     controller,
     reported,
     effects,
+    spadeModes,
     states: () => reported.map((status) => status.state),
     now: () => controller.current(),
     progress: (percent: number) => progress?.(percent),
@@ -255,6 +258,23 @@ it("the person's Restart stops running agents at once instead of waiting for the
   await app.controller.install();
   expect(app.now().state).toBe("installing");
   expect(app.effects).toEqual(["stop daemon", "install"]);
+});
+
+it("after a confirmed Restart Spade pauses its work at once; after apply it waits for idle", async () => {
+  const restart = setup({ found: "1.1.0" });
+  await downloaded(restart);
+  await restart.controller.install();
+  expect(restart.spadeModes).toEqual(["now"]);
+
+  const apply = setup({ found: "1.1.0", drained: true });
+  await downloaded(apply);
+  await apply.controller.apply();
+  expect(apply.spadeModes).toEqual(["idle"]);
+
+  const remote = setup({ found: "1.1.0", drained: true });
+  await downloaded(remote);
+  await remote.controller.remote({ action: "install", mode: "idle", version: "1.1.0" });
+  expect(remote.spadeModes).toEqual(["idle"]);
 });
 
 it("an agent count the daemon can't give is unknown, not zero", async () => {

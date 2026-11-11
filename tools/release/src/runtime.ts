@@ -39,7 +39,7 @@ import { isNewer, recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 import { reopenSpadeAdmission, swapPrograms } from "@ace/service/spade";
-import { updateSpadeToCurrent } from "./spade-update.ts";
+import { spadeFollowCli, updateSpadeToCurrent } from "./spade-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
 const writeLine = (line: string) => process.stdout.write(`${line}\n`);
@@ -344,7 +344,10 @@ export async function releaseCommand(args: string[]): Promise<boolean> {
   else if (args[0] === "supervise") await supervise();
   else if (args[0] === "migrate-check" && args.length === 2 && args[1])
     await migrateCheck(resolve(args[1]));
-  else if (args[0] === "install-artifact" && args.length === 2 && args[1])
+  else if (args[0] === "spade-follow") {
+    const result = await spadeFollowCli(dataDir(), args.slice(1), writeLine);
+    if (result.kind === "failed") process.exitCode = 1;
+  } else if (args[0] === "install-artifact" && args.length === 2 && args[1])
     await installArtifact(resolve(args[1]));
   else return false;
   return true;
