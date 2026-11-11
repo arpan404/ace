@@ -242,7 +242,14 @@ import QuartzCore
         self.runtime = runtime
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
-        if let keeping, thread === keeping { open(keeping.id) }
+        // The thread on screen (the kept one, or one tapped while the old runtime shut down) is
+        // visited on this runtime. Not the person opening it: its notifications stay delivered.
+        if let showing = thread {
+            let opened = onOpenThread
+            onOpenThread = nil
+            open(showing.id)
+            onOpenThread = opened
+        }
     }
     /// Outbox and cached views are bound to one host and device identity.
     nonisolated static func database(hostId: String, deviceId: String, in directory: URL) -> URL {
