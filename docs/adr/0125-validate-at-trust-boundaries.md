@@ -35,7 +35,18 @@ trusted.
    migration step and so no pre-upgrade backup.
 4. **Writes still validate.** The writer's `Event.parse` fills schema defaults and is what puts a
    row in this build's shape; it stays until a cheaper canonical writer replaces it.
-5. **Trusted casts live in one place.** `stored-decode.ts` holds the casts from trusted stored
+5. **Thread rows are trusted per row, by revision.** A threads row is rewritten in place a few
+   columns at a time and has no sequence, so `thread-row-trust.ts` keeps a side table of
+   stamps: the row revision at which this build confirmed the whole row reads the same as
+   stored as validated, field order included. Every write to a threads or thread_cold row
+   takes a new, never reused revision, so a stamp names exactly the content confirmed. The
+   writer moves a row's stamp to the revision it writes when the row was confirmed and the
+   parts it wrote read the same as stored; rows changed any other way (direct SQL, another
+   build) are confirmed again at a later open, at most 256 per open, most recently updated
+   first. The stamps belong to a shape that fingerprints the thread schemas, the migration
+   version and the decoders' code; a different shape drops them all. The tables are created at
+   open, with no migration step.
+6. **Trusted casts live in one place.** `stored-decode.ts` holds the casts from trusted stored
    JSON to protocol types; other modules call its functions.
 
 ## Consequences
@@ -45,5 +56,8 @@ trusted.
   serialising it again would give.
 - A bug that writes a wrongly shaped row is no longer caught on read. Writes validate, and the
   fingerprint covers schema changes, which were the realistic source of mismatched rows.
-- Further slices follow the same rule: thread rows, history revisions, entity pages, search
+- On a copy of the owner's store all 1,586 thread rows confirm, and decoding one costs 7.9 µs
+  of CPU instead of 64 µs (`apps/daemon/bench/thread-rows.ts`). Confirming every row after an
+  upgrade costs about 180 ms of CPU, which is why it is spread over opens.
+- Further slices follow the same rule: history revisions, entity pages, search
   replay and worker messages.
