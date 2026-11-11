@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One model: its name (and a muted line when there's more to say), a check when it's the one
-/// chosen, and a star that adds it to Favorites or takes it off.
+/// chosen, and a star that adds it to Favorites or takes it off. The name and its line are the
+/// shared quiet row's, so the list reads with the rest of the app's inner pages.
 struct ModelChoiceRow: View {
     let row: ModelPickerRow
     /// The choose button's accessibility identifier.
@@ -9,26 +10,22 @@ struct ModelChoiceRow: View {
     var enabled = true
     let choose: () -> Void
     let star: () -> Void
-    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var detail: String? {
+        let line = [row.detail, row.note].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return line.isEmpty ? nil : line
+    }
 
     var body: some View {
-        HStack(spacing: AceTheme.Spacing.sm) {
+        HStack(spacing: AceDesign.Space.related) {
             Button(action: choose) {
-                HStack(spacing: AceTheme.Spacing.md) {
-                    VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                        // One line per model keeps the list even; accessibility sizes wrap instead.
-                        Text(row.label).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        if let detail = [row.detail, row.note].compactMap({ $0 }).filter({ !$0.isEmpty }).joined(separator: " · ") as String?,
-                           !detail.isEmpty {
-                            Text(detail).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                                .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                        }
+                QuietSectionRow {
+                    QuietRowText(title: row.label, detail: detail)
+                    if row.chosen {
+                        AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.primary)
                     }
-                    Spacer(minLength: AceTheme.Spacing.sm)
-                    if row.chosen { Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(AceTheme.Colours.foreground) }
                 }
-                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!enabled)
@@ -42,13 +39,14 @@ struct ModelChoiceRow: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .padding(.trailing, AceDesign.Space.tight)
             .accessibilityLabel(row.starred ? "Remove \(row.label) from favorites" : "Add \(row.label) to favorites")
             .accessibilityIdentifier("star.\(row.label)")
             .sensoryFeedback(.selection, trigger: row.starred)
         }
         .opacity(enabled ? 1 : AceDesign.Ink.dimmedOpacity)
         .listRowBackground(Color.clear)
-        .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.tight))
+        .listRowInsets(EdgeInsets())
         .sensoryFeedback(.selection, trigger: row.chosen)
     }
 }
