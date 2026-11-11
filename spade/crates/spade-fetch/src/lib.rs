@@ -7,11 +7,11 @@
 //! most [`MOST_REDIRECTS`] of them, and no more than [`MOST_BYTES`] are read.
 
 pub mod extract;
+mod html;
 mod local;
 pub mod page;
 pub mod policy;
 mod resolve;
-mod shallow;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -44,6 +44,9 @@ pub struct Fetched {
     pub total_chars: usize,
     /// Where the next window starts, when more remains.
     pub next_offset: Option<usize>,
+    /// Whether the page was too large or too deeply built to read whole, so the text stops
+    /// early.
+    pub truncated: bool,
 }
 
 /// What went wrong, in one short line. Never carries the page body.
@@ -77,6 +80,8 @@ pub enum FetchError {
     TimedOut(u64),
     #[error("the HTTP client could not be built: {0}")]
     Setup(String),
+    #[error("the page could not be read")]
+    Unreadable,
 }
 
 pub struct Fetcher {
@@ -126,23 +131,10 @@ impl Fetcher {
         let body = tokio::time::timeout(self.timeout, self.body(url))
             .await
             .map_err(|_| FetchError::TimedOut(self.timeout.as_secs().max(1)))??;
-        let source = String::from_utf8_lossy(&body.bytes);
-        let (title, text) = match body.reading {
-            page::Reading::Html => {
-                let readable = extract::html(&source, &body.url);
-                (readable.title, readable.text)
-            }
-            page::Reading::Text => (None, source.trim().to_owned()),
-        };
-        let window = page::window(&text, page);
-        Ok(Fetched {
-            url: body.url.to_string(),
-            title,
-            content_type: body.media_type,
-            text: window.text,
-            total_chars: window.total_chars,
-            next_offset: window.next_offset,
-        })
+        // Reading is bounded but CPU-bound, so it runs off the async threads.
+        tokio::task::spawn_blocking(move || readable(body, page))
+            .await
+            .map_err(|_| FetchError::Unreadable)
     }
 
     async fn body(&self, url: &str) -> Result<Body, FetchError> {
@@ -265,6 +257,28 @@ enum CheckedHost {
     Literal,
     /// A name and the checked addresses to connect to.
     Domain(String, Vec<SocketAddr>),
+}
+
+/// The window `page` of the readable text of `body`.
+fn readable(body: Body, page: Page) -> Fetched {
+    let source = String::from_utf8_lossy(&body.bytes);
+    let (title, text, truncated) = match body.reading {
+        page::Reading::Html => {
+            let readable = extract::html(&source, &body.url);
+            (readable.title, readable.text, readable.truncated)
+        }
+        page::Reading::Text => (None, source.trim().to_owned(), false),
+    };
+    let window = page::window(&text, page);
+    Fetched {
+        url: body.url.to_string(),
+        title,
+        content_type: body.media_type,
+        text: window.text,
+        total_chars: window.total_chars,
+        next_offset: window.next_offset,
+        truncated,
+    }
 }
 
 /// Reads the body of a successful response, refusing types Spade cannot read and stopping at

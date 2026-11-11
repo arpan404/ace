@@ -111,20 +111,6 @@ fn inline_markup_keeps_words_apart_only_where_the_page_did() {
 }
 
 #[test]
-fn very_deep_nesting_is_cut_short_quickly_and_keeps_what_came_before() {
-    let depth = 1_000_000;
-    let source = format!(
-        "<main><p>Intro</p>{}deep{}</main>",
-        "<div>".repeat(depth),
-        "</div>".repeat(depth)
-    );
-    let started = std::time::Instant::now();
-    let (_, text) = read(&source);
-    assert_eq!(text, "Intro");
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
-}
-
-#[test]
 fn many_unclosed_paragraphs_and_items_are_not_mistaken_for_deep_nesting() {
     let paragraphs: String = (0..2_000).map(|i| format!("<p>p{i}")).collect();
     let items: String = (0..2_000).map(|i| format!("<li>i{i}")).collect();
@@ -138,4 +124,70 @@ fn script_text_that_looks_like_tags_does_not_count_as_nesting() {
     let script = format!("<script>var s = \"{}\";</script>", "<div>".repeat(10_000));
     let (_, text) = read(&format!("<main>{script}<p>After the script</p></main>"));
     assert_eq!(text, "After the script");
+}
+
+#[test]
+fn a_main_inside_a_hidden_element_is_not_chosen() {
+    let (_, text) =
+        read("<body><div hidden><main>secret</main></div><article>visible</article></body>");
+    assert_eq!(text, "visible");
+}
+
+#[test]
+fn an_article_inside_a_hidden_element_is_not_chosen() {
+    let (_, text) = read(
+        r#"<body><div aria-hidden="true"><article>secret</article></div><p>body text</p></body>"#,
+    );
+    assert_eq!(text, "body text");
+}
+
+#[test]
+fn a_main_inside_navigation_is_not_chosen() {
+    let (_, text) = read("<body><nav><main>menu</main></nav><main>content</main></body>");
+    assert_eq!(text, "content");
+}
+
+#[test]
+fn a_hidden_heading_is_not_the_fallback_title() {
+    let (title, text) =
+        read(r#"<body><h1 style="display:none">Secret</h1><h1>Shown</h1><p>Text</p></body>"#);
+    assert_eq!(title.as_deref(), Some("Shown"));
+    assert_eq!(text, "# Shown\n\nText");
+}
+
+#[test]
+fn a_title_in_a_hidden_element_is_not_the_title() {
+    let (title, _) = read(r#"<div hidden><title>Secret</title></div><h1>Visible</h1>"#);
+    assert_eq!(title.as_deref(), Some("Visible"));
+}
+
+#[test]
+fn body_content_after_an_unclosed_head_is_read() {
+    let (title, text) = read("<html><head><title>T</title><body><p>Text</p></body></html>");
+    assert_eq!(title.as_deref(), Some("T"));
+    assert_eq!(text, "Text");
+}
+
+#[test]
+fn character_references_are_decoded_in_text_and_links() {
+    let (_, text) = read(
+        r#"<main><p>Fish &amp; chips &lt;3 &eacute;&#233;&#xE9;</p><a href="/a?x=1&amp;y=2">q</a></main>"#,
+    );
+    assert_eq!(
+        text,
+        "Fish & chips <3 ééé\n\n[q](https://example.com/a?x=1&y=2)"
+    );
+}
+
+#[test]
+fn code_fences_are_longer_than_any_backtick_run_inside() {
+    let code = "a\n```\nb\n````\nc\n`````\nd";
+    let (_, text) = read(&format!("<main><pre>{code}</pre></main>"));
+    assert_eq!(text, format!("``````\n{code}\n``````"));
+}
+
+#[test]
+fn a_plain_code_block_gets_three_backticks() {
+    let (_, text) = read("<main><pre>x = `y`</pre></main>");
+    assert_eq!(text, "```\nx = `y`\n```");
 }

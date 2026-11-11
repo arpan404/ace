@@ -2,117 +2,129 @@
 //!
 //! The main content is the first `main` (or `role="main"`), else the first `article`, else the
 //! body. Scripts, styles, navigation, page headers and footers, asides, forms and hidden elements
-//! are dropped, which also drops text a page hides to steer an agent. Headings become `#` lines,
-//! list items `- ` lines, links `[text](absolute url)`, `pre` blocks fenced code, and whitespace
-//! is collapsed.
+//! are dropped with everything inside them, which also drops text a page hides to steer an agent.
+//! Headings become `#` lines, list items `- ` lines, links `[text](absolute url)`, `pre` blocks
+//! fenced code, and whitespace is collapsed.
+//!
+//! The work is bounded whatever the page holds: see [`crate::html::tree`] for the parse limits,
+//! [`MOST_TEXT_BYTES`] for the output and [`MOST_URL_BYTES`] for each link.
 
-use ego_tree::NodeRef;
 use reqwest::Url;
-use scraper::{Html, Node};
+
+use crate::html::out::{Break, Out};
+use crate::html::tree::{self, Element, Id, Node, Tree};
+
+pub use crate::html::tree::{MOST_DEPTH, MOST_TAGS};
+
+/// The most readable text kept from one page, in bytes. Past it the text is cut and marked
+/// truncated.
+pub const MOST_TEXT_BYTES: usize = 1024 * 1024;
+/// The longest link kept as a link, in bytes. A longer one is written as its text alone.
+pub const MOST_URL_BYTES: usize = 2048;
+/// The longest title kept, in characters.
+pub const MOST_TITLE_CHARS: usize = 300;
 
 /// What a page reads as.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Readable {
     pub title: Option<String>,
     pub text: String,
+    /// Whether the page was too large or too deeply built to read whole, so the text stops early.
+    pub truncated: bool,
 }
-
-/// Deeper nesting than this is skipped, so a hostile page cannot exhaust the stack.
-const MOST_DEPTH: usize = 200;
 
 /// The readable text of `source`, a page fetched from `page_url` (links are resolved against it,
 /// or against the page's own `<base href>`).
 #[must_use]
 pub fn html(source: &str, page_url: &Url) -> Readable {
-    let doc = Html::parse_document(crate::shallow::shallow(source));
-    let root = doc.tree.root();
-    let base = find(root, &|el| el.name() == "base" && el.attr("href").is_some())
-        .and_then(|n| element(n)?.attr("href").map(str::to_owned))
-        .and_then(|href| page_url.join(&href).ok())
-        .filter(|u| matches!(u.scheme(), "http" | "https"))
+    let tree = tree::build(source);
+    let base = tree
+        .base
+        .as_deref()
+        .and_then(|href| page_url.join(href.trim()).ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https") && u.as_str().len() <= MOST_URL_BYTES)
         .unwrap_or_else(|| page_url.clone());
-    let main = find(root, &|el| {
-        el.name() == "main" || el.attr("role") == Some("main")
+    let main = find(&tree, Tree::ROOT, &|el| {
+        el.name.as_ref() == "main" || el.role.as_deref() == Some("main")
     })
-    .or_else(|| find(root, &|el| el.name() == "article"))
-    .or_else(|| find(root, &|el| el.name() == "body"))
-    .unwrap_or(root);
+    .or_else(|| find(&tree, Tree::ROOT, &|el| el.name.as_ref() == "article"))
+    .or_else(|| find(&tree, Tree::ROOT, &|el| el.name.as_ref() == "body"))
+    .unwrap_or(Tree::ROOT);
+    let in_article = is_or_inside(&tree, main, "article");
 
-    let mut out = Out::default();
-    let in_article = main
-        .ancestors()
-        .chain(std::iter::once(main))
-        .any(|n| element(n).is_some_and(|el| el.name() == "article"));
-    walk(
-        main,
-        &Ctx {
-            base: &base,
-            list_depth: 0,
-            in_article,
-            depth: 0,
-        },
-        &mut out,
-    );
+    let mut out = Out::new(MOST_TEXT_BYTES);
+    let ctx = Ctx {
+        tree: &tree,
+        base: &base,
+        list_depth: 0,
+        in_article,
+    };
+    walk(main, &ctx, &mut out);
 
-    let title = find(root, &|el| el.name() == "title")
-        .map(plain)
+    let title = tree
+        .title
+        .as_deref()
+        .map(collapse)
         .filter(|t| !t.is_empty())
         .or_else(|| {
-            find(main, &|el| el.name() == "h1")
-                .map(plain)
+            find(&tree, main, &|el| el.name.as_ref() == "h1")
+                .map(|h1| plain(&tree, h1, MOST_TITLE_CHARS * 4))
                 .filter(|t| !t.is_empty())
-        });
+        })
+        .map(|t| t.chars().take(MOST_TITLE_CHARS).collect());
     Readable {
         title,
+        truncated: tree.truncated || out.full(),
         text: out.finish(),
     }
 }
 
+#[derive(Clone, Copy)]
 struct Ctx<'a> {
+    tree: &'a Tree,
     base: &'a Url,
     list_depth: usize,
     in_article: bool,
-    depth: usize,
 }
 
-impl Ctx<'_> {
-    fn child(&self) -> Self {
-        Ctx {
-            base: self.base,
-            list_depth: self.list_depth,
-            in_article: self.in_article,
-            depth: self.depth + 1,
-        }
+fn walk(id: Id, ctx: &Ctx<'_>, out: &mut Out) {
+    match ctx.tree.nodes.get(id) {
+        Some(Node::Text(text)) => out.text(text),
+        Some(Node::Element(el)) => element(el, ctx, out),
+        None => {}
     }
 }
 
-fn walk(node: NodeRef<'_, Node>, ctx: &Ctx<'_>, out: &mut Out) {
-    if ctx.depth > MOST_DEPTH {
+fn children(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
+    let mut after_cell = false;
+    for &child in &el.children {
+        if out.full() {
+            return;
+        }
+        let cell = ctx
+            .tree
+            .element(child)
+            .is_some_and(|c| matches!(c.name.as_ref(), "td" | "th"));
+        if cell && after_cell && out.inline == 0 {
+            out.text(" | ");
+        }
+        after_cell |= cell;
+        walk(child, ctx, out);
+    }
+}
+
+fn element(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
+    let name = el.name.as_ref();
+    if out.inline > 0 {
+        // Inside a link or code span everything is inline text.
+        match name {
+            "img" if out.in_link => out.text(el.alt.as_deref().unwrap_or("")),
+            "br" => out.start(Break::Line),
+            _ => children(el, ctx, out),
+        }
         return;
     }
-    match node.value() {
-        Node::Text(text) => out.text(text),
-        Node::Element(el) => element_into(node, el, ctx, out),
-        Node::Document | Node::Fragment => children(node, ctx, out),
-        _ => {}
-    }
-}
-
-fn children(node: NodeRef<'_, Node>, ctx: &Ctx<'_>, out: &mut Out) {
-    let ctx = ctx.child();
-    for child in node.children() {
-        walk(child, &ctx, out);
-    }
-}
-
-fn element_into(
-    node: NodeRef<'_, Node>,
-    el: &scraper::node::Element,
-    ctx: &Ctx<'_>,
-    out: &mut Out,
-) {
-    let name = el.name();
-    if dropped(el) || (matches!(name, "header" | "footer") && !ctx.in_article) {
+    if matches!(name, "header" | "footer") && !ctx.in_article {
         return;
     }
     match name {
@@ -120,7 +132,7 @@ fn element_into(
             let level = usize::from(name.as_bytes()[1] - b'0');
             out.start(Break::Para);
             out.prefix(&format!("{} ", "#".repeat(level)));
-            children(node, ctx, out);
+            children(el, ctx, out);
             out.end(Break::Para);
         }
         "ul" | "ol" | "menu" => {
@@ -132,133 +144,129 @@ fn element_into(
             out.start(around);
             let inner = Ctx {
                 list_depth: ctx.list_depth + 1,
-                ..ctx.child()
+                ..*ctx
             };
-            for child in node.children() {
-                walk(child, &inner, out);
-            }
+            children(el, &inner, out);
             out.end(around);
         }
         "li" => {
             out.start(Break::Line);
             let indent = "  ".repeat(ctx.list_depth.saturating_sub(1));
             out.prefix(&format!("{indent}- "));
-            children(node, ctx, out);
+            children(el, ctx, out);
             out.end_item();
         }
-        "a" => link(node, el, ctx, out),
+        "a" => link(el, ctx, out),
         "pre" => {
             out.start(Break::Para);
-            out.raw(&fence(node, el));
+            out.raw(&fence(el, ctx.tree));
             out.end(Break::Para);
         }
-        "code" | "kbd" | "samp" => {
-            let code = plain(node);
-            if !code.is_empty() {
-                out.text(&format!("`{code}`"));
-            }
-        }
+        "code" | "kbd" | "samp" => span("`", "`", el, ctx, out),
         "br" => out.start(Break::Line),
         "hr" => out.end(Break::Para),
         "tr" | "dt" | "dd" => {
             out.start(Break::Line);
-            children(node, ctx, out);
+            children(el, ctx, out);
             out.end(Break::Line);
-        }
-        "td" | "th" => {
-            let after_cell = node
-                .prev_siblings()
-                .any(|s| element(s).is_some_and(|e| matches!(e.name(), "td" | "th")));
-            if after_cell {
-                out.text(" | ");
-            }
-            children(node, ctx, out);
         }
         "article" => {
             let inner = Ctx {
                 in_article: true,
-                ..ctx.child()
+                ..*ctx
             };
             out.start(Break::Para);
-            for child in node.children() {
-                walk(child, &inner, out);
-            }
+            children(el, &inner, out);
             out.end(Break::Para);
         }
+        "img" => {}
         _ if block(name) => {
             out.start(Break::Para);
-            children(node, ctx, out);
+            children(el, ctx, out);
             out.end(Break::Para);
         }
-        _ => children(node, ctx, out),
+        _ => children(el, ctx, out),
     }
 }
 
-fn link(node: NodeRef<'_, Node>, el: &scraper::node::Element, ctx: &Ctx<'_>, out: &mut Out) {
-    let text = {
-        let t = plain(node);
-        if t.is_empty() {
-            find(node, &|e| e.name() == "img")
-                .and_then(|n| element(n)?.attr("alt").map(collapse))
-                .unwrap_or_default()
-        } else {
-            t
-        }
-    };
-    if text.is_empty() {
-        return;
-    }
+fn link(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
     let target = el
-        .attr("href")
+        .href
+        .as_deref()
         .map(str::trim)
-        .filter(|href| !href.starts_with('#'))
+        .filter(|href| !href.starts_with('#') && href.len() <= MOST_URL_BYTES)
         .and_then(|href| ctx.base.join(href).ok())
-        .filter(|u| matches!(u.scheme(), "http" | "https" | "mailto"));
+        .filter(|u| matches!(u.scheme(), "http" | "https" | "mailto"))
+        .filter(|u| u.as_str().len() <= MOST_URL_BYTES);
     match target {
-        Some(url) => out.text(&format!("[{}]({url})", text.replace(']', "\\]"))),
-        None => out.text(&text),
+        Some(url) => {
+            out.in_link = true;
+            span("[", &format!("]({url})"), el, ctx, out);
+            out.in_link = false;
+        }
+        None => children(el, ctx, out),
     }
 }
 
-fn fence(node: NodeRef<'_, Node>, el: &scraper::node::Element) -> String {
+/// Inline content between `opener` and `closer`, or nothing when it writes no text.
+fn span(opener: &str, closer: &str, el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
+    let mark = out.mark();
+    let after = out.open(opener);
+    out.inline += 1;
+    children(el, ctx, out);
+    out.inline -= 1;
+    if out.len() == after {
+        out.back_to(mark);
+    } else {
+        out.close(closer);
+    }
+}
+
+/// A fenced code block, with a fence longer than any run of backticks inside it.
+fn fence(el: &Element, tree: &Tree) -> String {
     let lang = std::iter::once(el)
         .chain(
-            node.children()
-                .filter_map(element)
-                .filter(|e| e.name() == "code"),
+            el.children
+                .iter()
+                .filter_map(|&c| tree.element(c))
+                .filter(|c| c.name.as_ref() == "code"),
         )
-        .flat_map(|e| e.classes())
+        .filter_map(|e| e.class.as_deref())
+        .flat_map(str::split_ascii_whitespace)
         .find_map(|c| {
             c.strip_prefix("language-")
                 .or_else(|| c.strip_prefix("lang-"))
         })
-        .unwrap_or("")
-        .to_owned();
+        .unwrap_or("");
     let mut code = String::new();
-    raw_text(node, &mut code, 0);
+    raw_text(tree, el, &mut code, MOST_TEXT_BYTES);
     let code = code.strip_prefix('\n').unwrap_or(&code).trim_end();
-    let ticks = if code.contains("```") { "````" } else { "```" };
+    let longest_run = code.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let ticks = "`".repeat((longest_run + 1).max(3));
     format!("{ticks}{lang}\n{code}\n{ticks}")
 }
 
-fn raw_text(node: NodeRef<'_, Node>, into: &mut String, depth: usize) {
-    if depth > MOST_DEPTH {
-        return;
-    }
-    for child in node.children() {
-        match child.value() {
-            Node::Text(t) => into.push_str(t),
-            Node::Element(el) if el.name() == "br" => into.push('\n'),
-            Node::Element(el) if !dropped(el) => raw_text(child, into, depth + 1),
-            _ => {}
+/// The text under `el` as written, `<br>` as a line break, up to `most` bytes.
+fn raw_text(tree: &Tree, el: &Element, into: &mut String, most: usize) {
+    for &child in &el.children {
+        if into.len() >= most {
+            return;
+        }
+        match tree.nodes.get(child) {
+            Some(Node::Text(t)) => into.push_str(t),
+            Some(Node::Element(c)) if c.name.as_ref() == "br" => into.push('\n'),
+            Some(Node::Element(c)) => raw_text(tree, c, into, most),
+            None => {}
         }
     }
 }
 
-/// The collapsed visible text under `node`.
-fn plain(node: NodeRef<'_, Node>) -> String {
+/// The collapsed text under `id`, from at most `most` bytes of it.
+fn plain(tree: &Tree, id: Id, most: usize) -> String {
     let mut raw = String::new();
-    raw_text(node, &mut raw, 0);
+    if let Some(el) = tree.element(id) {
+        raw_text(tree, el, &mut raw, most);
+    }
     collapse(&raw)
 }
 
@@ -266,56 +274,36 @@ fn collapse(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn element(node: NodeRef<'_, Node>) -> Option<&scraper::node::Element> {
-    match node.value() {
-        Node::Element(el) => Some(el),
-        _ => None,
+fn is_or_inside(tree: &Tree, mut id: Id, name: &str) -> bool {
+    loop {
+        if tree.element(id).is_some_and(|el| el.name.as_ref() == name) {
+            return true;
+        }
+        if id == Tree::ROOT {
+            return false;
+        }
+        id = tree.parents[id];
     }
 }
 
-/// The first element under `node`, in document order, that `matches`, skipping dropped ones.
-fn find<'a>(
-    node: NodeRef<'a, Node>,
-    matches: &dyn Fn(&scraper::node::Element) -> bool,
-) -> Option<NodeRef<'a, Node>> {
-    node.descendants()
-        .find(|n| element(*n).is_some_and(matches))
-}
-
-/// Elements whose content is never page text, or is hidden from the reader.
-fn dropped(el: &scraper::node::Element) -> bool {
-    let never = matches!(
-        el.name(),
-        "script"
-            | "style"
-            | "noscript"
-            | "template"
-            | "nav"
-            | "aside"
-            | "form"
-            | "button"
-            | "input"
-            | "select"
-            | "textarea"
-            | "svg"
-            | "canvas"
-            | "iframe"
-            | "object"
-            | "embed"
-            | "head"
-            | "title"
-    );
-    let hidden = el.attr("hidden").is_some()
-        || el.attr("aria-hidden") == Some("true")
-        || el.attr("style").is_some_and(|s| {
-            let s: String = s
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>()
-                .to_ascii_lowercase();
-            s.contains("display:none") || s.contains("visibility:hidden")
-        });
-    never || hidden
+/// The first element under `from`, in document order, that `matches`. Page headers and footers
+/// outside an article are not searched, as they are not read.
+fn find(tree: &Tree, from: Id, matches: &dyn Fn(&Element) -> bool) -> Option<Id> {
+    let mut stack = vec![(from, is_or_inside(tree, from, "article"))];
+    while let Some((id, in_article)) = stack.pop() {
+        let Some(el) = tree.element(id) else { continue };
+        if id != from {
+            if matches!(el.name.as_ref(), "header" | "footer") && !in_article {
+                continue;
+            }
+            if matches(el) {
+                return Some(id);
+            }
+        }
+        let in_article = in_article || el.name.as_ref() == "article";
+        stack.extend(el.children.iter().rev().map(|&c| (c, in_article)));
+    }
+    None
 }
 
 fn block(name: &str) -> bool {
@@ -342,117 +330,4 @@ fn block(name: &str) -> bool {
             | "header"
             | "footer"
     )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-enum Break {
-    #[default]
-    None,
-    Line,
-    Para,
-}
-
-/// The text being written, with whitespace collapsed as it goes.
-#[derive(Default)]
-struct Out {
-    text: String,
-    /// The break owed before the next text.
-    pending: Break,
-    /// A space is owed before the next text.
-    space: bool,
-    /// While nothing has followed an item or heading prefix yet: where the text stood before
-    /// it, and the break that was written for it.
-    prefix_at: Option<(usize, Break)>,
-}
-
-impl Out {
-    /// An element opens. Ignored right after a prefix, so `<li><p>x` stays on one line.
-    fn start(&mut self, at_least: Break) {
-        if self.prefix_at.is_none() {
-            self.pending = self.pending.max(at_least);
-        }
-    }
-
-    /// An element closes. A prefix nothing followed is taken back.
-    fn end(&mut self, at_least: Break) {
-        self.drop_bare_prefix();
-        self.pending = self.pending.max(at_least);
-    }
-
-    /// A list item closes: the next item follows on the next line.
-    fn end_item(&mut self) {
-        self.drop_bare_prefix();
-        self.pending = Break::Line;
-    }
-
-    /// A nested list follows its item on the next line, even after a paragraph in the item.
-    fn tighten(&mut self) {
-        self.pending = self.pending.min(Break::Line);
-    }
-
-    fn drop_bare_prefix(&mut self) {
-        if let Some((at, owed)) = self.prefix_at.take() {
-            self.text.truncate(at);
-            self.pending = self.pending.max(owed);
-        }
-    }
-
-    fn prefix(&mut self, prefix: &str) {
-        self.drop_bare_prefix();
-        let at = self.text.len();
-        let owed = self.pending;
-        self.flush_break();
-        self.text.push_str(prefix);
-        self.prefix_at = Some((at, owed));
-        self.space = false;
-    }
-
-    fn raw(&mut self, raw: &str) {
-        self.flush_break();
-        if self.space {
-            self.text.push(' ');
-        }
-        self.text.push_str(raw);
-        self.prefix_at = None;
-        self.space = false;
-    }
-
-    fn text(&mut self, text: &str) {
-        for word in text.split_inclusive(char::is_whitespace) {
-            let trimmed = word.trim_end_matches(char::is_whitespace);
-            if !trimmed.is_empty() {
-                if self.pending != Break::None {
-                    self.flush_break();
-                } else if self.space && !self.text.is_empty() && !self.text.ends_with([' ', '\n']) {
-                    self.text.push(' ');
-                }
-                self.text.push_str(trimmed);
-                self.prefix_at = None;
-                self.space = false;
-            }
-            if trimmed.len() < word.len() {
-                self.space = true;
-            }
-        }
-    }
-
-    fn flush_break(&mut self) {
-        let owed = std::mem::take(&mut self.pending);
-        if owed == Break::None {
-            return;
-        }
-        self.space = false;
-        let kept = self.text.trim_end_matches(' ').len();
-        self.text.truncate(kept);
-        if self.text.is_empty() {
-            return;
-        }
-        self.text
-            .push_str(if owed == Break::Para { "\n\n" } else { "\n" });
-    }
-
-    fn finish(mut self) -> String {
-        self.drop_bare_prefix();
-        self.text.trim().to_owned()
-    }
 }
