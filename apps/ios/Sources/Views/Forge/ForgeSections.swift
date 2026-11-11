@@ -1,29 +1,12 @@
 import SwiftUI
 
-/// A page section without a card (DESIGN.md: heading and hairline rows): a quiet heading, then
-/// its rows each over a hairline.
+/// A page section without a card: the shared quiet section (design language §5 "Inner pages"),
+/// a quiet heading over rows split by hairlines from the margin.
 struct ForgeSection<Rows: View>: View {
     let title: String?
     @ViewBuilder let rows: () -> Rows
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            if let title {
-                Text(title).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, AceTheme.Spacing.lg)
-                    .padding(.bottom, AceTheme.Spacing.xs)
-                    .accessibilityAddTraits(.isHeader)
-            }
-            Divider().overlay(AceTheme.Colours.separator)
-            Group(subviews: rows()) { subviews in
-                ForEach(subviews) { row in
-                    row
-                    Divider().overlay(AceTheme.Colours.separator).padding(.leading, AceTheme.Spacing.lg)
-                }
-            }
-        }
-    }
+    var body: some View { QuietSection(title, content: rows) }
 }
 
 /// A two-sided row: what, then its value; the value takes its state's colour when it has one
