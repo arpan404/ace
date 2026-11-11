@@ -36,7 +36,7 @@ export function CheckDetailHead(props: {
   return (
     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-b border-border px-4 py-3.5">
       <CheckDisc tone={props.tone} large />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-40 flex-1">
         <h3 className="text-ui font-semibold break-words text-foreground">{props.name}</h3>
         <p className="text-ui text-muted-foreground">{props.line}</p>
       </div>

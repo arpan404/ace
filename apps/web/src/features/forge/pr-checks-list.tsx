@@ -46,7 +46,11 @@ export function checksTally(checks: readonly Pick<ForgeCheck, "status">[]): stri
 export function PrChecksTally(props: { checks: readonly Pick<ForgeCheck, "status">[] }) {
   const tally = checksTally(props.checks);
   if (!tally) return null;
-  return <span className="text-xs text-muted-foreground tabular-nums">{tally}</span>;
+  return (
+    <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums @max-[36rem]/pr:hidden">
+      {tally}
+    </span>
+  );
 }
 
 /** A check's disc tone and its state in a word. */
