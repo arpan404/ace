@@ -18,10 +18,10 @@ const todo = {
   target_url: "https://evil.example/steal",
   future_field: { kept: true },
 };
-function fixture(options: { changed?: true; wrongAck?: boolean } = {}) {
+function fixture(options: { changed?: true; wrongAck?: boolean; action?: string } = {}) {
   const writes: CommandRequest[] = [];
   const runner: CommandRunner = async (request) => {
-    let body: unknown = [todo];
+    let body: unknown = [{ ...todo, action_name: options.action ?? todo.action_name }];
     if (request.input !== undefined) {
       expect(isAdmittedWriteRequest("glab", request, repository.host, gitLabInboxWrites)).toBe(
         true,
@@ -40,7 +40,7 @@ function fixture(options: { changed?: true; wrongAck?: boolean } = {}) {
   };
   return { inbox: new GitLabInbox(new GitLabApi({ repository, runner })), writes };
 }
-test("to-dos map MR identifiers, nested project paths and canonical URLs while retaining the host reason", async () => {
+test("to-dos map MR identifiers, nested project paths and canonical URLs, with the inbox's shared reason", async () => {
   const f = fixture();
   expect(await f.inbox.list({ all: false, participating: false, page: 1 }, signal)).toMatchObject({
     host: "gitlab.com",
@@ -53,7 +53,7 @@ test("to-dos map MR identifiers, nested project paths and canonical URLs while r
         number: 7,
         state: "open",
         title: "Change",
-        reason: "mentioned",
+        reason: "mention",
         unread: true,
         url: "https://gitlab.com/team/sub/repo/-/merge_requests/7",
       },
@@ -64,6 +64,23 @@ test("to-dos map MR identifiers, nested project paths and canonical URLs while r
     repository: { ...repository, owner: "team/sub" },
   });
 });
+test.each([
+  ["assigned", "assign"],
+  ["mentioned", "mention"],
+  ["directly_addressed", "mention"],
+  ["review_requested", "review_requested"],
+  ["approval_required", "review_requested"],
+  ["build_failed", "ci_activity"],
+  ["unmergeable", "state_change"],
+  ["member_access_requested", "member_access_requested"],
+])(
+  "a GitLab %s to-do carries the inbox reason %s, so the inbox filters find it",
+  async (action, reason) => {
+    const f = fixture({ action });
+    const page = await f.inbox.list({ all: false, participating: false, page: 1 }, signal);
+    expect(page.items.map((item) => item.reason)).toEqual([reason]);
+  },
+);
 test("mark done sends exactly its admitted endpoint and empty JSON stdin", async () => {
   const f = fixture();
   await f.inbox.write({ action: "done", id: "8" }, signal, new MutationDispatch());

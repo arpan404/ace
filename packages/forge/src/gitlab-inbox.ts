@@ -67,7 +67,7 @@ export function gitLabTodoRow(host: string, todo: z.infer<typeof GitLabTodo>): F
     title: todo.target?.title ?? todo.body,
     ...(number ? { number } : {}),
     ...(state ? { state } : {}),
-    reason: todo.action_name,
+    reason: inboxReason(todo.action_name),
     unread: todo.state === "pending",
     updatedAt: todo.updated_at ?? todo.created_at,
     lastReadAt: null,
@@ -75,6 +75,25 @@ export function gitLabTodoRow(host: string, todo: z.infer<typeof GitLabTodo>): F
       ? `${root}/-/${type === "PullRequest" ? "merge_requests" : "issues"}/${number}`
       : root,
   });
+}
+/**
+ * GitLab's to-do actions (docs.gitlab.com/api/todos/) as the inbox's shared reasons, the ones
+ * GitHub's notifications use, so one filter finds both. An action with no equivalent is kept
+ * as GitLab named it.
+ */
+const reasons: Record<string, string> = {
+  assigned: "assign",
+  mentioned: "mention",
+  directly_addressed: "mention",
+  review_requested: "review_requested",
+  approval_required: "review_requested",
+  build_failed: "ci_activity",
+  marked: "manual",
+  unmergeable: "state_change",
+  merge_train_removed: "state_change",
+};
+export function inboxReason(action: string): string {
+  return reasons[action] ?? action;
 }
 const ProjectId = z.looseObject({ id: z.number().int().positive() });
 
