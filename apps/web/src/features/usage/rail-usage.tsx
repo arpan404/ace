@@ -7,6 +7,7 @@ import {
   roundEstimate,
   type AccountWindow,
   type PooledHeadroom,
+  type RailUsage,
 } from "@ace/ui-core";
 import { useState } from "react";
 import { railPlaceClass } from "@/components/rail-place.ts";
@@ -50,6 +51,7 @@ export function UsagePlace(props: { current: boolean }) {
           className="w-[26rem] max-w-[calc(100vw-24px)] px-3.5 py-2.5"
         >
           <UsageCard
+            rail={usage.rail}
             headroom={usage.headroom}
             now={usage.now}
             observedAt={usage.observedAt}
@@ -70,12 +72,13 @@ const cardGrid = "grid grid-cols-[6.5rem_minmax(0,1fr)_2.25rem_6.25rem] items-ce
  * Usage page draws them, and the way to the page.
  */
 function UsageCard(props: {
+  rail: RailUsage;
   headroom: readonly PooledHeadroom[];
   now: number;
   observedAt: number | undefined;
   close(): void;
 }) {
-  const shown = props.headroom.filter((entry) => entry.current?.windows.length);
+  const shown = props.rail.accounts.filter((entry) => entry.windows.length > 0);
   const alert = headroomAlert(props.headroom, props.now);
   return (
     <div data-slot="usage-card" className="text-ui tabular-nums">
@@ -87,46 +90,41 @@ function UsageCard(props: {
             : `Read ${formatAgo(props.observedAt, props.now)}`}
         </span>
       </p>
-      {alert && (
-        <p className={cn("mt-0.5 text-xs leading-4", "text-status-failed")}>{alert.text}</p>
-      )}
+      {alert && <p className="mt-0.5 text-xs leading-4 text-status-failed">{alert.text}</p>}
       {shown.length === 0 && (
         <p className="mt-1 text-xs text-subtle-foreground">No limits read yet.</p>
       )}
       {shown.map((entry) => (
-        <section key={entry.key} aria-label={entry.providerLabel} className="mt-3">
+        <section
+          key={entry.key}
+          aria-label={`${entry.account.providerLabel} · ${entry.account.label}`}
+          className="mt-3"
+        >
           <p className="mb-1 flex items-center gap-1.5">
             <ProviderIcon
-              provider={entry.provider}
-              acpAgentId={entry.acpAgentId}
+              provider={entry.account.provider}
+              acpAgentId={entry.account.acpAgentId}
               size={14}
               decorative
             />
             <span className="truncate font-medium">
-              {entry.providerLabel}
-              {entry.current && (
-                <span className="font-normal text-muted-foreground">
-                  {" "}
-                  · {entry.current.account.label}
-                </span>
-              )}
+              {entry.account.providerLabel}
+              <span className="font-normal text-muted-foreground"> · {entry.account.label}</span>
             </span>
-            {entry.accounts > 1 && (
-              <span className="ml-auto shrink-0 text-xs text-subtle-foreground">
-                +{entry.accounts - 1} {entry.accounts === 2 ? "account" : "accounts"}
-              </span>
-            )}
           </p>
-          {entry.current?.windows.map((window) => (
+          {entry.windows.map((window) => (
             <CardWindow key={window.id} window={window} now={props.now} />
           ))}
         </section>
       ))}
-      <p className="mt-3 flex h-8 items-center justify-end border-t border-border">
+      <p className="mt-3 flex h-8 items-center justify-between border-t border-border text-xs">
+        <span className="text-subtle-foreground">
+          {props.rail.pinned ? "Pinned" : "Used most this week"}
+        </span>
         <Link
           to="/usage"
           onClick={props.close}
-          className="rounded-xs text-xs font-medium text-foreground focus-ring hover:underline"
+          className="rounded-xs font-medium text-foreground focus-ring hover:underline"
         >
           Open Usage ›
         </Link>

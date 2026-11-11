@@ -223,21 +223,26 @@ test("a provider's default model can be changed, even to a legacy one, and reads
   ).toBeTruthy();
 }, 30_000);
 
-test("Usage shows daily tokens by provider and an API-price estimate per model", async () => {
+test("Usage lists spend by model at API-price estimates, and in tokens", async () => {
   await harness().open("/usage");
   await screen.findByRole("heading", { level: 1, name: "Usage" });
-  const metric = await screen.findByRole("group", { name: "Show" });
-  await userEvent.click(within(metric).getByRole("button", { name: "Tokens" }));
-  expect(
-    await screen.findByRole("img", { name: /^Daily tokens by provider/ }, { timeout: 10_000 }),
-  ).toBeTruthy();
-  await userEvent.click(within(metric).getByRole("button", { name: "Cost" }));
-  const models = await screen.findByRole("group", { name: "By model" });
+  await userEvent.click(await screen.findByRole("button", { name: /^Group by: / }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Model" }));
+  const models = await screen.findByRole("list", { name: "Spend by model" }, { timeout: 10_000 });
   await waitFor(() =>
     expect(
       within(models)
         .getAllByRole("button")
-        .some((row) => /\$\d/.test(row.textContent ?? "")),
+        .some((row) => /: \$\d/.test(row.getAttribute("aria-label") ?? "")),
+    ).toBe(true),
+  );
+  const metric = await screen.findByRole("group", { name: "Show" });
+  await userEvent.click(within(metric).getByRole("button", { name: "Tokens" }));
+  await waitFor(() =>
+    expect(
+      within(screen.getByRole("list", { name: "Spend by model" }))
+        .getAllByRole("button")
+        .every((row) => !/: \$/.test(row.getAttribute("aria-label") ?? "")),
     ).toBe(true),
   );
 }, 30_000);

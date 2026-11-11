@@ -33,6 +33,8 @@ interface LedgerContext {
   /** A row's name; `parent` is the step it opened from, so an account under its provider can drop the provider's name. */
   name(group: LedgerGroup, key: string, parent: LedgerStep | undefined): string;
   icon?(group: LedgerGroup, key: string): ReactNode;
+  /** A model's catalog id from its provider and reported id, so one model is one row. */
+  canonicalModel?: ((provider: string, model: string) => string) | undefined;
 }
 
 /**
@@ -163,7 +165,7 @@ function Children(
   const machines = props.machines.filter(
     (machine) => scope.machine === undefined || machine.id === scope.machine,
   );
-  const read = useLedger(machines, props.span, scope.filters, props.group);
+  const read = useLedger(machines, props.span, scope.filters, props.group, props.canonicalModel);
   return <Rows {...props} lines={read.lines} loading={read.loading} />;
 }
 

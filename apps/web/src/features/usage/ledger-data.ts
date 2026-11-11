@@ -60,15 +60,18 @@ async function readGroup(
     ]);
     return { totals: series, previous, series };
   }
-  const totals = await query(client, "summary", span, [group], filters, signal, valueLimit);
+  // Models are read with their provider, so a legacy bare id and its provider-prefixed one can be
+  // named as one catalog model before they are summed.
+  const by: UsageDimension[] = group === "model" ? ["model", "provider"] : [group];
+  const totals = await query(client, "summary", span, by, filters, signal, valueLimit);
   // Days and the span before only for the values that can show; the rest rank by totals alone.
-  const top = totals.flatMap((row) => row.dimensions[group] ?? []).slice(0, 50);
+  const top = [...new Set(totals.flatMap((row) => row.dimensions[group] ?? []))].slice(0, 50);
   if (!top.length) return { totals, previous: [], series: [] };
   const shown = { ...filters, [group]: top };
   const trended = { ...filters, [group]: top.slice(0, ledgerTop) };
   const [previous, series] = await Promise.all([
-    query(client, "summary", before, [group], shown, signal, top.length),
-    query(client, "series", span, ["day", group], trended, signal, 1000),
+    query(client, "summary", before, by, shown, signal, valueLimit),
+    query(client, "series", span, ["day", ...by], trended, signal, 1000),
   ]);
   return { totals, previous, series };
 }
@@ -89,6 +92,8 @@ export function useLedger(
   span: UsageSpan,
   filters: UsageFilters,
   group: LedgerGroup,
+  /** A model's catalog id from its provider and reported id, so one model is one row. */
+  canonicalModel?: (provider: string, model: string) => string,
 ): LedgerResult {
   const online = machines.filter((machine) => machine.client !== undefined);
   const reads = useQueries({
@@ -112,7 +117,26 @@ export function useLedger(
   const data = reads.map((read) => read.data);
   const days = useMemo(() => dayRange(span.from, span.to), [span.from, span.to]);
   // At most a few hundred rows per machine: summing them each render costs less than a memo.
-  return { lines: sumLines(online, data, group, days), loading };
+  const named =
+    group === "model" && canonicalModel
+      ? data.map((read) => read && canonicalRead(read, canonicalModel))
+      : data;
+  return { lines: sumLines(online, named, group, days), loading };
+}
+
+/** Every row's model under its catalog id. */
+function canonicalRead(
+  read: LedgerRead,
+  canonical: (provider: string, model: string) => string,
+): LedgerRead {
+  const name = (rows: readonly UsageRow[]) =>
+    rows.map((row) => {
+      const model = row.dimensions.model;
+      if (!model) return row;
+      const id = canonical(row.dimensions.provider ?? "", model);
+      return id === model ? row : { ...row, dimensions: { ...row.dimensions, model: id } };
+    });
+  return { totals: name(read.totals), previous: name(read.previous), series: name(read.series) };
 }
 
 function sumLines(

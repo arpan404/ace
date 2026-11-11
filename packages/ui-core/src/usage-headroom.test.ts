@@ -231,3 +231,29 @@ test("a plan with only a week (Claude's Ultra) has no session: the week never st
   // And the page doesn't call its missing session a gap.
   expect(limits(ultra).providers[0]?.accounts[0]?.noSessionWindow).toBe(false);
 });
+
+test("pinned accounts are the rail's, in the order pinned; with none here, the most used", () => {
+  const list = limits(claudePersonal, claudeWork, codexPersonal, {
+    ...codexPersonal,
+    id: "codex-ci",
+    label: "CI",
+    isDefault: false,
+    weekly: 85,
+  });
+  const used = new Map([["codex-ci", 900]]);
+  const pinned = railUsage(list, used, "week", ["codex-personal", "claude-work"]);
+  expect(bars(pinned)).toEqual([
+    ["Codex · Personal", 78, "ok"],
+    ["Claude Code · Work", 43, "ok"],
+  ]);
+  // The card lists the same accounts as the bars.
+  expect(pinned.accounts.map((entry) => entry.account.id)).toEqual([
+    "codex-personal",
+    "claude-work",
+  ]);
+  expect(pinned.pinned).toBe(true);
+  // A pin for an account this machine doesn't have leaves the most used in place.
+  const elsewhere = railUsage(list, used, "week", ["claude-elsewhere"]);
+  expect(elsewhere.pinned).toBe(false);
+  expect(elsewhere.accounts[0]?.account.id).toBe("codex-ci");
+});

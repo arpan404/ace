@@ -23,7 +23,7 @@ import {
 } from "@ace/ui-core";
 import { ProviderKind } from "@ace/protocol";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
@@ -37,6 +37,7 @@ import { primaryMachineId, useMachines, type Machine } from "@/lib/machines.ts";
 import { useModelCatalog } from "@/lib/model-catalog.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
+import { useRailPins } from "@/lib/rail-pins.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 import { listAutomations } from "@/features/automation-data/index.ts";
 import { Screen } from "@/features/shell/index.ts";
@@ -87,6 +88,7 @@ export function UsagePage() {
   const [metric, setMetric] = useState<Metric>("cost");
   const [environmentId, setEnvironmentId] = useState<string>(all);
   const [openRow, setOpenRow] = useState<string>();
+  const [pins, setPins] = useRailPins();
   const [group, setGroup] = useState<LedgerGroup>("provider");
   const [tokenTypes, setTokenTypes] = useState(false);
   const machines = useMachines();
@@ -103,11 +105,15 @@ export function UsagePage() {
     ready: zone.ready,
   };
   const usage = useEnvironmentUsage(environments, span, noFilters);
-  const ledger = useLedger(environments, span, noFilters, group);
   const refresh = useRefreshUsage(online);
   const catalog = useModelCatalog();
   const modelName = useMemo(() => catalogModelNames(catalog ?? []), [catalog]);
   const modelId = useMemo(() => catalogModelIds(catalog ?? []), [catalog]);
+  const canonicalModel = useCallback(
+    (owner: string, model: string) => modelId(owner, model) ?? model,
+    [modelId],
+  );
+  const ledger = useLedger(environments, span, noFilters, group, canonicalModel);
   const project = useProjectName();
   const automations = useDaemonQuery({
     queryKey: ["usage-page", "automations"],
@@ -290,6 +296,11 @@ export function UsagePage() {
                 now={now}
                 onAccount={showAccount}
                 machineOf={(entry) => machineFor(entry.environmentId)}
+                pins={{
+                  ids: pins,
+                  toggle: (id) =>
+                    setPins(pins.includes(id) ? pins.filter((each) => each !== id) : [...pins, id]),
+                }}
                 redeem={async (entry, idempotencyKey) => {
                   const machine = machineFor(entry.environmentId);
                   if (!machine?.client) throw new Error("Machine is offline");
@@ -349,6 +360,7 @@ export function UsagePage() {
                   }}
                   open={openRow}
                   machines={environments}
+                  canonicalModel={canonicalModel}
                   span={span}
                   metric={metric}
                   money={money}

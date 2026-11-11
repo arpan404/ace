@@ -153,9 +153,19 @@ export interface RailUsage {
   bars: HeadroomBar[];
   /** The icon's spoken name, which says the state in words. */
   label: string;
+  /** The accounts the bars draw, in their order: the card lists the same ones. */
+  accounts: AccountLimits[];
+  /** Whether they are the person's pins, rather than the accounts used most this week. */
+  pinned: boolean;
 }
 
-const railBars = 4;
+/** The most accounts the rail shows, so the most that can be pinned to it. */
+export const railBars = 4;
+
+/** Accounts pinned to the rail on a device, by account id, in the order pinned. */
+export const RailPins = z.array(z.string().min(1).max(512)).max(railBars);
+export type RailPins = z.infer<typeof RailPins>;
+
 
 /**
  * The window a rail bar shows: the account's weekly one, else its longest (Gemini's daily quota,
@@ -200,6 +210,7 @@ export function railUsage(
   limits: UsageLimits,
   used: ReadonlyMap<string, number> | undefined,
   measure: RailMeasure = "week",
+  pins: RailPins = [],
 ): RailUsage {
   const readable = limits.providers.flatMap((group) =>
     group.accounts.flatMap((entry) => {
@@ -209,26 +220,28 @@ export function railUsage(
         group.accounts.length > 1
           ? `${group.providerLabel} · ${entry.account.label}`
           : group.providerLabel;
-      return [
-        {
-          key: entry.key,
-          id: entry.account.id,
-          label,
-          left: room.left,
-          span: room.span,
-          tone: headroomTone(room.left),
-        },
-      ];
+      const bar = { key: entry.key, label, left: room.left, span: room.span, tone: headroomTone(room.left) };
+      return [{ entry, bar }];
     }),
   );
-  // Most used this week first; the rest keep the page's order and fill the icon up to four.
-  const tokens = (bar: { id: string }) => used?.get(bar.id) ?? 0;
-  const shown = readable
-    .map((bar, index) => ({ bar, index }))
-    .toSorted((a, b) => tokens(b.bar) - tokens(a.bar) || a.index - b.index)
-    .slice(0, railBars)
-    .map(({ bar: { id: _id, ...bar } }) => bar);
-  return { bars: shown, label: railLabel(shown) };
+  const pinnedHere = pins.flatMap((id) => readable.find((each) => each.entry.account.id === id) ?? []);
+  // Pins, in the order pinned; with none here, the accounts used most this week, the rest in the
+  // page's order, up to four.
+  const tokens = (each: { entry: AccountLimits }) => used?.get(each.entry.account.id) ?? 0;
+  const shown = pinnedHere.length
+    ? pinnedHere
+    : readable
+        .map((each, index) => ({ each, index }))
+        .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
+        .slice(0, railBars)
+        .map(({ each }) => each);
+  const bars = shown.map((each) => each.bar);
+  return {
+    bars,
+    label: railLabel(bars),
+    accounts: shown.map((each) => each.entry),
+    pinned: pinnedHere.length > 0,
+  };
 }
 
 /** "Usage: Claude Code · Personal 59% of the week left, Codex 78%, Gemini CLI 29% of the day". */

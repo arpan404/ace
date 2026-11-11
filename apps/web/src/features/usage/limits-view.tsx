@@ -1,5 +1,7 @@
+import { PushPinIcon } from "@phosphor-icons/react";
 import {
   limitDetails,
+  railBars,
   joinNames,
   limitTime,
   roundEstimate,
@@ -29,6 +31,8 @@ export function LimitsView(props: {
   now: number;
   /** The machine an account was read on, for its mark beside its name. */
   machineOf?(entry: AccountLimits): Machine | undefined;
+  /** Pinning to this device's rail: the pinned account ids, and pin or unpin one. */
+  pins?: RailPinning | undefined;
   /** Show the account's spend: its name is a button for it. */
   onAccount?(entry: AccountLimits): void;
   redeem?: RedeemReset | undefined;
@@ -50,6 +54,7 @@ export function LimitsView(props: {
           provider={group.providerLabel}
           machine={machine}
           machineOf={props.machineOf}
+          pins={props.pins}
           now={props.now}
           onShow={props.onAccount && (() => props.onAccount?.(entry))}
           redeem={props.redeem}
@@ -71,6 +76,47 @@ function EntryMachineMark(props: { machine: Machine | undefined }) {
   );
 }
 
+/** The accounts pinned to this device's rail, and the way to change them. */
+export interface RailPinning {
+  ids: readonly string[];
+  toggle(id: string): void;
+}
+
+/**
+ * Pin an account to the rail, so its bar and card show it instead of the accounts used most. A
+ * pinned account keeps its pin in view; others show theirs under the pointer or focus. Four at
+ * most, as the rail draws four.
+ */
+function PinButton(props: { id: string; name: string; pins: RailPinning }) {
+  const pinned = props.pins.ids.includes(props.id);
+  const full = !pinned && props.pins.ids.length >= railBars;
+  const label = pinned
+    ? `Unpin ${props.name} from the rail`
+    : full
+      ? `The rail shows ${railBars} accounts; unpin one to pin ${props.name}`
+      : `Pin ${props.name} to the rail`;
+  return (
+    <Tip label={label}>
+      <button
+        type="button"
+        aria-label={label}
+        aria-pressed={pinned}
+        aria-disabled={full || undefined}
+        onClick={() => {
+          if (!full) props.pins.toggle(props.id);
+        }}
+        className={cn(
+          "grid size-6 shrink-0 place-items-center rounded-sm text-subtle-foreground hover:bg-hover hover:text-foreground focus-ring",
+          !pinned && "opacity-0 group-hover/account:opacity-100 focus-visible:opacity-100",
+          full && "cursor-not-allowed hover:text-subtle-foreground",
+        )}
+      >
+        <PushPinIcon size={14} weight={pinned ? "fill" : "regular"} aria-hidden />
+      </button>
+    </Tip>
+  );
+}
+
 /** The provider's plan name as it reads beside the environment: "plus" → "Plus". */
 const planLabel = (plan: string) => plan.charAt(0).toUpperCase() + plan.slice(1);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -81,6 +127,7 @@ function AccountBlock(props: {
   provider: string;
   machine: boolean;
   machineOf?: ((entry: AccountLimits) => Machine | undefined) | undefined;
+  pins?: RailPinning | undefined;
   now: number;
   first: boolean;
   onShow?: (() => void) | undefined;
@@ -96,7 +143,7 @@ function AccountBlock(props: {
       aria-label={`${name} · ${entry.environment}`}
       className={cn("py-4", !props.first && "border-t border-border")}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <div className="group/account flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <h4 className="flex min-w-0 items-center gap-2 text-md font-medium">
           <ProviderIcon
             provider={entry.account.provider}
@@ -128,6 +175,11 @@ function AccountBlock(props: {
               </span>
             )}
           </span>
+        )}
+        {/* The rail reads this machine's accounts, so only they pin to it. Last in the line, so a
+            hidden pin leaves no gap. */}
+        {props.pins && props.machineOf?.(entry)?.primary && (
+          <PinButton id={entry.account.id} name={name} pins={props.pins} />
         )}
         {entry.account.isDefault && <span className="sr-only">Used for new threads</span>}
         {banked !== undefined && banked > 0 && (
