@@ -14,44 +14,7 @@ struct AceAccountView: View {
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
 
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: AceDesign.Space.row) {
-                    // The same disc as the header's avatar.
-                    AccountAvatar(name: model.account?.name ?? "", picture: model.picture, size: AceDesign.Size.tap)
-                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                        Text(model.account.map { $0.name.isEmpty ? $0.email : $0.name } ?? "Your profile")
-                            .font(AceDesign.Typeface.body).fontWeight(AceDesign.Typeface.strong)
-                        Text(model.account?.email ?? (model.login == nil ? "Not signed in" : "Complete sign-in in your browser"))
-                            .font(AceDesign.Typeface.meta)
-                            .foregroundStyle(AceDesign.Ink.muted)
-                    }
-                    Spacer()
-                    if model.account != nil {
-                        Button("Sign out") { Task { await model.signOut() } }
-                            .disabled(model.busy)
-                    } else if model.login != nil {
-                        Button("Cancel") { model.cancel() }
-                    } else {
-                        Button("Sign in") { model.signIn() }
-                            .disabled(!model.configured || model.busy)
-                    }
-                }
-            }
-            .insetRowBackground()
-            if let error = model.error { Section { ServiceProblem(message: error) }.insetRowBackground() }
-            if let browserProblem {
-                Section {
-                    ServiceProblem(message: browserProblem)
-                    Button("Retry") {
-                        if let url = model.login?.loginUrl { Task { await authenticate(url) } }
-                        else { browserProblem = nil; model.signIn() }
-                    }
-                        .buttonStyle(.textAction())
-                }.insetRowBackground()
-            }
-            if model.account != nil, let machines { accountMachines(machines) }
-        }
+        accountList
         .insetGroupedList()
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
@@ -70,6 +33,56 @@ struct AceAccountView: View {
         .alert("Couldn't forget", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("Dismiss") { notice = nil }
         } message: { Text(notice?.message ?? "") }
+    }
+
+    private var accountList: some View {
+        List {
+            profileSection
+            if let error = model.error { Section { ServiceProblem(message: error) }.insetRowBackground() }
+            browserFailure
+            if model.account != nil, let machines { accountMachines(machines) }
+        }
+    }
+
+    private var profileSection: some View {
+        Section {
+            HStack(spacing: AceDesign.Space.row) {
+                // The same disc as the header's avatar.
+                AccountAvatar(name: model.account?.name ?? "", picture: model.picture, size: AceDesign.Size.tap)
+                VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                    Text(model.account.map { $0.name.isEmpty ? $0.email : $0.name } ?? "Your profile")
+                        .font(AceDesign.Typeface.body).fontWeight(AceDesign.Typeface.strong)
+                    Text(model.account?.email ?? (model.login == nil ? "Not signed in" : "Complete sign-in in your browser"))
+                        .font(AceDesign.Typeface.meta)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                }
+                Spacer()
+                if model.account != nil {
+                    Button("Sign out") { Task { await model.signOut() } }
+                        .disabled(model.busy)
+                } else if model.login != nil {
+                    Button("Cancel") { model.cancel() }
+                } else {
+                    Button("Sign in") { model.signIn() }
+                        .disabled(!model.configured || model.busy)
+                }
+            }
+        }
+        .insetRowBackground()
+    }
+
+    @ViewBuilder private var browserFailure: some View {
+        if let problem = browserProblem {
+            Section {
+                ServiceProblem(message: problem)
+                Button("Retry", action: retryBrowser).buttonStyle(.textAction())
+            }.insetRowBackground()
+        }
+    }
+
+    private func retryBrowser() {
+        if let url = model.login?.loginUrl { Task { await authenticate(url) } }
+        else { browserProblem = nil; model.signIn() }
     }
 
     /// Sign-in in a browser sheet that closes itself when the backend sends it back to

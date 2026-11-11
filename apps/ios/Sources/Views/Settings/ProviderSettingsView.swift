@@ -77,6 +77,7 @@ struct ProviderSignInView: View {
     var initial: LoginProgress? = nil
     @State private var progress: LoginProgress?
     @State private var problem: String?
+    @State private var pollProblem: String?
     @State private var busy = false
     @State private var code = ""
     @State private var returnAddress = ""
@@ -135,11 +136,9 @@ struct ProviderSignInView: View {
                         if !progress.finished { Button("Cancel sign-in", role: .cancel) { request(["type": "provider.login.cancel", "session": progress.session]) } }
                     } header: { InsetHeader(progress.finished ? "Result" : "Continue sign-in") }.disabled(busy || !model.canOperate)
                 }
-                ServiceProblem(message: problem)
-                if problem != nil {
-                    Button("Retry") {
-                        if let failedRequest { request(failedRequest) } else { problem = nil; pollAttempt += 1 }
-                    }.buttonStyle(.textAction()).disabled(busy)
+                ServiceProblem(message: problem ?? pollProblem)
+                if problem != nil || pollProblem != nil {
+                    Button("Retry", action: retry).buttonStyle(.textAction()).disabled(busy)
                 }
             }
             .insetRowBackground()
@@ -164,10 +163,10 @@ struct ProviderSignInView: View {
                     try await Task.sleep(for: .seconds(2))
                     let reply = try await model.service(["type": "provider.login.poll", "session": current.session], as: LoginReply.self)
                     guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
-                    failedRequest = nil
+                    pollProblem = nil
                     progress = reply.result.progress
                     lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
-                } catch { if !Task.isCancelled { failedRequest = nil; problem = error.localizedDescription }; return }
+                } catch { if !Task.isCancelled { pollProblem = error.localizedDescription }; return }
             }
             if progress?.state == "succeeded" { model.refreshMachine() }
         }
@@ -181,6 +180,10 @@ struct ProviderSignInView: View {
             return choice.id == "other" || words.allSatisfy { text.contains($0) }
         }
     }
+    private func retry() {
+        if let payload = failedRequest { request(payload) }
+        else { pollProblem = nil; pollAttempt += 1 }
+    }
     private func request(_ payload: [String: Any]) {
         query = ""
         var payload = payload
@@ -192,6 +195,7 @@ struct ProviderSignInView: View {
                 let reply = try await model.service(payload, as: LoginReply.self)
                 guard reply.result.ok else { throw ServiceFailure(message: reply.result.error ?? "Sign-in unavailable") }
                 failedRequest = nil
+                if pollProblem != nil { pollProblem = nil; pollAttempt += 1 }
                 progress = reply.result.progress
                 lifetime.unfinishedSession = progress.flatMap { $0.finished ? nil : $0.session }
             } catch { failedRequest = payload; problem = error.localizedDescription }
