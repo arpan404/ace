@@ -24,6 +24,7 @@ import { SqliteBrowserTabStore } from "../browser-tab-store.ts";
 import { watchBrowserTurns, type BrowserTurnPort } from "../browser-turns.ts";
 import type { ServiceContext } from "./types.ts";
 import type { Store } from "../store.ts";
+import { grantOfCaller } from "../external-mcp/principals.ts";
 import { browserBackendMessage } from "./socket-message.ts";
 const BrowserProfilePreference = z.enum(["persistent", "ephemeral"]);
 
@@ -94,6 +95,10 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
       options.browser?.onError?.(error);
     },
     tabBudget,
+    // An outside MCP client's session stays off this machine and its network (ADR 0117).
+    privateNetworkBlocked:
+      options.browser?.privateNetworkBlocked ??
+      ((threadId) => grantOfCaller(threadId) !== undefined),
     dataDir: config.dataDir,
     tabStore: options.browser?.tabStore ?? new SqliteBrowserTabStore((sql) => store.statement(sql)),
     // A fork (not a delegated thread) starts its browser with a copy of its parent's tabs.

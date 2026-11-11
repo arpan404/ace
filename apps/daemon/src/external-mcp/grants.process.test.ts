@@ -21,7 +21,13 @@ import {
 const closers: (() => unknown)[] = [];
 let shared: Promise<Fixture> | undefined;
 beforeAll(() => {
-  shared = daemonFixture(undefined, { browser: { headlessBackend: fakeHeadlessBackend() } });
+  shared = daemonFixture(undefined, {
+    browser: {
+      headlessBackend: fakeHeadlessBackend(),
+      // Every public name resolves to one public address, without the network.
+      resolveHost: async () => ["93.184.215.14"],
+    },
+  });
 });
 afterAll(async () => {
   for (const close of closers.splice(0).toReversed()) await close();
@@ -227,4 +233,14 @@ test("a grant can't delegate to another machine or into a folder outside its pro
       error: "forbidden",
     });
   expect(f.daemon.store.listThreads()).toHaveLength(before);
+});
+
+test("an outside grant's browser can't reach this machine or its local network", async () => {
+  const f = await fixture();
+  const lease = await enroll(f, ["--allow", "browser"]);
+  for (const url of ["http://127.0.0.1:9/", "http://localhost:3000/", "http://192.168.1.1/"]) {
+    const refused = toolResult(await call(lease, "browser_open", { url }));
+    expect(refused.isError, url).toBe(true);
+    expect(f.daemon.browser.state(`external:${lease.id}`).url).not.toBe(url);
+  }
 });
