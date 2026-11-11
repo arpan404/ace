@@ -1,10 +1,10 @@
 import { decodeStoredPayload } from "./stored-decode.ts";
-import { decodeStoredItem } from "./stored-decode.ts";
+import { decodeStoredItem, justWrittenItem } from "./stored-decode.ts";
 import { HistorySearchReplay } from "./history-search-replay.ts";
 import type { SearchReplayItem } from "@ace/search";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
+import { Event, type Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
 import { outputStreamId, summarizeOutput, utf8Tail } from "@ace/projection";
 import { ItemTextStore } from "./item-text-store.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
@@ -208,12 +208,11 @@ export class HistoryIndex {
     if (p.type === "item.created" || p.type === "item.updated") {
       // Text items carry the sources their preview was just given; any other item's preview
       // policy is the identity, so it is taken from the event instead of a stored copy.
+      // The item store seeded that preview from this event's item just before (event-writer.ts).
       const item = hasTextPreview(p.item)
-        ? Item.parse(
-            JSON.parse(
-              String(
-                this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id)?.item,
-              ),
+        ? justWrittenItem(
+            String(
+              this.statement("SELECT item FROM item_previews WHERE id=?").get(p.item.id)?.item,
             ),
           )
         : textPreview(p.item).item;
