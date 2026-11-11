@@ -252,3 +252,34 @@ fn a_new_table_section_closes_the_one_before() {
         read("<main><table><tbody hidden><tr><td>secret<tbody><tr><td>visible</table></main>");
     assert_eq!(text, "visible");
 }
+
+#[test]
+fn html_inside_a_hidden_svg_integration_point_stays_hidden() {
+    for hidden_svg in [
+        r#"<svg style="display:none"><foreignObject><div><main>hidden</main></div></foreignObject></svg>"#,
+        r#"<svg hidden><desc><p><main>hidden</main></p></desc></svg>"#,
+    ] {
+        let (_, text) = read(&format!("<body>{hidden_svg}<main>real</main></body>"));
+        assert_eq!(text, "real", "{hidden_svg}");
+    }
+}
+
+#[test]
+fn html_inside_a_hidden_mathml_integration_point_stays_hidden() {
+    for hidden_math in [
+        r#"<math style="display:none"><annotation-xml encoding="text/html"><div><main>hidden</main></div></annotation-xml></math>"#,
+        r#"<math hidden><mtext><div><main>hidden</main></div></mtext></math>"#,
+    ] {
+        let (_, text) = read(&format!("<body>{hidden_math}<main>real</main></body>"));
+        assert_eq!(text, "real", "{hidden_math}");
+    }
+}
+
+#[test]
+fn html_inside_an_integration_point_does_not_end_the_svg() {
+    // The <p> belongs to the foreignObject, so the CDATA after it is still SVG's.
+    let (_, text) = read(
+        "<body><svg><foreignObject><p>x</p></foreignObject><![CDATA[</svg><main>hidden</main>]]></svg><main>real</main></body>",
+    );
+    assert_eq!(text, "real");
+}

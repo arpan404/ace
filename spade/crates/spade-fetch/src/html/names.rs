@@ -54,11 +54,18 @@ pub fn breaks_out_of_foreign(name: &str, attrs: &[(&str, &str)]) -> bool {
 }
 
 /// SVG and MathML elements whose children are HTML again.
-pub fn html_inside(name: &str) -> bool {
-    matches!(
-        name,
-        "foreignobject" | "desc" | "title" | "mi" | "mo" | "mn" | "ms" | "mtext" | "annotation-xml"
-    )
+/// These are the HTML integration points (SVG `foreignObject`, `desc` and `title`, and MathML
+/// `annotation-xml` declaring HTML) and the MathML text integration points.
+pub fn html_inside(name: &str, attrs: &[(&str, &str)]) -> bool {
+    match name {
+        "foreignobject" | "desc" | "title" | "mi" | "mo" | "mn" | "ms" | "mtext" => true,
+        "annotation-xml" => attrs.iter().any(|(k, v)| {
+            *k == "encoding"
+                && (v.eq_ignore_ascii_case("text/html")
+                    || v.eq_ignore_ascii_case("application/xhtml+xml"))
+        }),
+        _ => false,
+    }
 }
 
 /// Elements whose content is never page text.

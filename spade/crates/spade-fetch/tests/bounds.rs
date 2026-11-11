@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use reqwest::Url;
 use spade_fetch::extract::{
-    MOST_DEPTH, MOST_TAGS, MOST_TEXT_BYTES, MOST_TITLE_CHARS, MOST_URL_BYTES, Readable, html,
+    MOST_ATTRIBUTES, MOST_DEPTH, MOST_TAGS, MOST_TEXT_BYTES, MOST_TITLE_CHARS, MOST_URL_BYTES,
+    Readable, html,
 };
 
 const FIVE_MIB: usize = 5 * 1024 * 1024;
@@ -169,4 +170,77 @@ fn a_huge_page_address_cannot_be_copied_into_every_link() {
     // Relative links have nothing short enough to resolve against, so they are text.
     assert!(read.text.starts_with("[abs](https://other.example/) t t t"));
     assert!(read.text.len() < 300_000);
+}
+
+fn tag_with_attributes(name: &str, count: usize) -> String {
+    let attrs: String = (0..count).map(|i| format!(" data-{i}=x")).collect();
+    format!("<{name}{attrs}>")
+}
+
+#[test]
+fn one_tag_with_a_huge_number_of_attributes_is_cut_quickly() {
+    let source = format!("{}body</main>", tag_with_attributes("main", 300_000));
+    let read = read_within_two_seconds(source);
+    assert!(read.truncated);
+    assert!(!read.text.contains("body"));
+}
+
+#[test]
+fn an_end_tag_with_a_huge_number_of_attributes_is_cut_quickly() {
+    let source = format!("<main>kept{}</main>", tag_with_attributes("/main", 300_000));
+    let read = read_within_two_seconds(source);
+    assert!(read.truncated);
+    assert_eq!(read.text, "kept");
+}
+
+#[test]
+fn attributes_hidden_behind_a_quote_in_a_comment_or_script_still_count() {
+    // A scanner that tracked quotes from the comment or script would skip the real tag.
+    let heavy = tag_with_attributes("main", 300_000);
+    for before in ["<!-- <a x=\" -->", "<script>var s = '<a x=\"';</script>"] {
+        let read = read_within_two_seconds(format!("{before}{heavy}body</main>"));
+        assert!(read.truncated, "{before}");
+    }
+}
+
+#[test]
+fn quoted_values_that_look_like_tags_do_not_reset_the_count() {
+    // Each `<b` sits inside a quoted value of the same <main>, so it starts no tag; a scanner
+    // that started counting again at each one would never see more than 100 in a row.
+    let chunks: String = (0..3_000)
+        .map(|i| {
+            let run: String = (0..100).map(|j| format!(" a{i}-{j}=x")).collect();
+            format!("{run} q{i}=\"<b\"")
+        })
+        .collect();
+    let read = read_within_two_seconds(format!("<main{chunks}>body</main>"));
+    assert!(read.truncated);
+}
+
+#[test]
+fn the_attribute_limit_is_exact() {
+    let at_limit = format!(
+        "{}body</main>",
+        tag_with_attributes("main", MOST_ATTRIBUTES)
+    );
+    let read = read_within_two_seconds(at_limit);
+    assert_eq!(read.text, "body");
+    assert!(!read.truncated);
+
+    let past = format!(
+        "{}body</main>",
+        tag_with_attributes("main", MOST_ATTRIBUTES + 1)
+    );
+    let read = read_within_two_seconds(past);
+    assert!(read.truncated);
+}
+
+#[test]
+fn many_tags_each_with_some_attributes_are_not_cut() {
+    let tags: String = (0..5_000)
+        .map(|i| format!("<span class=a id=s{i} title=\"t > {i}\" data-x='y'>w</span>"))
+        .collect();
+    let read = read_within_two_seconds(format!("<main>{tags}</main>"));
+    assert!(!read.truncated);
+    assert!(read.text.starts_with("wwww"));
 }

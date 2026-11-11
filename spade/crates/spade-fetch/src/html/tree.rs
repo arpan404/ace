@@ -131,8 +131,11 @@ struct Open {
     /// The node, unless this element is left out.
     node: Option<Id>,
     hidden: bool,
-    /// Inside SVG or MathML, where CDATA sections exist and `/>` closes any element.
+    /// An SVG or MathML element, so CDATA sections exist directly inside it.
     foreign: bool,
+    /// Whether this element's children are HTML: an HTML element, or an SVG or MathML
+    /// integration point. When not, a start tag is SVG or MathML too, and `/>` closes it.
+    children_html: bool,
     nearest: [Option<usize>; GROUPS],
 }
 
@@ -187,7 +190,7 @@ pub fn build(source: &str) -> Tree {
         alt: None,
         children: Vec::new(),
     };
-    let builder = Builder {
+    let mut builder = Builder {
         tree: Tree {
             nodes: vec![Node::Element(root)],
             parents: vec![Tree::ROOT],
@@ -200,6 +203,7 @@ pub fn build(source: &str) -> Tree {
             node: Some(Tree::ROOT),
             hidden: false,
             foreign: false,
+            children_html: true,
             nearest: [None; GROUPS],
         }],
         open_by_name: HashMap::new(),
@@ -207,6 +211,8 @@ pub fn build(source: &str) -> Tree {
         title: Title::NotYet,
         stopped: false,
     };
+    let (source, cut) = super::attrs::within_limit(source);
+    builder.tree.truncated = cut;
     let tokenizer = Tokenizer::new(Sink(RefCell::new(builder)), TokenizerOpts::default());
     let input = BufferQueue::default();
     input.push_back(StrTendril::from_slice(source));
@@ -284,13 +290,16 @@ impl Builder {
             .iter()
             .map(|a| (&*a.name.local, &*a.value))
             .collect();
-        if self.top().foreign && breaks_out_of_foreign(name, &attrs) {
-            while self.stack.len() > 1 && self.top().foreign {
+        // Some HTML start tags end SVG or MathML content, back to the nearest element whose
+        // children are HTML, which may be an integration point inside it (and so keeps its
+        // hidden ancestors).
+        if !self.top().children_html && breaks_out_of_foreign(name, &attrs) {
+            while self.stack.len() > 1 && !self.top().children_html {
                 self.pop();
             }
         }
-        let foreign = matches!(name, "svg" | "math")
-            || (self.top().foreign && !html_inside(&self.top().name));
+        let foreign = matches!(name, "svg" | "math") || !self.top().children_html;
+        let children_html = !foreign || html_inside(name, &attrs);
         if !foreign {
             if matches!(name, "html" | "body")
                 && self.open_by_name.get(name).is_some_and(|n| *n > 0)
@@ -355,6 +364,7 @@ impl Builder {
             node,
             hidden,
             foreign,
+            children_html,
             nearest,
         });
         if foreign {

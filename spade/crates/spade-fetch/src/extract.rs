@@ -6,14 +6,16 @@
 //! Headings become `#` lines, list items `- ` lines, links `[text](absolute url)`, `pre` blocks
 //! fenced code, and whitespace is collapsed.
 //!
-//! The work is bounded whatever the page holds: see [`crate::html::tree`] for the parse limits,
-//! [`MOST_TEXT_BYTES`] for the output and [`MOST_URL_BYTES`] for each link.
+//! The work is bounded whatever the page holds: [`MOST_DEPTH`], [`MOST_TAGS`] and
+//! [`MOST_ATTRIBUTES`] for the parse, [`MOST_TEXT_BYTES`] for the output and [`MOST_URL_BYTES`]
+//! for each link.
 
 use reqwest::Url;
 
 use crate::html::out::{Break, Out};
 use crate::html::tree::{self, Element, Id, Node, Tree};
 
+pub use crate::html::attrs::MOST_ATTRIBUTES;
 pub use crate::html::tree::{MOST_DEPTH, MOST_TAGS};
 
 /// The most readable text kept from one page, in bytes. Past it the text is cut and marked
