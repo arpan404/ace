@@ -200,22 +200,26 @@ import Observation
         switch await access.perform(.pair(link, name: name)) {
         case .failure(let notice): return notice
         case .success(let outcome):
-            // The machine took the pairing: it is the commit point. Record it whole (listing,
-            // grants) even if the person has gone back, so nothing is left saved but half set up.
-            // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
-            if let listed = outcome.machines { paired = listed; await follow(merged()) }
-            guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
-            grants.set(paired.scopes, for: entry)
-            saveGrants()
-            // Paired again while connected: the daemon closed the old credential's sockets, so the
-            // runtime opens again with the new credential and grants.
-            if let client = inbox.client(entry.hostId) {
-                if let target = target(for: entry) { await open(client, entry: entry, target: target) }
-            } else {
-                await connect(entry)
-            }
-            return nil
+            // The machine took the pairing: it is the commit point. Record and connect it whole
+            // (listing, grants, the runtime) even if the person has gone back, in a task of its own
+            // so their leaving can't stop it half way: saved, but never connected.
+            return await Task { @MainActor in await self.commit(outcome) }.value
         }
+    }
+    private func commit(_ outcome: AccessOutcome) async -> ProblemNotice? {
+        // Through `follow`: an account machine this pairing turns out to be lets its runtime go.
+        if let listed = outcome.machines { paired = listed; await follow(merged()) }
+        guard let paired = outcome.paired, let entry = entry(paired.hostId) else { return .unknown }
+        grants.set(paired.scopes, for: entry)
+        saveGrants()
+        // Paired again while connected: the daemon closed the old credential's sockets, so the
+        // runtime opens again with the new credential and grants.
+        if let client = inbox.client(entry.hostId) {
+            if let target = target(for: entry) { await open(client, entry: entry, target: target) }
+        } else {
+            await connect(entry)
+        }
+        return nil
     }
     /// A name for this phone only; the computer keeps its own.
     func rename(_ hostId: String, to name: String) async -> ProblemNotice? {
