@@ -15,8 +15,11 @@ export const OutsideScope = z.enum([
 ]);
 export type OutsideScope = z.infer<typeof OutsideScope>;
 
-/** How the client was registered: `ace mcp enroll`, a metadata document URL, or DCR. */
-export const OutsideClientKind = z.enum(["cli", "cimd", "dcr"]);
+/**
+ * How the client was registered: `ace mcp enroll`, a metadata document URL, DCR, or Spade's own
+ * grant (ADR 0123), made when Spade is turned on and acting as its host thread.
+ */
+export const OutsideClientKind = z.enum(["cli", "cimd", "dcr", "spade"]);
 export type OutsideClientKind = z.infer<typeof OutsideClientKind>;
 
 const grantId = z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/);

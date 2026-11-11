@@ -39,6 +39,7 @@ export class OutsideAccess {
   readonly screen: OutsideScreen;
   readonly requests: AccessRequests;
   private options: OutsideAccessOptions;
+  private readonly endedListeners = new Set<(grantId: string) => void>();
   constructor(options: OutsideAccessOptions) {
     this.options = options;
     const { sql, now, id } = options;
@@ -69,6 +70,7 @@ export class OutsideAccess {
         this.screen.stop(grantId);
         options.closeBrowser(grantId);
         options.ended(grantId);
+        for (const listener of this.endedListeners) listener(grantId);
       },
     });
     // Grants live before a restart expire on time without waiting for their next request.
@@ -85,8 +87,17 @@ export class OutsideAccess {
     this.principals.end(grantId);
     return true;
   }
-  /** Changes a live grant; the next request reads it. */
+  /** Called with each grant that ends (revoked or expired), whoever ended it. */
+  onEnded(listener: (grantId: string) => void): () => void {
+    this.endedListeners.add(listener);
+    return () => this.endedListeners.delete(listener);
+  }
+  /**
+   * Changes a live grant; the next request reads it. Spade's grant is not changed here: what it
+   * may do is its host thread's lease (ADR 0123), so it is only made or revoked.
+   */
   update(grantId: string, change: GrantChange): OutsideGrant | undefined {
+    if (this.grants.get(grantId)?.clientKind === "spade") return undefined;
     const grant = this.grants.update(grantId, change);
     if (!grant) return undefined;
     this.principals.rearm(grant);
@@ -103,7 +114,7 @@ export class OutsideAccess {
    */
   stopScreen(grantId: string, by: string): boolean {
     const grant = this.grants.live(grantId);
-    if (!grant) return false;
+    if (!grant || grant.clientKind === "spade") return false;
     this.screen.stop(grantId);
     if (!grant.scopes.includes("computer")) return true;
     const updated = this.update(grantId, {
