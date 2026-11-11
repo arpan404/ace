@@ -21,6 +21,23 @@ export const SpadeMaintenance = z.object({
 });
 export type SpadeMaintenance = z.infer<typeof SpadeMaintenance>;
 
+/**
+ * A swap past its flip that hasn't finished: written before the flip, removed once the swap or
+ * its rollback is done, so a retry after the updater died can finish or undo it.
+ */
+export const SpadePendingSwap = z.object({
+  /** The version `current` named before the flip; undefined on a first install. */
+  from: z.string().min(1).max(64).optional(),
+  to: z.string().min(1).max(64),
+  /** The pre-swap database copy, undefined when Spade had no database yet. */
+  snapshot: z.string().min(1).max(4096).optional(),
+});
+export interface SpadePendingSwap {
+  from: string | undefined;
+  to: string;
+  snapshot: string | undefined;
+}
+
 export interface SpadeSwapPorts {
   state(): Promise<SpadeServiceState>;
   installedVersion(): Promise<string | undefined>;
@@ -56,6 +73,11 @@ export interface SpadeSwapPorts {
    * update's snapshot won't replace it, and answers where it went.
    */
   keepSnapshot(snapshot: string, failedVersion: string): Promise<string>;
+  /** The swap whose record is on disk, if one didn't finish. */
+  pendingSwap(): Promise<SpadePendingSwap | undefined>;
+  /** Writes the swap's record durably; called before the flip. */
+  recordSwap(swap: SpadePendingSwap): Promise<void>;
+  clearSwap(): Promise<void>;
   /** Points `releases/spade/current` at `version`. */
   flip(version: string): Promise<void>;
   /** The pid in Spade's `server.json`, if any: the process a restart must replace. */
@@ -108,33 +130,31 @@ export async function swapSpade(
   let from: string | undefined;
   const failed = (error: string): Failed => ({ kind: "failed", from, to: version, error });
   let state: SpadeServiceState;
+  let pending: SpadePendingSwap | undefined;
   try {
     state = await ports.state();
     if (state === "absent") return { kind: "skipped", reason: "absent" };
     from = await ports.installedVersion();
+    pending = await ports.pendingSwap();
   } catch (error) {
     return failed(reason(error));
   }
-  if (from === version) return finish(version, state, ports);
-  // A stopped Spade has no turns to pause; a running one closes admission first.
-  let closed = false;
-  if (state === "running") {
+  if (pending && pending.to !== version) {
+    // An interrupted swap to another version: its snapshot outlives the one this swap takes.
     try {
-      const deadline = spadeDeadlines[mode];
-      const until = ports.now() + deadline + spadeDeadlineMarginMs;
-      closed = true;
-      let status = await ports.closeAdmission(mode, deadline);
-      while (!spadeQuiet(mode, status)) {
-        if (status.admission !== "closed") throw new Error("Spade reopened admission");
-        if (ports.now() >= until)
-          throw new Error(
-            mode === "idle"
-              ? "Spade is still working; it updates once it is idle"
-              : "Spade's running model steps didn't finish in time",
-          );
-        await ports.wait(pollMs);
-        status = await ports.maintenance();
-      }
+      if (pending.snapshot !== undefined) await ports.keepSnapshot(pending.snapshot, pending.to);
+      await ports.clearSwap();
+    } catch (error) {
+      return failed(`Couldn't keep an interrupted update's copy of Spade's data: ${reason(error)}`);
+    }
+    pending = undefined;
+  }
+  if (from === version) return finish(version, mode, state, ports, pending);
+  // A stopped Spade has no turns to pause; a running one closes admission first.
+  const closed = state === "running";
+  if (closed) {
+    try {
+      await drain(mode, ports);
     } catch (error) {
       return abort(ports, closed, failed(reason(error)));
     }
@@ -153,63 +173,136 @@ export async function swapSpade(
     );
   }
   try {
+    // Before the flip, so a retry after a crash past it can still finish or undo the swap.
+    await ports.recordSwap({ from, to: version, snapshot });
     await ports.flip(version);
   } catch (error) {
+    await ports.clearSwap().catch(() => {});
     await drop(ports, snapshot);
     return abort(ports, closed, failed(`Couldn't switch Spade to ${version}: ${reason(error)}`));
   }
+  return complete(ports, { from, to: version, snapshot }, failed, "after its restart");
+}
+
+/** Closes admission and waits until `mode` lets Spade stop; throws why it can't. */
+async function drain(mode: SpadeSwapMode, ports: SpadeSwapPorts): Promise<void> {
+  const deadline = spadeDeadlines[mode];
+  const until = ports.now() + deadline + spadeDeadlineMarginMs;
+  let status = await ports.closeAdmission(mode, deadline);
+  while (!spadeQuiet(mode, status)) {
+    if (status.admission !== "closed") throw new Error("Spade reopened admission");
+    if (ports.now() >= until)
+      throw new Error(
+        mode === "idle"
+          ? "Spade is still working; it updates once it is idle"
+          : "Spade's running model steps didn't finish in time",
+      );
+    await ports.wait(pollMs);
+    status = await ports.maintenance();
+  }
+}
+
+/**
+ * After the flip: restart on `current` and check `swap.to` came up; otherwise roll back to
+ * `swap.from`. The swap's record goes once nothing is left that a retry could need: its
+ * snapshot either served its purpose or was moved where no later snapshot replaces it.
+ */
+async function complete(
+  ports: SpadeSwapPorts,
+  swap: SpadePendingSwap,
+  failed: (error: string) => Failed,
+  when: string,
+): Promise<SpadeSwapResult> {
   try {
     const old = await ports.serverPid();
     await ports.restart();
-    if (await ports.health(version, old)) {
-      await drop(ports, snapshot);
-      return { kind: "swapped", from, to: version };
+    if (await ports.health(swap.to, old)) {
+      await drop(ports, swap.snapshot);
+      await ports.clearSwap().catch(() => {});
+      return { kind: "swapped", from: swap.from, to: swap.to };
     }
-    throw new Error(`Spade ${version} didn't come up after its restart`);
+    throw new Error(`Spade ${swap.to} didn't come up ${when}`);
   } catch (error) {
-    const rolled = await rollBack(ports, from, snapshot, failed(reason(error)));
+    const rolled = await rollBack(ports, swap.from, swap.snapshot, failed(reason(error)));
     if (rolled.recovered) {
-      await drop(ports, snapshot);
+      await drop(ports, swap.snapshot);
+      await ports.clearSwap().catch(() => {});
       return rolled.result;
     }
-    return keep(ports, snapshot, rolled.result);
+    const kept = await keep(ports, swap.snapshot, rolled.result);
+    if (kept.safe) await ports.clearSwap().catch(() => {});
+    return kept.result;
   }
 }
 
 /**
  * `current` already names `version`. Usually the swap is done and Spade runs it; but an updater
  * that died after the flip and before the restart leaves the old process running with admission
- * closed. So only a Spade proving `version` counts as current; otherwise the swap is finished:
- * restart on `current`, then check the new one came up (a fresh process opens admission).
+ * closed. So only a Spade proving `version` counts as current; otherwise the swap is finished as
+ * a normal one would: drained in `mode`, restarted, checked, and rolled back to the version its
+ * record names when the new one doesn't come up.
  */
 async function finish(
   version: string,
+  mode: SpadeSwapMode,
   state: SpadeServiceState,
   ports: SpadeSwapPorts,
+  /** This version's record, when the interrupted swap wrote one. */
+  pending: SpadePendingSwap | undefined,
 ): Promise<SpadeSwapResult> {
+  const swap: SpadePendingSwap = pending ?? { from: undefined, to: version, snapshot: undefined };
+  const failed = (error: string): Failed => ({
+    kind: "failed",
+    from: swap.from ?? version,
+    to: version,
+    error,
+  });
   try {
-    if (state === "running" && (await ports.health(version, undefined)))
+    if (state === "running" && (await ports.health(version, undefined))) {
+      if (pending) {
+        await drop(ports, pending.snapshot);
+        await ports.clearSwap().catch(() => {});
+      }
       return { kind: "skipped", reason: "current" };
-    const old = await ports.serverPid();
-    await ports.restart();
-    if (await ports.health(version, old)) return { kind: "swapped", from: undefined, to: version };
-    throw new Error(`Spade ${version} didn't come up after finishing an interrupted update`);
+    }
   } catch (error) {
-    // Whatever still runs shouldn't stay closed to new work.
-    await ports.reopenAdmission().catch(() => {});
-    return { kind: "failed", from: version, to: version, error: reason(error) };
+    return failed(reason(error));
   }
+  const closed = state === "running";
+  if (closed) {
+    try {
+      await drain(mode, ports);
+    } catch (error) {
+      return abort(ports, closed, failed(reason(error)));
+    }
+  }
+  return complete(ports, swap, failed, "after finishing an interrupted update");
 }
 
-/** The rollback didn't bring the old Spade back: its database copy is kept, and said where. */
+/**
+ * The rollback didn't bring the old Spade back: its database copy is kept, and said where.
+ * `safe` once it is out of the next snapshot's way (or there was none).
+ */
 async function keep(
   ports: SpadeSwapPorts,
   snapshot: string | undefined,
   result: Failed,
-): Promise<Failed> {
-  if (snapshot === undefined) return result;
-  const kept = await ports.keepSnapshot(snapshot, result.to).catch(() => snapshot);
-  return { ...result, error: `${result.error}; Spade's data from before the swap is in ${kept}` };
+): Promise<{ result: Failed; safe: boolean }> {
+  if (snapshot === undefined) return { result, safe: true };
+  let kept = snapshot;
+  let safe = true;
+  try {
+    kept = await ports.keepSnapshot(snapshot, result.to);
+  } catch {
+    safe = false;
+  }
+  return {
+    result: {
+      ...result,
+      error: `${result.error}; Spade's data from before the swap is in ${kept}`,
+    },
+    safe,
+  };
 }
 
 async function drop(ports: SpadeSwapPorts, snapshot: string | undefined): Promise<void> {

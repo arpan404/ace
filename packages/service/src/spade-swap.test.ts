@@ -4,6 +4,7 @@ import {
   swapPrograms,
   swapSpade,
   type SpadeMaintenance,
+  type SpadePendingSwap,
   type SpadeSwapPorts,
 } from "./spade-swap.ts";
 
@@ -35,6 +36,8 @@ function machine(options: {
    * flipping `current` and before restarting Spade, with admission still closed.
    */
   runs?: string;
+  /** The record an interrupted swap left; its snapshot holds the database before it began. */
+  pending?: SpadePendingSwap;
 }) {
   const log: string[] = [];
   let clock = 0;
@@ -50,6 +53,8 @@ function machine(options: {
   const jobs = options.jobs ?? 0;
   let turnPolls = options.turnPolls ?? 1;
   const snapshots = new Map<string, string>();
+  let pending = options.pending;
+  if (pending?.snapshot !== undefined) snapshots.set(pending.snapshot, pending.from ?? schema);
   const status = (): SpadeMaintenance => ({
     admission,
     running_turns: turns,
@@ -89,6 +94,8 @@ function machine(options: {
     async snapshot() {
       if (options.hasDatabase === false) return undefined;
       log.push("snapshot");
+      // The real port empties the snapshot folder first.
+      snapshots.delete("snap");
       snapshots.set("snap", schema);
       return "snap";
     },
@@ -113,6 +120,13 @@ function machine(options: {
       snapshots.set(kept, snapshots.get(snapshot) ?? schema);
       snapshots.delete(snapshot);
       return kept;
+    },
+    pendingSwap: async () => pending,
+    async recordSwap(swap) {
+      pending = swap;
+    },
+    async clearSwap() {
+      pending = undefined;
     },
     async flip(version) {
       log.push(`flip ${version}`);
@@ -141,6 +155,7 @@ function machine(options: {
     running: () => running,
     schema: () => schema,
     admission: () => admission,
+    pending: () => pending,
   };
 }
 
@@ -264,9 +279,75 @@ test("an update that died after the flip is finished on the retry", async () => 
     kind: "swapped",
     to: "0.5.0",
   });
-  expect(world.log).toEqual(["restart"]);
+  expect(world.log).toEqual(["close now 30000", "restart"]);
   expect(world.running()).toBe("0.5.0");
   expect(world.admission()).toBe("open");
+});
+
+test("a retry in idle mode waits for Spade's work before finishing an interrupted update", async () => {
+  const world = machine({ installed: "0.5.0", runs: "0.4.0", jobs: 1 });
+  const result = await swapSpade("0.5.0", "idle", world.ports);
+  expect(result.kind === "failed" && result.error).toMatch(/idle/);
+  expect(world.log).toEqual(["close idle 300000", "reopen"]);
+  expect(world.running()).toBe("0.4.0");
+  expect(world.admission()).toBe("open");
+});
+
+test("a retry in now mode lets running model steps finish before the restart", async () => {
+  const world = machine({ installed: "0.5.0", runs: "0.4.0", turns: 1, turnPolls: 3, jobs: 1 });
+  expect(await swapSpade("0.5.0", "now", world.ports)).toMatchObject({ kind: "swapped" });
+  expect(world.log).toEqual(["close now 30000", "restart"]);
+});
+
+const interrupted: SpadePendingSwap = { from: "0.4.0", to: "0.5.0", snapshot: "snap" };
+
+test("a retry whose new version fails rolls back to the version the swap's record names", async () => {
+  const world = machine({
+    installed: "0.5.0",
+    runs: "0.4.0",
+    broken: ["0.5.0"],
+    pending: interrupted,
+  });
+  const result = await swapSpade("0.5.0", "now", world.ports);
+  expect(result).toMatchObject({ kind: "failed", from: "0.4.0", to: "0.5.0" });
+  expect(world.current()).toBe("0.4.0");
+  expect(world.running()).toBe("0.4.0");
+  expect(world.schema()).toBe("0.4.0");
+  expect(world.pending()).toBeUndefined();
+});
+
+test("a retry that can't restore the database keeps the interrupted swap's snapshot", async () => {
+  const world = machine({
+    installed: "0.5.0",
+    runs: "0.4.0",
+    broken: ["0.5.0"],
+    restoreThrows: true,
+    pending: interrupted,
+  });
+  await swapSpade("0.5.0", "now", world.ports);
+  expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+  // A later update's snapshot can't replace it.
+  await swapSpade("0.6.0", "now", world.ports);
+  expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+});
+
+test("a swap to a newer version first keeps an interrupted swap's snapshot", async () => {
+  const world = machine({ installed: "0.5.0", runs: "0.5.0", pending: interrupted });
+  expect(await swapSpade("0.6.0", "now", world.ports)).toMatchObject({ kind: "swapped" });
+  expect(world.snapshots.get("spade.sqlite.before-0.5.0")).toBe("0.4.0");
+});
+
+test("a swap's record is written before the flip and gone once it is done", async () => {
+  const world = machine({});
+  const flip = world.ports.flip;
+  let recorded: SpadePendingSwap | undefined;
+  world.ports.flip = async (version) => {
+    recorded = world.pending();
+    await flip(version);
+  };
+  await swapSpade("0.5.0", "now", world.ports);
+  expect(recorded).toEqual({ from: "0.4.0", to: "0.5.0", snapshot: "snap" });
+  expect(world.pending()).toBeUndefined();
 });
 
 test("a retry that can't bring the flipped version up reports the update failed", async () => {

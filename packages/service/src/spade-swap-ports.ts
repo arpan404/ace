@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { copyFile, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync, backup } from "@ace/provider-kit/sqlite";
 import { runProcess, type Runner } from "./process.ts";
@@ -15,7 +15,7 @@ import {
   stageSpadeBinary,
 } from "./spade-release.ts";
 import { restartSpadeService, spadeServiceState, stopSpadeService } from "./spade-service.ts";
-import { SpadeMaintenance, type SpadeSwapPorts } from "./spade-swap.ts";
+import { SpadeMaintenance, SpadePendingSwap, type SpadeSwapPorts } from "./spade-swap.ts";
 
 export interface SpadeSwapIo {
   home: string;
@@ -40,6 +40,7 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
   const database = join(dataDir, "spade.sqlite");
   const snapshotDir = join(home, ".spade-update-snapshot");
   const checkDir = join(home, ".spade-migration-check");
+  const swapRecord = join(home, ".spade-update-swap.json");
   /** Where Spade says it listens (`server.json`) and the token it wrote, read afresh each time. */
   const endpoint = async () => {
     const server = readSpadeServerFile(await readFile(join(dataDir, "server.json"), "utf8"));
@@ -145,6 +146,21 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
       await rename(snapshot, kept);
       await rm(snapshotDir, { recursive: true, force: true });
       return kept;
+    },
+    async pendingSwap() {
+      if (!existsSync(swapRecord)) return undefined;
+      // An unreadable record fails the swap rather than risk the snapshot it names.
+      const record = SpadePendingSwap.parse(JSON.parse(await readFile(swapRecord, "utf8")));
+      return { from: record.from, to: record.to, snapshot: record.snapshot };
+    },
+    async recordSwap(swap) {
+      const temporary = `${swapRecord}.tmp`;
+      await writeFile(temporary, JSON.stringify(swap) + "\n", { mode: 0o600 });
+      await flush(temporary);
+      await rename(temporary, swapRecord);
+    },
+    async clearSwap() {
+      await rm(swapRecord, { force: true });
     },
     flip: (target) => flipSpadeCurrent(home, target),
     async serverPid() {
