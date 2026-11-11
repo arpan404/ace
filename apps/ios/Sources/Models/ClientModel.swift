@@ -154,6 +154,8 @@ import QuartzCore
     let browser = BrowserLiveModel()
     let devices = DevicesModel()
     let computerAccess = ComputerAccessModel()
+    /// Outside apps' sign-ins and screen use (ADR 0117).
+    let outside = OutsideClientsModel()
     /// Continue on… and Open on… from this machine (`bridge/transfers.ts`).
     let transfers = TransfersModel()
     /// The daemon reads the bridge keeps, for each screen's first frame (`ReadMirror`).
@@ -199,7 +201,7 @@ import QuartzCore
         hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = nil; shelf.clear(); inboxLoaded = false; sheets.reset(); archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
-        browser.forgetSaves(); computerAccess.reset()
+        browser.forgetSaves(); computerAccess.reset(); outside.reset()
         inboxLayout = .empty; chatLayout = .empty
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
@@ -661,6 +663,7 @@ import QuartzCore
             case .browser(let patch): browser.apply(patch)
             case .devices(let patch): devices.apply(patch)
             case .computerAccess(let state): computerAccess.apply(state)
+            case .outside(let state): outside.apply(state)
             }
         }
         (thread?.refresh ?? thread)?.screen.commit()

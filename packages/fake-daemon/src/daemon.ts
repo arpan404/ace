@@ -559,6 +559,7 @@ export class FakeDaemon implements Host {
       // A delegated child names its parent, as the daemon records it at launch.
       ...(init.parentThreadId ? { delegatedBy: ThreadId.parse(init.parentThreadId) } : {}),
       ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
+      ...(init.startedByClient ? { startedByClient: init.startedByClient } : {}),
       ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
       ...(init.execution ? { execution: init.execution } : {}),

@@ -24,9 +24,14 @@ export class FakeOutside {
   ];
   /** Every `decide` an admin device sent, oldest first. */
   readonly decisions: { requestId: string; choice: OutsideAccessDecision }[] = [];
-  private access: OutsideAccessRequest[] = [];
+  /** Pending sign-ins; a scenario may clear them to stage a fresh start. */
+  access: OutsideAccessRequest[] = [];
   private screen: OutsideScreenUse[] = [];
   private readonly watchers = new Set<(message: ServerMessage) => void>();
+  private readonly now: () => number;
+  constructor(now: () => number) {
+    this.now = now;
+  }
 
   /** A client asks to sign in, as its `/authorize` page would. */
   ask(request: OutsideAccessRequest): void {
@@ -70,13 +75,14 @@ export class FakeOutside {
         this.watchers.add(emit);
         return { kind: "watching" as const };
       case "revoke": {
-        const grant = this.grants.find((each) => each.id === operation.grantId);
+        const grant = this.live(operation.grantId);
         if (!grant) return "not_found";
-        grant.revokedAt = Date.now();
+        grant.revokedAt = this.now();
+        this.useScreen(this.screen.filter((use) => use.grantId !== grant.id));
         return { kind: "revoked" as const };
       }
       case "update": {
-        const grant = this.grants.find((each) => each.id === operation.grantId);
+        const grant = this.live(operation.grantId);
         if (!grant) return "not_found";
         if (operation.scopes) grant.scopes = operation.scopes;
         if (operation.projects) grant.projects = operation.projects;
@@ -85,19 +91,28 @@ export class FakeOutside {
         return { kind: "updated" as const, grant: plain };
       }
       case "stopScreen": {
-        if (!this.screen.some((use) => use.grantId === operation.grantId)) return "not_found";
-        this.useScreen(this.screen.filter((use) => use.grantId !== operation.grantId));
+        // As the daemon does: the screen work ends and `computer` leaves the grant.
+        const grant = this.live(operation.grantId);
+        if (!grant) return "not_found";
+        grant.scopes = grant.scopes.filter((scope) => scope !== "computer");
+        this.useScreen(this.screen.filter((use) => use.grantId !== grant.id));
         return { kind: "screenStopped" as const };
       }
       case "decide": {
-        if (!this.access.some((each) => each.requestId === operation.accessRequestId))
-          return "not_found";
+        const pending = this.access.find(
+          (each) => each.requestId === operation.accessRequestId && each.expiresAt > this.now(),
+        );
+        if (!pending) return "not_found";
         this.decisions.push({ requestId: operation.accessRequestId, choice: operation.choice });
         this.access = this.access.filter((each) => each.requestId !== operation.accessRequestId);
         this.push();
         return { kind: "decided" as const };
       }
     }
+  }
+
+  private live(id: string): OutsideGrantEntry | undefined {
+    return this.grants.find((each) => each.id === id && each.revokedAt === null);
   }
 
   private state(): ServerMessage {

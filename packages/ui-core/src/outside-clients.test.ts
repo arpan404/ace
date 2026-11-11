@@ -5,10 +5,15 @@ import {
   approvalDecision,
   arrangeGrants,
   expiryWords,
+  grantState,
   initialChoice,
+  lifetimeEnd,
   projectsWords,
+  redirectWords,
+  scopeChoices,
   scopeWords,
   screenUseSentence,
+  startedByWords,
 } from "./outside-clients.ts";
 
 const now = 1_800_000_000_000;
@@ -35,8 +40,6 @@ function grant(id: string, facts: Partial<OutsideGrantEntry> = {}): OutsideGrant
   };
 }
 
-const name = (id: string) => (id === "w1" ? "ace" : id);
-
 describe("what a grant may do, in words", () => {
   test.each([
     [["threads:read"], "Read threads"],
@@ -56,12 +59,18 @@ describe("what a grant may do, in words", () => {
     expect(scopeWords(["threads:message"])).toBe("Read and message threads");
   });
 
-  test("projects read as all, one by name, or a count", () => {
-    expect(projectsWords("all", name)).toBe("All projects");
-    const w1 = WorkspaceId.parse("w1");
-    expect(projectsWords([w1], name)).toBe("ace");
-    expect(projectsWords([w1, WorkspaceId.parse("w2"), WorkspaceId.parse("w3")], name)).toBe(
-      "3 projects",
+  test("projects read as all, one or two by name, or a count", () => {
+    const names: Record<string, string> = { a: "ace", b: "web" };
+    const known = (id: string) => names[id];
+    expect(projectsWords("all", known)).toBe("All projects");
+    expect(projectsWords([WorkspaceId.parse("a")], known)).toBe("ace");
+    expect(projectsWords(["a", "b"], known)).toBe("ace and web");
+    expect(projectsWords(["a", "b", "c"], known)).toBe("3 projects");
+  });
+
+  test("a project the client doesn't know by name shows its id", () => {
+    expect(projectsWords(["a", "unknown"], (id) => (id === "a" ? "ace" : undefined))).toBe(
+      "ace and unknown",
     );
   });
 });
@@ -78,6 +87,25 @@ describe("when a grant ends, in words", () => {
     [now + 30 * day - 1000, "Expires in 30 days"],
   ] as const)("ending at %s reads %s", (expiresAt, words) => {
     expect(expiryWords(expiresAt, now)).toBe(words);
+  });
+});
+
+describe("how long a grant lasts", () => {
+  test("a day or 30 days from now, or until revoked", () => {
+    expect(lifetimeEnd("day", 1_000)).toBe(1_000 + day);
+    expect(lifetimeEnd("month", 1_000)).toBe(1_000 + 30 * day);
+    expect(lifetimeEnd("forever", 1_000)).toBeNull();
+  });
+
+  test("a phone's fractional clock still gives whole milliseconds", () => {
+    expect(lifetimeEnd("day", 1_000.75)).toBe(1_000 + day);
+  });
+
+  test("a grant is revoked, expired or active", () => {
+    expect(grantState({ expiresAt: null, revokedAt: null }, 5)).toBe("active");
+    expect(grantState({ expiresAt: 10, revokedAt: null }, 5)).toBe("active");
+    expect(grantState({ expiresAt: 5, revokedAt: null }, 5)).toBe("expired");
+    expect(grantState({ expiresAt: 10, revokedAt: 2 }, 5)).toBe("revoked");
   });
 });
 
@@ -120,10 +148,38 @@ describe("access requests", () => {
     );
   });
 
-  test("a grant asking for more says so", () => {
-    expect(accessRequestSentence({ ...request, grantId: "g1" }, "Studio")).toBe(
-      "Claude (claude.ai) wants more access to Studio. Code 4F7K.",
+  test("a website redirect names the host the code goes to", () => {
+    expect(redirectWords({ redirectHost: "claude.ai", redirectKind: "web" })).toBe(
+      "Signs in to claude.ai",
     );
+  });
+
+  test("a loopback or app-scheme redirect warns instead of naming a host", () => {
+    for (const redirectHost of ["127.0.0.1", "cursor:"])
+      expect(redirectWords({ redirectHost, redirectKind: "this-device" })).toBe(
+        "The code goes to an app on the device where the sign-in started. Approve only if you started it.",
+      );
+  });
+
+  test("an older daemon that doesn't say where the code goes shows no line", () => {
+    expect(redirectWords({})).toBeUndefined();
+  });
+
+  test("sign-in ticks start with read on and fixed, the rest off, asked ones marked", () => {
+    const choices = scopeChoices(["threads:read", "threads:start", "computer"]);
+    const where = (key: "on" | "fixed" | "asked") =>
+      choices.filter((choice) => choice[key]).map((choice) => choice.scope);
+    expect(where("on")).toEqual(["threads:read"]);
+    expect(where("fixed")).toEqual(["threads:read"]);
+    expect(where("asked")).toEqual(["threads:read", "threads:start", "computer"]);
+  });
+
+  test("editing a grant's ticks starts from what it holds", () => {
+    const choices = scopeChoices([], ["threads:read", "threads:stop"]);
+    expect(choices.filter((choice) => choice.on).map((choice) => choice.scope)).toEqual([
+      "threads:read",
+      "threads:stop",
+    ]);
   });
 
   test("approving untouched gives read only, every project, for 30 days", () => {
@@ -158,4 +214,10 @@ test("the screen line names who is using the machine", () => {
   expect(screenUseSentence(["Claude", "ChatGPT", "Claude"], "Studio")).toBe(
     "Claude and ChatGPT are using Studio",
   );
+  expect(screenUseSentence([" "], "this computer")).toBe("An outside app is using this computer");
+});
+
+test("a thread an outside client started says who", () => {
+  expect(startedByWords("Claude")).toBe("Started by Claude");
+  expect(startedByWords("  ")).toBe("Started by an outside app");
 });

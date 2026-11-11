@@ -85,7 +85,7 @@ export class FakeServicesWire {
   /** "Pause new work", shared by every connection. */
   readonly admission = new FakeAdmission();
   /** Outside MCP clients' grants and sign-in requests, shared by every connection. */
-  readonly outside = new FakeOutside();
+  readonly outside: FakeOutside;
   private readonly appUpdate = new FakeAppUpdate();
   /** This machine's own update (`machineUpdate.request`). */
   readonly machineUpdate: FakeMachineUpdate;
@@ -115,6 +115,7 @@ export class FakeServicesWire {
     providerStatuses: () => readonly import("@ace/protocol").ProviderStatus[],
   ) {
     this.storage = new FakeStorageWire(context, settings);
+    this.outside = new FakeOutside(() => context.now());
     this.machineUpdate = new FakeMachineUpdate(() => context.now());
     this.host = context;
     this.checks = new FakeChecks(() => context.now(), providerStatuses);

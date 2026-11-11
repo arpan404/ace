@@ -72,6 +72,8 @@ struct ThreadRow: Codable, Sendable, Identifiable, Equatable {
     var accountLabel: String? = nil
     var browsing: String? = nil
     var computerUse: String? = nil
+    /// "Started by Claude" when an outside app started the thread (ADR 0117).
+    var startedBy: String? = nil
 
     struct Work: Codable, Sendable, Equatable { let added: Int; let removed: Int }
     struct LinkedPull: Codable, Sendable, Equatable { let number: Int; let state: String; let repo: String; let title: String? }
@@ -386,6 +388,8 @@ enum BridgePatch: Decodable, Sendable {
     /// A thread's Devices screen and its logs (`bridge/native-devices.ts`).
     case devices(DevicesPatch)
     case computerAccess(ComputerAccessModel.State)
+    /// Outside apps' sign-ins and screen use on this machine (`bridge/outside-clients.ts`).
+    case outside(OutsideClientsModel.State)
     /// A kept read restored from an earlier run, and each family's generation (`bridge/native-reads.ts`).
     case serviceCache(ServiceReply.Cache, ServiceValue)
     /// A kept read the bridge stopped keeping: Swift's copy lets it go too.
@@ -504,6 +508,7 @@ enum BridgePatch: Decodable, Sendable {
         case let kind where BrowserPatch.types.contains(kind): self = .browser(try BrowserPatch(from: decoder))
         case let kind where DevicesPatch.types.contains(kind): self = .devices(try DevicesPatch(from: decoder))
         case "computer.access": self = .computerAccess(try ComputerAccessModel.State(from: decoder))
+        case "outside.state": self = .outside(try OutsideClientsModel.State(from: decoder))
         case let kind where ScreenPatch.types.contains(kind):
             let (id, epoch) = try scope()
             self = .screen(id, epoch, try ScreenPatch(type: kind, from: decoder))
