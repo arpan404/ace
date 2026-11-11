@@ -36,14 +36,15 @@ test("pasting a newline mid-draft leaves the text after it to carry the line", (
   expect(el.querySelector("br")).toBeNull();
 });
 
+function chip(text: string): HTMLElement {
+  const node = document.createElement("span");
+  node.dataset.tokenText = text;
+  return node;
+}
+
 test("each chip's offset is where its text starts in the editor's words", () => {
   const el = document.createElement("div");
   el.contentEditable = "true";
-  const chip = (text: string) => {
-    const node = document.createElement("span");
-    node.dataset.tokenText = text;
-    return node;
-  };
   const bold = document.createElement("span");
   bold.dataset.md = "bold";
   bold.append("**a ", chip("@x.ts"), "**");
