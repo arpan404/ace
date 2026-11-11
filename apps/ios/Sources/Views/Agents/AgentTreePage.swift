@@ -63,7 +63,7 @@ struct AgentTreePage: View {
     private func header(_ sheet: AgentSheet) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
             Text(sheet.summary?.text ?? (sheet.treeRunning ? "Working" : "Finished"))
-                .aceFont(AceDesign.TextRole.message, relativeTo: .body)
+                .aceFont(AceDesign.TextRole.header, relativeTo: .title3)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)

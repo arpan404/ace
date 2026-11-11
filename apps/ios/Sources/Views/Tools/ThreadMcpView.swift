@@ -27,7 +27,7 @@ struct ThreadMcpView: View {
                     ForEach(sources.servers) { server in
                         QuietSectionRow {
                         VStack(alignment: .leading) {
-                            LabeledContent(server.name, value: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                            QuietRowText(title: server.name, detail: server.status.replacingOccurrences(of: "_", with: " ").capitalized)
                             HStack {
                                 Button(server.status == "disabled" ? "Enable" : "Disable") { perform(server.status == "disabled" ? "mcp.enable" : "mcp.disable", name: server.name) }
                                     .accessibilityIdentifier("mcp.toggle.\(server.name)")

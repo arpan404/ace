@@ -235,7 +235,7 @@ private struct TurnsSheet: View {
                 if loading || problem != nil || (loaded && turns.isEmpty) {
                     Group {
                         if let problem {
-                            Button("Retry") { load() }.foregroundStyle(AceTheme.Colours.foreground)
+                            Button("Retry") { load() }.buttonStyle(.textAction())
                             Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground)
                         } else if loading {
                             ProgressView().frame(maxWidth: .infinity)
