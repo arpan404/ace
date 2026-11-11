@@ -47,6 +47,9 @@ pub struct Transcript {
     pub always_allowed: Vec<String>,
     /// Which tool each approval asked about, by call id.
     asked: Vec<(String, String)>,
+    /// Indexes into `messages` of the replies still answering, oldest first. The last is the
+    /// open reply. Kept as events fold so finding the open reply never scans the history.
+    answering: Vec<usize>,
 }
 
 /// What the open reply is doing, for status and restart recovery.
@@ -81,6 +84,7 @@ impl Transcript {
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
+                self.answering.push(self.messages.len());
                 self.messages.push(Message {
                     speaker: Speaker::Spade,
                     text: String::new(),
@@ -174,25 +178,25 @@ impl Transcript {
     }
 
     fn update(&mut self, reply: &str, text: &str, outcome: Option<Outcome>) {
-        let found = self
-            .messages
-            .iter_mut()
-            .rev()
-            .find(|m| m.reply.as_deref() == Some(reply) && m.outcome == Outcome::Answering);
-        if let Some(message) = found {
-            message.text = text.to_owned();
-            if let Some(outcome) = outcome {
-                message.outcome = outcome;
-            }
+        let messages = &self.messages;
+        let Some(slot) = self
+            .answering
+            .iter()
+            .rposition(|&at| messages[at].reply.as_deref() == Some(reply))
+        else {
+            return;
+        };
+        let message = &mut self.messages[self.answering[slot]];
+        message.text = text.to_owned();
+        if let Some(outcome) = outcome {
+            message.outcome = outcome;
+            self.answering.remove(slot);
         }
     }
 
     /// The reply still arriving, if any.
     pub fn open_reply(&self) -> Option<&Message> {
-        self.messages
-            .iter()
-            .rev()
-            .find(|m| m.outcome == Outcome::Answering)
+        self.answering.last().map(|&at| &self.messages[at])
     }
 
     /// What the open reply is doing, if there is one.
@@ -541,6 +545,42 @@ mod tests {
         assert_eq!(
             last.map(|m| (m.text.as_str(), m.outcome.clone())),
             Some(("Half", Outcome::Failed("rate limited".into())))
+        );
+    }
+
+    #[test]
+    fn folding_a_long_history_takes_time_proportional_to_its_length() {
+        let turns = 40_000;
+        let mut events = Vec::with_capacity(turns * 4);
+        for turn in 0..turns {
+            let reply = format!("r{turn}");
+            events.push(Event::user_message("Hi"));
+            events.push(Event::reply_started(&reply, "m"));
+            events.push(Event::reply_progress(&reply, "Hel"));
+            events.push(finished(&reply, "Hello"));
+        }
+        let started = std::time::Instant::now();
+        let transcript = Transcript::fold(&events);
+        let took = started.elapsed();
+        assert_eq!(transcript.messages.len(), turns * 2);
+        assert!(transcript.open_reply().is_none());
+        // Linear folding takes milliseconds; rescanning the history per event takes minutes.
+        assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
+    }
+
+    #[test]
+    fn an_older_open_reply_is_open_again_once_a_newer_one_ends() {
+        let events = [
+            Event::user_message("Hi"),
+            Event::reply_started("r1", "m"),
+            Event::reply_progress("r1", "One"),
+            Event::reply_started("r2", "m"),
+            finished("r2", "Two"),
+        ];
+        let transcript = Transcript::fold(&events);
+        assert_eq!(
+            transcript.open_reply().map(|m| m.text.as_str()),
+            Some("One")
         );
     }
 
