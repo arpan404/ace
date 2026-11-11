@@ -387,22 +387,19 @@ test("a call made through call_tool reads as the tool it reached", () => {
   expect(said(c.view().entries)).toEqual(["spade: [ace_thread_send declined]"]);
 });
 
-describe("delegation", () => {
-  const delegated = (
-    c: ReturnType<typeof conversation>,
-    calls: { id: string; args: unknown }[],
-  ) => {
-    c.stored({ type: "reply_started", reply: "r1" }, 9000);
-    c.stored({
-      type: "step_finished",
-      reply: "r1",
-      text: "",
-      calls: calls.map((call) => ({ id: call.id, name: "call_tool", arguments: call.args })),
-    });
-    for (const call of calls)
-      c.stored({ type: "job_started", reply: "r1", job: call.id, name: "delegate" });
-  };
+const delegated = (c: ReturnType<typeof conversation>, calls: { id: string; args: unknown }[]) => {
+  c.stored({ type: "reply_started", reply: "r1" }, 9000);
+  c.stored({
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: calls.map((call) => ({ id: call.id, name: "call_tool", arguments: call.args })),
+  });
+  for (const call of calls)
+    c.stored({ type: "job_started", reply: "r1", job: call.id, name: "delegate" });
+};
 
+describe("delegation", () => {
   test("a delegation keeps the conversation working, counting its agents, until they settle", () => {
     const c = conversation();
     delegated(c, [
