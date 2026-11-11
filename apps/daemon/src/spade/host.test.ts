@@ -3,6 +3,7 @@ import { ThreadId, type SpadeStatus } from "@ace/protocol";
 import { SpadeHost, type SpadeExit, type SpadeHostRuntime } from "./host.ts";
 
 const pollMs = 7;
+const readyTimeoutMs = 15_000;
 const dataDir = "/ace/spade";
 class FakeChild {
   readonly pid: number;
@@ -30,7 +31,13 @@ class FakeChild {
  * its `server.json` and token on its first poll. Every poll moves the clock a second; restart
  * waits are held until `release`.
  */
-function harness(options: { binary?: string | undefined; writesServerFile?: boolean } = {}) {
+function harness(
+  options: {
+    binary?: string | undefined;
+    writesServerFile?: boolean;
+    health?: SpadeHostRuntime["healthy"];
+  } = {},
+) {
   const files = new Map<string, string>();
   const children: FakeChild[] = [];
   const restarts: number[] = [];
@@ -39,6 +46,14 @@ function harness(options: { binary?: string | undefined; writesServerFile?: bool
   let revoked = 0;
   let issued = 0;
   let clock = 0;
+  // Readiness deadlines run on the fake clock: due once a poll or `advance` passes them.
+  const deadlines: { at: number; resolve: () => void }[] = [];
+  const fire = () => {
+    for (const deadline of deadlines.filter((each) => each.at <= clock)) {
+      deadlines.splice(deadlines.indexOf(deadline), 1);
+      deadline.resolve();
+    }
+  };
   const runtime: SpadeHostRuntime = {
     spawn({ env }) {
       const child = new FakeChild(100 + children.length, env);
@@ -57,13 +72,19 @@ function harness(options: { binary?: string | undefined; writesServerFile?: bool
       return files.get(path);
     },
     ensureDirectory: () => {},
-    healthy: async () => true,
+    healthy: options.health ?? (async () => true),
     now: () => clock,
     sleep(ms, signal) {
       if (ms === pollMs) {
         clock += 1000;
+        fire();
         return new Promise((resolve) => setImmediate(resolve));
       }
+      if (ms === readyTimeoutMs)
+        return new Promise((resolve) => {
+          deadlines.push({ at: clock + ms, resolve });
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
       restarts.push(ms);
       return new Promise((resolve) => {
         held.push(resolve);
@@ -93,7 +114,10 @@ function harness(options: { binary?: string | undefined; writesServerFile?: bool
     restarts,
     statuses,
     revoked: () => revoked,
-    advance: (ms: number) => (clock += ms),
+    advance: (ms: number) => {
+      clock += ms;
+      fire();
+    },
     release: () => held.splice(0).forEach((resolve) => resolve()),
   };
 }
@@ -244,4 +268,26 @@ test("the host thread and its busy flag ride along with every status, and a chan
   const pushed = h.statuses.length;
   h.host.setThread({ id: thread, busy: true });
   expect(h.statuses).toHaveLength(pushed);
+});
+
+test("a /health that never answers is cut off at the deadline: Spade is stopped and its lease revoked", async () => {
+  const probes: AbortSignal[] = [];
+  const h = harness({
+    health: (_endpoint, signal) => {
+      probes.push(signal);
+      return new Promise(() => {});
+    },
+  });
+  h.host.setEnabled(true);
+  await eventually(() => probes.length === 1);
+  h.advance(readyTimeoutMs);
+  await eventually(() => h.restarts.length === 1);
+  expect(probes[0]?.aborted).toBe(true);
+  expect(h.children[0]?.stoppedWith).toBe(5000);
+  expect(h.revoked()).toBe(1);
+  expect(h.host.status()).toEqual({
+    state: "failed",
+    reason: "Spade didn't become ready within 15 s.",
+  });
+  await h.host.close();
 });

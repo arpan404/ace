@@ -236,26 +236,57 @@ export class SpadeHost {
       credentials.revoke();
     }
   }
+  /**
+   * Polls for `server.json`, the token and `/health` until the deadline, the child's exit or a
+   * stop. The deadline aborts the probe in flight too, so a `/health` that never answers can't
+   * hold Spade in `starting`.
+   */
   private async waitReady(
     pid: number,
     signal: AbortSignal,
   ): Promise<{ connection: SpadeConnection; version: string } | undefined> {
+    const { runtime } = this.options;
+    const expired = new AbortController();
+    const settled = new AbortController();
+    const probe = AbortSignal.any([signal, expired.signal]);
+    void runtime
+      .sleep(this.options.readyTimeoutMs ?? 15_000, AbortSignal.any([probe, settled.signal]))
+      .then(() => expired.abort());
+    try {
+      return await this.poll(pid, probe);
+    } finally {
+      settled.abort();
+    }
+  }
+  private async poll(
+    pid: number,
+    probe: AbortSignal,
+  ): Promise<{ connection: SpadeConnection; version: string } | undefined> {
     const { runtime, dataDir } = this.options;
-    const deadline = runtime.now() + (this.options.readyTimeoutMs ?? 15_000);
-    while (!signal.aborted && runtime.now() < deadline) {
-      const text = await runtime.readText(join(dataDir, "server.json"));
+    const until = <T>(work: Promise<T>): Promise<T | undefined> =>
+      Promise.race([work, aborted(probe)]);
+    while (!probe.aborted) {
+      const text = await until(runtime.readText(join(dataDir, "server.json")));
       const endpoint = text === undefined ? undefined : readServerFile(text, pid);
       if (endpoint) {
-        const tokenText = await runtime.readText(join(dataDir, "token"));
+        const tokenText = await until(runtime.readText(join(dataDir, "token")));
         const token = tokenText === undefined ? undefined : readTokenFile(tokenText);
-        if (token && (await runtime.healthy(endpoint, signal)))
+        if (token && (await until(runtime.healthy(endpoint, probe))) === true && !probe.aborted)
           return {
             connection: { host: endpoint.host, port: endpoint.port, token },
             version: endpoint.version,
           };
       }
-      await runtime.sleep(this.options.pollMs ?? 100, signal);
+      await runtime.sleep(this.options.pollMs ?? 100, probe);
     }
     return undefined;
   }
+}
+
+/** Resolves with undefined once `signal` aborts. */
+function aborted(signal: AbortSignal): Promise<undefined> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve(undefined);
+    signal.addEventListener("abort", () => resolve(undefined), { once: true });
+  });
 }
