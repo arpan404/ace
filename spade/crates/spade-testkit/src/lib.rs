@@ -3,6 +3,7 @@
 //! [`Script`] (or a sequence of them, one per request), and records every request it receives.
 
 mod anthropic;
+mod models;
 mod openai;
 mod responses;
 
@@ -20,6 +21,8 @@ use axum::routing::post;
 use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
+
+pub use models::FakeModelList;
 
 /// A tool call the fake makes.
 #[derive(Debug, Clone)]

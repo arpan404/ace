@@ -1,6 +1,6 @@
 //! The I/O shell: turns Spade prompts into calls on the endpoint a model reference names.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use futures_util::{Stream, StreamExt};
 use genai::chat::{
@@ -12,20 +12,25 @@ use genai::{Client, Headers, ModelIden, ServiceTarget};
 use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
-use crate::catalog::{Catalog, Price, Role};
+use crate::catalog::{Catalog, Endpoint, Model, Price, Role};
 use crate::error::{self, ModelError};
+use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
 use crate::{thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
-/// Calls the catalogue's models on their endpoints.
+/// Calls models on the person's endpoints. Starts with the presets' endpoints; the server sets the
+/// person's own list with [`Models::set_endpoints`] and again whenever it changes.
 #[derive(Debug, Clone)]
 pub struct Models {
     client: Client,
     catalog: Arc<Catalog>,
+    endpoints: Arc<RwLock<Arc<Vec<Endpoint>>>>,
     keys: Keys,
     /// `spade/<version>`, sent as every request's User-Agent.
     user_agent: String,
+    http: reqwest::Client,
+    listing: ListBounds,
 }
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
@@ -42,26 +47,119 @@ impl Models {
     /// `version` is Spade's own, sent as `User-Agent: spade/<version>` on every request.
     pub fn new(catalog: Catalog, keys: Keys, version: &str) -> Result<Self, ModelError> {
         let client = Client::new().map_err(|error| ModelError::Setup(error.to_string()))?;
+        let user_agent = format!("spade/{version}");
+        let http = reqwest::Client::builder()
+            .user_agent(user_agent.as_str())
+            .build()
+            .map_err(|error| ModelError::Setup(error.to_string()))?;
+        let endpoints = Arc::new(RwLock::new(Arc::new(catalog.endpoints().to_vec())));
         Ok(Self {
             client,
             catalog: Arc::new(catalog),
+            endpoints,
             keys,
-            user_agent: format!("spade/{version}"),
+            user_agent,
+            http,
+            listing: ListBounds::default(),
         })
     }
 
+    /// How much of an endpoint's model list is read, and for how long.
+    pub fn with_listing_bounds(mut self, bounds: ListBounds) -> Self {
+        self.listing = bounds;
+        self
+    }
+
+    /// The shipped presets: endpoint templates and known model facts.
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }
 
-    /// The `endpoint/model` set for `role`.
-    pub fn for_role(&self, role: Role) -> &str {
+    /// The `endpoint/model` the presets set for `role`, if they set one.
+    pub fn for_role(&self, role: Role) -> Option<&str> {
         self.catalog.role(role)
     }
 
-    /// What `reference` costs; `None` when unlisted, flat-rate or local.
+    /// Replaces the endpoints calls go to: the person's own (ADR 0126).
+    pub fn set_endpoints(&self, endpoints: Vec<Endpoint>) {
+        *self.endpoints.write().unwrap_or_else(|p| p.into_inner()) = Arc::new(endpoints);
+    }
+
+    /// The endpoints calls go to now.
+    pub fn endpoints(&self) -> Arc<Vec<Endpoint>> {
+        self.endpoints
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+
+    pub fn endpoint(&self, id: &str) -> Option<Endpoint> {
+        self.endpoints().iter().find(|e| e.id == id).cloned()
+    }
+
+    /// What is known about model `id` on `endpoint`: what the person saved, else the presets'
+    /// facts for that id, else defaults. A model nobody saved still works.
+    pub fn facts(&self, endpoint: &Endpoint, id: &str) -> Model {
+        endpoint
+            .models
+            .iter()
+            .find(|m| m.id == id)
+            .or_else(|| self.catalog.facts(id))
+            .cloned()
+            .map(|mut model| {
+                model.id = id.to_owned();
+                model
+            })
+            .unwrap_or_else(|| Model::unknown(id))
+    }
+
+    /// Finds `endpoint/model` (split at the first `/`) on the person's endpoints.
+    pub fn resolve(&self, reference: &str) -> Option<(Endpoint, Model)> {
+        let (endpoint_id, model_id) = reference.split_once('/')?;
+        if model_id.is_empty() {
+            return None;
+        }
+        let endpoint = self.endpoint(endpoint_id)?;
+        let model = self.facts(&endpoint, model_id);
+        Some((endpoint, model))
+    }
+
+    /// What `reference` costs; `None` when unpriced, flat-rate or local.
     pub fn price(&self, reference: &str) -> Option<Price> {
-        self.catalog.resolve(reference).and_then(|r| r.model.price)
+        self.resolve(reference).and_then(|(_, model)| model.price)
+    }
+
+    /// Whether a call to `endpoint` would have a key (or needs none).
+    pub fn has_key(&self, endpoint: &Endpoint) -> bool {
+        !endpoint.needs_key || self.key(endpoint).is_some()
+    }
+
+    fn key(&self, endpoint: &Endpoint) -> Option<String> {
+        self.keys.get(KeyRequest {
+            endpoint: &endpoint.id,
+            env: endpoint.key_env.as_deref(),
+        })
+    }
+
+    /// The models `endpoint_id` lists itself, live.
+    pub async fn list(&self, endpoint_id: &str) -> Result<Vec<Listed>, ModelError> {
+        let endpoint = self
+            .endpoint(endpoint_id)
+            .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
+        let key = if endpoint.needs_key {
+            Some(self.key(&endpoint).ok_or_else(|| ModelError::MissingKey {
+                endpoint: endpoint.id.clone(),
+                var: endpoint.key_env.clone(),
+            })?)
+        } else {
+            None
+        };
+        listing::fetch(&self.http, &endpoint, key.as_deref(), self.listing)
+            .await
+            .map_err(|message| ModelError::Listing {
+                endpoint: endpoint.id.clone(),
+                message,
+            })
     }
 
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
@@ -179,23 +277,14 @@ impl Models {
     }
 
     fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
-        let resolved = self
-            .catalog
+        let (endpoint, model) = self
             .resolve(reference)
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
-        let endpoint = resolved.endpoint;
         let auth = if endpoint.needs_key {
-            let request = KeyRequest {
-                endpoint: &endpoint.id,
-                env: endpoint.key_env.as_deref(),
-            };
-            let key = self
-                .keys
-                .get(request)
-                .ok_or_else(|| ModelError::MissingKey {
-                    endpoint: endpoint.id.clone(),
-                    var: endpoint.key_env.clone(),
-                })?;
+            let key = self.key(&endpoint).ok_or_else(|| ModelError::MissingKey {
+                endpoint: endpoint.id.clone(),
+                var: endpoint.key_env.clone(),
+            })?;
             AuthData::from_single(key)
         } else {
             // The SDK's OpenAI path needs some key; local servers ignore this one.
@@ -216,7 +305,7 @@ impl Models {
             target: ServiceTarget {
                 endpoint: ServiceEndpoint::from_owned(endpoint.base_url.clone()),
                 auth,
-                model: ModelIden::new(endpoint.format.adapter(), resolved.model.id.as_str()),
+                model: ModelIden::new(endpoint.format.adapter(), model.id.as_str()),
             },
             options,
         })

@@ -185,16 +185,27 @@ async fn a_keychain_only_endpoint_uses_its_keychain_key() -> Result {
 }
 
 #[tokio::test]
-async fn a_model_outside_the_catalogue_never_reaches_the_network() -> Result {
+async fn a_model_on_no_known_endpoint_never_reaches_the_network() -> Result {
     let fake = FakeProvider::start("unused").await?;
     let reply = models(&fake)?
-        .chat("chat/gpt-5.4", &Prompt::ask("hi"))
+        .chat("elsewhere/gpt-5.4", &Prompt::ask("hi"))
         .await;
     assert_eq!(
         reply,
-        Err(ModelError::UnknownModel("chat/gpt-5.4".to_owned()))
+        Err(ModelError::UnknownModel("elsewhere/gpt-5.4".to_owned()))
     );
     assert!(fake.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_typed_model_id_nobody_listed_is_sent_as_typed() -> Result {
+    let fake = FakeProvider::start("typed works").await?;
+    let reply = models(&fake)?
+        .chat("chat/vendor/new-model", &Prompt::ask("hi"))
+        .await?;
+    assert_eq!(reply.text, "typed works");
+    assert_eq!(only_request(&fake)?.body["model"], "vendor/new-model");
     Ok(())
 }
 
