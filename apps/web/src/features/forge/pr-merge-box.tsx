@@ -103,7 +103,7 @@ function UpdateActions(props: { actions: PrActions }) {
   ));
 }
 
-/** The four gates on one line: each its status icon and its fact, jumping to its detail. */
+/** The four gates two by two: each its status icon and its fact, jumping to its detail. */
 function GatesLine(props: {
   gates: readonly Gate[];
   branchLoading: boolean;
@@ -111,12 +111,15 @@ function GatesLine(props: {
   onSelect(key: GateKey): void;
 }) {
   return (
-    <nav aria-label="Merge gates" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+    <nav
+      aria-label="Merge gates"
+      className="grid grid-cols-1 gap-x-6 gap-y-0.5 @min-[36rem]/pr:grid-cols-[repeat(2,max-content)]"
+    >
       {props.gates.map((gate) => {
         const loading = gate.key === "branch" && props.branchLoading;
         const tone = loading ? "idle" : gate.tone;
         return (
-          <span key={gate.key} className="inline-flex items-center">
+          <span key={gate.key} className="flex min-w-0 items-center">
             <button
               type="button"
               onClick={() => props.onSelect(gate.key)}
@@ -196,7 +199,7 @@ export function PrMergeBox(props: {
         <p
           data-tone={head.tone === "idle" ? undefined : head.tone}
           className={cn(
-            "flex items-center gap-2 text-ui font-medium",
+            "flex items-center gap-2 text-md font-medium",
             head.tone === "idle" ? "text-foreground" : "text-(--tone-text)",
           )}
         >
