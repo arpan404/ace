@@ -111,9 +111,16 @@ const isServicePush = (message: ServerMessage) =>
       // A Spade live stream answers a one-way subscribe: no request waits for its frames.
       message.type === "spade.live.frame" ||
       message.type === "spade.live.ended" ||
-      // An upload's result follows its spade.http.open, after the request already resolved.
-      message.type === "spade.http.result" ||
       !("requestId" in message && message.requestId)));
+
+/** A Spade upload the daemon opened (`spade.http.open`): its result comes later. */
+const isUploadOpen = (value: unknown): value is { type: "spade.http.open"; requestId: string } =>
+  typeof value === "object" &&
+  value !== null &&
+  "type" in value &&
+  value.type === "spade.http.open" &&
+  "requestId" in value &&
+  typeof value.requestId === "string";
 
 /** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
 const isChannelRequest = (input: unknown) => {
@@ -623,11 +630,19 @@ class Tab {
     this.#intents.set(id, selection.subscribe(send));
     send();
   }
+  /** Spade uploads this tab opened whose result hasn't come yet. */
+  #uploads = new Set<string>();
   #watchMessages(): void {
     const client = this.#entry?.client;
     if (!client || !this.#wantsMessages || this.#stopMessages) return;
     try {
       this.#stopMessages = client.onMessage((message) => {
+        // An upload's result follows its spade.http.open, after the tab's request resolved:
+        // it goes only to the tab that opened the upload.
+        if (message.type === "spade.http.result") {
+          if (this.#uploads.delete(message.requestId)) this.#post({ t: "message", message });
+          return;
+        }
         if (isServicePush(message)) this.#post({ t: "message", message });
       });
     } catch {
@@ -665,6 +680,7 @@ class Tab {
                   ? this.#sidebar(client)
                   : client,
               );
+      if (method === "request" && isUploadOpen(value)) this.#uploads.add(value.requestId);
       this.#post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.#post({ t: "failed", call, error: errorShape(error) });
