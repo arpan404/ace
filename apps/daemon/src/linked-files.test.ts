@@ -24,6 +24,18 @@ describe("what an answer grants", () => {
       expect(granted.has(path), path).toBe(true);
     expect(granted.has("src/app/x.tsx")).toBe(false);
   });
+  test("inline code grants a machine path with spaces; running text and commands grant none", () => {
+    const granted = linkedReferences(
+      [
+        "I wrote `~/Downloads/Group38 Proposal/Draft3.pdf` and `C:\\Program Files\\App\\a b.json`.",
+        "Run `/usr/bin/python3 run.py` on ~/Downloads/My Notes.md.",
+      ].join("\n"),
+    );
+    expect(granted.has("~/Downloads/Group38 Proposal/Draft3.pdf")).toBe(true);
+    expect(granted.has("C:\\Program Files\\App\\a b.json")).toBe(true);
+    expect(granted.has("/usr/bin/python3 run.py")).toBe(false);
+    expect(granted.has("~/Downloads/My Notes.md")).toBe(false);
+  });
 });
 
 describe("the local path a link names", () => {

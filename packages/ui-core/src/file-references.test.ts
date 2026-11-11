@@ -32,6 +32,36 @@ describe("inline code", () => {
     expect(codeFileReference("C:\\work\\a.ts:12")).toEqual({ path: "C:\\work\\a.ts", line: 12 });
   });
 
+  test("a whole path from the root, a drive or home may hold spaces and punctuation", () => {
+    for (const path of [
+      "~/Downloads/Group38 Proposal/Group38 Proposal Draft3.pdf",
+      "/Users/dev/Study Guide.pdf",
+      "C:\\Program Files\\My App\\config.json",
+      "~/Downloads/Bob's Notes & More (v2).pdf",
+      "/tmp/report(1).pdf",
+    ])
+      expect(codeFileReference(path), path).toEqual({ path });
+    expect(codeFileReference("/Users/dev/My Notes.md:12")).toEqual({
+      path: "/Users/dev/My Notes.md",
+      line: 12,
+    });
+  });
+
+  test("relative names and command lines with spaces stay code", () => {
+    for (const text of [
+      "my notes.md",
+      "src/My Notes.md",
+      "cat /tmp/a.txt",
+      "/tmp/a.txt /tmp/b.txt",
+      "/usr/bin/python3 run.py",
+      "/opt/homebrew/bin/node app.js",
+      "C:\\Tools\\node.exe app.js",
+      "/bin/ls -la notes.txt",
+      "/Users/dev/My  Notes.md",
+    ])
+      expect(codeFileReference(text), text).toBeUndefined();
+  });
+
   test("line and column suffixes are read in both colon and #L forms", () => {
     expect(codeFileReference("src/app/x.tsx:42")).toEqual({ path: "src/app/x.tsx", line: 42 });
     expect(codeFileReference("a.ts:7:3")).toEqual({ path: "a.ts", line: 7, column: 3 });
@@ -95,6 +125,10 @@ describe("plain text", () => {
     expect(files("Saved it to C:\\Users\\dev\\Downloads\\report.pdf, then ran it.")).toEqual([
       { path: "C:\\Users\\dev\\Downloads\\report.pdf" },
     ]);
+  });
+
+  test("running text never reads a space as part of a path", () => {
+    expect(files("Saved to ~/Downloads/My Report.pdf today.")).toEqual([]);
   });
 
   test("text without any reference comes back unchanged as one span", () => {

@@ -4,7 +4,9 @@
  * letter-led extension), never a URL, an email or a version number. Inline code may hold a bare
  * filename; plain text needs a folder (`a/b.ts`) or a line (`b.ts:12`) before it counts, so
  * words like "Node.js" stay words. Paths may use `/` or Windows' `\` and drive letters
- * (`C:\Users\dev\a.pdf`). A path in the home folder (`~/Downloads/a.pdf`) is never a checkout
+ * (`C:\Users\dev\a.pdf`). Inline code naming a whole path from the root, a drive or the home
+ * folder may hold spaces (`~/Downloads/My Report.pdf`), since the span marks where it ends;
+ * running text never does. A path in the home folder (`~/Downloads/a.pdf`) is never a checkout
  * path, so only the daemon, which knows the home, can open it. Resolution picks a unique
  * workspace path from candidates the caller found (the checkout's path index); it never guesses
  * between two.
@@ -33,6 +35,12 @@ const slash = String.raw`[\\/]`;
 // Relative (`./`, `../`), absolute (`/`), home (`~/`) or a Windows drive (`C:\`), then folders.
 const pathBody = String.raw`(?:\.{1,2}${slash}|/|~${slash}|[A-Za-z]:${slash})?(?:${segment}${slash})*${name}`;
 const whole = new RegExp(String.raw`^(${pathBody})${lineSuffix}$`);
+// Inside inline code, a path from the root, a drive or home may hold single spaces and the
+// punctuation file names carry (`~/Downloads/Bob's Notes (v2).pdf`).
+const word = String.raw`[\w@+()'&,-][\w.@+()'&,-]*`;
+const spacedPath = new RegExp(
+  String.raw`^((?:/|~${slash}|[A-Za-z]:${slash})(?:${word}(?: ${word})*${slash})*(?:${word} )*${word}\.[A-Za-z][A-Za-z0-9]{0,9})${lineSuffix}$`,
+);
 // In running text: not glued to a word, a path or a scheme on either side.
 const inText = new RegExp(
   String.raw`(?<![\w/\\.@:~-])(${pathBody})${lineSuffix}(?![\w/\\@-]|\.\w|:\d)`,
@@ -52,11 +60,25 @@ function reference(path: string, line?: string, column?: string): FileReference 
   };
 }
 
+/**
+ * A machine path with spaces or punctuation in inline code. A command line reads the same way
+ * (`/usr/bin/python3 run.py`, `node.exe app.js`, `/bin/ls -la a.txt`), so a space after a
+ * program or before a flag means it isn't one path.
+ */
+function spacedMachinePath(text: string): RegExpExecArray | null {
+  const match = spacedPath.exec(text);
+  const path = match?.[1];
+  if (!path) return null;
+  if (/ -/.test(path) || /\.exe /i.test(path) || /(?:^|[\\/])s?bin[\\/][^\\/]* /.test(path))
+    return null;
+  return match;
+}
+
 /** The file an inline code span names, when the whole span is one file reference. */
 export function codeFileReference(text: string): FileReference | undefined {
   const trimmed = text.trim();
-  if (trimmed.length > 300 || /\s/.test(trimmed)) return undefined;
-  const match = whole.exec(trimmed);
+  if (trimmed.length > 300) return undefined;
+  const match = whole.exec(trimmed) ?? spacedMachinePath(trimmed);
   if (!match?.[1]) return undefined;
   return reference(match[1], match[2] ?? match[4], match[3] ?? match[5]);
 }

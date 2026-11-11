@@ -222,6 +222,12 @@ it("a home path an answer names opens from the daemon's home folder", async () =
   expect(await f.open("answer", named)).toBe("%PDF-1.7 draft\n");
 });
 
+it("a path with spaces an answer names in inline code opens", async () => {
+  const f = await setup("websocket");
+  f.message("answer", "assistant", `I saved it as \`${f.pdf}\`.`);
+  expect(await f.open("answer", f.pdf)).toBe("%PDF-1.7 assignment\n");
+});
+
 it("a link in the person's own message grants nothing", async () => {
   const f = await setup("websocket");
   f.message("question", "user", `Open [this](<${f.pdf}>)`);
