@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use serde_json::Value;
 use spade_core::Transcript;
-use spade_core::context::{JOB_LOST, JOB_STOPPED};
+use spade_core::context::{JOB_LOST, JOB_STOPPED, MAYBE_RAN};
 use spade_core::event::{Event, Known};
+use spade_core::tools::Risk;
 use spade_store::StoreError;
 use tokio::sync::watch;
 
@@ -84,6 +85,7 @@ pub(super) fn start(
                 name,
                 content,
                 is_error: output.is_error,
+                uncertain: output.uncertain,
             });
             keep_trying(|| engine.deliver(&id, &finished)).await;
             engine
@@ -103,12 +105,21 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
     let Some(tool) = engine.tools.get(name) else {
         return ToolOutput::error(format!("There is no tool named {name}."));
     };
+    let reads_only = tool.def().risk == Risk::Read;
     match tokio::time::timeout(engine.limits.job_timeout, tool.run(key, arguments)).await {
         Ok(output) => output,
-        Err(_) => ToolOutput::error(format!(
-            "{name} did not finish within {} minutes.",
-            engine.limits.job_timeout.as_secs() / 60
-        )),
+        Err(_) => {
+            let said = format!(
+                "{name} did not finish within {} minutes.",
+                engine.limits.job_timeout.as_secs() / 60
+            );
+            if reads_only {
+                ToolOutput::error(said)
+            } else {
+                // A write cut off may still have acted; never let it read as "did not run".
+                ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({said})"))
+            }
+        }
     }
 }
 
@@ -154,6 +165,7 @@ pub(super) fn stop_all(engine: &Arc<Engine>, id: &str) -> usize {
                     name: job_name(&names, job),
                     content: JOB_STOPPED.to_owned(),
                     is_error: true,
+                    uncertain: true,
                 })
             })
             .collect();
@@ -180,6 +192,7 @@ pub(super) fn report_lost(engine: &Arc<Engine>, id: &str) -> Result<(), StoreErr
             job,
             content: JOB_LOST.to_owned(),
             is_error: true,
+            uncertain: true,
         });
         engine.deliver(id, &finished)?;
     }

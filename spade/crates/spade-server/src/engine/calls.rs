@@ -153,20 +153,26 @@ async fn run_tools(
             };
             // A tool runs only once its start is stored, so a restart can never mistake a call
             // that ran for one that did not.
+            // What the tool is now is stored with its start, so compaction reads a write as one
+            // even once the tool is gone or reclassified.
+            let def = engine.tools.registry().get(&name).cloned();
+            let background = def.as_ref().is_some_and(|def| def.background);
+            let risk = match &def {
+                Some(def) => Some(def.risk),
+                None if name == TOOL_SEARCH => Some(Risk::Read),
+                None => None,
+            };
             let started = Event::Known(Known::ToolStarted {
                 reply: reply.to_owned(),
                 call_id: call.id.clone(),
                 name: name.clone(),
+                risk,
+                background,
             });
             if let Err(error) = engine.record(id, &started) {
                 return Handled::Failed(error.to_string());
             }
-            if engine
-                .tools
-                .registry()
-                .get(&name)
-                .is_some_and(|def| def.background)
-            {
+            if background {
                 match super::jobs::start(engine, id, reply, &call.id, &name, arguments, stop) {
                     Ok(super::jobs::Started::Running) => {}
                     Ok(super::jobs::Started::Stopped) => {
@@ -232,7 +238,7 @@ async fn run_one(
                 ToolOutput::error(format!("{name} did not finish within {seconds} seconds."))
             } else {
                 // A write cut off may still have acted; never let it read as "did not run".
-                ToolOutput::error(format!(
+                ToolOutput::maybe_ran(format!(
                     "{} ({name} did not answer within {seconds} seconds.)",
                     context::MAYBE_RAN
                 ))
@@ -266,6 +272,7 @@ fn finish_tool(
         content,
         is_error: output.is_error,
         images,
+        uncertain: output.uncertain,
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a tool result");

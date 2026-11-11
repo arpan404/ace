@@ -39,6 +39,15 @@ It may have taken effect; check before trying it again.";
 pub const JOB_STOPPED: &str = "Stopped by the person before it finished. It may have partly taken \
 effect; check before trying it again.";
 
+/// Whether a stored error result leaves the call's effect unknown rather than failed: it was
+/// cut off, lost or stopped while it ran. Events stored before `uncertain` was recorded are
+/// recognised by the text Spade gave them.
+pub fn outcome_unknown(is_error: bool, uncertain: bool, content: &str) -> bool {
+    uncertain
+        || (is_error
+            && (content.starts_with(MAYBE_RAN) || content == JOB_LOST || content == JOB_STOPPED))
+}
+
 /// How a finished job reads to the model.
 pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> String {
     let status = if is_error { "error" } else { "ok" };
@@ -227,6 +236,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 name,
                 content,
                 is_error,
+                ..
             } => {
                 let text = job_result(job, name, content, *is_error);
                 if pending.is_empty() {

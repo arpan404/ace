@@ -32,6 +32,7 @@ fn result(reply: &str, call_id: &str, name: &str, content: &str) -> Event {
         content: content.into(),
         is_error: false,
         images: Vec::new(),
+        uncertain: false,
     })
 }
 
@@ -124,6 +125,8 @@ fn a_call_that_started_but_never_finished_is_reported_as_unknown_not_unrun() {
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "send_email".into(),
+            risk: None,
+            background: false,
         }),
         Event::reply_ended(ReplyEnd::Interrupted, "r1", ""),
     ];
@@ -254,6 +257,7 @@ fn job_done(job: &str, name: &str, content: &str) -> Event {
         name: name.into(),
         content: content.into(),
         is_error: false,
+        uncertain: false,
     })
 }
 
@@ -403,6 +407,7 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
             content: "Took a screenshot.".into(),
             is_error: false,
             images: vec![shot],
+            uncertain: false,
         }),
         Event::user_message("Zoom in"),
         result("r1", "c2", "browser_read", "Page text"),

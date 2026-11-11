@@ -419,6 +419,8 @@ mod tests {
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "web_search".into(),
+                risk: None,
+                background: false,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -466,6 +468,8 @@ mod tests {
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "web_search".into(),
+                risk: None,
+                background: false,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -525,6 +529,7 @@ mod tests {
             name: "research".into(),
             content: "Three options".into(),
             is_error: false,
+            uncertain: false,
         }));
         assert!(!Transcript::fold(&events).busy());
     }

@@ -242,6 +242,7 @@ pub(super) fn record_paused(engine: &Engine, id: &str, reply: &str) {
                 content: MAYBE_RAN.to_owned(),
                 is_error: true,
                 images: Vec::new(),
+                uncertain: true,
             })
         })
         .collect();

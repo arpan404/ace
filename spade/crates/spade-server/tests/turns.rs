@@ -691,3 +691,41 @@ async fn a_message_steered_into_a_reply_cut_off_by_a_restart_is_answered_after_i
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_write_that_times_out_is_stored_as_unknown_with_the_risk_it_ran_with() -> Result {
+    let email = FakeTool::new("send_email", Risk::Write, "sent").slow(Duration::from_secs(5));
+    let options = support::Options {
+        limits: spade_server::engine::Limits {
+            tool_timeout: Duration::from_millis(50),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let spade = Spade::start_with(
+        vec![
+            Script::reply("").call("c1", "send_email", json!({ "to": "sam@example.com" })),
+            Script::reply("It may have gone."),
+        ],
+        tools(vec![email]),
+        options,
+    )
+    .await?;
+    let id = spade.ask("Email Sam").await?;
+    spade.wait_for(&id, "approval_requested").await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{id}/approvals/c1"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let started = events.iter().find(|e| e["type"] == "tool_started");
+    assert_eq!(started.map(|e| e["risk"].clone()), Some(json!("write")));
+    let finished = events.iter().find(|e| e["type"] == "tool_finished");
+    assert_eq!(
+        finished.map(|e| (e["is_error"].clone(), e["uncertain"].clone())),
+        Some((json!(true), json!(true)))
+    );
+    Ok(())
+}
