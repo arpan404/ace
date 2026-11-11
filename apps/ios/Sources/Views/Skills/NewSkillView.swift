@@ -216,7 +216,7 @@ struct NewSkillView: View {
             check = result; checked = key; checkProblem = nil
         } catch {
             // An empty name needs no check: the failure names a check that never mattered.
-            if !Task.isCancelled, !trimmed.isEmpty { checkProblem = error.localizedDescription }
+            if !Task.isCancelled, !trimmed.isEmpty, key == "\(scope)|\(trimmed)" { checkProblem = error.localizedDescription }
         }
     }
     private func create() async {
