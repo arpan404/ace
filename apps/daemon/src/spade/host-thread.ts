@@ -39,7 +39,7 @@ function findHostThread(store: Store): SpadeHostThread | undefined {
  */
 export function ensureSpadeHostThread(input: {
   store: Store;
-  engine: { hosts: Pick<HostThreads, "create" | "setAccess"> };
+  engine: { hosts: Pick<HostThreads, "create" | "setAccess" | "setProvider"> };
   catalog: Pick<ProjectStorage, "registerSpade">;
   folder: string;
   /** The provider a delegation that names none gets, as from any parent thread. */
@@ -52,8 +52,9 @@ export function ensureSpadeHostThread(input: {
   const workspaceId = input.catalog.registerSpade(input.folder);
   const found = findHostThread(input.store);
   if (found) {
-    // The person's default may have changed since it was made: it is always the current one.
+    // The person's defaults may have changed since it was made: it always has the current ones.
     input.engine.hosts.setAccess(found.threadId, input.access);
+    input.engine.hosts.setProvider(found.threadId, input.provider);
     return found;
   }
   const threadId = ThreadId.parse(input.id());

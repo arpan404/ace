@@ -80,4 +80,19 @@ export class HostThreads {
   setAccess(id: ThreadId, access: AccessMode): void {
     this.repo.permissions.hold(id, access, this.now());
   }
+  /** Brings a host thread's provider, which a delegation naming none takes, up to date. */
+  setProvider(id: ThreadId, provider: ProviderKind): void {
+    if (this.repo.store.getThread(id)?.provider === provider) return;
+    this.repo.store.appendEvents(
+      id,
+      [
+        {
+          type: "thread.updated",
+          provider,
+          execution: { provider, options: ExecutionOptions.parse({}) },
+        },
+      ],
+      this.now(),
+    );
+  }
 }

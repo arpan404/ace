@@ -213,6 +213,37 @@ test("Spade acts as its own hidden host thread: the full agent tool set, delegat
     await until(() => childAccess() != null, "the stricter child's access");
     expect(childAccess()).toBe("read-only");
 
+    // Its provider is the person's default too: a delegation that names none takes the new one.
+    await daemon.settings.set("access.defaultMode", "full-access", { kind: "global" });
+    await until(() => access() === "full-access", "host access full-access");
+    const before = daemon.store.getThread(hostId)?.provider;
+    const other = before === "codex" ? "claude" : "codex";
+    await daemon.settings.set("providers.default", other, { kind: "global" });
+    await until(
+      () => daemon.store.getThread(hostId)?.provider === other,
+      () => `host provider ${other} (${daemon.store.getThread(hostId)?.provider})`,
+    );
+    const unnamed = await narrowed.client.callTool({
+      name: "delegate",
+      arguments: {
+        tasks: [
+          {
+            requestId: "spade.c1.3",
+            task: "Note the relay's version",
+            role: "Noter-in-project",
+            project: f.workspace,
+          },
+        ],
+      },
+    });
+    const unnamedId = ThreadId.parse(
+      z
+        .object({ data: z.object({ threadIds: z.array(z.string()).length(1) }) })
+        .parse(unnamed.structuredContent).data.threadIds[0],
+    );
+    await until(() => daemon.store.getThread(unnamedId) !== undefined, "the unnamed child");
+    expect(daemon.store.getThread(unnamedId)?.provider).toBe(other);
+
     // Deleted, it is made again on the next start, in the same hidden project.
     expect(await deleteThread(daemon, hostId)).toMatchObject({ ok: true });
     daemon = await f.restart();
