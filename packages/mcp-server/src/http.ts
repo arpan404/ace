@@ -25,7 +25,8 @@ import { createMetaRegistry, foundFamilies } from "./meta-tools.ts";
 import { PrincipalEventBus, listenStreamsPerLease } from "./principal-bus.ts";
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
-import { CredentialRegistry, type Principal } from "./credentials.ts";
+import { CredentialRegistry, type Authenticator, type Principal } from "./credentials.ts";
+import { scopeRefusal, type ScopeChallenge } from "./scope-challenge.ts";
 import {
   nodeScheduler,
   type CatalogTool,
@@ -34,14 +35,20 @@ import {
   type ToolRegistry,
 } from "./registry.ts";
 
-export interface McpServerOptions {
+export type { ScopeChallenge } from "./scope-challenge.ts";
+export interface McpServerOptions<A extends Authenticator = CredentialRegistry> {
   registry: ToolRegistry;
   status?: StatusReader;
   /** What the project already knows, for `context`. Absent: `context` reports status only. */
   knowledge?: Pick<KnowledgePort, "context">;
   /** Session brief and change digest facts (proposal P1). Absent: plain results. */
   awareness?: AwarenessPort;
-  credentials?: CredentialRegistry;
+  credentials?: A;
+  /**
+   * OAuth-style answers for an endpoint whose principals hold scopes (ADR 0117): a tool call the
+   * principal's scope doesn't cover is refused with 403 `insufficient_scope` before it runs.
+   */
+  challenge?: ScopeChallenge;
   port?: number;
   maxRequests?: number;
   maxBodyBytes?: number;
@@ -63,7 +70,9 @@ const defaultStreamLimits: NotificationStreamLimits = {
   perLease: listenStreamsPerLease,
   total: 512,
 };
-export async function startMcpServer(options: McpServerOptions) {
+export async function startMcpServer<A extends Authenticator = CredentialRegistry>(
+  options: McpServerOptions<A>,
+) {
   // A provider's own permission mode, read-only included, decides each call; ace only hides a
   // group that is off or that this daemon is not running.
   options.registry.setAvailability((caller) => {
@@ -98,7 +107,7 @@ export async function startMcpServer(options: McpServerOptions) {
           ].map(bareToolName),
       )
     : undefined;
-  const credentials =
+  const credentials: A | CredentialRegistry =
     options.credentials ?? new CredentialRegistry(() => randomBytes(32).toString("hex"));
   let runtime: Promise<Awaited<ReturnType<typeof createHandler>>> | undefined;
   const streams = { ...defaultStreamLimits, ...options.notificationStreams };
@@ -130,19 +139,38 @@ export async function startMcpServer(options: McpServerOptions) {
             response.writeHead(404).end();
             return;
           }
-          if (!credentials.authenticate(bearer(request.headers.authorization))) {
-            response.writeHead(401).end();
+          const principal = credentials.authenticate(bearer(request.headers.authorization));
+          if (!principal) {
+            response
+              .writeHead(401, { "www-authenticate": challengeHeader(options.challenge) })
+              .end();
             return;
           }
-          return nodeHandler(
-            {
-              headers: request.headers,
-              ...(request.method === undefined ? {} : { method: request.method }),
-              ...(request.url === undefined ? {} : { url: request.url }),
-              [Symbol.asyncIterator]: () => request[Symbol.asyncIterator](),
-            },
-            response,
-          );
+          const forward = (body?: Buffer) =>
+            nodeHandler(
+              {
+                headers: request.headers,
+                ...(request.method === undefined ? {} : { method: request.method }),
+                ...(request.url === undefined ? {} : { url: request.url }),
+                [Symbol.asyncIterator]: body
+                  ? async function* () {
+                      yield body;
+                    }
+                  : () => request[Symbol.asyncIterator](),
+              },
+              response,
+            );
+          if (!options.challenge || request.method !== "POST") return forward();
+          return scopeRefusal(
+            request,
+            principal,
+            options.challenge,
+            options.maxBodyBytes ?? 64 * 1024,
+          ).then((checked) => {
+            if (closing || response.destroyed) return;
+            if (checked.kind === "forward") return forward(checked.body);
+            response.writeHead(checked.status, checked.headers).end(checked.body);
+          });
         })
         .catch(() => {
           if (!response.headersSent) response.writeHead(500);
@@ -199,14 +227,21 @@ export async function startMcpServer(options: McpServerOptions) {
     },
   };
 }
+/** `WWW-Authenticate` for a request without a valid token (RFC 6750, RFC 9728). */
+function challengeHeader(challenge: ScopeChallenge | undefined): string {
+  const parameters = Object.entries(challenge?.parameters?.() ?? {});
+  return parameters.length
+    ? `Bearer ${parameters.map(([key, value]) => `${key}="${value}"`).join(", ")}`
+    : "Bearer";
+}
 function bearer(header: IncomingMessage["headers"]["authorization"]): string {
   return header?.startsWith("Bearer ") ? header.slice(7) : "";
 }
 
 async function createHandler(
-  options: McpServerOptions,
+  options: McpServerOptions<Authenticator>,
   streams: NotificationStreamLimits,
-  credentials: CredentialRegistry,
+  credentials: Authenticator,
   status: ToolRegistry,
   awareness: SessionAwareness | undefined,
 ) {
