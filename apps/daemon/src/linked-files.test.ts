@@ -48,4 +48,28 @@ describe("the local path a link names", () => {
     expect(localReference("https://example.com/a.pdf")).toBeUndefined();
     expect(localReference("mailto:dev@example.com")).toBeUndefined();
   });
+  test("a path inside a fenced code block grants nothing: the page never links one there", async () => {
+    const granted = await linkedReferences(
+      [
+        "Run this:",
+        "",
+        "```sh",
+        "cat /etc/hosts ~/notes.txt",
+        "```",
+        "Then open `/tmp/out.txt`.",
+      ].join("\n"),
+    );
+    expect(granted.has("/etc/hosts")).toBe(false);
+    expect(granted.has("~/notes.txt")).toBe(false);
+    expect(granted.has("/tmp/out.txt")).toBe(true);
+  });
+  test("a percent-encoded link is granted as the page opens it, decoded", async () => {
+    const granted = await linkedReferences("See [the report](/tmp/My%20Report.pdf).");
+    expect(granted.has("/tmp/My Report.pdf")).toBe(true);
+  });
+  test("a link's own wording grants no path it merely mentions", async () => {
+    const granted = await linkedReferences("Read [/tmp/secret.txt](https://example.com/page).");
+    expect(granted.has("https://example.com/page")).toBe(true);
+    expect(granted.has("/tmp/secret.txt")).toBe(false);
+  });
 });

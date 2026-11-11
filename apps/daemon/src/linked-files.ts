@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, parse, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Marked, Token } from "marked";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation, ThreadId } from "@ace/protocol";
 import {
@@ -16,33 +15,71 @@ import type { ServiceContext } from "./services/types.ts";
 
 type LinkDownload = Extract<FileOperation, { op: "link.download" }>;
 
-// The web lexes prose with GFM on; reading links the same way keeps both sides in agreement.
-// Loaded on the first linked download, the only time the daemon reads Markdown, so idle startup
-// doesn't parse the library.
-let lexer: Promise<Marked> | undefined;
-const loadMarkdown = () =>
-  (lexer ??= import("marked").then(({ Marked }) => new Marked({ gfm: true, breaks: false })));
+/**
+ * Spans whose text never links a file by its wording (math too, by prefix): inline code is read
+ * on its own below, the rest never, as the page skips code, links and math.
+ */
+const notProse = new Set([
+  "code",
+  "code_block",
+  "code_metadata",
+  "syntax",
+  "link",
+  "image",
+  "reference",
+]);
 
 /**
- * What an answer lets a reader open: every link and image target, and every absolute or home
- * file path it names in code or prose (`/tmp/report.pdf`, `~/Downloads/My Report.pdf`), found by
- * the rule the web client links them by.
+ * What an answer lets a reader open, read as the web renders it: markit parses the answer in
+ * the flavour answers render with (loaded on the first linked download, the only time the daemon
+ * reads Markdown), then ace's own rules pick file paths, as \`file-links.ts\` does on the page.
+ * Granted are every link and image target (as written and as the page decodes a local one),
+ * every file reference markit draws, every absolute or home path an inline code span names
+ * (\`~/Downloads/My Report.pdf\`), and every one running text names.
  */
 export async function linkedReferences(text: string): Promise<Set<string>> {
+  const { markitDocument } = await import("@ace/markit-web/document");
+  const document = await markitDocument(text, "agent");
   const references = new Set<string>();
-  const markdown = await loadMarkdown();
-  markdown.walkTokens(markdown.lexer(text), (token: Token) => {
-    if (token.type === "link" || token.type === "image") references.add(token.href);
-    // Only inline code can name a path with spaces; running text below never does.
-    if (token.type === "codespan") {
-      const found = codeFileReference(token.text);
+  const cuts = new Set([0, document.text.length]);
+  const excluded: [number, number][] = [];
+  for (const span of document.spans) {
+    cuts.add(span.start).add(span.end);
+    if (notProse.has(span.kind) || span.kind.startsWith("math"))
+      excluded.push([span.start, span.end]);
+    if ((span.kind === "link" || span.kind === "image") && span.url) {
+      references.add(span.url);
+      const decoded = decodedLink(span.url);
+      if (decoded) references.add(decoded);
+    }
+    if (span.kind === "reference" && span.reference_kind === "file" && span.target)
+      references.add(span.target);
+    if (span.kind === "code") {
+      const found = codeFileReference(document.text.slice(span.start, span.end));
       if (found && isMachinePath(found.path)) references.add(found.path);
     }
-  });
-  for (const span of fileTextSpans(text))
-    if (span.kind === "file" && isMachinePath(span.reference.path))
-      references.add(span.reference.path);
+  }
+  // Running text, cut where any span starts or ends, as the page's text nodes are.
+  const bounds = [...cuts].toSorted((a, b) => a - b);
+  for (let index = 1; index < bounds.length; index++) {
+    const from = bounds[index - 1] ?? 0;
+    const to = bounds[index] ?? 0;
+    if (to <= from || excluded.some(([start, end]) => start <= from && to <= end)) continue;
+    for (const span of fileTextSpans(document.text.slice(from, to)))
+      if (span.kind === "file" && isMachinePath(span.reference.path))
+        references.add(span.reference.path);
+  }
   return references;
+}
+
+/** A link target as the page opens a local one: markit percent-encodes, the page decodes. */
+function decodedLink(url: string): string | undefined {
+  try {
+    const decoded = decodeURI(url);
+    return decoded === url ? undefined : decoded;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The local path a link target names: a `file:` URL or a path, without a `:line:col` suffix. */
