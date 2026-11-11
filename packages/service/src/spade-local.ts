@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { currentUserSid } from "./local.ts";
+import { currentUserSid } from "./windows-user.ts";
 import { spadeServicePlan, type SpadePlatform, type SpadeServicePlan } from "./spade-plan.ts";
 
 /**

@@ -35,11 +35,14 @@ import {
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
-import { recoveryDelay } from "@ace/service";
+import { isNewer, recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
+import { reopenSpadeAdmission, swapPrograms } from "@ace/service/spade";
+import { updateSpadeToCurrent } from "./spade-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
+const writeLine = (line: string) => process.stdout.write(`${line}\n`);
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
 const dataDir = () => readConfig().dataDir;
 const Connection = z.object({
@@ -142,6 +145,8 @@ export async function updateCli(args: string[]) {
       await recoverUpdate(root, root, ports);
       // A crash after committing can leave only the in-memory admission barrier.
       await ports.maintenance("DELETE");
+      // So can an updater that died while Spade's admission was closed.
+      await reopenSpadeAdmission(root).catch(() => {});
     });
     if (command === "recover") return;
   }
@@ -164,17 +169,26 @@ export async function updateCli(args: string[]) {
       process.stdout.write(JSON.stringify(release.manifest) + "\n");
       return;
     }
-    await applyUpdate({
-      root,
-      dataDir: root,
-      bytes: release.bytes,
-      signature: release.signature,
-      publicKey: RELEASE_PUBLIC_KEY,
-      archiveUrl: release.url,
-      fetcher: releaseFetch,
-      drain,
-      interrupt,
-      ports,
+    const spadeMode = interrupt ? "now" : "idle";
+    // An up-to-date daemon still brings a Spade left behind by an earlier failed swap along.
+    if (!isNewer(release.manifest.version, installed.version))
+      await updateSpadeToCurrent(root, spadeMode, writeLine);
+    // The daemon first, then Spade: never both stopped at once (ADR 0123).
+    await swapPrograms({
+      daemon: () =>
+        applyUpdate({
+          root,
+          dataDir: root,
+          bytes: release.bytes,
+          signature: release.signature,
+          publicKey: RELEASE_PUBLIC_KEY,
+          archiveUrl: release.url,
+          fetcher: releaseFetch,
+          drain,
+          interrupt,
+          ports,
+        }),
+      spade: () => updateSpadeToCurrent(root, spadeMode, writeLine),
     });
   };
   if (!outcome) return install();
