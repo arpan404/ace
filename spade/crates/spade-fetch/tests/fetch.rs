@@ -171,3 +171,51 @@ async fn pages_of_text_walk_to_the_end() -> Result {
     assert_eq!(text, "0123456789".repeat(5));
     Ok(())
 }
+
+#[tokio::test]
+async fn a_body_that_stalls_hits_the_deadline() -> Result {
+    let addr = start().await?;
+    let fetcher = Fetcher::new(Policy::allowing_loopback(), Duration::from_millis(500));
+    let started = Instant::now();
+    let got = fetcher
+        .fetch(&format!("http://{addr}/stall"), Page::default())
+        .await;
+    assert!(matches!(got, Err(FetchError::TimedOut(_))), "{got:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_deadline_covers_every_redirect_together() -> Result {
+    let addr = start().await?;
+    // Four hops of 200 ms each: every hop fits in 500 ms, the whole chain does not.
+    let fetcher = Fetcher::new(Policy::allowing_loopback(), Duration::from_millis(500));
+    let started = Instant::now();
+    let got = fetcher
+        .fetch(&format!("http://{addr}/slow-hop/3"), Page::default())
+        .await;
+    assert!(matches!(got, Err(FetchError::TimedOut(_))), "{got:?}");
+    assert!(started.elapsed() < Duration::from_millis(1500));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_compressed_body_is_capped_by_what_it_expands_to() -> Result {
+    let addr = start().await?;
+    let got = local()
+        .fetch(&format!("http://{addr}/gzip-bomb"), Page::default())
+        .await;
+    assert_eq!(got, Err(FetchError::TooLarge));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_compressed_page_reads_as_its_text() -> Result {
+    let addr = start().await?;
+    let got = local()
+        .fetch(&format!("http://{addr}/gzip-page"), Page::default())
+        .await?;
+    assert_eq!(got.title.as_deref(), Some("A page"));
+    assert!(got.text.starts_with("# Hello"));
+    Ok(())
+}

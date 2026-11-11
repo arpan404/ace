@@ -3,11 +3,11 @@
 mod common;
 
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{FakeNetworks, Result, UnreadableNetworks, local, net, start, with_dns};
-use spade_fetch::{FetchError, Fetcher, Page, Policy};
+use spade_fetch::{FetchError, Fetcher, Lookup, Page, Policy, Resolve};
 
 #[tokio::test]
 async fn the_connection_goes_to_the_checked_address_not_a_second_lookup() -> Result {
@@ -191,5 +191,64 @@ async fn allowed_loopback_still_works_though_loopback_is_a_local_network() -> Re
         .fetch(&format!("http://{addr}/page"), Page::default())
         .await?;
     assert_eq!(got.title.as_deref(), Some("A page"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn octal_and_hex_forms_of_loopback_are_refused() -> Result {
+    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(5));
+    for url in [
+        "http://0177.0.0.1/",
+        "http://0x7f.0.0.1/",
+        "http://0x7f.1/",
+        "http://0x7f000001/",
+        "http://017700000001/",
+        "http://127.1/",
+    ] {
+        let got = fetcher.fetch(url, Page::default()).await;
+        assert_eq!(
+            got,
+            Err(FetchError::Refused("127.0.0.1".to_owned())),
+            "{url}"
+        );
+    }
+    let got = fetcher
+        .fetch("http://0xa.0x1.0x2.0x3/", Page::default())
+        .await;
+    assert_eq!(got, Err(FetchError::Refused("10.1.2.3".to_owned())));
+    Ok(())
+}
+
+/// Answers each lookup with the next address in turn, as a rebinding DNS server would.
+struct ChangingDns(Mutex<Vec<SocketAddr>>);
+
+impl Resolve for ChangingDns {
+    fn lookup<'a>(&'a self, _host: &'a str, port: u16) -> Lookup<'a> {
+        let next = self
+            .0
+            .lock()
+            .ok()
+            .and_then(|mut answers| (!answers.is_empty()).then(|| answers.remove(0)));
+        Box::pin(async move {
+            next.map(|a| vec![SocketAddr::new(a.ip(), port)])
+                .ok_or_else(|| std::io::Error::other("no more answers"))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_redirect_to_the_same_name_is_looked_up_and_checked_again() -> Result {
+    let addr = start().await?;
+    let private: SocketAddr = "10.0.0.1:80".parse()?;
+    let dns = ChangingDns(Mutex::new(vec![addr, private]));
+    let fetcher = local().with_resolver(Arc::new(dns));
+    let port = addr.port();
+    let got = fetcher
+        .fetch(
+            &format!("http://rebind.example:{port}/to?where=http://rebind.example:{port}/page"),
+            Page::default(),
+        )
+        .await;
+    assert_eq!(got, Err(FetchError::Refused("rebind.example".to_owned())));
     Ok(())
 }

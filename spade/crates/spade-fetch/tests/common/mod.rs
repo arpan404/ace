@@ -12,6 +12,7 @@ use axum::extract::{Path, Query};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
+use futures_util::StreamExt;
 use spade_fetch::{Fetcher, LocalNetworks, Lookup, MOST_BYTES, Network, Policy, Resolve};
 use tokio::net::TcpListener;
 
@@ -62,6 +63,26 @@ pub async fn start() -> Result<SocketAddr> {
             }),
         )
         .route("/endless", get(endless))
+        .route("/stall", get(stall))
+        .route(
+            "/slow-hop/{n}",
+            get(|Path(n): Path<u32>| async move {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                Redirect::temporary(&if n == 0 {
+                    "/page".to_owned()
+                } else {
+                    format!("/slow-hop/{}", n - 1)
+                })
+            }),
+        )
+        .route(
+            "/gzip-bomb",
+            get(|| async { gzipped("text/plain", &vec![b'a'; MOST_BYTES + 1]) }),
+        )
+        .route(
+            "/gzip-page",
+            get(|| async { gzipped("text/html", ARTICLE.as_bytes()) }),
+        )
         .route(
             "/pdf",
             get(|| async {
@@ -145,6 +166,34 @@ async fn endless() -> Response {
     (
         [(header::CONTENT_TYPE, "text/plain")],
         Body::from_stream(stream),
+    )
+        .into_response()
+}
+
+/// Sends the headers and a first piece of the body, then nothing more, ever.
+async fn stall() -> Response {
+    let first = futures_util::stream::iter([Ok::<_, Infallible>(Bytes::from_static(b"start "))]);
+    let stream = first.chain(futures_util::stream::pending());
+    (
+        [(header::CONTENT_TYPE, "text/plain")],
+        Body::from_stream(stream),
+    )
+        .into_response()
+}
+
+fn gzipped(content_type: &'static str, body: &[u8]) -> Response {
+    use std::io::Write;
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    let packed = encoder
+        .write_all(body)
+        .and_then(|()| encoder.finish())
+        .unwrap_or_default();
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CONTENT_ENCODING, "gzip"),
+        ],
+        packed,
     )
         .into_response()
 }

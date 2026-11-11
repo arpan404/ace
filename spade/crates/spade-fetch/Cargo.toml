@@ -11,13 +11,14 @@ publish.workspace = true
 encoding_rs = "0.8"
 htmlize = { version = "1.1", features = ["unescape"] }
 if-addrs = "0.15"
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["gzip"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
 url = "2"
 
 [dev-dependencies]
 axum.workspace = true
+flate2 = "1"
 futures-util.workspace = true
 log = "0.4"
 tracing.workspace = true
