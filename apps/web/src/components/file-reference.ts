@@ -133,7 +133,7 @@ export function fileMentionTab(
 ): OpenTab {
   if (resolution.kind === "outside")
     return filePreviewTab({
-      name: resolution.path.split("/").at(-1) || resolution.path,
+      name: resolution.path.split(/[\\/]/).at(-1) || resolution.path,
       source: {
         kind: "link",
         threadId: resolution.threadId,
@@ -156,7 +156,7 @@ export function fileMentionTab(
     };
   }
   const tree = findTab(workspace, tabKey("files"));
-  const name = reference.path.split("/").at(-1) ?? reference.path;
+  const name = reference.path.split(/[\\/]/).at(-1) ?? reference.path;
   return { kind: "files", data: { ...objectData(tree?.tab.data), query: name } };
 }
 

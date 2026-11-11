@@ -71,6 +71,14 @@ describe("links in markit prose go only where they are safe", () => {
       kind: "local",
       path: "/Users/me/Study Guide.pdf",
     });
+    expect(markitLinkTarget("C:\\Users\\me\\a.pdf")).toEqual({
+      kind: "local",
+      path: "C:\\Users\\me\\a.pdf",
+    });
+    expect(markitLinkTarget("C:%5CUsers%5Cme%5CMy%20Report.pdf")).toEqual({
+      kind: "local",
+      path: "C:\\Users\\me\\My Report.pdf",
+    });
     expect(markitLinkTarget("a%zz.ts")).toEqual({ kind: "local", path: "a%zz.ts" });
     expect(markitLinkTarget("file:///tmp/a.ts")).toEqual({
       kind: "local",

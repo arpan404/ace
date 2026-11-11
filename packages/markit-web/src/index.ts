@@ -54,6 +54,8 @@ export type MarkitLinkTarget =
  * host. Any other scheme (javascript:, data:, custom handlers) is refused.
  */
 export function markitLinkTarget(url: string): MarkitLinkTarget | undefined {
+  // A Windows drive (`C:\a.pdf`, maybe percent-encoded) reads like a scheme but is a path.
+  if (/^[a-z]:(?:[\\/]|%5c)/i.test(url)) return { kind: "local", path: decodedPath(url) };
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase();
   // markit percent-encodes link targets; the host knows a linked path as it was written.
   if (scheme === undefined)

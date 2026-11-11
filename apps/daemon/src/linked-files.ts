@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { Marked, type Token } from "marked";
 import { FileError, FilesService } from "@ace/files";
 import type { FileOperation, ThreadId } from "@ace/protocol";
-import { fileTextSpans, isMachinePath } from "@ace/ui-core/file-references";
+import { fileTextSpans, isHomePath, isMachinePath } from "@ace/ui-core/file-references";
 import { agentDirectory } from "./image-files.ts";
 import type { ServiceContext } from "./services/types.ts";
 
@@ -46,7 +46,8 @@ export function localReference(reference: string): string | undefined {
       return;
     }
   }
-  if (/^[a-z][a-z\d+.-]*:/i.test(reference)) return;
+  // A drive letter (`C:\a.pdf`) reads like a URL scheme but names a path.
+  if (!/^[A-Za-z]:[\\/]/.test(reference) && /^[a-z][a-z\d+.-]*:/i.test(reference)) return;
   const path = reference.replace(/:\d+(?::\d+)?$/, "");
   return path || undefined;
 }
@@ -96,7 +97,7 @@ export class LinkedFiles {
       throw new FileError("FORBIDDEN", "The message does not link this file");
     const local = localReference(operation.reference);
     if (!local) throw new FileError("INVALID_PATH", "The link does not name a local file");
-    let path = local.startsWith("~/")
+    let path = isHomePath(local)
       ? resolve(this.home, local.slice(2))
       : isAbsolute(local)
         ? normalize(local)

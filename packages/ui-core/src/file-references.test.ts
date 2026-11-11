@@ -20,6 +20,18 @@ describe("inline code", () => {
     });
   });
 
+  test("Windows paths count as files: drive letters, backslashes and a backslashed home", () => {
+    for (const path of [
+      "C:\\Users\\dev\\Downloads\\report.pdf",
+      "C:/Users/dev/Downloads/report.pdf",
+      "~\\Downloads\\report.pdf",
+      "src\\app\\x.tsx",
+      ".\\README.md",
+    ])
+      expect(codeFileReference(path), path).toEqual({ path });
+    expect(codeFileReference("C:\\work\\a.ts:12")).toEqual({ path: "C:\\work\\a.ts", line: 12 });
+  });
+
   test("line and column suffixes are read in both colon and #L forms", () => {
     expect(codeFileReference("src/app/x.tsx:42")).toEqual({ path: "src/app/x.tsx", line: 42 });
     expect(codeFileReference("a.ts:7:3")).toEqual({ path: "a.ts", line: 7, column: 3 });
@@ -42,6 +54,8 @@ describe("inline code", () => {
       "me@example.com",
       "src/app/",
       "~notes.md",
+      "\\\\server\\share\\a.pdf",
+      "C:\\Users\\",
       "~user/notes.md",
       "file:///tmp/a.ts",
     ])
@@ -75,6 +89,12 @@ describe("plain text", () => {
 
   test("a home path in prose is one reference, tilde included", () => {
     expect(files("Saved to ~/Downloads/report.pdf.")).toEqual([{ path: "~/Downloads/report.pdf" }]);
+  });
+
+  test("a Windows path in prose is one reference, drive letter included", () => {
+    expect(files("Saved it to C:\\Users\\dev\\Downloads\\report.pdf, then ran it.")).toEqual([
+      { path: "C:\\Users\\dev\\Downloads\\report.pdf" },
+    ]);
   });
 
   test("text without any reference comes back unchanged as one span", () => {
@@ -118,6 +138,15 @@ describe("resolution", () => {
     expect(workspaceRelative("./src/a.ts", undefined)).toBe("src/a.ts");
     expect(workspaceRelative("~/acme/src/a.ts", "/Users/dev/acme")).toBeUndefined();
   });
+
+  test("Windows paths are made workspace-relative under a Windows root, whatever the case", () => {
+    const root = "C:\\Users\\Dev\\acme\\";
+    expect(workspaceRelative("C:\\Users\\Dev\\acme\\src\\a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("c:/users/dev/acme/src/a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("D:\\acme\\src\\a.ts", root)).toBeUndefined();
+    expect(workspaceRelative(".\\src\\a.ts", root)).toBe("src/a.ts");
+    expect(workspaceRelative("~\\acme\\a.ts", root)).toBeUndefined();
+  });
 });
 
 describe("message links", () => {
@@ -132,6 +161,20 @@ describe("message links", () => {
     expect(checkoutLinkPath("../other/a.ts", root, undefined)).toBeUndefined();
     expect(checkoutLinkPath("~/Downloads/report.pdf", root, root)).toBeUndefined();
   });
+  test("Windows links land in a Windows checkout, and outside it have no checkout path", () => {
+    const windows = "C:\\work\\relay";
+    expect(checkoutLinkPath("C:\\work\\relay\\apps\\a.ts", windows, undefined)).toBe("apps/a.ts");
+    expect(checkoutLinkPath("src\\a.ts", windows, "C:\\work\\relay\\apps")).toBe("apps/src/a.ts");
+    expect(checkoutLinkPath("C:/work/relay/x/../b.ts", windows, undefined)).toBe("b.ts");
+    expect(checkoutLinkPath("C:\\Users\\me\\Downloads\\r.pdf", windows, undefined)).toBeUndefined();
+    expect(checkoutLinkPath("~\\Downloads\\r.pdf", windows, windows)).toBeUndefined();
+  });
+
+  test("Windows drive paths and file URLs read as local paths", () => {
+    expect(localLinkPath("C:\\Users\\me\\a.ts:12")).toBe("C:\\Users\\me\\a.ts");
+    expect(localLinkPath("file:///C:/Users/me/My%20Report.pdf")).toBe("C:/Users/me/My Report.pdf");
+  });
+
   test("file URLs, line suffixes and web links read as local paths or none", () => {
     expect(localLinkPath("file:///Users/me/with%20space.pdf")).toBe("/Users/me/with space.pdf");
     expect(localLinkPath("src/a.ts:12:3")).toBe("src/a.ts");
