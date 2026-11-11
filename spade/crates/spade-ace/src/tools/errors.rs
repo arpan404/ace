@@ -89,6 +89,11 @@ fn http(error: &(dyn StdError + 'static)) -> Http {
                 {
                     Http::Refused
                 }
+                StreamableHttpError::UnexpectedServerResponse(text)
+                    if text.starts_with("HTTP 3") =>
+                {
+                    Http::NotRun("ace answered with a redirect, which Spade does not follow")
+                }
                 StreamableHttpError::SessionExpired => {
                     Http::NotRun("ace had closed Spade's session before the request arrived")
                 }

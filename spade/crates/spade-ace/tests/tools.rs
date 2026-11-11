@@ -270,3 +270,104 @@ async fn a_non_loopback_url_never_becomes_a_tools_config() {
     let ws = LoopbackUrl::parse("ws://127.0.0.1:4300/").unwrap_or_else(|e| panic!("{e}"));
     assert!(ToolsConfig::new(ws, Secret::new(TOKEN), Duration::from_secs(1)).is_err());
 }
+
+#[tokio::test]
+async fn a_late_answer_to_a_given_up_call_never_reaches_a_later_call() {
+    let fake = FakeMcp::start(usual_tools()).await;
+    let tools = client(&fake, TOKEN, Duration::from_secs(5));
+    fake.hold_answers();
+    // The caller gives up and drops the call before its answer comes.
+    let given_up = tokio::time::timeout(
+        Duration::from_millis(300),
+        tools.call("echo", json!({ "say": "old" })),
+    )
+    .await;
+    assert!(given_up.is_err());
+    // Dropping the call asks ace to cancel it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while fake.cancels() == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(fake.cancels(), 1);
+    // The given-up call's answer arrives after all.
+    fake.release_answers();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // A new session starts its request ids over, so the next call reuses the old call's id.
+    fake.expire_sessions().await;
+    assert!(matches!(
+        tools.call("echo", json!({ "say": "lost" })).await,
+        Err(ToolsError::NotRun(_))
+    ));
+    let fresh = tools.call("echo", json!({ "say": "new" })).await;
+    assert_eq!(fresh.map(|r| r.parts), Ok(vec![Part::text("new")]));
+}
+
+#[tokio::test]
+async fn many_answers_arriving_at_once_all_keep_their_extra_fields() {
+    let fake = FakeMcp::start(vec![tool("decorated", None, None)]).await;
+    let tools = std::sync::Arc::new(client(&fake, TOKEN, Duration::from_secs(20)));
+    assert!(tools.tools().await.is_ok());
+    fake.hold_answers();
+    let calls: Vec<_> = (0..96)
+        .map(|_| {
+            let tools = tools.clone();
+            tokio::spawn(async move { tools.call("decorated", json!({})).await })
+        })
+        .collect();
+    // Let every call that may be in flight reach the daemon, then answer them all at once.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut seen = 0;
+    while std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let now = fake.tool_call_frames();
+        if now == seen && now > 0 {
+            break;
+        }
+        seen = now;
+    }
+    fake.release_answers();
+    for call in calls {
+        let answer = call.await.unwrap_or_else(|e| panic!("{e}"));
+        let answer = answer.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(answer.extra.get("x-ace-lane"), Some(&json!({ "lane": 2 })));
+        assert!(
+            matches!(&answer.parts[..], [Part::Text { extra, .. }] if extra.get("tone") == Some(&json!("calm"))),
+            "{:?}",
+            answer.parts
+        );
+    }
+    assert_eq!(fake.tool_runs(), 96);
+}
+
+#[tokio::test]
+async fn a_redirected_call_is_not_followed_anywhere() {
+    let elsewhere = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .unwrap_or_else(|e| panic!("{e}"));
+    let target = elsewhere.local_addr().unwrap_or_else(|e| panic!("{e}"));
+    let reached = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = reached.clone();
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = elsewhere.accept().await {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                drop(socket);
+            });
+        }
+    });
+    let fake = FakeMcp::start(usual_tools()).await;
+    let tools = client(&fake, TOKEN, Duration::from_secs(2));
+    assert!(tools.tools().await.is_ok());
+
+    fake.redirect_calls_to(format!("http://{target}/elsewhere"));
+    let call = tools.call("echo", json!({ "say": "stay" })).await;
+    assert!(
+        matches!(call, Err(ToolsError::NotRun(_))),
+        "expected not run, got {call:?}"
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 0);
+    assert_eq!(fake.tool_call_frames(), 1);
+}
