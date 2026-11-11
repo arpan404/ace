@@ -9,7 +9,7 @@ use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::any;
 use tokio::net::TcpListener;
 
 use crate::Seen;
@@ -19,6 +19,8 @@ struct Shared {
     body: Arc<String>,
     status: u16,
     delay: Duration,
+    /// Answers every request with this redirect instead.
+    location: Option<Arc<String>>,
     seen: Arc<Mutex<Vec<Seen>>>,
 }
 
@@ -35,14 +37,31 @@ impl FakeModelList {
         body: impl Into<String>,
         delay: Duration,
     ) -> Result<Self, crate::Error> {
-        let shared = Shared {
+        Self::serve(Shared {
             body: Arc::new(body.into()),
             status,
             delay,
+            location: None,
             seen: Arc::default(),
-        };
+        })
+        .await
+    }
+
+    /// Answers every request, of any method, with `307` to `location` plus the request's path.
+    pub async fn redirecting(location: &str) -> Result<Self, crate::Error> {
+        Self::serve(Shared {
+            body: Arc::new(String::new()),
+            status: 307,
+            delay: Duration::ZERO,
+            location: Some(Arc::new(location.trim_end_matches('/').to_owned())),
+            seen: Arc::default(),
+        })
+        .await
+    }
+
+    async fn serve(shared: Shared) -> Result<Self, crate::Error> {
         let app = Router::new()
-            .route("/{*path}", get(answer))
+            .route("/{*path}", any(answer))
             .with_state(shared.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address: SocketAddr = listener.local_addr()?;
@@ -80,6 +99,15 @@ async fn answer(State(shared): State<Shared>, uri: Uri, headers: HeaderMap) -> R
                 .collect(),
             body: serde_json::Value::Null,
         });
+    }
+    if let Some(location) = &shared.location {
+        let to = format!("{location}{}", uri.path());
+        return (
+            axum::http::StatusCode::TEMPORARY_REDIRECT,
+            [("location", to)],
+            String::new(),
+        )
+            .into_response();
     }
     if !shared.delay.is_zero() {
         tokio::time::sleep(shared.delay).await;

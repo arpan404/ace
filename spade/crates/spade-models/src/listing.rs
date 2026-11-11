@@ -64,12 +64,22 @@ pub(crate) async fn fetch(
     for (name, value) in &endpoint.headers {
         request = request.header(name.as_str(), value.as_str());
     }
-    let scrub = |text: String| one_line(&text, key);
+    // Never echo the key or a configured header's value, whatever the endpoint sends back.
+    let mut secrets: Vec<&str> = endpoint.headers.iter().map(|(_, v)| v.as_str()).collect();
+    secrets.extend(key);
+    let scrub = |text: String| one_line(&text, &secrets);
     let mut response = request
         .send()
         .await
         .map_err(|e| scrub(format!("could not reach the endpoint: {}", reason(&e))))?;
     let status = response.status();
+    if status.is_redirection() {
+        return Err(format!(
+            "the endpoint redirected ({}); Spade does not follow redirects with your key, so set the \
+             base URL to the address it points to",
+            status.as_u16()
+        ));
+    }
     let mut body = Vec::new();
     loop {
         match response.chunk().await {
@@ -121,11 +131,11 @@ fn message_in(body: &[u8]) -> Option<String> {
     message.as_str().map(str::to_owned)
 }
 
-/// One short line, with the key cut out wherever it appears.
-fn one_line(text: &str, key: Option<&str>) -> String {
+/// One short line, with every secret (the key, header values) cut out wherever it appears.
+fn one_line(text: &str, secrets: &[&str]) -> String {
     let mut text = text.replace(['\n', '\r'], " ");
-    if let Some(key) = key.filter(|k| !k.is_empty()) {
-        text = text.replace(key, "[key]");
+    for secret in secrets.iter().filter(|s| s.len() >= 4) {
+        text = text.replace(secret, "[hidden]");
     }
     if text.chars().count() > 200 {
         text = text.chars().take(199).collect::<String>() + "…";
@@ -227,7 +237,10 @@ mod tests {
 
     #[test]
     fn an_error_line_never_carries_the_key() {
-        let line = one_line("bad key sk-secret\nsecond line", Some("sk-secret"));
-        assert_eq!(line, "bad key [key] second line");
+        let line = one_line(
+            "bad key sk-secret for team-blue\nsecond line",
+            &["sk-secret", "team-blue"],
+        );
+        assert_eq!(line, "bad key [hidden] for [hidden] second line");
     }
 }

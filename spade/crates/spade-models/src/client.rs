@@ -46,10 +46,17 @@ struct Call {
 impl Models {
     /// `version` is Spade's own, sent as `User-Agent: spade/<version>` on every request.
     pub fn new(catalog: Catalog, keys: Keys, version: &str) -> Result<Self, ModelError> {
-        let client = Client::new().map_err(|error| ModelError::Setup(error.to_string()))?;
         let user_agent = format!("spade/{version}");
-        let http = reqwest::Client::builder()
+        // Every call carries a key or the person's headers, so no redirect is ever followed: one
+        // to another host would hand them over. A redirect answers as an error instead.
+        let http = genai::WebConfig::default()
+            .apply_to_builder(reqwest::Client::builder())
             .user_agent(user_agent.as_str())
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| ModelError::Setup(error.to_string()))?;
+        let client = Client::builder()
+            .with_reqwest(http.clone())
             .build()
             .map_err(|error| ModelError::Setup(error.to_string()))?;
         let endpoints = Arc::new(RwLock::new(Arc::new(catalog.endpoints().to_vec())));

@@ -160,3 +160,46 @@ async fn a_model_nobody_saved_gets_preset_facts_or_defaults() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_redirect_is_never_followed_with_the_key_or_headers() -> Result {
+    let elsewhere =
+        FakeModelList::start(200, r#"{"data":[{"id":"stolen"}]}"#, Duration::ZERO).await?;
+    let redirector = FakeModelList::redirecting(&elsewhere.root).await?;
+    let models = models(
+        endpoint(&redirector.root, Format::OpenAiChat),
+        ListBounds::default(),
+    )?;
+    let error = models.list("mine").await;
+    let text = error.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(text.contains("redirected (307)"), "{text}");
+    // A chat call is not followed either.
+    let chat = models
+        .chat("mine/m", &spade_models::Prompt::ask("hi"))
+        .await;
+    assert!(chat.is_err());
+    assert!(
+        elsewhere.seen().is_empty(),
+        "nothing reached the other host"
+    );
+    assert_eq!(redirector.seen().len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_listing_error_never_echoes_a_configured_header_value() -> Result {
+    let echo = json!({ "error": { "message": "unknown team spade for this key" } });
+    let refusing = FakeModelList::start(403, echo.to_string(), Duration::ZERO).await?;
+    let error = models(
+        endpoint(&refusing.root, Format::OpenAiChat),
+        ListBounds::default(),
+    )?
+    .list("mine")
+    .await;
+    let text = error.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(
+        text.contains("403") && !text.contains("team spade"),
+        "{text}"
+    );
+    Ok(())
+}
