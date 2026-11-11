@@ -118,7 +118,9 @@ impl Transcript {
                     self.always_allowed.push(tool);
                 }
             }
-            Known::StepFinished { .. } | Known::SkillsIndexed { .. } => {}
+            Known::StepFinished { .. }
+            | Known::SkillsIndexed { .. }
+            | Known::ContextCompacted { .. } => {}
         }
         if self.open_reply().is_none() {
             self.running.clear();

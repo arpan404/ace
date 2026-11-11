@@ -99,6 +99,10 @@ async fn drive(engine: &Arc<Engine>, id: &str, mut stop: watch::Receiver<bool>) 
                         "today's spending cap is used up".to_owned(),
                     );
                 }
+                let model = turn_model(engine, &events, &reply);
+                if super::compact::if_needed(engine, id, &model, &events).await {
+                    continue;
+                }
                 match model_step(engine, id, &reply, &events, &mut stop).await {
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,

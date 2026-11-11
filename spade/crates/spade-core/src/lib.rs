@@ -2,6 +2,7 @@
 //! inputs, so it is tested directly.
 
 pub mod checkpoint;
+pub mod compaction;
 pub mod context;
 pub mod event;
 pub mod gate;

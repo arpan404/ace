@@ -2,6 +2,7 @@
 //! stored event, sent to live subscribers in order. Turns run as tasks driven by
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
+mod compact;
 mod turn;
 
 use std::collections::HashMap;
@@ -28,6 +29,8 @@ pub struct Limits {
     /// Longest tool result kept, in characters.
     pub result_chars: usize,
     pub longest_message: usize,
+    /// Compaction budget in tokens, capped by each model's own context window.
+    pub context_budget: u32,
 }
 
 impl Default for Limits {
@@ -39,6 +42,7 @@ impl Default for Limits {
             tool_timeout: Duration::from_secs(120),
             result_chars: 20_000,
             longest_message: 100_000,
+            context_budget: 200_000,
         }
     }
 }
@@ -90,6 +94,18 @@ pub enum SendError {
     OverCap,
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CompactError {
+    #[error("no such conversation")]
+    NotFound,
+    #[error("a reply is running; compact once it ends")]
+    Busy,
+    #[error("there is nothing to compact yet")]
+    Nothing,
+    #[error("{0}")]
+    Failed(String),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -275,6 +291,35 @@ impl Engine {
             backlog,
             snapshot,
         }))
+    }
+
+    /// Compacts the conversation now (between turns), with an optional focus for the summary.
+    pub async fn compact(
+        self: &Arc<Self>,
+        id: &str,
+        focus: Option<&str>,
+    ) -> Result<(), CompactError> {
+        if self
+            .store
+            .conversation(id)
+            .map_err(|e| CompactError::Failed(e.to_string()))?
+            .is_none()
+        {
+            return Err(CompactError::NotFound);
+        }
+        if self
+            .reply_open(id)
+            .map_err(|e| CompactError::Failed(e.to_string()))?
+        {
+            return Err(CompactError::Busy);
+        }
+        let model = compact::conversation_model(self, id)
+            .unwrap_or_else(|| self.models.for_role(Role::Main).to_owned());
+        match compact::now(self, id, &model, focus).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(CompactError::Nothing),
+            Err(error) => Err(CompactError::Failed(error)),
+        }
     }
 
     pub fn models(&self) -> &Models {

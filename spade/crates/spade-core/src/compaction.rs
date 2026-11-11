@@ -1,0 +1,165 @@
+//! When and where to compact a conversation, and how a summary is asked for and written. Pure:
+//! the engine supplies the reported prompt size and runs the model call.
+
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+use crate::event::{Event, Known};
+use crate::tools::{Registry, Risk};
+
+/// Compact once the prompt reaches this share of the budget...
+pub const HIGH: f64 = 0.75;
+/// ...keeping recent turns worth about this share, so one compaction lasts many turns.
+pub const LOW: f64 = 0.35;
+
+/// The part of the conversation a compaction keeps word for word.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Plan {
+    /// Index of the first event kept; always a message from the person, so no tool call is cut
+    /// from its result.
+    pub keep_from: usize,
+}
+
+/// Whether to compact now, and where to cut. `prompt_tokens` is what the endpoint reported for
+/// the last call; `budget` is the smaller of the model's context and Spade's cap.
+pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
+    if budget == 0 || f64::from(prompt_tokens) < f64::from(budget) * HIGH {
+        return None;
+    }
+    let already = events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
+        _ => None,
+    });
+    let starts: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .filter(|(i, e)| {
+            matches!(e, Event::Known(Known::UserMessage { .. })) && already.is_none_or(|k| *i > k)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let last = *starts.last()?;
+    // Size each candidate's kept part in proportion to the reported prompt, by text length.
+    let sizes: Vec<usize> = events.iter().map(text_len).collect();
+    let total: usize = sizes.iter().sum::<usize>().max(1);
+    let target = f64::from(budget) * LOW;
+    let keep_from = starts
+        .iter()
+        .copied()
+        .find(|&start| {
+            let kept: usize = sizes[start..].iter().sum();
+            f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
+        })
+        .unwrap_or(last);
+    (keep_from > already.unwrap_or(0)).then_some(Plan { keep_from })
+}
+
+fn text_len(event: &Event) -> usize {
+    match event {
+        Event::Known(known) => match known {
+            Known::UserMessage { text, context } => {
+                text.len() + context.as_ref().map_or(0, String::len)
+            }
+            Known::StepFinished { text, calls, .. } => {
+                text.len()
+                    + calls
+                        .iter()
+                        .map(|c| c.arguments.to_string().len())
+                        .sum::<usize>()
+            }
+            Known::ToolFinished { content, .. } => content.len(),
+            Known::ContextCompacted { summary, .. } => summary.len(),
+            _ => 0,
+        },
+        Event::Unknown(_) => 0,
+    }
+}
+
+/// The summary asked of the model, as typed output.
+#[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
+pub struct Summary {
+    /// What the conversation is for.
+    pub goal: String,
+    /// What the person and Spade agreed.
+    pub decisions: Vec<String>,
+    /// What was learned, each with where it came from.
+    pub facts: Vec<String>,
+    /// Open questions and the next steps.
+    pub open: Vec<String>,
+    /// Ids, links and file paths still needed.
+    pub references: Vec<String>,
+}
+
+/// The request appended to the conversation's own prompt, so its input is mostly cache reads.
+pub fn request(focus: Option<&str>) -> String {
+    let focus = focus
+        .filter(|f| !f.trim().is_empty())
+        .map(|f| format!(" Keep in particular: {f}."))
+        .unwrap_or_default();
+    format!(
+        "Summarise this conversation so far so it can continue without the earlier messages. \
+         Be specific and brief: the goal, decisions made, facts learned with their sources, open \
+         questions and next steps, and ids, links and paths still needed.{focus}"
+    )
+}
+
+/// The summary as the model will read it, with every action already carried out listed from the
+/// events themselves, so the summary can never lose one and Spade never repeats it.
+pub fn render(summary: &Summary, carried_out: &[String]) -> String {
+    let mut out = format!(
+        "Summary of the earlier conversation\n\nGoal: {}\n",
+        summary.goal
+    );
+    for (title, items) in [
+        ("Decisions", &summary.decisions),
+        ("Facts", &summary.facts),
+        ("Open", &summary.open),
+        ("References", &summary.references),
+    ] {
+        if !items.is_empty() {
+            out.push_str(&format!("\n{title}:\n"));
+            for item in items {
+                out.push_str(&format!("- {item}\n"));
+            }
+        }
+    }
+    if !carried_out.is_empty() {
+        out.push_str("\nAlready carried out (do not repeat):\n");
+        for action in carried_out {
+            out.push_str(&format!("- {action}\n"));
+        }
+    }
+    out
+}
+
+/// Writes and destructive calls that finished without error before `keep_from`.
+pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
+    events[..keep_from.min(events.len())]
+        .iter()
+        .filter_map(|event| match event {
+            Event::Known(Known::ToolFinished {
+                name,
+                is_error: false,
+                call_id,
+                ..
+            }) if registry.get(name).is_some_and(|t| t.risk != Risk::Read) => {
+                let arguments = events.iter().find_map(|e| match e {
+                    Event::Known(Known::ApprovalRequested {
+                        call_id: c,
+                        arguments,
+                        ..
+                    }) if c == call_id => Some(arguments.to_string()),
+                    _ => None,
+                });
+                Some(match arguments {
+                    Some(arguments) => format!("{name} {arguments}"),
+                    None => name.clone(),
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests;

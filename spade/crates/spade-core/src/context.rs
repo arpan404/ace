@@ -39,7 +39,23 @@ pub fn prompt(system: &str, tools: Vec<ToolSpec>, events: &[Event]) -> Prompt {
 /// placed after those tools' results, since providers require every call to be answered before
 /// anything else; a call whose turn ended without a result gets [`NOT_RUN`].
 pub fn messages(events: &[Event]) -> Vec<Message> {
+    // After a compaction the model sees its summary, then the events it kept word for word.
+    let compacted = events.iter().rev().find_map(|event| match event {
+        Event::Known(Known::ContextCompacted {
+            summary, keep_from, ..
+        }) => Some((summary, *keep_from)),
+        _ => None,
+    });
     let mut out: Vec<Message> = Vec::new();
+    let events = match compacted {
+        Some((summary, keep_from)) => {
+            out.push(Message::Person {
+                text: format!("<summary>\n{summary}\n</summary>"),
+            });
+            &events[keep_from.min(events.len())..]
+        }
+        None => events,
+    };
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
     let mut held: Vec<String> = Vec::new();

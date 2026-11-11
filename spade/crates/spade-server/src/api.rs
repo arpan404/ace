@@ -18,7 +18,7 @@ use spade_keys::KeyStore;
 use spade_store::StoredEvent;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::engine::{AnswerError, Engine, Frame, SendError};
+use crate::engine::{AnswerError, CompactError, Engine, Frame, SendError};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/stop", post(stop))
         .route("/conversations/{id}/approvals/{call_id}", post(approve))
         .route("/conversations/{id}/live", get(live))
+        .route("/conversations/{id}/compact", post(compact))
         .route("/models", get(models))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -144,6 +145,28 @@ async fn stop(State(state): State<AppState>, Path(id): Path<String>) -> Response
         StatusCode::ACCEPTED.into_response()
     } else {
         problem(StatusCode::NOT_FOUND, "nothing is answering")
+    }
+}
+
+#[derive(Deserialize, Default)]
+struct Focus {
+    #[serde(default)]
+    focus: Option<String>,
+}
+
+async fn compact(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: Option<Json<Focus>>,
+) -> Response {
+    let focus = body.map(|Json(b)| b).unwrap_or_default().focus;
+    match state.engine.compact(&id, focus.as_deref()).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(CompactError::NotFound) => problem(StatusCode::NOT_FOUND, "no such conversation"),
+        Err(error @ (CompactError::Busy | CompactError::Nothing)) => {
+            problem(StatusCode::CONFLICT, &error.to_string())
+        }
+        Err(CompactError::Failed(error)) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
 }
 

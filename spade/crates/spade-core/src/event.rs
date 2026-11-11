@@ -93,6 +93,14 @@ pub enum Known {
     Renamed {
         title: String,
     },
+    /// Everything before `keep_from` (an index into the conversation's events) is replaced in the
+    /// model's view by `summary`; the events themselves stay stored (docs/design.md, Compaction).
+    ContextCompacted {
+        summary: String,
+        keep_from: usize,
+        #[serde(default)]
+        tokens_before: u32,
+    },
 }
 
 /// A tool call as stored.
