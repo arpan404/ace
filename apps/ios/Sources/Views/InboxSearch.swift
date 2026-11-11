@@ -170,7 +170,7 @@ struct InboxSearchList: View {
                 .accessibilityLabel("Searching")
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         } else if !messages.loading && foundThreads.isEmpty && everything.commands.isEmpty && everything.projects.isEmpty
-                    && pulls.found.isEmpty && pulls.problem == nil && messages.merged(inbox).isEmpty {
+                    && pulls.found.isEmpty && !(everyKind && pulls.problem != nil) && messages.merged(inbox).isEmpty {
             EmptyState.search(text)
                 .listRowSeparator(.hidden).listRowBackground(Color.clear)
         }
