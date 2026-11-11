@@ -2521,16 +2521,20 @@ name = "spade-ace"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "bytes",
  "futures-util",
  "reqwest",
  "rmcp",
  "serde",
  "serde_json",
+ "sse-stream",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "tower",
  "tracing",
+ "url",
 ]
 
 [[package]]
