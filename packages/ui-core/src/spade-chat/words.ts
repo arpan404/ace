@@ -132,24 +132,6 @@ export function spadeStateLine(
   }
 }
 
-/** A list row works while Spade answers in it or a background job of its is out. */
-export function spadeRowWorking(row: { answering: boolean; jobs: number }): boolean {
-  return row.answering || row.jobs > 0;
-}
-
-/**
- * What a list row says: an approval waiting on the person first (it needs them), then working,
- * else nothing but its age. Never idle while anything in it is open.
- */
-export function spadeRowState(row: {
-  answering: boolean;
-  jobs: number;
-  waitingOnYou: boolean;
-}): "needs-you" | "working" | "idle" {
-  if (row.waitingOnYou) return "needs-you";
-  return spadeRowWorking(row) ? "working" : "idle";
-}
-
 /** Background jobs that wait on ace's agents: a delegation, or a wait for agents already out. */
 const agentJobs = new Set(["delegate", "wait"]);
 

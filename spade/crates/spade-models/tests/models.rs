@@ -56,7 +56,6 @@ fn models(fake: &FakeProvider) -> Result<Models> {
     Ok(Models::new(
         catalog(fake)?,
         Keys::keychain_then_env(keychain, env),
-        "test",
     )?)
 }
 

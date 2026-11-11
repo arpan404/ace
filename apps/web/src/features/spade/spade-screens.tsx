@@ -1,21 +1,17 @@
-import { useClient } from "@ace/client-react";
-import { parseSpadeCreated, spadeStateLine } from "@ace/ui-core/spade-chat";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { spadeStateLine } from "@ace/ui-core/spade-chat";
+import { Navigate } from "@tanstack/react-router";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen, useViewFrame } from "@/features/shell/index.ts";
+import { Screen } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
-import type { SpadeMessage } from "./spade-images.ts";
-import { spadeBody, spadeHttp } from "./spade-requests.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import { SpadeTranscript } from "./spade-transcript.tsx";
 import { useSpadeConversation } from "./use-spade-conversation.ts";
-import { conversationsKey } from "./use-spade-conversations.ts";
+import { useSpadeAgents } from "./use-spade-agents.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -61,41 +57,22 @@ function Scroller(props: { children: ReactNode }) {
   );
 }
 
-/** `/spade`: a new conversation. The first message starts it and opens it. */
+/** `/spade`: Spade's own conversation, once the roster says where it is. */
 export function SpadeNewScreen() {
-  const client = useClient();
-  const cache = useQueryClient();
-  const navigate = useNavigate();
   const line = useSpadeLine();
-  // The panel says Spade's state while it shows; the page says it only when the panel doesn't.
-  const panelShown = useViewFrame().sidebarShown;
-  const start = async (message: SpadeMessage) => {
-    const id = parseSpadeCreated(
-      await spadeHttp(client, "POST", "/v1/conversations", { body: spadeBody(message) }),
+  const main = useSpadeAgents(line.ready).data?.find((agent) => agent.kind === "main");
+  if (main)
+    return (
+      <Navigate
+        to="/spade/$conversationId"
+        params={{ conversationId: main.conversation }}
+        replace
+      />
     );
-    if (!id) throw new Error("Spade started the conversation but didn't say where it is.");
-    void cache.invalidateQueries({ queryKey: conversationsKey });
-    // After the composer has heard the send went, so it clears its saved draft before it unmounts.
-    setTimeout(
-      () => void navigate({ to: "/spade/$conversationId", params: { conversationId: id } }),
-    );
-  };
   return (
     <Screen title="Spade" namedByPanel>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="min-h-0 flex-1" />
-        {!line.ready && !panelShown && (
-          <div className={readingColumn}>
-            <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 pb-3 text-ui" />
-          </div>
-        )}
-        <SpadeComposer
-          draftKey="spade:new"
-          answering={false}
-          blocked={line.ready ? undefined : line.sentence}
-          placeholder="Ask Spade anything"
-          send={start}
-        />
+      <div className={`${readingColumn} pt-6`}>
+        <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 text-ui" />
       </div>
     </Screen>
   );

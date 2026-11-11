@@ -11,7 +11,6 @@ import { useMemo } from "react";
 import { useProviderAccountModels } from "@/lib/account-views.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useRailMeasure } from "@/lib/rail-measure.ts";
-import { useRailPins } from "@/lib/rail-pins.ts";
 import { useNow } from "@/lib/time.ts";
 import { useUsageTimeZone } from "@/lib/usage-timezone.ts";
 
@@ -24,8 +23,8 @@ export interface UsageHeadroom {
 }
 
 /**
- * This machine's room, for the rail's Usage bars (the pinned accounts, else the four used most
- * this week) and their card, which lists the same accounts with every window. Limits come from the app's live accounts read (a provider's limit push updates it);
+ * This machine's room, for the rail's Usage bars (each account's week, up to four) and their
+ * card (per provider, session and week). Limits come from the app's live accounts read (a provider's limit push updates it);
  * the seven-day ranking of accounts is read again only when a limit changes, never on a timer.
  */
 export function useUsageHeadroom(): UsageHeadroom {
@@ -69,10 +68,6 @@ export function useUsageHeadroom(): UsageHeadroom {
   );
   const headroom = useMemo(() => usageHeadroom(limits), [limits]);
   const [measure] = useRailMeasure();
-  const [pins] = useRailPins();
-  const rail = useMemo(
-    () => railUsage(limits, used.data, measure, pins),
-    [limits, used.data, measure, pins],
-  );
+  const rail = useMemo(() => railUsage(limits, used.data, measure), [limits, used.data, measure]);
   return { headroom, rail, observedAt, now };
 }

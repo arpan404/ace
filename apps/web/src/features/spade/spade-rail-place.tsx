@@ -2,19 +2,19 @@ import { Link } from "@tanstack/react-router";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { useSpadeConversations } from "./use-spade-conversations.ts";
+import { useSpadeAgents } from "./use-spade-agents.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
 const needWord = (count: number) => `${count} ${count === 1 ? "needs" : "need"} you`;
 
 /**
  * Spade in the rail: its mark, back to where the person last was in Spade. While they are
- * elsewhere and an approval waits in a conversation, a needs-you dot, and its name says how many.
+ * elsewhere and a bot waits on them, a needs-you dot, and its name says how many.
  */
 export function SpadeRailPlace(props: { current: boolean; to: string; search: object }) {
   const ready = useSpadeStatus()?.state === "ready";
-  const rows = useSpadeConversations(ready).data ?? [];
-  const waiting = props.current ? 0 : rows.filter((row) => row.waitingOnYou).length;
+  const agents = useSpadeAgents(ready).data ?? [];
+  const waiting = props.current ? 0 : agents.filter((agent) => agent.state === "waiting").length;
   const asks = waiting ? needWord(waiting) : "";
   return (
     <Tip label={asks ? `Spade · ${asks}` : "Spade"}>

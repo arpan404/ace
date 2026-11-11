@@ -252,8 +252,7 @@ async fn model_step(
 ) -> Step {
     let model = turn_model(engine, events, reply);
     let images = engine.images_for(&model);
-    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images)
-        .session(id);
+    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     let live = engine.live(id);
     // Each step's snapshot starts from its own text.
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
@@ -404,7 +403,7 @@ async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
     let fast = engine.models.for_role(Role::Fast).to_owned();
     let suggested = match engine
         .models
-        .generate::<title::Suggestion>(&fast, &title::prompt(&first).session(id))
+        .generate::<title::Suggestion>(&fast, &title::prompt(&first))
         .await
     {
         Ok(generated) => {
@@ -479,7 +478,6 @@ mod tests {
         let models = spade_models::Models::new(
             spade_models::Catalog::from_json(&catalog.to_string())?,
             spade_keys::Keys::new(|_| Some("fake-key".to_owned())),
-            crate::home::VERSION,
         )?;
         Ok(Engine::open(super::super::Setup {
             store: spade_store::Store::open(&dir.join("spade.sqlite"))?,

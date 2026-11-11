@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
 import type { SpadeMessage } from "./spade-images.ts";
 import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
-import { conversationsKey } from "./use-spade-conversations.ts";
+import { agentsKey } from "./use-spade-agents.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -37,7 +37,7 @@ export function useSpadeConversation(conversation: string) {
   useEffect(() => follow.setReady(ready), [follow, ready]);
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
   const path = `/v1/conversations/${segment(conversation)}`;
-  const listChanged = () => void cache.invalidateQueries({ queryKey: conversationsKey });
+  const listChanged = () => void cache.invalidateQueries({ queryKey: agentsKey });
 
   return {
     ...snapshot,

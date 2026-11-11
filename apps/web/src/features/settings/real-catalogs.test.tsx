@@ -65,21 +65,18 @@ test("Usage combines legacy bare and prefixed model ids and labels the Codex wee
   const metric = await screen.findByRole("group", { name: "Show" });
   await userEvent.click(within(metric).getByRole("button", { name: "Tokens" }));
   await userEvent.click(await screen.findByRole("button", { name: "30 days" }));
-  await userEvent.click(await screen.findByRole("button", { name: /^Group by: / }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Model" }));
-  const models = await screen.findByRole("list", { name: "Spend by model" });
+  const models = await screen.findByRole("group", { name: "By model" });
   // The bare and prefixed ids are one model: one row, with every token of the period.
   await waitFor(() =>
     expect(
-      within(models).getAllByRole("button", { name: /^Muse Spark 1\.3 Contributor: / }),
+      within(models).getAllByRole("button", { name: /^Muse Spark 1\.3 Contributor/ }),
     ).toHaveLength(1),
   );
-  expect(screen.getByTestId("usage-total").firstElementChild?.textContent).toBe("6M");
+  const total = screen.getByText("Tokens", { selector: "dt" }).nextElementSibling?.textContent;
+  expect(total).toBe("6M");
   expect(
-    within(models)
-      .getByRole("button", { name: /^Muse Spark 1\.3 Contributor: / })
-      .getAttribute("aria-label"),
-  ).toMatch(/^Muse Spark 1\.3 Contributor: 6M/);
+    within(models).getByRole("button", { name: /^Muse Spark 1\.3 Contributor/ }).textContent,
+  ).toMatch(/6M$/);
   expect(screen.queryByText(/Session \(5h\) 7%/)).toBeNull();
 });
 

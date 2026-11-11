@@ -30,35 +30,6 @@ fn the_shipped_catalogue_is_valid_and_every_role_resolves() -> Result<(), Catalo
 }
 
 #[test]
-fn the_shipped_opencode_go_endpoints_route_by_session() -> Result<(), CatalogError> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/models.json");
-    let catalog = Catalog::load(&path)?;
-    for id in ["opencode-go", "opencode-go-anthropic"] {
-        let endpoint = catalog.endpoints().iter().find(|e| e.id == id);
-        assert_eq!(
-            endpoint.and_then(|e| e.session_header.as_deref()),
-            Some("x-opencode-session"),
-            "{id}"
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn a_session_header_that_is_not_a_header_name_is_refused() {
-    let json = file(
-        r#", { "id": "routed", "name": "Routed", "format": "openai-chat",
-              "base_url": "https://routed.example/v1/", "session_header": "x session",
-              "models": [ { "id": "m", "name": "M" } ] }"#,
-    );
-    let found = problems(&json);
-    assert!(
-        found.iter().any(|p| p.contains("routed: session_header")),
-        "{found:?}"
-    );
-}
-
-#[test]
 fn a_model_id_may_contain_a_slash_but_the_endpoint_comes_first() -> Result<(), CatalogError> {
     let catalog = Catalog::from_json(&file(
         r#", { "id": "router", "name": "Router", "format": "openai-chat",

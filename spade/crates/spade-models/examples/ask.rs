@@ -26,7 +26,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let question = args.pop().ok_or("usage: ask [model] \"question\"")?;
     let config = ModelsConfig::from_env(|key| std::env::var(key).ok());
     let catalog = Catalog::load(&config.catalog)?;
-    let models = Models::new(catalog, Keys::from_process_env(), env!("CARGO_PKG_VERSION"))?;
+    let models = Models::new(catalog, Keys::from_process_env())?;
     let model = args
         .pop()
         .unwrap_or_else(|| models.for_role(Role::Main).to_owned());

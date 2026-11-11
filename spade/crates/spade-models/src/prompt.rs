@@ -78,9 +78,6 @@ pub struct Prompt {
     pub messages: Vec<Message>,
     /// Upper bound on the reply's length. The SDK picks a per-model default when unset.
     pub max_tokens: Option<u32>,
-    /// The conversation this call belongs to, sent in the endpoint's session header so calls of
-    /// one conversation route together. `None` for calls not tied to a conversation.
-    pub session: Option<String>,
 }
 
 impl Prompt {
@@ -157,12 +154,6 @@ impl Prompt {
 
     pub fn max_tokens(mut self, value: u32) -> Self {
         self.max_tokens = Some(value);
-        self
-    }
-
-    /// Ties this call to conversation `id` (see [`Prompt::session`]).
-    pub fn session(mut self, id: impl Into<String>) -> Self {
-        self.session = Some(id.into());
         self
     }
 }

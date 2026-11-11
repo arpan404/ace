@@ -1,6 +1,5 @@
-import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { parseSpadeModels, spadeStateLine, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
+import { spadeStateLine, type SpadeEndpoint } from "@ace/ui-core/spade-chat";
 import { useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
@@ -9,20 +8,10 @@ import { Input } from "@/components/ui/input.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { segment, spadeHttp } from "./spade-requests.ts";
+import { removeKey, setKey } from "./spade-api.ts";
+import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
-
-const modelsKey = ["spade", "models"] as const;
-
-async function readModels(client: ClientApi, signal: AbortSignal) {
-  const models = parseSpadeModels(await spadeHttp(client, "GET", "/v1/models", { signal }));
-  if (!models) throw new Error("Spade's model list didn't make sense.");
-  return models;
-}
-
-const roleNames: Record<string, string> = { main: "Main", fast: "Fast", deep: "Deep" };
 
 /**
  * Settings › Spade: on or off and its state, then each model endpoint Spade knows with its
@@ -35,7 +24,7 @@ export function SpadeSettings() {
   const status = useSpadeStatus();
   const [enabled, setEnabled, saving] = useSpadeEnabled();
   const line = spadeStateLine(status, enabled);
-  const models = useDaemonQuery({ queryKey: modelsKey, read: readModels, enabled: line.ready });
+  const models = useSpadeModels(line.ready);
   return (
     <>
       <SettingSection label="Assistant">
@@ -69,20 +58,9 @@ export function SpadeSettings() {
           models.data.endpoints.map((endpoint) => (
             <SettingSection key={endpoint.id} label={endpoint.name}>
               {endpoint.needsKey && <KeyRow endpoint={endpoint} keychain={models.data.keychain} />}
-              {endpoint.models.map((model) => {
-                const roles = Object.entries(models.data.roles)
-                  // Spade names a role's model as `endpoint/model`.
-                  .filter(([, picked]) => picked === `${endpoint.id}/${model.id}`)
-                  .map(([role]) => roleNames[role] ?? role);
-                return (
-                  <SettingRow
-                    key={model.id}
-                    title={model.name}
-                    description={roles.length ? `Spade's ${roles.join(", ")} model` : undefined}
-                    density="compact"
-                  />
-                );
-              })}
+              {endpoint.models.map((model) => (
+                <SettingRow key={model.id} title={model.name} density="compact" />
+              ))}
             </SettingSection>
           ))
         ))}
@@ -98,15 +76,14 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
   const field = useId();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
-  const path = `/v1/keys/${segment(endpoint.id)}`;
   const change = async (action: "set" | "remove") => {
     const key = draft.trim();
     // The field empties before the request goes, so the key lives only in this call.
     setDraft("");
     setSending(true);
     try {
-      if (action === "set") await spadeHttp(client, "PUT", path, { body: { key } });
-      else await spadeHttp(client, "DELETE", path);
+      if (action === "set") await setKey(client, endpoint.id, key);
+      else await removeKey(client, endpoint.id);
       await cache.invalidateQueries({ queryKey: modelsKey });
     } catch (error) {
       toast.error({

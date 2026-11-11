@@ -21,7 +21,6 @@ fn models(fake: &FakeProvider) -> Result<Models> {
     Ok(Models::new(
         Catalog::from_json(&json.to_string())?,
         Keys::new(|_| Some("key".to_owned())),
-        "test",
     )?)
 }
 
