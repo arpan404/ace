@@ -20,6 +20,7 @@ use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
+use crate::images::{ImageError, ImageStore};
 use crate::tools::{SkillLibrary, Toolbox};
 
 /// Bounds on one turn.
@@ -64,6 +65,8 @@ pub struct Setup {
     pub limits: Limits,
     /// The person's skill library, when ace provides one.
     pub skills: Option<Arc<dyn SkillLibrary>>,
+    /// Where attached images are kept.
+    pub images: ImageStore,
 }
 
 /// What a live subscriber receives.
@@ -100,6 +103,10 @@ pub enum SendError {
     TooLong,
     #[error("today's spending cap is used up")]
     OverCap,
+    #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
+    TooManyImages,
+    #[error(transparent)]
+    Image(#[from] ImageError),
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -146,6 +153,8 @@ struct Live {
 pub struct Activity {
     pub answering: bool,
     pub jobs: usize,
+    /// An approval is waiting for the person.
+    pub waiting_on_you: bool,
 }
 
 pub struct Engine {
@@ -158,6 +167,7 @@ pub struct Engine {
     utc_offset_seconds: i32,
     limits: Limits,
     skills: Option<Arc<dyn SkillLibrary>>,
+    images: ImageStore,
     live: Mutex<HashMap<String, Arc<Live>>>,
     /// Orders "store, then broadcast" and makes "steer or start" and "finish unless steered"
     /// atomic against each other, so a message sent as a reply ends is never lost.
@@ -178,6 +188,7 @@ impl Engine {
             utc_offset_seconds: setup.utc_offset_seconds,
             limits: setup.limits,
             skills: setup.skills,
+            images: setup.images,
             live: Mutex::default(),
             record_lock: Mutex::default(),
         });
@@ -208,6 +219,7 @@ impl Engine {
                 let activity = Activity {
                     answering: transcript.open_reply().is_some(),
                     jobs: transcript.jobs.len(),
+                    waiting_on_you: !transcript.awaiting.is_empty(),
                 };
                 Ok((c, activity))
             })
@@ -222,22 +234,56 @@ impl Engine {
     }
 
     /// Starts a conversation with `text` and returns its id.
-    pub fn start_conversation(self: &Arc<Self>, text: &str) -> Result<String, SendError> {
-        self.check_message(text)?;
+    pub fn start_conversation(
+        self: &Arc<Self>,
+        text: &str,
+        images: &[Vec<u8>],
+    ) -> Result<String, SendError> {
+        self.check_message(text, images.len())?;
         let id = self.ids.next("c");
         self.store.create_conversation(&id, self.now_ms())?;
-        self.send(&id, text)?;
+        self.send(&id, text, images)?;
         Ok(id)
     }
 
-    /// Sends a message. While a reply is open it steers that turn; otherwise it starts one.
-    pub fn send(self: &Arc<Self>, id: &str, text: &str) -> Result<(), SendError> {
-        self.check_message(text)?;
+    /// Sends a message, with any attached images. While a reply is open it steers that turn;
+    /// otherwise it starts one.
+    pub fn send(
+        self: &Arc<Self>,
+        id: &str,
+        text: &str,
+        images: &[Vec<u8>],
+    ) -> Result<(), SendError> {
+        self.check_message(text, images.len())?;
         if self.store.conversation(id)?.is_none() {
             return Err(SendError::NotFound);
         }
-        self.deliver(id, &Event::user_message(text.trim()))?;
+        let images = images
+            .iter()
+            .map(|bytes| self.images.put(bytes))
+            .collect::<Result<Vec<_>, _>>()?;
+        let message = Event::Known(Known::UserMessage {
+            text: text.trim().to_owned(),
+            context: None,
+            images,
+        });
+        self.deliver(id, &message)?;
         Ok(())
+    }
+
+    /// A stored image and its media type, by hash.
+    pub fn image(&self, sha256: &str) -> Option<(Vec<u8>, &'static str)> {
+        self.images.read(sha256)
+    }
+
+    /// Images as a prompt for `model` shows them: as images if it can see them.
+    fn images_for(&self, model: &str) -> crate::images::ModelImages<'_> {
+        let can_see = self
+            .models
+            .catalog()
+            .resolve(model)
+            .is_some_and(|r| r.model.can(spade_models::Capability::Images));
+        self.images.for_model(can_see)
     }
 
     /// Stores something the model must read (a message, a job result): it steers the open turn,
@@ -453,10 +499,13 @@ impl Engine {
         &self.models
     }
 
-    fn check_message(&self, text: &str) -> Result<(), SendError> {
+    fn check_message(&self, text: &str, images: usize) -> Result<(), SendError> {
         let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && images == 0 {
             return Err(SendError::Empty);
+        }
+        if images > crate::images::MOST_IMAGES {
+            return Err(SendError::TooManyImages);
         }
         if text.chars().count() > self.limits.longest_message {
             return Err(SendError::TooLong);

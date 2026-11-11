@@ -165,10 +165,21 @@ mod tests {
         let again = store.put(PNG).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(first, again);
         assert_eq!(first.media_type, "image/png");
-        assert_eq!(std::fs::read_dir(dir.path()).map(|d| d.count()).unwrap_or(0), 1);
+        assert_eq!(
+            std::fs::read_dir(dir.path())
+                .map(|d| d.count())
+                .unwrap_or(0),
+            1
+        );
 
-        let shown = store.for_model(true).get(&first).unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(STANDARD.decode(shown.data.as_bytes()).ok().as_deref(), Some(PNG));
+        let shown = store
+            .for_model(true)
+            .get(&first)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(
+            STANDARD.decode(shown.data.as_bytes()).ok().as_deref(),
+            Some(PNG)
+        );
         assert_eq!(
             store.for_model(false).get(&first),
             Err("this model cannot see images".to_owned())
@@ -181,8 +192,16 @@ mod tests {
     fn uploads_decode_with_or_without_a_data_prefix_and_huge_ones_are_refused_early() {
         let encoded = STANDARD.encode(PNG);
         assert_eq!(decode(&encoded).ok().as_deref(), Some(PNG));
-        assert_eq!(decode(&format!("data:image/png;base64,{encoded}")).ok().as_deref(), Some(PNG));
+        assert_eq!(
+            decode(&format!("data:image/png;base64,{encoded}"))
+                .ok()
+                .as_deref(),
+            Some(PNG)
+        );
         assert_eq!(decode("not base64!"), Err(ImageError::BadEncoding));
-        assert_eq!(decode(&"A".repeat(8 * 1024 * 1024)), Err(ImageError::TooLarge));
+        assert_eq!(
+            decode(&"A".repeat(8 * 1024 * 1024)),
+            Err(ImageError::TooLarge)
+        );
     }
 }

@@ -82,9 +82,12 @@ async fn run(
 ) {
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
-    let mut prompt = context::prompt(SYSTEM, engine.tools.registry().offered(), events);
+    let images = engine.images_for(model);
+    let mut prompt =
+        context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     prompt.messages.push(Message::Person {
         text: compaction::request(focus),
+        images: Vec::new(),
     });
     let carried = compaction::carried_out(events, plan.keep_from, &engine.tools.registry());
     let written = match engine.models.chat(model, &prompt).await {

@@ -11,6 +11,7 @@ use spade_server::clock::{SystemClock, SystemIds, local_offset_seconds};
 use spade_server::config::Config;
 use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::home::{DEFAULT_MODELS, DEFAULT_SEARCH, Home, HomeError, new_token};
+use spade_server::images::ImageStore;
 use spade_server::tools::{
     AceLibrary, AceSource, SkillLibrary, SkillLoad, SkillSearch, Todo, Tool, Toolbox, WebFetch,
     WebSearch,
@@ -129,6 +130,7 @@ async fn run() -> Result<(), Failure> {
         utc_offset_seconds: local_offset_seconds(),
         limits: Limits::default(),
         skills,
+        images: ImageStore::open(&home.images()).map_err(other)?,
     })
     .map_err(other)?;
 

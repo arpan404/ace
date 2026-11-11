@@ -4,6 +4,7 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use axum::Extension;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::{self, Next};
@@ -16,9 +17,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use spade_keys::KeyStore;
 use spade_store::StoredEvent;
+use tokio::sync::watch;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::engine::{AnswerError, CompactError, Engine, Frame, SendError};
+
+/// Set when the server begins shutting down, so live streams end and shutdown is not held up.
+#[derive(Clone)]
+pub struct Closing(pub watch::Receiver<bool>);
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +44,7 @@ pub fn router(state: AppState) -> Router {
         .route("/conversations/{id}/live", get(live))
         .route("/conversations/{id}/compact", post(compact))
         .route("/models", get(models))
+        .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state);
@@ -78,7 +85,9 @@ fn stored(event: &StoredEvent) -> Value {
 fn send_problem(error: &SendError) -> Response {
     let status = match error {
         SendError::NotFound => StatusCode::NOT_FOUND,
-        SendError::Empty | SendError::TooLong => StatusCode::BAD_REQUEST,
+        SendError::Empty | SendError::TooLong | SendError::TooManyImages | SendError::Image(_) => {
+            StatusCode::BAD_REQUEST
+        }
         SendError::OverCap => StatusCode::PAYMENT_REQUIRED,
         SendError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
@@ -91,7 +100,8 @@ async fn list(State(state): State<AppState>) -> Response {
             rows.into_iter()
                 .map(|(c, activity)| {
                     json!({ "id": c.id, "title": c.title, "updated_at": c.updated_ms,
-                            "answering": activity.answering, "jobs": activity.jobs })
+                            "answering": activity.answering, "jobs": activity.jobs,
+                            "waiting_on_you": activity.waiting_on_you })
                 })
                 .collect::<Vec<_>>(),
         )
@@ -102,11 +112,34 @@ async fn list(State(state): State<AppState>) -> Response {
 
 #[derive(Deserialize)]
 struct Text {
+    #[serde(default)]
     text: String,
+    /// Attached images, each as base64 (a `data:` URL is fine). The type is read from the bytes.
+    #[serde(default)]
+    images: Vec<Upload>,
+}
+
+#[derive(Deserialize)]
+struct Upload {
+    data: String,
+}
+
+impl Text {
+    fn images(&self) -> Result<Vec<Vec<u8>>, Box<Response>> {
+        self.images
+            .iter()
+            .map(|upload| crate::images::decode(&upload.data))
+            .collect::<Result<_, _>>()
+            .map_err(|error| Box::new(problem(StatusCode::BAD_REQUEST, &error.to_string())))
+    }
 }
 
 async fn create(State(state): State<AppState>, Json(body): Json<Text>) -> Response {
-    match state.engine.start_conversation(&body.text) {
+    let images = match body.images() {
+        Ok(images) => images,
+        Err(response) => return *response,
+    };
+    match state.engine.start_conversation(&body.text, &images) {
         Ok(id) => (StatusCode::CREATED, Json(json!({ "id": id }))).into_response(),
         Err(error) => send_problem(&error),
     }
@@ -116,6 +149,9 @@ async fn create(State(state): State<AppState>, Json(body): Json<Text>) -> Respon
 struct After {
     #[serde(default)]
     after: i64,
+    /// At most this many events; page with `after` set to the last `seq` received.
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 async fn events(
@@ -124,7 +160,10 @@ async fn events(
     Query(q): Query<After>,
 ) -> Response {
     match state.engine.events(&id, q.after) {
-        Ok(Some(events)) => Json(events.iter().map(stored).collect::<Vec<_>>()).into_response(),
+        Ok(Some(events)) => {
+            let shown = q.limit.map_or(events.len(), |limit| limit.max(1));
+            Json(events.iter().take(shown).map(stored).collect::<Vec<_>>()).into_response()
+        }
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
@@ -135,7 +174,11 @@ async fn message(
     Path(id): Path<String>,
     Json(body): Json<Text>,
 ) -> Response {
-    match state.engine.send(&id, &body.text) {
+    let images = match body.images() {
+        Ok(images) => images,
+        Err(response) => return *response,
+    };
+    match state.engine.send(&id, &body.text, &images) {
         Ok(()) => StatusCode::ACCEPTED.into_response(),
         Err(error) => send_problem(&error),
     }
@@ -209,6 +252,7 @@ async fn live(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<After>,
+    closing: Option<Extension<Closing>>,
 ) -> Response {
     let subscription = match state.engine.subscribe(&id, q.after) {
         Ok(Some(subscription)) => subscription,
@@ -232,6 +276,12 @@ async fn live(
                 .data(json!({ "reply": snapshot.reply, "text": snapshot.text }).to_string()),
         );
     }
+    // Everything stored so far has been sent; what follows is new.
+    first.push(
+        SseEvent::default()
+            .event("caught_up")
+            .data(json!({ "seq": last }).to_string()),
+    );
     let frames = BroadcastStream::new(subscription.frames)
         // A subscriber that falls behind is closed; it reconnects with its last seq.
         .take_while(|item| std::future::ready(item.is_ok()))
@@ -255,11 +305,36 @@ async fn live(
             std::future::ready(Some(event))
         })
         .filter_map(std::future::ready);
+    let closed = async move {
+        match closing {
+            Some(Extension(Closing(mut rx))) => {
+                let _ = rx.wait_for(|closing| *closing).await;
+            }
+            None => std::future::pending::<()>().await,
+        }
+    };
     let all: std::pin::Pin<Box<dyn Stream<Item = Result<SseEvent, Infallible>> + Send>> =
-        Box::pin(stream::iter(first).chain(frames).map(Ok));
+        Box::pin(stream::iter(first).chain(frames).take_until(closed).map(Ok));
     Sse::new(all)
         .keep_alive(KeepAlive::default())
         .into_response()
+}
+
+async fn image(State(state): State<AppState>, Path(sha256): Path<String>) -> Response {
+    match state.engine.image(&sha256) {
+        Some((bytes, media_type)) => (
+            [
+                (axum::http::header::CONTENT_TYPE, media_type),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "private, max-age=31536000, immutable",
+                ),
+            ],
+            bytes,
+        )
+            .into_response(),
+        None => problem(StatusCode::NOT_FOUND, "no such image"),
+    }
 }
 
 async fn models(State(state): State<AppState>) -> Response {
@@ -268,18 +343,25 @@ async fn models(State(state): State<AppState>) -> Response {
         .endpoints()
         .iter()
         .map(|endpoint| {
-            let key_set = state
+            let in_keychain = state
                 .keys
                 .as_ref()
                 .and_then(|keys| keys.has(&endpoint.id).ok())
-                .unwrap_or(false)
-                || endpoint
-                    .key_env
-                    .as_deref()
-                    .is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
+                .unwrap_or(false);
+            let in_env = endpoint
+                .key_env
+                .as_deref()
+                .is_some_and(|var| std::env::var(var).is_ok_and(|v| !v.trim().is_empty()));
+            // Where the key in use comes from; the keychain wins, as in every call.
+            let source = match (in_keychain, in_env) {
+                (true, _) => json!("keychain"),
+                (false, true) => json!("environment"),
+                (false, false) => Value::Null,
+            };
             json!({
                 "id": endpoint.id, "name": endpoint.name, "format": endpoint.format.name(),
-                "needs_key": endpoint.needs_key, "key_set": key_set,
+                "needs_key": endpoint.needs_key, "key_set": in_keychain || in_env,
+                "key_source": source,
                 "models": endpoint.models.iter().map(|m| json!({ "id": m.id, "name": m.name })).collect::<Vec<_>>(),
             })
         })

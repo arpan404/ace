@@ -5,6 +5,7 @@ pub mod clock;
 pub mod config;
 pub mod engine;
 pub mod home;
+pub mod images;
 pub mod tools;
 
 use std::future::Future;
@@ -19,7 +20,13 @@ pub async fn serve(
     state: AppState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown)
+    let (closing, closed) = tokio::sync::watch::channel(false);
+    let app = router(state).layer(axum::Extension(api::Closing(closed)));
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            shutdown.await;
+            // Live streams end now, so open ones never hold shutdown up.
+            let _ = closing.send(true);
+        })
         .await
 }

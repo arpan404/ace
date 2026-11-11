@@ -174,7 +174,8 @@ async fn model_step(
     stop: &mut watch::Receiver<bool>,
 ) -> Step {
     let model = turn_model(engine, events, reply);
-    let prompt = context::prompt(SYSTEM, engine.tools.registry().offered(), events);
+    let images = engine.images_for(&model);
+    let prompt = context::prompt_with(SYSTEM, engine.tools.registry().offered(), events, &images);
     let live = engine.live(id);
     let stream = match engine.models.stream(&model, &prompt).await {
         Ok(stream) => stream,

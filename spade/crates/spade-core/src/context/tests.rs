@@ -336,3 +336,46 @@ fn a_message_that_arrived_while_a_step_was_answered_reads_after_that_step() {
         ]
     );
 }
+
+struct Shelf;
+
+impl Images for Shelf {
+    fn get(&self, image: &crate::event::ImageRef) -> Result<spade_models::Image, String> {
+        if image.sha256 == "kept" {
+            Ok(spade_models::Image {
+                media_type: image.media_type.clone(),
+                data: "AAAA".into(),
+            })
+        } else {
+            Err("the image is no longer stored".to_owned())
+        }
+    }
+}
+
+#[test]
+fn attached_images_are_shown_when_available_and_described_when_not() {
+    let image = |sha: &str| crate::event::ImageRef {
+        sha256: sha.into(),
+        media_type: "image/png".into(),
+        bytes: 3,
+    };
+    let events = [Event::Known(Known::UserMessage {
+        text: "Compare these".into(),
+        context: None,
+        images: vec![image("kept"), image("gone")],
+    })];
+    let shown = messages_with(&events, &Shelf);
+    let Some(Message::Person { text, images }) = shown.first() else {
+        panic!("expected the person's message, got {shown:?}");
+    };
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0].media_type, "image/png");
+    assert_eq!(
+        text,
+        "Compare these\n\n[The person attached an image (image/png), but the image is no longer stored.]"
+    );
+    let described = messages(&events);
+    assert!(
+        matches!(described.first(), Some(Message::Person { images, text }) if images.is_empty() && text.matches("attached an image").count() == 2)
+    );
+}

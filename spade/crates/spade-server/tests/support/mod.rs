@@ -130,7 +130,7 @@ fn catalog(root: &str) -> Result<Catalog> {
         "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
         "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat", "base_url": root,
                         "key": { "env": "FAKE_KEY" },
-                        "models": [{ "id": "m", "name": "M", "price": { "input": 2, "output": 10 } }] }]
+                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -196,6 +196,7 @@ impl Spade {
             utc_offset_seconds: 0,
             limits: options.limits,
             skills: options.skills,
+            images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
         })?;
         let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
         let state = AppState {
@@ -231,6 +232,17 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Shuts the server down the graceful way; fails if it does not finish within `within`.
+    pub async fn shut_down(mut self, within: Duration) -> Result {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        tokio::time::timeout(within, &mut self.task)
+            .await
+            .map_err(|_| "the server did not shut down in time")??;
+        Ok(())
     }
 
     pub fn database(&self) -> PathBuf {

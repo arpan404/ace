@@ -2683,12 +2683,14 @@ name = "spade-server"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "chrono",
  "futures-util",
  "keyring-core",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "spade-ace",
  "spade-core",
  "spade-fetch",
