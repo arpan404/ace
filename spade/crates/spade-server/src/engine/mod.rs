@@ -95,11 +95,17 @@ pub struct Engine {
     /// Held across reading, merging and writing an agent's settings, so concurrent changes
     /// never overwrite each other.
     agent_lock: Mutex<()>,
+    /// An old `models.json` waiting for [`Engine::settle`].
+    adopt: Mutex<Option<spade_models::Catalog>>,
+    /// True once [`Engine::settle`] has run.
+    settled: watch::Sender<bool>,
 }
 
 impl Engine {
-    /// Opens the engine: closes replies a restart cut off, resumes paused turns and turns waiting
-    /// for an approval, and answers messages stored while Spade was closing.
+    /// Opens the engine from the database alone: closes replies a restart cut off and reports
+    /// lost jobs. It never touches the keychain or the network, so Spade can listen at once; what
+    /// needs keys (adopting old settings, importing presets, creating Spade) is [`Engine::settle`],
+    /// run after the server is listening.
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
         let handle = EngineHandle::default();
         let adopt = setup.adopt;
@@ -130,16 +136,11 @@ impl Engine {
             keychain,
             deleting: Mutex::default(),
             agent_lock: Mutex::default(),
+            adopt: Mutex::new(adopt),
+            settled: watch::channel(false).0,
         });
         handle.set(&engine);
-        // The person's old edits first, so presets imported after never overwrite them.
-        if let Some(file) = &adopt {
-            engine.adopt_file(file)?;
-        }
-        engine.import_presets()?;
         engine.sync_endpoints()?;
-        engine.store.fill_missing_models(&engine.default_model())?;
-        engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(&events);
@@ -163,6 +164,30 @@ impl Engine {
     /// use one finds it.
     pub fn open_for_work(self: &Arc<Self>) {
         self.end_maintenance();
+    }
+
+    /// The setup that reads keys, which can block for a long time (a keychain prompt for a
+    /// re-signed binary): adopts an old `models.json`, imports presets that have a key, gives
+    /// migrated agents a model and creates Spade if there is none. Blocking; the server runs it
+    /// after it is listening, before [`Engine::open_for_work`]. Runs once.
+    pub fn settle(&self) -> Result<(), StoreError> {
+        let adopt = self.adopt.lock().unwrap_or_else(|p| p.into_inner()).take();
+        // The person's old edits first, so presets imported after never overwrite them.
+        if let Some(file) = &adopt {
+            self.adopt_file(file)?;
+        }
+        self.import_presets()?;
+        self.sync_endpoints()?;
+        self.store.fill_missing_models(&self.default_model())?;
+        self.ensure_main()?;
+        self.settled.send_replace(true);
+        Ok(())
+    }
+
+    /// Resolves once [`Engine::settle`] has run.
+    pub async fn settled(&self) {
+        let mut settled = self.settled.subscribe();
+        let _ = settled.wait_for(|done| *done).await;
     }
 
     pub fn now_ms(&self) -> i64 {

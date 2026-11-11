@@ -36,7 +36,11 @@ characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token f
   as the key and the nonce as the message. Before sending Spade's token or a grant to the address
   in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
   or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade-server --version` prints it. `api` is Spade's HTTP API version;
-  clients accept the current and previous one.
+  clients accept the current and previous one. Nothing before binding touches the keychain or
+  the network, so a keychain prompt (a re-signed binary) or ace being away never delays it: the
+  setup that reads keys (adopting an old `models.json`, importing presets that have a key,
+  creating Spade) runs after binding, in the background, with admission closed; messages sent
+  meanwhile are stored and answered once it opens.
 - **Stop.** SIGTERM: Spade closes admission, lets a running model step finish (up to 5 s for a
   plain stop), records open turns as paused (`turn_paused`), ends its live streams and exits. On
   start, each paused turn resumes from its stored events.

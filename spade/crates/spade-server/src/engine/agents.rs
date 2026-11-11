@@ -299,7 +299,9 @@ impl Engine {
     pub(super) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
-            _ => self.default_model(),
+            // Without reading keys: this runs while closing replies at start, before Spade
+            // listens.
+            _ => self.keyless_default_model(),
         }
     }
 }

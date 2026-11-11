@@ -213,6 +213,17 @@ impl Engine {
 
     /// The model a new agent gets when none is chosen: the person's first usable model, else the
     /// presets' main role.
+    /// A default chosen without reading any key: the first saved model, else the presets'
+    /// main role.
+    pub(super) fn keyless_default_model(&self) -> String {
+        self.models
+            .endpoints()
+            .iter()
+            .find_map(|e| e.models.first().map(|m| format!("{}/{}", e.id, m.id)))
+            .or_else(|| self.models.for_role(Role::Main).map(str::to_owned))
+            .unwrap_or_default()
+    }
+
     pub fn default_model(&self) -> String {
         let endpoints = self.models.endpoints();
         endpoints

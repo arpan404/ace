@@ -140,6 +140,8 @@ pub struct Options {
     pub ace_retry: Option<Retry>,
     /// An edited `models.json` from an earlier Spade, to adopt.
     pub adopt: Option<Catalog>,
+    /// Every keychain read takes this long, as one blocked on a prompt does.
+    pub keychain_delay: Option<Duration>,
 }
 
 impl Default for Options {
@@ -151,6 +153,7 @@ impl Default for Options {
             ace_home: None,
             ace_retry: None,
             adopt: None,
+            keychain_delay: None,
         }
     }
 }
@@ -239,10 +242,16 @@ impl Spade {
         // As in Spade: the (mock) keychain first, then the endpoint's variable, which only the
         // shipped fake endpoint names.
         let keychain = keys.clone();
+        let delay = options.keychain_delay;
         let models = Models::new(
             catalog(&fake.root)?,
             Keys::keychain_then_env(
-                move |endpoint| keychain.get(endpoint).ok().flatten(),
+                move |endpoint| {
+                    if let Some(delay) = delay {
+                        std::thread::sleep(delay);
+                    }
+                    keychain.get(endpoint).ok().flatten()
+                },
                 |var| (var == "FAKE_KEY").then(|| "fake-key".to_owned()),
             ),
             spade_server::home::VERSION,
@@ -270,7 +279,6 @@ impl Spade {
             adopt: options.adopt.clone(),
             keychain: Some(keys.clone()),
         })?;
-        engine.open_for_work();
         let state = AppState {
             engine: engine.clone(),
             token: TOKEN.into(),
@@ -283,6 +291,12 @@ impl Spade {
         let task = tokio::spawn(spade_server::serve(listener, state, async {
             let _ = stopped.await;
         }));
+        // As Spade starts: listening first, then the setup that reads keys. Tests wait for it
+        // unless they test a slow keychain.
+        let finishing = spade_server::startup::finish(engine.clone(), None, None);
+        if options.keychain_delay.is_none() {
+            finishing.await?;
+        }
         Ok(Self {
             base,
             fake,
