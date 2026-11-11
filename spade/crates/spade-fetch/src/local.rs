@@ -1,6 +1,6 @@
 //! This machine's own networks. A public address can still be the person's own laptop (its global
 //! IPv6 address, say) or a neighbour on their network, so every destination is also checked
-//! against the machine's interface addresses and their on-link prefixes.
+//! against the machine's interface addresses, their prefixes and the on-link routes.
 
 use std::io;
 use std::net::IpAddr;
@@ -46,25 +46,32 @@ pub trait LocalNetworks: Send + Sync {
     fn networks(&self) -> io::Result<Vec<Network>>;
 }
 
-/// The operating system's interface list.
+/// The operating system's interface list and routing table.
 pub struct SystemNetworks;
 
 impl LocalNetworks for SystemNetworks {
+    /// Interface addresses with their prefixes, and the on-link routes from the routing table.
     fn networks(&self) -> io::Result<Vec<Network>> {
-        Ok(if_addrs::get_if_addrs()?
-            .into_iter()
-            .map(|interface| match interface.addr {
-                if_addrs::IfAddr::V4(v4) => Network {
-                    addr: IpAddr::V4(v4.ip),
-                    prefix: mask_len(u128::from(v4.netmask.to_bits()) << 96),
-                },
-                if_addrs::IfAddr::V6(v6) => Network {
-                    addr: IpAddr::V6(v6.ip),
-                    prefix: mask_len(v6.netmask.to_bits()),
-                },
-            })
-            .collect())
+        let mut networks = interfaces()?;
+        networks.extend(crate::routes::read()?);
+        Ok(networks)
     }
+}
+
+fn interfaces() -> io::Result<Vec<Network>> {
+    Ok(if_addrs::get_if_addrs()?
+        .into_iter()
+        .map(|interface| match interface.addr {
+            if_addrs::IfAddr::V4(v4) => Network {
+                addr: IpAddr::V4(v4.ip),
+                prefix: mask_len(u128::from(v4.netmask.to_bits()) << 96),
+            },
+            if_addrs::IfAddr::V6(v6) => Network {
+                addr: IpAddr::V6(v6.ip),
+                prefix: mask_len(v6.netmask.to_bits()),
+            },
+        })
+        .collect())
 }
 
 /// The prefix length of a left-aligned netmask.

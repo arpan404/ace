@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{FakeNetworks, Result, UnreadableNetworks, local, net, start, with_dns};
-use spade_fetch::{FetchError, Fetcher, Lookup, Page, Policy, Resolve};
+use spade_fetch::{FetchError, Fetcher, LocalNetworks, Lookup, Network, Page, Policy, Resolve};
 
 #[tokio::test]
 async fn the_connection_goes_to_the_checked_address_not_a_second_lookup() -> Result {
@@ -250,5 +250,107 @@ async fn a_redirect_to_the_same_name_is_looked_up_and_checked_again() -> Result 
         )
         .await;
     assert_eq!(got, Err(FetchError::Refused("rebind.example".to_owned())));
+    Ok(())
+}
+
+const OWN_V4_AS_NAT64: &str = "64:ff9b::5db8:d822"; // 93.184.216.34, this machine's IPv4
+
+#[tokio::test]
+async fn a_nat64_literal_of_the_machines_own_ipv4_is_refused() -> Result {
+    let fetcher = on_own_networks(Fetcher::new(Policy::default(), Duration::from_secs(5)));
+    for host in [OWN_V4_AS_NAT64, "64:ff9b::5db8:d8c8", "2002:5db8:d822::1"] {
+        let got = fetcher
+            .fetch(&format!("http://[{host}]:8080/"), Page::default())
+            .await;
+        assert_eq!(got, Err(FetchError::Refused(format!("[{host}]"))), "{host}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_name_answering_with_a_nat64_form_of_the_machines_ipv4_is_refused() -> Result {
+    let answer = SocketAddr::new(OWN_V4_AS_NAT64.parse()?, 8080);
+    let fetcher = on_own_networks(with_dns(Policy::default(), vec![answer]));
+    let got = fetcher
+        .fetch("http://nat64-own.example:8080/", Page::default())
+        .await;
+    assert_eq!(
+        got,
+        Err(FetchError::Refused("nat64-own.example".to_owned()))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_redirect_to_a_nat64_form_of_the_machines_ipv4_is_refused() -> Result {
+    let addr = start().await?;
+    let got = on_own_networks(local())
+        .fetch(
+            &format!("http://{addr}/to?where=http://[{OWN_V4_AS_NAT64}]:8080/"),
+            Page::default(),
+        )
+        .await;
+    assert_eq!(
+        got,
+        Err(FetchError::Refused(format!("[{OWN_V4_AS_NAT64}]")))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_address_on_a_128_with_its_64_on_link_by_route_refuses_the_whole_64() -> Result {
+    let fetcher = Fetcher::new(Policy::default(), Duration::from_secs(5)).with_local_networks(
+        Arc::new(FakeNetworks(vec![
+            net("2a00:1450:4001::5/128"),
+            net("2a00:1450:4001::/64"),
+        ])),
+    );
+    let got = fetcher
+        .fetch("http://[2a00:1450:4001::99]/", Page::default())
+        .await;
+    assert_eq!(
+        got,
+        Err(FetchError::Refused("[2a00:1450:4001::99]".to_owned()))
+    );
+    Ok(())
+}
+
+/// Networks a test changes between fetches; `None` means the list cannot be read.
+struct ChangingNetworks(Mutex<Option<Vec<Network>>>);
+
+impl LocalNetworks for ChangingNetworks {
+    fn networks(&self) -> std::io::Result<Vec<Network>> {
+        self.0
+            .lock()
+            .ok()
+            .and_then(|n| n.clone())
+            .ok_or_else(|| std::io::Error::other("unreadable"))
+    }
+}
+
+#[tokio::test]
+async fn one_fetcher_reads_the_machines_networks_again_on_every_fetch() -> Result {
+    let addr = start().await?;
+    let networks = Arc::new(ChangingNetworks(Mutex::new(None)));
+    let fetcher = local().with_local_networks(networks.clone());
+    let page = format!("http://{addr}/page");
+
+    assert_eq!(
+        fetcher.fetch(&page, Page::default()).await,
+        Err(FetchError::LocalNetworks)
+    );
+
+    if let Ok(mut n) = networks.0.lock() {
+        *n = Some(Vec::new());
+    }
+    assert!(fetcher.fetch(&page, Page::default()).await.is_ok());
+
+    if let Ok(mut n) = networks.0.lock() {
+        *n = Some(vec![net("93.184.216.34/24")]);
+    }
+    let got = fetcher
+        .fetch("http://93.184.216.200/", Page::default())
+        .await;
+    assert_eq!(got, Err(FetchError::Refused("93.184.216.200".to_owned())));
     Ok(())
 }

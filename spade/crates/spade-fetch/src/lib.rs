@@ -13,6 +13,7 @@ mod local;
 pub mod page;
 pub mod policy;
 mod resolve;
+pub mod routes;
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -25,6 +26,11 @@ pub use local::{LocalNetworks, Network, SystemNetworks};
 pub use page::{DEFAULT_PAGE_CHARS, Page};
 pub use policy::Policy;
 pub use resolve::{Lookup, Resolve, SystemResolver};
+
+/// A `tracing` filter directive that silences the HTML tokenizer's own logs, which carry the
+/// text of the pages it reads. Whoever installs a subscriber must append it after any other
+/// directives, whatever the verbosity asked for: `format!("{user},{LOG_FILTER}")`.
+pub const LOG_FILTER: &str = "html5ever=off,markup5ever=off";
 
 /// The most redirects one fetch follows.
 pub const MOST_REDIRECTS: usize = 5;
@@ -143,9 +149,11 @@ impl Fetcher {
     async fn body(&self, url: &str) -> Result<Body, FetchError> {
         let mut url = Url::parse(url.trim()).map_err(|e| FetchError::BadUrl(e.to_string()))?;
         // Read once per fetch; failing to read them refuses the fetch rather than guessing.
-        let networks = self
-            .local
-            .networks()
+        // It may run a command, so it runs off the async threads.
+        let local = Arc::clone(&self.local);
+        let networks = tokio::task::spawn_blocking(move || local.networks())
+            .await
+            .map_err(|_| FetchError::LocalNetworks)?
             .map_err(|_| FetchError::LocalNetworks)?;
         let mut redirects = 0;
         loop {
@@ -244,14 +252,22 @@ impl Fetcher {
 impl Fetcher {
     /// The policy's rule, and no address on this machine or its links (loopback aside, when the
     /// policy allows it).
+    ///
+    /// An IPv6 address that carries an IPv4 one (mapped, NAT64, 6to4) is checked as both.
     fn allows(&self, ip: IpAddr, networks: &[Network]) -> bool {
         if !self.policy.allows(ip) {
             return false;
         }
-        if self.policy.allow_loopback && ip.to_canonical().is_loopback() {
+        let outer = ip.to_canonical();
+        let inner = match outer {
+            IpAddr::V6(v6) => policy::embedded_v4(v6).map(IpAddr::V4),
+            IpAddr::V4(_) => None,
+        };
+        let forms = || std::iter::once(outer).chain(inner);
+        if self.policy.allow_loopback && forms().any(|a| a.is_loopback()) {
             return true;
         }
-        !networks.iter().any(|n| n.contains(ip))
+        !networks.iter().any(|n| forms().any(|a| n.contains(a)))
     }
 }
 
