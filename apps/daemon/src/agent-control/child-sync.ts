@@ -103,6 +103,7 @@ export class ChildSync {
         this.ports.journal.account(root, event);
       } else {
         if (participant) this.ports.reconcileConversation(event.threadId);
+        if (edge && turnedLimited(event)) this.explainLimit(edge);
         if (edge) this.reconcile(edge);
         if (edge && event.payload.type === "thread.updated") this.ports.limits.check(edge);
       }
@@ -121,6 +122,25 @@ export class ChildSync {
       } catch (error) {
         this.ports.report(error);
       }
+  }
+  /**
+   * Codex can end a turn on systemError and only then say the account hit its usage limit, so
+   * the child may already have settled with a bare failure. When the limit is what stopped it,
+   * it settles again with that reason: the parent hears it once, in place of a result not yet
+   * delivered or after one it already read. Only the change to limited does this, so a restart
+   * never reopens children settled long ago.
+   */
+  private explainLimit(edge: DelegationRecord) {
+    const thread = this.ports.deps.store.getThread(edge.childId);
+    if (
+      !thread ||
+      edge.phase !== "settled" ||
+      edge.outcome?.outcome !== "failed" ||
+      edge.outcome.failure?.code === "usage_limited" ||
+      !childStoppedOnLimit(thread, this.ports.deps.engine, this.ports.journal)
+    )
+      return;
+    this.ports.deps.store.atomic(() => this.ports.journal.revive(edge));
   }
   reconcile(edge: DelegationRecord) {
     const thread = this.ports.deps.store.getThread(edge.childId);
@@ -215,4 +235,8 @@ function queueFactsTouch(event: Event): boolean {
     payload.status === undefined &&
     payload.delegatedBy === undefined
   );
+}
+/** The event moves the thread's status to limited. */
+function turnedLimited(event: Event): boolean {
+  return event.payload.type === "thread.updated" && event.payload.status?.state === "limited";
 }

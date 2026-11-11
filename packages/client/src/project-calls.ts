@@ -14,6 +14,12 @@ export function projectCalls(client: ProjectsClient): ProjectCalls {
       client.command(ProjectCommand.parse({ type: "workspace.create", ...input }), options, id),
     addRoot: (input, options, id) =>
       client.command(ProjectCommand.parse({ type: "workspace.root.add", ...input }), options, id),
+    removeRoot: (input, options, id) =>
+      client.command(
+        ProjectCommand.parse({ type: "workspace.root.remove", ...input }),
+        options,
+        id,
+      ),
     clone: (input, options, id) =>
       client.command(
         ProjectCommand.parse({

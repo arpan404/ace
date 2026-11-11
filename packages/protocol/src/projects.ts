@@ -175,6 +175,16 @@ export const ProjectCommands = [
     path,
     create: z.literal(true).optional(),
   }),
+  /**
+   * Stop allowing one project root, leaving every other root as it is now. A folder that isn't
+   * an allowed root changes nothing; the last root is refused with `last_root`, since no roots
+   * would allow home again. Projects inside it stay registered, hidden until it is allowed
+   * again; nothing is deleted.
+   */
+  z.object({
+    type: z.literal("workspace.root.remove"),
+    path,
+  }),
   z.object({
     type: z.literal("workspace.create"),
     parent: path,

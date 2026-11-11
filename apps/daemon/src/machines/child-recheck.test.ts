@@ -53,3 +53,15 @@ test("work that ran there and settled with a new result gives the parent that re
     recheckOutcome(view({ state: "cancelled", result: "Stopped before it started." }), view({})),
   ).toBe("settle");
 });
+
+test("a settled failure found to be a usage limit gives the parent that reason", () => {
+  const failed = view({ state: "failed", result: "", status: { state: "failed" } });
+  const limited = view({
+    state: "failed",
+    result: "",
+    status: { state: "limited" },
+    failure: { code: "usage_limited", message: "Usage limit reached." },
+  });
+  expect(recheckOutcome(failed, limited)).toBe("settle");
+  expect(recheckOutcome(limited, limited)).toBe("ignore");
+});

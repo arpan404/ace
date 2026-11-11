@@ -272,9 +272,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           prepareWorkspace: (id, policy) =>
             services.workspaceActions?.prepare(id, policy) ??
             Promise.reject(new Error("Workspace unavailable")),
-          assertWorkspaceAvailable: async (cwd) => {
-            await engineOptions.assertWorkspaceAvailable?.(cwd);
+          assertWorkspaceAvailable: async (cwd, threadId) => {
+            await engineOptions.assertWorkspaceAvailable?.(cwd, threadId);
             if (!services.workspaceActions) throw new Error("Workspace unavailable");
+            // A gone checkout says so before Git is asked to lock a folder that isn't there.
+            await services.workspaceActions.assertCheckoutPresent(threadId, cwd);
             await services.workspaceActions.git.assertMutationAvailable(cwd);
           },
           machine: services.workspaceActions.machine,

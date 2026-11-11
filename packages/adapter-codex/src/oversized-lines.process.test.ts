@@ -251,7 +251,7 @@ test("a second drop fences an idle snapshot already in flight and keeps the new 
 });
 
 test.each(["drop-background", "drop-unseen-background"])(
-  "omitted history keeps a background shell working until Codex confirms it finished (%s)",
+  "omitted history keeps a background shell listed as running until Codex confirms it finished (%s)",
   async (mode) => {
     const h = await harness();
     const a = await h.open();
@@ -260,8 +260,11 @@ test.each(["drop-background", "drop-unseen-background"])(
       (f) => note("discovery-finished")(f) && obj(f.data)["task"] === "codex:output-recovery",
     );
     expect(a.frames.some(note("thread-history-omitted"))).toBe(true);
-    expect(a.replay.state.status.state).not.toBe("done");
+    const shells = () =>
+      Object.values(a.replay.state.tasks).filter((task) => task.kind === "shell");
+    expect(shells().some((task) => task.status === "running")).toBe(true);
     await a.session.configure?.({ provider: "codex", model: "finish-shell", options: {} });
+    expect(shells().some((task) => task.status === "running")).toBe(false);
     expect(a.replay.state.status.state).toBe("done");
   },
 );

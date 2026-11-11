@@ -170,7 +170,7 @@ function TextBody(props: { file: PreviewFile; source: FileSource }) {
   const { value } = text;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="relative min-h-0 flex-1 overflow-auto">
         {isMarkdownPath(file.name) ? (
           <article className="mx-auto w-full max-w-[760px] px-8 py-6 text-base leading-[1.6]">
             <Prose text={value.text} />

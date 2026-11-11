@@ -62,8 +62,14 @@ export function createSettingsSession(context: SocketContext): SocketService {
           ((key !== "computer.blockedApps" && key !== "computer.lockedUse") || authorize("admin")),
       ),
     set: async (key, value, commit) => {
-      if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
-      else await commit();
+      const write = async () => {
+        if (options.applyRemoteSetting) await options.applyRemoteSetting(key, value, commit);
+        else await commit();
+      };
+      // The whole list replaces the roots: it waits for any root edit under way, and they for it.
+      if (key === "projects.roots" && options.projects)
+        await options.projects.roots.exclusive(write);
+      else await write();
     },
     authorize: (request) => {
       if (request.type === "settings.setMany")

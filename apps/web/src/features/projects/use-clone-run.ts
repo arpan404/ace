@@ -1,4 +1,5 @@
 import type { ClonePhase, ProjectProblem } from "@ace/ui-core";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { Machine } from "@/lib/machines.ts";
@@ -33,16 +34,18 @@ export type CloneRun =
 /**
  * One clone at a time, held above the palette so it carries on when the palette closes: on the
  * machine it started on, its progress from that machine's pushes (matched by the command id
- * chosen here, which stays the same for the whole clone), Cancel, Retry and how it ended.
+ * chosen here, which stays the same for the whole clone), Cancel and how it ended. A failed
+ * clone keeps what it was asked for, so the Clone step can show it again for another try.
  * Finishing with no Clone step showing says so in a toast that opens the project.
  */
 export function useCloneRun(options: {
   onCloned(result: Added, machine: Machine): void;
-  /** The machines as they are now: a clone's host is looked up again for Cancel and Retry. */
+  /** The machines as they are now: a clone's host is looked up again for Cancel. */
   machines: readonly Machine[];
 }) {
   const commandsOn = useProjectCommandsOn();
   const toast = useToast();
+  const queries = useQueryClient();
   const [run, setRun] = useState<CloneRun>({ status: "idle" });
   const current = useRef<{ commandId: string; stop(): void } | undefined>(undefined);
   // How many Clone steps are showing: one is, so a finished clone opens straight away.
@@ -107,6 +110,9 @@ export function useCloneRun(options: {
       },
       (error: unknown) => {
         finish();
+        // A clone that stopped part way can leave its folder behind (ADR 0063): read the
+        // folders again so the step sees it and won't offer the same name.
+        void queries.invalidateQueries({ queryKey: ["projects", "folders"] });
         const problem = projectFailure(error);
         setRun(
           problem.code === "clone_cancelled"
@@ -142,10 +148,6 @@ export function useCloneRun(options: {
       });
   };
 
-  /** The failed clone again, with the same address and folder, on the same machine. */
-  const retry = () => {
-    if (run.status === "failed") start(run.input, now(run.machine));
-  };
   const dismiss = () =>
     setRun((previous) => (previous.status === "failed" ? { status: "idle" } : previous));
   /** A Clone step is showing until the returned call; for an effect. */
@@ -155,7 +157,7 @@ export function useCloneRun(options: {
       shown.current -= 1;
     };
   }, []);
-  return { run, start, cancel, retry, dismiss, show };
+  return { run, start, cancel, dismiss, show };
 }
 
 export type CloneControl = ReturnType<typeof useCloneRun>;

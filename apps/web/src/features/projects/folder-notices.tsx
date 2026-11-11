@@ -1,36 +1,13 @@
-import {
-  FolderSimpleIcon,
-  GitBranchIcon,
-  HouseSimpleIcon,
-  LockSimpleIcon,
-  WifiSlashIcon,
-} from "@phosphor-icons/react";
 import { displayPath, type ProjectProblem } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import { ListStatus } from "@/components/ui/list-viewport.tsx";
 import { cn } from "@/lib/cn.ts";
 
-/** A quiet state in place of the list: offline, empty, refused. */
-export function Notice(props: {
-  icon: typeof FolderSimpleIcon;
-  children: ReactNode;
-  action?: ReactNode;
-}) {
-  return (
-    <div
-      role="status"
-      className="flex h-full min-h-40 flex-col items-center justify-center gap-2 px-6 text-center text-ui text-muted-foreground"
-    >
-      <Icon icon={props.icon} size={20} />
-      <div className="max-w-[46ch]">{props.children}</div>
-      {props.action}
-    </div>
-  );
-}
-
-export const offlineIcon = WifiSlashIcon;
-export const deniedIcon = LockSimpleIcon;
+/*
+ * What a folder list says in place of its rows, and the quiet words after a folder's name.
+ * Statuses are one plain sentence from the left with text buttons after it (`ListStatus`).
+ */
 
 /**
  * The places a daemon may open (home, or `projects.roots`), each one click away: shown when a
@@ -44,9 +21,7 @@ export function AllowedPlaces(props: {
 }) {
   if (props.roots.length === 0) return null;
   return (
-    <div
-      className={cn("flex flex-wrap items-center justify-center gap-1 text-sm", props.className)}
-    >
+    <span className={cn("inline-flex flex-wrap items-center gap-1 text-sm", props.className)}>
       <span className="mr-1 text-subtle-foreground">Allowed places</span>
       {props.roots.map((root) => (
         <Button
@@ -58,11 +33,10 @@ export function AllowedPlaces(props: {
           }
           onClick={() => props.onGo(root)}
         >
-          {root === props.home && <Icon icon={HouseSimpleIcon} size={13} />}
           <span className="font-mono text-sm">{displayPath(root, props.home)}</span>
         </Button>
       ))}
-    </div>
+    </span>
   );
 }
 
@@ -76,32 +50,26 @@ export function RefusedNotice(props: {
   allow?: ReactNode;
 }) {
   return (
-    <Notice
-      icon={props.problem.denied ? LockSimpleIcon : FolderSimpleIcon}
-      action={
+    <ListStatus
+      actions={
         props.problem.denied ? (
           <>
             {props.allow}
             <AllowedPlaces roots={props.roots} home={props.home} onGo={props.onGo} />
           </>
         ) : (
-          <Button size="sm" onClick={props.onRetry}>
-            Try again
+          <Button size="sm" variant="ghost" onClick={props.onRetry}>
+            Retry
           </Button>
         )
       }
     >
       {props.problem.message}
-    </Notice>
+    </ListStatus>
   );
 }
 
-/** A small label after a folder's name: Git, Project, a machine. */
-export function Badge(props: { children: ReactNode; icon?: typeof GitBranchIcon }) {
-  return (
-    <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded-xs bg-foreground/5 px-1.5 text-xs font-medium text-muted-foreground">
-      {props.icon && <Icon icon={props.icon} size={12} />}
-      {props.children}
-    </span>
-  );
+/** A quiet word after a folder's name: Git, Project. */
+export function RowMeta(props: { children: ReactNode }) {
+  return <span className="shrink-0 text-xs text-subtle-foreground">{props.children}</span>;
 }

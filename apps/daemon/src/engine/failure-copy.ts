@@ -59,6 +59,12 @@ export function retainedFailure(
       code: "model_unavailable",
       title: "The selected model is unavailable. Choose another model.",
     };
+  if (details?.code === "worktree_missing")
+    return {
+      code: "worktree_missing",
+      title:
+        "This thread's folder is gone. Your message is kept and sends once you move the thread to the local checkout or make its worktree again.",
+    };
   if (details?.code === "git_quarantined")
     return {
       code: "git_quarantined",

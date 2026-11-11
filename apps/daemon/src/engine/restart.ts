@@ -34,8 +34,10 @@ export function recoverEngine(
         if (repo.cleaning(state.threadId)) return;
         // Read before anything below holds the queue.
         const heldBefore = repo.queue.get(state.threadId).paused;
+        // Replayed, a rate limit marks the agent limited, and one left retrying after its turn
+        // ended stops counting as busy.
         const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
-          record.retry?.on === "rate_limit" && !record.limited
+          record.retry?.on === "rate_limit" && (!record.limited || !record.activeRun)
             ? [{ type: "retry" as const, agent, ...record.retry }]
             : [],
         );

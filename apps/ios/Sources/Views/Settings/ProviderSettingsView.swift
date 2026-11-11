@@ -9,7 +9,12 @@ struct LoginReply: Decodable {
     let result: Result
 }
 struct LoginProgress: Decodable {
-    struct Choice: Decodable, Identifiable { let id: String; let label: String }
+    struct Choice: Decodable, Identifiable {
+        let id: String
+        let label: String
+        /// "sign_in_again": its earlier login didn't carry over to the CLI's current store.
+        var note: String? = nil
+    }
     let session: String
     let state: String
     let url: String?
@@ -75,6 +80,9 @@ struct ProviderSignInView: View {
     @State private var busy = false
     @State private var code = ""
     @State private var returnAddress = ""
+    @State private var query = ""
+    /// Past this many choices the list is searched by name (OpenCode offers about 240 services).
+    private static let searchFrom = 12
     var body: some View {
         Form {
             Group {
@@ -92,8 +100,16 @@ struct ProviderSignInView: View {
                         if let raw = progress.url, let url = URL(string: raw), url.scheme == "https" {
                             Link("Open provider sign-in", destination: url)
                         }
-                        ForEach(progress.choices ?? []) { choice in
-                            Button(choice.label) { request(["type": "provider.login.input", "session": progress.session, "input": ["choice": choice.id]]) }
+                        ForEach(Self.matching(progress.choices ?? [], query)) { choice in
+                            Button { request(["type": "provider.login.input", "session": progress.session, "input": ["choice": choice.id]]) } label: {
+                                HStack {
+                                    Text(choice.label)
+                                    Spacer(minLength: AceDesign.Space.related)
+                                    if choice.note == "sign_in_again" {
+                                        Text("Sign in again").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                                    }
+                                }
+                            }
                         }
                         if progress.state == "awaiting_input", progress.codeEntry != true, (progress.choices ?? []).isEmpty {
                             Button("Continue") { request(["type": "provider.login.input", "session": progress.session, "input": ["value": "enter"]]) }
@@ -121,6 +137,7 @@ struct ProviderSignInView: View {
             .insetRowBackground()
         }
         .insetGroupedList()
+        .modifier(ServiceSearch(enabled: (progress?.choices?.count ?? 0) > Self.searchFrom, query: $query))
         .navigationTitle(name).navigationBarTitleDisplayMode(.inline)
         .onAppear { if progress == nil { progress = initial } }
         .task(id: progress?.session) {
@@ -140,7 +157,17 @@ struct ProviderSignInView: View {
             if let progress, !progress.finished { request(["type": "provider.login.cancel", "session": progress.session]) }
         }
     }
+    /// The choices whose name or id holds every typed word; "other" (any provider) always stays.
+    static func matching(_ choices: [LoginProgress.Choice], _ query: String) -> [LoginProgress.Choice] {
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace)
+        guard !words.isEmpty else { return choices }
+        return choices.filter { choice in
+            let text = "\(choice.label) \(choice.id)".lowercased()
+            return choice.id == "other" || words.allSatisfy { text.contains($0) }
+        }
+    }
     private func request(_ payload: [String: Any]) {
+        query = ""
         var payload = payload
         if payload["type"] as? String == "provider.login.start", let instance { payload["instance"] = instance }
         busy = true; problem = nil
@@ -152,5 +179,13 @@ struct ProviderSignInView: View {
                 progress = reply.result.progress
             } catch { problem = error.localizedDescription }
         }
+    }
+}
+/// The system search field, only while there is a long list of services to search.
+private struct ServiceSearch: ViewModifier {
+    let enabled: Bool
+    @Binding var query: String
+    func body(content: Content) -> some View {
+        if enabled { content.searchable(text: $query, prompt: "Search services") } else { content }
     }
 }
