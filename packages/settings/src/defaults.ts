@@ -75,6 +75,8 @@ export const defaults: SettingsValues = {
   "remote.transferIgnoredFiles": true,
   "remote.hostedPairingLink": false,
   "remote.relayMcp": false,
+  "remote.tailscaleMcp": false,
+  "remote.mcpPublicUrl": null,
   "remote.relayUrl": "",
   "notifications.remotePush": true,
   "notifications.pushGatewayUrl": "https://push.acehq.dev",
