@@ -1,5 +1,6 @@
 import {
   type CommandId,
+  type ContentPart,
   type AgentControlOperation,
   type AgentControlResult,
   type CommandPayload,
@@ -8,7 +9,11 @@ import {
   type QueuedMessage,
 } from "@ace/protocol";
 import { controlCommandId } from "./command-id.ts";
+import { editedContext } from "../engine/edited-context.ts";
 import type { DelegationService } from "./delegations.ts";
+
+/** The queue reads and commands an agent's queue edits go through. */
+export type QueueService = Pick<DelegationService, "queue" | "command">;
 
 export type QueueOperation = Extract<
   AgentControlOperation,
@@ -39,7 +44,7 @@ function entry(message: QueuedMessage) {
  * an entry already delivered or changed by someone else is refused, never overwritten.
  */
 export function queueControl(
-  service: DelegationService,
+  service: QueueService,
   caller: McpAttribution,
   operation: QueueOperation,
 ): AgentControlResult {
@@ -67,11 +72,10 @@ export function queueControl(
       return run("queue.edit", {
         type: "queue.edit",
         ...target,
-        input: [
+        ...edit(message, [
           { type: "text", text: operation.text },
           ...message.input.filter((part) => part.type !== "text"),
-        ],
-        ...(message.context ? { context: message.context } : {}),
+        ]),
       });
     case "queue.steer":
       return run("queue.steer", {
@@ -84,9 +88,15 @@ export function queueControl(
   }
 }
 
+/** New input for a queued message, with the context the edit keeps. */
+function edit(message: QueuedMessage, input: ContentPart[]) {
+  const context = editedContext(message, input, message.context);
+  return { input, ...(context ? { context } : {}) };
+}
+
 /** Moves each named entry after the one before it, so they lead the queue in the given order. */
 function reorder(
-  service: DelegationService,
+  service: QueueService,
   caller: McpAttribution,
   operation: Extract<QueueOperation, { op: "queue.reorder" }>,
 ): AgentControlResult {

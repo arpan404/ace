@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { railDotClass, railPlaceClass } from "@/components/rail-place.ts";
 import { SpadeMark } from "@/components/spade-mark.tsx";
+import { spadeAvailable } from "@/lib/spade-available.ts";
 import { Tip, TooltipSide } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
 import { UpdateButton } from "./update-button.tsx";
@@ -72,7 +73,7 @@ function ThreadPlace(props: {
 
 /**
  * The sidebar's rail, under the window's top bar: the app's places as bare glyphs, Threads (the
- * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (not live yet), a short hairline, then
+ * folders glyph: it lists projects), Chats (the speech bubbles) and Spade (its mark), a short hairline, then
  * Code review, Automations and Skills; the app's update when there is one, Usage, Settings and the
  * profile at the foot. The current place takes the active fill: Chats while a chat is open, Threads for
  * any other thread. Off Threads or Chats, a dot on its glyph says one of its own threads waits.
@@ -82,11 +83,14 @@ export function AppRail(props: {
   forge?: ((current: boolean) => ReactNode) | undefined;
   /** Usage's place in the foot, its bars and card; current while the Usage page is open. */
   usage?: ((current: boolean) => ReactNode) | undefined;
+  /** Spade's place, which knows when an approval waits; where it goes is the rail's. */
+  spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
 }) {
   const current = useRailPlace();
   const signals = usePlaceSignals();
   const threads = useLastPlace(current === "home", "/new");
   const chats = useLastPlace(current === "chats", "/chats");
+  const spade = useLastPlace(current === "spade", "/spade");
   return (
     <nav
       aria-label="App"
@@ -110,7 +114,13 @@ export function AppRail(props: {
           last={chats}
           signal={signals.chats}
         />
-        <SpadeSoon />
+        {spadeAvailable ? (
+          (props.spade?.(current === "spade", spade.to, spade.search) ?? (
+            <SpadePlace current={current === "spade"} last={spade} />
+          ))
+        ) : (
+          <SpadeComingSoon />
+        )}
         <span aria-hidden className="my-1.5 h-px w-5 shrink-0 bg-border" />
         {props.forge?.(current === "forge")}
         {railViews.map((view) => (
@@ -144,21 +154,37 @@ export function AppRail(props: {
   );
 }
 
-/**
- * Spade, ace's cloud agent, before it launches: its mark dimmed, "Coming soon" in its tooltip.
- * It is a picture, not a control: nothing to press or tab to.
- */
-function SpadeSoon() {
+/** Spade in a build without it: its mark, which goes nowhere yet. */
+export function SpadeComingSoon() {
   return (
     <Tip label="Spade · Coming soon">
       <span
         role="img"
         aria-label="Spade, coming soon"
-        data-slot="spade-soon"
-        className="grid size-10 shrink-0 cursor-default place-items-center text-muted-foreground"
+        className={`${railPlaceClass} cursor-default`}
       >
-        <SpadeMark size={20} className="opacity-50" />
+        <SpadeMark size={20} />
       </span>
+    </Tip>
+  );
+}
+
+/**
+ * Spade, ace's assistant, while its own place (`spade`, with its signal) isn't there: its mark,
+ * back to where the person last was in Spade.
+ */
+export function SpadePlace(props: { current: boolean; last: Pick<Place, "to" | "search"> }) {
+  return (
+    <Tip label="Spade">
+      <Link
+        to={props.last.to}
+        search={props.last.search}
+        aria-label="Spade"
+        aria-current={props.current ? "page" : undefined}
+        className={railPlaceClass}
+      >
+        <SpadeMark size={20} />
+      </Link>
     </Tip>
   );
 }

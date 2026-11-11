@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectRepositoryConfig.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "added": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "hidden": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "primary": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "type": "object"
+}

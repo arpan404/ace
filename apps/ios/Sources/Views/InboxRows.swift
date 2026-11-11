@@ -70,7 +70,7 @@ struct InboxThreadRow: View {
         // A snoozed row says when it wakes, as it shows it.
         let wake = snoozed && look.level != "needs-you" ? row.snoozedUntil.map(InboxRowLine.wake) : nil
         return [row.title, meaning, wake, need?.spoken, row.project.isEmpty ? nil : row.project, row.pinned == true ? "Pinned" : nil,
-                row.browsing, row.computerUse, branch, pr, work]
+                row.startedBy, row.browsing, row.computerUse, branch, pr, work]
             .compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: ", ")
     }
 }
@@ -89,6 +89,11 @@ struct InboxRowHead: View {
                 ProjectMark(initials: "", chat: row.chat == true, look: project, quiet: look.settled)
             }
             Text(row.project).lineLimit(1)
+            // An outside app started it: "· Started by Claude", cut before the project's name.
+            if let startedBy = row.startedBy {
+                Text(verbatim: "· \(startedBy)").lineLimit(1).layoutPriority(-1)
+                    .accessibilityIdentifier("inbox.row.startedBy")
+            }
             if row.pinned == true {
                 AceIcon(.pushPin, size: AceDesign.Size.rowPin, relativeTo: .footnote)
             }

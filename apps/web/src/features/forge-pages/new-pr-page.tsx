@@ -1,3 +1,5 @@
+import { repositoryLabel } from "@ace/ui-core";
+import { useReviewSources } from "./review-sources.ts";
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { ForgeNewPrContext } from "@ace/protocol";
@@ -121,6 +123,8 @@ function NewPrForm(props: {
 }) {
   const { project, context } = props;
   const navigate = useNavigate();
+  // New pull requests open on the project's primary; name it when the project uses several.
+  const several = useReviewSources([project]).several.has(project);
   const base = startingBase(context, props.base);
   const head = context.head.branches.some((branch) => branch.name === props.head)
     ? props.head
@@ -263,6 +267,7 @@ function NewPrForm(props: {
               trigger={fork ? branchLabel(context.base.repository, headRepository, base) : base}
               onChange={([next]) => next && pickBranches({ base: next })}
             />
+            {several && <span>on {repositoryLabel(context.base.repository)}</span>}
             {ready ? (
               <span className="ml-1.5 text-subtle-foreground tabular-nums">
                 {compareSummary(ready)}

@@ -189,6 +189,10 @@ test("the inbox names the project's own repository, so its rows open without nam
         resource: "inboxList",
         value: {
           projectRepository: { forge: "github", host: "github.com", owner: "octo", name: "ace" },
+          // Every visible repository of the project on this host, here only its own.
+          projectRepositories: [
+            { forge: "github", host: "github.com", owner: "octo", name: "ace" },
+          ],
         },
       },
     });

@@ -39,6 +39,7 @@ const columns = {
         delegatedBy: thread.delegatedBy,
         delegatedFrom: thread.delegatedFrom,
         startedBy: thread.startedBy,
+        startedByClient: thread.startedByClient,
         queuedLaunch: thread.queuedLaunch,
         execution: thread.execution,
         switch: thread.switch,

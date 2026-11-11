@@ -1,4 +1,5 @@
 import { admitSteer, queueSteerSelection } from "./steer-selection.ts";
+import { editedContext } from "./edited-context.ts";
 import { Command, maxMessageBytes, type CommandResult, type ThreadId } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
@@ -53,10 +54,11 @@ export function handleQueue(
       if (old.type !== "thread.send" && old.type !== "thread.create")
         return fail("invalid_queue_entry");
       const { context: _context, ...rest } = old;
+      const context = editedContext(old, p.input, p.context);
       const payload = {
         ...rest,
         input: p.input,
-        ...(p.context ? { context: p.context } : {}),
+        ...(context ? { context } : {}),
         ...(old.type === "thread.send" ? { delivery: p.delivery ?? old.delivery } : {}),
       };
       // A message changed to steer goes in like a fresh steer, its selection split off the same way.

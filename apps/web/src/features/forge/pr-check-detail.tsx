@@ -1,151 +1,148 @@
-import { useState } from "react";
-import {
-  ArrowSquareOutIcon,
-  CheckCircleIcon,
-  CircleIcon,
-  ClockIcon,
-  InfoIcon,
-  MinusCircleIcon,
-  WarningIcon,
-  XCircleIcon,
-} from "@phosphor-icons/react";
-import type {
-  ForgeCheck,
-  ForgeCheckAnnotation,
-  ForgeCheckRun,
-  ForgeCheckStep,
-} from "@ace/protocol";
+import { can } from "@ace/ui-core";
+import { useState, type ReactNode } from "react";
+import { ArrowSquareOutIcon, ArrowsClockwiseIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import type { ForgeCheck, ForgeCheckRun } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { DisabledReason } from "@/components/ui/disabled-reason.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useNow } from "@/lib/time.ts";
 import { cn } from "@/lib/cn.ts";
 import type { PrWorkspaceContext } from "./pr-extensions.ts";
-import { PrMarkdown } from "./pr-markdown.tsx";
+import { prBox } from "./pr-box.tsx";
 import { PrCheckLog } from "./pr-check-log.tsx";
-import {
-  checkControls,
-  checkFixRequest,
-  checkLogNote,
-  checkRunId,
-  fileAnnotation,
-} from "@ace/ui-core";
+import { checkControls, checkFixRequest, checkLogNote, checkRunId } from "@ace/ui-core";
 import { useCheckRerun, useCheckRun } from "./pr-check-run.ts";
 import { useFixWithAgent } from "./pr-fix-with-agent.ts";
 import { readFailureText } from "./query-state.tsx";
+import { Annotations, CheckDetailHead, Output, Steps, checkLine } from "./pr-check-parts.tsx";
+import { checkState } from "./pr-checks-list.tsx";
 
-const stepLook: Record<ForgeCheckStep["status"], { icon: typeof CircleIcon; tone: string }> = {
-  success: { icon: CheckCircleIcon, tone: "text-status-done" },
-  failure: { icon: XCircleIcon, tone: "text-status-failed" },
-  pending: { icon: ClockIcon, tone: "text-status-working" },
-  cancelled: { icon: MinusCircleIcon, tone: "text-subtle-foreground" },
-  skipped: { icon: MinusCircleIcon, tone: "text-faint-foreground" },
-  unknown: { icon: CircleIcon, tone: "text-subtle-foreground" },
-};
-const levelLook: Record<
-  ForgeCheckAnnotation["level"],
-  { icon: typeof CircleIcon; tone: string; word: string }
-> = {
-  failure: { icon: XCircleIcon, tone: "text-status-failed", word: "Error" },
-  warning: { icon: WarningIcon, tone: "text-status-needs-you", word: "Warning" },
-  notice: { icon: InfoIcon, tone: "text-subtle-foreground", word: "Notice" },
-};
-
-function Annotations(props: {
-  annotations: readonly ForgeCheckAnnotation[];
-  truncated: boolean;
-  onOpenCode(path: string): void;
-}) {
-  if (!props.annotations.length) return null;
+/** The right pane's box: a head, then its body padded below. */
+export function CheckDetailBox(props: { head: ReactNode; children: ReactNode }) {
   return (
-    <ul aria-label="Annotations" className="space-y-1">
-      {props.annotations.map((annotation) => {
-        const look = levelLook[annotation.level];
-        const Glyph = look.icon;
-        const where = `${annotation.path}${annotation.startLine ? `:${annotation.startLine}` : ""}`;
-        return (
-          <li
-            key={`${where}:${annotation.level}:${annotation.title}:${annotation.message}`}
-            className="flex items-start gap-2 text-ui"
-          >
-            <Glyph aria-label={look.word} size={14} className={cn("mt-0.5 shrink-0", look.tone)} />
-            <div className="min-w-0 flex-1">
-              {fileAnnotation(annotation.path) && (
-                <button
-                  type="button"
-                  onClick={() => props.onOpenCode(annotation.path)}
-                  aria-label={`Open ${where} in Code`}
-                  className="max-w-full truncate rounded-xs font-mono text-xs text-muted-foreground hover:text-foreground focus-ring"
-                >
-                  {where}
-                </button>
-              )}
-              {annotation.title && (
-                <p className="break-words text-xs text-subtle-foreground">{annotation.title}</p>
-              )}
-              <p className="break-words whitespace-pre-wrap text-foreground">
-                {annotation.message}
-              </p>
-            </div>
-          </li>
-        );
-      })}
-      {props.truncated && (
-        <li className="text-xs text-subtle-foreground">More annotations are on GitHub.</li>
-      )}
-    </ul>
+    <section id="pr-check-detail" aria-label="Check" className={cn(prBox, "min-w-0 scroll-mt-12")}>
+      {props.head}
+      <div className="space-y-3.5 px-4 pt-3.5 pb-4">{props.children}</div>
+    </section>
   );
 }
 
-function Steps(props: { steps: readonly ForgeCheckStep[]; onJump(line: number): void }) {
-  const shown = props.steps.filter((step) => step.status !== "skipped");
-  if (shown.length < 2) return null;
-  return (
-    <ol aria-label="Steps" className="space-y-px">
-      {shown.map((step) => {
-        const look = stepLook[step.status];
-        const Glyph = look.icon;
-        const line = step.line;
-        return (
-          <li key={step.number}>
-            <button
-              type="button"
-              disabled={line === null}
-              onClick={() => line !== null && props.onJump(line)}
-              className="flex min-h-6 w-full items-center gap-2 rounded-sm px-1 text-left text-xs text-muted-foreground transition-colors duration-(--motion-fast) focus-ring-inset hover:bg-hover hover:text-foreground disabled:hover:bg-transparent"
-            >
-              <Glyph aria-hidden size={12} className={cn("shrink-0", look.tone)} />
-              <span className="min-w-0 flex-1 truncate">{step.name}</span>
-            </button>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-/** What the check's app said: all an external check has in place of a log. */
-function Output(props: {
-  run: ForgeCheckRun;
+/** Fix with agent, Re-run failed jobs, Cancel run; Re-run all and GitHub under ⋯. */
+function Actions(props: {
   context: PrWorkspaceContext;
-  onOpen(number: number): void;
+  check: ForgeCheck;
+  run: ForgeCheckRun;
+  hostThreadId: string | undefined;
+  openOnGitHub: (() => void) | undefined;
 }) {
-  const { title, summary, text } = props.run.output;
-  if (!title && !summary && !text) return null;
+  const { context, check, run } = props;
+  const { detail, workspaceId } = context;
+  const pr = detail.status.ref;
+  const rerun = useCheckRerun({ workspaceId, pr, onDone: context.refresh });
+  const agent = useFixWithAgent({ workspaceId, detail, hostThreadId: props.hostThreadId });
+  const open = detail.status.state === "open" || detail.status.state === "draft";
+  const controls = checkControls(check, run, open && can(detail, "reviews.checks.write"));
+  const workflow = run.workflow;
+  const reason = context.disabled ? "Wait for GitHub to refresh" : undefined;
+  const blocked = rerun.pending || context.disabled;
+  const rerunAll =
+    workflow && controls.rerunAll
+      ? () =>
+          void rerun.run({
+            kind: "rerun",
+            runId: workflow.runId,
+            attempt: workflow.attempt,
+            jobs: "all",
+          })
+      : undefined;
   return (
-    <div className="space-y-1">
-      {title && <p className="text-ui font-medium text-foreground">{title}</p>}
-      {summary && <PrMarkdown text={summary} context={props.context} onOpen={props.onOpen} />}
-      {text && <PrMarkdown text={text} context={props.context} onOpen={props.onOpen} />}
-    </div>
+    <>
+      {controls.fix && (
+        <Button
+          size="xs"
+          variant="secondary"
+          onClick={() =>
+            agent.ask(
+              checkFixRequest(check, { number: pr.number, url: detail.status.url }, run),
+              `check:${check.id}`,
+            )
+          }
+        >
+          Fix with agent
+        </Button>
+      )}
+      {workflow && controls.rerunFailed && (
+        <DisabledReason reason={reason}>
+          <Button
+            size="xs"
+            variant="secondary"
+            disabled={blocked}
+            onClick={() =>
+              void rerun.run({
+                kind: "rerun",
+                runId: workflow.runId,
+                attempt: workflow.attempt,
+                jobs: "failed",
+              })
+            }
+          >
+            Re-run failed jobs
+          </Button>
+        </DisabledReason>
+      )}
+      {workflow && controls.cancel && (
+        <DisabledReason reason={reason}>
+          <Button
+            size="xs"
+            variant="secondary"
+            className="text-status-failed"
+            disabled={blocked}
+            onClick={() =>
+              void rerun.run({ kind: "cancel", runId: workflow.runId, attempt: workflow.attempt })
+            }
+          >
+            Cancel run
+          </Button>
+        </DisabledReason>
+      )}
+      {(rerunAll || props.openOnGitHub) && (
+        <Menu>
+          <MenuTrigger
+            render={<IconButton size="sm" icon={DotsThreeIcon} label={`More for ${check.name}`} />}
+          />
+          <MenuContent align="end">
+            {rerunAll && (
+              <MenuItem
+                icon={<ArrowsClockwiseIcon aria-hidden size={16} />}
+                disabled={blocked}
+                onClick={rerunAll}
+              >
+                Re-run all jobs
+              </MenuItem>
+            )}
+            {props.openOnGitHub && (
+              <MenuItem
+                icon={<ArrowSquareOutIcon aria-hidden size={16} />}
+                onClick={props.openOnGitHub}
+              >
+                Open on GitHub
+              </MenuItem>
+            )}
+          </MenuContent>
+        </Menu>
+      )}
+    </>
   );
 }
 
 /**
- * One check opened in place: its re-runs and "Fix with agent", its annotations, and its log
- * opened at the failing step, or for another app's check what that app reported. GitHub is
- * linked only when ace has nothing of the check to show.
+ * The selected check: its head with re-runs and "Fix with agent", its annotations, its steps and
+ * its log opened at the failing step, or for another app's check what that app reported. GitHub
+ * is linked when ace has nothing of the check to show, and from ⋯ otherwise.
  */
 export function PrCheckDetail(props: {
   context: PrWorkspaceContext;
@@ -159,56 +156,69 @@ export function PrCheckDetail(props: {
   const pr = detail.status.ref;
   const toast = useToast();
   const openWeb = useOpenWebAddress();
-  const query = useCheckRun({ workspaceId, pr, check, enabled: true });
-  const rerun = useCheckRerun({ workspaceId, pr, onDone: context.refresh });
-  const agent = useFixWithAgent({ workspaceId, detail, hostThreadId: props.hostThreadId });
+  const now = useNow();
+  const known = checkRunId(check) !== undefined;
+  const query = useCheckRun({ workspaceId, pr, check, enabled: known });
   const [jump, setJump] = useState<{ line: number; seq: number }>();
   const url = check.url;
-  const openOnGitHub = url && (
-    <Button
-      variant="ghost"
-      size="xs"
-      onClick={(event) =>
-        void openWeb(url, event).catch(() => toast.error({ title: "Couldn't open the check" }))
-      }
-    >
+  const openOnGitHub = url
+    ? () => void openWeb(url).catch(() => toast.error({ title: "Couldn't open the check" }))
+    : undefined;
+  const githubButton = openOnGitHub && (
+    <Button variant="ghost" size="xs" className="-ml-1.5" onClick={openOnGitHub}>
       <ArrowSquareOutIcon aria-hidden size={12} />
       Open on GitHub
     </Button>
   );
-  if (checkRunId(check) === undefined)
+  const run = known && query.isSuccess ? query.data : undefined;
+  const head = (
+    <CheckDetailHead
+      tone={checkState(check).tone}
+      name={check.name}
+      line={checkLine(check, now)}
+      actions={
+        run && (
+          <Actions
+            context={context}
+            check={check}
+            run={run}
+            hostThreadId={props.hostThreadId}
+            openOnGitHub={openOnGitHub}
+          />
+        )
+      }
+    />
+  );
+  if (!known)
     return (
-      <div className="py-1 pl-6">
-        {openOnGitHub || (
+      <CheckDetailBox head={head}>
+        {githubButton || (
           <p className="text-ui text-muted-foreground">
             GitHub reports nothing more for this check.
           </p>
         )}
-      </div>
+      </CheckDetailBox>
     );
   if (query.isPending)
     return (
-      <div role="status" aria-label={`Reading ${check.name}`} className="py-1 pl-6">
-        <SkeletonText lines={4} />
-      </div>
+      <CheckDetailBox head={head}>
+        <div role="status" aria-label={`Reading ${check.name}`}>
+          <SkeletonText lines={4} />
+        </div>
+      </CheckDetailBox>
     );
-  if (query.isError)
+  if (!run)
     return (
-      <p
-        role="alert"
-        className="flex flex-wrap items-center gap-2 py-1 pl-6 text-ui text-muted-foreground"
-      >
-        {`Couldn't read this check. ${readFailureText(query.error)}`}
-        <Button size="xs" onClick={() => void query.refetch()}>
-          Retry
-        </Button>
-      </p>
+      <CheckDetailBox head={head}>
+        <p role="alert" className="flex flex-wrap items-center gap-2 text-ui text-muted-foreground">
+          {`Couldn't read this check. ${query.error ? readFailureText(query.error) : ""}`}
+          <Button size="xs" onClick={() => void query.refetch()}>
+            Retry
+          </Button>
+        </p>
+      </CheckDetailBox>
     );
-  const run = query.data;
-  const open = detail.status.state === "open" || detail.status.state === "draft";
-  const controls = checkControls(check, run, open);
   const workflow = run.workflow;
-  const reason = context.disabled ? "Wait for GitHub to refresh" : undefined;
   const blank =
     !run.log &&
     !run.annotations.length &&
@@ -217,80 +227,7 @@ export function PrCheckDetail(props: {
     !run.output.text;
   const note = checkLogNote(check, run);
   return (
-    <div className="space-y-2 py-1 pl-6">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {workflow && controls.rerunFailed && (
-          <DisabledReason reason={reason}>
-            <Button
-              size="xs"
-              disabled={rerun.pending || context.disabled}
-              onClick={() =>
-                void rerun.run({
-                  kind: "rerun",
-                  runId: workflow.runId,
-                  attempt: workflow.attempt,
-                  jobs: "failed",
-                })
-              }
-            >
-              Re-run failed jobs
-            </Button>
-          </DisabledReason>
-        )}
-        {workflow && controls.rerunAll && (
-          <DisabledReason reason={reason}>
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={rerun.pending || context.disabled}
-              onClick={() =>
-                void rerun.run({
-                  kind: "rerun",
-                  runId: workflow.runId,
-                  attempt: workflow.attempt,
-                  jobs: "all",
-                })
-              }
-            >
-              Re-run all jobs
-            </Button>
-          </DisabledReason>
-        )}
-        {workflow && controls.cancel && (
-          <DisabledReason reason={reason}>
-            <Button
-              size="xs"
-              variant="ghost"
-              className="text-status-failed"
-              disabled={rerun.pending || context.disabled}
-              onClick={() =>
-                void rerun.run({
-                  kind: "cancel",
-                  runId: workflow.runId,
-                  attempt: workflow.attempt,
-                })
-              }
-            >
-              Cancel run
-            </Button>
-          </DisabledReason>
-        )}
-        {controls.fix && (
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() =>
-              agent.ask(
-                checkFixRequest(check, { number: pr.number, url: detail.status.url }, run),
-                `check:${check.id}`,
-              )
-            }
-          >
-            Fix with agent
-          </Button>
-        )}
-        {blank && !note && openOnGitHub}
-      </div>
+    <CheckDetailBox head={head}>
       <Annotations
         annotations={run.annotations}
         truncated={run.annotationsTruncated}
@@ -305,6 +242,11 @@ export function PrCheckDetail(props: {
       )}
       {run.log && <PrCheckLog log={run.log} name={check.name} jump={jump} />}
       {note && <p className="text-ui text-muted-foreground">{note}</p>}
-    </div>
+      {blank &&
+        !note &&
+        (githubButton || (
+          <p className="text-ui text-muted-foreground">Nothing more was reported for this check.</p>
+        ))}
+    </CheckDetailBox>
   );
 }

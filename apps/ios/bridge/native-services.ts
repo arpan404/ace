@@ -57,6 +57,7 @@ import { HostCareRequest, type HostCare } from "./host-care.ts";
 import { HostProblem } from "./host-problem.ts";
 import { answerSettingsPage, settingsPageRequest } from "./settings-page-service.ts";
 import { answerSettingsManage, SettingsManageRequest } from "./settings-manage.ts";
+import { answerSourceControlScreen, SourceControlScreenRequest } from "./source-control-screen.ts";
 import { CustomAccentRequest, fitCustomAccent } from "./custom-accent.ts";
 import { deviceFailure, NativeDeviceRequest, type NativeDevices } from "./native-devices.ts";
 import { NativeScreenRequest, screenFailure, type NativeScreen } from "./native-screen.ts";
@@ -65,6 +66,7 @@ import { ProviderServices } from "./provider-services.ts";
 import type { NativeReads, ReadKey, ReadTicket } from "./native-reads.ts";
 import { NativeProjectRequest, type ProjectManage } from "./project-manage.ts";
 import { answerFleet, NativeFleetRequest } from "./fleet-admin.ts";
+import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
@@ -147,6 +149,7 @@ export class NativeServices {
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
   readonly automations: NativeAutomations | undefined;
+  readonly now: () => number;
   constructor(
     owner: ClientCore,
     sink: PatchSink,
@@ -163,6 +166,7 @@ export class NativeServices {
   ) {
     this.owner = owner;
     this.sink = sink;
+    this.now = now;
     this.transcript = new NativeTranscript(owner, sink);
     this.devices = devices;
     this.screen = screen;
@@ -275,6 +279,11 @@ export class NativeServices {
         this.#reply(id, true, await answerFleet(this.owner, fleet.data), "");
         return;
       }
+      const outside = NativeOutsideRequest.safeParse(raw);
+      if (outside.success) {
+        this.#reply(id, true, await answerOutside(this.owner, outside.data, this.now), "");
+        return;
+      }
       const skills = NativeSkillsRequest.safeParse(raw);
       if (skills.success) {
         this.#answer(id, raw, await this.skills.answer(skills.data, controller.signal), read);
@@ -381,6 +390,16 @@ export class NativeServices {
       const page = settingsPageRequest(raw);
       if (page) {
         this.#answer(id, raw, await answerSettingsPage(this.owner, page, controller.signal), read);
+        return;
+      }
+      const sourceControl = SourceControlScreenRequest.safeParse(raw);
+      if (sourceControl.success) {
+        const value = await answerSourceControlScreen(
+          this.owner,
+          sourceControl.data,
+          controller.signal,
+        );
+        this.#answer(id, raw, value, read);
         return;
       }
       const manage = SettingsManageRequest.safeParse(raw);

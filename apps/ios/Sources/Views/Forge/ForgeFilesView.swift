@@ -25,7 +25,7 @@ struct ForgeFilesView: View {
         ScrollView {
             if let list {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    ForgeCompareBar(label: list.range?.label ?? "All commits", viewed: viewedLine(list)) { choosing = true }
+                    ForgeCompareBar(label: list.range?.label ?? "All commits", viewed: viewedLine(list), canCompare: list.canCompare == true) { choosing = true }
                     ForEach(list.caveats, id: \.self) { caveat in
                         Text(caveat).meta().padding(.horizontal, AceTheme.Spacing.lg)
                     }

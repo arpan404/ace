@@ -16,7 +16,11 @@ export function sidebarSettled(entry: ThreadListEntry): boolean {
   );
 }
 export function sidebarVisible(entry: ThreadListEntry, archived = false): boolean {
-  return entry.deletedAt === undefined && (entry.archivedAt !== undefined) === archived;
+  return (
+    entry.deletedAt === undefined &&
+    entry.host === undefined &&
+    (entry.archivedAt !== undefined) === archived
+  );
 }
 export function sidebarPage(
   entries: readonly ThreadListEntry[],

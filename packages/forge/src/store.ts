@@ -1,4 +1,5 @@
 import { prUrl } from "./pr-reference.ts";
+import { repositoryKey } from "./repository-key.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import {
@@ -226,15 +227,7 @@ export class ForgeStore {
   }
 }
 
-/** Canonical key also keeps repository identity insensitive to GitHub URL case. */
-export function repositoryKey(repo: ForgePrRef["repository"]): string {
-  return JSON.stringify({
-    forge: repo.forge,
-    host: repo.host.toLowerCase(),
-    owner: repo.owner.toLowerCase(),
-    name: repo.name.toLowerCase(),
-  });
-}
+export { repositoryKey } from "./repository-key.ts";
 export { prUrl } from "./pr-reference.ts";
 
 function prKey(pr: ForgePrRef): string {

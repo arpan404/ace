@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import {
   ciLine,
   mergeGate,
@@ -69,7 +70,11 @@ export function usePrActions(props: {
     onRefresh: context.refresh,
   });
   const worktree = usePrWorktree({ workspaceId, detail, newId: newCommandId, onRefresh });
-  const membership = useStackMemberships(workspaceId, status.ref.repository, [status.ref.number]);
+  const membership = useStackMemberships(
+    workspaceId,
+    status.ref.repository,
+    can(detail, "reviews.stacks") ? [status.ref.number] : [],
+  );
   const stack = membership.isError ? undefined : (membership.data?.[0]?.stack ?? undefined);
   const local = usePrLocalCheck(workspaceId, status);
   // The PR view is mounted whichever tab shows: here the reviewers follow the PR, so the gates

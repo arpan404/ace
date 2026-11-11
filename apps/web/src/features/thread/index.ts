@@ -59,3 +59,9 @@ export {
   readDraft,
   writeDraft,
 } from "./composer/draft-store.ts";
+
+/** The composer's dock under a transcript, its one strip, and the person's bubble (Spade reuses them). */
+export { ComposerDock } from "./composer/composer-dock.tsx";
+export { StripSurface } from "./composer/strip-surface.tsx";
+export { BubbleText } from "./items/bubble-text.tsx";
+export { userBubble } from "./items/user-bubble.ts";

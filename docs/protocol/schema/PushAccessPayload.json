@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/PushAccessPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "$ref": "https://ace.local/protocol/v1/PushAccessAlert.json"
+    },
+    "hostId": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "v": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "v",
+    "hostId",
+    "access"
+  ],
+  "type": "object"
+}

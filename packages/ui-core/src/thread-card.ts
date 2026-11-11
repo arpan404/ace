@@ -180,6 +180,8 @@ export interface ThreadCard {
   subagents: number;
   /** "Codex · 2 subagents running". */
   providerLabel: string;
+  /** The outside MCP client that started the thread (ADR 0122), by its name. */
+  startedByClient?: string | undefined;
 }
 
 export interface ThreadCardInput {
@@ -424,5 +426,6 @@ function currentCard(input: ThreadCardInput): ThreadCard {
     acpAgentId: entry.acpAgentId,
     account: entry.execution?.instanceId ?? entry.live?.account,
     providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
+    startedByClient: entry.startedByClient?.name,
   };
 }

@@ -83,6 +83,7 @@ const reasons: Partial<Record<string, string>> = {
   needs_update: "Needs an update on your computer",
   limited: "Usage limit reached",
   attention: "Needs attention on your computer",
+  off: "Turned off in ace's Settings on your computer",
   unknown: "Checking sign-in…",
 };
 
@@ -98,7 +99,7 @@ const tokens: Partial<Record<string, StatusToken>> = {
  * Every coding agent the machine reports (`providers.request` readiness), in its order, joined
  * with its accounts (`accounts.list`) and the model catalog (`models.list`) the way the web's
  * provider statuses join them. One that isn't installed, is signed out, needs an update or lists
- * no models is still listed, unready, with the reason. Turned-off CLIs are left out.
+ * no models, or is turned off in Settings, is still listed, unready, with the reason.
  */
 export function newThreadAgents(input: {
   statuses: readonly DiscoveryStatus[];
@@ -107,18 +108,16 @@ export function newThreadAgents(input: {
   now: number;
 }): NewThreadAgents {
   const views = input.accounts.map(accountView);
-  const joined = input.statuses
-    .filter((row) => row.enabled !== false)
-    .map((row) => {
-      const model = providerAccountModel({
-        provider: row.provider,
-        accounts: views,
-        row,
-        catalog: catalogSignal(input.catalog.models, input.catalog.instances, row.provider),
-        now: input.now,
-      });
-      return { row, model, state: providerAccountState(model) };
+  const joined = input.statuses.map((row) => {
+    const model = providerAccountModel({
+      provider: row.provider,
+      accounts: views,
+      row,
+      catalog: catalogSignal(input.catalog.models, input.catalog.instances, row.provider),
+      now: input.now,
     });
+    return { row, model, state: providerAccountState(model) };
+  });
   const reconciled: AccountView[] = joined.flatMap((entry) => entry.model.accounts);
   const options = newThreadOptions(
     input.catalog.models,

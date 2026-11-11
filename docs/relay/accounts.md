@@ -184,3 +184,84 @@ other networks it serves: LAN and Tailscale run beside the relay, never instead
 of it ([ADR 0112](../adr/0112-remote-networks-together.md)). So signing a machine
 in is all it takes to list it here; one that never registered (remote access
 off, or an older daemon on LAN or Tailscale alone) isn't in `machines`.
+
+## Public HTTP to a machine
+
+Hosted assistants reach a machine's outside MCP endpoint over plain HTTPS at
+`https://relay.acehq.dev/m/<hostId>/…` ([ADR 0122](../adr/0122-outside-mcp-clients.md)).
+Everything under `/m/<hostId>/` goes to that machine with the prefix removed: the MCP
+endpoint, its OAuth endpoints and their metadata. RFC 9728 and RFC 8414 metadata URLs
+with the path inserted, `/.well-known/<name>/m/<hostId>/…` for `oauth-protected-resource`,
+`oauth-authorization-server` and `openid-configuration`, reach the same machine as
+`/.well-known/<name>/…`, the address it would serve at its own root. On this path
+Cloudflare ends TLS and the relay sees requests and responses in plain text; it stores
+and logs none of it. The daemon authorizes every request; the relay checks no account.
+
+The Worker checks the host id (anything malformed is 404), applies two rate limits,
+`HTTP_REQUESTS` per caller address (300 a minute) and `HTTP_HOST_REQUESTS` per host id
+(600 a minute), and refuses a body over 1 MiB with 413. It forwards the request to the
+host's relay object, which:
+
+1. finds the host's registration. None: 503 with `Retry-After: 5`. A daemon that
+   registered without `features=http` (older daemons): 404.
+2. sends `{"type":"http","ticket":…}` over the encrypted control session. Only daemons
+   that declared the feature get it, since older ones drop the session on an unknown
+   message. A daemon with `remote.relayMcp` off answers
+   `{"type":"reject","ticket":…,"reason":"off"}` (404), one at its limit `"busy"` (503).
+3. waits up to 10 seconds for the daemon's outbound `/serve?hostId=…&ticket=…` socket,
+   then up to 100 seconds from arrival for the response head (504 after).
+
+One request and its response travel on that socket as binary messages whose first byte
+is the kind (`http-frames.ts` in `@ace/relay`):
+
+| Byte | Kind   | Payload                                                                                                     |
+| ---- | ------ | ----------------------------------------------------------------------------------------------------------- |
+| `1`  | head   | JSON. Request: `method`, `origin`, `prefix`, `path` (with query), `headers`. Response: `status`, `headers`. |
+| `2`  | body   | Up to 60 KiB of body bytes                                                                                  |
+| `3`  | end    | None: the body is complete                                                                                  |
+| `4`  | abort  | None: that side gave up. Closing the socket means the same.                                                 |
+| `5`  | credit | Relay to daemon: big-endian uint32 of response bytes the caller has taken                                   |
+
+The relay sends head, body chunks and end; the request body is complete first. The
+daemon answers the same way and keeps at most 1 MiB of response unacknowledged, so the
+object never buffers more than that. `origin` and `prefix` are the public base the caller
+used, and the daemon serves the request at `<origin><prefix><path>`, its canonical
+resource URL. Hop-by-hop headers, `Host`, `Content-Length` and the caller-address headers
+Cloudflare adds are dropped; `Authorization` passes untouched. A response can't set
+cookies or origin-wide policy (`Set-Cookie`, `Strict-Transport-Security`, `Alt-Svc`,
+`Clear-Site-Data` and the like), since every machine shares the relay's host name, and
+bodies pass as sent, so handlers don't compress.
+
+Every machine's pages are served from the relay's own origin, which also serves the
+account API and sets the HttpOnly `ace_login_*` cookie during sign-in. Any machine on any
+account can serve HTML under its `/m/<hostId>/`, so the relay filters the daemon's response
+headers again itself and forces these on every forwarded response, whatever the daemon
+sends:
+
+- `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups
+allow-popups-to-escape-sandbox; frame-ancestors 'none'`. Without `allow-same-origin`, each
+  page runs in an opaque origin: no cookies, no storage, no same-origin reads of the account
+  API or other machines' pages. A daemon's own CSP is kept as a second header; browsers
+  enforce both, so it can only tighten.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+  `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-Policy: same-origin`.
+  Daemon-sent values of these are dropped.
+
+The daemon's OAuth `/authorize` page (a later task) must work under that sandbox. Forms,
+links and self-navigation work. Cookies and `localStorage` don't. A page waiting for
+approval in ace polls with `fetch`, which works from an opaque origin only without
+credentials, so the poll carries its state in the URL or body.
+
+Each object holds at most 32 requests in flight and 4 event-stream responses
+(`subscriptions/listen`); over either, 429 with `Retry-After`. An open exchange keeps the
+object awake and billed, so a response is cut after 30 minutes and the client reconnects.
+Exchanges live in memory only while a request is in flight; idle, the object holds no
+timer or promise for them and hibernates as before. A caller that leaves cancels the
+exchange: once a response streams, when its next bytes fail to send; before that, the
+Worker sees its request signal end and tells the object (`cancelHttp`). The daemon then
+aborts the handler's signal and cancels the response body.
+
+On the daemon, `connectHostToRelay({ http: { enabled, handle } })` declares the feature
+and serves each request through `handle(request, signal, { origin, prefix })`. The daemon
+reads `remote.relayMcp` for every request and hands it to the outside MCP server's
+handler (`ServerOptions.outsideMcpHttp`); until that exists, every request gets 404.

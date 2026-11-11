@@ -64,8 +64,9 @@ ace providers status --json
 ace login codex --stream jsonl
 ace login claude --json
 ace mcp enroll --scope read --ttl 1h --project WORKSPACE
+ace mcp enroll --allow threads:start,threads:message,browser --ttl 30d --name "My agent"
 ace mcp list --json
-ace mcp revoke ENROLLMENT --json
+ace mcp revoke GRANT --json
 ```
 
 `stop` waits for a correlated cleanup receipt and reports cleanup failures. A closed
@@ -83,21 +84,76 @@ recycled or unverifiable live groups fail closed. Existing terminal guardians re
 PTY session ownership and already clean up on daemon death.
 
 MCP enrollment is a separate loopback `/mcp` endpoint built on ace's existing MCP
-server. Its lease identity is external and grants no internal agent impersonation.
-Read leases expose bounded project inspection. Operate adds thread starts/messages
-and delegated task control. Neither exposes approvals or administration. Clients
-also get ace's `context` (status: access and the groups that are off, which external
-clients are not offered) and `tools_find`, plus `tools_call` when they ask for a core
-or static listing; `ace capabilities --json` lists all of them under `externalMcp`. TTL is at
-most 24 hours; revoke aborts active tools, and restart invalidates all bearers.
-Only local host administrators can enroll/list/revoke. Enrollment writes the ace
-bearer to a private 0600 file. The setup command loads `ACE_MCP_TOKEN` from that file;
-Claude and Codex config reference the variable. The paste-ready commands and config
-contain no token literals. Revocation and expiry remove the current credential file.
-Launch the provider from the shell where the variable is exported. JSON output also
-includes the ace bearer once. No provider credential is read or persisted.
+server, for clients outside ace (ADR 0122). Each enrollment is a grant kept in the
+daemon database, so it survives a restart; revoking marks it revoked and keeps the row
+so history can still name the client. Its token is stored only as a hash and lasts as
+long as the grant. Every request reads the grant again, so a revoke, a change or the
+expiry applies to the next request. A grant's identity is its own: it never impersonates
+an agent in an ace thread.
+
+A grant holds scopes: `threads:read` (projects, models, threads, transcripts and
+whole-tree state; always included), `threads:start`, `threads:message` (queue or
+steer), `threads:stop`, `browser` (the agent browser, in a private session of the
+grant's own that closes when the grant ends or loses `browser`, and never reaches this machine or its local network) and `computer` (the screen tools, under
+every computer-use rule; Stop on the screen line takes it out of the grant). `--scope read` is `threads:read`; `--scope operate` adds
+start, message and stop; `--allow` names scopes exactly, comma-separated. `--project`
+takes one or more project ids, comma-separated; omitted, the grant covers every
+project. `--ttl` takes `30m`, `12h`, `30d` or `never`. A client lists only the tools its
+grant allows; calling another gets HTTP 403 with `WWW-Authenticate: Bearer
+error="insufficient_scope", scope="…"`. No grant answers approvals or questions, or
+reaches files or daemon settings. Clients also get ace's `context` and `tools_find`,
+plus `tools_call` when they ask for a core or static listing; `ace capabilities --json`
+lists every tool under `externalMcp`. Starts and messages are recorded under the
+grant, and a thread it starts records `startedByClient`. A start or send is keyed by
+grant and idempotency key, so a retry after a disconnect or restart runs once.
+Only local host administrators can enroll, list and revoke from the CLI; admin devices
+do the same over `outside.request`. Enrollment writes the bearer to a private 0600
+file. The setup command loads `ACE_MCP_TOKEN` from that file; Claude and Codex config
+reference the variable. The paste-ready commands and config contain no token
+literals. Revocation and expiry remove the credential file. `mcp list` reports the
+endpoint's URL: its port is saved and kept across restarts, and moves only if another program took it, which the daemon log says. Launch the provider from the
+shell where the variable is exported. JSON output also includes the bearer once. No
+provider credential is read or persisted.
 The snippets use [Claude HTTP MCP configuration](https://code.claude.com/docs/en/mcp)
 and [Codex HTTP MCP configuration](https://developers.openai.com/codex/mcp).
+
+Clients that sign in by themselves use OAuth instead of a pasted token. Each way in
+serves the MCP endpoint at `<base>/mcp` and is its own authorization server (issuer
+`<base>`): protected-resource metadata at `/.well-known/oauth-protected-resource/mcp`
+(path inserted before the resource path, as the 401's `resource_metadata` names it),
+authorization-server metadata at `/.well-known/oauth-authorization-server`, and
+`/authorize`, `/token` and `/register`. Codes need PKCE S256, last 60 seconds and work
+once; refresh tokens rotate. `resource` must name that base's MCP URL, and a token
+works only there: one issued at the relay is refused at Tailscale or on loopback.
+Clients with an HTTPS `client_id` (a metadata document) are fetched by the daemon from
+public addresses only and shown with their domain; clients registered through
+`/register` are shown as unverified and expire after a day unless approved. Redirects
+may be HTTPS, `http://localhost`/`127.0.0.1` (a registration without a port allows any
+port) or an app's own scheme such as `cursor://`; the person approving is shown where the
+code goes, with a warning when it goes to an app on the signing-in device. The sign-in
+page decides nothing: it shows the client, what it asks for and a match code, and the
+person approves in ace (`outside.request` `decide`). Every sign-in makes its own grant; a
+client that needs more scopes signs in again, and an existing grant widens only when the
+person edits it in ace.
+
+The ways in, each listed with its URL by `outside.request` `endpoints`:
+
+| Path      | Setting               | URL                                                                                         |
+| --------- | --------------------- | ------------------------------------------------------------------------------------------- |
+| local     | always on             | `http://127.0.0.1:<port>/mcp`                                                               |
+| tailscale | `remote.tailscaleMcp` | `https://<machine>.<tailnet>.ts.net:<port>/mcp`, while Tailscale has issued the certificate |
+| relay     | `remote.relayMcp`     | `https://relay.acehq.dev/m/<hostId>/mcp`, while signed in to ace's relay                    |
+| custom    | `remote.mcpPublicUrl` | `<your origin>/mcp`                                                                         |
+
+For the custom path, point Tailscale Funnel, a tunnel or a reverse proxy at the loopback
+endpoint (`http://127.0.0.1:<port>`, the port `ace mcp list` shows) and set
+`remote.mcpPublicUrl` to the public `https` origin, without a path. The proxy must end
+TLS and keep the original `Host` header: the daemon serves a loopback request as the
+custom URL only when its `Host` names that origin, and refuses unknown hosts. A proxy that
+rewrites `Host` to `127.0.0.1` doesn't work: a request carrying `Forwarded` or any
+`X-Forwarded-*` header is never served as the loopback endpoint, so pasted tokens stay
+usable from this computer only.
+For example, with Caddy: `ace.example.com { reverse_proxy 127.0.0.1:<port> }`.
 
 Login uses the reviewed supervised native CLI device/browser flow. Verification
 URLs and device codes go to stderr, or typed JSONL records. Providers without an

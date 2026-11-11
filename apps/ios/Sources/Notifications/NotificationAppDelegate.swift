@@ -23,7 +23,9 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         let threadId = info[NotificationKeys.threadId] as? String
         let hostId = info[NotificationKeys.hostId] as? String
         let banner = info[NotificationKeys.banner] as? String != "0"
+        let access = info[NotificationKeys.accessRequestId] as? String
         Task { @MainActor in
+            if let access { completionHandler(coordinator.accessPresentation(access, hostId: hostId)); return }
             completionHandler(coordinator.presentation(for: threadId, hostId: hostId, banner: banner))
         }
     }

@@ -56,6 +56,11 @@ export const ForgeInboxList = z.object({
   host,
   /** The project's own repository, so its rows open without naming it. */
   projectRepository: ForgeRepository.optional(),
+  /**
+   * Every visible, available repository of the project on this host (ADR 0120), the primary
+   * included, so rows from any of them open without naming it.
+   */
+  projectRepositories: z.array(ForgeRepository).max(128).optional(),
   items: z.array(ForgeInboxRow).max(50),
   nextPage: z.number().int().positive().optional(),
   /** How long GitHub asks clients to wait before asking again, in seconds. */

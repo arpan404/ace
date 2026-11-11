@@ -1,94 +1,117 @@
 import SwiftUI
 
-struct NativeSourceControl: Decodable {
-    struct Preferences: Codable {
-        struct Host: Codable { let host: String; let account: String? }
-        let hosts: [Host]
+/// Settings › Source control as the bridge words it (`bridge/source-control-screen.ts`).
+struct SourceControlScreen: Decodable, Equatable {
+    struct Host: Decodable, Equatable, Identifiable {
         let host: String
-        let remote: String
+        /// A provider id; one this build doesn't know arrives as-is.
+        let forge: String
+        let name: String
+        let account: String?
+        let active: Bool
+        /// "full", "browse" (read-only in Code review) or "pending" (API support not built yet).
+        let support: String
+        var id: String { host }
     }
-    struct Account: Decodable, Identifiable { let login: String; let active: Bool; var id: String { login } }
-    let preferences: Preferences
-    let cli: String
-    let version: String?
-    let accounts: [Account]
-    let account: String?
-    let api: String
-    let instructions: String
-    let transport: String
-    let transportInstructions: String
+    struct Line: Decodable, Equatable { let title: String; let value: String }
+    struct Account: Decodable, Equatable, Identifiable { let login: String; let active: Bool; var id: String { login } }
+    struct Status: Decodable, Equatable {
+        let forge: String
+        let name: String
+        let cli: Line
+        let api: Line
+        let accounts: [Account]
+        let note: String?
+        let instructions: String?
+    }
+    struct Transport: Decodable, Equatable { let value: String; let instructions: String }
+    struct Provider: Decodable, Equatable, Identifiable {
+        let forge: String
+        let name: String
+        let host: String
+        let fixedHost: Bool
+        let hostHint: String
+        let support: String
+        var id: String { forge }
+    }
+    let host: String
+    let remote: String
+    let hosts: [Host]
+    let status: Status
+    let transport: Transport
+    let providers: [Provider]
 }
-struct NativeSourceControlReply: Decodable {
-    struct Result: Decodable { let kind: String; let readiness: NativeSourceControl?; let code: String? }
-    let result: Result
+private struct SourceControlAnswer: ManageAnswer {
+    let ok: Bool
+    let problem: String?
+    let screen: SourceControlScreen?
+}
+
+/// A saved Git host opened for editing; `original` is nil for a new one.
+private struct HostDraft: Identifiable {
+    let original: String?
+    let forge: String
+    let host: String
+    let account: String
+    var id: String { original ?? "" }
 }
 
 struct SourceControlView: View {
     let model: ClientModel
-    @State private var status: NativeSourceControl?
-    @State private var host = "github.com"
-    @State private var account = ""
+    @State private var screen: SourceControlScreen?
     @State private var remote = "origin"
     @State private var projects: [NativeProject] = []
     @State private var project = ""
     @State private var problem: String?
     @State private var busy = false
+    @State private var editing: HostDraft?
     private static let projectsRead: [String: Any] = ["type": "projects.request", "operation": ["op": "workspace.list", "limit": 100]]
-    private static func readinessRead(_ project: String) -> [String: Any] {
-        var operation: [String: Any] = ["op": "readiness"]
-        if !project.isEmpty { operation["workspaceId"] = project }
-        return ["type": "source-control.request", "operation": operation]
+    private static func screenRead(_ project: String, fresh: Bool = false) -> [String: Any] {
+        var read: [String: Any] = ["type": "source-control.screen"]
+        if !project.isEmpty { read["workspaceId"] = project }
+        if fresh { read["fresh"] = true }
+        return read
     }
 
     /// Opens on the last check this phone saw, checked again behind it.
     init(model: ClientModel) {
         self.model = model
         _projects = State(initialValue: model.kept(Self.projectsRead, as: ProjectListReply.self)?.result.projects ?? [])
-        if let status = model.kept(Self.readinessRead(""), as: NativeSourceControlReply.self)?.result.readiness {
-            _status = State(initialValue: status)
-            _host = State(initialValue: status.preferences.host)
-            _remote = State(initialValue: status.preferences.remote)
-            _account = State(initialValue: status.preferences.hosts.first { $0.host == status.preferences.host }?.account ?? "")
+        if let screen = model.kept(Self.screenRead(""), as: SourceControlAnswer.self)?.screen {
+            _screen = State(initialValue: screen)
+            _remote = State(initialValue: screen.remote)
         }
     }
     var body: some View {
         Form {
             Group {
-                Section {
-                    if let status {
-                        LabeledContent("CLI", value: status.cli == "available" ? "gh \(status.version ?? "")" : "Unavailable")
-                        LabeledContent("GitHub API", value: status.api.replacingOccurrences(of: "_", with: " ").capitalized)
-                        ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
-                        Text(status.instructions).textSelection(.enabled)
-                    }
-                    Button("Rescan") { Task { await rescan() } }.buttonStyle(.textAction()).disabled(busy)
-                } header: { InsetHeader("GitHub CLI on your machine") }
-                Section {
-                    LabeledContent("GitHub host") { TextField("github.com", text: $host).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    LabeledContent("Expected account") { TextField("Optional", text: $account).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    LabeledContent("Git remote") { TextField("origin", text: $remote).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled() }
-                    Button("Save preferences") { Task { await save() } }.disabled(status == nil || host.isEmpty || remote.isEmpty)
-                } header: { InsetHeader("Host and expected account") }
-                .disabled(busy || !model.canOperate)
+                if let screen {
+                    hosts(screen)
+                    status(screen.status)
+                    remoteSection(screen)
+                } else if busy {
+                    SkeletonRows(count: 2, label: "Checking source control").listRowInsets(EdgeInsets())
+                }
                 Section {
                     Picker("Project", selection: $project) {
                         Text("Choose project").tag("")
                         ForEach(projects) { Text($0.name).tag($0.id) }
                     }
-                    if let status {
-                        LabeledContent("Transport", value: status.transport.replacingOccurrences(of: "_", with: " ").capitalized)
-                        Text(status.transportInstructions).textSelection(.enabled)
+                    if let transport = screen?.transport {
+                        LabeledContent("Transport", value: transport.value)
+                        Text(transport.instructions).textSelection(.enabled)
                     }
-                } header: { InsetHeader("Repository transport") }
-                if busy, status == nil { SkeletonRows(count: 2, label: "Checking source control").listRowInsets(EdgeInsets()) }
+                } header: { InsetHeader("Repository transport") } footer: {
+                    Text("Reads from the remote; nothing is pushed.")
+                }
                 ServiceProblem(message: problem)
-                if problem != nil { Button("Retry") { Task { await rescan() } }.buttonStyle(.textAction()).disabled(busy) }
             }
             .insetRowBackground()
         }
         .insetGroupedList()
+        .animation(.default, value: screen)
         .nativeTitle("Source control")
-        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.readinessRead(project))]) {
+        .task(id: [model.connection == "ready" ? 1 : 0, model.readGeneration(Self.screenRead(project))]) {
             guard model.connection == "ready" else { return }
             do {
                 let reply = try await model.read(Self.projectsRead, as: ProjectListReply.self)
@@ -97,37 +120,197 @@ struct SourceControlView: View {
             await read()
         }
         .task(id: project) { if model.connection == "ready" { await read() } }
+        .sheet(item: $editing) { draft in
+            NavigationStack {
+                GitHostEditor(model: model, providers: screen?.providers ?? [], draft: draft) { Task { await read() } }
+            }
+        }
     }
-    private func rescan() async {
-        var request = Self.readinessRead(project)
-        request["fresh"] = true
-        await read(request)
+
+    /// Every saved host under its provider. Editing a host and choosing the one requests use
+    /// are separate actions.
+    private func hosts(_ screen: SourceControlScreen) -> some View {
+        Section {
+            ForEach(screen.hosts) { entry in
+                VStack(alignment: .leading, spacing: AceDesign.Space.related) {
+                    HStack(spacing: AceDesign.Space.row) {
+                        GitHostMark(forge: entry.forge)
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            Text(entry.name).font(AceDesign.Typeface.body).foregroundStyle(AceDesign.Ink.primary)
+                            Text([entry.host, entry.account].compactMap { $0 }.joined(separator: " · "))
+                                .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                        }
+                        Spacer(minLength: AceDesign.Space.related)
+                        Text(entry.active ? "In use" : supportWord(entry.support) ?? "")
+                            .font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+                    }
+                    .accessibilityElement(children: .combine)
+                    if model.canOperate {
+                        HStack(spacing: AceDesign.Space.margin) {
+                            Button("Edit") {
+                                editing = HostDraft(original: entry.host, forge: entry.forge, host: entry.host, account: entry.account ?? "")
+                            }
+                            .accessibilityLabel("Edit \(entry.host)")
+                            if !entry.active {
+                                Button("Use for requests") { Task { await write(["kind": "use", "host": entry.host]) } }
+                                    .accessibilityLabel("Use \(entry.host) for requests")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .font(AceDesign.Typeface.body)
+                        .disabled(busy)
+                    }
+                }
+                .padding(.vertical, AceDesign.Space.related)
+            }
+            if model.canOperate {
+                Button("Add host") { editing = HostDraft(original: nil, forge: "github", host: "github.com", account: "") }
+                    .frame(minHeight: AceDesign.Size.tap)
+                    .disabled(busy)
+            }
+        } header: { InsetHeader("Git hosts") }
     }
-    private func read() async { await read(Self.readinessRead(project)) }
-    private func read(_ request: [String: Any]) async {
+
+    private func supportWord(_ support: String) -> String? {
+        switch support {
+        case "browse": "Browse only"
+        case "pending": "API support pending"
+        default: nil
+        }
+    }
+
+    /// The host requests use: its provider's CLI and API, in the bridge's words.
+    private func status(_ status: SourceControlScreen.Status) -> some View {
+        Section {
+            LabeledContent(status.cli.title, value: status.cli.value)
+            LabeledContent(status.api.title, value: status.api.value)
+            ForEach(status.accounts) { account in LabeledContent(account.login, value: account.active ? "Active" : "") }
+            if let note = status.note { Text(note).foregroundStyle(AceDesign.Ink.muted) }
+            if let instructions = status.instructions { Text(instructions).textSelection(.enabled) }
+            Button("Rescan") { Task { await read(fresh: true) } }.disabled(busy)
+        } header: { InsetHeader(status.name) }
+    }
+
+    private func remoteSection(_ screen: SourceControlScreen) -> some View {
+        Section {
+            LabeledContent("Git remote") {
+                TextField("origin", text: $remote).multilineTextAlignment(.trailing).textInputAutocapitalization(.never).autocorrectionDisabled()
+            }
+            if remote != screen.remote {
+                Button("Save remote") { Task { await write(["kind": "remote", "remote": remote]) } }
+                    .disabled(busy || remote.isEmpty)
+            }
+        } header: { InsetHeader("Repository remote") } footer: {
+            Text("The Git remote that names a project's repository.")
+        }
+        .disabled(!model.canOperate)
+    }
+
+    private func read(fresh: Bool = false) async {
         busy = true; problem = nil
         defer { busy = false }
         do {
-            let reply = try await model.read(request, as: NativeSourceControlReply.self)
-            guard let status = reply.result.readiness else { throw ServiceFailure(message: "Couldn't check source control: \(reply.result.code ?? "unavailable")") }
-            self.status = status; host = status.preferences.host; remote = status.preferences.remote
-            account = status.preferences.hosts.first { $0.host == host }?.account ?? ""
+            let answer = try await model.read(Self.screenRead(project, fresh: fresh), as: SourceControlAnswer.self)
+            guard answer.ok, let screen = answer.screen else {
+                throw ServiceFailure(message: answer.problem ?? "Couldn't check source control.")
+            }
+            self.screen = screen; remote = screen.remote
         } catch { if !Task.isCancelled { problem = error.localizedDescription } }
     }
-    private func save() async {
-        guard let status else { return }
+
+    private func write(_ change: [String: Any]) async {
         busy = true; problem = nil
         do {
-            var hosts = status.preferences.hosts.filter { $0.host != host }
-            hosts.append(.init(host: host, account: account.isEmpty ? nil : account))
-            let preferences = NativeSourceControl.Preferences(hosts: hosts, host: host, remote: remote)
-            let encoded = try JSONEncoder().encode(preferences)
-            let value = try JSONSerialization.jsonObject(with: encoded)
-            struct SaveReply: Decodable { struct Diagnostic: Decodable { let message: String }; let ok: Bool; let diagnostics: [Diagnostic] }
-            let reply = try await model.service(["type": "settings.set", "key": "sourceControl.preferences", "layer": ["kind": "global"], "value": value], as: SaveReply.self)
-            guard reply.ok else { throw ServiceFailure(message: reply.diagnostics.first?.message ?? "Couldn't save source control preferences.") }
+            _ = try await model.manage(["type": "source-control.write", "change": change], as: PlainAnswer.self)
+            busy = false
             await read()
+        } catch { problem = error.localizedDescription; busy = false }
+    }
+}
+
+/// Add a Git host, or change a saved one's provider, name or expected account. Which host
+/// requests use is chosen on the list, never here.
+private struct GitHostEditor: View {
+    let model: ClientModel
+    let providers: [SourceControlScreen.Provider]
+    let draft: HostDraft
+    let saved: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var forge: String
+    @State private var host: String
+    @State private var account: String
+    @State private var problem: String?
+    @State private var busy = false
+
+    init(model: ClientModel, providers: [SourceControlScreen.Provider], draft: HostDraft, saved: @escaping () -> Void) {
+        self.model = model
+        self.providers = providers
+        self.draft = draft
+        self.saved = saved
+        _forge = State(initialValue: draft.forge)
+        _host = State(initialValue: draft.host)
+        _account = State(initialValue: draft.account)
+    }
+    private var provider: SourceControlScreen.Provider? { providers.first { $0.forge == forge } }
+    private var name: String { provider?.name ?? forge }
+
+    var body: some View {
+        Form {
+            Group {
+                Section {
+                    Picker("Provider", selection: $forge) {
+                        ForEach(providers) { Text($0.name).tag($0.forge) }
+                        // A provider this build doesn't know stays selectable as saved.
+                        if provider == nil { Text(forge).tag(forge) }
+                    }
+                } footer: {
+                    if provider?.support == "pending" {
+                        Text("Pull requests, issues and API checks for \(name) aren't available yet.")
+                    } else if provider?.support == "browse" {
+                        Text("Browse only: pull requests open in Code review, and reviews and merges open on the host.")
+                    }
+                }
+                Section {
+                    TextField(provider?.host.isEmpty == false ? provider?.host ?? "" : "git.example.com", text: $host)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                        .disabled(provider?.fixedHost == true)
+                } header: { InsetHeader("\(name) host") } footer: { Text(provider?.hostHint ?? "") }
+                Section {
+                    TextField("Any account", text: $account)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .keyboardType(forge == "origin" ? .emailAddress : .asciiCapable)
+                } header: { InsetHeader("Expected account") } footer: {
+                    Text("Requests stop if the CLI is signed in as someone else.")
+                }
+                ServiceProblem(message: problem)
+            }
+            .insetRowBackground()
+        }
+        .insetGroupedList()
+        .navigationTitle(draft.original == nil ? "Add host" : "Edit host").navigationBarTitleDisplayMode(.inline)
+        .onChange(of: forge) { _, next in
+            // A new provider starts from its public host, as the web's picker does.
+            host = providers.first { $0.forge == next }?.host ?? ""
+            account = ""
+        }
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(busy ? "Saving…" : "Save") { Task { await save() } }
+                    .disabled(busy || host.isEmpty || !model.canOperate)
+            }
+        }
+        .interactiveDismissDisabled(busy)
+    }
+
+    private func save() async {
+        busy = true; problem = nil
+        defer { busy = false }
+        var change: [String: Any] = ["kind": "host", "forge": forge, "host": host, "account": account]
+        if let original = draft.original { change["original"] = original }
+        do {
+            _ = try await model.manage(["type": "source-control.write", "change": change], as: PlainAnswer.self)
+            saved(); dismiss()
         } catch { problem = error.localizedDescription }
-        busy = false
     }
 }

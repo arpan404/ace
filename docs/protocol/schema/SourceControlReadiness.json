@@ -5,7 +5,7 @@
     "account": {
       "anyOf": [
         {
-          "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+          "$ref": "https://ace.local/protocol/v1/ForgeAccount.json"
         },
         {
           "type": "null"
@@ -19,7 +19,7 @@
             "type": "boolean"
           },
           "login": {
-            "$ref": "https://ace.local/protocol/v1/GitHubAccount.json"
+            "$ref": "https://ace.local/protocol/v1/ForgeAccount.json"
           }
         },
         "required": [

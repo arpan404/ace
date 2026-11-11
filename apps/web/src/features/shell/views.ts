@@ -5,9 +5,9 @@ import type { KeymapId } from "@/lib/keymap.ts";
 
 /** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
 export interface View {
-  id: "home" | "chats" | "automations" | "skills" | "forge";
+  id: "home" | "chats" | "spade" | "automations" | "skills" | "forge";
   label: string;
-  to: "/" | "/chats" | "/automations" | "/skills" | "/pulls";
+  to: "/" | "/chats" | "/spade" | "/automations" | "/skills" | "/pulls";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
@@ -60,6 +60,8 @@ export const views: readonly View[] = [
   },
   // Chats (ADR 0099): a chat opens at its thread's own address, so `railPlace` tells them apart.
   { id: "chats", label: "Chats", to: "/chats", matches: ["/chats"], shortcut: "goChats" },
+  // Spade, ace's assistant (ADR 0121): its conversations are its own, not threads.
+  { id: "spade", label: "Spade", to: "/spade", matches: ["/spade"] },
   ...railViews,
   forgeView,
 ];

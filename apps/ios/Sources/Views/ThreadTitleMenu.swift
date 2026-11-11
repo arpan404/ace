@@ -34,6 +34,9 @@ struct ThreadTitleMenu: View, Equatable {
     /// more than one account (the inbox row's badge); nil draws the plain mark.
     var provider = ""
     var providerAccount: String? = nil
+    /// "Started by Claude" when an outside app started the thread (ADR 0122): it heads the menu
+    /// and is read with the title.
+    var startedBy: String? = nil
     @Environment(\.colorScheme) private var scheme
     let status: String?
     var width: CGFloat
@@ -88,7 +91,7 @@ struct ThreadTitleMenu: View, Equatable {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
-        .accessibilityValue([model.map(Self.spoken), status].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue([startedBy, model.map(Self.spoken), status].compactMap { $0 }.joined(separator: ", "))
     }
 
     @ViewBuilder private func subtitle(chevron: Bool) -> some View {
@@ -174,6 +177,7 @@ struct ThreadTitleMenu: View, Equatable {
     }
 
     @ViewBuilder private var items: some View {
+        if let startedBy { Section { Text(startedBy) } }
         // Where the thread is, first: the project's mark, its name and the branch under it,
         // opening the checkout's sheet. A menu's header draws no image, so this is its row.
         if let openWork, !place.isEmpty {
@@ -310,7 +314,7 @@ struct ThreadTitleMenu: View, Equatable {
         lhs.title == rhs.title && lhs.place == rhs.place && lhs.project == rhs.project && lhs.projectLook == rhs.projectLook
             && lhs.projectInitials == rhs.projectInitials && lhs.projectTint == rhs.projectTint
             && lhs.provider == rhs.provider && lhs.providerAccount == rhs.providerAccount
-            && lhs.status == rhs.status && lhs.width == rhs.width && lhs.leading == rhs.leading
+            && lhs.startedBy == rhs.startedBy && lhs.status == rhs.status && lhs.width == rhs.width && lhs.leading == rhs.leading
             && lhs.model == rhs.model && lhs.tune == rhs.tune && lhs.access == rhs.access
             && lhs.canRename == rhs.canRename && lhs.canRetitle == rhs.canRetitle && lhs.actions == rhs.actions
             && (lhs.openWork == nil) == (rhs.openWork == nil)

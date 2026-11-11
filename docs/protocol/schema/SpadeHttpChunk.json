@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpChunk.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "body": {
+      "maxLength": 786432,
+      "type": "string"
+    },
+    "gone": {
+      "const": true,
+      "type": "boolean"
+    },
+    "index": {
+      "maximum": 63,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.http.chunk",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "index",
+    "body"
+  ],
+  "type": "object"
+}

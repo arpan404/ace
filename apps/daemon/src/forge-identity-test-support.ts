@@ -37,6 +37,10 @@ const stateSchema = z.object({
   graphqlError: z.string(),
   graphqlErrorAfterReply: z.string(),
   prHead: z.string(),
+  /** `fork/ace` answers as a fork of `octo/ace` on github.com. */
+  forkParent: z.boolean().default(false),
+  /** The host PR 7's address names. */
+  prHost: z.string().default("git.example.com"),
 });
 const script = `#!${process.execPath}
 import { readFileSync,writeFileSync,unlinkSync,existsSync,watch } from 'node:fs';
@@ -52,7 +56,7 @@ else if(path==='user') { f.users++; save(); if(f.users===f.holdUser) await hold(
 else {
  if(args[0]==='pr' || (args.includes('--method') && args[args.indexOf('--method')+1]!=='GET' && path!=='graphql')) {f.writes.push(path);save()}
  if(f.holdPath===path) await hold();
- const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://git.example.com/octo/ace/pull/7',state:'open',head:{sha:f.prHead,ref:'topic'},base:{ref:'main'}};
+ const pr={number:7,node_id:'PR_7',title:'Selected repository',html_url:'https://'+(f.prHost||'git.example.com')+'/octo/ace/pull/7',state:'open',head:{sha:f.prHead,ref:'topic'},base:{ref:'main'}};
  if(path.endsWith('/replies')) {
    if(f.refuseReply) {console.log('HTTP/1.1 403 Forbidden\\n\\n'+JSON.stringify({message:'Resource not accessible by integration'}));process.exit(1)}
    let input=''; for await(const chunk of process.stdin) input+=chunk;
@@ -66,6 +70,7 @@ else {
  else if(path.includes('/check-runs?')) http({check_runs:[]});
  else if(path==='graphql') {if(f.graphqlError) {http({errors:[{type:f.graphqlError,message:'Provider refusal'}]});process.exit(1)} http({data:{repository:{pullRequest:{reviewThreads:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[]}}}}});}
  else if(path==='repos/octo/ace') http({name:'ace',owner:{login:'octo'},default_branch:'main'});
+ else if(path==='repos/fork/ace' && f.forkParent) http({name:'ace',owner:{login:'fork'},default_branch:'main',parent:{name:'ace',owner:{login:'octo'},default_branch:'main'}});
  else http([]);
 }
 `;

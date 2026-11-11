@@ -136,7 +136,7 @@ test("a row opens its pull request as a page, and Back returns to the list as it
   // The page takes the main column: the list is gone until Back.
   expect(screen.queryByRole("navigation", { name: "Pull requests" })).toBeNull();
   // Once the PR has loaded: its placeholder's Back is replaced by the page's own.
-  await screen.findByRole("navigation", { name: "Merge gates" });
+  await screen.findByRole("region", { name: "Merge status" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toEqual(["229", "226"]));
   expect(screen.getByRole("button", { name: "Views: Review requested" })).toBeTruthy();
@@ -161,7 +161,7 @@ test("a link straight to a pull request opens its page, and Back opens its proje
     "true",
   );
   // Once the PR has loaded: its placeholder's Back is replaced by the page's own.
-  await screen.findByRole("navigation", { name: "Merge gates" });
+  await screen.findByRole("button", { name: "Pull request actions" });
   await userEvent.click(await screen.findByRole("button", { name: "Back to pull requests" }));
   await waitFor(async () => expect(await numbers("Pull requests")).toContain("229"));
 });

@@ -1,3 +1,4 @@
+import { outsideScenario, seedOutside } from "./outside-scenario.ts";
 import { FakeDaemon, facts, seedForgeBrowse, seedPrWork } from "@ace/fake-daemon";
 import type { Fact } from "@ace/core";
 import type { ServerWebSocket } from "bun";
@@ -265,6 +266,7 @@ seedProjects(daemon);
 seedSkills(daemon, Date.now());
 seedProjectMarks(daemon, { host: hostId, name: machineName });
 seedChats(daemon);
+seedOutside(daemon, Date.now());
 // Opt-in, so other UI tests keep the list they expect: `ACE_IOS_SPIKE_ROUTING=1`.
 if (process.env.ACE_IOS_SPIKE_ROUTING === "1") seedRouting(daemon, details, machineName);
 // GitHub pull requests, issues and notifications for the Pulls tab.
@@ -350,6 +352,22 @@ const server = Bun.serve<undefined>({
         );
       }
       return Response.json(lostReceipt.state());
+    }
+    if (path === "/review/outside" && request.method === "GET")
+      return Response.json({
+        pending: daemon.outside.access.map((entry) => entry.requestId),
+        decisions: daemon.outside.decisions,
+        grants: daemon.outside.grants.map(({ id, scopes, projects, expiresAt, revokedAt }) => ({
+          id,
+          scopes,
+          projects,
+          expiresAt,
+          revokedAt,
+        })),
+      });
+    if (path === "/review/outside" && request.method === "POST") {
+      outsideScenario(daemon, z.enum(["ask", "screen", "clear"]).parse(await request.json()));
+      return Response.json({ ok: true });
     }
     if (path === "/review/many" && request.method === "POST") {
       const input = z

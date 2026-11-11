@@ -1,5 +1,5 @@
 //! Finding an endpoint's key: the OS keychain first, then the endpoint's environment variable
-//! (ADR 0116). Used by model endpoints and search backends alike.
+//! (ADR 0119). Used by model endpoints and search backends alike.
 
 use std::fmt;
 use std::sync::Arc;
@@ -15,7 +15,7 @@ pub struct KeyRequest<'a> {
 type Lookup = dyn Fn(KeyRequest<'_>) -> Option<String> + Send + Sync;
 
 /// Finds an endpoint's key: in Spade, the OS keychain first and then the endpoint's environment
-/// variable (ADR 0116). Keys are never printed.
+/// variable (ADR 0119). Keys are never printed.
 #[derive(Clone)]
 pub struct Keys(Arc<Lookup>);
 
@@ -25,7 +25,7 @@ impl Keys {
     }
 
     /// The OS keychain first, looked up by endpoint id, then the endpoint's environment variable
-    /// (ADR 0116). A blank keychain entry falls through to the variable.
+    /// (ADR 0119). A blank keychain entry falls through to the variable.
     pub fn keychain_then_env(
         keychain: impl Fn(&str) -> Option<String> + Send + Sync + 'static,
         env: impl Fn(&str) -> Option<String> + Send + Sync + 'static,

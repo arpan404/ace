@@ -153,10 +153,14 @@ export class FakeWorkspaceWire {
   }
   /**
    * A seeded read asked for with the repository named, as a link from a PR page asks: the
-   * catalog seeds `acme/ace`'s reads without it.
+   * catalog seeds `acme/ace`'s reads without it. Only GitHub's `acme/ace`: the GitLab mirror of
+   * `ace` is another repository, never answered with GitHub's reads.
    */
   private withoutRepository(op: WorkspaceActionRequest["operation"]) {
-    if (!("repository" in op) || !op.repository || op.repository.name !== "ace") return undefined;
+    if (!("repository" in op) || !op.repository) return undefined;
+    const { forge, host, owner, name } = op.repository;
+    if (forge !== "github" || host !== "github.com" || owner !== "acme" || name !== "ace")
+      return undefined;
     const { repository: _repository, ...rest } = op;
     return this.forgeReads.get(JSON.stringify(rest));
   }
@@ -166,6 +170,29 @@ export class FakeWorkspaceWire {
       if (read.resource === "issueDetail" && read.value.ref.number === number)
         return read.value.title;
     return undefined;
+  }
+  private reportCapabilities(data: ForgeBrowserResult): ForgeBrowserResult {
+    if (data.resource === "prDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.status.ref.repository),
+        },
+      };
+    if (data.resource === "issueDetail")
+      return {
+        ...data,
+        value: {
+          ...data.value,
+          capabilities:
+            data.value.capabilities ??
+            this.projects.repositories.capabilities(data.value.ref.repository),
+        },
+      };
+    return data;
   }
   private seededRead(op: WorkspaceActionRequest["operation"]): ForgeBrowserResult | undefined {
     return (
@@ -442,7 +469,7 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: { kind: "forge", data: catalogued },
+        result: { kind: "forge", data: this.reportCapabilities(catalogued) },
       });
     if (op.op === "forge.pr.merge-state" && !this.forgeReads.has(JSON.stringify(op))) {
       const value = this.forge.mergeState(op.workspaceId, op.repository, op.number);
@@ -466,11 +493,23 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "media", items: resolveFakeMedia(op.items) } },
       });
-    if (op.op === "forge.repository")
+    if (op.op === "forge.repository" && !this.forgeReads.has(JSON.stringify(op)))
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
         result: { kind: "forge", data: { resource: "repository", value: projectRepository(op) } },
+      });
+    if (op.op === "forge.repositories" && !this.forgeReads.has(JSON.stringify(op)))
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "forge",
+          data: {
+            resource: "repositories",
+            value: this.projects.repositories.read(op.workspaceId),
+          },
+        },
       });
     if (op.op === "forge.open-work")
       return ServerMessage.parse({
@@ -492,7 +531,9 @@ export class FakeWorkspaceWire {
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: data ? { kind: "forge", data } : { kind: "error", code: "forge_not_found" },
+        result: data
+          ? { kind: "forge", data: this.reportCapabilities(data) }
+          : { kind: "error", code: "forge_not_found" },
       });
     }
     if (op.op === "git.conflicts")

@@ -20,6 +20,8 @@ struct GitMessageSheet: View {
     let kind: String
     let submitLabel: String
     let initialTitle: String
+    /// "Opens on GitLab · acme/ace", when the project uses several repositories.
+    var opensOn: String? = nil
     let send: (_ action: [String: Any]) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -66,6 +68,8 @@ struct GitMessageSheet: View {
                         TextField("Reviewers, such as ana, bo", text: $reviewers)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
                             .accessibilityLabel("Reviewers").accessibilityIdentifier("changes.reviewers")
+                    } footer: {
+                        if let opensOn { Text(opensOn).accessibilityIdentifier("changes.opensOn") }
                     }
                 }
             }
