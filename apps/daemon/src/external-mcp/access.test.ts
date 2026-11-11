@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 import { AccessRequests } from "./access-requests.ts";
 import { OutsideScreen } from "./screen-use.ts";
+import { OutsideAccess } from "./outside.ts";
+import { missingScope } from "./scopes.ts";
+import { draft, grantDatabase } from "./grant-test-support.ts";
 
 /** A scheduler the test fires by hand. */
 function timers() {
@@ -86,8 +89,45 @@ test("Stop ends an outside client's screen work at once and clears its line", ()
   expect(signal.aborted).toBe(true);
   expect(screen.current()).toEqual([]);
   expect(heard.at(-1)).toEqual([]);
-  // The next call after Stop runs under a fresh signal.
-  expect(screen.signal("grant-1", "Claude").aborted).toBe(false);
+});
+
+function outside() {
+  const { sql } = grantDatabase();
+  const closed: string[] = [];
+  const notes: string[] = [];
+  let next = 0;
+  const access = new OutsideAccess({
+    sql,
+    now: () => 1_000,
+    id: () => `grant-${++next}`,
+    scheduler: { after: () => () => {} },
+    ended: () => {},
+    closeBrowser: (grantId) => closed.push(grantId),
+    note: (text) => notes.push(text),
+  });
+  return { access, closed, notes };
+}
+
+test("Stop on the screen line takes computer use out of the grant until the person gives it back", () => {
+  const { access, notes } = outside();
+  const grant = access.grants.create(draft({ scopes: ["computer", "browser"] }));
+  const signal = access.screen.signal(grant.id, grant.name);
+  access.screen.begin(grant.id, grant.name, "Safari");
+  expect(access.stopScreen(grant.id, "device-7")).toBe(true);
+  expect(signal.aborted).toBe(true);
+  expect(access.grants.live(grant.id)?.scopes).toEqual(["threads:read", "browser"]);
+  // The next screen call is refused: the grant no longer holds the scope.
+  expect(missingScope(access.grants.live(grant.id)?.scopes ?? [], "screen_act", {})).toBe(
+    "computer",
+  );
+  expect(notes).toEqual([expect.stringContaining("device-7")]);
+});
+
+test("taking browser out of a grant closes its browser session at once", () => {
+  const { access, closed } = outside();
+  const grant = access.grants.create(draft({ scopes: ["browser"] }));
+  access.update(grant.id, { scopes: ["threads:start"] });
+  expect(closed).toEqual([grant.id]);
 });
 
 test("an app stays on the screen line briefly after its last call, then leaves", () => {

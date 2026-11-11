@@ -30,17 +30,21 @@ export async function externalMcp(context: ServiceContext) {
   const files = tokenFiles(context.config.dataDir);
   let toolsChanged: (() => void) | undefined;
   const outside = new OutsideAccess({
-    store: context.store,
+    sql: {
+      statement: (text) => context.store.statement(text),
+      atomic: (run) => context.store.atomic(() => run()),
+    },
     now: context.now,
     id: context.id,
-    ended(grantId) {
-      files.remove(grantId);
+    ended: (grantId) => files.remove(grantId),
+    closeBrowser(grantId) {
       void context.services.browser
         ?.closeThread(`external:${grantId}`)
         .catch((error: unknown) =>
           context.log.log("warn", `Closing an outside client's tabs failed: ${String(error)}`),
         );
     },
+    note: (text) => context.log.log("info", text),
     changed: () => toolsChanged?.(),
   });
   // Token files whose grants ended while the daemon was stopped.

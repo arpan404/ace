@@ -1,21 +1,25 @@
 import { randomBytes } from "node:crypto";
 import { nodeScheduler, type Scheduler } from "@ace/mcp-server";
 import type { OutsideAccessDecision, OutsideGrant } from "@ace/protocol";
-import type { Store } from "../store.ts";
 import { AccessRequests } from "./access-requests.ts";
-import { GrantStore, type GrantChange } from "./grants.ts";
+import { GrantStore, type GrantChange, type GrantSql } from "./grants.ts";
 import { GrantPrincipals } from "./principals.ts";
 import { OutsideScreen } from "./screen-use.ts";
 import { GrantTokens, type RandomBytes } from "./tokens.ts";
 
 export interface OutsideAccessOptions {
-  store: Store;
+  /** The daemon store's statements and transactions. */
+  sql: GrantSql;
   now: () => number;
   id: () => string;
   random?: RandomBytes;
   scheduler?: Scheduler;
-  /** A grant ended (revoked or expired): close its tabs, its token file. Never throws. */
+  /** A grant ended (revoked or expired): remove its token file. Never throws. */
   ended: (grantId: string) => void;
+  /** Close the grant's browser session (it ended, or lost `browser`). Never throws. */
+  closeBrowser: (grantId: string) => void;
+  /** A note for the daemon log, e.g. who stopped a grant's screen work. Never a token. */
+  note?: (text: string) => void;
   /** A grant's scopes or projects changed: clients reload their tool lists. */
   changed?: () => void;
 }
@@ -35,13 +39,9 @@ export class OutsideAccess {
   private options: OutsideAccessOptions;
   constructor(options: OutsideAccessOptions) {
     this.options = options;
-    const { store, now, id } = options;
+    const { sql, now, id } = options;
     const random = options.random ?? randomBytes;
     const scheduler = options.scheduler ?? nodeScheduler;
-    const sql = {
-      statement: (text: string) => store.statement(text),
-      atomic: <T>(run: () => T) => store.atomic(run),
-    };
     this.grants = new GrantStore(sql, now, id);
     this.screen = new OutsideScreen(scheduler.after);
     this.requests = new AccessRequests({ now, id, random, after: scheduler.after });
@@ -59,6 +59,7 @@ export class OutsideAccess {
       now,
       ended: (grantId) => {
         this.screen.stop(grantId);
+        options.closeBrowser(grantId);
         options.ended(grantId);
       },
     });
@@ -83,8 +84,25 @@ export class OutsideAccess {
     this.principals.rearm(grant);
     // Narrowed scopes end the work they no longer allow.
     if (!grant.scopes.includes("computer")) this.screen.stop(grantId);
+    if (!grant.scopes.includes("browser")) this.options.closeBrowser(grantId);
     this.options.changed?.();
     return grant;
+  }
+  /**
+   * Stop on "<client> is using this Mac": ends the grant's screen work now and takes `computer`
+   * out of the grant, so a client calling in a loop can't carry on. The person gives it back in
+   * Settings. `by` is the device that pressed Stop. False when the grant isn't live.
+   */
+  stopScreen(grantId: string, by: string): boolean {
+    const grant = this.grants.live(grantId);
+    if (!grant) return false;
+    this.screen.stop(grantId);
+    if (!grant.scopes.includes("computer")) return true;
+    const updated = this.update(grantId, {
+      scopes: grant.scopes.filter((scope) => scope !== "computer"),
+    });
+    if (updated) this.options.note?.(`Screen use by ${grant.name} (${grantId}) stopped by ${by}.`);
+    return updated !== undefined;
   }
   /** The person's answer to a sign-in request, from admin device `by`. */
   decide(requestId: string, choice: OutsideAccessDecision, by: string): boolean {

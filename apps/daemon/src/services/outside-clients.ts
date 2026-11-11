@@ -20,6 +20,8 @@ export function createOutsideClientsSession(context: SocketContext): SocketServi
       screen: owner.screen.current(),
     });
   };
+  /** The admin device acting, or `local` for the host's own credential. */
+  const by = () => (context.hostCredential?.() ? "local" : (context.device() ?? "local"));
   const run = (owner: OutsideAccess, operation: OutsideOperation): OutsideOutcome | string => {
     switch (operation.op) {
       case "grants":
@@ -38,11 +40,9 @@ export function createOutsideClientsSession(context: SocketContext): SocketServi
         if (!stops.length) stops.push(owner.requests.subscribe(push), owner.screen.subscribe(push));
         return { kind: "watching" };
       case "stopScreen":
-        owner.screen.stop(operation.grantId);
-        return { kind: "screenStopped" };
+        return owner.stopScreen(operation.grantId, by()) ? { kind: "screenStopped" } : "not_found";
       case "decide": {
-        const by = context.hostCredential?.() ? "local" : (context.device() ?? "local");
-        return owner.decide(operation.accessRequestId, operation.choice, by)
+        return owner.decide(operation.accessRequestId, operation.choice, by())
           ? { kind: "decided" }
           : "not_found";
       }
