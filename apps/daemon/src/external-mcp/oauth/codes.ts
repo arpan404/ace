@@ -85,8 +85,7 @@ export class AuthorizationCodes {
     return { grantId: entry.grantId };
   }
   private remember(key: string, grantId: string, now: number): void {
-    for (const [spentKey, spent] of this.spent)
-      if (spent.until <= now) this.spent.delete(spentKey);
+    for (const [spentKey, spent] of this.spent) if (spent.until <= now) this.spent.delete(spentKey);
     while (this.spent.size >= maxCodes) {
       const oldest = this.spent.keys().next().value;
       if (oldest === undefined) break;

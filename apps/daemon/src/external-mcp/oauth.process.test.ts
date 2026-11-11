@@ -148,7 +148,11 @@ test("a client discovers sign-in from the 401, signs in with its metadata docume
   expect(page.html).toContain("Assistant");
   expect(page.html).toContain("assistant.example");
   expect(page.html).toContain("127.0.0.1:9");
-  await decide(setup, page.matchCode, approveRead);
+  expect(page.html).toContain("an app on this device");
+  const shown = await decide(setup, page.matchCode, approveRead);
+  // The approver in ace sees where the code goes.
+  expect(shown).toMatchObject({ redirectHost: "127.0.0.1:9", redirectKind: "this-device" });
+  expect(shown.grantId).toBeUndefined();
   const back = await returned(page.wait);
   expect(`${back.origin}${back.pathname}`).toBe(redirectUri);
   expect(back.searchParams.get("state")).toBe("state-1");
@@ -178,17 +182,6 @@ test("a client discovers sign-in from the 401, signs in with its metadata docume
   const pair = Tokens.parse(traded.body);
   expect(pair.scope).toBe("threads:read");
   expect(await listed({ url: mcpUrl, bearer: pair.access_token })).toContain("ace_thread_read");
-  // Good once only.
-  expect(
-    await token(base, {
-      ...exchange,
-      code: fresh,
-      client_id: clientId,
-      code_verifier: verifier,
-      resource: mcpUrl,
-    }),
-  ).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
-
   const refreshed = await token(base, {
     grant_type: "refresh_token",
     refresh_token: pair.refresh_token,
@@ -200,15 +193,26 @@ test("a client discovers sign-in from the 401, signs in with its metadata docume
   expect(await listed({ url: mcpUrl, bearer: next.access_token })).toContain("ace_thread_read");
   const grants = await setup.admin({ op: "grants" });
   if (grants.kind !== "grants") throw new Error("No grants");
-  expect(grants.grants.filter((grant) => grant.clientId === clientId)).toHaveLength(1);
   expect(grants.grants.find((grant) => grant.clientId === clientId)).toMatchObject({
     clientKind: "cimd",
     domain: "assistant.example",
     name: "Assistant",
   });
+
+  // A code presented again means someone else holds it: what it issued stops working.
+  expect(
+    await token(base, {
+      ...exchange,
+      code: fresh,
+      client_id: clientId,
+      code_verifier: verifier,
+      resource: mcpUrl,
+    }),
+  ).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
+  expect((await rpc({ url: mcpUrl, bearer: next.access_token }, "tools/list")).status).toBe(401);
 });
 
-test("a call outside the grant gets 403 insufficient_scope, and step-up widens the same grant", async () => {
+test("a call outside the grant gets 403 insufficient_scope, and signing in again makes a new grant", async () => {
   const setup = await fixture();
   const { base, mcpUrl } = setup;
   const signIn = async (scope: string, scopes: ("threads:read" | "threads:start")[]) => {
@@ -242,19 +246,30 @@ test("a call outside the grant gets 403 insufficient_scope, and step-up widens t
   expect(header).toContain('error="insufficient_scope"');
   expect(header).toContain('scope="threads:start"');
   expect(header).toContain(`resource_metadata="${base}/.well-known/oauth-protected-resource/mcp"`);
+  const liveGrants = async () => {
+    const listed = await setup.admin({ op: "grants" });
+    if (listed.kind !== "grants") throw new Error("No grants");
+    return listed.grants.filter((grant) => grant.clientId === clientId && grant.revokedAt === null);
+  };
+  const before = await liveGrants();
   const stepped = await signIn("threads:read threads:start", ["threads:read", "threads:start"]);
-  expect(stepped.request.grantId).toBeDefined();
+  expect(stepped.request.grantId).toBeUndefined();
   expect(stepped.pair.scope).toBe("threads:read threads:start");
   expect(await listed({ url: mcpUrl, bearer: stepped.pair.access_token })).toContain(
     "ace_thread_run",
   );
-  const grants = await setup.admin({ op: "grants" });
-  if (grants.kind !== "grants") throw new Error("No grants");
-  const live = grants.grants.filter(
-    (grant) => grant.clientId === clientId && grant.revokedAt === null,
-  );
-  expect(live).toHaveLength(1);
-  expect(live[0]?.id).toBe(stepped.request.grantId);
+  // The first grant is as the person approved it; the new one is its own row.
+  expect(await liveGrants()).toHaveLength(before.length + 1);
+  expect(
+    (
+      await call(lease, "ace_thread_run", {
+        project: setup.f.workspace,
+        provider: "codex",
+        text: "x",
+        idempotencyKey: "k2",
+      })
+    ).status,
+  ).toBe(403);
 });
 
 test("a DCR client signs in unverified; denial and expiry return access_denied with iss", async () => {

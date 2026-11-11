@@ -20,15 +20,13 @@ export interface ConsentView {
   clientName: string;
   /** The verified domain; null: unverified (DCR). */
   domain: string | null;
-  /** Where the sign-in returns to. */
+  /** Where the code goes: a host, or an app's own scheme. */
   redirectHost: string;
-  /** Every redirect goes to this computer, which proves nothing about which app. */
-  loopbackOnly: boolean;
+  /** `this-device`: an app on the device signing in, which nothing vouches for. */
+  redirectKind: "web" | "this-device";
   scopes: readonly OutsideScope[];
   matchCode: string;
   machine: string;
-  /** The client already has a grant and asks for more. */
-  stepUp: boolean;
 }
 
 function escape(text: string): string {
@@ -59,16 +57,14 @@ export function consentPage(view: ConsentView): string {
   const who = view.domain
     ? `<p class="muted">${escape(view.domain)}</p>`
     : `<p class="muted">Unverified client</p>`;
-  const asks = view.stepUp
-    ? `<p>It already has access to ace on ${escape(view.machine)} and asks for more.</p>`
-    : "";
-  const returns = view.loopbackOnly
-    ? `<p class="subtle">Returns to an app on this computer at ${escape(view.redirectHost)}. Approve only if you started this sign-in.</p>`
-    : `<p class="subtle">Returns to ${escape(view.redirectHost)}</p>`;
+  const returns =
+    view.redirectKind === "this-device"
+      ? `<p class="subtle">Returns to an app on this device (${escape(view.redirectHost)}). Approve only if you started this sign-in.</p>`
+      : `<p class="subtle">Returns to ${escape(view.redirectHost)}</p>`;
   const scopes = view.scopes.map((scope) => `<li>${escape(scopeWords[scope])}</li>`).join("");
   return page(
     `Sign in to ace on ${view.machine}`,
-    `<h1>${escape(view.clientName)} wants to use ace on ${escape(view.machine)}</h1>${who}${asks}<ul>${scopes}</ul><p class="code">${escape(view.matchCode)}</p><p class="needs">Approve in ace on ${escape(view.machine)} if it shows this code.</p>${returns}`,
+    `<h1>${escape(view.clientName)} wants to use ace on ${escape(view.machine)}</h1>${who}<ul>${scopes}</ul><p class="code">${escape(view.matchCode)}</p><p class="needs">Approve in ace on ${escape(view.machine)} if it shows this code.</p>${returns}`,
     true,
   );
 }

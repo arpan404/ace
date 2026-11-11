@@ -43,6 +43,8 @@ test("a sign-in request settles with the person's choice and the device that mad
     clientName: "Claude",
     domain: "claude.ai",
     scopes: ["threads:read", "threads:start"],
+    redirectHost: "claude.ai",
+    redirectKind: "web",
   });
   expect(request.matchCode).toMatch(/^[2-9A-Z]{6}$/);
   expect(owner.current()).toEqual([request]);
@@ -69,7 +71,13 @@ test("a sign-in request settles with the person's choice and the device that mad
 test("a sign-in request nobody answers expires and can no longer be approved", async () => {
   let now = 1_000;
   const { owner, clock } = requests(() => now);
-  const { request, outcome } = owner.open({ clientName: "Bot", domain: null, scopes: ["browser"] });
+  const { request, outcome } = owner.open({
+    clientName: "Bot",
+    domain: null,
+    scopes: ["browser"],
+    redirectHost: "localhost:3000",
+    redirectKind: "this-device",
+  });
   now = request.expiresAt;
   expect(owner.decide(request.requestId, { decision: "deny" }, "device-1")).toBe(false);
   clock.fire();

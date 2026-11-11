@@ -33,6 +33,18 @@
       "minLength": 4,
       "type": "string"
     },
+    "redirectHost": {
+      "maxLength": 253,
+      "minLength": 1,
+      "type": "string"
+    },
+    "redirectKind": {
+      "enum": [
+        "web",
+        "this-device"
+      ],
+      "type": "string"
+    },
     "requestId": {
       "maxLength": 128,
       "minLength": 1,

@@ -113,8 +113,10 @@ protects this the same way it protects admin, because only an admin device can a
 | `computer`        | The screen tools                                            |
 
 - A client only sees tools its grant allows. Calling a tool it lacks returns HTTP 403 with
-  `insufficient_scope` and the needed scope, so a client can ask the person for more (step-up),
-  which goes through the same approval in ace.
+  `insufficient_scope` and the needed scope, so a client can ask the person for more. Asking
+  again is a new sign-in, approved in ace like the first, and makes a new grant: a metadata
+  document's client_id is shared by everyone using that app, so it can't say whose grant to
+  widen. An existing grant widens only when the person edits it in ace.
 - No grant can answer approvals or questions. Provider approvals stay provider-native, and the
   person answers them in ace.
 - Browser tabs a client opens belong to its grant (ADR 0104), are named after the client and close

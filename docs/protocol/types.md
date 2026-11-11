@@ -20702,6 +20702,8 @@ Example:
 | scopes | yes | array | {"minItems":1,"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/OutsideScope.json"}} |
 | matchCode | yes | string | {"minLength":4,"maxLength":16} |
 | expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| redirectHost | no | string | {"minLength":1,"maxLength":253} |
+| redirectKind | no | ["web","this-device"] |  |
 | grantId | no | string | {"pattern":"^[a-zA-Z0-9_-]{1,128}$"} |
 
 Example:
@@ -20711,8 +20713,9 @@ Example:
   "clientName": "example",
   "domain": "example",
   "expiresAt": 8,
-  "grantId": "p_XyW0vu-PtRcqE403lVjpmJbXkIoxQab29VKKdOyrHO1DuGRYN3-pjJgkYAmpuX9pKHu6xz8DbXCDAulfLjhcLynXomwDC3Nb8rIE_",
+  "grantId": "XyW0vu-PtRcqE403lVjpmJbXkIoxQab29VKKdOyrHO1DuGRYN3-pjJgkYAmpuX9pKHu6xz8DbXCDAulfLjhcLynXomwDC3Nb8rIE_9L1LXgSUxrn3Ib9t46d4pjwr",
   "matchCode": "example",
+  "redirectHost": "example",
   "requestId": "example",
   "scopes": [
     "computer"

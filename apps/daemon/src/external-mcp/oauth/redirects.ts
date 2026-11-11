@@ -85,11 +85,3 @@ export function redirectTarget(uri: string): {
   if (url.protocol === "https:") return { redirectHost: url.host, redirectKind: "web" };
   return { redirectHost: url.protocol, redirectKind: "this-device" };
 }
-/** Whether every redirect goes to this computer. */
-export function loopbackOnly(uris: readonly string[]): boolean {
-  return uris.every((uri) => redirectTarget(uri).redirectKind === "this-device");
-}
-/** The host the person is shown: where the code goes. */
-export function redirectHost(uri: string): string {
-  return redirectTarget(uri).redirectHost;
-}

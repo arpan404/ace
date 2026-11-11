@@ -6,7 +6,7 @@
  * client with `code`, `state` and `iss`, or with `error=access_denied`. Every redirect carries
  * `iss`; a request whose client or redirect URI can't be trusted is never redirected.
  */
-import { OutsideScope, type OutsideGrant } from "@ace/protocol";
+import { OutsideScope } from "@ace/protocol";
 import type { AccessOutcome } from "../access-requests.ts";
 import type { OutsideAccess } from "../outside.ts";
 import { normalScopes } from "../scopes.ts";
@@ -16,12 +16,12 @@ import type { ClientProblem, OAuthClient } from "./client.ts";
 import { challengeShape, codeTtlMs, type AuthorizationCodes } from "./codes.ts";
 import { consentPage, endedPage, pageHeaders, type ConsentView } from "./consent-page.ts";
 import { baselineScopes } from "./metadata.ts";
-import { loopbackOnly, matchRedirect, redirectHost } from "./redirects.ts";
+import { matchRedirect, redirectTarget } from "./redirects.ts";
 
 const maxPending = 64;
 
 export interface AuthorizeDeps {
-  outside: Pick<OutsideAccess, "grants" | "requests" | "update" | "principals">;
+  outside: Pick<OutsideAccess, "grants" | "requests" | "principals">;
   clients: {
     resolve(clientId: string): Promise<OAuthClient | ClientProblem>;
     /** The client was approved for a grant (keeps a DCR registration from expiring). */
@@ -104,17 +104,16 @@ export class Authorizations {
     if (this.pending.size >= maxPending)
       return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
     const scopes = requestedScopes(query.get("scope"));
-    // A client that already holds a grant here is asking for more: approving updates it.
-    const existing = this.deps.outside.grants
-      .liveGrants()
-      .find((grant) => grant.clientId === client.clientId);
+    const target = redirectTarget(redirectUri);
+    // Every sign-in is its own grant. A metadata document's client_id is shared by everyone who
+    // uses that app, so it never says whose grant to widen; the person widens one in ace.
     let opened: ReturnType<AuthorizeDeps["outside"]["requests"]["open"]>;
     try {
       opened = this.deps.outside.requests.open({
         clientName: client.name,
         domain: client.domain,
         scopes,
-        ...(existing ? { grantId: existing.id } : {}),
+        ...target,
       });
     } catch {
       return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
@@ -125,18 +124,16 @@ export class Authorizations {
       view: {
         clientName: client.name,
         domain: client.domain,
-        redirectHost: redirectHost(redirectUri),
-        loopbackOnly: loopbackOnly([redirectUri]),
+        ...target,
         scopes,
         matchCode: opened.request.matchCode,
         machine,
-        stepUp: existing !== undefined,
       },
     });
     void opened.outcome.then((outcome) => {
       let location: string;
       try {
-        location = this.answer(outcome, { client, existing, redirectUri, challenge, base, state });
+        location = this.answer(outcome, { client, redirectUri, challenge, base, state });
       } catch {
         location = responseUrl(redirectUri, base, state, {
           error: "server_error",
@@ -154,34 +151,26 @@ export class Authorizations {
     outcome: AccessOutcome,
     request: {
       client: OAuthClient;
-      existing: OutsideGrant | undefined;
       redirectUri: string;
       challenge: string;
       base: OutsideBase;
       state: string | null;
     },
   ): string {
-    const { client, existing, redirectUri, challenge, base, state } = request;
+    const { client, redirectUri, challenge, base, state } = request;
     {
       let location: string;
       if (outcome.decision === "approve") {
-        const grant =
-          (existing &&
-            this.deps.outside.update(existing.id, {
-              scopes: outcome.scopes,
-              projects: outcome.projects,
-              expiresAt: outcome.expiresAt,
-            })) ||
-          this.deps.outside.grants.create({
-            clientKind: client.kind,
-            clientId: client.clientId,
-            name: client.name,
-            domain: client.domain,
-            scopes: outcome.scopes,
-            projects: outcome.projects,
-            expiresAt: outcome.expiresAt,
-            approvedBy: outcome.by,
-          });
+        const grant = this.deps.outside.grants.create({
+          clientKind: client.kind,
+          clientId: client.clientId,
+          name: client.name,
+          domain: client.domain,
+          scopes: outcome.scopes,
+          projects: outcome.projects,
+          expiresAt: outcome.expiresAt,
+          approvedBy: outcome.by,
+        });
         this.deps.clients.approved(client);
         this.deps.outside.principals.watch([grant]);
         const code = this.deps.codes.issue({

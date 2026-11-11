@@ -128,10 +128,13 @@ works only there: one issued at the relay is refused at Tailscale or on loopback
 Clients with an HTTPS `client_id` (a metadata document) are fetched by the daemon from
 public addresses only and shown with their domain; clients registered through
 `/register` are shown as unverified and expire after a day unless approved. Redirects
-must be HTTPS or `http://localhost`/`127.0.0.1`. The sign-in page decides nothing: it
-shows the client, what it asks for and a match code, and the person approves in ace
-(`outside.request` `decide`). A client that already holds a grant and asks again is a
-step-up: approving changes that grant.
+may be HTTPS, `http://localhost`/`127.0.0.1` (a registration without a port allows any
+port) or an app's own scheme such as `cursor://`; the person approving is shown where the
+code goes, with a warning when it goes to an app on the signing-in device. The sign-in
+page decides nothing: it shows the client, what it asks for and a match code, and the
+person approves in ace (`outside.request` `decide`). Every sign-in makes its own grant; a
+client that needs more scopes signs in again, and an existing grant widens only when the
+person edits it in ace.
 
 The ways in, each listed with its URL by `outside.request` `endpoints`:
 
