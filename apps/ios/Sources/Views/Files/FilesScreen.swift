@@ -310,7 +310,7 @@ struct FileTreeRowView: View {
                 .animation(.default, value: open)
                 .foregroundStyle(AceTheme.Colours.decoration)
                 .frame(width: AceDesign.Size.caret).opacity(row.folder ? 1 : 0)
-            Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(row.mark == "D" ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .strikethrough(row.mark == "D", color: AceTheme.Colours.mutedForeground)
                 .lineLimit(1).truncationMode(.middle)
@@ -333,7 +333,7 @@ struct FileSearchRowView: View {
     var body: some View {
         HStack(spacing: AceTheme.Spacing.md) {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
+                Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
                 if !row.folder.isEmpty {
                     Text(row.folder).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                         .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)

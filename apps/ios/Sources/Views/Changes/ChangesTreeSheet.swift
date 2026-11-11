@@ -65,7 +65,7 @@ struct ChangesTreeSheet: View {
             RowCaret()
                 .rotationEffect(.degrees(folder && !folded.contains(row.key) ? 90 : 0))
                 .foregroundStyle(AceTheme.Colours.decoration).frame(width: AceDesign.Size.caret).opacity(folder ? 1 : 0)
-            Text(row.name).aceFont(AceTheme.Typography.body, relativeTo: .body)
+            Text(row.name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout)
                 .foregroundStyle(folder || viewed ? AceTheme.Colours.mutedForeground : AceTheme.Colours.foreground)
                 .lineLimit(1).truncationMode(.middle)
             if viewed { Text("Viewed").aceFont(AceTheme.Typography.caption, relativeTo: .caption).foregroundStyle(AceTheme.Colours.subtleForeground) }
