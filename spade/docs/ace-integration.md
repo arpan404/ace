@@ -86,7 +86,11 @@ daemon, and Spade's API sends no CORS headers, so the main process makes the req
 the token stays in the main process and never reaches the page. The preload bridge exposes
 `window.ace.spade` (beside the app's other `window.ace` features):
 
-- `endpoint(): Promise<{ address: string; version: string; api: number } | null>`;
+- `endpoint(): Promise<{ address: string; version: string; api: number; hostId: string } | null>`:
+  `hostId` is the `host-id` of the daemon in the same ACE_HOME (no `host-id`, no endpoint). A
+  window uses the direct path only while its connection's `host.identity` is that `hostId`,
+  asked again on every new socket; a window showing another machine (an account relay route,
+  Connect) reaches that machine's Spade through its daemon, status included;
 - `health()`: Spade's `GET /health`, null when nothing answers;
 - `request({method, path, body?, contentType?})`: one request to a `/v1/` path, with the same
   route rules and caps as `spade.http`. An upload is one plain request with its whole body; an
@@ -96,7 +100,9 @@ the token stays in the main process and never reaches the page. The preload brid
 - `openLive({streamId, path})` / `closeLive(streamId)` with `onLive` events: each frame, then
   one end (`closed`, `unreachable`, `refused` with Spade's status, `too_large`, `invalid_path`,
   `limit`); a window's streams end when it reloads or closes;
-- `onEndpointChanged`: Spade's files changed (it started, stopped or restarted).
+- `onEndpointChanged`: what Spade's files say changed (it started, stopped or restarted). Only
+  `token` and `server.json` are read again (or every file, when the OS names none); Spade's
+  database and images changing never are.
 
 When nobody listens at the old address or Spade answers 401 (it restarted with a new token), the
 main process reads the files again and sends once more. The renderer falls back to the daemon's
