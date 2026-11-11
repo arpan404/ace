@@ -3,7 +3,10 @@
 use std::sync::Arc;
 
 use futures_util::{Stream, StreamExt};
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent};
+use genai::chat::{
+    ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, Tool,
+    ToolCall as SdkCall, ToolResponse,
+};
 use genai::resolver::{AuthData, Endpoint as ServiceEndpoint};
 use genai::{Client, Headers, ModelIden, ServiceTarget};
 use schemars::JsonSchema;
@@ -11,7 +14,7 @@ use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Price, Role};
 use crate::error::ModelError;
-use crate::prompt::{Delta, Prompt, Reply, Speaker, Usage};
+use crate::prompt::{Delta, Message, Prompt, Reply, ToolCall, Usage};
 use crate::typed;
 use spade_keys::{KeyRequest, Keys};
 
@@ -65,14 +68,24 @@ impl Models {
             .await
             .map_err(|error| provider_error(&call.reference, &error))?;
         let usage = usage(&response.usage);
-        let text = response
-            .into_first_text()
-            .ok_or_else(|| ModelError::Empty {
-                model: call.reference.clone(),
-            })?;
+        let calls: Vec<ToolCall> = response
+            .content
+            .tool_calls()
+            .into_iter()
+            .map(from_sdk)
+            .collect();
+        let signatures = signatures(&response.content);
+        let text = response.content.joined_texts().unwrap_or_default();
+        if text.is_empty() && calls.is_empty() {
+            return Err(ModelError::Empty {
+                model: call.reference,
+            });
+        }
         Ok(Reply {
             model: call.reference,
             text,
+            calls,
+            signatures,
             usage,
         })
     }
@@ -102,29 +115,51 @@ impl Models {
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let call = self.call(reference, prompt)?;
-        let options = call.options.with_capture_usage(true);
+        let options = call
+            .options
+            .with_capture_usage(true)
+            .with_capture_tool_calls(true)
+            .with_capture_content(true);
         let response = self
             .client
             .exec_chat_stream(call.target, request(prompt), Some(&options))
             .await
             .map_err(|error| provider_error(&call.reference, &error))?;
         let reference = call.reference;
-        Ok(response.stream.filter_map(move |event| {
-            let delta = match event {
-                Ok(ChatStreamEvent::Chunk(chunk)) => Some(Ok(Delta::Text(chunk.content))),
-                Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
-                    Some(Ok(Delta::Reasoning(chunk.content)))
-                }
-                Ok(ChatStreamEvent::End(end)) => Some(Ok(Delta::Done {
-                    usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
-                })),
-                // Start and heartbeats carry nothing. Tool calls and thought signatures arrive
-                // only when tools are sent, which comes with the agent loop.
-                Ok(_) => None,
-                Err(error) => Some(Err(provider_error(&reference, &error))),
-            };
-            std::future::ready(delta)
-        }))
+        Ok(response
+            .stream
+            .filter_map(move |event| {
+                let delta = match event {
+                    Ok(ChatStreamEvent::Chunk(chunk)) => Some(vec![Ok(Delta::Text(chunk.content))]),
+                    Ok(ChatStreamEvent::ReasoningChunk(chunk)) => {
+                        Some(vec![Ok(Delta::Reasoning(chunk.content))])
+                    }
+                    Ok(ChatStreamEvent::End(end)) => {
+                        // Complete tool calls are only known at the end, once arguments are whole.
+                        let mut out: Vec<Result<Delta, ModelError>> = end
+                            .captured_tool_calls()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|call| Ok(Delta::Call(from_sdk(call))))
+                            .collect();
+                        out.push(Ok(Delta::Done {
+                            usage: end.captured_usage.as_ref().map(usage).unwrap_or_default(),
+                            signatures: end
+                                .captured_thought_signatures()
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(str::to_owned)
+                                .collect(),
+                        }));
+                        Some(out)
+                    }
+                    // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
+                    Ok(_) => None,
+                    Err(error) => Some(vec![Err(provider_error(&reference, &error))]),
+                };
+                std::future::ready(delta)
+            })
+            .flat_map(futures_util::stream::iter))
     }
 
     fn call(&self, reference: &str, prompt: &Prompt) -> Result<Call, ModelError> {
@@ -170,19 +205,87 @@ impl Models {
 }
 
 fn request(prompt: &Prompt) -> ChatRequest {
-    let messages = prompt
-        .messages
-        .iter()
-        .map(|message| match message.speaker {
-            Speaker::Person => ChatMessage::user(message.text.as_str()),
-            Speaker::Spade => ChatMessage::assistant(message.text.as_str()),
-        })
-        .collect();
-    let request = ChatRequest::new(messages);
-    match &prompt.system {
-        Some(system) => request.with_system(system.as_str()),
-        None => request,
+    let mut request = ChatRequest::new(prompt.messages.iter().map(message).collect());
+    if let Some(system) = &prompt.system {
+        request = request.with_system(system.as_str());
     }
+    if !prompt.tools.is_empty() {
+        request = request.with_tools(prompt.tools.iter().map(|tool| {
+            Tool::new(tool.name.clone())
+                .with_description(tool.description.clone())
+                .with_schema(tool.schema.clone())
+        }));
+    }
+    request
+}
+
+fn message(message: &Message) -> ChatMessage {
+    match message {
+        Message::Person { text } => ChatMessage::user(text.as_str()),
+        Message::Spade {
+            text,
+            calls,
+            signatures,
+        } if calls.is_empty() && signatures.is_empty() => ChatMessage::assistant(text.as_str()),
+        Message::Spade {
+            text,
+            calls,
+            signatures,
+        } => {
+            // Signatures first, then text, then the calls: the order providers expect back.
+            let mut parts: Vec<ContentPart> = signatures
+                .iter()
+                .cloned()
+                .map(ContentPart::ThoughtSignature)
+                .collect();
+            if !text.is_empty() {
+                parts.push(ContentPart::Text(text.clone()));
+            }
+            parts.extend(calls.iter().map(|call| {
+                ContentPart::ToolCall(SdkCall {
+                    call_id: call.id.clone(),
+                    fn_name: call.name.clone(),
+                    fn_arguments: call.arguments.clone(),
+                    thought_signatures: None,
+                })
+            }));
+            ChatMessage::assistant(MessageContent::from_parts(parts))
+        }
+        Message::ToolResult {
+            call_id,
+            name,
+            content,
+            is_error,
+        } => {
+            let content = if *is_error {
+                format!("Error: {content}")
+            } else {
+                content.clone()
+            };
+            ChatMessage::from(
+                ToolResponse::new(call_id.as_str(), content).with_fn_name(name.as_str()),
+            )
+        }
+    }
+}
+
+fn from_sdk(call: &SdkCall) -> ToolCall {
+    ToolCall {
+        id: call.call_id.clone(),
+        name: call.fn_name.clone(),
+        arguments: call.fn_arguments.clone(),
+    }
+}
+
+fn signatures(content: &MessageContent) -> Vec<String> {
+    content
+        .parts()
+        .iter()
+        .filter_map(|part| match part {
+            ContentPart::ThoughtSignature(signature) => Some(signature.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn usage(usage: &genai::chat::Usage) -> Usage {

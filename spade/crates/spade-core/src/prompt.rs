@@ -49,7 +49,7 @@ pub fn build(system: &str, transcript: &Transcript, budget_chars: usize) -> Prom
 mod tests {
     use super::*;
     use crate::event::{Event, Known};
-    use spade_models::{Message, Speaker as PromptSpeaker};
+    use spade_models::Message;
 
     fn finished(reply: &str, text: &str) -> Event {
         Event::Known(Known::ReplyFinished {
@@ -61,11 +61,15 @@ mod tests {
         })
     }
 
-    fn turns(prompt: &Prompt) -> Vec<(PromptSpeaker, &str)> {
+    fn turns(prompt: &Prompt) -> Vec<(Speaker, &str)> {
         prompt
             .messages
             .iter()
-            .map(|Message { speaker, text }| (*speaker, text.as_str()))
+            .filter_map(|message| match message {
+                Message::Person { text } => Some((Speaker::Person, text.as_str())),
+                Message::Spade { text, .. } => Some((Speaker::Spade, text.as_str())),
+                Message::ToolResult { .. } => None,
+            })
             .collect()
     }
 
@@ -83,9 +87,9 @@ mod tests {
         assert_eq!(
             turns(&prompt),
             vec![
-                (PromptSpeaker::Person, "Hi"),
-                (PromptSpeaker::Spade, "Hello!"),
-                (PromptSpeaker::Person, "How are you?"),
+                (Speaker::Person, "Hi"),
+                (Speaker::Spade, "Hello!"),
+                (Speaker::Person, "How are you?"),
             ]
         );
     }
@@ -103,10 +107,7 @@ mod tests {
             Event::user_message("Again"),
         ];
         let prompt = build(SYSTEM, &Transcript::fold(&events), 10_000);
-        assert_eq!(
-            turns(&prompt),
-            vec![(PromptSpeaker::Person, "First\n\nAgain")]
-        );
+        assert_eq!(turns(&prompt), vec![(Speaker::Person, "First\n\nAgain")]);
     }
 
     #[test]
@@ -118,10 +119,7 @@ mod tests {
             Event::user_message("new question"),
         ];
         let prompt = build(SYSTEM, &Transcript::fold(&events), 20);
-        assert_eq!(
-            turns(&prompt),
-            vec![(PromptSpeaker::Person, "new question")]
-        );
+        assert_eq!(turns(&prompt), vec![(Speaker::Person, "new question")]);
     }
 
     #[test]
@@ -130,7 +128,7 @@ mod tests {
         let prompt = build(SYSTEM, &Transcript::fold(&events), 3);
         assert_eq!(
             turns(&prompt),
-            vec![(PromptSpeaker::Person, "a very long message")]
+            vec![(Speaker::Person, "a very long message")]
         );
     }
 }

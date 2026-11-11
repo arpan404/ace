@@ -1,22 +1,50 @@
 //! Spade's own request and reply types. Nothing outside this crate sees the SDK's types.
 
-/// Who said a message in the conversation sent to a model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Speaker {
-    Person,
-    Spade,
+use serde_json::Value;
+
+/// A tool the model may call: its name, what it does, and a JSON Schema for its input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub schema: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Message {
-    pub speaker: Speaker,
-    pub text: String,
+/// A tool call the model made. `arguments` is the parsed JSON input.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
 }
 
-/// What to send: optional instructions, then the conversation, oldest first.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// One entry in the conversation sent to a model.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Message {
+    Person {
+        text: String,
+    },
+    /// Spade's earlier turn: its text, the tool calls it made, and the provider's thought
+    /// signatures, which must be sent back unchanged for multi-step tool use to keep working.
+    Spade {
+        text: String,
+        calls: Vec<ToolCall>,
+        signatures: Vec<String>,
+    },
+    /// The result of one tool call, answered by `call_id`.
+    ToolResult {
+        call_id: String,
+        name: String,
+        content: String,
+        is_error: bool,
+    },
+}
+
+/// What to send: optional instructions, the tools on offer, then the conversation, oldest first.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Prompt {
     pub system: Option<String>,
+    pub tools: Vec<ToolSpec>,
     pub messages: Vec<Message>,
     /// Upper bound on the reply's length. The SDK picks a per-model default when unset.
     pub max_tokens: Option<u32>,
@@ -33,18 +61,51 @@ impl Prompt {
         self
     }
 
+    pub fn tools(mut self, tools: Vec<ToolSpec>) -> Self {
+        self.tools = tools;
+        self
+    }
+
     pub fn person(mut self, text: impl Into<String>) -> Self {
-        self.messages.push(Message {
-            speaker: Speaker::Person,
-            text: text.into(),
-        });
+        self.messages.push(Message::Person { text: text.into() });
         self
     }
 
     pub fn spade(mut self, text: impl Into<String>) -> Self {
-        self.messages.push(Message {
-            speaker: Speaker::Spade,
+        self.messages.push(Message::Spade {
             text: text.into(),
+            calls: Vec::new(),
+            signatures: Vec::new(),
+        });
+        self
+    }
+
+    /// Spade's turn that made tool calls, with the provider's thought signatures from that turn.
+    pub fn spade_calls(
+        mut self,
+        text: impl Into<String>,
+        calls: Vec<ToolCall>,
+        signatures: Vec<String>,
+    ) -> Self {
+        self.messages.push(Message::Spade {
+            text: text.into(),
+            calls,
+            signatures,
+        });
+        self
+    }
+
+    pub fn tool_result(
+        mut self,
+        call: &ToolCall,
+        content: impl Into<String>,
+        is_error: bool,
+    ) -> Self {
+        self.messages.push(Message::ToolResult {
+            call_id: call.id.clone(),
+            name: call.name.clone(),
+            content: content.into(),
+            is_error,
         });
         self
     }
@@ -66,22 +127,29 @@ pub struct Usage {
     pub cache_write_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Reply {
     /// The `endpoint/model` that answered.
     pub model: String,
     pub text: String,
+    /// Tool calls the model made; empty when it simply answered.
+    pub calls: Vec<ToolCall>,
+    /// Thought signatures to send back with this turn (see [`Message::Spade`]).
+    pub signatures: Vec<String>,
     pub usage: Usage,
 }
 
 /// One piece of a streamed reply.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Delta {
     Text(String),
     /// The model's visible reasoning, when the provider streams it.
     Reasoning(String),
-    /// The reply is complete.
+    /// A complete tool call, sent once its arguments have fully arrived.
+    Call(ToolCall),
+    /// The reply is complete. `signatures` go back with this turn (see [`Message::Spade`]).
     Done {
         usage: Usage,
+        signatures: Vec<String>,
     },
 }
