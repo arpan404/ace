@@ -341,3 +341,20 @@ fn a_single_article_is_still_chosen_over_the_rest_of_the_body() {
     );
     assert_eq!(text, "## Post\n\nThe words of the post itself.");
 }
+
+#[test]
+fn a_header_inside_a_role_main_div_is_content() {
+    let (title, text) = read(
+        r#"<body><header>Site banner</header><div id="content" role="main"><header class="page-header"><h1>Category Archives: Rust</h1></header><p>Posts.</p><footer>Page 1</footer></div><footer>Copyright</footer></body>"#,
+    );
+    assert_eq!(text, "# Category Archives: Rust\n\nPosts.\n\nPage 1");
+    assert_eq!(title.as_deref(), Some("Category Archives: Rust"));
+}
+
+#[test]
+fn a_header_inside_the_lone_article_root_is_content() {
+    let (title, _) = read(
+        "<body><div>junk</div><article><header><h1>The post title</h1></header><p>The words of the post itself.</p></article></body>",
+    );
+    assert_eq!(title.as_deref(), Some("The post title"));
+}

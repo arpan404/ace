@@ -57,13 +57,14 @@ pub fn html(source: &str, page_url: &Url) -> Readable {
         })
         .filter(short)
         .or_else(|| page_base.cloned());
-    let main = find(&tree, Tree::ROOT, &|el| {
+    let picked = find(&tree, Tree::ROOT, false, &|el| {
         el.name.as_ref() == "main" || el.role.as_deref() == Some("main")
     })
-    .or_else(|| only_article(&tree))
-    .or_else(|| body(&tree))
-    .unwrap_or(Tree::ROOT);
-    let in_section = is_or_inside_section(&tree, main);
+    .or_else(|| only_article(&tree));
+    let main = picked.or_else(|| body(&tree)).unwrap_or(Tree::ROOT);
+    // A root picked as the content (main, role="main" or the lone article) is a section of its
+    // own: its header and footer belong to it, not to the page.
+    let in_section = picked.is_some() || is_or_inside_section(&tree, main);
 
     let mut out = Out::new(MOST_TEXT_BYTES);
     let ctx = Ctx {
@@ -80,7 +81,7 @@ pub fn html(source: &str, page_url: &Url) -> Readable {
         .map(collapse)
         .filter(|t| !t.is_empty())
         .or_else(|| {
-            find(&tree, main, &|el| el.name.as_ref() == "h1")
+            find(&tree, main, in_section, &|el| el.name.as_ref() == "h1")
                 .map(|h1| plain(&tree, h1, MOST_TITLE_CHARS * 4))
                 .filter(|t| !t.is_empty())
         })
@@ -311,19 +312,20 @@ fn is_or_inside_section(tree: &Tree, mut id: Id) -> bool {
 }
 
 /// The first element under `from`, in document order, that `matches`.
-fn find(tree: &Tree, from: Id, matches: &dyn Fn(&Element) -> bool) -> Option<Id> {
-    read_elements(tree, from).find(|&id| tree.element(id).is_some_and(matches))
+/// `in_section` says whether `from` counts as a section, as in [`read_elements`].
+fn find(tree: &Tree, from: Id, in_section: bool, matches: &dyn Fn(&Element) -> bool) -> Option<Id> {
+    read_elements(tree, from, in_section).find(|&id| tree.element(id).is_some_and(matches))
 }
 
 fn body(tree: &Tree) -> Option<Id> {
-    find(tree, Tree::ROOT, &|el| el.name.as_ref() == "body")
+    find(tree, Tree::ROOT, false, &|el| el.name.as_ref() == "body")
 }
 
 /// The page's article, when it has exactly one and it holds at least half the page's text. A
 /// listing of several, or a lone article that is only a related card beside the real content,
 /// is read as part of the body instead.
 fn only_article(tree: &Tree) -> Option<Id> {
-    let mut articles = read_elements(tree, Tree::ROOT).filter(|&id| {
+    let mut articles = read_elements(tree, Tree::ROOT, false).filter(|&id| {
         tree.element(id)
             .is_some_and(|el| el.name.as_ref() == "article")
     });
@@ -338,7 +340,7 @@ fn only_article(tree: &Tree) -> Option<Id> {
 /// Bytes of non-blank text read under `from`.
 fn text_len(tree: &Tree, from: Id) -> usize {
     std::iter::once(from)
-        .chain(read_elements(tree, from))
+        .chain(read_elements(tree, from, is_or_inside_section(tree, from)))
         .filter_map(|id| tree.element(id))
         .flat_map(|el| el.children.iter())
         .map(|&child| match tree.nodes.get(child) {
@@ -350,13 +352,11 @@ fn text_len(tree: &Tree, from: Id) -> usize {
 
 /// The elements under `from` (not `from` itself), in document order, that are read: the page's
 /// own headers and footers, outside any article, section or main content, are skipped.
-fn read_elements(tree: &Tree, from: Id) -> impl Iterator<Item = Id> + '_ {
+/// `in_section` says whether `from` itself counts as such a part.
+fn read_elements(tree: &Tree, from: Id, in_section: bool) -> impl Iterator<Item = Id> + '_ {
     let mut stack: Vec<(Id, bool)> = tree
         .element(from)
-        .map(|el| {
-            let inside = is_or_inside_section(tree, from);
-            el.children.iter().rev().map(|&c| (c, inside)).collect()
-        })
+        .map(|el| el.children.iter().rev().map(|&c| (c, in_section)).collect())
         .unwrap_or_default();
     std::iter::from_fn(move || {
         while let Some((id, in_section)) = stack.pop() {
