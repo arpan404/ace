@@ -27,21 +27,30 @@ async fn an_attached_image_is_stored_once_shown_to_the_model_and_served_back() -
     )
     .await?;
     let encoded = STANDARD.encode(PNG);
+    let agent = spade.new_agent("Looker", "").await?;
+    let id = agent["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     let (status, body) = spade
         .post(
-            "/v1/conversations",
+            &format!("/v1/conversations/{id}/messages"),
             json!({ "text": "What is this?", "images": [{ "data": format!("data:image/png;base64,{encoded}") }] }),
         )
         .await?;
-    assert_eq!(status, 201, "{body}");
-    let id = body["id"].as_str().unwrap_or_default().to_owned();
+    assert_eq!(status, 202, "{body}");
     let events = spade.wait_for(&id, "renamed").await?;
 
-    let image = &events[0]["images"][0];
+    let message = events
+        .iter()
+        .find(|e| e["type"] == "user_message")
+        .cloned()
+        .unwrap_or_default();
+    let image = &message["images"][0];
     assert_eq!(image["media_type"], "image/png");
     assert_eq!(image["bytes"], PNG.len());
     assert!(
-        events[0].get("data").is_none(),
+        message.get("data").is_none(),
         "the bytes are not in the event log"
     );
 
@@ -205,17 +214,22 @@ async fn an_image_a_tool_returns_is_kept_and_shown_to_the_model_after_the_result
 }
 
 #[tokio::test]
-async fn a_refused_image_leaves_no_empty_conversation_behind() -> Result {
+async fn a_refused_avatar_image_leaves_no_agent_behind() -> Result {
     let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
     let (status, _) = spade
         .post(
-            "/v1/conversations",
-            json!({ "text": "Look", "images": [{ "data": STANDARD.encode(b"\x00\x00\x00\x18ftypheic") }] }),
+            "/v1/agents",
+            json!({ "name": "Odd", "model": "fake/m",
+                    "avatar": { "kind": "image", "data": STANDARD.encode(b"\x00\x00\x00\x18ftypheic") } }),
         )
         .await?;
     assert_eq!(status, 400);
-    let (_, list) = spade.get("/v1/conversations").await?;
-    assert_eq!(list, json!([]));
+    let (_, list) = spade.get("/v1/agents").await?;
+    let kinds: Vec<_> = list["agents"]
+        .as_array()
+        .map(|a| a.iter().map(|a| a["kind"].clone()).collect())
+        .unwrap_or_default();
+    assert_eq!(kinds, vec![json!("main")], "only Spade itself");
     assert!(spade.fake.seen().is_empty());
     Ok(())
 }

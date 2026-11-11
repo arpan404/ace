@@ -116,10 +116,13 @@ pub fn task_for_turn(events: &[Event]) -> Option<&str> {
         .iter()
         .rposition(|e| matches!(e, Event::Known(Known::ReplyStarted { .. })))
         .unwrap_or(events.len());
-    events[..started].iter().rev().find_map(|event| match event {
-        Event::Known(Known::AgentConfigured { task, .. }) => Some(task.as_str()),
-        _ => None,
-    })
+    events[..started]
+        .iter()
+        .rev()
+        .find_map(|event| match event {
+            Event::Known(Known::AgentConfigured { task, .. }) => Some(task.as_str()),
+            _ => None,
+        })
 }
 
 /// The conversation as model messages. A message the person sent while tools were running is

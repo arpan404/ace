@@ -2,18 +2,27 @@
 //! stored event, sent to live subscribers in order. Turns run as tasks driven by
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
+mod agents;
+mod bots;
 mod calls;
 mod compact;
 mod control;
+mod endpoints;
 mod index;
 mod jobs;
 mod maintenance;
+pub mod roster;
 mod turn;
 mod types;
 
+pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
+pub use bots::MOST_HOPS;
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput};
 pub use maintenance::MaintenanceState;
+pub use roster::{LastMessage, State};
 pub use types::{
-    Activity, AnswerError, CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
+    Activity, AgentChange, AgentError, AgentInput, AgentView, AnswerError, AvatarInput,
+    CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
 };
 
 use std::collections::HashMap;
@@ -24,13 +33,13 @@ use spade_core::event::Known;
 use spade_core::maintenance::Pause;
 use spade_core::turn::{job_stopped, needs_reply};
 use spade_core::{Event, Transcript, spending};
-use spade_models::{Models, Role};
+use spade_models::{Listed, Models};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
 use crate::images::ImageStore;
-use crate::tools::{SkillLibrary, Toolbox};
+use crate::tools::{BotMessage, BotsList, EngineHandle, SkillLibrary, Toolbox};
 
 /// Live state for one conversation.
 struct Live {
@@ -45,6 +54,8 @@ struct Live {
     waiting_on_you: AtomicBool,
     /// Background jobs not yet stored as finished, by job id (see `jobs`).
     jobs: Mutex<HashMap<String, jobs::Job>>,
+    /// A few words on what the running turn is doing (ADR 0127); `None` between turns.
+    status: Mutex<Option<String>>,
 }
 
 pub struct Engine {
@@ -72,16 +83,23 @@ pub struct Engine {
     pause: watch::Sender<Pause>,
     /// Counts maintenance requests, so a newer one (or reopening) retires an older one's task.
     maintenance: std::sync::atomic::AtomicU64,
+    /// Each endpoint's latest live model list, so a model saved from it counts as listed.
+    listed: Mutex<HashMap<String, Vec<Listed>>>,
 }
 
 impl Engine {
     /// Opens the engine: closes replies a restart cut off, resumes paused turns and turns waiting
     /// for an approval, and answers messages stored while Spade was closing.
     pub fn open(setup: Setup) -> Result<Arc<Self>, StoreError> {
+        let handle = EngineHandle::default();
+        let tools = setup
+            .tools
+            .with_tool(Arc::new(BotsList(handle.clone())))
+            .with_tool(Arc::new(BotMessage(handle.clone())));
         let engine = Arc::new(Self {
             store: setup.store,
             models: setup.models,
-            tools: setup.tools,
+            tools,
             clock: setup.clock,
             ids: setup.ids,
             daily_cap_micros: setup.daily_cap_micros,
@@ -96,7 +114,13 @@ impl Engine {
             admission: AtomicBool::new(false),
             pause: watch::channel(Pause::Off).0,
             maintenance: std::sync::atomic::AtomicU64::new(0),
+            listed: Mutex::default(),
         });
+        handle.set(&engine);
+        engine.import_presets()?;
+        engine.sync_endpoints()?;
+        engine.store.fill_missing_models(&engine.default_model())?;
+        engine.ensure_main()?;
         for conversation in engine.store.conversations()? {
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(&events);
@@ -132,34 +156,60 @@ impl Engine {
             .conversations()?
             .into_iter()
             .map(|c| {
-                let known = self
-                    .activity
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .get(&c.id)
-                    .copied();
-                let activity = match known {
-                    Some(activity) => activity,
-                    None => {
-                        // Under the lock every write holds, so no event lands between reading
-                        // and caching.
-                        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-                        let transcript = Transcript::fold(&self.load(&c.id)?);
-                        let activity = Activity {
-                            answering: transcript.open_reply().is_some(),
-                            jobs: transcript.jobs.len(),
-                            waiting_on_you: !transcript.awaiting.is_empty(),
-                        };
-                        self.activity
-                            .lock()
-                            .unwrap_or_else(|p| p.into_inner())
-                            .insert(c.id.clone(), activity);
-                        activity
-                    }
-                };
+                let activity = self.activity(&c.id)?;
                 Ok((c, activity))
             })
             .collect()
+    }
+
+    /// What `id` is doing and its latest message, folded once per change.
+    pub(crate) fn activity(&self, id: &str) -> Result<Activity, StoreError> {
+        let known = self
+            .activity
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(id)
+            .cloned();
+        if let Some(activity) = known {
+            return Ok(activity);
+        }
+        // Under the lock every write holds, so no event lands between reading and caching.
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let stored = self.store.events(id, 0)?;
+        let transcript = Transcript::fold(stored.iter().map(|e| &e.event));
+        let activity = Activity {
+            answering: transcript.open_reply().is_some(),
+            jobs: transcript.jobs.len(),
+            waiting_on_you: !transcript.awaiting.is_empty(),
+            state: State::of(&transcript),
+            last_message: roster::last_message(&stored),
+        };
+        self.activity
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(id.to_owned(), activity.clone());
+        Ok(activity)
+    }
+
+    fn forget_activity(&self, id: &str) {
+        self.activity
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
+    }
+
+    /// Sets what the running turn is doing and tells live subscribers.
+    pub(crate) fn set_status(&self, id: &str, status: Option<String>) {
+        let live = self.live(id);
+        *live.status.lock().unwrap_or_else(|p| p.into_inner()) = status;
+        self.announce(id);
+    }
+
+    /// Sends the agent's state and status to live subscribers.
+    fn announce(&self, id: &str) {
+        let live = self.live(id);
+        let (state, status) = live_state(&live);
+        let _ = live.frames.send(Frame::Status { state, status });
     }
 
     pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {
@@ -167,22 +217,6 @@ impl Engine {
             return Ok(None);
         }
         Ok(Some(self.store.events(id, after)?))
-    }
-
-    /// Starts a conversation with `text` and returns its id.
-    pub fn start_conversation(
-        self: &Arc<Self>,
-        text: &str,
-        images: &[Vec<u8>],
-    ) -> Result<String, SendError> {
-        self.check_message(text, images.len())?;
-        // Images are checked and stored first, so a refused one never leaves an empty
-        // conversation behind.
-        let message = self.message(text, images)?;
-        let id = self.ids.next("c");
-        self.store.create_conversation(&id, self.now_ms())?;
-        self.deliver(&id, &message)?;
-        Ok(id)
     }
 
     /// Sends a message, with any attached images. While a reply is open it steers that turn;
@@ -196,6 +230,9 @@ impl Engine {
         self.check_message(text, images.len())?;
         if self.store.conversation(id)?.is_none() {
             return Err(SendError::NotFound);
+        }
+        if self.disabled_main(id)? {
+            return Err(SendError::Disabled);
         }
         let message = self.message(text, images)?;
         self.deliver(id, &message)?;
@@ -212,6 +249,7 @@ impl Engine {
             text: text.trim().to_owned(),
             context: None,
             images,
+            from_agent: None,
         }))
     }
 
@@ -224,9 +262,8 @@ impl Engine {
     fn images_for(&self, model: &str) -> crate::images::ModelImages<'_> {
         let can_see = self
             .models
-            .catalog()
             .resolve(model)
-            .is_some_and(|r| r.model.can(spade_models::Capability::Images));
+            .is_some_and(|(_, m)| m.can(spade_models::Capability::Images));
         self.images.for_model(can_see)
     }
 
@@ -248,7 +285,7 @@ impl Engine {
                 false
             } else {
                 // Stored together, so a crash can never keep the input without its reply.
-                let model = self.models.for_role(Role::Main).to_owned();
+                let model = self.reply_model(id);
                 let started = Event::reply_started(self.ids.next("r"), model);
                 self.append_events(id, &[event.clone(), started])?;
                 true
@@ -275,10 +312,13 @@ impl Engine {
             (live.frames.subscribe(), current.clone())
         };
         let backlog = self.store.events(id, after)?;
+        let (state, status) = live_state(&live);
         Ok(Some(Subscription {
             frames,
             backlog,
             snapshot,
+            state,
+            status,
         }))
     }
 
@@ -308,8 +348,7 @@ impl Engine {
         {
             return Err(CompactError::OverCap);
         }
-        let model = compact::conversation_model(self, id)
-            .unwrap_or_else(|| self.models.for_role(Role::Main).to_owned());
+        let model = compact::conversation_model(self, id).unwrap_or_else(|| self.reply_model(id));
         match compact::now(self, id, &model, focus).await {
             Ok(true) => Ok(()),
             Ok(false) => Err(CompactError::Nothing),
@@ -371,6 +410,7 @@ impl Engine {
                     turn_running: AtomicBool::new(false),
                     waiting_on_you: AtomicBool::new(false),
                     jobs: Mutex::default(),
+                    status: Mutex::default(),
                 })
             })
             .clone()
@@ -395,10 +435,7 @@ impl Engine {
     fn append_events(&self, id: &str, events: &[Event]) -> Result<Vec<StoredEvent>, StoreError> {
         let stored = self.store.append_all(id, events, self.now_ms());
         // Dropped whether or not the write succeeded: a failed write may still have landed.
-        self.activity
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(id);
+        self.forget_activity(id);
         let stored = stored?;
         for event in &stored {
             let _ = self.live(id).frames.send(Frame::Stored(event.clone()));
@@ -424,7 +461,7 @@ impl Engine {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let events = self.load(id)?;
             if needs_reply(&events) {
-                let model = self.models.for_role(Role::Main).to_owned();
+                let model = self.reply_model(id);
                 self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
                 true
             } else {
@@ -461,5 +498,32 @@ impl Engine {
         let engine = self.clone();
         let id = id.to_owned();
         tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
+    }
+}
+
+/// The state and status live flags show, without reading storage.
+fn live_state(live: &Live) -> (State, Option<String>) {
+    let running = live.turn_running.load(Ordering::SeqCst);
+    let jobs = !live
+        .jobs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_empty();
+    if live.waiting_on_you.load(Ordering::SeqCst) {
+        (State::Waiting, Some(roster::WAITING_FOR_YOU.to_owned()))
+    } else if running {
+        let status = live
+            .status
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone();
+        (
+            State::Working,
+            Some(status.unwrap_or_else(|| roster::THINKING.to_owned())),
+        )
+    } else if jobs {
+        (State::Working, Some(roster::IN_BACKGROUND.to_owned()))
+    } else {
+        (State::Idle, None)
     }
 }

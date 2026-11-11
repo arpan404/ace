@@ -14,7 +14,7 @@ use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
 use spade_server::clock::{CountingIds, SystemClock};
-use spade_server::engine::{Engine, Limits, Setup};
+use spade_server::engine::{EndpointInput, Engine, Limits, Setup};
 use spade_server::tools::{
     AceLink, AceTarget, Retry, SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox,
 };
@@ -240,6 +240,14 @@ impl Spade {
             skills: options.skills,
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
         })?;
+        // The endpoint is the person's now, kept in the database: a restarted fake has a new port.
+        engine.update_endpoint(
+            "fake",
+            EndpointInput {
+                base_url: Some(fake.root.clone()),
+                ..EndpointInput::default()
+            },
+        )?;
         engine.open_for_work();
         let state = AppState {
             engine: engine.clone(),
@@ -354,13 +362,39 @@ impl Spade {
         Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
-    /// Starts a conversation and returns its id.
-    pub async fn ask(&self, text: &str) -> Result<String> {
+    /// Creates a bot on the fake model and returns it as the API shows it.
+    pub async fn new_agent(&self, name: &str, task: &str) -> Result<Value> {
         let (status, body) = self
-            .post("/v1/conversations", json!({ "text": text }))
+            .post(
+                "/v1/agents",
+                json!({ "name": name, "task": task, "model": "fake/m" }),
+            )
             .await?;
         assert_eq!(status, 201, "{body}");
-        Ok(body["id"].as_str().unwrap_or_default().to_owned())
+        Ok(body["agent"].clone())
+    }
+
+    /// Sends `text` to conversation `id`.
+    pub async fn say(&self, id: &str, text: &str) -> Result {
+        let (status, body) = self
+            .post(
+                &format!("/v1/conversations/{id}/messages"),
+                json!({ "text": text }),
+            )
+            .await?;
+        assert_eq!(status, 202, "{body}");
+        Ok(())
+    }
+
+    /// Creates a bot, sends it `text`, and returns its conversation's id.
+    pub async fn ask(&self, text: &str) -> Result<String> {
+        let agent = self.new_agent("Test", "").await?;
+        let id = agent["conversation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        self.say(&id, text).await?;
+        Ok(id)
     }
 
     /// The conversation's stored events, as `event` objects.

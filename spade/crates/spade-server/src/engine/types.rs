@@ -7,6 +7,7 @@ use spade_models::Models;
 use spade_store::{Store, StoreError, StoredEvent};
 use tokio::sync::broadcast;
 
+use super::roster::{LastMessage, State};
 use crate::clock::{Clock, Ids};
 use crate::images::{ImageError, ImageStore};
 use crate::tools::{SkillLibrary, Toolbox};
@@ -66,6 +67,11 @@ pub enum Frame {
         reply: String,
         text: String,
     },
+    /// What the agent is doing now changed (ADR 0127). Not stored.
+    Status {
+        state: State,
+        status: Option<String>,
+    },
 }
 
 /// The open reply's text so far, for a subscriber joining mid-reply.
@@ -79,12 +85,69 @@ pub struct Subscription {
     pub frames: broadcast::Receiver<Frame>,
     pub backlog: Vec<StoredEvent>,
     pub snapshot: Option<Snapshot>,
+    /// What the agent is doing as the subscription opened.
+    pub state: State,
+    pub status: Option<String>,
+}
+
+/// An agent as the roster shows it.
+#[derive(Debug, Clone)]
+pub struct AgentView {
+    pub agent: spade_store::Agent,
+    pub state: State,
+    pub status: Option<String>,
+    pub last_message: Option<LastMessage>,
+}
+
+/// Why an agent could not be created, changed or deleted.
+#[derive(Debug, thiserror::Error)]
+pub enum AgentError {
+    #[error("no such agent")]
+    NotFound,
+    #[error("{0}")]
+    Invalid(String),
+    /// Spade, the main agent, cannot be deleted or renamed (ADR 0127).
+    #[error("{0}")]
+    Main(&'static str),
+    #[error(transparent)]
+    Image(#[from] ImageError),
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// A new avatar.
+#[derive(Debug, Clone)]
+pub enum AvatarInput {
+    /// Image bytes, checked and stored like an attached image.
+    Image(Vec<u8>),
+    /// Initials on a colour; a colour picked from the agent's id when none is given.
+    Generated(Option<String>),
+}
+
+/// What creating an agent takes.
+#[derive(Debug, Clone)]
+pub struct AgentInput {
+    pub name: String,
+    pub task: String,
+    pub model: String,
+    pub avatar: Option<AvatarInput>,
+}
+
+/// What changing an agent takes; `None` keeps the value.
+#[derive(Debug, Clone, Default)]
+pub struct AgentChange {
+    pub name: Option<String>,
+    pub task: Option<String>,
+    pub model: Option<String>,
+    pub avatar: Option<AvatarInput>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SendError {
     #[error("no such conversation")]
     NotFound,
+    #[error("Spade is switched off on this machine; it runs on another one")]
+    Disabled,
     #[error("the message is empty")]
     Empty,
     #[error("the message is too long")]
@@ -124,10 +187,12 @@ pub enum AnswerError {
 }
 
 /// What a conversation is doing, for lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Activity {
     pub answering: bool,
     pub jobs: usize,
     /// An approval is waiting for the person.
     pub waiting_on_you: bool,
+    pub state: State,
+    pub last_message: Option<LastMessage>,
 }

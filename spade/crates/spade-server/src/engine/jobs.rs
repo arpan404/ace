@@ -107,6 +107,7 @@ pub(super) fn start(
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .remove(&job);
+            engine.announce(&id);
         })
     };
     jobs.insert(
@@ -148,6 +149,10 @@ async fn run(engine: &Engine, key: &str, name: &str, arguments: Value) -> ToolOu
 pub(super) async fn keep_trying(mut store: impl FnMut() -> Result<(), StoreError>) {
     let mut wait = Duration::from_millis(250);
     while let Err(error) = store() {
+        // The conversation was deleted with its agent: there is nothing left to keep.
+        if matches!(error, StoreError::NoConversation(_)) {
+            return;
+        }
         tracing::error!(%error, "could not store an event; trying again");
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(30));

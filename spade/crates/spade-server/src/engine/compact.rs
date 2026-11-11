@@ -31,9 +31,8 @@ fn last_prompt_tokens(events: &[Event]) -> u32 {
 fn budget(engine: &Engine, model: &str) -> u32 {
     let window = engine
         .models
-        .catalog()
         .resolve(model)
-        .and_then(|r| r.model.context)
+        .and_then(|(_, m)| m.context)
         .map_or(u32::MAX, |c| u32::try_from(c).unwrap_or(u32::MAX));
     window.min(engine.limits.context_budget)
 }

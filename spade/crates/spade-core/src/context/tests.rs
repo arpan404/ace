@@ -547,7 +547,11 @@ fn the_task_in_the_prompt_is_the_one_set_before_the_turn_began() {
         Event::user_message("Hi"),
         Event::reply_started("r1", "e/m"),
     ];
-    let system = |events: &[Event]| prompt(SYSTEM, Vec::new(), events).system.unwrap_or_default();
+    let system = |events: &[Event]| {
+        prompt(SYSTEM, Vec::new(), events)
+            .system
+            .unwrap_or_default()
+    };
     assert!(system(&events).contains("<task>\nPlan trips.\n</task>"));
     // Changed mid-turn: this turn keeps the old task; the next turn takes the new one.
     events.push(configured("Track parcels."));
