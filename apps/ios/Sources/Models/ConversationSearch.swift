@@ -80,6 +80,8 @@ struct ConversationSearchReply: Decodable {
         if let cursor { request["cursor"] = cursor }
         let reply = try await model.service(request, as: ConversationSearchReply.self)
         guard reply.type == "search.results" else {
+            // A stale cursor can't fetch another page: drop it, so Try again searches afresh.
+            if reply.code == "search_cursor_stale" { self.cursor = nil }
             let message = switch reply.code {
             case "search_cursor_stale": "The search index changed. Search again to refresh the results."
             case "search_invalid_query": "That search couldn't run. Try fewer or simpler words."
