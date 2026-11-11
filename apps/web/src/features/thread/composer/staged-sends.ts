@@ -45,6 +45,8 @@ const StoredFile = z.object({
   bytes: z.number(),
   /** Set once the daemon holds the file. */
   sha256: z.string().optional(),
+  /** Where the person put it in the message's words (`MessageContext.attachments[].at`). */
+  at: z.number().int().nonnegative().optional(),
 });
 
 const Stored = z.object({
@@ -115,9 +117,13 @@ const all = {
 function save(send: StagedSend): boolean {
   return saveHeldSend(send, {
     ...send,
-    attachments: send.attachments.map(({ name, mimeType, bytes, sha256 }) =>
-      sha256 ? { name, mimeType, bytes, sha256 } : { name, mimeType, bytes },
-    ),
+    attachments: send.attachments.map(({ name, mimeType, bytes, sha256, at }) => ({
+      name,
+      mimeType,
+      bytes,
+      ...(sha256 ? { sha256 } : {}),
+      ...(at === undefined ? {} : { at }),
+    })),
   });
 }
 function find(commandId: string): StagedSend | undefined {
@@ -418,6 +424,18 @@ export async function enqueueStaged(client: ClientApi, commandId: string): Promi
   return !all.get().some((entry) => entry.commandId === commandId);
 }
 
+/** Each held file once, with where the person put it in the words when they did. */
+function sentFiles(
+  files: readonly { sha256?: string | undefined; at?: number | undefined }[],
+): { sha256: string; at?: number }[] {
+  const seen = new Set<string>();
+  return files.flatMap((file) => {
+    if (!file.sha256 || seen.has(file.sha256)) return [];
+    seen.add(file.sha256);
+    return [file.at === undefined ? { sha256: file.sha256 } : { sha256: file.sha256, at: file.at }];
+  });
+}
+
 async function enqueueReady(client: ClientApi, commandId: string): Promise<boolean> {
   refreshHeldSends();
   const send = find(commandId);
@@ -429,9 +447,7 @@ async function enqueueReady(client: ClientApi, commandId: string): Promise<boole
     context: {
       ...send.context,
       mentions: send.context?.mentions ?? send.mentions.map((path) => ({ path })),
-      attachments: [
-        ...new Set(send.attachments.flatMap((file) => (file.sha256 ? [file.sha256] : []))),
-      ].map((sha256) => ({ sha256 })),
+      attachments: sentFiles(send.attachments),
     },
     ...(send.delivery ? { delivery: send.delivery } : {}),
     ...(send.options ? { options: send.options } : {}),

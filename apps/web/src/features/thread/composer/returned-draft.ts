@@ -1,10 +1,12 @@
 import {
   boundedAnnotations,
   mergeQuotes,
+  placeAttachmentMarkers,
   returnedAnnotations,
   returnedQuotes,
   splitAnnotationParts,
   splitQuoteParts,
+  textPartsText,
   tokensFromInput,
   type ComposerDraft,
   type DraftAnnotations,
@@ -31,8 +33,19 @@ export function draftOf(payload: SendPayload): ReturnedDraft {
     name: localAttachment(file.sha256)?.name ?? "Attachment",
   }));
   const annotated = split.annotations && returnedAnnotations(split.annotations, files);
+  // Offsets count the quoted block before the words; the words come back without it.
+  const lead = textPartsText(annotatedParts.parts).length - textPartsText(quoted.parts).length;
+  const words = tokensFromInput(split.parts);
   return {
-    ...tokensFromInput(split.parts),
+    ...placeAttachmentMarkers(
+      words.text,
+      words.tokens,
+      (payload.context?.attachments ?? []).map((file) => ({
+        sha256: file.sha256,
+        at: file.at === undefined ? undefined : Math.max(0, file.at - lead),
+        name: localAttachment(file.sha256)?.name ?? "Attachment",
+      })),
+    ),
     mentions: payload.context?.mentions.map((mention) => mention.path) ?? [],
     attachments: annotated?.attachments ?? files,
     ...(annotated ? { annotations: annotated.annotations } : {}),

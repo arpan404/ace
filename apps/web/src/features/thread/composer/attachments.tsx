@@ -265,11 +265,13 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
   /**
    * Attach files: each gets its chip and starts uploading. A file already attached (same name,
    * size and date) is skipped; one over the per-file or per-message size limit gets a chip that
-   * says so. Returns how many didn't fit the message's file count and were left out.
+   * says so. Returns how many didn't fit the message's file count and were left out, and the
+   * chips made, so the message can mark where each was added.
    */
   const add = useCallback(
-    (added: Iterable<File>): number => {
+    (added: Iterable<File>): { left: number; added: { key: number; name: string }[] } => {
       let left = 0;
+      const made: { key: number; name: string }[] = [];
       for (const file of added) {
         const held = [...known.current.values()];
         if (
@@ -286,6 +288,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
           continue;
         }
         const key = ++next.current;
+        made.push({ key, name: file.name });
         const preview =
           file.type.startsWith("image/") && typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
@@ -324,7 +327,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
               );
           });
       }
-      return left;
+      return { left, added: made };
     },
     [upload],
   );
@@ -373,11 +376,12 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
   /**
    * Put edited text in an editable chip's place: a new file under the chip's name (a paste's name
    * follows its new line count) uploads where the old one stood, and the old one goes as Remove
-   * would take it, released in the background once no other chip holds the same bytes.
+   * would take it, released in the background once no other chip holds the same bytes. Returns
+   * the new chip's key and name.
    */
-  const edit = (key: number, text: string) => {
+  const edit = (key: number, text: string): { key: number; name: string } | undefined => {
     const old = known.current.get(key)?.file;
-    if (!old) return;
+    if (!old) return undefined;
     const file = new File([text], editedName(old.name, text), { type: old.type || "text/plain" });
     const fresh = ++next.current;
     const others = [...known.current].filter(([other]) => other !== key);
@@ -421,6 +425,7 @@ export function useAttachments(thread: ThreadRef, restored: readonly DraftFile[]
           description: "Open Attachments from the thread menu and try removing it again.",
         }),
       );
+    return { key: fresh, name: file.name };
   };
   const clear = () => {
     for (const url of previews.current) URL.revokeObjectURL(url);

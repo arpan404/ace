@@ -31,15 +31,37 @@ export function editorCaret(el: HTMLElement): number {
   range.setEnd(selection.focusNode, selection.focusOffset);
   return editorText(range.cloneContents()).length;
 }
-export function placeEditorCaret(el: HTMLElement, position: number): void {
-  const range = el.ownerDocument.createRange();
+/** Styles a caret at their end stays out of: what is typed there follows them, plain. */
+const closedStyles = new Set(["mark", "bold", "bullet", "number", "indent"]);
+
+/** Whether `node` is the last thing drawn inside a style typing at its end leaves. */
+function endsClosedStyle(el: HTMLElement, node: Node): boolean {
+  for (let at: Node | null = node; at && at !== el; at = at.parentNode) {
+    if (at.nextSibling) return false;
+    const parent = at.parentNode;
+    if (parent instanceof HTMLElement && closedStyles.has(parent.dataset.md ?? "")) return true;
+  }
+  return false;
+}
+
+/** Set one end of `range` at text offset `position` of the editor; false past its end. */
+function setBoundary(el: HTMLElement, range: Range, position: number, end: boolean): boolean {
   let left = position;
+  const set = (node: Node, offset: number) => {
+    if (end) range.setEnd(node, offset);
+    else range.setStart(node, offset);
+  };
+  const around = (node: Node, before: boolean) => {
+    if (end && before) range.setEndBefore(node);
+    else if (end) range.setEndAfter(node);
+    else if (before) range.setStartBefore(node);
+    else range.setStartAfter(node);
+  };
   const locate = (node: Node): boolean => {
     if (node instanceof HTMLElement && node.dataset.tokenText !== undefined) {
       const length = node.dataset.tokenText.length;
       if (left <= length) {
-        if (left === 0) range.setStartBefore(node);
-        else range.setStartAfter(node);
+        around(node, left === 0);
         return true;
       }
       left -= length;
@@ -47,8 +69,9 @@ export function placeEditorCaret(el: HTMLElement, position: number): void {
     }
     if (node.nodeType === Node.TEXT_NODE) {
       const length = node.textContent?.length ?? 0;
-      if (left <= length) {
-        range.setStart(node, left);
+      // At the end of bold words or a marker, the caret goes on to what follows them.
+      if (left < length || (left === length && !endsClosedStyle(el, node))) {
+        set(node, left);
         return true;
       }
       left -= length;
@@ -57,11 +80,22 @@ export function placeEditorCaret(el: HTMLElement, position: number): void {
     for (const child of node.childNodes) if (locate(child)) return true;
     return false;
   };
-  if (!locate(el)) {
-    range.selectNodeContents(el);
-    range.collapse(false);
-  }
-  range.collapse(true);
+  return locate(el);
+}
+
+export function placeEditorCaret(el: HTMLElement, position: number): void {
+  placeEditorSelection(el, position, position);
+}
+
+/** Select text offsets `[start, end)` of the editor; a caret when they're equal. */
+export function placeEditorSelection(el: HTMLElement, start: number, end: number): void {
+  const range = el.ownerDocument.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  const tail = range.cloneRange();
+  if (!setBoundary(el, range, start, false)) range.setStart(tail.endContainer, tail.endOffset);
+  if (start === end) range.collapse(true);
+  else if (!setBoundary(el, range, end, true)) range.setEnd(tail.endContainer, tail.endOffset);
   const selection = el.ownerDocument.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
@@ -120,4 +154,14 @@ export function editorSelection(el: HTMLElement): { start: number; end: number }
   const start = editorText(before.cloneContents()).length;
   before.setEnd(selected.endContainer, selected.endOffset);
   return { start, end: editorText(before.cloneContents()).length };
+}
+
+/** Each chip still in the editor, in order, with where its text starts. */
+export function editorChips(el: HTMLElement): { node: HTMLElement; start: number }[] {
+  return [...el.querySelectorAll<HTMLElement>("[data-token-text]")].map((node) => {
+    const before = el.ownerDocument.createRange();
+    before.selectNodeContents(el);
+    before.setEndBefore(node);
+    return { node, start: editorText(before.cloneContents()).length };
+  });
 }

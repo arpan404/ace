@@ -68,13 +68,17 @@ export async function forkWithDraft(request: {
   const outcomes = await draft.files.outcomes;
   if (outcomes.some((outcome) => "error" in outcome))
     throw new ContinuationRefused("A file didn't upload. Retry or remove it, then send again.");
-  const hashes = new Set([
-    ...draft.attachments.map((file) => file.sha256),
-    ...outcomes.flatMap((outcome) => ("sha256" in outcome ? [outcome.sha256] : [])),
-  ]);
+  // Each file once, where the person put it in the words when they did.
+  const files = new Map<string, number | undefined>(
+    draft.attachments.map((file) => [file.sha256, file.at]),
+  );
+  outcomes.forEach((outcome, index) => {
+    if ("sha256" in outcome && !files.has(outcome.sha256))
+      files.set(outcome.sha256, draft.files.local[index]?.at);
+  });
   const context: MessageContext = {
     mentions: draft.mentions,
-    attachments: [...hashes].map((sha256) => ({ sha256 })),
+    attachments: [...files].map(([sha256, at]) => (at === undefined ? { sha256 } : { sha256, at })),
     ...(draft.threadRefs?.length ? { items: draft.threadRefs } : {}),
   };
   const opened = await request.actions.fork(request.thread, {

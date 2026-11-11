@@ -1,0 +1,53 @@
+/*
+ * The composer's Markdown, drawn as it is typed (`features/thread/composer/editor-render.ts`):
+ * headings a little larger, bold words bold with their `**` faded until the caret is in them,
+ * list markers as bullets, nesting a little wider than plain spaces. The text stays Markdown.
+ */
+.message-input [data-md="h1"] {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+.message-input [data-md="h2"] {
+  font-size: 1.075em;
+  font-weight: 600;
+}
+.message-input [data-md="h3"] {
+  font-weight: 600;
+}
+.message-input [data-md="bold"] {
+  font-weight: 600;
+}
+.message-input [data-md="mark"] {
+  color: var(--subtle-foreground);
+  font-weight: 400;
+}
+.message-input [data-md="bold"]:not([data-active]) > [data-md="mark"],
+.message-input [data-md^="h"]:not([data-active]) > [data-md="mark"] {
+  opacity: 0.45;
+}
+.message-input [data-md="bullet"] {
+  position: relative;
+  color: transparent;
+  caret-color: var(--foreground);
+}
+.message-input [data-md="bullet"]::after {
+  content: "•";
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  color: var(--muted-foreground);
+  pointer-events: none;
+}
+.message-input [data-md="bullet"]:is([data-depth="2"], [data-depth="5"], [data-depth="8"])::after {
+  content: "◦";
+}
+.message-input [data-md="bullet"]:is([data-depth="3"], [data-depth="6"], [data-depth="9"])::after {
+  content: "▪";
+}
+.message-input [data-md="number"] {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.message-input [data-md="indent"] {
+  letter-spacing: 0.25em;
+}

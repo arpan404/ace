@@ -1,3 +1,4 @@
+import { withoutMarkerCharacters } from "@ace/ui-core";
 import type { ClipboardEvent } from "react";
 import { insertEditorText } from "./editor-dom.ts";
 import { pastedFile } from "./large-paste.ts";
@@ -19,7 +20,8 @@ export function pasteIntoComposer(
   const pasted = event.clipboardData.getData("text/plain");
   const file = pastedFile(pasted);
   if (file) return ports.attach([new File([pasted], file.name, { type: "text/plain" })]);
-  if (ports.input) insertEditorText(ports.input, pasted);
+  // A file's marker is the composer's own: a pasted one would be a file that isn't there.
+  if (ports.input) insertEditorText(ports.input, withoutMarkerCharacters(pasted));
 }
 
 /** Why the message can't go yet, in words; undefined when it can. Pure. */
