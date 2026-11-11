@@ -69,6 +69,13 @@ export const MessageOrigin = z.object({
     "schedule",
     "background_completion",
   ]),
+  /**
+   * A `person` message an outside MCP client sent for the person (ADR 0122). Older clients
+   * ignore it and read the message as the person's own.
+   */
+  client: z
+    .object({ grantId: z.string().min(1).max(128), name: z.string().min(1).max(256) })
+    .optional(),
   commandId: CommandId.optional(),
   interactionId: InteractionId.optional(),
   threadIds: z.array(ThreadId).optional(),

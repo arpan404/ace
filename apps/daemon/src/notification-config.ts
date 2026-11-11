@@ -5,6 +5,7 @@ import {
   createApnsTransport,
   createPushGatewayTransport,
   createWebPushTransport,
+  type AccessPushTransport,
   type NotificationChannels,
   type PushGatewayTarget,
 } from "@ace/notify";
@@ -69,6 +70,8 @@ export async function loadNotificationChannels(options: {
   settings?: Pick<SettingsService, "get"> | undefined;
 }): Promise<{
   channels: Omit<NotificationChannels, "websocket">;
+  /** Outside clients' sign-in requests to phones, through the same gateway (ADR 0122). */
+  access?: AccessPushTransport;
   publicKey?: string;
   close(): void;
 }> {
@@ -76,6 +79,7 @@ export async function loadNotificationChannels(options: {
   const channels: Omit<NotificationChannels, "websocket"> = {};
   let close = noop;
   let publicKey: string | undefined;
+  let access: AccessPushTransport | undefined;
   if (env.ACE_APNS_KEY_FILE) {
     const apns = createApnsTransport(
       {
@@ -111,7 +115,7 @@ export async function loadNotificationChannels(options: {
     }
     // Phones with a push address wake through ace's push gateway (ADR 0106). The daemon's
     // own key is its identity there; every alert leaves encrypted to the phone's key.
-    channels.push = createPushGatewayTransport(
+    const push = createPushGatewayTransport(
       {
         privateKey: loadPushKey(dataDir),
         hostId: loadHostId(dataDir),
@@ -119,9 +123,11 @@ export async function loadNotificationChannels(options: {
       },
       Date.now,
     );
+    channels.push = push;
+    access = push;
   } catch (error) {
     close();
     throw error;
   }
-  return { channels, close, ...(publicKey ? { publicKey } : {}) };
+  return { channels, close, ...(access ? { access } : {}), ...(publicKey ? { publicKey } : {}) };
 }

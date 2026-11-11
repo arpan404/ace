@@ -20,6 +20,9 @@
     "startedBy": {
       "$ref": "https://ace.local/protocol/v1/StartedBy.json"
     },
+    "startedByClient": {
+      "$ref": "https://ace.local/protocol/v1/StartedByClient.json"
+    },
     "switch": {
       "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
     }

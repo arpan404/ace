@@ -1,4 +1,5 @@
 import { commandNotDispatched } from "../command-not-dispatched.ts";
+import { isSpadeProject } from "../project-storage.ts";
 import { createWritingCli } from "../source-control-cli.ts";
 import type { CreationProgress } from "../creation-progress.ts";
 import { loadHostId } from "../local-files.ts";
@@ -341,6 +342,21 @@ export function createWorkspaceActionsSession(context: SocketContext): SocketSer
       };
       if (!runtime) {
         refuse("workspace_reads_unavailable");
+        return true;
+      }
+      // Spade's hidden project is an empty folder, never a repository (ADR 0121): its reads are
+      // answered at once, with no Git or forge work and nothing logged.
+      if (
+        (op.op.startsWith("forge.") || op.op.startsWith("git.")) &&
+        "workspaceId" in op &&
+        typeof op.workspaceId === "string" &&
+        isSpadeProject(options.store, op.workspaceId)
+      ) {
+        send({
+          type: "workspace.result",
+          requestId: message.requestId,
+          result: { kind: "error", code: "not_a_repo" },
+        });
         return true;
       }
       const controller = new AbortController();

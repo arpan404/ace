@@ -16,6 +16,7 @@ import {
   wholeBudget,
   wholeFileBytes,
 } from "./attachment-content.ts";
+import { EditableText } from "./attachment-edit.tsx";
 import { FileGlyph } from "./attachment-face.tsx";
 import type { FileSource, PreviewFile } from "./attachment-format.ts";
 import {
@@ -39,7 +40,8 @@ import { formatBytes } from "./format-bytes.ts";
 /*
  * One file over the page, by kind: a PDF in the browser's own viewer, audio and video with
  * native controls, text and code as the first 64 KB in monospace (saying when there is more),
- * anything else as its details. Download saves it. Loaded only when a chip is first opened.
+ * anything else as its details. Download saves it. Given `onSave`, a text file this device holds
+ * opens editable instead. Loaded only when a chip is first opened.
  */
 
 /** Frames and players take most of a short window, never more than the dialog allows. */
@@ -47,11 +49,15 @@ const stage = { height: "min(70dvh, 56rem)" };
 
 export function AttachmentPreview(props: {
   file: PreviewFile;
+  /** Save edited text in the file's place; the dialog closes after. */
+  onSave?: ((text: string) => void) | undefined;
   onClose(): void;
   finalFocus: RefObject<HTMLElement | null>;
 }) {
-  const { file } = props;
+  const { file, onSave } = props;
   const described = describeFile(file);
+  const local = file.source?.kind === "file" ? file.source.file : undefined;
+  const editable = onSave && local && described.preview === "text" ? local : undefined;
   const delivery = file.delivery ? deliveryDetails[file.delivery] : undefined;
   return (
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
@@ -69,10 +75,24 @@ export function AttachmentPreview(props: {
             {delivery && ` · ${delivery}`}
           </DialogDescription>
         </DialogHeader>
-        <Body file={file} described={described} />
-        <DialogFooter>
-          <Download file={file} />
-        </DialogFooter>
+        {editable && onSave ? (
+          <EditableText
+            file={editable}
+            frame={stage}
+            actions={<Download file={file} />}
+            onSave={(text) => {
+              onSave(text);
+              props.onClose();
+            }}
+          />
+        ) : (
+          <>
+            <Body file={file} described={described} />
+            <DialogFooter>
+              <Download file={file} />
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

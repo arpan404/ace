@@ -30,6 +30,7 @@ import * as forgePeople from "@ace/protocol/forge-people";
 import * as forgeMedia from "@ace/protocol/forge-media";
 import * as forgeFileContent from "@ace/protocol/forge-file-content";
 import * as forgeStacks from "@ace/protocol/forge-stacks";
+import * as forgeCapabilities from "@ace/protocol/forge-capabilities";
 import * as forge from "@ace/protocol/forge";
 import {
   htmlToolCatalog,
@@ -69,6 +70,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./forge-issues", forgeIssues],
   ["./forge-merge-state", forgeMergeState],
   ["./forge-stacks", forgeStacks],
+  ["./forge-capabilities", forgeCapabilities],
   ["./forge-review", forgeReview],
   ["./forge-checks", forgeChecks],
   ["./plugins", plugins],

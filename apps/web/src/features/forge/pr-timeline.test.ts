@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { prTimeline, prTimelineItems, eventText } from "@ace/ui-core";
+import { prTimeline, prTimelineItems, prTimelinePushes, eventText } from "@ace/ui-core";
 import { detail } from "./pr-workspace.fixture.ts";
 const commit = {
   sha: "a".repeat(40),
@@ -358,4 +358,58 @@ test("branch, lock and milestone events read as what happened, with the lock's r
   expect(said("head_ref_restored")).toBe("restored the branch");
   expect(said("milestoned", "October polish")).toBe("added this to the milestone October polish");
   expect(said("connected")).toBe("linked an issue");
+});
+
+const pushed = (sha: string, author: string, minute: number) => ({
+  sha: sha.repeat(40),
+  message: `Commit ${sha}`,
+  author,
+  date: `2026-10-11T12:${String(minute).padStart(2, "0")}:00Z`,
+  url: `https://github.com/acme/ace/commit/${sha}`,
+});
+
+test("back-to-back commits by one author show as one push, listed oldest first in either order", () => {
+  const commits = [pushed("b", "octo", 5), pushed("c", "octo", 6), pushed("d", "mira", 7)];
+  const review = {
+    id: "9",
+    event: "labeled",
+    actor: "octo",
+    at: "2026-10-11T12:08:00Z",
+    subject: "bug",
+    raw: {},
+  };
+  const pushes = (order: "newest" | "oldest") =>
+    prTimelinePushes(prTimelineItems(detail, commits, [review], order), order).flatMap((item) =>
+      item.kind === "push"
+        ? [
+            {
+              id: item.id,
+              author: item.author,
+              at: item.at,
+              shas: item.commits.map((c) => c.sha[0]),
+            },
+          ]
+        : [],
+    );
+  expect(pushes("oldest")).toEqual([
+    { id: `push:${"b".repeat(40)}`, author: "octo", at: "2026-10-11T12:06:00Z", shas: ["b", "c"] },
+    { id: `push:${"d".repeat(40)}`, author: "mira", at: "2026-10-11T12:07:00Z", shas: ["d"] },
+  ]);
+  expect(pushes("newest")).toEqual(pushes("oldest").toReversed());
+});
+
+test("other activity between commits splits them into separate pushes", () => {
+  const commits = [pushed("b", "octo", 5), pushed("c", "octo", 7)];
+  const label = {
+    id: "9",
+    event: "labeled",
+    actor: "octo",
+    at: "2026-10-11T12:06:00Z",
+    subject: "bug",
+    raw: {},
+  };
+  const ids = prTimelinePushes(prTimelineItems(detail, commits, [label], "oldest"), "oldest")
+    .map((item) => item.id)
+    .filter((id) => id.startsWith("push:") || id.startsWith("event:"));
+  expect(ids).toEqual([`push:${"b".repeat(40)}`, "event:labeled:9", `push:${"c".repeat(40)}`]);
 });

@@ -38,7 +38,8 @@ export function PullRequestPage(props: {
   const back = useBackToList("/pulls", props.back);
   const cache = useQueryClient();
   // The list's row for this PR, if one was read: the page shows it at once while the rest loads.
-  const seed = cachedRow(cache, project, "prList", props.number, repositoryFromParam(props.repo));
+  const repository = repositoryFromParam(props.repo);
+  const seed = cachedRow(cache, project, "prList", props.number, repository);
   const seen = useRef<string | undefined>(undefined);
   // A PR that merged, closed or reopened here moves between the list's states: read it again.
   const onState = useCallback(
@@ -49,16 +50,12 @@ export function PullRequestPage(props: {
     },
     [cache, project],
   );
-  const open = (number: number, repository?: ForgeRepository) =>
+  const open = (number: number, target?: ForgeRepository) =>
     void navigate({
       to: "/pulls/$project/$number",
       params: { project, number: String(number) },
       search: {
-        ...(repository
-          ? { repo: repositoryParam(repository) }
-          : props.repo
-            ? { repo: props.repo }
-            : {}),
+        ...(target ? { repo: repositoryParam(target) } : props.repo ? { repo: props.repo } : {}),
         ...(props.back !== undefined ? { back: props.back } : {}),
       },
     });
@@ -82,7 +79,7 @@ export function PullRequestPage(props: {
               <PrDetail
                 key={`${project}:${props.repo ?? ""}#${props.number}`}
                 workspaceId={project}
-                repository={repositoryFromParam(props.repo)}
+                repository={repository}
                 number={props.number}
                 seed={seed}
                 tab={props.tab ?? "summary"}

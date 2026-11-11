@@ -30,8 +30,13 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let headSha: String
     let additions: Int?
     let deletions: Int?
-    let commits: Int
-    let changedFiles: Int
+    /// Nil where the host can't say: never shown as a number.
+    let commits: Int?
+    let changedFiles: Int?
+    /// A review ace only reads (not GitHub): the page shows it and offers no writes.
+    let hosted: ForgeHostedReview?
+    let capabilities: [String]?
+    func can(_ capability: String) -> Bool { capabilities?.contains(capability) == true }
     /// The description as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
     let tasks: Bool
@@ -50,6 +55,42 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let checks: [Check]
     let files: [File]
     let threads: [ForgeRelatedThread]
+}
+
+/// What a read-only review's page says and links (`bridge/forge-hosted.ts`).
+struct ForgeHostedReview: Decodable, Sendable, Equatable {
+    /// The provider's name: "GitLab", "Cursor Origin".
+    let provider: String
+    /// "merge request" on GitLab, "pull request" elsewhere.
+    let noun: String
+    /// The one sentence under the header.
+    let line: String
+    /// Said in place of the files when the host doesn't share them.
+    let filesUnavailable: String?
+    let links: ForgeHostedLinks
+}
+
+/// Where references in a read-only review's text open: address templates filled with
+/// `{number}`, `{sha}` or `{login}`; nil leaves that kind inert. `review` opens `#N` as that
+/// review's page in ace.
+struct ForgeHostedLinks: Decodable, Sendable, Equatable, Hashable {
+    let issue: String?
+    let review: Bool
+    let commit: String?
+    let mention: String?
+}
+
+/// One page of a read-only review's changed files (`forge.pull.hosted-files`).
+struct ForgeHostedFiles: Decodable, Sendable, Equatable {
+    struct File: Decodable, Sendable, Equatable, Hashable { let path: String; let status: String; let additions: Int; let deletions: Int }
+    let headSha: String
+    let page: Int
+    /// The branch moved since the page was read: this is page 1 of its new changes.
+    let moved: Bool
+    let files: [File]
+    let nextPage: Int?
+    let truncated: String?
+    let unavailable: String?
 }
 
 /// A pull request write pinned to what the person saw when they asked: the head commit and
@@ -131,6 +172,7 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let events: [Event]
     let moreEvents: Bool
     let threads: [ForgeRelatedThread]
+    let writable: Bool?
     let box: ForgeBox
     let unconfirmed: [ForgeManage.Unconfirmed]
     let start: Start

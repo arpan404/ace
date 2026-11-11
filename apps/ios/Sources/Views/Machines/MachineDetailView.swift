@@ -78,6 +78,12 @@ struct MachineDetailView: View {
                         InsetRow("Devices", systemImage: "iphone.and.arrow.forward", subtitle: "Pair, review and revoke devices")
                     }
                     .accessibilityIdentifier("machine.devices")
+                    if client.canAdmin != false {
+                        NavigationLink { ConnectedAppsView(model: client, machine: facts.name) } label: {
+                            InsetRow("Connected apps", systemImage: "app.connected.to.app.below.fill", subtitle: "Apps outside ace, such as claude.ai")
+                        }
+                        .accessibilityIdentifier("machine.connectedApps")
+                    }
                     NavigationLink { MachineLinksView(inbox: inbox, hostId: hostId) } label: {
                         InsetRow("Linked machines", systemImage: "point.3.connected.trianglepath.dotted", subtitle: "Machines its agents can reach")
                     }

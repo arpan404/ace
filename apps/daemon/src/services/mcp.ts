@@ -20,6 +20,9 @@ import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
 import { screenToolkit, computerToolNames } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
 import { daemonComputerToolkit } from "../computer-tools.ts";
+/** Tools that wait on the person inside the caller's own thread: none for a host thread. */
+const hostWithheldTools = ["browser_request_help"];
+
 export { computerPlatform } from "../computer-tools.ts";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
@@ -228,11 +231,15 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         // Report the thread's own native selector; a fixed placeholder misleads agents.
         access: thread?.permission?.effective ?? null,
         ...(thread && project ? { project: { id: thread.workspaceId, name: project.name } } : {}),
-        // Providers with their own ask tool keep it; delegated children and Cursor get ask.
+        // Providers with their own ask tool keep it; delegated children and Cursor get ask. A
+        // host thread (Spade, ADR 0121) never does: its questions would wait in a thread no one
+        // sees, and answers come back as messages it refuses. Spade asks through its own gate.
         askAvailable:
-          thread?.provider === "cursor" ||
-          !!services.agentControl?.delegations.journal.get(caller.threadId),
+          thread?.host === undefined &&
+          (thread?.provider === "cursor" ||
+            !!services.agentControl?.delegations.journal.get(caller.threadId)),
         unavailableTools: [
+          ...(thread?.host === undefined ? [] : hostWithheldTools),
           ...(services.machines?.caller.serves("commands") ? [] : commandToolNames),
           ...(services.computer || services.machines?.caller.serves("screen")
             ? []

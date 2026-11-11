@@ -30,6 +30,11 @@ const copy: Record<string, string> = {
   engine_unavailable: "This daemon can't move a thread's checkout: update the daemon.",
   repository_mismatch:
     "The project's remote doesn't match this repository: pick the matching project, or refresh.",
+  // A project's repository choices (ADR 0120).
+  repository_hidden:
+    "This project hides that repository: show it again in the project's settings, then retry.",
+  repository_unavailable:
+    "ace can't use that repository now: check its host in Source control settings, or pick another repository in the project's settings.",
   action_failed: "The daemon couldn't do that: check its logs, then retry.",
   action_busy: "Too many actions are running: wait for one to finish, then retry.",
   workspace_reads_busy: "Too many reads are waiting on the daemon: wait a moment, then retry.",
@@ -107,7 +112,8 @@ const copy: Record<string, string> = {
   // host refuses gets its own code so the fix names what changed.
   forge_cli:
     "Sign in to GitHub: run `gh auth login` (install `gh` first if it's missing), then retry.",
-  forge_no_remote: "This checkout has no GitHub remote: add an origin on GitHub, then retry.",
+  forge_no_remote:
+    "This checkout has no remote on a Git host ace knows: add the remote, or add its host in Source control settings, then retry.",
   forge_not_found:
     "GitHub couldn't find that repository, issue or pull request: check its number and your access to the repository.",
   forge_outcome_uncertain:

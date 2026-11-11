@@ -1,5 +1,5 @@
 //! Spade's web search. Backends listed in `config/search.json` are tried in order: the person's
-//! own SearXNG (free) and Brave with their key (kept in the OS keychain, ADR 0116). A backend
+//! own SearXNG (free) and Brave with their key (kept in the OS keychain, ADR 0119). A backend
 //! that fails or has no key is skipped with a reason and the next one is tried. A model endpoint's
 //! own built-in search, where offered, is chosen by the harness before any of these.
 

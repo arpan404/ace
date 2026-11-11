@@ -33,6 +33,13 @@ export async function startNotifications(context: ServiceContext): Promise<void>
   services.notifications = notifications.service;
   if ("publicKey" in configured && typeof configured.publicKey === "string")
     services.notificationPublicKey = configured.publicKey;
+  // Sign-in requests reach admin phones through the same gateway and the same device table.
+  const access = "access" in configured ? configured.access : undefined;
+  if (access)
+    services.accessPush = {
+      addresses: (devices) => notifications.service.pushAddresses(devices),
+      send: (device, alert, signal) => access.sendAccess(device, alert, signal),
+    };
   onListen.push(async (server) => {
     notifications.setSender(server.notify);
     notifications.setConnected(server.notificationDevices);

@@ -1,5 +1,11 @@
 import { distinctRetainedInputs } from "@ace/projection";
-import { bubbleContent, inputWithText, tokensFromInput, typedWords } from "@ace/ui-core";
+import {
+  bubbleContent,
+  contextAfterEdit,
+  inputWithText,
+  tokensFromInput,
+  typedWords,
+} from "@ace/ui-core";
 import { annotationCount } from "@/features/annotations/index.ts";
 import { useClient, useThreadMeta } from "@ace/client-react";
 import {
@@ -279,7 +285,16 @@ export function useQueue(threadId: string): QueueControls {
           ...(read === undefined ? {} : { expectedRevision: read }),
           messageId: message.id,
           input: inputWithText(message.input, text),
-          ...(message.context ? { context: message.context } : {}),
+          // Its files stay by the same words.
+          ...(message.context
+            ? {
+                context: contextAfterEdit(
+                  message.context,
+                  message.input,
+                  inputWithText(message.input, text),
+                ),
+              }
+            : {}),
         },
         "save the message",
         (error) =>

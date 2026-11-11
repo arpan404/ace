@@ -12,6 +12,7 @@ import { useSubagentFocus } from "../subagent/focus.ts";
 import { AgentListSection, agentWords } from "./work-card-agent-list.tsx";
 import { RowButton, RowLabel, RowSub, rowIcon } from "./work-card-parts.tsx";
 import { useMachineSearch } from "@/lib/machine-routes.ts";
+import { useVisibleParent } from "@/lib/spade-host.ts";
 
 type Close = () => void;
 
@@ -34,7 +35,7 @@ export function AgentsSection(props: { threadId: string; onClose: Close }) {
  * fork is no one's agent: it lists its own subagents like any thread.
  */
 function ThreadFamily(props: { threadId: string; onClose: Close }) {
-  const parentId = useThreadMeta(props.threadId)?.delegatedBy;
+  const parentId = useVisibleParent(useThreadMeta(props.threadId)?.delegatedBy);
   if (!parentId) return <MainAgents threadId={props.threadId} onClose={props.onClose} />;
   return (
     <DelegatedSiblings threadId={props.threadId} parentId={parentId} onClose={props.onClose} />

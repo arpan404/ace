@@ -35,6 +35,8 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
       format: "claude",
       documents: supported ? ["application/pdf"] : [],
       embeddedContext: false,
+      // A user message is an ordered `ContentBlockParam[]` (Agent SDK `SDKUserMessage`).
+      interleaved: true,
       maxInlineBytes: 4 * 1024 * 1024,
     },
     rewindFiles: false,

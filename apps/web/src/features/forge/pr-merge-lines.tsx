@@ -3,17 +3,17 @@ import { useOpenWebAddress } from "@/components/web-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import type { PrActions } from "./pr-actions.ts";
 import { stateWords } from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
 
 function eta(seconds: number): string {
   return seconds < 60 ? "under a minute" : `~${Math.round(seconds / 60)}m`;
 }
 
 /**
- * What the gates row can't say: the branch rules GitHub holds the merge on, a queued PR's
- * state, and where the head is deployed. Nothing for a finished PR or before GitHub answers;
- * the gates row shows that wait.
+ * What the merge box's gates can't say: the branch rules GitHub holds the merge on, a queued
+ * PR's state, and where the head is deployed. Nothing for a finished PR or before GitHub answers.
  */
-export function PrMergeLines(props: { actions: PrActions }) {
+export function PrMergeLines(props: { actions: PrActions; className?: string | undefined }) {
   const toast = useToast();
   const openWeb = useOpenWebAddress();
   const { status } = props.actions.context.detail;
@@ -24,7 +24,7 @@ export function PrMergeLines(props: { actions: PrActions }) {
   const estimate = state.queue?.estimatedTimeToMerge;
   if (!rules.length && !state.queue && !deployments.length) return null;
   return (
-    <div className="space-y-0.5 px-[var(--forge-gutter,1rem)] pb-2 text-xs text-muted-foreground tabular-nums">
+    <div className={cn("space-y-0.5 text-xs text-muted-foreground tabular-nums", props.className)}>
       {state.queue && (
         <p>
           Merge queue · {stateWords(state.queue.state)}

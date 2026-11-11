@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 import type { ForgePrDetail } from "@ace/protocol";
-import { DiffCounts, DiffStat } from "@/components/diff-stat.tsx";
+import { DiffCounts } from "@/components/diff-stat.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { plainRow } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
 import { usePrFilePages } from "./pr-file-pages.ts";
-import { PrSection } from "./pr-section.tsx";
 import { biggestFiles, type GlanceFile } from "./pr-summary-model.ts";
 import { readFailureText } from "./query-state.tsx";
+import { PrBoxHead, prBox } from "./pr-box.tsx";
 
 const shown = 6;
 
@@ -19,7 +19,7 @@ function MicroBar(props: { file: GlanceFile }) {
   return (
     <span
       aria-hidden
-      className="flex h-1.5 w-16 shrink-0 justify-end overflow-hidden rounded-full @max-[30rem]/pr:hidden"
+      className="flex h-1 w-14 shrink-0 justify-end overflow-hidden rounded-full bg-fill-strong @max-[30rem]/pr:hidden"
     >
       <span className="flex h-full" style={{ width: `${Math.max(4, file.scale * 100)}%` }}>
         <span
@@ -61,36 +61,36 @@ function GlanceFrame(props: {
   onOpenCode(path?: string): void;
   children: ReactNode;
 }) {
+  const { detail } = props;
   return (
-    <PrSection
-      title="Changes"
-      count={props.detail.changedFiles}
-      fixed
-      action={
-        <>
-          {props.detail.additions !== undefined && props.detail.deletions !== undefined && (
-            <DiffStat
-              additions={props.detail.additions}
-              deletions={props.detail.deletions}
-              className="text-xs"
-            />
-          )}
-          <Button variant="ghost" size="xs" onClick={() => props.onOpenCode()}>
-            Open code
-          </Button>
-        </>
-      }
-    >
+    <section aria-label="Changes" className={prBox}>
+      <PrBoxHead
+        actions={
+          <>
+            {detail.additions !== undefined && detail.deletions !== undefined && (
+              <DiffCounts
+                additions={detail.additions}
+                deletions={detail.deletions}
+                className="mr-1.5 font-mono text-xs"
+              />
+            )}
+            <Button variant="ghost" size="xs" onClick={() => props.onOpenCode()}>
+              Open code
+            </Button>
+          </>
+        }
+      >
+        <span className="font-semibold text-foreground">Files changed</span>
+        <span className="tabular-nums">{detail.changedFiles}</span>
+      </PrBoxHead>
       {props.children}
-    </PrSection>
+    </section>
   );
 }
 
 function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): void }) {
-  // Rows overhang the column by their inset, so file names start on the page's edge and the
-  // hover wash reaches past it.
   return (
-    <ul className="-mx-1.5">
+    <ul className="divide-y divide-border-soft">
       {props.files.map((file) => (
         <li key={file.path}>
           <button
@@ -99,7 +99,7 @@ function GlanceRows(props: { files: GlanceFile[]; onOpenCode(path?: string): voi
             onClick={() => props.onOpenCode(file.path)}
             className={cn(
               plainRow,
-              "flex min-h-7 w-full items-center gap-3 px-1.5 text-left focus-ring-inset",
+              "flex min-h-9 w-full items-center gap-3 rounded-none px-3.5 text-left focus-ring-inset last:rounded-b-lg",
             )}
           >
             <span className="flex min-w-0 flex-1 font-mono text-xs">
@@ -130,7 +130,7 @@ function GlanceFromDetail(props: { detail: ForgePrDetail; onOpenCode(path?: stri
       {files.length ? (
         <GlanceRows files={files} onOpenCode={props.onOpenCode} />
       ) : (
-        <p className="text-ui text-muted-foreground">No changed files.</p>
+        <p className="px-3.5 py-2.5 text-ui text-muted-foreground">No changed files.</p>
       )}
     </GlanceFrame>
   );
@@ -151,7 +151,7 @@ function GlanceFromPages(props: {
   return (
     <GlanceFrame detail={props.detail} onOpenCode={props.onOpenCode}>
       {pages.error ? (
-        <p className="flex items-center gap-2 text-ui text-muted-foreground">
+        <p className="flex items-center gap-2 px-3.5 py-2.5 text-ui text-muted-foreground">
           {readFailureText(pages.error)}
           <Button size="xs" onClick={pages.retry}>
             Retry
@@ -159,9 +159,12 @@ function GlanceFromPages(props: {
         </p>
       ) : pages.pending ? (
         <LoadingRegion label="changed files">
-          <ul aria-hidden className="-mx-1.5">
+          <ul aria-hidden>
             {[0, 1, 2].map((row) => (
-              <li key={row} className="flex h-7 items-center gap-3 px-1.5">
+              <li
+                key={row}
+                className="flex h-9 items-center gap-3 border-b border-border-soft px-3.5 last:border-b-0"
+              >
                 <Skeleton className="h-3 flex-1" />
                 <Skeleton className="h-1.5 w-16 rounded-full @max-[30rem]/pr:hidden" />
                 <Skeleton className="h-3 w-20" />
@@ -172,7 +175,7 @@ function GlanceFromPages(props: {
       ) : files.length ? (
         <GlanceRows files={files} onOpenCode={props.onOpenCode} />
       ) : (
-        <p className="text-ui text-muted-foreground">No changed files.</p>
+        <p className="px-3.5 py-2.5 text-ui text-muted-foreground">No changed files.</p>
       )}
     </GlanceFrame>
   );

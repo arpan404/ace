@@ -5,11 +5,13 @@ import { createRepositoriesSession } from "./repositories.ts";
 import { createSourceControlSession } from "./source-control.ts";
 import { createPromptFilesSession } from "./prompt-files.ts";
 import { createSkillLibrarySession } from "./skill-library.ts";
+import { createSpadeSession } from "./spade-session.ts";
 import { createProviderInstallsSession } from "./provider-install.ts";
 import { createProviderLoginSession } from "./provider-login.ts";
 import { createHostIdentitySession } from "./host-identity.ts";
 import { createMachineCodeSession } from "./machine-code.ts";
 import { createFleetSession } from "./fleet.ts";
+import { createOutsideClientsSession } from "./outside-clients.ts";
 import { createProviderStatusesSession } from "./provider-status.ts";
 import { createProjectsSession } from "./projects.ts";
 import { createTransfersSession } from "./transfers.ts";
@@ -67,6 +69,7 @@ export const socketServiceFactories = [
   createHostIdentitySession,
   createMachineCodeSession,
   createFleetSession,
+  createOutsideClientsSession,
   createLongThreadSession,
   createPreviewClientSession,
   createAutomationsSession,
@@ -88,6 +91,7 @@ export const socketServiceFactories = [
   createCommandsSession,
   createPromptFilesSession,
   createSkillLibrarySession,
+  createSpadeSession,
   // Before files: the files channel claims every binary message on a socket, and the desktop's
   // backend socket sends its video encoder's (ADR 0088).
   createBrowserSession,

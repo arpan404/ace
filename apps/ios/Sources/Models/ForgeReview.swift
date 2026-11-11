@@ -92,6 +92,10 @@ struct ForgeReviewSheet: Decodable, Sendable, Equatable {
     let refused: String?
     let stale: String?
     let headSha: String
+    /// Where this phone keeps the unsent summary, named by provider and host; a copy kept from
+    /// before keys were sent has none. `legacyDraftKey` holds a summary saved before then.
+    var draftKey: String?
+    var legacyDraftKey: String?
 }
 
 /// A box that shows; `off` says why it can't be used now.
@@ -112,6 +116,7 @@ struct ForgeTimeline: Decodable, Sendable, Equatable {
 
 /// One changed file in the Code view (`bridge/forge-code.ts`).
 struct ForgeFileDiff: Decodable, Sendable, Equatable {
+    let suggestions: Bool?
     /// The commits this diff is between; a copy kept from before they were sent has none.
     var revisions: ForgeFileRevisions?
     struct Anchor: Decodable, Sendable, Equatable, Hashable { let line: Int; let side: String }
@@ -153,6 +158,8 @@ struct ForgeFileDiff: Decodable, Sendable, Equatable {
     let pairs: [[Int?]]
     /// `viewed`, `changed` (pushed to since) or `unviewed`; nil where the range has no marks.
     let viewed: String?
+    /// The host's name ("GitHub", "GitLab"); a copy kept from before it was sent has none.
+    var host: String?
 }
 
 /// What a review write did: done, refused with why, or unconfirmed (to reconcile, never resend).
@@ -200,6 +207,7 @@ extension ClientModel {
 /// A pull request's changed files (`forge.pull.files`) for All commits or a range, each with its
 /// open conversations and its Viewed mark.
 struct ForgeFilesList: Decodable, Sendable, Equatable {
+    let canCompare: Bool?
     struct File: Decodable, Sendable, Equatable, Hashable {
         let path: String
         let status: String

@@ -29,6 +29,11 @@ extension NotificationCoordinator {
     /// notification grants no authority. Every answer ends in an honest word: withdrawn once the
     /// machine confirms it, otherwise a quiet follow-up saying what happened.
     func respond(action: String, notificationId: String, info: [String: String], text: String? = nil) async {
+        // An outside app's sign-in: the tap opens its sheet; it has no buttons to answer.
+        if let access = AccessAlert(info: info) {
+            openAccess(access, hostId: info[NotificationKeys.hostId])
+            return
+        }
         guard let threadId = info[NotificationKeys.threadId] else { return }
         let hostId = info[NotificationKeys.hostId]
         guard let answer = NotificationAnswer(action: action, info: info, text: text) else {

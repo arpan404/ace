@@ -27,30 +27,24 @@ function Face(props: { row: ReviewerRow; className?: string }) {
   );
 }
 
-/** Each reviewer by name with their latest verdict in words: "mira Changes requested · dana Approved". */
+/** Each reviewer on a line: their face and name, their latest verdict in words at the right. */
 function Names(props: { rows: readonly ReviewerRow[] }) {
   return (
-    // Each name leads with its dot; the edge clips the dot of whichever name starts a line.
-    <span className="block overflow-hidden">
-      <span className="-ml-4.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-ui">
-        {props.rows.map((row) => (
-          <span key={row.key} className="inline-flex items-center gap-1.5">
-            <span aria-hidden className="w-3 text-center text-subtle-foreground">
-              ·
-            </span>
-            <Face row={row} />
-            <span className="text-foreground">{row.label}</span>
-            <span
-              className={cn(
-                "text-xs",
-                (row.review && verdictTone[row.review.state]) ?? "text-muted-foreground",
-              )}
-            >
-              {reviewerWords(row).toLowerCase()}
-            </span>
+    <span className="flex w-full flex-col">
+      {props.rows.map((row) => (
+        <span key={row.key} className="flex min-h-7 min-w-0 items-center gap-2 text-ui">
+          <Face row={row} />
+          <span className="min-w-0 truncate text-foreground">{row.label}</span>
+          <span
+            className={cn(
+              "ml-auto shrink-0 text-xs first-letter:uppercase",
+              (row.review && verdictTone[row.review.state]) ?? "text-subtle-foreground",
+            )}
+          >
+            {reviewerWords(row).toLowerCase()}
           </span>
-        ))}
-      </span>
+        </span>
+      ))}
     </span>
   );
 }
@@ -211,7 +205,7 @@ export function PrReviewers(props: {
       <Tip label={said} disabled={open}>
         <PopoverTrigger
           aria-label={`Reviewers: ${said}`}
-          className="-mx-1 inline-flex rounded-sm px-1 py-0.5 text-left focus-ring hover:bg-hover"
+          className="-mx-1.5 flex w-[calc(100%+0.75rem)] rounded-md px-1.5 py-0.5 text-left focus-ring hover:bg-hover"
         >
           <Names rows={props.rows} />
         </PopoverTrigger>

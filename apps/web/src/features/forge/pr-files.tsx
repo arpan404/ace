@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  hostedFilesUnavailableText,
   allCommits,
   codeRange,
   sinceLastReview,
@@ -30,6 +31,16 @@ const rangeKey = (range: CodeRange) => `${range.since ?? ""}..${range.commit}`;
  * and keeps all of it.
  */
 export function PrFiles(props: PrFilesProps) {
+  if (props.detail.unavailableResources?.includes("files"))
+    return (
+      <p role="status" className="p-4 text-sm text-muted-foreground">
+        {hostedFilesUnavailableText(props.repository.forge)}
+      </p>
+    );
+  return <AvailablePrFiles {...props} />;
+}
+
+function AvailablePrFiles(props: PrFilesProps) {
   const [options, setOptions] = useCodeOptions();
   const [ownScope, setOwnScope] = useState<CodeScope>(allCommits);
   const scope = props.scope ?? ownScope;

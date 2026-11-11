@@ -9,15 +9,18 @@ export interface Draft {
   /** Other threads and browser tabs the message points at (`MessageContext.items`). */
   threadRefs?: MessageContextItem[] | undefined;
   mentions: Mention[];
-  /** Files the daemon already holds. */
-  attachments: { sha256: string }[];
+  /** Files the daemon already holds, each with where it sits in the words when it was marked. */
+  attachments: { sha256: string; at?: number | undefined }[];
   /**
    * Every file attached, handed over from the composer (`useAttachments().handOff()`): as the
    * pending bubble shows them, the ones still uploading, and when they've all settled.
    */
   files: {
-    /** As shown, with the hash of each file the daemon already holds. */
-    local: (LocalAttachment & { sha256?: string | undefined })[];
+    /**
+     * As shown, with the hash of each file the daemon already holds and where the person put it
+     * in the message (`MessageContext.attachments[].at`), when they did.
+     */
+    local: (LocalAttachment & { sha256?: string | undefined; at?: number | undefined })[];
     uploading: number;
     settled: Promise<{ sha256: string; name: string }[]>;
     /** Each file's own outcome, in `local`'s order. */

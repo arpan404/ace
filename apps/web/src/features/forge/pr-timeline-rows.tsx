@@ -1,84 +1,45 @@
-import type { ComponentType, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { ForgeComment } from "@ace/protocol";
+import type { ForgeActivity, ForgeCommit } from "@ace/protocol/forge-browser";
 import {
   ArrowsClockwiseIcon,
   CaretRightIcon,
   ChatCircleIcon,
+  CheckIcon,
   GitCommitIcon,
   GitMergeIcon,
   GitPullRequestIcon,
   LinkSimpleIcon,
   TagIcon,
   UsersIcon,
-  type IconProps,
+  XIcon,
+  type Icon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { PullRequestLink, pullRequestAt } from "@/components/pull-request-link.tsx";
-import { PrAvatar, PrTime } from "./pr-presentation.tsx";
-import { PrComment } from "./pr-comment.tsx";
-import { PrThread } from "./pr-thread.tsx";
+import { PrTime } from "./pr-presentation.tsx";
+import { PrThreadBox } from "./pr-thread-box.tsx";
+import { PrCommentBox, TimelineIcon, TimelineStop, TimelineWords } from "./pr-timeline-box.tsx";
 import {
   eventText,
   lifecycleWords,
   reviewVerdictWords,
+  type PrConversationItem,
   type PrReference,
-  type PrTimelineItem,
+  type PrTimelinePush,
+  type PrReviewVerdict,
 } from "@ace/ui-core";
 import { WebLink } from "@/components/web-link.tsx";
 
 export type TimelineExpansion = { isOpen(id: string): boolean; toggle(id: string): void };
 
-const verdictWords = reviewVerdictWords;
-
-function Avatar(props: { name: string; url?: string | undefined; small?: boolean }) {
-  return (
-    <PrAvatar name={props.name} url={props.url} className={props.small ? undefined : "size-8"} />
-  );
-}
-function IconMarker(props: { icon: ComponentType<IconProps>; tone?: string | undefined }) {
-  const Icon = props.icon;
-  return (
-    <span
-      data-tone={props.tone}
-      className={cn(
-        "flex size-8 items-center justify-center rounded-full border border-border bg-panel",
-        props.tone ? "text-(--tone-text)" : "text-muted-foreground",
-      )}
-    >
-      <Icon aria-hidden size={16} />
-    </span>
-  );
-}
-/** One stop on the rail: a 32px marker, then the content indented beside it. */
-function Row(props: { marker: ReactNode; children: ReactNode; className?: string | undefined }) {
-  return (
-    <div className={cn("relative flex gap-4 pb-5", props.className)}>
-      <div className="relative z-[1] flex size-8 shrink-0 items-center justify-center bg-panel">
-        {props.marker}
-      </div>
-      <div className="min-w-0 flex-1 pt-1.5">{props.children}</div>
-    </div>
-  );
-}
-function Line(props: { children: ReactNode; at: string | null }) {
-  return (
-    <p className="flex flex-wrap items-baseline gap-x-1.5 text-ui text-muted-foreground">
-      {props.children}
-      <span aria-hidden className="text-subtle-foreground">
-        ·
-      </span>
-      <PrTime at={props.at} />
-    </p>
-  );
-}
-function CommentBody(props: { comment: ForgeComment; expansion: TimelineExpansion }) {
+function CommentBox(props: { comment: ForgeComment; expansion: TimelineExpansion }) {
   const comment = props.comment;
   const id = `body:${comment.kind}:${comment.id}`;
   return (
-    <PrComment
+    <PrCommentBox
       comment={comment}
-      avatar={false}
       words={<span>commented</span>}
       place={comment.file ? `${comment.file}${comment.line ? `:${comment.line}` : ""}` : undefined}
       quoteTarget="conversation"
@@ -131,39 +92,35 @@ function ReferenceLine(props: { reference: PrReference }) {
     </span>
   );
 }
-/** A row that folds several things into one line until it is opened. */
-function Folded(props: {
+/** A stop that folds several things into one line until it is opened. */
+function FoldButton(props: {
   id: string;
   label: string;
   at: string | null;
   expansion: TimelineExpansion;
-  children: ReactNode;
 }) {
   const open = props.expansion.isOpen(props.id);
   return (
-    <>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => props.expansion.toggle(props.id)}
-        className="flex items-center gap-1.5 text-ui text-muted-foreground hover:text-foreground focus-ring"
-      >
-        <CaretRightIcon
-          aria-hidden
-          size={12}
-          className={cn("transition-transform", open && "rotate-90")}
-        />
-        <span>{props.label}</span>
-        <span aria-hidden className="text-subtle-foreground">
-          ·
-        </span>
-        <PrTime at={props.at} />
-      </button>
-      {open && <div className="mt-2 space-y-3">{props.children}</div>}
-    </>
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={() => props.expansion.toggle(props.id)}
+      className="flex items-center gap-1.5 text-ui text-muted-foreground hover:text-foreground focus-ring"
+    >
+      <CaretRightIcon
+        aria-hidden
+        size={12}
+        className={cn("transition-transform", open && "rotate-90")}
+      />
+      <span>{props.label}</span>
+      <span aria-hidden className="text-subtle-foreground">
+        ·
+      </span>
+      <PrTime at={props.at} />
+    </button>
   );
 }
-function eventIcon(event: string): ComponentType<IconProps> {
+function eventIcon(event: string): Icon {
   if (event.includes("label")) return TagIcon;
   if (event.includes("review_request")) return UsersIcon;
   if (event.includes("force_push")) return ArrowsClockwiseIcon;
@@ -171,182 +128,213 @@ function eventIcon(event: string): ComponentType<IconProps> {
   if (event === "commented" || event === "reviewed") return ChatCircleIcon;
   return GitPullRequestIcon;
 }
+/** A label event names its label as a small pill: "added (bug)". */
+function EventWords(props: { event: ForgeActivity }) {
+  const { event } = props;
+  if ((event.event === "labeled" || event.event === "unlabeled") && event.subject)
+    return (
+      <>
+        <span>{event.event === "labeled" ? "added" : "removed"}</span>
+        <span className="rounded-full border border-border px-2 text-xs font-medium text-muted-foreground">
+          {event.subject}
+        </span>
+      </>
+    );
+  return <span>{eventText(event)}</span>;
+}
+function CommitLine(props: { commit: ForgeCommit; onOpen?: ((sha: string) => void) | undefined }) {
+  const { commit, onOpen } = props;
+  const headline = commit.message.split("\n")[0];
+  return (
+    <li className="flex min-w-0 items-baseline gap-3 py-0.5">
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={() => onOpen(commit.sha)}
+          className="min-w-0 truncate text-left text-ui text-foreground hover:underline focus-ring"
+        >
+          {headline}
+        </button>
+      ) : (
+        <span className="min-w-0 truncate text-ui text-foreground">{headline}</span>
+      )}
+      <span className="ml-auto flex shrink-0 items-baseline gap-3">
+        {commit.additions !== undefined && commit.deletions !== undefined && (
+          <DiffStat additions={commit.additions} deletions={commit.deletions} />
+        )}
+        <WebLink
+          href={commit.url}
+          className="font-mono text-xs text-subtle-foreground hover:underline focus-ring"
+        >
+          {commit.sha.slice(0, 7)}
+        </WebLink>
+      </span>
+    </li>
+  );
+}
+function PushStop(props: {
+  push: PrTimelinePush;
+  onOpenCommit?: ((sha: string) => void) | undefined;
+}) {
+  const { push } = props;
+  const count = push.commits.length;
+  return (
+    <TimelineStop marker={<TimelineIcon icon={GitCommitIcon} />}>
+      <TimelineWords actor={push.author} at={push.at}>
+        <span>{count === 1 ? "pushed 1 commit" : `pushed ${count} commits`}</span>
+      </TimelineWords>
+      <ul aria-label="Commits" className="mt-1.5 list-none p-0">
+        {push.commits.map((commit) => (
+          <CommitLine key={commit.sha} commit={commit} onOpen={props.onOpenCommit} />
+        ))}
+      </ul>
+    </TimelineStop>
+  );
+}
+/** A verdict's icon: approved and requested changes settle something, so they are solid. */
+const verdictIcon: Record<PrReviewVerdict, { icon: Icon; solid: boolean }> = {
+  approved: { icon: CheckIcon, solid: true },
+  changes: { icon: XIcon, solid: true },
+  commented: { icon: ChatCircleIcon, solid: false },
+  dismissed: { icon: ChatCircleIcon, solid: false },
+  pending: { icon: ChatCircleIcon, solid: false },
+};
 
 export function PrTimelineRow(props: {
-  item: PrTimelineItem;
+  item: PrConversationItem;
   expansion: TimelineExpansion;
   onOpenCommit?: ((sha: string) => void) | undefined;
 }) {
   const { item, expansion } = props;
   switch (item.kind) {
-    case "commit": {
-      const commit = item.commit;
-      const headline = commit.message.split("\n")[0];
-      const onOpen = props.onOpenCommit;
-      return (
-        <Row marker={<Avatar name={commit.author} url={commit.authorAvatarUrl} />}>
-          <div className="flex items-start gap-3">
-            <div className="min-w-0 flex-1">
-              {onOpen ? (
-                <button
-                  type="button"
-                  onClick={() => onOpen(commit.sha)}
-                  className="block max-w-full truncate text-left text-xs font-semibold hover:underline focus-ring"
-                >
-                  {headline}
-                </button>
-              ) : (
-                <p className="truncate text-xs font-semibold">{headline}</p>
-              )}
-              <p className="flex items-baseline gap-2 text-subtle-foreground">
-                <WebLink
-                  href={commit.url}
-                  className="font-mono text-2xs hover:underline focus-ring"
-                >
-                  {commit.sha.slice(0, 7)}
-                </WebLink>
-                <PrTime at={item.at} />
-              </p>
-            </div>
-            {commit.additions !== undefined && commit.deletions !== undefined && (
-              <DiffStat
-                className="shrink-0 pt-0.5"
-                additions={commit.additions}
-                deletions={commit.deletions}
-              />
-            )}
-          </div>
-        </Row>
-      );
-    }
+    case "push":
+      return <PushStop push={item} onOpenCommit={props.onOpenCommit} />;
     case "review": {
-      const words = verdictWords[item.verdict];
+      const words = reviewVerdictWords[item.verdict];
+      const verdict = (
+        <>
+          <span
+            data-tone={words.tone}
+            className={cn("font-medium", words.tone && "text-(--tone-text)")}
+          >
+            {words.text}
+          </span>
+          {item.stale && <span className="text-subtle-foreground">outdated</span>}
+        </>
+      );
+      // A verdict with nothing written is one line on the rail; one with words is a box.
+      if (!item.comment.body.trim()) {
+        const mark = verdictIcon[item.verdict];
+        return (
+          <TimelineStop
+            className={item.stale ? "opacity-55" : undefined}
+            marker={<TimelineIcon icon={mark.icon} tone={words.tone} solid={mark.solid} />}
+          >
+            <TimelineWords actor={item.comment.author} at={item.at}>
+              {verdict}
+            </TimelineWords>
+          </TimelineStop>
+        );
+      }
       return (
-        <Row
-          marker={<Avatar name={item.comment.author} url={item.comment.authorAvatarUrl} />}
+        <PrCommentBox
           className={item.stale ? "opacity-55" : undefined}
-        >
-          <PrComment
-            comment={item.comment}
-            avatar={false}
-            words={
-              <>
-                <span
-                  data-tone={words.tone}
-                  className={cn("font-medium", words.tone && "text-(--tone-text)")}
-                >
-                  {words.text}
-                </span>
-                {item.stale && <span className="text-subtle-foreground">outdated</span>}
-              </>
-            }
-            quoteTarget="conversation"
-            open={expansion.isOpen(`body:${item.id}`)}
-            onToggle={() => expansion.toggle(`body:${item.id}`)}
-          />
-        </Row>
+          comment={item.comment}
+          words={verdict}
+          quoteTarget="conversation"
+          open={expansion.isOpen(`body:${item.id}`)}
+          onToggle={() => expansion.toggle(`body:${item.id}`)}
+        />
       );
     }
     case "comment":
-      return (
-        <Row marker={<Avatar name={item.comment.author} url={item.comment.authorAvatarUrl} />}>
-          <CommentBody comment={item.comment} expansion={expansion} />
-        </Row>
-      );
-    case "thread": {
-      const first = item.thread.comments[0];
-      return (
-        <Row marker={<Avatar name={first?.author ?? ""} url={first?.authorAvatarUrl} />}>
-          <PrThread thread={item.thread} place />
-        </Row>
-      );
-    }
+      return <CommentBox comment={item.comment} expansion={expansion} />;
+    case "thread":
+      return <PrThreadBox thread={item.thread} />;
     case "comments": {
       const open = expansion.isOpen(item.id);
-      const first = item.comments[0];
       const authors = item.authors.length;
       return (
-        <Row
-          marker={
-            <span className={cn(!open && "grayscale")}>
-              <Avatar name={first?.author ?? ""} url={first?.authorAvatarUrl} />
-            </span>
-          }
-          className={open ? undefined : "opacity-55"}
-        >
-          <Folded
-            id={item.id}
-            label={`${item.comments.length} comments · ${authors} ${authors === 1 ? "author" : "authors"}`}
-            at={item.at}
-            expansion={expansion}
+        <>
+          <TimelineStop
+            marker={<TimelineIcon icon={ChatCircleIcon} />}
+            className={open ? undefined : "opacity-70"}
           >
-            {item.comments.map((comment) => (
-              <div key={`${comment.kind}:${comment.id}`} className="flex gap-2">
-                <Avatar small name={comment.author} url={comment.authorAvatarUrl} />
-                <div className="min-w-0 flex-1">
-                  <CommentBody comment={comment} expansion={expansion} />
-                </div>
-              </div>
+            <FoldButton
+              id={item.id}
+              label={`${item.comments.length} comments · ${authors} ${authors === 1 ? "author" : "authors"}`}
+              at={item.at}
+              expansion={expansion}
+            />
+          </TimelineStop>
+          {open &&
+            item.comments.map((comment) => (
+              <CommentBox
+                key={`${comment.kind}:${comment.id}`}
+                comment={comment}
+                expansion={expansion}
+              />
             ))}
-          </Folded>
-        </Row>
+        </>
       );
     }
     case "references": {
       const only = item.references.length === 1 ? item.references[0] : undefined;
+      const open = expansion.isOpen(item.id);
       return (
-        <Row marker={<IconMarker icon={LinkSimpleIcon} />}>
+        <TimelineStop marker={<TimelineIcon icon={LinkSimpleIcon} />}>
           {only ? (
-            <Line at={only.at}>
-              <span className="font-medium text-foreground">{only.actor}</span>
+            <TimelineWords actor={only.actor} at={only.at}>
               <ReferenceLine reference={only} />
-            </Line>
+            </TimelineWords>
           ) : (
-            <Folded
-              id={item.id}
-              label={`${item.references.length} references`}
-              at={item.at}
-              expansion={expansion}
-            >
-              {item.references.map((reference) => (
-                <Line key={reference.id} at={reference.at}>
-                  <span className="font-medium text-foreground">{reference.actor}</span>
-                  <ReferenceLine reference={reference} />
-                </Line>
-              ))}
-            </Folded>
+            <>
+              <FoldButton
+                id={item.id}
+                label={`${item.references.length} references`}
+                at={item.at}
+                expansion={expansion}
+              />
+              {open && (
+                <div className="mt-2 space-y-1.5">
+                  {item.references.map((reference) => (
+                    <TimelineWords key={reference.id} actor={reference.actor} at={reference.at}>
+                      <ReferenceLine reference={reference} />
+                    </TimelineWords>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-        </Row>
+        </TimelineStop>
       );
     }
     case "lifecycle": {
       const words = lifecycleWords[item.state];
+      const ended = item.state === "merged" || item.state === "closed";
       return (
-        <Row
+        <TimelineStop
           marker={
-            <IconMarker
+            <TimelineIcon
               icon={item.state === "merged" ? GitMergeIcon : GitPullRequestIcon}
               tone={words.tone}
+              solid={ended}
             />
           }
         >
-          <Line at={item.at}>
-            <span className="font-medium text-foreground">{item.event.actor}</span>
-            <span data-tone={words.tone} className="text-(--tone-text)">
-              {words.text}
-            </span>
-          </Line>
-        </Row>
+          <TimelineWords actor={item.event.actor} at={item.at}>
+            <span>{words.text}</span>
+          </TimelineWords>
+        </TimelineStop>
       );
     }
     case "event":
       return (
-        <Row marker={<IconMarker icon={eventIcon(item.event.event)} />}>
-          <Line at={item.at}>
-            <span className="font-medium text-foreground">{item.event.actor}</span>
-            <span>{eventText(item.event)}</span>
-          </Line>
-        </Row>
+        <TimelineStop marker={<TimelineIcon icon={eventIcon(item.event.event)} />}>
+          <TimelineWords actor={item.event.actor} at={item.at}>
+            <EventWords event={item.event} />
+          </TimelineWords>
+        </TimelineStop>
       );
   }
 }

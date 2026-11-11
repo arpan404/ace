@@ -145,7 +145,7 @@ test("a pull request's local check runs from its page and counts in its checks g
   await app.open("/pulls/ace/224");
   const page = within(await screen.findByRole("article", { name: "Pull request #224" }));
   // The checks gate opens the checks.
-  await userEvent.click(await page.findByRole("button", { name: "Checks: All 3 checks passed" }));
+  await userEvent.click(await page.findByRole("button", { name: "Checks: 3 passed" }));
   await userEvent.click(
     await page.findByRole("button", { name: "Local · bun run check: Not run" }),
   );
@@ -153,6 +153,7 @@ test("a pull request's local check runs from its page and counts in its checks g
   expect(
     await page.findByRole("button", { name: "Local · bun run check: Passed" }, { timeout: 3_000 }),
   ).toBeTruthy();
-  expect(await page.findByRole("button", { name: "Checks: All 4 checks passed" })).toBeTruthy();
   expect(await page.findByRole("log", { name: "Log of Local · bun run check" })).toBeTruthy();
+  await userEvent.click(page.getByRole("tab", { name: "Summary" }));
+  expect(await page.findByRole("button", { name: "Checks: 4 passed" })).toBeTruthy();
 });

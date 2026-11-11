@@ -1,5 +1,6 @@
 import { ForgeRepository, type ForgeIssueDetail, type ForgePrDetail } from "@ace/protocol";
 import {
+  can,
   completionAt,
   completionChange,
   issueParticipants,
@@ -15,7 +16,7 @@ import {
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
-import { scopeOf } from "./forge-pr-reads.ts";
+import { prDetail, scopeOf } from "./forge-pr-reads.ts";
 import { ForgeRefusal, type ForgeReads } from "./forge-reads.ts";
 
 /*
@@ -163,6 +164,10 @@ export async function readReviewers(
   const value = await reads.read({ op: "forge.pr.reviewers", ...scopeOf(request) }, false);
   if (value.resource !== "prReviewers") throw new ForgeRefusal("forge_invalid_data");
   const reviewers = value.value;
+  const detail = await prDetail(reads, request);
+  const writable = can(detail, "reviews.approvals.write");
+  // Asking and un-asking reviewers is its own capability; dismissing a review is an approval.
+  const requestable = can(detail, "reviews.reviewers.request");
   return {
     type: "forge.pull.reviewers",
     rows: reviewerRows(reviewers).map((row) => ({
@@ -178,16 +183,17 @@ export async function readReviewers(
             ? "failed"
             : null,
       reviewId: row.review?.id ?? null,
-      canRerequest: row.canRerequest,
-      canRemove: row.canRemove,
-      canDismiss: row.canDismiss,
+      canRerequest: requestable && row.canRerequest,
+      canRemove: requestable && row.canRemove,
+      canDismiss: writable && row.canDismiss,
     })),
-    suggested: reviewers.canRequest
-      ? suggestedReviewers(reviewers).map((person) => ({
-          login: person.login,
-          name: person.name ? preview(person.name, 256) : null,
-        }))
-      : [],
-    canRequest: reviewers.canRequest,
+    suggested:
+      requestable && reviewers.canRequest
+        ? suggestedReviewers(reviewers).map((person) => ({
+            login: person.login,
+            name: person.name ? preview(person.name, 256) : null,
+          }))
+        : [],
+    canRequest: requestable && reviewers.canRequest,
   };
 }

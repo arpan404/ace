@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, expect, it } from "vitest";
 import { createPushGatewayTransport } from "@ace/notify";
-import { Notification, NotificationDevice, PushAlertPayload } from "@ace/protocol";
+import {
+  Notification,
+  NotificationDevice,
+  PushAccessPayload,
+  PushAlertPayload,
+} from "@ace/protocol";
 import { GatewayConfig } from "./config.ts";
 import { startGateway, type Gateway } from "./server.ts";
 import { apnsKeyPair, phoneKeys, signingKeyPem, startFakeApns } from "./testing/fake-apns.ts";
@@ -153,4 +158,40 @@ it("fits an oversized alert by dropping its preview and message", async () => {
   );
   expect(opened.notification.title).toBe(long.title);
   expect(opened.notification.threadIds).toBeUndefined();
+});
+
+it("pushes a sign-in request the phone reads as one, held no longer than the request lives", async () => {
+  const { apns, clock, phone, device, transport } = await setup();
+  const access = {
+    requestId: "request-1",
+    clientName: "Claude",
+    domain: "claude.ai",
+    matchCode: "7KQ2XM",
+    expiresAt: clock.now() + 9 * 60_000,
+  };
+  expect(await transport.sendAccess(device, access, signal())).toBe("accepted");
+  const call = apns.calls[0];
+  if (!call) throw new Error("APNs got nothing");
+  expect(call.body.toString()).not.toContain("7KQ2XM");
+  const sealed = Buffer.from(JSON.parse(call.body.toString()).ace.c, "base64url");
+  const opened: unknown = JSON.parse(phone.decrypt(sealed).toString());
+  // Exactly who asks and the code to compare: no scopes, grant, token or redirect.
+  expect(PushAccessPayload.strict().parse(opened)).toEqual({ v: 1, hostId: "HOST", access });
+  // A phone that only knows thread alerts can't mistake it for one; it keeps the generic text.
+  expect(PushAlertPayload.safeParse(opened).success).toBe(false);
+  expect(Number(call.headers["apns-expiration"])).toBe(Math.floor(access.expiresAt / 1000));
+  expect(call.headers["apns-priority"]).toBe("10");
+});
+
+it("never pushes a sign-in request that already ran out", async () => {
+  const { apns, clock, device, transport } = await setup();
+  const access = {
+    requestId: "request-1",
+    clientName: "Claude",
+    domain: null,
+    matchCode: "7KQ2XM",
+    expiresAt: clock.now(),
+  };
+  expect(await transport.sendAccess(device, access, signal())).toBe("failed");
+  expect(apns.calls).toHaveLength(0);
 });

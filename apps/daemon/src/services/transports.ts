@@ -3,6 +3,7 @@ import { startFilesRelay } from "../files-relay.ts";
 import type { ServerOptions } from "../server-options.ts";
 import type { RemoteAuth } from "../remote-auth.ts";
 import { Resources } from "./resources.ts";
+import { relayHttp } from "../relay-http.ts";
 /**
  * The relay connects while the daemon starts, before listener-phase services (sign-in, accounts,
  * context) publish. Each service is therefore read from `options` when a channel uses it; copying
@@ -67,6 +68,10 @@ export async function startRelayTransport(
     devices: options.store.devices,
     hostId: options.hostId,
     headSeq: () => options.store.headSeq(),
+    http: relayHttp({
+      settings: () => options.settings,
+      handler: () => options.outsideMcpHttp,
+    }),
   });
   return { relayHostId: host.hostId, close: () => host.close() };
 }

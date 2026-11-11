@@ -7,6 +7,7 @@ import {
 import { liveAceCall } from "./ace-approvals.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
+import { HostThreads } from "./host-threads.ts";
 import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
@@ -143,6 +144,8 @@ export class Engine {
   private repo: EngineRepository;
   /** Provider-less threads holding remote tool use from other machines (ADR 0105). */
   readonly guests: GuestThreads;
+  /** Threads the daemon holds for its own processes, such as Spade (ADR 0121). */
+  readonly hosts: HostThreads;
   private registry: AdapterRegistry;
   private clock: EngineClock;
   private batchScheduler: Pick<EngineClock, "setTimer">;
@@ -194,6 +197,7 @@ export class Engine {
       options.aceToolAction,
       () => this.clock.now(),
     );
+    this.hosts = new HostThreads(this.repo, () => this.clock.now());
     this.guests = new GuestThreads(
       this.repo,
       () => this.clock.now(),

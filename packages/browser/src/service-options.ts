@@ -23,6 +23,13 @@ export interface BrowserServiceOptions {
   ffmpeg?: string;
   originPolicy?: OriginPolicy;
   /**
+   * Sessions kept off this machine and its local network, whatever `originPolicy` allows: an
+   * outside MCP client's (ADR 0122). Read per request.
+   */
+  privateNetworkBlocked?: (threadId: string) => boolean;
+  /** Resolves hostnames for `privateNetworkBlocked`; defaults to the system resolver. */
+  resolveHost?: import("./private-network.ts").ResolveHost;
+  /**
    * Use my Chrome: whether the person lets agents' `evaluate` read the page's cookies and web
    * storage (`browser.userChrome.storageReads`). Omitted: never.
    */

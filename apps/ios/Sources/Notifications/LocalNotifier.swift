@@ -20,6 +20,10 @@ enum NotificationKeys {
     static let questionId = "questionId"
     static let choices = "choices"
     static let choiceSeparator: Character = "\u{1F}"
+    /// An outside app's sign-in (`AccessAlert`): which request, who asks and when it ends.
+    static let accessRequestId = "accessRequestId"
+    static let accessClient = "accessClient"
+    static let accessExpiresAt = "accessExpiresAt"
 }
 
 final class SystemNotificationCenter: NotificationCenterPort {
@@ -49,6 +53,7 @@ final class SystemNotificationCenter: NotificationCenterPort {
             let shape = NotificationCategories.Shape(labels: alert.choices.map(\.label), reply: alert.takesWords)
             UNUserNotificationCenter.current().setNotificationCategories(NotificationCategories.remember(shape, defaults: .standard))
         }
+        if let access = alert.access { info.merge(access.info) { $1 } }
         content.userInfo = info
         // The stable daemon id, within its machine, is the request identifier, so a repeat
         // replaces rather than stacks, and another machine's equal id doesn't replace it.

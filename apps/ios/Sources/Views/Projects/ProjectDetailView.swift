@@ -5,7 +5,7 @@ private struct ProjectReply: Decodable {
     let result: Result
 }
 
-/// One project: its folder, files and past sessions, the notes every agent reads, where else it
+/// One project: its folder, files, past sessions and Git repositories, the notes every agent reads, where else it
 /// opens, then Edit and Remove. Read again whenever the machine's projects change.
 struct ProjectDetailView: View {
     let model: ClientModel
@@ -40,6 +40,10 @@ struct ProjectDetailView: View {
             QuietGroup {
                 NavigationLink { FilesScreen(model: model, scope: .project(project.id), subtitle: project.name, mention: nil) } label: { HStack { QuietRowText(title: "Files"); RowCaret() } }
                 NavigationLink { PastSessionsView(model: model, project: project) } label: { HStack { QuietRowText(title: "Past CLI sessions"); RowCaret() } }
+                NavigationLink { ProjectRepositoriesView(model: model, project: project) } label: {
+                    HStack { QuietRowText(title: "Repositories", detail: "Where reviews are read and pull requests open"); RowCaret() }
+                }
+                .accessibilityIdentifier("project.repositories")
                 OpenOnHostMenu(model: model, target: HostOpenTarget(workspaceId: project.id)) {
                     HStack { QuietRowText(title: "Open in…", detail: "An editor or the file manager on the computer"); RowCaret() }
                 }

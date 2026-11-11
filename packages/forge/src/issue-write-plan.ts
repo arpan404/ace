@@ -19,7 +19,16 @@ export type IssueWritePlan =
    */
   | { kind: "members"; field: "labels" | "assignees"; add: string[]; remove: string[] };
 
-const unique = (values: readonly string[]) => [...new Set(values)];
+/** Names compare case-insensitively, as hosts compare logins and labels; the first spelling stays. */
+const unique = (values: readonly string[]) => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 const same = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((value) => b.includes(value));
 

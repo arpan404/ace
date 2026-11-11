@@ -658,3 +658,40 @@ test("invalid icons cannot create folders or replace saved project metadata", as
     await f.close();
   }
 });
+
+test("Spade's hidden project is never listed, and forge reads for it are answered without Git or a warning", async () => {
+  const f = await projectFixture();
+  const warnings: string[] = [];
+  const server = await projectServer(f, { warn: (message) => warnings.push(message) });
+  try {
+    const repo = join(f.root, "repo");
+    await mkdir(repo);
+    const listed = f.store.createWorkspace(repo, "Repo");
+    const spadeFolder = join(f.root, "spade", "workspace");
+    await mkdir(spadeFolder, { recursive: true });
+    const spade = f.projects.catalog.registerSpade(spadeFolder);
+    const client = await server.connect();
+    client.send({
+      type: "workspace.request",
+      requestId: "list",
+      operation: { op: "workspaces.list", limit: 50 },
+    });
+    const list = await until(client, (message) => message.type === "workspace.result");
+    if (list.type !== "workspace.result" || list.result.kind !== "workspaces")
+      throw new Error("Expected the project list");
+    expect(list.result.workspaces.map((project) => project.id)).toEqual([listed]);
+    client.send({
+      type: "workspace.request",
+      requestId: "forge",
+      operation: { op: "forge.repository", workspaceId: spade },
+    });
+    expect(await until(client, (message) => message.type === "workspace.result")).toMatchObject({
+      requestId: "forge",
+      result: { kind: "error", code: "not_a_repo" },
+    });
+    expect(warnings).not.toContain("Forge read failed");
+  } finally {
+    await server.close();
+    await f.close();
+  }
+});

@@ -210,7 +210,7 @@ export function parsePrReference(
   if (bare)
     return repository
       ? valid(Number(bare[1]))
-      : { error: "Paste the pull request’s GitHub address. This checkout has no origin remote." };
+      : { error: "Paste the pull request’s address. This checkout has no origin remote." };
   try {
     const ref = prFromUrl(value, hosts);
     const ours =

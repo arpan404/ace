@@ -194,3 +194,39 @@ export const SidebarShownIcon = forwardRef<SVGSVGElement, IconProps>(
     return <SidebarSimpleIcon ref={ref} {...props} weight="fill" />;
   },
 );
+
+/** Spade's two eyes on the 24 box. */
+const spadeEyes = (fill: string) => (
+  <>
+    <ellipse cx="9.2" cy="11.2" rx="1.35" ry="1.9" fill={fill} />
+    <ellipse cx="14.8" cy="11.2" rx="1.35" ry="1.9" fill={fill} />
+  </>
+);
+
+/**
+ * Spade: its round head and two eyes, for places that list Spade with other glyphs (Settings).
+ * The rail draws the full mark (`SpadeMark`). Solid, the eyes are cut out of the head.
+ */
+export const SpadeIcon = forwardRef<SVGSVGElement, IconProps>(function SpadeIcon(
+  { weight = "regular", color, ...svg },
+  ref,
+) {
+  const ink = color ?? "currentColor";
+  const mask = useId();
+  if (weight === "fill" || weight === "duotone")
+    return (
+      <svg ref={ref} {...frame(svg)}>
+        <mask id={mask}>
+          <rect width="24" height="24" fill="white" />
+          {spadeEyes("black")}
+        </mask>
+        <circle cx="12" cy="12" r="9.75" fill={ink} mask={`url(#${mask})`} />
+      </svg>
+    );
+  return (
+    <svg ref={ref} {...frame(svg)}>
+      <circle cx="12" cy="12" r="9" stroke={ink} strokeWidth={stroke} />
+      {spadeEyes(ink)}
+    </svg>
+  );
+});

@@ -1,13 +1,100 @@
-//! A conversation's events, as stored. See docs/chat-core.md.
+//! A conversation's events, as stored. See docs/chat-core.md and docs/harness.md.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use spade_models::Thought;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Known {
     UserMessage {
         text: String,
+        /// Per-turn context fixed when the message was stored (the time, matching memories), so
+        /// rebuilding the prompt later gives the same bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context: Option<String>,
+        /// Images the person attached. The bytes live in Spade's image store, by hash.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageRef>,
+    },
+    /// The skill index for this conversation, fixed at its first turn so the prompt's top stays
+    /// cached; later skills are found with `skill_search`.
+    SkillsIndexed {
+        text: String,
+    },
+    /// One model call in a turn finished: its text, tool calls and the model's thoughts, kept
+    /// whole so they go back exactly as they came.
+    StepFinished {
+        reply: String,
+        text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        calls: Vec<Call>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        thoughts: Vec<Thought>,
+        #[serde(default)]
+        usage: Tokens,
+        #[serde(default)]
+        cost_micros: u64,
+        /// How many of the conversation's events the step's prompt was built from. A message stored
+        /// at or after this index arrived while the model was answering and is still unanswered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seen: Option<usize>,
+    },
+    /// The gate stopped a tool call to ask the person.
+    ApprovalRequested {
+        reply: String,
+        call_id: String,
+        name: String,
+        arguments: Value,
+    },
+    ApprovalAnswered {
+        reply: String,
+        call_id: String,
+        allowed: bool,
+        /// Allow this tool without asking again in this conversation.
+        #[serde(default)]
+        always: bool,
+    },
+    ToolStarted {
+        reply: String,
+        call_id: String,
+        name: String,
+    },
+    ToolFinished {
+        reply: String,
+        call_id: String,
+        name: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
+        /// Images the tool returned (a screenshot), kept in the image store.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<ImageRef>,
+    },
+    /// An allowed call was handed to a background job. Its `tool_finished` says so at once; the
+    /// job's own result comes later as `job_finished`.
+    JobStarted {
+        reply: String,
+        job: String,
+        name: String,
+    },
+    /// A background job ended. The model reads it like a message, so it steers an open turn or
+    /// starts a new one.
+    JobFinished {
+        job: String,
+        name: String,
+        content: String,
+        #[serde(default)]
+        is_error: bool,
+    },
+    /// The person pressed Stop, naming what was running then: the open reply and the background
+    /// jobs. Those stop; a result of one of those jobs, or of a job its reply started, is kept
+    /// without opening a reply. Later work is not affected.
+    StopRequested {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reply: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        jobs: Vec<String>,
     },
     ReplyStarted {
         reply: String,
@@ -43,6 +130,43 @@ pub enum Known {
     Renamed {
         title: String,
     },
+    /// Everything before `keep_from` (an index into the conversation's events) is replaced in the
+    /// model's view by `summary`; the events themselves stay stored (docs/design.md, Compaction).
+    ContextCompacted {
+        summary: String,
+        keep_from: usize,
+        #[serde(default)]
+        tokens_before: u32,
+    },
+}
+
+/// An attached image, as stored in an event: its SHA-256 (hex), media type and size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageRef {
+    pub sha256: String,
+    pub media_type: String,
+    pub bytes: u64,
+}
+
+/// A tool call as stored.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Call {
+    pub id: String,
+    pub name: String,
+    pub arguments: Value,
+}
+
+/// Token counts for a model call, as the endpoint reported them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<u32>,
 }
 
 /// A stored event. One Spade does not know (written by a newer version) is kept as raw JSON.
@@ -75,7 +199,11 @@ impl Event {
     }
 
     pub fn user_message(text: impl Into<String>) -> Self {
-        Self::Known(Known::UserMessage { text: text.into() })
+        Self::Known(Known::UserMessage {
+            text: text.into(),
+            context: None,
+            images: Vec::new(),
+        })
     }
 
     pub fn reply_started(reply: impl Into<String>, model: impl Into<String>) -> Self {
