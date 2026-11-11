@@ -493,7 +493,10 @@ mod tests {
     #[test]
     fn a_message_stored_while_turns_could_not_start_needs_a_reply() {
         let first = vec![Event::user_message("Hi")];
-        assert!(needs_reply(&first), "a conversation started during an update");
+        assert!(
+            needs_reply(&first),
+            "a conversation started during an update"
+        );
         let mut events = vec![
             Event::user_message("Hi"),
             Event::reply_started("r1", "m"),

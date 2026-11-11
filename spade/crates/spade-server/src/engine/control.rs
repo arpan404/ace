@@ -75,6 +75,10 @@ impl Engine {
             }
         };
         let stopped_jobs = jobs::stop_all(self, id);
+        // A paused reply has no worker; one starts, sees the stored stop and closes it as stopped.
+        if !turn && reply.is_some() && stored.is_ok() {
+            self.spawn_turn(id);
+        }
         loaded?;
         stored?;
         Ok(turn || stopped_jobs > 0 || reply.is_some())
@@ -93,7 +97,9 @@ impl Engine {
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
         let mut events = self.load(id)?;
         events.push(close.clone());
-        if unanswered_after(&events, reply) {
+        // While closed for an update nothing new starts; reopening answers what is left.
+        let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst);
+        if admitted && unanswered_after(&events, reply) {
             let model = self.models.for_role(Role::Main).to_owned();
             let started = Event::reply_started(self.ids.next("r"), model);
             self.append_events(id, &[close.clone(), started])?;

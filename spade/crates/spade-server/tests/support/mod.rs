@@ -117,6 +117,7 @@ pub struct Spade {
     pub fake: FakeProvider,
     pub http: reqwest::Client,
     pub dir: Arc<tempfile::TempDir>,
+    pub engine: Arc<Engine>,
     stop: Option<oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<std::io::Result<()>>,
 }
@@ -212,7 +213,7 @@ impl Spade {
         })?;
         let keys = KeyStore::with_store(mock::Store::new()?, spade_keys::SERVICE);
         let state = AppState {
-            engine,
+            engine: engine.clone(),
             token: TOKEN.into(),
             keys: Some(keys),
         };
@@ -227,6 +228,7 @@ impl Spade {
             fake,
             http: reqwest::Client::new(),
             dir,
+            engine,
             stop: Some(stop),
             task,
         })
@@ -244,6 +246,41 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Stops this server as SIGTERM does (open turns pause, a running model step gets
+    /// `allowance`), then opens a new engine and server on the same database.
+    pub async fn restart_after_stop(
+        self,
+        allowance: Duration,
+        tools: Vec<Arc<dyn Tool>>,
+        scripts: Vec<Script>,
+    ) -> Result<Self> {
+        self.engine.pause_for_stop(allowance).await;
+        self.restart(tools, scripts).await
+    }
+
+    pub async fn delete(&self, path: &str) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .delete(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
+    }
+
+    pub async fn put(&self, path: &str, body: Value) -> Result<(u16, Value)> {
+        let response = self
+            .http
+            .put(format!("{}{path}", self.base))
+            .bearer_auth(TOKEN)
+            .json(&body)
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        Ok((status, response.json().await.unwrap_or(Value::Null)))
     }
 
     /// Shuts the server down the graceful way; fails if it does not finish within `within`.

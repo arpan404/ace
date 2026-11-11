@@ -21,7 +21,7 @@ use spade_store::StoredEvent;
 use tokio::sync::watch;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::engine::{AnswerError, CompactError, Engine, Frame, SendError};
+use crate::engine::{AnswerError, CompactError, Engine, Frame, MaintenanceState, SendError};
 
 /// Set when the server begins shutting down, so live streams end and shutdown is not held up.
 #[derive(Clone)]
@@ -59,6 +59,12 @@ pub fn router(state: AppState) -> Router {
         .route("/models", get(models))
         .route("/images/{sha256}", get(image))
         .route("/keys/{endpoint}", put(set_key).delete(delete_key))
+        .route(
+            "/maintenance",
+            get(maintenance_state)
+                .post(begin_maintenance)
+                .delete(end_maintenance),
+        )
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
         .with_state(state);
     Router::new()
@@ -433,4 +439,47 @@ async fn delete_key(State(state): State<AppState>, Path(endpoint): Path<String>)
         Ok(false) => problem(StatusCode::NOT_FOUND, "no key stored for that endpoint"),
         Err(error) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
     }
+}
+
+fn maintenance_json(state: MaintenanceState) -> Value {
+    json!({
+        "admission": if state.admission_open { "open" } else { "closed" },
+        "running_turns": state.running_turns,
+        "running_jobs": state.running_jobs,
+    })
+}
+
+async fn maintenance_state(State(state): State<AppState>) -> Response {
+    Json(maintenance_json(state.engine.maintenance_state())).into_response()
+}
+
+#[derive(Deserialize)]
+struct Maintenance {
+    mode: String,
+    #[serde(default)]
+    deadline_ms: Option<u64>,
+}
+
+/// Closes admission for an update (docs/ace-integration.md, "Updates"). Answers at once; the
+/// updater polls `GET /v1/maintenance` until no turn (and, for `idle`, no job) is running.
+async fn begin_maintenance(
+    State(state): State<AppState>,
+    Json(body): Json<Maintenance>,
+) -> Response {
+    let Some(mode) = spade_core::maintenance::Mode::parse(&body.mode) else {
+        return problem(StatusCode::BAD_REQUEST, "mode must be \"idle\" or \"now\"");
+    };
+    let deadline = body.deadline_ms.map(std::time::Duration::from_millis);
+    state.engine.begin_maintenance(mode, deadline);
+    (
+        StatusCode::ACCEPTED,
+        Json(maintenance_json(state.engine.maintenance_state())),
+    )
+        .into_response()
+}
+
+/// Reopens admission: an aborted update. Paused turns carry on.
+async fn end_maintenance(State(state): State<AppState>) -> Response {
+    state.engine.end_maintenance();
+    Json(maintenance_json(state.engine.maintenance_state())).into_response()
 }

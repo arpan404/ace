@@ -152,18 +152,25 @@ async fn run() -> Result<(), Failure> {
     tracing::info!(%address, "spade listening");
 
     let state = AppState {
-        engine,
+        engine: engine.clone(),
         token: token.into(),
         keys: keychain,
     };
-    let served = spade_server::serve(listener, state, shutdown_signal()).await;
+    let stopping = async move {
+        shutdown_signal().await;
+        tracing::info!("stopping: pausing open turns");
+        engine
+            .pause_for_stop(spade_core::maintenance::STOP_STEP_ALLOWANCE)
+            .await;
+    };
+    let served = spade_server::serve(listener, state, stopping).await;
     home.clear_server_json();
     served.map_err(other)?;
     tracing::info!("spade stopped");
     Ok(())
 }
 
-/// Resolves on Ctrl-C, or on SIGTERM from whatever started Spade (the ace daemon or systemd).
+/// Resolves on Ctrl-C, or on SIGTERM from the service manager or an updater.
 async fn shutdown_signal() {
     let ctrl_c = async {
         if let Err(error) = tokio::signal::ctrl_c().await {

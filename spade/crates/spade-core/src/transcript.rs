@@ -443,7 +443,10 @@ mod tests {
         ];
         let transcript = Transcript::fold(&events);
         assert!(transcript.paused);
-        assert!(transcript.busy(), "a paused reply keeps the conversation working");
+        assert!(
+            transcript.busy(),
+            "a paused reply keeps the conversation working"
+        );
         assert_eq!(transcript.turn_state(), Some(TurnState::Answering));
         assert_eq!(transcript.close_after_restart(), None);
     }

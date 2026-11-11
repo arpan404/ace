@@ -8,6 +8,7 @@ use futures_util::StreamExt;
 use spade_core::checkpoint::Checkpoints;
 use spade_core::context::{self, SYSTEM};
 use spade_core::event::{Call, Known, ReplyEnd, Tokens};
+use spade_core::maintenance::{Pause, Point, halts};
 use spade_core::turn::{Next, next_step, progress, stop_requested, unique_call_ids};
 use spade_core::{Event, Transcript, spending, title};
 use spade_models::{Delta, Role, ToolCall};
@@ -19,6 +20,8 @@ use super::{Engine, Frame, Snapshot};
 /// How a turn ended, other than finishing normally (which `finish_unless_steered` records).
 enum Ended {
     Finished,
+    /// Spade is closing for an update or a stop; the reply stays open and resumes later.
+    Paused,
     Stopped(String),
     Failed(String, String),
 }
@@ -27,19 +30,30 @@ enum Ended {
 enum Step {
     Answered,
     Calls,
+    Paused,
     Stopped(String),
     Failed(String, String),
 }
 
-pub(super) async fn run(engine: Arc<Engine>, id: String, stop_rx: watch::Receiver<bool>) {
+pub(super) async fn run(
+    engine: Arc<Engine>,
+    id: String,
+    stop_rx: watch::Receiver<bool>,
+    mut pause_rx: watch::Receiver<Pause>,
+) {
     let live = engine.live(&id);
     // The reply this worker drives, so the hand-off below can tell it from one opened later. It
     // is taken before the first stop check, so a Stop that arrives at once still closes it.
     let mut driven: Option<String> = open_reply(&engine, &id);
-    let ended = drive(&engine, &id, stop_rx, &mut driven).await;
+    let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
+    let paused = matches!(ended, Ended::Paused);
     if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
         let event = match ended {
             Ended::Finished => None,
+            Ended::Paused => {
+                super::maintenance::record_paused(&engine, &id, &reply);
+                None
+            }
             Ended::Stopped(text) => {
                 Some(Event::reply_ended(ReplyEnd::Stopped, reply.clone(), text))
             }
@@ -57,7 +71,16 @@ pub(super) async fn run(engine: Arc<Engine>, id: String, stop_rx: watch::Receive
     }
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *live.current.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    live.waiting_on_you.store(false, Ordering::SeqCst);
     live.turn_running.store(false, Ordering::SeqCst);
+    if paused {
+        // Admission may have reopened while this worker was pausing, after reopening looked for
+        // turns without a worker; then this reply carries on now.
+        if *engine.pause.borrow() == Pause::Off {
+            engine.spawn_turn(&id);
+        }
+        return;
+    }
     // A message or job result may have opened a new reply after this turn closed but before it
     // let go; that reply's own spawn was skipped, so drive it now.
     if let Some(next) = open_reply(&engine, &id)
@@ -73,6 +96,13 @@ async fn stopped(stop: &mut watch::Receiver<bool>) {
     let _ = stop.wait_for(|stopped| *stopped).await;
 }
 
+/// Resolves once the worker must pause at `point`. Never resolves if the signal goes away.
+pub(super) async fn pausing(pause: &mut watch::Receiver<Pause>, point: Point) {
+    if pause.wait_for(|p| halts(*p, point)).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
 fn open_reply(engine: &Engine, id: &str) -> Option<String> {
     let events = engine.load(id).ok()?;
     Transcript::fold(&events).open_reply()?.reply.clone()
@@ -82,6 +112,7 @@ async fn drive(
     engine: &Arc<Engine>,
     id: &str,
     mut stop: watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
     driven: &mut Option<String>,
 ) -> Ended {
     loop {
@@ -99,6 +130,14 @@ async fn drive(
         {
             *driven = Some(reply.clone());
             return Ended::Stopped(String::new());
+        }
+        // Spade is closing: nothing of the turn runs now, so it pauses here (after the stop
+        // check, so a stopped reply still closes as stopped).
+        if let Next::CallModel { reply } | Next::Calls { reply, .. } = &next
+            && halts(*pause.borrow(), Point::Between)
+        {
+            *driven = Some(reply.clone());
+            return Ended::Paused;
         }
         match next {
             Next::Idle => return Ended::Finished,
@@ -128,29 +167,33 @@ async fn drive(
                     continue;
                 }
                 let model = turn_model(engine, &events, &reply);
-                // Stop interrupts a compaction too; nothing is stored for one cut short.
+                // Stop interrupts a compaction too; nothing is stored for one cut short. A pause
+                // lets it finish like a model step, unless the pause is immediate.
                 let compacted = tokio::select! {
                     done = super::compact::if_needed(engine, id, &model, &events) => done,
                     _ = stopped(&mut stop) => return Ended::Stopped(String::new()),
+                    _ = pausing(pause, Point::Streaming) => return Ended::Paused,
                 };
                 if compacted {
                     continue;
                 }
-                match model_step(engine, id, &reply, &events, &mut stop).await {
+                match model_step(engine, id, &reply, &events, &mut stop, pause).await {
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,
                         Ok(false) => {}
                         Err(error) => return Ended::Failed(String::new(), error),
                     },
                     Step::Calls => {}
+                    Step::Paused => return Ended::Paused,
                     Step::Stopped(text) => return Ended::Stopped(text),
                     Step::Failed(text, error) => return Ended::Failed(text, error),
                 }
             }
             Next::Calls { reply, calls } => {
                 *driven = Some(reply.clone());
-                match handle_calls(engine, id, &reply, &events, calls, &mut stop).await {
+                match handle_calls(engine, id, &reply, &events, calls, &mut stop, pause).await {
                     Handled::Continue => {}
+                    Handled::Paused => return Ended::Paused,
                     Handled::Stopped => return Ended::Stopped(String::new()),
                     Handled::Failed(error) => return Ended::Failed(String::new(), error),
                 }
@@ -178,6 +221,7 @@ async fn model_step(
     reply: &str,
     events: &[Event],
     stop: &mut watch::Receiver<bool>,
+    pause: &mut watch::Receiver<Pause>,
 ) -> Step {
     let model = turn_model(engine, events, reply);
     let images = engine.images_for(&model);
@@ -186,6 +230,7 @@ async fn model_step(
     let opened = tokio::select! {
         opened = engine.models.stream(&model, &prompt) => opened,
         _ = stopped(stop) => return Step::Stopped(String::new()),
+        _ = pausing(pause, Point::Streaming) => return Step::Paused,
     };
     let stream = match opened {
         Ok(stream) => stream,
@@ -202,6 +247,9 @@ async fn model_step(
                     return Step::Stopped(text);
                 }
             }
+            // Cut mid-stream: what streamed so far is dropped and asked for again on resume (its
+            // checkpoints stay, so the person still sees them meanwhile).
+            _ = pausing(pause, Point::Streaming) => return Step::Paused,
             next = stream.next() => match next {
                 Some(Ok(Delta::Text(piece))) => {
                     text.push_str(&piece);
