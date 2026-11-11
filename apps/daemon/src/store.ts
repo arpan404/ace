@@ -1,5 +1,6 @@
 import { storedEvent, untrusted } from "./stored-decode.ts";
 import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
+import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -93,6 +94,8 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   checkpointWorker?: CheckpointWorkerFactory;
   /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
   eventShape?: string;
+  /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
+  threadRowShape?: string;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
@@ -252,6 +255,7 @@ export class Store {
         options.eventShape ?? storedEventShape(schemaVersion),
       );
       migrateSidebarRevisions(this.db);
+      openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
@@ -298,6 +302,8 @@ export class Store {
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.atomic(seedSentMessages);
+      // After the passes above that rewrite threads rows; the writer keeps stamps current.
+      this.atomic((db) => confirmThreadRows(db));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
