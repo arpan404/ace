@@ -22,9 +22,10 @@ import { matchRedirect, redirectTarget } from "./redirects.ts";
 export const pendingLimits = { total: 64, perClient: 3, perBase: 16 };
 /**
  * A waiting page reloads every two seconds; one silent this long was closed, and its request
- * leaves the person's list.
+ * leaves the person's list. Generous because a phone suspends the browser while the person
+ * switches to ace to approve; the per-client and per-base limits are what stop floods.
  */
-export const abandonedAfterMs = 15_000;
+export const abandonedAfterMs = 3 * 60_000;
 
 export interface AuthorizeDeps {
   outside: Pick<OutsideAccess, "grants" | "requests" | "principals">;
