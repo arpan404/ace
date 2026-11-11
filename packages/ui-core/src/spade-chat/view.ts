@@ -22,6 +22,8 @@ export interface SpadeView {
   /** Anything is still open: a reply, a tool, an approval or a background job. Never done then. */
   busy: boolean;
   working: SpadeWorking | undefined;
+  /** The agent's own few words on what it does now, while it works (ADR 0127). */
+  status: string | undefined;
   /** Approvals waiting on the person, oldest first, each with its sentence. */
   approvals: readonly (SpadeApproval & { sentence: string })[];
 }
@@ -50,6 +52,8 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     busy:
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
     working: working(state, reply?.startedAt, approvals.length > 0),
+    // Its words only while anything is open: the line goes when the reply ends.
+    status: reply !== undefined || state.jobs.size > 0 ? state.status : undefined,
     approvals,
   };
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { spadeJson as json } from "./json.ts";
 
 /*
  * Spade's own bodies, as its local API writes them (spade/docs/chat-core.md, harness.md). The
@@ -26,6 +27,11 @@ const known = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("user_message"),
     text: text.default(""),
+    /** Another bot that sent this message into the conversation (ADR 0127). */
+    from_agent: z
+      .object({ id: z.string(), name: z.string().catch("") })
+      .nullish()
+      .catch(undefined),
     // An image this client can't read is left out; the message still shows.
     images: z
       .array(z.unknown())
@@ -136,6 +142,10 @@ export function parseSpadeStored(raw: unknown): SpadeStored | undefined {
 
 const replyText = z.object({ reply: z.string(), text: z.string() });
 const caughtUpShape = z.object({ seq: z.number().int().nonnegative() });
+const statusShape = z.object({
+  state: z.enum(["idle", "working", "waiting"]),
+  status: z.string().nullish().catch(undefined),
+});
 
 /** One frame of `GET /v1/conversations/{id}/live`, ready to fold. */
 export type SpadeLiveInput =
@@ -143,15 +153,9 @@ export type SpadeLiveInput =
   | { kind: "snapshot"; reply: string; text: string }
   /** The backlog is out: everything stored up to `seq` has been sent; what follows is new. */
   | { kind: "caught_up"; seq: number }
-  | { kind: "delta"; reply: string; text: string };
-
-function json(data: string): unknown {
-  try {
-    return JSON.parse(data) as unknown;
-  } catch {
-    return undefined;
-  }
-}
+  | { kind: "delta"; reply: string; text: string }
+  /** The agent's current state and its few words on what it does now (ADR 0127). */
+  | { kind: "status"; state: "idle" | "working" | "waiting"; status: string | undefined };
 
 /** A live frame by its `event:` name and `data:` text; undefined for names this client skips. */
 export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput | undefined {
@@ -163,6 +167,12 @@ export function parseSpadeLiveFrame(event: string, data: string): SpadeLiveInput
   if (event === "caught_up") {
     const parsed = caughtUpShape.safeParse(body);
     return parsed.success ? { kind: "caught_up", seq: parsed.data.seq } : undefined;
+  }
+  if (event === "status") {
+    const parsed = statusShape.safeParse(body);
+    return parsed.success
+      ? { kind: "status", state: parsed.data.state, status: parsed.data.status || undefined }
+      : undefined;
   }
   if (event === "snapshot" || event === "delta") {
     const parsed = replyText.safeParse(body);
@@ -181,117 +191,10 @@ export function parseSpadeEvents(body: string): SpadeStored[] | undefined {
   });
 }
 
-/** A row of `GET /v1/conversations`. */
-export interface SpadeConversationRow {
-  id: string;
-  title: string;
-  updatedAt: number;
-  answering: boolean;
-  /** Background jobs still running. */
-  jobs: number;
-  /** An approval waits on the person. */
-  waitingOnYou: boolean;
-}
-
-const conversationRow = z.object({
-  id: z.string().min(1),
-  title: z.string().nullish(),
-  updated_at: z.number().default(0),
-  answering: z.boolean().default(false),
-  jobs: z.number().int().nonnegative().default(0),
-  waiting_on_you: z.boolean().default(false),
-});
-
-/** The conversation list, newest first as Spade sends it; a row it can't read is left out. */
-export function parseSpadeConversations(body: string): SpadeConversationRow[] | undefined {
-  const rows = json(body);
-  if (!Array.isArray(rows)) return undefined;
-  return rows.flatMap((row) => {
-    const parsed = conversationRow.safeParse(row);
-    if (!parsed.success) return [];
-    const { id, title, updated_at, answering, jobs, waiting_on_you } = parsed.data;
-    return [
-      {
-        id,
-        title: title ?? "",
-        updatedAt: updated_at,
-        answering,
-        jobs,
-        waitingOnYou: waiting_on_you,
-      },
-    ];
-  });
-}
-
-const modelsShape = z.object({
-  endpoints: z
-    .array(
-      z.object({
-        id: z.string(),
-        name: z.string().nullish(),
-        format: z.string().nullish(),
-        needs_key: z.boolean().default(false),
-        key_set: z.boolean().default(false),
-        key_source: z.string().nullish(),
-        models: z.array(z.object({ id: z.string(), name: z.string().nullish() })).default([]),
-      }),
-    )
-    .default([]),
-  roles: z.record(z.string(), z.string().nullish()).default({}),
-  keychain: z.boolean().default(false),
-});
-
-export interface SpadeEndpoint {
-  id: string;
-  name: string;
-  needsKey: boolean;
-  keySet: boolean;
-  /** Where the key in use comes from: only a keychain key can be removed from here. */
-  keySource: "keychain" | "environment" | undefined;
-  models: { id: string; name: string }[];
-}
-
-/** `GET /v1/models`: Spade's endpoints, its role picks and whether this machine has a keychain. */
-export interface SpadeModels {
-  endpoints: SpadeEndpoint[];
-  /** The model id each role uses (`main`, `fast`, `deep`). */
-  roles: Record<string, string>;
-  keychain: boolean;
-}
-
-export function parseSpadeModels(body: string): SpadeModels | undefined {
-  const parsed = modelsShape.safeParse(json(body));
-  if (!parsed.success) return undefined;
-  const roles: Record<string, string> = {};
-  for (const [role, model] of Object.entries(parsed.data.roles)) if (model) roles[role] = model;
-  return {
-    endpoints: parsed.data.endpoints.map((endpoint) => ({
-      id: endpoint.id,
-      name: endpoint.name || endpoint.id,
-      needsKey: endpoint.needs_key,
-      keySet: endpoint.key_set,
-      keySource:
-        endpoint.key_source === "keychain" || endpoint.key_source === "environment"
-          ? endpoint.key_source
-          : undefined,
-      models: endpoint.models.map((model) => ({ id: model.id, name: model.name || model.id })),
-    })),
-    roles,
-    keychain: parsed.data.keychain,
-  };
-}
-
 /** `{"error": "..."}`, Spade's refusal body; undefined when there is none. */
 const problemShape = z.object({ error: z.string() });
-const createdShape = z.object({ id: z.string().min(1) });
 
 export function spadeProblem(body: string): string | undefined {
   const parsed = problemShape.safeParse(json(body));
   return parsed.success ? parsed.data.error : undefined;
-}
-
-/** `201 {id}` from starting a conversation. */
-export function parseSpadeCreated(body: string): string | undefined {
-  const parsed = createdShape.safeParse(json(body));
-  return parsed.success ? parsed.data.id : undefined;
 }

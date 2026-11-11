@@ -70,6 +70,8 @@ export type SpadeEntry =
       text: string;
       images: readonly SpadeImageRef[];
       pending?: true;
+      /** Sent by another bot, not the person. */
+      fromAgent?: { id: string; name: string };
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -111,6 +113,8 @@ export interface SpadeConversationState {
   stopping: Set<string>;
   /** Stored events of types this client doesn't read, kept count of and otherwise ignored. */
   unknown: number;
+  /** What the agent last said it does now, from the live stream; cleared once it is idle. */
+  status: string | undefined;
 }
 
 export type SpadeFoldInput =
@@ -134,6 +138,7 @@ export function emptySpadeConversation(): SpadeConversationState {
     jobs: new Map(),
     stopping: new Set(),
     unknown: 0,
+    status: undefined,
   };
 }
 
@@ -161,6 +166,12 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
       state.caughtUp = true;
       state.loaded = true;
       return changed;
+    }
+    case "status": {
+      const status = input.state === "idle" ? undefined : input.status;
+      if (state.status === status) return false;
+      state.status = status;
+      return true;
     }
     case "refused": {
       const before = state.pending.length;
@@ -190,8 +201,17 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       const mine = state.pending.findIndex(
         (message) => message.text === event.text && sameImages(message.images, event.images),
       );
-      if (mine >= 0) state.pending = state.pending.filter((_, index) => index !== mine);
-      steer(state, { kind: "user", key, text: event.text, images: event.images });
+      if (mine >= 0 && !event.from_agent)
+        state.pending = state.pending.filter((_, index) => index !== mine);
+      steer(state, {
+        kind: "user",
+        key,
+        text: event.text,
+        images: event.images,
+        ...(event.from_agent
+          ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
+          : {}),
+      });
       return true;
     }
     case "reply_started":

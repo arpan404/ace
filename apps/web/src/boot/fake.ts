@@ -1,5 +1,6 @@
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
+import { seedFakeSpade } from "./fake-spade.ts";
 import {
   FakeDaemon,
   FakeMachineAccount,
@@ -270,6 +271,8 @@ export function bootFake(): {
       new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();
   }
   seedBuildServerUsage(server, Date.now());
+  // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
+  if (world === "spade") seedFakeSpade(daemon, server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio

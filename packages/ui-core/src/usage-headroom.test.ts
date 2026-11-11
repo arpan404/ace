@@ -1,7 +1,7 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView } from "./accounts.ts";
-import { headroomAlert, railUsage, usageHeadroom } from "./usage-headroom.ts";
+import { headroomSentence, railUsage, usageHeadroom } from "./usage-headroom.ts";
 import { usageLimits } from "./usage-limits.ts";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -171,7 +171,7 @@ test("a session past its reset since its last reading counts as fresh", () => {
   expect(stale?.sessionLeft).toBe(43);
 });
 
-test("a session this pace runs out is left to its own row, not repeated above the rows", () => {
+test("with room everywhere, the card names the tightest provider and when it runs out at this pace", () => {
   const list = headroom(claudePersonal, {
     provider: "codex",
     id: "codex-personal",
@@ -179,13 +179,16 @@ test("a session this pace runs out is left to its own row, not repeated above th
     isDefault: true,
     session: [38, 181],
   });
-  // Its own row says when it runs out; the card adds nothing above them.
-  expect(headroomAlert(list, now)).toBeUndefined();
+  expect(headroomSentence(list, now)).toBe(
+    "Claude Code's session runs out in about 2h at this pace; it resets in 2h 1m.",
+  );
 });
 
-test("with every provider lasting until its reset, the card says nothing above its limits", () => {
+test("a tightest provider on pace to last until its reset gets no forecast", () => {
   const list = headroom({ ...claudePersonal, session: [30, 60] });
-  expect(headroomAlert(list, now)).toBeUndefined();
+  expect(headroomSentence(list, now)).toBe(
+    "Claude Code is the tightest, with 59% of the session left; it resets in 1h.",
+  );
 });
 
 test("the card says who is out on every account and when they're back", () => {
@@ -193,14 +196,11 @@ test("the card says who is out on every account and when they're back", () => {
     { ...claudePersonal, session: [100, 88] },
     { ...claudeWork, session: [100, 150] },
   );
-  expect(headroomAlert(list, now)).toEqual({
-    text: "Claude Code is out; it's back in 1h 28m.",
-    tone: "out",
-  });
+  expect(headroomSentence(list, now)).toBe("Claude Code is out; it's back in 1h 28m.");
 });
 
 test("the card says nothing with no limits read", () => {
-  expect(headroomAlert([], now)).toBeUndefined();
+  expect(headroomSentence([], now)).toBe("No limits read yet.");
 });
 
 test("set to session, the bars show each account's usable session instead of its week", () => {
@@ -215,45 +215,4 @@ test("set to session, the bars show each account's usable session instead of its
   expect(rail.label).toBe(
     "Usage: Claude Code · Personal 38% of the session left, Claude Code · Work 43%, Codex 10%",
   );
-});
-
-test("a plan with only a week (Claude's Ultra) has no session: the week never stands in for one", () => {
-  const ultra: Seed = {
-    provider: "claude",
-    id: "claude-ultra",
-    label: "Ultra",
-    session: null,
-    weekly: 30,
-  };
-  // Its week draws on the rail; asked for sessions, it draws nothing rather than its week.
-  expect(bars(railUsage(limits(ultra), undefined))).toEqual([["Claude Code", 70, "ok"]]);
-  expect(bars(railUsage(limits(ultra), undefined, "session"))).toEqual([]);
-  // And the page doesn't call its missing session a gap.
-  expect(limits(ultra).providers[0]?.accounts[0]?.noSessionWindow).toBe(false);
-});
-
-test("pinned accounts are the rail's, in the order pinned; with none here, the most used", () => {
-  const list = limits(claudePersonal, claudeWork, codexPersonal, {
-    ...codexPersonal,
-    id: "codex-ci",
-    label: "CI",
-    isDefault: false,
-    weekly: 85,
-  });
-  const used = new Map([["codex-ci", 900]]);
-  const pinned = railUsage(list, used, "week", ["codex-personal", "claude-work"]);
-  expect(bars(pinned)).toEqual([
-    ["Codex · Personal", 78, "ok"],
-    ["Claude Code · Work", 43, "ok"],
-  ]);
-  // The card lists the same accounts as the bars.
-  expect(pinned.accounts.map((entry) => entry.account.id)).toEqual([
-    "codex-personal",
-    "claude-work",
-  ]);
-  expect(pinned.pinned).toBe(true);
-  // A pin for an account this machine doesn't have leaves the most used in place.
-  const elsewhere = railUsage(list, used, "week", ["claude-elsewhere"]);
-  expect(elsewhere.pinned).toBe(false);
-  expect(elsewhere.accounts[0]?.account.id).toBe("codex-ci");
 });

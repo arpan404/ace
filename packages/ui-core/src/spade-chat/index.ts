@@ -1,5 +1,10 @@
-/** Spade's conversations as every ace client shows them: parsing, folding and words. */
+/** Spade's agents, endpoints and conversations as every ace client shows them. */
 export * from "./wire.ts";
 export * from "./fold.ts";
 export * from "./view.ts";
+export * from "./bubbles.ts";
 export * from "./words.ts";
+export * from "./agents.ts";
+export * from "./endpoints.ts";
+export * from "./markup.ts";
+export * from "./hosting.ts";

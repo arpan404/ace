@@ -3,6 +3,7 @@ import {
   emptySpadeConversation,
   foldSpade,
   parseSpadeLiveFrame,
+  spadeBubbles,
   spadeView,
   type SpadeConversationState,
   type SpadeEntry,
@@ -495,4 +496,63 @@ test("a job's end reads above the words that answer it", () => {
     "job",
     "spade: Here is what I found.…",
   ]);
+});
+
+describe("the conversation as a chat", () => {
+  test("bubbles show both sides' words and nothing of the tools, jobs or compaction", () => {
+    const c = conversation();
+    c.stored({ type: "user_message", text: "Find me a flight" });
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "step_finished",
+      reply: "r1",
+      text: "Looking.",
+      calls: [{ id: "k1", name: "web_search" }],
+    });
+    c.stored({ type: "tool_started", reply: "r1", call_id: "k1", name: "web_search" });
+    c.stored({ type: "tool_finished", reply: "r1", call_id: "k1", name: "web_search" });
+    c.stored({ type: "job_started", reply: "r1", job: "k1", name: "research" });
+    c.stored({ type: "job_finished", job: "k1", name: "research" });
+    c.stored({ type: "context_compacted" });
+    c.stored({ type: "step_finished", reply: "r1", text: "The 9:40 is cheapest." });
+    c.stored({ type: "reply_finished", reply: "r1", text: "The 9:40 is cheapest." });
+    c.stored({
+      type: "user_message",
+      text: "Booked it for you.",
+      from_agent: { id: "a7", name: "Travel", depth: 1 },
+    });
+    expect(
+      spadeBubbles(c.view()).map((bubble) =>
+        bubble.kind === "ask"
+          ? `ask: ${bubble.sentence}`
+          : bubble.kind === "other"
+            ? `${bubble.agent.name}: ${bubble.text}`
+            : `${bubble.kind}: ${bubble.text}`,
+      ),
+    ).toEqual([
+      "person: Find me a flight",
+      "bot: Looking.",
+      "bot: The 9:40 is cheapest.",
+      "Travel: Booked it for you.",
+    ]);
+  });
+
+  test("an approval arrives as the bot's bubble and leaves once answered", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({ type: "approval_requested", reply: "r1", call_id: "k9", name: "send_email" });
+    expect(spadeBubbles(c.view()).at(-1)).toMatchObject({ kind: "ask", callId: "k9" });
+    c.stored({ type: "approval_answered", reply: "r1", call_id: "k9", allowed: true });
+    expect(spadeBubbles(c.view()).some((bubble) => bubble.kind === "ask")).toBe(false);
+  });
+
+  test("the bot's own words on what it does show while it works and go when the reply ends", () => {
+    const c = conversation();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.frame("status", { state: "working", status: "Reading a page", extra: 1 });
+    c.frame("status", { state: "dreaming" });
+    expect(c.view().status).toBe("Reading a page");
+    c.stored({ type: "reply_finished", reply: "r1", text: "Done." });
+    expect(c.view().status).toBeUndefined();
+  });
 });

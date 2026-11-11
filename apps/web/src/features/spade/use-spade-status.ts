@@ -1,9 +1,9 @@
 import { onSocketMove, type ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
 import type { SpadeStatus } from "@ace/protocol";
 import { useSyncExternalStore } from "react";
 import { daemonStatusWhileAway, spadeStatusWith, type DirectHealth } from "./spade-route.ts";
 import { spadeTransport, type SpadeTransport } from "./spade-transport.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 /** How often the desktop app looks at Spade's `/health` itself while someone reads the status. */
 const healthEveryMs = 10_000;
@@ -135,7 +135,7 @@ const watches = new WeakMap<ClientApi, SpadeStatusWatch>();
 
 /** Spade's status, undefined until the daemon or (in the desktop app) Spade first answers. */
 export function useSpadeStatus(): SpadeStatus | undefined {
-  const client = useClient();
+  const client = useSpadeClient();
   let watch = watches.get(client);
   if (!watch) {
     watch = new SpadeStatusWatch(client, spadeTransport(client));

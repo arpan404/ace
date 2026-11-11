@@ -1,12 +1,12 @@
-import { useClient } from "@ace/client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ConversationFollow, type FollowDeps } from "./conversation-follow.ts";
 import type { SpadeMessage } from "./spade-images.ts";
 import { segment, spadeBody, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
-import { conversationsKey } from "./use-spade-conversations.ts";
+import { agentsKey } from "./use-spade-roster.ts";
 import { spadeTransport } from "./spade-transport.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
+import { useSpadeClient } from "./spade-machine.tsx";
 
 const deps: FollowDeps = {
   frame: (callback) =>
@@ -24,7 +24,7 @@ const deps: FollowDeps = {
  * always goes: while a reply is open the message steers it (Spade decides, never the client).
  */
 export function useSpadeConversation(conversation: string) {
-  const client = useClient();
+  const client = useSpadeClient();
   const cache = useQueryClient();
   const ready = useSpadeStatus()?.state === "ready";
   const [follow] = useState(
@@ -37,7 +37,7 @@ export function useSpadeConversation(conversation: string) {
   useEffect(() => follow.setReady(ready), [follow, ready]);
   const snapshot = useSyncExternalStore(follow.subscribe, follow.get, follow.get);
   const path = `/v1/conversations/${segment(conversation)}`;
-  const listChanged = () => void cache.invalidateQueries({ queryKey: conversationsKey });
+  const listChanged = () => void cache.invalidateQueries({ queryKey: agentsKey });
 
   return {
     ...snapshot,
