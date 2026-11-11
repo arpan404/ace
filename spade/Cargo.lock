@@ -2552,6 +2552,7 @@ name = "spade-fetch"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "encoding_rs",
  "futures-util",
  "htmlize",
  "if-addrs",

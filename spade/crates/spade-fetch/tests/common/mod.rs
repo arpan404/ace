@@ -200,3 +200,15 @@ pub fn net(text: &str) -> Network {
             .unwrap_or_else(|_| panic!("{text} has no prefix")),
     }
 }
+
+/// Serves `body` with exactly the `content_type` given, bytes as they are.
+pub async fn serve_bytes(content_type: &'static str, body: &'static [u8]) -> Result<SocketAddr> {
+    let app = Router::new().route(
+        "/",
+        get(move || async move { ([(header::CONTENT_TYPE, content_type)], body) }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(addr)
+}

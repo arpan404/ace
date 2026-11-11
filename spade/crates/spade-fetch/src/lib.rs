@@ -6,6 +6,7 @@
 //! swap them between the check and the connection. Every redirect is checked the same way, at
 //! most [`MOST_REDIRECTS`] of them, and no more than [`MOST_BYTES`] are read.
 
+pub mod decode;
 pub mod extract;
 mod html;
 mod local;
@@ -96,6 +97,8 @@ struct Body {
     url: Url,
     media_type: String,
     reading: page::Reading,
+    /// The `charset` the response declared.
+    charset: Option<String>,
     bytes: Vec<u8>,
 }
 
@@ -261,7 +264,8 @@ enum CheckedHost {
 
 /// The window `page` of the readable text of `body`.
 fn readable(body: Body, page: Page) -> Fetched {
-    let source = String::from_utf8_lossy(&body.bytes);
+    let html = body.reading == page::Reading::Html;
+    let source = decode::decode(&body.bytes, body.charset.as_deref(), html);
     let (title, text, truncated) = match body.reading {
         page::Reading::Html => {
             let readable = extract::html(&source, &body.url);
@@ -284,13 +288,16 @@ fn readable(body: Body, page: Page) -> Fetched {
 /// Reads the body of a successful response, refusing types Spade cannot read and stopping at
 /// [`MOST_BYTES`].
 async fn read(url: Url, mut response: Response) -> Result<Body, FetchError> {
-    let media_type = response
+    let content_type = response
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .map(page::media_type)
+        .unwrap_or_default()
+        .to_owned();
+    let media_type = Some(page::media_type(&content_type))
         .filter(|t| !t.is_empty())
         .ok_or(FetchError::NoContentType)?;
+    let charset = decode::header_charset(&content_type);
     let reading =
         page::reading(&media_type).ok_or_else(|| FetchError::Unsupported(media_type.clone()))?;
     let declared = response
@@ -313,6 +320,7 @@ async fn read(url: Url, mut response: Response) -> Result<Body, FetchError> {
         url,
         media_type,
         reading,
+        charset,
         bytes,
     })
 }
