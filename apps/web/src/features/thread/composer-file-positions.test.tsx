@@ -4,6 +4,7 @@ import { configure, fireEvent, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event";
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import { overrideKeyboardEnv } from "@/lib/keybindings.ts";
 import { harness } from "@/test/harness.tsx";
 
 configure({ asyncUtilTimeout: 10000 });
@@ -21,6 +22,7 @@ beforeEach(() => {
   URL.revokeObjectURL = () => {};
 });
 afterEach(() => {
+  overrideKeyboardEnv(undefined);
   URL.createObjectURL = original.create;
   URL.revokeObjectURL = original.revoke;
 });
@@ -125,6 +127,7 @@ test("the newline key continues a list and Tab nests the new item; Enter still s
 });
 
 test("⌘B starts bold words at the caret, drawn bold and sent as Markdown", async () => {
+  overrideKeyboardEnv({ apple: true, web: true });
   const { message, commands } = await openComposer();
   pasteText(message, "make ");
   fireEvent.keyDown(message, { key: "b", metaKey: true });
@@ -284,4 +287,20 @@ test("Tab on an item that can't nest leaves the composer as Tab always does", as
   // Not taken: the browser moves focus on.
   expect(fireEvent.keyDown(message, { key: "Tab" })).toBe(true);
   expect(fireEvent.keyDown(message, { key: "Tab", shiftKey: true })).toBe(true);
+});
+
+test("on a Mac, Ctrl+B is left to the system's back-one-letter, and only ⌘B bolds", async () => {
+  overrideKeyboardEnv({ apple: true, web: true });
+  const { message } = await openComposer();
+  pasteText(message, "word");
+  expect(fireEvent.keyDown(message, { key: "b", ctrlKey: true })).toBe(true);
+  expect(message.textContent).toBe("word");
+});
+
+test("elsewhere Ctrl+B bolds", async () => {
+  overrideKeyboardEnv({ apple: false, web: true });
+  const { message } = await openComposer();
+  pasteText(message, "make ");
+  fireEvent.keyDown(message, { key: "b", ctrlKey: true });
+  await waitFor(() => expect(message.textContent).toBe("make ****"));
 });

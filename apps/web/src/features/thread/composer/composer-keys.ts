@@ -18,8 +18,10 @@ export interface ComposerKeys {
   /** The suggestion list, while it shows. */
   list: KeyList | undefined;
   newline(): void;
-  /** ⌘B / Ctrl+B: bold on or off. */
+  /** ⌘B on Apple platforms, Ctrl+B elsewhere: bold on or off. */
   bold(): void;
+  /** ⌘ and ⌃ are separate keys here (macOS, iOS): Ctrl+B is the system's back one letter. */
+  apple: boolean;
   /** Tab / ⇧Tab in a list item; false outside a list, where Tab keeps its usual meaning. */
   indent(outdent: boolean): boolean;
   history(step: "undo" | "redo"): void;
@@ -52,7 +54,8 @@ export function composerKeyDown(event: KeyboardEvent<HTMLElement>, keys: Compose
     keys.history(letter === "y" || event.shiftKey ? "redo" : "undo");
     return;
   }
-  if (modified && !event.altKey && !event.shiftKey && letter === "b") {
+  const boldKey = keys.apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (boldKey && !event.altKey && !event.shiftKey && letter === "b") {
     done();
     keys.bold();
     return;

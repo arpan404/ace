@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { cn } from "@/lib/cn.ts";
-import { useKeys } from "@/lib/keybindings.ts";
+import { keyboardEnv, useKeys } from "@/lib/keybindings.ts";
 import { parseChord } from "@/lib/keymap.ts";
 import { useHandheld } from "@/lib/breakpoints.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -318,6 +318,7 @@ function ComposerBody({
           : undefined,
       newline: message.newline,
       bold: message.bold,
+      apple: keyboardEnv().apple,
       indent: message.indent,
       history: step,
       recall,
