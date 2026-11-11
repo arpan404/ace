@@ -3,8 +3,8 @@ import type { PrWorkspaceContext, PrWorkspaceExtensions } from "./pr-extensions.
 import { PrReviewers } from "./pr-reviewers.tsx";
 import { reviewerRows, type ReviewerRow } from "@ace/ui-core";
 import { usePrReviewers } from "./pr-reviewers-query.ts";
-import { DetailRow } from "./pr-details.tsx";
-import { PrAgentLine } from "./pr-agent-chip.tsx";
+import { DetailRow } from "./pr-detail-row.tsx";
+import { PrAgentBlock } from "./pr-sidebar-blocks.tsx";
 import { PrAvatar } from "./pr-presentation.tsx";
 import { LabelPill } from "@/components/forge-marks.tsx";
 
@@ -54,6 +54,7 @@ export function PrPeople(props: {
   const assignees = props.assignees;
   return (
     <>
+      <PrAgentBlock detail={detail} />
       <DetailRow label="Reviewers" action={reviewerPicker}>
         <div id="pr-reviewers" role="group" aria-label="Reviewers" className="scroll-mt-10 py-1">
           {rows.length ? (
@@ -94,11 +95,6 @@ export function PrPeople(props: {
               <span className="text-subtle-foreground">None</span>
             )}
           </p>
-        </DetailRow>
-      )}
-      {detail.relatedThreads.some((thread) => !thread.archived) && (
-        <DetailRow label="Agent">
-          <PrAgentLine detail={detail} />
         </DetailRow>
       )}
     </>
