@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { expect, test } from "vitest";
 import { DeviceId, type DeviceScope, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
 import type { z } from "zod";
@@ -109,4 +110,53 @@ test("while Spade is off, requests and streams say it is unavailable", async () 
     requestId: "s",
     status: { state: "off" },
   });
+});
+
+test("a Spade that is slow to answer never holds up the connection's next message", async () => {
+  // A Spade that takes requests and never answers them.
+  const silent = createServer(() => {});
+  await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+  const address = silent.address();
+  if (!address || typeof address === "string") throw new Error("No port");
+  const sent: ServerMessage[] = [];
+  const service = createSpadeSession({
+    options: {
+      spade: {
+        ready: () => ({
+          connection: { host: "127.0.0.1", port: address.port, token: "t".repeat(64) },
+          generation: 1,
+        }),
+        status: () => ({ state: "ready" }),
+        subscribe: () => () => {},
+        onRunEnded: () => () => {},
+      },
+    },
+    authorize: () => true,
+    connected: () => true,
+    send: (message) => sent.push(message as ServerMessage),
+  });
+  const device = DeviceId.parse("device");
+  const handled = await Promise.race([
+    Promise.resolve(
+      service.handle?.(
+        SpadeClientMessage.parse({
+          type: "spade.http",
+          requestId: "slow",
+          method: "GET",
+          path: "/v1/conversations",
+        }),
+        device,
+      ),
+    ).then(() => "handled"),
+    new Promise((resolve) => setTimeout(() => resolve("blocked"), 1000)),
+  ]);
+  expect(handled).toBe("handled");
+  await service.handle?.(
+    SpadeClientMessage.parse({ type: "spade.status", requestId: "s" }),
+    device,
+  );
+  expect(sent.at(-1)).toMatchObject({ type: "spade.status.result", status: { state: "ready" } });
+  service.close?.();
+  silent.closeAllConnections();
+  await new Promise((resolve) => silent.close(resolve));
 });

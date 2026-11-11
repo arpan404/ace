@@ -50,7 +50,7 @@ interface Upload {
  * parts is streamed to Spade as each part arrives, never gathered whole.
  */
 export function createSpadeHttp(context: {
-  host(): SpadeHost | undefined;
+  host(): Pick<SpadeHost, "ready"> | undefined;
   authorize(scope: DeviceScope): boolean;
   connected(): boolean;
   send(message: ServerMessage): void;

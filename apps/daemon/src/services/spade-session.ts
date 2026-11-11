@@ -7,8 +7,10 @@ import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
+/** What the session reads of the Spade host. */
+export type SpadeAccess = Pick<SpadeHost, "ready" | "status" | "subscribe" | "onRunEnded">;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
-  options: { spade?: SpadeHost | undefined };
+  options: { spade?: SpadeAccess | undefined };
 };
 interface Stream {
   controller: AbortController;
@@ -17,7 +19,7 @@ interface Stream {
   reason?: SpadeLiveEndReason;
 }
 
-function unavailable(host: SpadeHost | undefined): string {
+function unavailable(host: SpadeAccess | undefined): string {
   const status = host?.status();
   if (!status || status.state === "off") return status?.reason ?? "Spade is off on this machine.";
   if (status.state === "starting") return "Spade is starting. Try again in a moment.";
@@ -54,7 +56,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
     stream.reason ??= reason;
     stream.controller.abort();
   };
-  const watch = (spade: SpadeHost) => {
+  const watch = (spade: SpadeAccess) => {
     if (watching) return;
     watching = true;
     stops.push(
@@ -125,7 +127,15 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
           return true;
         }
         case "spade.http":
-          await http.request(message);
+          // Never awaited: the socket runs one handler at a time, and Spade may take up to a
+          // minute to answer. An upload is opened before this returns, so its parts find it.
+          void http.request(message).catch(() =>
+            context.send({
+              type: "spade.http.result",
+              requestId: message.requestId,
+              result: { kind: "error", code: "failed", message: "Spade didn't answer." },
+            }),
+          );
           return true;
         case "spade.http.part":
           await http.part(message);
