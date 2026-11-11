@@ -97,10 +97,10 @@ private struct SourceText: UIViewRepresentable {
         view.isEditable = false
         view.isSelectable = true
         view.backgroundColor = .clear
-        view.font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .monospacedSystemFont(ofSize: AceDesign.TextRole.meta.size, weight: .regular))
         view.adjustsFontForContentSizeCategory = true
         view.textColor = UIColor(AceDesign.Ink.primary)
-        view.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 24, right: 12)
+        view.textContainerInset = UIEdgeInsets(top: AceDesign.Space.related, left: AceDesign.Space.margin, bottom: AceDesign.Space.group, right: AceDesign.Space.margin)
         view.accessibilityIdentifier = "browser.source.text"
         return view
     }

@@ -46,13 +46,14 @@ struct OpenFilesSheet: View {
                 if let open = memory?.open, !open.isEmpty {
                     Section("Open") {
                         ForEach(open, id: \.self) { path in
-                            HStack(spacing: AceTheme.Spacing.md) {
+                            QuietSectionRow {
                                 Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
                                 Button("Close") { model.fileClosed(scope, path) }
                                     .buttonStyle(.textAction())
                                     .frame(minHeight: AceDesign.Size.tap)
                                     .accessibilityIdentifier("files.close.\(path)")
                             }
+                            .listRowInsets(EdgeInsets())
                             .listRowSeparatorTint(AceTheme.Colours.separator)
                             .swipeActions { Button("Close") { model.fileClosed(scope, path) } }
                             .contextMenu {
@@ -67,7 +68,8 @@ struct OpenFilesSheet: View {
                 if !recent.isEmpty {
                     Section("Recent") {
                         ForEach(recent, id: \.self) { path in
-                            Button { pick(path) } label: { row(path) }.buttonStyle(.plain)
+                            Button { pick(path) } label: { QuietSectionRow { row(path); RowCaret() } }.buttonStyle(.plain)
+                                .listRowInsets(EdgeInsets())
                                 .listRowSeparatorTint(AceTheme.Colours.separator)
                         }
                     }
@@ -94,7 +96,7 @@ struct OpenFilesSheet: View {
         let name = (path as NSString).lastPathComponent
         let folder = (path as NSString).deletingLastPathComponent
         return VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-            Text(name).aceFont(AceTheme.Typography.body, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
+            Text(name).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1)
             if !folder.isEmpty {
                 Text(folder).aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)

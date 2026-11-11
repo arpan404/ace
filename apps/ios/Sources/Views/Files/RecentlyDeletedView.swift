@@ -20,11 +20,11 @@ struct RecentlyDeletedView: View {
                 EmptyState(systemImage: "trash", title: "No recently deleted files").listRowSeparator(.hidden)
             }
             ForEach(entries) { entry in
-                HStack(spacing: AceTheme.Spacing.md) {
+                QuietSectionRow {
                     VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                        Text(FileActions.name(entry.path)).aceFont(AceTheme.Typography.body, relativeTo: .body).lineLimit(1)
+                        Text(FileActions.name(entry.path)).aceMonospace(AceDesign.TextRole.rowTitle, relativeTo: .callout).lineLimit(1)
                         Text("\(entry.path) · \(ByteCountFormatter.string(fromByteCount: Int64(entry.size), countStyle: .file))")
-                            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                            .aceMonospace(AceDesign.TextRole.meta, relativeTo: .caption)
                             .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(1).truncationMode(.head)
                     }
                     Spacer(minLength: AceTheme.Spacing.sm)
@@ -33,7 +33,7 @@ struct RecentlyDeletedView: View {
                         .accessibilityIdentifier("trash.restore.\(entry.path)")
                 }
                 .frame(minHeight: AceDesign.Size.rowDetail)
-                .listRowInsets(EdgeInsets(top: AceTheme.Spacing.none, leading: AceDesign.Space.margin, bottom: AceTheme.Spacing.none, trailing: AceDesign.Space.margin))
+                .listRowInsets(EdgeInsets())
                 .listRowBackground(AceTheme.Colours.background)
             }
             if let next {
