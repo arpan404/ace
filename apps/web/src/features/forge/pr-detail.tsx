@@ -159,7 +159,7 @@ function PrDetailLoaded(props: {
     );
   };
   const blocking = useBlockingItems(detail);
-  const [order, setOrder] = useState<"newest" | "oldest">("newest");
+  const [order, setOrder] = useState<"newest" | "oldest">("oldest");
   // Each tab keeps its own fold: scrolled down in Code, the header stays folded there only.
   const [condensed, setCondensed] = useState<Record<PrTab, boolean>>({
     summary: false,
