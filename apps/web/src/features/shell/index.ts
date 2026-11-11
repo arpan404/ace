@@ -4,7 +4,7 @@ export { useClaimConnectionNotice } from "./connection-owner.tsx";
 export { GlobalHotkeys } from "./global-hotkeys.tsx";
 export { OfflineWaiting } from "./offline-notice.tsx";
 export { Page, PageTitle, Screen, type ScreenWorkspace } from "./screen.tsx";
-export { SidebarFrame } from "./sidebar-frame.tsx";
+export { SidebarFrame, useViewFrame } from "./sidebar-frame.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
 export { PanelHeader, ViewFrame, ViewListPage, ViewSidebar } from "./view-frame.tsx";
 export { views, type View, type RailPlace } from "./views.ts";

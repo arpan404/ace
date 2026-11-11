@@ -48,7 +48,8 @@ export function spadeView(state: SpadeConversationState): SpadeView {
   return {
     title: state.title,
     loaded: state.loaded,
-    entries: pending.length ? [...state.entries, ...pending] : state.entries,
+    // A new array each time: the fold changes its own in place, and a view is a snapshot.
+    entries: [...state.entries, ...pending],
     answering: reply !== undefined,
     busy:
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,

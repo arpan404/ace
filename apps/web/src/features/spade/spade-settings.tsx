@@ -10,7 +10,7 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { segment, spadeHttp } from "./spade-requests.ts";
+import { segment, spadeHttp, SpadeRequestError } from "./spade-requests.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
 
@@ -38,7 +38,7 @@ export function SpadeSettings() {
   const models = useDaemonQuery({ queryKey: modelsKey, read: readModels, enabled: line.ready });
   return (
     <>
-      <SettingSection label="Spade">
+      <SettingSection label="Assistant">
         <SettingRow
           title="Run Spade on this machine"
           description={line.sentence}
@@ -71,7 +71,8 @@ export function SpadeSettings() {
               {endpoint.needsKey && <KeyRow endpoint={endpoint} keychain={models.data.keychain} />}
               {endpoint.models.map((model) => {
                 const roles = Object.entries(models.data.roles)
-                  .filter(([, picked]) => picked === model.id)
+                  // Spade names a role's model as `endpoint/model`.
+                  .filter(([, picked]) => picked === `${endpoint.id}/${model.id}`)
                   .map(([role]) => roleNames[role] ?? role);
                 return (
                   <SettingRow
@@ -105,7 +106,15 @@ function KeyRow(props: { endpoint: SpadeEndpoint; keychain: boolean }) {
     setSending(true);
     try {
       if (action === "set") await spadeHttp(client, "PUT", path, { body: { key } });
-      else await spadeHttp(client, "DELETE", path);
+      else
+        await spadeHttp(client, "DELETE", path).catch((error: unknown) => {
+          // Spade doesn't say where a set key comes from: 404 means the environment, not the keychain.
+          if (error instanceof SpadeRequestError && error.status === 404)
+            throw new Error(
+              "This key comes from Spade's environment, so it can't be removed here.",
+            );
+          throw error;
+        });
       await cache.invalidateQueries({ queryKey: modelsKey });
     } catch (error) {
       toast.error({

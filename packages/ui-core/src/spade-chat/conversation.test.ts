@@ -221,6 +221,15 @@ describe("restarts and resubscribes", () => {
   });
 });
 
+test("each view is a snapshot: a later event never changes a view already taken", () => {
+  const c = conversation();
+  c.stored({ type: "user_message", text: "Hi" });
+  const before = c.view();
+  c.stored({ type: "reply_started", reply: "r1" });
+  expect(said(before.entries)).toEqual(["person: Hi"]);
+  expect(said(c.view().entries)).toEqual(["person: Hi", "spade: "]);
+});
+
 describe("sending", () => {
   test("a sent message shows at once and is replaced by Spade's stored copy", () => {
     const c = conversation();

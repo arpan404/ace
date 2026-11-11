@@ -42,10 +42,11 @@ export function SpadeSidebar() {
       toolbar={line.ready ? undefined : <SpadeStateStrip line={line} />}
     >
       <nav aria-label="Conversations">
-        {!line.ready ? null : list.isPending ? (
-          <ListSkeleton label="conversations" shape="thread" />
-        ) : list.isError ? (
+        {/* The last list stays while Spade restarts or a read fails; it reads again on its own. */}
+        {list.data === undefined && !line.ready ? null : list.data === undefined && list.isError ? (
           <ViewSidebarError onRetry={() => void list.refetch()} />
+        ) : list.data === undefined ? (
+          <ListSkeleton label="conversations" shape="thread" />
         ) : !list.data.length ? (
           <p className="px-2.5 pt-2 text-ui text-subtle-foreground">No conversations yet</p>
         ) : (

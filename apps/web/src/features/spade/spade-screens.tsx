@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen } from "@/features/shell/index.ts";
+import { Screen, useViewFrame } from "@/features/shell/index.ts";
 import { readingColumn } from "@/features/thread/index.ts";
 import { SpadeApprovalStrip } from "./spade-approval-strip.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
@@ -24,14 +24,26 @@ function useSpadeLine() {
   return spadeStateLine(useSpadeStatus(), enabled);
 }
 
-/** A scroller that stays at its end while the person is there, as the conversation grows. */
+/**
+ * A scroller that stays at its end while the person is there, as the conversation grows: on
+ * every render and whenever the content's height changes after it (markdown paints late).
+ */
 function Scroller(props: { children: ReactNode }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
-  useLayoutEffect(() => {
+  const pin = () => {
     const element = scroller.current;
     if (element && atEnd.current) element.scrollTop = element.scrollHeight;
-  });
+  };
+  useLayoutEffect(pin);
+  useLayoutEffect(() => {
+    const inner = content.current;
+    if (!inner || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(pin);
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, []);
   return (
     <div
       ref={scroller}
@@ -41,7 +53,9 @@ function Scroller(props: { children: ReactNode }) {
       }}
       className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable_both-edges]"
     >
-      <div className={`${readingColumn} pt-6 pb-16`}>{props.children}</div>
+      <div ref={content} className={`${readingColumn} pt-6 pb-16`}>
+        {props.children}
+      </div>
     </div>
   );
 }
@@ -52,6 +66,8 @@ export function SpadeNewScreen() {
   const cache = useQueryClient();
   const navigate = useNavigate();
   const line = useSpadeLine();
+  // The panel says Spade's state while it shows; the page says it only when the panel doesn't.
+  const panelShown = useViewFrame().sidebarShown;
   const start = async (text: string) => {
     const id = parseSpadeCreated(
       await spadeHttp(client, "POST", "/v1/conversations", { body: { text } }),
@@ -64,7 +80,7 @@ export function SpadeNewScreen() {
     <Screen title="Spade" namedByPanel>
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1" />
-        {!line.ready && (
+        {!line.ready && !panelShown && (
           <div className={readingColumn}>
             <SpadeStateStrip line={line} className="flex items-center gap-2 px-1 pb-3 text-ui" />
           </div>
