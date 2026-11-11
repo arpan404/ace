@@ -162,7 +162,7 @@ struct SkillsLibraryView: View {
                 EmptyState(icon: .sparkle, title: "No skills yet",
                            line: "Skills your agents keep appear here, whichever project you pick.")
                     .padding(.vertical, AceDesign.Space.section)
-            } else if groups.isEmpty {
+            } else if groups.isEmpty, PluginsSection.matching(plugins, components: components, query: query).isEmpty {
                 EmptyState.search(query)
                     .padding(.vertical, AceDesign.Space.section)
             }

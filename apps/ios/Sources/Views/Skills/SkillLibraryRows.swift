@@ -33,7 +33,9 @@ struct PluginsSection: View {
     let loadMore: () -> Void
     let retryCatalog: () -> Void
 
-    private var shown: [PluginAgents] {
+    private var shown: [PluginAgents] { Self.matching(plugins, components: components, query: query) }
+    /// The plugins a search finds: by name, or by one of their skills or commands.
+    static func matching(_ plugins: [PluginAgents], components: [PluginComponentRow], query: String) -> [PluginAgents] {
         query.isEmpty ? plugins : plugins.filter { plugin in
             plugin.name.localizedCaseInsensitiveContains(query)
                 || components.contains { $0.plugin == plugin.name && ($0.title ?? $0.name).localizedCaseInsensitiveContains(query) }
