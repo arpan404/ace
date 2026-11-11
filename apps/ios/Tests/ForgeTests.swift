@@ -23,10 +23,14 @@ import Foundation
         // Nothing changed: nothing to send, so Save stays off.
         #expect(ForgePullEdit.changes(from: metadata, editable: editable, title: "Old", body: "Body", base: "main",
                                       labels: "bug", assignees: "mona").isEmpty)
+        // Reordering isn't an edit.
+        #expect(ForgePullEdit.changes(from: ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug", "ui"], assignees: []),
+                                      editable: editable, title: "Old", body: "Body", base: "main", labels: "ui\nbug", assignees: "").isEmpty)
         let changes = ForgePullEdit.changes(from: metadata, editable: editable, title: "  New  ", body: "Body", base: "release",
-                                            labels: "bug, mobile, bug, ", assignees: "octo")
+                                            labels: "bug\nneeds, triage\nbug\n", assignees: "octo")
         #expect(changes["title"] as? String == "New")
-        #expect(changes["labels"] as? [String] == ["bug", "mobile"])
+        // One per line: a label's own comma stays in its name.
+        #expect(changes["labels"] as? [String] == ["bug", "needs, triage"])
         #expect(changes["body"] == nil)
         // The base and assignees aren't this account's to change, whatever was typed.
         #expect(changes["baseBranch"] == nil)
