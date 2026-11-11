@@ -37,6 +37,11 @@ export const BackgroundTask = z.object({
    * such as a dev server. Once the agent's turn is over it no longer holds the thread open.
    */
   listening: z.array(z.number().int().min(1).max(65_535)).max(16).optional(),
+  /**
+   * The provider takes no new prompt while this runs (an ACP shell that outlived its prompt,
+   * ADR 0109): it keeps the thread waiting even after the agent's turn finished (ADR 0116).
+   */
+  blocksPrompts: z.literal(true).optional(),
   /** File the provider writes the task's output to, if any. */
   outputPath: z.string().optional(),
   /** Tool call that started it. */

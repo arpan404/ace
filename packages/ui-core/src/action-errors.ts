@@ -200,6 +200,8 @@ const copy: Record<string, string> = {
     "This suggestion can't be applied: it is resolved, outdated or on removed lines.",
   review_workspace_not_found: "The thread's project is gone: open the project again.",
   review_limit: "This review is full: resolve or discard some comments first.",
+  // Allowed project folders.
+  last_root: "It's the only allowed folder: allow another before removing it.",
   unsupported_by_fake_daemon: "This daemon can't do that yet: update the daemon.",
 };
 

@@ -32,9 +32,15 @@ const addProject = "\u0000add-project";
  * "New thread in…": a chat with no project first, then the projects by name, then Add
  * project…; choosing a project or the chat opens a new thread draft there. While more than one
  * machine is online, a chip in the field names the machine whose projects are listed (the one
- * New thread used last, else this one) and lists the machines to choose another.
+ * New thread used last, else this one) and lists the machines to choose another. Add project
+ * from here starts on that machine.
  */
-export function NewThreadIn(props: { onBack: () => void; close(): void; onAddProject(): void }) {
+export function NewThreadIn(props: {
+  onBack: () => void;
+  close(): void;
+  /** Add project, on the machine whose projects are listed. */
+  onAddProject(machine: Chosen): void;
+}) {
   const machines = useMachines();
   const navigate = useNavigate();
   const { storage } = useLayout();
@@ -59,6 +65,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
   if (several && picking)
     return (
       <CommandChoices
+        key="machines"
         fieldLabel="Search machines"
         listLabel="Machines"
         placeholder="New thread on…"
@@ -75,12 +82,7 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
       />
     );
   const chip = several ? (
-    <MachineChip
-      name={machine.name}
-      icon={machine.icon}
-      primary={machine.primary}
-      onClick={() => setPicking(true)}
-    />
+    <MachineChip name={machine.name} onClick={() => setPicking(true)} />
   ) : undefined;
   const switchMachines = several ? () => setPicking(true) : undefined;
   return (
@@ -103,7 +105,12 @@ export function NewThreadIn(props: { onBack: () => void; close(): void; onAddPro
         onBack={props.onBack}
         onSwitchMachines={switchMachines}
         onChoose={(project) => {
-          if (project === addProject) return props.onAddProject();
+          if (project === addProject)
+            return props.onAddProject({
+              id: machine.id,
+              name: machine.name,
+              primary: machine.primary,
+            });
           const on = machine.primary ? undefined : machine.id;
           if (several) rememberMachine(storage, on);
           props.close();

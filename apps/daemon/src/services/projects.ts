@@ -84,12 +84,15 @@ export function createProjectsSession(context: SocketContext): SocketService {
           return;
         }
         const lease = context.authorityLease?.("projects") ?? allowed;
-        // Allowing another root widens what every device may open, as the setting itself does.
+        // Changing the roots changes what every device may open, as the setting itself does.
         const admin = context.authorityLease?.("admin") ?? (() => authorize("admin"));
         const task = projects
           .execute(
             command,
-            command.payload.type === "workspace.root.add" ? () => lease() && admin() : lease,
+            command.payload.type === "workspace.root.add" ||
+              command.payload.type === "workspace.root.remove"
+              ? () => lease() && admin()
+              : lease,
           )
           .catch(() => ({ commandId: command.id, ok: false, error: "project_failed" }))
           .then((result) => {

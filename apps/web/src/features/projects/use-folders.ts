@@ -46,6 +46,32 @@ export function useHostHome(machine: Machine) {
 
 export type HostHome = NonNullable<ReturnType<typeof useHostHome>["data"]>;
 
+/**
+ * Where a read stands, said by the query itself, never guessed from missing data: `loading`
+ * while it is being read, `failed` once it couldn't be, `ready` with data, `idle` when nothing
+ * reads it (its machine is offline).
+ */
+export function readState(query: {
+  data: unknown;
+  isError: boolean;
+  fetchStatus: string;
+}): "loading" | "failed" | "ready" | "idle" {
+  if (query.data !== undefined) return "ready";
+  if (query.fetchStatus === "fetching") return "loading";
+  return query.isError ? "failed" : "idle";
+}
+
+/** The machine's home folder (`useHostHome`), whether it is still coming or failed, and Retry. */
+export function useHomeFolder(machine: Machine) {
+  const read = useHostHome(machine);
+  const { refetch } = read;
+  return {
+    home: read.data,
+    state: readState(read),
+    retry: () => void refetch(),
+  };
+}
+
 /** A registered project on one machine, with its place in that machine's recent order. */
 export interface RecentFolder {
   icon?: string | null | undefined;

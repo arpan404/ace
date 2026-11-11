@@ -22,6 +22,14 @@ export interface LandOptions {
 }
 
 /**
+ * New thread `navigate` options for a project on `machine`: this window's own New thread for
+ * the primary machine (or none), New thread on that machine for another one (ADR 0102).
+ */
+export function newThreadIn(projectId: string, machine?: Machine) {
+  return newThreadOn(machine && !machine.primary ? machine.id : undefined, projectId);
+}
+
+/**
  * After a project is added, created or cloned: open it. A folder inside a repository offers the
  * repository's root instead, in a toast, which is added only if chosen. A project on
  * another machine opens New thread on that machine (ADR 0102).
@@ -37,10 +45,7 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
       const { machine } = options;
       if (machine && !machine.primary) {
         // Opening it there is the confirmation: the composer's strip names the machine.
-        void navigate({
-          ...newThreadOn(machine.id, result.project.id),
-          replace: !!options.replace,
-        });
+        void navigate({ ...newThreadIn(result.project.id, machine), replace: !!options.replace });
         return;
       }
       const hasThreads = (projectId: string) =>
@@ -54,7 +59,7 @@ export function useLandInProject(): (result: Added, verb?: string, options?: Lan
         if (options.mode === "open" && hasThreads(id)) {
           organizer.setProject(id);
           void navigate({ to: "/", replace });
-        } else void navigate({ to: "/new", search: { project: id }, replace });
+        } else void navigate({ ...newThreadIn(id), replace });
         const root = added.suggestedRoot;
         // Opening it is the confirmation; a toast only carries something to act on or know.
         if (!root && !added.gitUnavailable) return;

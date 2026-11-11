@@ -36,6 +36,9 @@ export interface FolderSeed {
   modifiedAt?: number;
 }
 /** Host filesystem fixture and registered catalog, including projects without threads. */
+/** A folder path without its trailing slashes; the root stays `/`. */
+const trimRoot = (path: string) => path.replace(/\/+$/, "") || "/";
+
 export class FakeProjects {
   private context: FakeServiceContext;
   private hasOwnedWork: (id: string) => boolean;
@@ -235,14 +238,17 @@ export class FakeProjects {
     const configured = this.context.projectRoots?.();
     return configured?.length ? configured : this.roots;
   }
+  /** The folder a path names, as the real daemon's realpath finds it: the home link resolved. */
+  private realpath(path: string): string {
+    const link = this.homeLink;
+    return link && (path === link || path.startsWith(`${link}/`))
+      ? this.home + path.slice(link.length)
+      : path;
+  }
   private checked(path: string): string {
     if (!path.startsWith("/") || path.split("/").includes("..") || path.includes("\0"))
       throw new Error("invalid_path");
-    const link = this.homeLink;
-    const canonical =
-      link && (path === link || path.startsWith(`${link}/`))
-        ? this.home + path.slice(link.length)
-        : path;
+    const canonical = this.realpath(path);
     if (!this.allowedRoots().some((root) => canonical === root || canonical.startsWith(`${root}/`)))
       throw new Error("outside_project_roots");
     return canonical.replace(/\/+$/, "") || "/";
@@ -384,7 +390,7 @@ export class FakeProjects {
     this.seed();
     try {
       if (p.type === "workspace.root.add") {
-        const path = p.path.replace(/\/+$/, "") || "/";
+        const path = this.realpath(p.path.replace(/\/+$/, "") || "/");
         if (!path.startsWith("/") || path.split("/").includes(".."))
           throw new Error("invalid_path");
         if (!this.directories.has(path) && !p.create) throw new Error("directory_missing");
@@ -392,6 +398,18 @@ export class FakeProjects {
         const configured = this.context.projectRoots?.() ?? [];
         const roots = [...new Set([...(configured.length ? configured : this.roots), path])];
         this.context.saveProjectRoots?.(roots);
+        return { ok: true };
+      }
+      if (p.type === "workspace.root.remove") {
+        if (!p.path.startsWith("/") || p.path.split("/").includes(".."))
+          throw new Error("invalid_path");
+        // Matched as typed and as the folder it names, trailing slashes aside, as the real one.
+        const targets = new Set([trimRoot(p.path), trimRoot(this.realpath(p.path))]);
+        const configured = this.context.projectRoots?.() ?? [];
+        const kept = configured.filter((root) => !targets.has(trimRoot(root)));
+        if (kept.length === configured.length) return { ok: true };
+        if (!kept.length) throw new Error("last_root");
+        this.context.saveProjectRoots?.(kept);
         return { ok: true };
       }
       if (p.type === "workspace.add") {

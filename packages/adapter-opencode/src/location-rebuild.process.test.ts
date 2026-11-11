@@ -20,7 +20,10 @@ async function idleWithShell() {
   await h.publish("session.execution.started");
   await h.publish("shell.created", { info: shell });
   await h.publish("session.execution.succeeded");
-  expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.projection.view.thread.status).toEqual({ state: "done" });
+  expect(Object.values(h.projection.view.backgroundTasks).map((task) => task.status)).toEqual([
+    "running",
+  ]);
   return h;
 }
 
@@ -36,7 +39,7 @@ it("a background shell killed by a location rebuild ends its task and the thread
   expect(h.projection.view.thread.status.state).toBe("done");
 });
 
-it("a background shell that survives a location rebuild keeps the thread waiting", async () => {
+it("a background shell that survives a location rebuild stays listed as running", async () => {
   const h = await idleWithShell();
   const recovered = h.recovered();
   await h.control("/test/events", [{ type: "location.shutdown", directory: "/one", data: {} }]);
@@ -44,7 +47,7 @@ it("a background shell that survives a location rebuild keeps the thread waiting
   expect(Object.values(h.projection.view.backgroundTasks).map((task) => task.status)).toEqual([
     "running",
   ]);
-  expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.projection.view.thread.status).toEqual({ state: "done" });
 });
 
 it("stopping a tree whose turns ended removes its running shells instead of failing", async () => {

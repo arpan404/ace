@@ -26,6 +26,14 @@ export function escapeHint(text: string): KeyHint {
   return text ? { keys: ["escape"], label: "Clear" } : closeHint;
 }
 
+/**
+ * A palette step field's own keys, as they stand for `text`: Backspace goes back only while the
+ * field is empty (and there is a step to go back to), and Esc clears the text before it closes.
+ */
+export function fieldHints(text: string, onBack: (() => void) | undefined): KeyHint[] {
+  return [...(onBack && !text ? [backHint] : []), escapeHint(text)];
+}
+
 /** The hints alone, for a footer that also holds the step's actions. */
 export function KeyHintList(props: { hints: readonly KeyHint[]; className?: string }) {
   return (
