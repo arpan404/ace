@@ -4,6 +4,7 @@ import type { ForgePrRow } from "@ace/protocol";
 import { prWords, reviewMark } from "@ace/ui-core";
 import { DiffCounts } from "@/components/diff-stat.tsx";
 import { cn } from "@/lib/cn.ts";
+import { repositoryParam } from "@/lib/pull-request-route.ts";
 import { Avatars, ChecksMark, CommentCount, LabelPills, PrStateIcon } from "./marks.tsx";
 import {
   Ago,
@@ -11,21 +12,23 @@ import {
   onModifiedClick,
   RowShell,
   rowActionClass,
-  useOpenOnGitHub,
+  useOpenOnHost,
 } from "./row-parts.tsx";
 import type { RowStepView } from "./row-steps.ts";
 
 /**
- * One pull request, as GitHub lists it: the state mark; the title as the link, its labels and
+ * One pull request, as its host lists it: the state mark; the title as the link, its labels and
  * its checks' mark; under it "#229 opened 2h ago by sam", draft, the review decision, what ace
  * knows of it (an agent working, who asked you) and its project when the list shows several.
  * At the right its assignees and comments; hovering or focusing the row puts its next action
- * there too. ⌘/Ctrl-click or the right-click menu opens it on GitHub.
+ * there too. ⌘/Ctrl-click or the right-click menu opens it on its host.
  */
 export function PrRow(props: {
   project: string;
   /** The project's name, on line 2; none when the list shows one project. */
   projectName?: string | undefined;
+  /** "GitLab · acme/ace", on line 2, when the project lists reviews from several repositories. */
+  repositoryName?: string | undefined;
   row: ForgePrRow;
   /** The list's address, so the pull request's page can return to it as it was. */
   back: string;
@@ -36,7 +39,7 @@ export function PrRow(props: {
 }) {
   const { row, step } = props;
   const navigate = useNavigate();
-  const openOnGitHub = useOpenOnGitHub();
+  const openOnHost = useOpenOnHost();
   const { action, status } = step;
   const pressed = action.pressed === true;
   // Space on a selectable row toggles it, as its Merge button does.
@@ -54,6 +57,7 @@ export function PrRow(props: {
     <RowShell
       label={`#${row.ref.number} ${row.title}`}
       url={row.url}
+      forge={row.ref.repository.forge}
       selected={props.selected}
       last={props.last}
       onNewThread={() =>
@@ -69,10 +73,10 @@ export function PrRow(props: {
             <Link
               to="/pulls/$project/$number"
               params={{ project: props.project, number: String(row.ref.number) }}
-              search={{ back: props.back }}
+              search={{ back: props.back, repo: repositoryParam(row.ref.repository) }}
               data-view-row=""
               onKeyDown={onKeyDown}
-              onClick={onModifiedClick(row.url, openOnGitHub)}
+              onClick={onModifiedClick(row.url, openOnHost)}
               className="rounded-sm font-semibold break-words text-foreground focus-ring hover:text-link"
             >
               <span data-view-row-title="">{row.title}</span>
@@ -111,6 +115,12 @@ export function PrRow(props: {
               <>
                 <Dot />
                 <span className="truncate">{props.projectName}</span>
+              </>
+            )}
+            {props.repositoryName && (
+              <>
+                <Dot />
+                <span className="truncate">{props.repositoryName}</span>
               </>
             )}
             {row.additions !== undefined && row.deletions !== undefined && (

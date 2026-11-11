@@ -13,6 +13,7 @@
     "./project-calls": "./src/project-calls.ts",
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",
+    "./spade-http": "./src/spade-http.ts",
     "./screen-stream": "./src/screen-stream.ts",
     "./worktree-creations": "./src/worktree-creations.ts",
     "./access": "./src/access.ts",

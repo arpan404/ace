@@ -83,6 +83,8 @@ export type DaemonOptions = {
   computer?: import("@ace/screen").ComputerClient;
   devices?: DevicesService;
   commands?: DaemonCommandIntegration;
+  /** Test seams for hosting Spade (ADR 0117). */
+  spade?: import("./spade.ts").DaemonSpadeOptions;
   config?: Config;
   /** Explicit owner-approved local bindings, also available through admin registry.bind. */
   acpBindings?: readonly import("@ace/agent-registry").LocalBinding[];

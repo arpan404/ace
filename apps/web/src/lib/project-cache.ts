@@ -55,6 +55,16 @@ function settle(queryClient: QueryClient): void {
     .catch(() => {});
 }
 
+/** The cache key of a project's repositories (`forge.repositories`). */
+export const projectRepositoriesKey = (project: string) =>
+  ["forge", project, "repositories"] as const;
+
+/** Read every view of the project's repositories again: its list and its primary. */
+export function forgetProjectRepositories(cache: QueryClient, project: string): void {
+  void cache.invalidateQueries({ queryKey: projectRepositoriesKey(project), exact: true });
+  void cache.invalidateQueries({ queryKey: ["forge", project, "repository"], exact: true });
+}
+
 /**
  * Keep every screen's project list live: the daemon pushes each project added, renamed or
  * removed, from this device or another. A reconnect reads the list again (`useDaemonQuery`),
@@ -69,6 +79,8 @@ export function useProjectListSync(): void {
         if (change.change === "removed") forgetProject(queryClient, change.workspaceId);
         else if (change.workspace) rememberProject(queryClient, change.workspace);
         else settle(queryClient);
+        // Its repository choices may be what changed (ADR 0116).
+        if (change.change !== "removed") forgetProjectRepositories(queryClient, change.workspaceId);
       }),
     [client, queryClient],
   );

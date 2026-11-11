@@ -9,6 +9,7 @@ import {
 import { conflictRefusalText as refusalText } from "@ace/ui-core";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { runCommand } from "@/lib/daemon-command.ts";
+import { readPushRemote } from "@/lib/project-repositories.ts";
 import { failureCode } from "@/lib/forge-read.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 
@@ -76,10 +77,11 @@ export function usePrConflicts(props: {
     setPending("push");
     try {
       // Pushes the PR's head branch without force: a branch that moved on GitHub refuses.
+      const remote = (await readPushRemote(client)) ?? "origin";
       await runCommand(client, {
         type: "git.push",
         threadId: ThreadId.parse(props.threadId),
-        remote: "origin",
+        remote,
       });
       toast.success({ title: `Pushed the merge to ${props.detail.headBranch}` });
       return true;

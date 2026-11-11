@@ -40,19 +40,33 @@ export function useWorkspaceActions(scope: string): WorkspaceActions {
 }
 
 /**
+ * Whether the screen's side panel can open without covering its main column: false on a phone's
+ * layout, where the panel takes the column's place, and where there is no panel at all.
+ */
+export const PanelRoomContext = createContext(false);
+
+/**
  * A scope's workspace where the view sits inside the shell, else undefined: a piece drawn on its
  * own (an answer outside the transcript) has no side panel to open things in. `read` gives the
- * scope's tabs as they are now.
+ * scope's tabs as they are now, `subscribe` says when they change.
  */
-export function useOptionalWorkspace(
-  scope: string,
-): { actions: WorkspaceActions; read: () => ScopeWorkspace } | undefined {
+export function useOptionalWorkspace(scope: string):
+  | {
+      actions: WorkspaceActions;
+      read: () => ScopeWorkspace;
+      subscribe: (listener: () => void) => () => void;
+    }
+  | undefined {
   const services = useOptionalLayoutServices();
   const here = useContext(PanelPlaceContext);
   return useMemo(() => {
     if (!services) return undefined;
     const store = services.workspaceStore(() => new WorkspaceStore({ storage: services.storage }));
-    return { actions: workspaceActions(store, scope, here), read: () => store.get(scope) };
+    return {
+      actions: workspaceActions(store, scope, here),
+      read: () => store.get(scope),
+      subscribe: (listener: () => void) => store.subscribe(scope, listener),
+    };
   }, [services, scope, here]);
 }
 

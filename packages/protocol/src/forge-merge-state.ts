@@ -12,7 +12,9 @@ export type ForgeMergeCommit = z.infer<typeof ForgeMergeCommit>;
 export const ForgeMergeState = z.object({
   headSha: z.string().regex(/^[a-fA-F0-9]{40,64}$/),
   state: text,
+  /** GitHub's merge state status; `UNKNOWN` when the host can't say whether its rules pass. */
   mergeState: text,
+  /** As on `ForgePrDetail`: null when no review is required, `UNKNOWN` when the host can't say. */
   reviewDecision: text.nullable(),
   checksState: text.nullable(),
   autoMerge: z.object({ method: text, actor: text.nullable(), enabledAt: text }).nullable(),

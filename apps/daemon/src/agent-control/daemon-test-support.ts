@@ -17,6 +17,7 @@ export async function daemonFixture(
     | "transfers"
     | "screen"
     | "computer"
+    | "spade"
   > & {
     /** Engine limits, e.g. one active thread so the engine is full. */
     engineLimits?: Partial<import("../engine/limits.ts").EngineLimits>;
@@ -59,6 +60,7 @@ export async function daemonFixture(
       ...(options.computer ? { computer: options.computer } : {}),
       ...(options.projects ? { projects: options.projects } : {}),
       ...(options.transfers ? { transfers: options.transfers } : {}),
+      ...(options.spade ? { spade: options.spade } : {}),
       workspaceActions: {
         forgeRunner: () => async () => ({ code: 1, stdout: "offline", truncated: false }),
         ...options.workspaceActions,

@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpadeHttpOpen.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "spade.http.open",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

@@ -71,6 +71,7 @@ export function InboxRow(props: {
     <RowShell
       label={row.title}
       url={row.url}
+      forge={row.repository.forge}
       last={props.last}
       selected={props.selected}
       menu={

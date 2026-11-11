@@ -105,23 +105,22 @@ test("Threads in the rail returns to the thread the person left, across Settings
   expect(history.location.pathname).toBe("/t/thread-router");
 });
 
-test("Spade shows in the rail as coming soon, and is nothing to press", async () => {
+test("Spade in the rail opens Spade's place, between Chats and Code review", async () => {
   const history = createMemoryHistory({ initialEntries: ["/new"] });
   await harness({ history }).open("/new");
   await title("New thread");
-  const spade = within(appNav()).getByRole("img", { name: "Spade, coming soon" });
-  expect(spade.closest("a, button")).toBeNull();
-  expect(spade.tabIndex).toBe(-1);
-  expect(within(appNav()).queryByRole("link", { name: /Spade/ })).toBeNull();
-  expect(within(appNav()).queryByRole("button", { name: /Spade/ })).toBeNull();
-  await userEvent.click(spade);
-  expect(history.location.pathname).toBe("/new");
-  // Tabbing through the rail passes from Threads to Chats, then over Spade straight to GitHub.
-  place("Threads").focus();
-  await userEvent.tab();
-  expect(document.activeElement).toBe(place(/^Chats/));
-  await userEvent.tab();
-  expect(document.activeElement).toBe(place(/^Code review/));
+  const order = within(appNav())
+    .getAllByRole("link")
+    .map((link) => link.getAttribute("aria-label"));
+  expect(order.slice(0, 4)).toEqual([
+    "Threads",
+    "Chats",
+    "Spade",
+    expect.stringMatching(/^Code review/),
+  ]);
+  await userEvent.click(place("Spade"));
+  expect(history.location.pathname).toBe("/spade");
+  expect(place("Spade").getAttribute("aria-current")).toBe("page");
 });
 
 test("Threads in the rail says a thread needs the person only while they are elsewhere", async () => {

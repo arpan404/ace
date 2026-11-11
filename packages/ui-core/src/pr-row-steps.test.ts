@@ -1,4 +1,4 @@
-import { ForgePrRow, type ThreadListEntry } from "@ace/protocol";
+import { ForgePrRow, type ForgeRepository, type ThreadListEntry } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { groupBySteps, linkedWork, rowStep, waitingWord, workKey } from "./pr-row-steps.ts";
 
@@ -56,7 +56,13 @@ test("a waiting row says checks are running before it says it waits on review", 
 
 const entry = (
   id: string,
-  patch: { archivedAt?: number; state?: string; prs?: number[]; issues?: number[] },
+  patch: {
+    archivedAt?: number;
+    state?: string;
+    prs?: number[];
+    issues?: number[];
+    repository?: ForgeRepository;
+  },
 ): ThreadListEntry =>
   ({
     id,
@@ -65,7 +71,7 @@ const entry = (
     status: { state: patch.state ?? "working" },
     details: {
       linkedPrs: (patch.prs ?? []).map((number) => ({
-        repo: { ...repository, owner: "acme", name: "ace" },
+        repo: patch.repository ?? { ...repository, owner: "acme", name: "ace" },
         number,
       })),
       linkedIssues: (patch.issues ?? []).map((number) => ({ repository, number })),
@@ -90,5 +96,74 @@ test("linked work names the first listed thread per pull request or issue, skips
     working: false,
   });
   expect(pulls.get(workKey(repository, 6))).toMatchObject({ id: "other", working: true });
-  expect(issues.get(workKey({ owner: "ACME", name: "ace" }, 7))?.id).toBe("new");
+  expect(issues.get(workKey({ ...repository, owner: "ACME", name: "ace" }, 7))?.id).toBe("new");
+});
+
+test("linked reviews with equal names and numbers on different hosts keep their own threads", () => {
+  const origin: ForgeRepository = { ...repository, forge: "origin", host: "origin.cursor.com" };
+  const enterprise: ForgeRepository = { ...repository, host: "git.company.test" };
+  const threads = [
+    entry("github", { prs: [5] }),
+    entry("origin", { prs: [5], repository: origin }),
+    entry("enterprise", { prs: [5], repository: enterprise }),
+  ];
+  const { pulls } = linkedWork({
+    ids: threads.map((thread) => thread.id),
+    thread: (id) => threads.find((thread) => thread.id === id),
+  });
+  expect(pulls.get(workKey(repository, 5))?.id).toBe("github");
+  expect(pulls.get(workKey(origin, 5))?.id).toBe("origin");
+  expect(pulls.get(workKey(enterprise, 5))?.id).toBe("enterprise");
+});
+
+test("hosted reviews with unavailable review and CI data are never ready to merge", () => {
+  for (const forge of ["origin", "gitlab"] as const) {
+    const hosted = row(1, {
+      ref: { repository: { ...repository, forge }, number: 1 },
+      ci: "unknown",
+      reviewDecision: null,
+    });
+    expect(rowStep(hosted, "someone", undefined, []).step).toBe("wait");
+    expect(
+      rowStep(hosted, "someone", { id: "t", title: "Needs input", needsYou: true }, []).step,
+    ).toBe("answer");
+  }
+});
+
+test("a GitLab or Gitea row that carries no review or CI data is never ready to merge, even where merging is supported", () => {
+  const capabilities = [
+    "reviews.read",
+    "reviews.approvals.read",
+    "reviews.checks",
+    "reviews.merge",
+  ];
+  for (const forge of ["gitlab", "gitea"] as const) {
+    const listed = row(1, {
+      ref: { repository: { ...repository, forge }, number: 1 },
+      ci: undefined,
+      reviewDecision: undefined,
+    });
+    const step = rowStep(listed, "someone", undefined, [], { capabilities });
+    expect(step.step).toBe("wait");
+    expect(waitingWord(listed, step.local)).toBe("Review status unavailable");
+    // Known checks alone aren't enough: the review is still unknown.
+    expect(
+      rowStep({ ...listed, ci: "success" }, "someone", undefined, [], { capabilities }).step,
+    ).toBe("wait");
+  }
+});
+
+test("a mirror offers merge only when its declaration permits merging", () => {
+  const mirror = row(1, {
+    ref: { repository: { ...repository, forge: "gitlab" }, number: 1 },
+    ci: "success",
+    reviewDecision: "APPROVED",
+  });
+  expect(rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read"] }).step).toBe(
+    "wait",
+  );
+  expect(
+    rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read", "reviews.merge"] })
+      .step,
+  ).toBe("merge");
 });

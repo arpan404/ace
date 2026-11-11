@@ -1,5 +1,11 @@
 import { automaticTarget, blockedUntil } from "@ace/accounts/availability";
-import { canonicalContext, ProjectionCapabilities, encodedContextBudget } from "@ace/context";
+import {
+  canonicalContext,
+  encodedContextBudget,
+  fillPlaces,
+  markPlaces,
+  ProjectionCapabilities,
+} from "@ace/context";
 import type { PrepareInput } from "../engine/input.ts";
 import { z } from "zod";
 import { ThreadId } from "@ace/protocol";
@@ -156,13 +162,15 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create")
       throw new Error("Expected a message");
+    // Files the person put mid-message keep their spot through mention translation.
+    const marked = markPlaces(p.input, p.context?.attachments.map((file) => file.at) ?? []);
     const input = p.input.some((part) => part.type === "mention")
       ? await (() => {
           if (!context.services.commands?.prepareMentions || !("threadId" in p) || !p.threadId)
             throw new Error("Catalog mention preparation unavailable");
-          return context.services.commands.prepareMentions(p.threadId, p.input);
+          return context.services.commands.prepareMentions(p.threadId, marked.input);
         })()
-      : p.input;
+      : marked.input;
     if (!p.context) return { input, release() {} };
     const contextService = context.services.context;
     if (!contextService || !("threadId" in p) || !p.threadId)
@@ -205,7 +213,13 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     });
     try {
       return {
-        input: [...message, ...canonicalContext(prepared.projection)],
+        input: fillPlaces(
+          message,
+          marked.places,
+          canonicalContext(prepared.projection),
+          prepared.files,
+          capabilities.attachmentInput?.interleaved === true,
+        ),
         attachments: prepared.attachments,
         attachmentPaths: prepared.attachmentPaths,
         diagnostics: prepared.diagnostics,

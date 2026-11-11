@@ -24,6 +24,8 @@ export function AppSidebar(props: {
   forge?: ((current: boolean) => ReactNode) | undefined;
   /** Usage's place in the rail's foot. */
   usage?: ((current: boolean) => ReactNode) | undefined;
+  /** Spade's place in the rail. */
+  spade?: ((current: boolean, to: string, search: object) => ReactNode) | undefined;
 }) {
   const { setBody, bodyClaimed, sheet } = useViewFrame();
   // Spade's eyes follow the pointer while it is over the rail or the panel beside it.
@@ -42,7 +44,7 @@ export function AppSidebar(props: {
         {!sheet && <NavButtons />}
       </div>
       <div ref={followRef} data-slot="sidebar-body" className="flex min-h-0 flex-1">
-        <AppRail forge={props.forge} usage={props.usage} />
+        <AppRail forge={props.forge} usage={props.usage} spade={props.spade} />
         <div
           data-slot="sidebar-panel"
           className={`flex min-h-0 min-w-0 flex-1 flex-col ${sheet ? "" : panelCanvasClass}`}

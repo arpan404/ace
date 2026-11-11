@@ -12,6 +12,35 @@ import {
 import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
 import type { Store } from "./store.ts";
 
+/** What the review journal needs from a host; GitHub, GitLab and Gitea each provide it. */
+type ReviewBackend = {
+  reviews: Pick<GitHubForge["reviews"], "viewedNow" | "moveDrafts" | "write" | "reconcile"> & {
+    decorations(
+      number: number,
+      signal: AbortSignal,
+    ): Promise<Pick<ForgeReviewState, "reactions" | "hidden" | "hideable">>;
+    host(
+      number: number,
+      signal: AbortSignal,
+    ): Promise<{
+      viewer: string;
+      pr: {
+        headRefOid: string;
+        state: string;
+        viewerCanComment: boolean;
+        viewerDidAuthor: boolean;
+      };
+      threads: {
+        id: string;
+        isResolved: boolean;
+        viewerCanResolve: boolean;
+        viewerCanUnresolve: boolean;
+      }[];
+      pending?: ForgeReviewState["hostedPending"];
+    }>;
+  };
+};
+
 const AcceptedDraftRow = z.object({ id: z.string(), state: z.enum(["accepted", "uncertain"]) });
 const CountRow = z.object({ count: z.number() });
 const StoredDrafts = z.array(ForgeReviewDraft).max(100);
@@ -75,7 +104,7 @@ export class WorkspaceForgeReviews {
   }
   async state(
     pr: ForgePrRef,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
   ): Promise<ForgeReviewState> {
     // The viewed marks are read beside the host, not after it: both name the head they saw, and
@@ -195,7 +224,7 @@ export class WorkspaceForgeReviews {
    * A draft an unknown write sent is never moved: once that write is found on GitHub, its
    * draft is removed only if it is still the text sent, so a move would leave it to post twice.
    */
-  async #move(pr: ForgePrRef, headSha: string, backend: GitHubForge, signal: AbortSignal) {
+  async #move(pr: ForgePrRef, headSha: string, backend: ReviewBackend, signal: AbortSignal) {
     const fenced = this.#fenced(pr);
     const read = this.#drafts(pr).filter((d) => !fenced.has(d.id));
     const moved = await backend.reviews.moveDrafts(pr.number, headSha, read, signal);
@@ -217,7 +246,7 @@ export class WorkspaceForgeReviews {
   async execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ) {
@@ -234,7 +263,7 @@ export class WorkspaceForgeReviews {
   async #execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: ReviewBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ) {

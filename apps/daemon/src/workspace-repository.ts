@@ -1,27 +1,21 @@
-import { repositoryFromRemote } from "@ace/forge";
-import type { ForgeRepository, SourceControlPreferences } from "@ace/protocol";
+import type {
+  ForgeRepository,
+  ProjectRepositoryConfig,
+  SourceControlPreferences,
+} from "@ace/protocol";
+import { resolveProjectRepositories, type CheckoutRemote } from "@ace/forge";
 
-/** One remote selection rule for both published checkout details and forge commands. */
+/**
+ * The project's primary repository (ADR 0116): one selection rule for published checkout
+ * details and forge commands. Without saved choices it is the global remote name's
+ * repository, else (with no preferences) the first remote's.
+ */
 export function workspaceRepository(
-  remotes: readonly { name: string; fetchUrls: readonly string[] }[],
+  remotes: readonly CheckoutRemote[],
   preferences?: SourceControlPreferences,
   /** SSH host aliases resolved to real hosts, from `SourceControl.hostAliases`. */
   aliases: Readonly<Record<string, string>> = {},
+  config?: ProjectRepositoryConfig,
 ): ForgeRepository | undefined {
-  const remote = (
-    remotes.find((entry) => entry.name === (preferences?.remote ?? "origin")) ??
-    (preferences ? undefined : remotes[0])
-  )?.fetchUrls[0];
-  if (!remote) return undefined;
-  try {
-    return repositoryFromRemote(
-      remote,
-      preferences
-        ? Object.fromEntries(preferences.hosts.map((entry) => [entry.host, "github"]))
-        : {},
-      aliases,
-    );
-  } catch {
-    return undefined;
-  }
+  return resolveProjectRepositories({ remotes, preferences, aliases, config }).primary?.repository;
 }

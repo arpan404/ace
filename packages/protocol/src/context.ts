@@ -76,7 +76,18 @@ export const MessageContext = z.object({
   items: z.array(MessageContextItem).max(32).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
-    .array(z.object({ sha256: BlobHash }))
+    .array(
+      z.object({
+        sha256: BlobHash,
+        /**
+         * Where the person put the file in their message: a UTF-16 offset into the message's
+         * text (its `text` input parts joined in order). The file reaches the agent at that
+         * point in the text; without it, after the text. A catalog mention adds no text, so a
+         * file at its edge goes before it.
+         */
+        at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
+      }),
+    )
     .max(64)
     .default([]),
 });

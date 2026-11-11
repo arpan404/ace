@@ -20,7 +20,10 @@ import { fileIO, scheduler, type FileIO, type Scheduler } from "./io.ts";
  * Keys only the global layer may set: a value in a workspace or thread document (a repository's
  * `.ace/settings.json`) is ignored, so a project can't turn them on for itself.
  */
-const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>(["computer.lockedUse"]);
+const globalOnlyKeys: ReadonlySet<SettingsKey> = new Set<SettingsKey>([
+  "computer.lockedUse",
+  "spade.enabled",
+]);
 
 export interface Scope {
   workspace?: string;
@@ -225,6 +228,8 @@ export class SettingsService {
       throw new SettingsError("validation", "The downloads folder is a global daemon setting");
     if (key === "computer.blockedApps" && layer.kind !== "global")
       throw new SettingsError("validation", "Apps agents can't use is a global setting");
+    if (key === "spade.enabled" && layer.kind !== "global")
+      throw new SettingsError("validation", "Running Spade is a global setting");
     if (globalOnlyKeys.has(key) && layer.kind !== "global")
       throw new SettingsError("validation", "Working while this Mac is locked is a global setting");
     if (roleSettingKeys.includes(key) && layer.kind !== "global")

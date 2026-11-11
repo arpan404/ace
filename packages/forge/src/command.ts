@@ -20,6 +20,9 @@ export type CommandResult = {
   stdout: string;
   truncated: boolean;
   identityChanged?: true;
+  /** Only tea's and bkt's parsed HTTP status and tea's pagination/quota headers, never raw
+   * stderr. bkt reports a status only for a non-2xx reply. */
+  http?: { status: number; headers: Record<string, string> } | undefined;
   /** The CLI reported a network failure (DNS, refused, timed out). Stderr itself never escapes. */
   unreachable?: true;
 };
@@ -48,6 +51,8 @@ export function createCommandRunner(options: {
     throw new RangeError("Invalid command limits");
   return async (request) => {
     if (request.signal.aborted) throw new ForgeError("cancelled", undefined, false);
+    // Windows starts a gate in the CLI's place; the reply is still read as this CLI's.
+    const cli = request.command;
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...options.env,
@@ -153,6 +158,8 @@ export function createCommandRunner(options: {
           : { text: Buffer.concat(chunks, bytes).toString("utf8"), truncated: false };
       return {
         code,
+        ...(cli === "tea" ? { http: teaHttp(diagnostics) } : {}),
+        ...(cli === "bkt" && code !== 0 ? { http: bktHttp(diagnostics) } : {}),
         stdout: output.text,
         truncated: output.truncated,
         ...(code !== 0 && networkFailure.test(diagnostics) ? { unreachable: true as const } : {}),
@@ -204,4 +211,28 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
   const found = await findExecutable(command, { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
   if (found === undefined) throw new ForgeError("cli", undefined, false);
   return { command: found, createJob: () => createKillOnCloseJob() };
+}
+
+/** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
+function teaHttp(stderr: string): CommandResult["http"] {
+  const match = /^HTTP\/[\d.]+ (\d{3})[^\r\n]*\r?\n([\s\S]*?)(?:\r?\n\r?\n|$)/.exec(stderr);
+  if (!match) return undefined;
+  const headers: Record<string, string> = {};
+  for (const line of (match[2] ?? "").split(/\r?\n/)) {
+    const colon = line.indexOf(":");
+    const name = line.slice(0, colon).toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (
+      ["x-total-count", "retry-after", "x-ratelimit-remaining"].includes(name) &&
+      /^\d{1,15}$/.test(value)
+    )
+      headers[name] = value;
+  }
+  return { status: Number(match[1]), headers };
+}
+
+/** bkt prints a non-2xx reply as `Error: <status> <reason>[: message]` (pkg/httpx HTTPError). */
+function bktHttp(stderr: string): CommandResult["http"] {
+  const match = /^Error: ([1-5]\d{2}) /.exec(stderr);
+  return match ? { status: Number(match[1]), headers: {} } : undefined;
 }

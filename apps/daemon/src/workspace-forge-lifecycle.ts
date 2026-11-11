@@ -1,3 +1,4 @@
+import type { HostedLifecycleBackend } from "./hosted-lifecycle.ts";
 import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { completePendingForgeReceipt } from "./forge-write-receipts.ts";
@@ -11,7 +12,7 @@ import {
   type ForgeLifecycleState,
   type ForgeLifecycleReceipt as LifecycleReceipt,
 } from "@ace/protocol";
-import { ForgeError, WriteDispatch, type GitHubForge } from "@ace/forge";
+import { ForgeError, WriteDispatch } from "@ace/forge";
 import type { Store } from "./store.ts";
 const scope = forgeResourceKey;
 /** Durable receipts plus a journal that observes uncertain remote results without repeating writes. */
@@ -49,7 +50,7 @@ export class WorkspaceForgeLifecycle {
   }
   async state(
     pr: ForgePrRef,
-    backend: GitHubForge,
+    backend: HostedLifecycleBackend,
     signal: AbortSignal,
   ): Promise<ForgeLifecycleState> {
     const snapshot = await backend.lifecycle.snapshot(pr.number, signal);
@@ -91,7 +92,7 @@ export class WorkspaceForgeLifecycle {
   async execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: HostedLifecycleBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ): Promise<LifecycleReceipt> {
@@ -106,7 +107,7 @@ export class WorkspaceForgeLifecycle {
   async #execute(
     input: unknown,
     commandId: string,
-    backend: GitHubForge,
+    backend: HostedLifecycleBackend,
     signal: AbortSignal,
     allowed: () => boolean,
   ): Promise<LifecycleReceipt> {

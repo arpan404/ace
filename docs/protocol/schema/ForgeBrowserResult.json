@@ -344,6 +344,22 @@
     },
     {
       "properties": {
+        "resource": {
+          "const": "repositories",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "https://ace.local/protocol/v1/ProjectRepositories.json"
+        }
+      },
+      "required": [
+        "resource",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "counts": {
           "additionalProperties": {
             "maximum": 9007199254740991,

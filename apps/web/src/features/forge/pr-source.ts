@@ -1,6 +1,6 @@
 import { prFromUrl } from "@ace/forge/pr-reference";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { actionErrorText } from "@ace/ui-core";
+import { forgeErrorText } from "@ace/ui-core";
 import { failureCode, readForge } from "@/lib/forge-read.ts";
 export function usePrSource(workspaceId: string | undefined, url: string | undefined) {
   let pr;
@@ -36,7 +36,7 @@ export function usePrSource(workspaceId: string | undefined, url: string | undef
       url && !pr
         ? "The PR URL is invalid."
         : query.isError
-          ? `The source PR couldn't load. ${actionErrorText(failureCode(query.error))}`
+          ? `The source PR couldn't load. ${forgeErrorText(failureCode(query.error), pr?.repository.forge)}`
           : detail && !detail.headRepository
             ? "This PR's source repository was deleted."
             : url && !detail

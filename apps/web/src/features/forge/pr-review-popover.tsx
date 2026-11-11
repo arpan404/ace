@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import { MarkdownEditor } from "@/components/markdown-editor/markdown-editor.tsx";
 import { draftKeys, useMarkdownDraft } from "@/components/markdown-editor/use-markdown-draft.ts";
@@ -37,7 +38,7 @@ export function PrReviewButton(props: {
   );
   const state = review?.state;
   const follow = useDraftsFollowHead();
-  if (!review || !detail) return null;
+  if (!review || !detail || !can(detail, "reviews.approvals.write")) return null;
   // While the review state loads or can't be read, Review stays where it is and says why.
   if (!state)
     return detail.status.state === "open" || detail.status.state === "draft" ? (
@@ -56,10 +57,12 @@ export function PrReviewButton(props: {
   const drafts = state.drafts;
   const live = detail.status.state === "open" || detail.status.state === "draft";
   const locked = review.commentsLocked;
-  if (!drafts.length && !((state.canComment || locked) && live)) return null;
+  if (!drafts.length && !((state.canComment || state.canReview || locked) && live)) return null;
   const headSha = detail.status.headSha;
   const blocked = verdictBlocked(state, detail.author, live);
-  const chosen = blocked && verdict !== "COMMENT" ? "COMMENT" : verdict;
+  const commentsAllowed = can(detail, "reviews.comments.write");
+  const selected = !commentsAllowed && verdict === "COMMENT" ? "APPROVE" : verdict;
+  const chosen = commentsAllowed && blocked && selected !== "COMMENT" ? "COMMENT" : selected;
   const disabled = !review.ready || review.pending;
   const empty = chosen !== "APPROVE" && !draft.text.trim() && !drafts.length;
   // Why Submit is off, always in words; the lock says so itself above.
@@ -67,7 +70,7 @@ export function PrReviewButton(props: {
     ready: review.ready,
     writing: review.pending,
     locked,
-    canComment: state.canComment,
+    canComment: chosen === "COMMENT" ? state.canComment : state.canReview && !blocked,
     headSha,
     stateHead: state.headSha,
     drafts,
@@ -142,18 +145,20 @@ export function PrReviewButton(props: {
           }}
           className="gap-2"
         >
-          {verdicts.map((v) => {
-            const off = locked || (v.value !== "COMMENT" && !!blocked);
-            return (
-              <label
-                key={v.value}
-                className={cn("flex items-center gap-2 text-ui", off && "opacity-50")}
-              >
-                <RadioGroupItem value={v.value} disabled={off} />
-                {v.label}
-              </label>
-            );
-          })}
+          {verdicts
+            .filter((v) => v.value !== "COMMENT" || commentsAllowed)
+            .map((v) => {
+              const off = locked || (v.value !== "COMMENT" && !!blocked);
+              return (
+                <label
+                  key={v.value}
+                  className={cn("flex items-center gap-2 text-ui", off && "opacity-50")}
+                >
+                  <RadioGroupItem value={v.value} disabled={off} />
+                  {v.label}
+                </label>
+              );
+            })}
         </RadioGroup>
         {blocked && <p className="text-xs text-subtle-foreground">{blocked}</p>}
         {drafts.length > 0 && (
