@@ -81,6 +81,9 @@ pub enum Known {
         #[serde(default)]
         is_error: bool,
     },
+    /// The person pressed Stop. A background job's result that arrives after this, or is found
+    /// lost after a restart, is kept without opening a reply.
+    StopRequested {},
     ReplyStarted {
         reply: String,
         model: String,

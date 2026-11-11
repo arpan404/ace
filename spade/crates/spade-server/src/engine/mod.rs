@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use spade_core::event::Known;
+use spade_core::turn::job_stopped;
 use spade_core::{Event, Transcript, TurnState, spending};
 use spade_models::{Models, Role};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
@@ -243,7 +244,14 @@ impl Engine {
     fn deliver(self: &Arc<Self>, id: &str, event: &Event) -> Result<(), StoreError> {
         let start = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if Transcript::fold(&self.load(id)?).open_reply().is_some() {
+            let events = self.load(id)?;
+            // A job's result after the person pressed Stop is kept, but opens no reply. Checked
+            // under the same lock Stop records under, so the two cannot interleave.
+            let quiet = match event {
+                Event::Known(Known::JobFinished { job, .. }) => job_stopped(&events, job),
+                _ => false,
+            };
+            if quiet || Transcript::fold(&events).open_reply().is_some() {
                 self.append(id, event)?;
                 false
             } else {
@@ -268,6 +276,10 @@ impl Engine {
     /// Stops the open turn and the conversation's background jobs. Returns whether anything was
     /// running.
     pub fn stop(self: &Arc<Self>, id: &str) -> bool {
+        // Stored first, so jobs finishing now or found lost after a restart stay quiet.
+        if let Err(error) = self.record(id, &Event::Known(Known::StopRequested {})) {
+            tracing::error!(%error, "could not store a stop");
+        }
         let live = self.live(id);
         let turn = {
             let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
@@ -462,8 +474,11 @@ impl Engine {
         {
             return;
         }
+        // The stop signal is in place before the worker is scheduled, so Stop always reaches it.
+        let (stop_tx, stop_rx) = watch::channel(false);
+        *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop_tx);
         let engine = self.clone();
         let id = id.to_owned();
-        tokio::spawn(async move { turn::run(engine, id).await });
+        tokio::spawn(async move { turn::run(engine, id, stop_rx).await });
     }
 }

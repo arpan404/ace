@@ -124,6 +124,19 @@ pub fn unique_call_ids(
         .collect()
 }
 
+/// Whether the person pressed Stop after `job` started, so its result must not open a reply.
+pub fn job_stopped(events: &[Event], job: &str) -> bool {
+    let Some(started) = events
+        .iter()
+        .position(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
+    else {
+        return false;
+    };
+    events[started..]
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::StopRequested {})))
+}
+
 /// Steps taken and money spent by the open turn.
 pub fn progress(events: &[Event]) -> Progress {
     let Some((_, start)) = open_reply(events) else {
@@ -316,6 +329,22 @@ mod tests {
         );
         let ids: Vec<&str> = calls.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, vec!["t1", "call_1", "t2", "t3"]);
+    }
+
+    #[test]
+    fn only_a_stop_pressed_after_a_job_started_keeps_its_result_quiet() {
+        let started = |job: &str| {
+            Event::Known(Known::JobStarted {
+                reply: "r1".into(),
+                job: job.into(),
+                name: "research".into(),
+            })
+        };
+        let stop = Event::Known(Known::StopRequested {});
+        let events = vec![stop.clone(), started("j1"), stop, started("j2")];
+        assert!(job_stopped(&events, "j1"));
+        assert!(!job_stopped(&events, "j2"));
+        assert!(!job_stopped(&events, "unknown"));
     }
 
     #[test]
