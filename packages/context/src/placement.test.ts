@@ -10,6 +10,13 @@ const image = (name: string): ContentPart => ({
 });
 const pdf = (path: string): ContentPart => ({ type: "file", path, mimeType: "application/pdf" });
 const mentionText = text("Attachment from @src/a.ts");
+const skill: ContentPart = {
+  type: "mention",
+  entryId: "skill-review",
+  name: "review",
+  kind: "skill",
+  arguments: "",
+};
 
 /** The message's input and context as the daemon sends them, files first-to-last. */
 function place(
@@ -121,6 +128,27 @@ describe("a file reaches an interleaving provider where the person put it", () =
     ).toEqual([text("read "), notes, text("and fix")]);
   });
 
+  it("puts a file at a mention's edge before the mention, wherever the mention sits", () => {
+    // "fix @review [img]" and "fix [img] @review" both give at = 4: the mention adds no text.
+    expect(
+      place([text("fix "), skill, text(" now")], [shot], [{ part: 0, name: "s.png", at: 4 }], true),
+    ).toEqual([text("fix "), shot, skill, text(" now")]);
+    expect(
+      place([skill, text("fix it")], [shot], [{ part: 0, name: "s.png", at: 0 }], true),
+    ).toEqual([shot, skill, text("fix it")]);
+  });
+
+  it("sends the files after the text when their spots would pass the part limit", () => {
+    const input = Array.from({ length: 200 }, (_, index) => text(`p${index} `));
+    const files = Array.from({ length: 30 }, (_, index) => ({
+      part: index,
+      name: `${index}.png`,
+      at: 1,
+    }));
+    const context = files.map((file) => image(file.name));
+    expect(place(input, context, files, true)).toEqual([...input, ...context]);
+  });
+
   it("sends a message without text exactly as today", () => {
     expect(place([], [shot], [{ part: 0, name: "shot.png", at: 0 }], true)).toEqual([shot]);
   });
@@ -151,7 +179,7 @@ describe("a provider that joins text names a native file at its spot", () => {
     ).toEqual([text("[Attached PDF 1: b.pdf]x [Attached image 2: c.png]y"), a, b, c]);
   });
 
-  it("puts a file that became text at its spot as its own part", () => {
+  it("puts a file that became text into the text at its spot, on lines of its own", () => {
     const notes = text('Attachment "notes.txt"');
     const shot = image("shot");
     expect(
@@ -164,7 +192,20 @@ describe("a provider that joins text names a native file at its spot", () => {
         ],
         false,
       ),
-    ).toEqual([text("read "), notes, text("[Attached image 1: shot.png]and fix"), shot]);
+    ).toEqual([text('read \nAttachment "notes.txt"\n[Attached image 1: shot.png]and fix'), shot]);
+  });
+
+  it("keeps a file that became text off the person's words when mentions join text tightly", () => {
+    // OpenCode joins a message with a catalog mention without separators.
+    const inline = 'Attachment "notes.txt"\n<ace-attachment>\nhi\n</ace-attachment>';
+    expect(
+      place(
+        [skill, text("read and fix")],
+        [text(inline)],
+        [{ part: 0, name: "notes.txt", at: 5 }],
+        false,
+      ),
+    ).toEqual([skill, text(`read \n${inline}\nand fix`)]);
   });
 
   it("names a file at the end of the text", () => {

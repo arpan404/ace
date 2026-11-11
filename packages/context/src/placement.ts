@@ -21,6 +21,8 @@ interface Slot {
   after: boolean;
 }
 const prefix = "ace-slot:";
+/** Mention translation and Pi's input both refuse a message of more parts. */
+const maxParts = 256;
 const none: Places = { slots: new Map() };
 
 function high(code: number): boolean {
@@ -33,7 +35,9 @@ function low(code: number): boolean {
 /**
  * Split the person's text at each file's offset (UTF-16 units into the text parts joined in
  * order) and leave a placeholder there. Offsets past the end clamp to the end; an offset inside
- * a surrogate pair moves to the pair's start. Without text or offsets the input is unchanged.
+ * a surrogate pair moves to the pair's start. A catalog mention adds no text, so a file at its
+ * edge goes before it. Without text or offsets, or when the spots would take the message past
+ * the part limit, the input is unchanged and the files go after the text.
  */
 export function markPlaces(
   input: readonly ContentPart[],
@@ -52,10 +56,13 @@ export function markPlaces(
   const positioned = offsets
     .map((at, file) => ({ at, file }))
     .filter((entry): entry is { at: number; file: number } => entry.at !== undefined);
-  if (!texts.length || !positioned.length) return { input: [...input], places: none };
+  // Each spot adds a placeholder and may split a text part in two.
+  if (!texts.length || !positioned.length || input.length + 2 * positioned.length > maxParts)
+    return { input: [...input], places: none };
   // Stable: files at the same offset keep the order they were attached in.
   positioned.sort((a, b) => Math.min(a.at, length) - Math.min(b.at, length));
   const cuts = new Map<number, Map<number, number[]>>();
+  const leading = new Map<number, number[]>();
   for (const { at, file } of positioned) {
     const x = Math.min(at, length);
     const owner = texts.find((text) => x <= text.start + text.text.length);
@@ -68,6 +75,12 @@ export function markPlaces(
       low(owner.text.charCodeAt(k))
     )
       k--;
+    let before = owner.index;
+    if (k === 0) while (input[before - 1]?.type === "mention") before--;
+    if (before < owner.index) {
+      leading.set(before, [...(leading.get(before) ?? []), file]);
+      continue;
+    }
     const part = cuts.get(owner.index) ?? new Map<number, number[]>();
     cuts.set(owner.index, part);
     part.set(k, [...(part.get(k) ?? []), file]);
@@ -75,6 +88,12 @@ export function markPlaces(
   const slots = new Map<string, Slot>();
   const output: ContentPart[] = [];
   for (const [index, part] of input.entries()) {
+    const ahead = leading.get(index);
+    if (ahead) {
+      const path = `${prefix}${slots.size}`;
+      slots.set(path, { files: ahead, before: false, after: false });
+      output.push({ type: "file", path });
+    }
     const at = cuts.get(index);
     if (!at || part.type !== "text") {
       output.push(part);
@@ -104,8 +123,9 @@ function kind(part: ContentPart): string {
  *
  * `interleaved` providers keep part order in their native message, so each file's own part
  * goes at its spot. Others join a message's text into one prompt and send files beside it:
- * a file that became text still goes at its spot, and a native file is named there
- * (`[Attached image 1: screen.png]`, numbered as it follows the text) and sent after the text.
+ * a file that became text joins the text at its spot on lines of its own, and a native file is
+ * named there (`[Attached image 1: screen.png]`, numbered as it follows the text) and sent
+ * after the text.
  */
 export function fillPlaces(
   message: readonly ContentPart[],
@@ -164,7 +184,9 @@ export function fillPlaces(
       const index = files[file]?.part;
       const prepared = index === undefined ? undefined : context[index];
       if (index === undefined || !prepared) continue;
-      const label = labels.get(index);
+      const label =
+        labels.get(index) ??
+        (!interleaved && prepared.type === "text" ? `\n${prepared.text}\n` : undefined);
       if (label === undefined) {
         output.push(prepared);
         current = undefined;

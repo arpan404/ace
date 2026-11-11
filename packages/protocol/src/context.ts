@@ -82,7 +82,8 @@ export const MessageContext = z.object({
         /**
          * Where the person put the file in their message: a UTF-16 offset into the message's
          * text (its `text` input parts joined in order). The file reaches the agent at that
-         * point in the text; without it, after the text.
+         * point in the text; without it, after the text. A catalog mention adds no text, so a
+         * file at its edge goes before it.
          */
         at: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
       }),
