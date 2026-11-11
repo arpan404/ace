@@ -7,10 +7,12 @@
  * - `GET /v1/env`: the `SPADE_ACE_*` variables it was started with, and its pid.
  * - `POST /v1/conversations`: `201`, echoing the body it received.
  * - `GET /v1/conversations/{id}/live?after=N`: server-sent events, `stored` with seq N + 1 first.
- * - `POST /v1/conversations/{id}/messages`: `202`, and a `delta` with the body on open streams.
+ * - `POST /v1/conversations/{id}/messages`: `202` with the body's size and SHA-256, and a `delta`
+ *   with a small body on open streams.
+ * - `GET /v1/images/{n}`: `n` bytes of `image/png` (`imageBytes`).
  * - `POST /v1/crash`: `202`, then exits with code 1.
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { closeSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -42,6 +44,9 @@ function holdLock(path: string): boolean {
 if (!holdLock(join(dataDir, "lock"))) process.exit(3);
 
 const token = randomBytes(32).toString("hex");
+/** A stored image `GET /v1/images/{n}` answers: `n` bytes in a fixed pattern. */
+const imageBytes = (size: number) =>
+  Buffer.from(Array.from({ length: size }, (_, index) => (index * 31 + 7) % 256));
 const streams = new Map<string, Set<ServerResponse>>();
 const send = (response: ServerResponse, event: string, data: unknown) =>
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -81,8 +86,18 @@ const server = createServer((request, response) => {
       return;
     }
     if (request.method === "POST" && messages?.[1]) {
-      for (const stream of streams.get(messages[1]) ?? []) send(stream, "delta", { text: body });
-      return json(response, 202, {});
+      if (body.length < 4096)
+        for (const stream of streams.get(messages[1]) ?? []) send(stream, "delta", { text: body });
+      const bytes = Buffer.concat(chunks);
+      return json(response, 202, {
+        bytes: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      });
+    }
+    const image = /^\/v1\/images\/([^/]+)$/.exec(url.pathname);
+    if (request.method === "GET" && image?.[1]) {
+      response.writeHead(200, { "content-type": "image/png" });
+      return response.end(imageBytes(Number(image[1])));
     }
     if (request.method === "POST" && url.pathname === "/v1/crash") {
       json(response, 202, {});

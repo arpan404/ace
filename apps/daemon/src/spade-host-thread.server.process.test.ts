@@ -37,7 +37,7 @@ async function startSpade(daemon: Daemon) {
     { signal: AbortSignal.timeout(5000), maxBytes: 65536 },
   );
   if (answer.kind !== "response") throw new Error("Spade's env is too large");
-  const env = JSON.parse(answer.body) as { mcpUrl: string; mcpToken: string };
+  const env = JSON.parse(answer.body.toString("utf8")) as { mcpUrl: string; mcpToken: string };
   return { hostId: ThreadId.parse(thread.id), env };
 }
 /** Spade's MCP client as spade-ace connects: 2025-11-25 sessions with list changes. */

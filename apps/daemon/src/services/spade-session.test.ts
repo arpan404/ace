@@ -1,10 +1,6 @@
 import { expect, test } from "vitest";
-import {
-  DeviceId,
-  type DeviceScope,
-  type ServerMessage,
-  type SpadeClientMessage,
-} from "@ace/protocol";
+import { DeviceId, type DeviceScope, type ServerMessage, SpadeClientMessage } from "@ace/protocol";
+import type { z } from "zod";
 import { SpadeHost } from "../spade/host.ts";
 import { createSpadeSession } from "./spade-session.ts";
 
@@ -33,8 +29,8 @@ function session(scopes: readonly DeviceScope[]) {
     connected: () => true,
     send: (message) => sent.push(message as ServerMessage),
   });
-  const handle = async (message: SpadeClientMessage) => {
-    await service.handle?.(message, DeviceId.parse("device"));
+  const handle = async (message: z.input<typeof SpadeClientMessage>) => {
+    await service.handle?.(SpadeClientMessage.parse(message), DeviceId.parse("device"));
     return sent.at(-1);
   };
   return { handle, sent };

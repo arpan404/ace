@@ -1,18 +1,12 @@
-import {
-  maxSpadeResponseBytes,
-  type SpadeErrorCode,
-  type SpadeHttpRequest,
-  type SpadeLiveEndReason,
-  type SpadeStatus,
-} from "@ace/protocol";
-import { spadeLive, spadeRequest } from "../spade/forward.ts";
+import { maxSpadeResponseBytes, type SpadeLiveEndReason, type SpadeStatus } from "@ace/protocol";
+import { spadeLive } from "../spade/forward.ts";
 import type { SpadeHost } from "../spade/host.ts";
-import { checkLivePath, checkSpadePath, scopeFor } from "../spade/rules.ts";
+import { checkLivePath } from "../spade/rules.ts";
+import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
-const requestTimeoutMs = 60_000;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
   options: { spade?: SpadeHost | undefined };
 };
@@ -47,12 +41,13 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       ...(status === undefined ? {} : { status }),
     });
   };
-  const fail = (requestId: string, code: SpadeErrorCode, message: string) =>
-    context.send({
-      type: "spade.http.result",
-      requestId,
-      result: { kind: "error", code, message },
-    });
+  const http = createSpadeHttp({
+    host,
+    authorize: (scope) => context.authorize(scope),
+    connected: () => context.connected(),
+    send: (message) => context.send(message),
+    unavailable: () => unavailable(host()),
+  });
   const stopStream = (requestId: string, reason: SpadeLiveEndReason) => {
     const stream = streams.get(requestId);
     if (!stream) return;
@@ -73,35 +68,6 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       }),
     );
   };
-
-  async function http(message: SpadeHttpRequest) {
-    if (!context.authorize(scopeFor(message.method)))
-      return fail(
-        message.requestId,
-        "forbidden",
-        message.method === "GET"
-          ? "This device can't read Spade."
-          : "This device can't make changes in Spade.",
-      );
-    const checked = checkSpadePath(message.path);
-    if (!checked.ok) return fail(message.requestId, "invalid_path", checked.message);
-    const ready = host()?.ready();
-    if (!ready) return fail(message.requestId, "unavailable", unavailable(host()));
-    const answer = await spadeRequest(
-      ready.connection,
-      { method: message.method, path: checked.path, body: message.body },
-      { signal: AbortSignal.timeout(requestTimeoutMs), maxBytes: maxSpadeResponseBytes },
-    ).catch(() => undefined);
-    if (!context.connected()) return;
-    if (!answer) return fail(message.requestId, "failed", "Spade didn't answer.");
-    if (answer.kind === "too_large")
-      return fail(message.requestId, "too_large", "Spade's answer is too large to forward.");
-    context.send({
-      type: "spade.http.result",
-      requestId: message.requestId,
-      result: { kind: "response", status: answer.status, body: answer.body },
-    });
-  }
 
   function subscribe(requestId: string, path: string) {
     // Already streaming under this id: the open stream carries on.
@@ -140,6 +106,7 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
 
   return {
     close() {
+      http.close();
       for (const stream of streams.values()) stream.controller.abort();
       streams.clear();
       for (const stop of stops.splice(0)) stop();
@@ -158,7 +125,13 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
           return true;
         }
         case "spade.http":
-          await http(message);
+          await http.request(message);
+          return true;
+        case "spade.http.part":
+          await http.part(message);
+          return true;
+        case "spade.http.read":
+          if (context.authorize("read")) http.read(message);
           return true;
         case "spade.live.subscribe":
           subscribe(message.requestId, message.path);

@@ -8,22 +8,44 @@ export interface SpadeConnection {
   token: string;
 }
 export type SpadeAnswer =
-  | { kind: "response"; status: number; body: string }
+  | { kind: "response"; status: number; body: Buffer; contentType?: string | undefined }
   | { kind: "too_large" };
+
+function headersFor(
+  connection: SpadeConnection,
+  input: { accept?: string; contentType?: string | undefined; length?: number },
+  authorized: boolean,
+): Record<string, string> {
+  const headers: Record<string, string> = { accept: input.accept ?? "application/json" };
+  if (authorized) headers.authorization = `Bearer ${connection.token}`;
+  if (input.contentType !== undefined) headers["content-type"] = input.contentType;
+  if (input.length !== undefined) headers["content-length"] = String(input.length);
+  return headers;
+}
 
 function send(
   connection: SpadeConnection,
-  input: { method: string; path: string; body?: string | undefined; accept?: string },
+  input: {
+    method: string;
+    path: string;
+    body?: Buffer | undefined;
+    contentType?: string | undefined;
+    accept?: string;
+  },
   signal: AbortSignal,
   authorized = true,
 ): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
-    const headers: Record<string, string> = { accept: input.accept ?? "application/json" };
-    if (authorized) headers.authorization = `Bearer ${connection.token}`;
-    if (input.body !== undefined) {
-      headers["content-type"] = "application/json";
-      headers["content-length"] = String(Buffer.byteLength(input.body));
-    }
+    const headers = headersFor(
+      connection,
+      {
+        ...(input.accept ? { accept: input.accept } : {}),
+        ...(input.body === undefined
+          ? {}
+          : { contentType: input.contentType ?? "application/json", length: input.body.length }),
+      },
+      authorized,
+    );
     const outgoing = request(
       {
         host: connection.host,
@@ -43,7 +65,7 @@ function send(
 async function readCapped(
   response: IncomingMessage,
   maxBytes: number,
-): Promise<string | undefined> {
+): Promise<Buffer | undefined> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of response) {
@@ -55,19 +77,70 @@ async function readCapped(
     }
     chunks.push(buffer);
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
 }
 
-/** One request to Spade's API; the body comes back as text, uninterpreted. */
+async function answer(response: IncomingMessage, maxBytes: number): Promise<SpadeAnswer> {
+  const body = await readCapped(response, maxBytes);
+  if (body === undefined) return { kind: "too_large" };
+  const contentType = response.headers["content-type"];
+  return { kind: "response", status: response.statusCode ?? 502, body, contentType };
+}
+
+/** One request to Spade's API; the answer comes back as bytes, uninterpreted. */
 export async function spadeRequest(
   connection: SpadeConnection,
-  input: { method: string; path: string; body?: string | undefined },
+  input: { method: string; path: string; body?: Buffer | undefined; contentType?: string },
   options: { signal: AbortSignal; maxBytes: number },
 ): Promise<SpadeAnswer> {
-  const response = await send(connection, input, options.signal);
-  const body = await readCapped(response, options.maxBytes);
-  if (body === undefined) return { kind: "too_large" };
-  return { kind: "response", status: response.statusCode ?? 502, body };
+  return answer(await send(connection, input, options.signal), options.maxBytes);
+}
+
+/** A request whose body is streamed to Spade in pieces, with chunked transfer. */
+export interface SpadeUpload {
+  /** Resolves once Spade can take more. */
+  write(piece: Buffer): Promise<void>;
+  /** Ends the body and reads Spade's answer. */
+  finish(maxBytes: number): Promise<SpadeAnswer>;
+}
+export function spadeUpload(
+  connection: SpadeConnection,
+  input: { method: string; path: string; contentType?: string | undefined },
+  signal: AbortSignal,
+): SpadeUpload {
+  const headers = headersFor(
+    connection,
+    { contentType: input.contentType ?? "application/json" },
+    true,
+  );
+  const responded = Promise.withResolvers<IncomingMessage>();
+  const outgoing = request(
+    {
+      host: connection.host,
+      port: connection.port,
+      method: input.method,
+      path: input.path,
+      headers,
+      signal,
+    },
+    responded.resolve,
+  );
+  outgoing.once("error", responded.reject);
+  // A failure before `finish` is read there; never an unhandled rejection.
+  responded.promise.catch(() => {});
+  return {
+    write: (piece) =>
+      new Promise((resolve, reject) => {
+        if (outgoing.destroyed) return reject(new Error("Spade closed the upload"));
+        if (outgoing.write(piece)) return resolve();
+        outgoing.once("drain", resolve);
+        outgoing.once("close", resolve);
+      }),
+    async finish(maxBytes) {
+      outgoing.end();
+      return answer(await responded.promise, maxBytes);
+    },
+  };
 }
 
 /** `GET /health` answers `{"ok":true}` once Spade serves requests. It needs no token. */
@@ -84,7 +157,7 @@ export async function spadeHealthy(
     );
     const body = await readCapped(response, 4096);
     if (response.statusCode !== 200 || body === undefined) return false;
-    const value: unknown = JSON.parse(body);
+    const value: unknown = JSON.parse(body.toString("utf8"));
     return typeof value === "object" && value !== null && Reflect.get(value, "ok") === true;
   } catch {
     return false;
