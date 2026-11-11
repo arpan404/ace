@@ -26,6 +26,8 @@ export const refreshGraceMs = 60_000;
 export const spentRefreshKeptMs = 30 * 86_400_000;
 
 export interface TokenPair {
+  /** The grant the pair acts for. */
+  grantId: string;
   accessToken: string;
   /** When the access token stops working; never after the grant's own expiry. */
   accessExpiresAt: number;
@@ -178,6 +180,7 @@ export class GrantTokens {
     return {
       id,
       pair: {
+        grantId: grant.id,
         accessToken: access.token,
         accessExpiresAt: access.expiresAt ?? now + accessTokenTtlMs,
         refreshToken: refresh.token,

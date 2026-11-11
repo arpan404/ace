@@ -1,0 +1,223 @@
+/*
+ * The authorization endpoint (OAuth 2.1 §4.1, ADR 0117 Consent). GET /authorize checks the
+ * request, opens a sign-in request for the person in ace and sends the browser to a waiting page
+ * whose URL alone carries its state (ace's relay sandbox allows no cookies or storage). The
+ * person's answer in ace makes the grant and the code; the waiting page then redirects to the
+ * client with `code`, `state` and `iss`, or with `error=access_denied`. Every redirect carries
+ * `iss`; a request whose client or redirect URI can't be trusted is never redirected.
+ */
+import { OutsideScope, type OutsideGrant } from "@ace/protocol";
+import type { AccessOutcome } from "../access-requests.ts";
+import type { OutsideAccess } from "../outside.ts";
+import { normalScopes } from "../scopes.ts";
+import type { RandomBytes } from "../tokens.ts";
+import { namesResource, resourceOf, type OutsideBase } from "./base.ts";
+import type { ClientProblem, OAuthClient } from "./client.ts";
+import { challengeShape, codeTtlMs, type AuthorizationCodes } from "./codes.ts";
+import { consentPage, endedPage, pageHeaders, type ConsentView } from "./consent-page.ts";
+import { baselineScopes } from "./metadata.ts";
+import { loopbackOnly, matchRedirect, redirectHost } from "./redirects.ts";
+
+const maxPending = 64;
+
+export interface AuthorizeDeps {
+  outside: Pick<OutsideAccess, "grants" | "requests" | "update" | "principals">;
+  clients: {
+    resolve(clientId: string): Promise<OAuthClient | ClientProblem>;
+    /** The client was approved for a grant (keeps a DCR registration from expiring). */
+    approved(client: OAuthClient): void;
+  };
+  codes: AuthorizationCodes;
+  random: RandomBytes;
+  after: (ms: number, run: () => void) => () => void;
+  /** The machine's name, as the person knows it. */
+  machine(): string;
+  /** A note for the daemon log; never a code, token or state. */
+  note?: (text: string) => void;
+}
+
+type Waiting = { kind: "waiting"; view: ConsentView };
+type Done = { kind: "done"; location: string };
+
+/** The requested scopes ace knows; unknown ones are left out, none means reading. */
+export function requestedScopes(scope: string | null): OutsideScope[] {
+  const known = (scope ?? "").split(" ").flatMap((name) => {
+    const parsed = OutsideScope.safeParse(name);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return normalScopes(known.length ? known : baselineScopes);
+}
+
+function html(status: number, body: string): Response {
+  return new Response(body, { status, headers: pageHeaders });
+}
+function redirect(location: string): Response {
+  return new Response(null, {
+    status: 303,
+    headers: { location, "cache-control": "no-store", "referrer-policy": "no-referrer" },
+  });
+}
+/** The client's redirect URI with the authorization response (RFC 9207: always `iss`). */
+function responseUrl(
+  redirectUri: string,
+  base: OutsideBase,
+  state: string | null,
+  fields: Record<string, string>,
+): string {
+  const url = new URL(redirectUri);
+  for (const [key, value] of Object.entries(fields)) url.searchParams.set(key, value);
+  if (state !== null) url.searchParams.set("state", state);
+  url.searchParams.set("iss", base.url);
+  return url.href;
+}
+
+export class Authorizations {
+  private pending = new Map<string, Waiting | Done>();
+  private deps: AuthorizeDeps;
+  constructor(deps: AuthorizeDeps) {
+    this.deps = deps;
+  }
+  /** GET /authorize at `base`. */
+  async start(query: URLSearchParams, base: OutsideBase): Promise<Response> {
+    const machine = this.deps.machine();
+    const fail = (sentence: string) => html(400, endedPage(machine, sentence, true));
+    const clientId = query.get("client_id");
+    if (!clientId) return fail("The sign-in link has no client_id.");
+    const client = await this.deps.clients.resolve(clientId);
+    if ("problem" in client) return fail(client.problem);
+    const asked = query.get("redirect_uri");
+    const redirectUri = asked ? matchRedirect(asked, client.redirectUris) : undefined;
+    if (!redirectUri)
+      return fail(`${client.name} asked to return to an address it didn't register.`);
+    // From here on, errors go back to the client.
+    const state = query.get("state");
+    const refuse = (error: string, description: string) =>
+      redirect(responseUrl(redirectUri, base, state, { error, error_description: description }));
+    if (query.get("response_type") !== "code")
+      return refuse("unsupported_response_type", "Only response_type=code is supported.");
+    const challenge = query.get("code_challenge") ?? "";
+    if (query.get("code_challenge_method") !== "S256" || !challengeShape.test(challenge))
+      return refuse("invalid_request", "PKCE with code_challenge_method=S256 is required.");
+    const resource = query.get("resource");
+    if (!resource || !namesResource(resource, base))
+      return refuse("invalid_target", `resource must be ${resourceOf(base)}.`);
+    if (this.pending.size >= maxPending)
+      return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
+    const scopes = requestedScopes(query.get("scope"));
+    // A client that already holds a grant here is asking for more: approving updates it.
+    const existing = this.deps.outside.grants
+      .liveGrants()
+      .find((grant) => grant.clientId === client.clientId);
+    let opened: ReturnType<AuthorizeDeps["outside"]["requests"]["open"]>;
+    try {
+      opened = this.deps.outside.requests.open({
+        clientName: client.name,
+        domain: client.domain,
+        scopes,
+        ...(existing ? { grantId: existing.id } : {}),
+      });
+    } catch {
+      return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
+    }
+    const key = this.deps.random(32).toString("base64url");
+    this.pending.set(key, {
+      kind: "waiting",
+      view: {
+        clientName: client.name,
+        domain: client.domain,
+        redirectHost: redirectHost(redirectUri),
+        loopbackOnly: loopbackOnly([redirectUri]),
+        scopes,
+        matchCode: opened.request.matchCode,
+        machine,
+        stepUp: existing !== undefined,
+      },
+    });
+    void opened.outcome.then((outcome) => {
+      let location: string;
+      try {
+        location = this.answer(outcome, { client, existing, redirectUri, challenge, base, state });
+      } catch {
+        location = responseUrl(redirectUri, base, state, {
+          error: "server_error",
+          error_description: "ace couldn't save this sign-in.",
+        });
+      }
+      this.pending.set(key, { kind: "done", location });
+      // The code is good for a minute; past it the page has nothing left to give.
+      this.deps.after(codeTtlMs, () => this.pending.delete(key));
+    });
+    return redirect(`${base.url}/authorize/wait?${new URLSearchParams({ k: key })}`);
+  }
+  /** Turns the person's answer into the redirect: a grant and its code, or a refusal. */
+  private answer(
+    outcome: AccessOutcome,
+    request: {
+      client: OAuthClient;
+      existing: OutsideGrant | undefined;
+      redirectUri: string;
+      challenge: string;
+      base: OutsideBase;
+      state: string | null;
+    },
+  ): string {
+    const { client, existing, redirectUri, challenge, base, state } = request;
+    {
+      let location: string;
+      if (outcome.decision === "approve") {
+        const grant =
+          (existing &&
+            this.deps.outside.update(existing.id, {
+              scopes: outcome.scopes,
+              projects: outcome.projects,
+              expiresAt: outcome.expiresAt,
+            })) ||
+          this.deps.outside.grants.create({
+            clientKind: client.kind,
+            clientId: client.clientId,
+            name: client.name,
+            domain: client.domain,
+            scopes: outcome.scopes,
+            projects: outcome.projects,
+            expiresAt: outcome.expiresAt,
+            approvedBy: outcome.by,
+          });
+        this.deps.clients.approved(client);
+        this.deps.outside.principals.watch([grant]);
+        const code = this.deps.codes.issue({
+          grantId: grant.id,
+          clientId: client.clientId,
+          redirectUri,
+          challenge,
+          resource: resourceOf(base),
+        });
+        this.deps.note?.(`Outside client ${client.name} (${grant.id}) approved by ${outcome.by}.`);
+        location = responseUrl(redirectUri, base, state, { code });
+      } else {
+        location = responseUrl(redirectUri, base, state, {
+          error: "access_denied",
+          error_description:
+            outcome.decision === "deny"
+              ? "The person denied this sign-in in ace."
+              : "Nobody approved this sign-in in time.",
+        });
+      }
+      return location;
+    }
+  }
+  /** GET /authorize/wait: the waiting page, or the redirect once the person decided. */
+  wait(query: URLSearchParams): Response {
+    const entry = this.pending.get(query.get("k") ?? "");
+    if (!entry)
+      return html(
+        404,
+        endedPage(
+          this.deps.machine(),
+          "This sign-in has ended. Start again from the app you were signing in to.",
+          false,
+        ),
+      );
+    if (entry.kind === "done") return redirect(entry.location);
+    return html(200, consentPage(entry.view));
+  }
+}

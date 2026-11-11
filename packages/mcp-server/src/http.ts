@@ -152,7 +152,7 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
     const headers = new Headers(request.headers);
     headers.set(resourceHeader, resource);
     const method = request.method;
-    let body: ReadableStream<Uint8Array> | Uint8Array | null = request.body;
+    let body: ReadableStream<Uint8Array> | string | null = request.body;
     if (options.challenge && method === "POST") {
       const checked = await scopeRefusal(
         streamChunks(request.body),
@@ -163,7 +163,8 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
       );
       if (checked.kind === "refuse")
         return new Response(checked.body, { status: checked.status, headers: checked.headers });
-      body = new Uint8Array(checked.body);
+      // A JSON-RPC body that passed the check: text, as the handler reads it.
+      body = checked.body.toString("utf8");
     }
     return fetch(
       new Request(request.url, {
