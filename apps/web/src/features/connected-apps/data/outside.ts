@@ -134,6 +134,23 @@ export function watchOutside(client: ClientApi): Watch {
   return watch;
 }
 
+/**
+ * Calls `run` whenever a pending sign-in leaves the machine's list: approved or denied from any
+ * device, or expired. An approval makes a grant, so a grants list reads again then. Returns a stop.
+ */
+export function onSignInsSettled(client: ClientApi, run: () => void): () => void {
+  const watch = watchOutside(client);
+  const ids = () => new Set(watch.value?.access.map((request) => request.requestId) ?? []);
+  let seen = ids();
+  const changed = () => {
+    const now = ids();
+    if ([...seen].some((id) => !now.has(id))) run();
+    seen = now;
+  };
+  watch.listeners.add(changed);
+  return () => void watch.listeners.delete(changed);
+}
+
 export function readOutside(client: ClientApi | undefined): OutsideNow | undefined {
   return client ? watches.get(client)?.value : undefined;
 }

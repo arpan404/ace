@@ -80,3 +80,21 @@ test("Connect an app lists the machine's four addresses, with Tailscale's switch
   expect(within(section).getByRole("switch", { name: "ace's relay" })).toBeTruthy();
   expect(await within(section).findByRole("button", { name: /^(Add|Change)$/ })).toBeTruthy();
 });
+
+test("a sign-in approved on another device shows up in the list without reopening Settings", async () => {
+  const app = harness();
+  await app.open("/settings/remote/primary");
+  await screen.findByText("No apps connected.");
+  app.daemon.outside.ask({
+    requestId: "req-phone",
+    clientName: "Claude",
+    domain: "claude.ai",
+    scopes: ["threads:read"],
+    matchCode: "4F7K",
+    expiresAt: Date.now() + 600_000,
+  });
+  await screen.findByText(/Code 4F7K\.$/);
+  app.daemon.outside.settle("req-phone", grant("Claude", { domain: "claude.ai" }));
+  const section = await screen.findByRole("region", { name: "Connected apps" });
+  expect(await within(section).findByText("Claude")).toBeTruthy();
+});

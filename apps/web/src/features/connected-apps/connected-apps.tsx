@@ -10,7 +10,7 @@ import {
 } from "@ace/ui-core/outside-clients";
 import { formatAgo } from "@ace/ui-core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ConfirmDialog, type Confirming } from "@/components/confirm-dialog.tsx";
 import { HairlineRow, RowGroup } from "@/components/hairline-row.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
@@ -19,6 +19,7 @@ import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import {
   outsideGrants,
+  onSignInsSettled,
   outsideKeys,
   revokeGrant,
   updateGrant,
@@ -64,6 +65,15 @@ export function ConnectedApps(props: { machine: Machine; client: ClientApi; conn
   const [open, setOpen] = useState<string>();
   const [confirming, setConfirming] = useState<Confirming>();
   const refresh = () => queries.invalidateQueries({ queryKey: outsideKeys.grants });
+  // A sign-in approved anywhere (this window, another, the phone) is a new grant to list.
+  useEffect(
+    () =>
+      onSignInsSettled(
+        client,
+        () => void queries.invalidateQueries({ queryKey: outsideKeys.grants }),
+      ),
+    [client, queries],
+  );
   const failed = (title: string) => (error: Error) =>
     toast.error({ title, description: error.message || `${machine.name} didn't answer.` });
   const revoke = useMutation({

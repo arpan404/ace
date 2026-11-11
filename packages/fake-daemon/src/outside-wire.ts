@@ -38,6 +38,15 @@ export class FakeOutside {
     this.access = [...this.access.filter((each) => each.requestId !== request.requestId), request];
     this.push();
   }
+  /**
+   * Another device answered request `requestId`: it leaves the pending list, and an approval adds
+   * `grant`, as the daemon does.
+   */
+  settle(requestId: string, grant?: OutsideGrantEntry): void {
+    if (grant) this.grants = [...this.grants, grant];
+    this.access = this.access.filter((each) => each.requestId !== requestId);
+    this.push();
+  }
   /** Outside clients using the screen now. */
   useScreen(uses: OutsideScreenUse[]): void {
     this.screen = uses;
