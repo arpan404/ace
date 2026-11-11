@@ -121,7 +121,7 @@ struct SettingsSheet: View {
                     if notifications != nil {
                         link(.notifications, "Notifications", "bell", value: notifications?.delivering == true ? "On" : "Off", id: "settings.notifications")
                     }
-                    if let lock { link(.lock, "Face ID", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
+                    if let lock { link(.lock, "App lock", "lock", value: lock.enabled ? "On" : "Off", id: "settings.lock") }
                 } header: { InsetHeader("Connections") }
                 .insetRowBackground()
                 // Each machine's tools (Search's places open the busiest of them directly).

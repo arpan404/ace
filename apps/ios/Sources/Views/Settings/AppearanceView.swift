@@ -16,7 +16,7 @@ struct AppearanceView: View {
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Environment(\.accessibilityReduceTransparency) private var systemReduceTransparency
-    private let columns = [GridItem(.adaptive(minimum: 92), spacing: AceDesign.Space.row)]
+    private let columns = [GridItem(.adaptive(minimum: AceDesign.Size.tap * 2 + AceDesign.Space.tight), spacing: AceDesign.Space.row)]
 
     var body: some View {
         List {

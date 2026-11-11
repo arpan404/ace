@@ -151,11 +151,11 @@ struct ProviderPageView<Extra: View>: View {
             .accessibilityIdentifier("provider.fix")
         case "turn_on":
             Button(fix.label) { edit(["kind": "enabled", "on": true]) }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                .buttonStyle(.textAction(.prominent))
                 .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
         default:
             Button(fix.label) { plan(fix.action) }
-                .buttonStyle(.bordered).buttonBorderShape(.capsule).tint(AceDesign.Ink.accent)
+                .buttonStyle(.textAction(.prominent))
                 .frame(minHeight: AceDesign.Size.tap).accessibilityIdentifier("provider.fix")
         }
     }
