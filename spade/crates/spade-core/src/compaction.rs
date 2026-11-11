@@ -4,9 +4,8 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::context::{JOB_LOST, JOB_STOPPED};
 use crate::event::{Event, Known};
-use serde_json::Value;
-
 use crate::tools::{CALL_TOOL, Registry, Risk, unwrap_call_tool};
 
 /// Compact once the prompt reaches this share of the budget...
@@ -163,75 +162,86 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     out
 }
 
-/// Writes and destructive calls carried out before `keep_from`, each with its call id and exact
-/// arguments, taken from the events rather than any summary. A background write counts once its
-/// job finished without error; one still running (or never reported) is listed as such, since
-/// repeating it would act twice.
-pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
-    let calls: std::collections::HashMap<&str, Value> = events
-        .iter()
-        .filter_map(|event| match event {
-            Event::Known(Known::StepFinished { calls, .. }) => Some(calls),
-            _ => None,
-        })
-        .flatten()
-        .map(|call| {
-            let arguments = match call.name.as_str() {
-                CALL_TOOL => unwrap_call_tool(&call.arguments).map(|(_, inner)| inner),
-                _ => None,
-            };
-            (
-                call.id.as_str(),
-                arguments.unwrap_or_else(|| call.arguments.clone()),
-            )
-        })
-        .collect();
-    let arguments = |id: &str| calls.get(id).map_or_else(String::new, Value::to_string);
-    let changes = |name: &str| registry.get(name).is_some_and(|t| t.risk != Risk::Read);
-    let background = |name: &str| registry.get(name).is_some_and(|t| t.background);
-    let finished_job = |job: &str| {
-        events.iter().find_map(|event| match event {
-            Event::Known(Known::JobFinished {
-                job: j, is_error, ..
-            }) if j == job => Some(*is_error),
-            _ => None,
-        })
-    };
-    events[..keep_from.min(events.len())]
-        .iter()
-        .filter_map(|event| match event {
-            Event::Known(Known::ToolFinished {
-                name,
-                is_error: false,
-                call_id,
-                ..
-            }) if changes(name) && !background(name) => Some(
-                format!("{name} (call {call_id}) {}", arguments(call_id))
-                    .trim_end()
-                    .to_owned(),
-            ),
+/// What became of a write made before the cut, for the summary's "already carried out" list.
+fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static str> {
+    if background {
+        let ended = events.iter().find_map(|event| match event {
             Event::Known(Known::JobFinished {
                 job,
-                name,
-                is_error: false,
+                is_error,
+                content,
                 ..
-            }) if changes(name) => Some(
-                format!("{name} (job {job}) {}", arguments(job))
-                    .trim_end()
-                    .to_owned(),
-            ),
-            Event::Known(Known::JobStarted { job, name, .. })
-                if changes(name) && finished_job(job).is_none() =>
-            {
-                Some(format!(
-                    "{} (job {job}) {}, still running in the background; its result has not arrived",
-                    name,
-                    arguments(job)
-                ))
-            }
+            }) if job == call_id => Some((*is_error, content.as_str())),
             _ => None,
-        })
-        .collect()
+        });
+        return match ended {
+            Some((false, _)) => Some(""),
+            Some((true, content)) if content == JOB_LOST || content == JOB_STOPPED => {
+                Some(", may have taken effect; check before trying it again")
+            }
+            Some((true, _)) => None,
+            None if started_job(events, call_id) => {
+                Some(", still running in the background; its result has not arrived")
+            }
+            None => None,
+        };
+    }
+    let finished = events.iter().find_map(|event| match event {
+        Event::Known(Known::ToolFinished {
+            call_id: c,
+            is_error,
+            ..
+        }) if c == call_id => Some(*is_error),
+        _ => None,
+    });
+    match finished {
+        Some(false) => Some(""),
+        Some(true) => None,
+        None if started_tool(events, call_id) => {
+            Some(", may have taken effect; check before trying it again")
+        }
+        None => None,
+    }
+}
+
+fn started_job(events: &[Event], job: &str) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
+}
+
+fn started_tool(events: &[Event], call_id: &str) -> bool {
+    events
+        .iter()
+        .any(|e| matches!(e, Event::Known(Known::ToolStarted { call_id: c, .. }) if c == call_id))
+}
+
+/// Writes and destructive calls made before `keep_from`, each with its call id and exact
+/// arguments taken from the step, never from a summary. A write counts when it finished without
+/// error, wherever in the conversation that happened; one whose outcome is unknown (cut off, or a
+/// background job stopped or lost) or still running is listed as such, since repeating it could
+/// act twice. Failed writes are left out.
+pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
+    let mut out = Vec::new();
+    for event in &events[..keep_from.min(events.len())] {
+        let Event::Known(Known::StepFinished { calls, .. }) = event else {
+            continue;
+        };
+        for call in calls {
+            let (name, arguments) = match call.name.as_str() {
+                CALL_TOOL => unwrap_call_tool(&call.arguments)
+                    .unwrap_or_else(|| (call.name.clone(), call.arguments.clone())),
+                _ => (call.name.clone(), call.arguments.clone()),
+            };
+            let Some(tool) = registry.get(&name).filter(|t| t.risk != Risk::Read) else {
+                continue;
+            };
+            if let Some(note) = outcome(events, &call.id, tool.background) {
+                out.push(format!("{name} (call {}) {arguments}{note}", call.id));
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

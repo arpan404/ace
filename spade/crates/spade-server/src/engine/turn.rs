@@ -41,8 +41,9 @@ pub(super) async fn run(engine: Arc<Engine>, id: String) {
     let live = engine.live(&id);
     let (stop_tx, stop_rx) = watch::channel(false);
     *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some(stop_tx);
-    // The reply this worker drove, so the hand-off below can tell it from one opened later.
-    let mut driven: Option<String> = None;
+    // The reply this worker drives, so the hand-off below can tell it from one opened later. It
+    // is taken before the first stop check, so a Stop that arrives at once still closes it.
+    let mut driven: Option<String> = open_reply(&engine, &id);
     let ended = drive(&engine, &id, stop_rx, &mut driven).await;
     if let Some(reply) = open_reply(&engine, &id).filter(|open| Some(open) == driven.as_ref()) {
         let event = match ended {

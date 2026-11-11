@@ -132,8 +132,8 @@ struct Live {
     /// Woken when an approval is answered.
     wake: Notify,
     turn_running: AtomicBool,
-    /// Running background jobs by job id (see `jobs`).
-    jobs: Mutex<HashMap<String, tokio::task::AbortHandle>>,
+    /// Background jobs not yet stored as finished, by job id (see `jobs`).
+    jobs: Mutex<HashMap<String, jobs::Job>>,
 }
 
 /// What a conversation is doing, for lists.

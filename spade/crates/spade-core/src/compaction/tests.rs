@@ -252,72 +252,90 @@ fn a_summary_is_read_from_a_fenced_or_bare_json_reply() {
 }
 
 #[test]
-fn a_background_write_counts_once_its_job_finishes_and_a_running_one_is_marked() {
-    let registry = Registry::new([ToolDef {
-        spec: ToolSpec {
-            name: "book".into(),
-            description: "".into(),
-            schema: json!({}),
+fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
+    let registry = Registry::new([
+        ToolDef {
+            spec: ToolSpec {
+                name: "book".into(),
+                description: "".into(),
+                schema: json!({}),
+            },
+            risk: Risk::Write,
+            untrusted_output: false,
+            deferred: false,
+            background: true,
         },
-        risk: Risk::Write,
-        untrusted_output: false,
-        deferred: false,
-        background: true,
-    }]);
-    let call = |id: &str, at: &str| Call {
+        ToolDef {
+            spec: ToolSpec {
+                name: "pay".into(),
+                description: "".into(),
+                schema: json!({}),
+            },
+            risk: Risk::Destructive,
+            untrusted_output: false,
+            deferred: false,
+            background: false,
+        },
+    ]);
+    let call = |id: &str, name: &str, at: &str| Call {
         id: id.into(),
-        name: "book".into(),
+        name: name.into(),
         arguments: json!({ "at": at }),
     };
-    let started = |job: &str| {
-        Event::Known(Known::JobStarted {
-            reply: "r".into(),
-            job: job.into(),
+    let known = |k: Known| Event::Known(k);
+    let job = |id: &str, is_error: bool, content: &str| {
+        known(Known::JobFinished {
+            job: id.into(),
             name: "book".into(),
-        })
-    };
-    let launched = |id: &str| {
-        Event::Known(Known::ToolFinished {
-            reply: "r".into(),
-            call_id: id.into(),
-            name: "book".into(),
-            content: "Started in the background".into(),
-            is_error: false,
-        })
-    };
-    let done = |job: &str, is_error: bool| {
-        Event::Known(Known::JobFinished {
-            job: job.into(),
-            name: "book".into(),
-            content: "".into(),
+            content: content.into(),
             is_error,
         })
     };
-    let events = vec![
-        Event::Known(Known::StepFinished {
+    let mut events = vec![known(Known::StepFinished {
+        reply: "r".into(),
+        text: "".into(),
+        calls: vec![
+            call("j1", "book", "9am"),
+            call("j2", "book", "10am"),
+            call("j3", "book", "11am"),
+            call("j4", "book", "noon"),
+            call("j5", "book", "1pm"),
+            call("p1", "pay", "now"),
+        ],
+        thoughts: Vec::new(),
+        usage: Tokens::default(),
+        cost_micros: 0,
+        seen: None,
+    })];
+    for id in ["j1", "j2", "j3", "j4", "j5"] {
+        events.push(known(Known::JobStarted {
             reply: "r".into(),
-            text: "".into(),
-            calls: vec![call("j1", "9am"), call("j2", "10am"), call("j3", "11am")],
-            thoughts: Vec::new(),
-            usage: Tokens::default(),
-            cost_micros: 0,
-            seen: None,
-        }),
-        started("j1"),
-        launched("j1"),
-        started("j2"),
-        launched("j2"),
-        started("j3"),
-        launched("j3"),
-        done("j1", false),
-        done("j2", true),
-    ];
+            job: id.into(),
+            name: "book".into(),
+        }));
+    }
+    events.push(known(Known::ToolStarted {
+        reply: "r".into(),
+        call_id: "p1".into(),
+        name: "pay".into(),
+    }));
+    events.push(job("j1", false, "booked"));
+    events.push(job("j2", true, "no table free"));
+    events.push(job("j3", true, crate::context::JOB_STOPPED));
+    let cut = events.len();
+    // Finished after the cut: still counted, with the arguments from before it.
+    events.push(job("j5", false, "booked"));
     assert_eq!(
-        carried_out(&events, events.len(), &registry),
+        carried_out(&events, cut, &registry),
         vec![
-            r#"book (job j3) {"at":"11am"}, still running in the background; its result has not arrived"#
+            r#"book (call j1) {"at":"9am"}"#.to_owned(),
+            r#"book (call j3) {"at":"11am"}, may have taken effect; check before trying it again"#
                 .to_owned(),
-            r#"book (job j1) {"at":"9am"}"#.to_owned(),
+            r#"book (call j4) {"at":"noon"}, still running in the background; its result has not arrived"#
+                .to_owned(),
+            r#"book (call j5) {"at":"1pm"}"#.to_owned(),
+            r#"pay (call p1) {"at":"now"}, may have taken effect; check before trying it again"#
+                .to_owned(),
         ]
     );
 }

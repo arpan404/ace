@@ -179,3 +179,45 @@ async fn a_job_lost_to_a_restart_is_reported_as_unknown_and_the_model_hears_it()
     assert!(told.contains("status=\\\"error\\\""), "{told}");
     Ok(())
 }
+
+#[tokio::test]
+async fn a_job_the_person_stopped_stays_stopped_after_a_restart() -> Result {
+    let tool = research(Duration::from_secs(30));
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call("c1", "research", json!({})),
+            Script::reply("Started."),
+            title(),
+        ],
+        vec![Arc::new(tool) as Arc<dyn Tool>],
+    )
+    .await?;
+    let id = spade.ask("Research flights").await?;
+    spade.wait_for(&id, "renamed").await?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{id}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    // The stop is stored before Stop answers.
+    let stored = spade.events(&id).await?;
+    assert!(
+        types(&stored).contains(&"job_finished".to_owned()),
+        "{:?}",
+        types(&stored)
+    );
+
+    let spade = spade
+        .restart(
+            vec![Arc::new(research(Duration::ZERO)) as Arc<dyn Tool>],
+            vec![Script::reply("This must not be asked for.")],
+        )
+        .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let events = spade.events(&id).await?;
+    assert_eq!(events.len(), stored.len(), "{:?}", types(&events));
+    assert!(
+        spade.fake.seen().is_empty(),
+        "no reply opens for a stopped job"
+    );
+    Ok(())
+}
