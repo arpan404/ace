@@ -33,10 +33,12 @@ struct SkillOpenOnComputer: View {
                 Text("Looking for editors…")
             }
         } label: {
-            HStack {
-                Text("Open on computer").aceFont(InsetStyle.label, relativeTo: .body)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                Spacer(minLength: AceTheme.Spacing.sm)
+            HStack(spacing: AceDesign.Space.related) {
+                Text("Open on computer").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                    .fontWeight(AceDesign.Typeface.strong).foregroundStyle(AceDesign.Ink.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                AceIcon(.caretUpDown, size: AceDesign.Size.chevron, weight: .bold, relativeTo: .caption)
+                    .foregroundStyle(AceDesign.Ink.faint).accessibilityHidden(true)
             }
             .frame(minHeight: AceDesign.Size.tap)
             .contentShape(Rectangle())

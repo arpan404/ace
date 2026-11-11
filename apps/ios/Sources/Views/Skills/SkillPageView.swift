@@ -2,7 +2,8 @@ import SwiftUI
 
 /// A skill from the agents' own folders: who loads it, where it lives, when it runs, how often
 /// it was used and its instructions. The person's own skills can be edited, re-linked to other
-/// agents and deleted from here.
+/// agents and deleted from here. Cardless, as the design language's inner pages: a quiet heading
+/// over hairline rows, actions as words.
 struct SkillPageView: View {
     let model: ClientModel
     let route: SkillRoute
@@ -24,56 +25,37 @@ struct SkillPageView: View {
     private var at: [String: Any] { workspaceId.map { ["workspaceId": $0] } ?? [:] }
 
     var body: some View {
-        List {
-            if let page {
-                VStack(alignment: .leading, spacing: AceTheme.Spacing.xs) {
-                    Text(page.title).font(AceDesign.Typeface.largeTitle.weight(AceDesign.Typeface.strong)).foregroundStyle(AceTheme.Colours.foreground)
-                        .accessibilityAddTraits(.isHeader)
-                    if !page.description.isEmpty {
-                        Text(page.description).aceFont(AceTheme.Typography.body, relativeTo: .body)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    }
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: AceTheme.Spacing.xs, bottom: AceTheme.Spacing.sm, trailing: AceTheme.Spacing.xs))
-                details(page)
-                Section {
-                    AceMarkdown(text: page.instructions.isEmpty ? "_No instructions yet._" : page.instructions)
-                        .padding(.vertical, AceTheme.Spacing.sm)
-                } header: {
-                    HStack {
-                        InsetHeader("Instructions")
-                        Spacer()
-                        if page.editable, model.canOperate {
-                            Button("Edit") { editing = true }
-                                .aceFont(InsetStyle.header, relativeTo: .subheadline).textCase(nil)
-                                .frame(minHeight: AceDesign.Size.tap)
-                                .accessibilityIdentifier("skill.edit")
+        ScrollView {
+            VStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                if let page {
+                    header(page)
+                    details(page)
+                    instructions(page)
+                    if page.editable, model.canOperate {
+                        QuietSection {
+                            Button { deleting = true } label: {
+                                QuietSectionRow {
+                                    Text("Delete skill").aceFont(AceDesign.TextRole.action, relativeTo: .subheadline)
+                                        .foregroundStyle(AceTheme.StatusText.failed)
+                                }
+                            }
+                            .buttonStyle(.row)
+                            .disabled(busy)
+                            .accessibilityIdentifier("skill.delete")
                         }
                     }
+                } else if problem == nil {
+                    SkeletonRows(count: 4, label: "Reading the skill")
                 }
-                .insetRowBackground()
-                if page.editable, model.canOperate {
-                    Section {
-                        Button("Delete skill", role: .destructive) { deleting = true }
-                            .disabled(busy).accessibilityIdentifier("skill.delete")
-                    }
-                    .insetRowBackground()
+                if let problem {
+                    QuietProblem(message: problem) { Task { await read() } }
                 }
-            } else if problem == nil {
-                SkillPagePlaceholder()
             }
-            if let problem {
-                Section {
-                    ServiceProblem(message: problem)
-                    Button("Try again") { Task { await read() } }
-                }
-                .insetRowBackground()
-            }
+            .padding(.top, AceDesign.Space.related).padding(.bottom, AceDesign.Space.group)
+            .animation(.default, value: page)
+            .animation(.default, value: notice)
         }
-        .insetGroupedList()
-        .animation(.default, value: page)
-        .animation(.default, value: notice)
+        .background(AceDesign.Surface.background)
         .sensoryFeedback(.success, trigger: changed)
         .sensoryFeedback(.success, trigger: deleted)
         .navigationTitle(page?.title ?? route.title).navigationBarTitleDisplayMode(.inline)
@@ -99,48 +81,99 @@ struct SkillPageView: View {
         } message: { Text(page?.deleteMessage ?? "") }
     }
 
-    @ViewBuilder private func details(_ page: SkillPage) -> some View {
-        Section {
-            SkillDetailRow(title: "Agents", line: page.agentsText) {
+    private func header(_ page: SkillPage) -> some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            Text(page.title).aceFont(AceDesign.TextRole.header, relativeTo: .headline)
+                .foregroundStyle(AceDesign.Ink.primary)
+                .accessibilityAddTraits(.isHeader)
+            if !page.description.isEmpty {
+                Text(page.description).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, AceDesign.Space.margin)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func details(_ page: SkillPage) -> some View {
+        QuietSection("Details") {
+            QuietSectionRow {
+                QuietRowText(title: "Agents", detail: page.agentsText)
                 if page.editable, model.canOperate {
-                    Button("Change") { choosingAgents = true }.buttonStyle(.borderless).disabled(busy)
+                    Button("Change") { choosingAgents = true }
+                        .buttonStyle(.textAction(.prominent))
+                        .disabled(busy)
                         .accessibilityIdentifier("skill.agents")
                 }
             }
             if let notice {
-                Text(notice).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).transition(.opacity)
-            }
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text("Saved in").aceFont(InsetStyle.label, relativeTo: .body)
-                Text(page.savedIn).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                if let path = page.path {
-                    Text(path).aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
-                        .foregroundStyle(AceTheme.Colours.faintForeground).textSelection(.enabled)
+                QuietSectionRow {
+                    Text(notice).aceFont(AceDesign.TextRole.meta, relativeTo: .footnote)
+                        .foregroundStyle(AceDesign.Ink.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
                 }
             }
-            .padding(.vertical, AceTheme.Spacing.xs)
+            savedIn(page)
             if page.open != nil, model.canOperate {
-                SkillOpenOnComputer(model: model, skillId: page.id, workspaceId: workspaceId)
+                QuietSectionRow {
+                    SkillOpenOnComputer(model: model, skillId: page.id, workspaceId: workspaceId)
+                }
             }
             runsRow(page)
             if let hint = page.argumentHint {
-                SkillDetailRow(title: "Arguments", line: hint) { EmptyView() }
+                QuietSectionRow { QuietRowText(title: "Arguments", detail: hint) }
             }
-            SkillDetailRow(title: "Used", line: usedText(page)) { EmptyView() }
-        } header: { InsetHeader("Details") }
-        .insetRowBackground()
+            QuietSectionRow { QuietRowText(title: "Used", detail: usedText(page)) }
+        }
     }
 
-    @ViewBuilder private func runsRow(_ page: SkillPage) -> some View {
-        SkillDetailRow(title: "Runs", line: page.runs) {
+    /// Where it lives: its place in words, then the folder in mono.
+    private func savedIn(_ page: SkillPage) -> some View {
+        QuietSectionRow {
+            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                QuietRowText(title: "Saved in", detail: page.savedIn)
+                if let path = page.path {
+                    Text(verbatim: path).aceMonospace(AceDesign.TextRole.code, relativeTo: .caption)
+                        .foregroundStyle(AceDesign.Ink.subtle).textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    private func runsRow(_ page: SkillPage) -> some View {
+        QuietSectionRow {
+            QuietRowText(title: "Runs", detail: page.runs)
             if page.editable, model.canOperate {
                 Picker("Runs", selection: Binding(get: { page.manual }, set: { manual in Task { await setRuns(manual) } })) {
                     ForEach(page.runsChoices, id: \.manual) { Text($0.label).tag($0.manual) }
                 }
-                .labelsHidden().pickerStyle(.menu).tint(AceTheme.Colours.mutedForeground).disabled(busy)
+                .labelsHidden().pickerStyle(.menu).tint(AceDesign.Ink.muted).disabled(busy)
                 .accessibilityIdentifier("skill.runs")
+            }
+        }
+    }
+
+    /// Its instructions on the page itself: a quiet heading with Edit at the right, then the text.
+    private func instructions(_ page: SkillPage) -> some View {
+        VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+            HStack(alignment: .center, spacing: AceDesign.Space.related) {
+                QuietHeading("Instructions")
+                Spacer(minLength: AceDesign.Space.related)
+                if page.editable, model.canOperate {
+                    Button("Edit") { editing = true }
+                        .buttonStyle(.textAction(.prominent))
+                        .accessibilityIdentifier("skill.edit")
+                }
+            }
+            .padding(.horizontal, AceDesign.Space.margin)
+            .padding(.bottom, AceDesign.Space.tight)
+            QuietSection {
+                QuietSectionRow {
+                    AceMarkdown(text: page.instructions.isEmpty ? "_No instructions yet._" : page.instructions)
+                        .padding(.vertical, AceDesign.Space.tight)
+                }
             }
         }
     }
@@ -186,40 +219,5 @@ struct SkillPageView: View {
             deleteUncertain = failure.uncertain
             problem = failure.message
         } catch { problem = error.localizedDescription }
-    }
-}
-
-/// A detail: its name, a muted line that wraps as long as it needs, and a control on the right.
-struct SkillDetailRow<Trailing: View>: View {
-    let title: String
-    let line: String
-    @ViewBuilder var trailing: () -> Trailing
-    var body: some View {
-        HStack(alignment: .center, spacing: AceTheme.Spacing.sm) {
-            VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-                Text(title).aceFont(InsetStyle.label, relativeTo: .body).foregroundStyle(AceTheme.Colours.foreground)
-                Text(line).aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground).fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
-            }
-            Spacer(minLength: AceTheme.Spacing.sm)
-            trailing()
-        }
-        .padding(.vertical, AceTheme.Spacing.xs)
-        .frame(minHeight: AceDesign.Size.tap)
-    }
-}
-
-/// The page's shape while it reads.
-private struct SkillPagePlaceholder: View {
-    var body: some View {
-        Section {
-            ForEach(["Agents", "Saved in", "Runs", "Used"], id: \.self) { title in
-                SkillDetailRow(title: title, line: "Claude Code and Codex") { EmptyView() }
-            }
-        } header: { InsetHeader("Details") }
-        .insetRowBackground()
-        .redacted(reason: .placeholder)
-        .transition(.opacity)
     }
 }
