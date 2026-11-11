@@ -11,3 +11,4 @@ export { IpBudget } from "./limits.ts";
 export { RelayRoutes } from "./routes.ts";
 export { ClientSlots } from "./admission.ts";
 export type { Clock } from "./clock.ts";
+export type { ForwardedHttp, HostHttpOptions, RelayHttpHandler } from "./http-host.ts";
