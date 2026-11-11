@@ -39,6 +39,15 @@ It may have taken effect; check before trying it again.";
 pub const JOB_STOPPED: &str = "Stopped by the person before it finished. It may have partly taken \
 effect; check before trying it again.";
 
+/// Whether a stored error result leaves the call's effect unknown rather than failed: it was
+/// cut off, lost or stopped while it ran. Events stored before `uncertain` was recorded are
+/// recognised by the text Spade gave them.
+pub fn outcome_unknown(is_error: bool, uncertain: bool, content: &str) -> bool {
+    uncertain
+        || (is_error
+            && (content.starts_with(MAYBE_RAN) || content == JOB_LOST || content == JOB_STOPPED))
+}
+
 /// How a finished job reads to the model.
 pub fn job_result(job: &str, name: &str, content: &str, is_error: bool) -> String {
     let status = if is_error { "error" } else { "ok" };
@@ -104,22 +113,82 @@ pub fn messages_with(events: &[Event], images: &dyn Images) -> Vec<Message> {
 }
 
 /// Images a prompt always shows; older ones are described, so screenshots that pile up never push
-/// a request past a provider's limits. At most twice this many are shown.
+/// a request past a provider's limits.
 pub const SHOWN_IMAGES: usize = 10;
 
-/// How many of `total` images are described instead of shown. The cut moves in steps of
-/// [`SHOWN_IMAGES`], so the start of the prompt stays the same (and cached) for ten new images
-/// at a time instead of changing with each one.
+/// The most images a prompt shows. Past this the conversation compacts, which fixes a new set of
+/// older images to describe (see [`images_to_leave_out`]).
+pub const MOST_SHOWN_IMAGES: usize = 2 * SHOWN_IMAGES;
+
+/// How many of `total` images are described instead of shown when nothing fixed it: the cut moves
+/// in steps of [`SHOWN_IMAGES`], so the start of the prompt changes once per ten new images
+/// instead of with each one.
 pub fn images_left_out(total: usize) -> usize {
-    if total <= 2 * SHOWN_IMAGES {
+    if total <= MOST_SHOWN_IMAGES {
         0
     } else {
         (total - SHOWN_IMAGES) / SHOWN_IMAGES * SHOWN_IMAGES
     }
 }
 
-/// Shows the newest images of the conversation (see [`images_left_out`]), in the order the
-/// prompt asks for them.
+/// The images a compaction cutting at `keep_from` fixes as left out: all but the newest
+/// [`SHOWN_IMAGES`] of what it keeps, so the next ten can arrive without changing the prompt.
+pub fn images_to_leave_out(events: &[Event], keep_from: usize) -> usize {
+    images_in(&events[keep_from.min(events.len())..]).saturating_sub(SHOWN_IMAGES)
+}
+
+/// Whether the prompt would show more than [`MOST_SHOWN_IMAGES`] with the images the last
+/// compaction left out, so it is time to compact again.
+pub fn too_many_images(events: &[Event]) -> bool {
+    let shown = Shown::of(events);
+    shown.total - shown.fixed > MOST_SHOWN_IMAGES
+}
+
+fn images_in(events: &[Event]) -> usize {
+    events
+        .iter()
+        .map(|event| match event {
+            Event::Known(
+                Known::UserMessage { images, .. } | Known::ToolFinished { images, .. },
+            ) => images.len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// The images the prompt covers (after the last compaction's cut) and how many of them, oldest
+/// first, the last compaction fixed as left out.
+struct Shown {
+    total: usize,
+    fixed: usize,
+}
+
+impl Shown {
+    fn of(events: &[Event]) -> Self {
+        let last = events.iter().rev().find_map(|event| match event {
+            Event::Known(Known::ContextCompacted {
+                keep_from,
+                images_left_out,
+                ..
+            }) => Some((*keep_from, *images_left_out)),
+            _ => None,
+        });
+        let (from, fixed) = last.unwrap_or((0, Some(0)));
+        let total = images_in(&events[from.min(events.len())..]);
+        // A compaction stored before the choice was kept: chosen from the total, as then.
+        let fixed = fixed.unwrap_or_else(|| images_left_out(total)).min(total);
+        Self { total, fixed }
+    }
+
+    /// Left out in this prompt: what the compaction fixed, plus, only when a compaction could not
+    /// run in time, enough older ones to stay within [`MOST_SHOWN_IMAGES`].
+    fn left_out(&self) -> usize {
+        self.fixed + images_left_out(self.total - self.fixed)
+    }
+}
+
+/// Shows the newest images of the conversation (see [`Shown`]), in the order the prompt asks for
+/// them.
 struct Recent<'a> {
     inner: &'a dyn Images,
     skip: std::cell::Cell<usize>,
@@ -127,28 +196,9 @@ struct Recent<'a> {
 
 impl<'a> Recent<'a> {
     fn new(events: &[Event], inner: &'a dyn Images) -> Self {
-        // Only what the prompt shows: after a compaction, the events it kept.
-        let from = events
-            .iter()
-            .rev()
-            .find_map(|event| match event {
-                Event::Known(Known::ContextCompacted { keep_from, .. }) => Some(*keep_from),
-                _ => None,
-            })
-            .unwrap_or(0)
-            .min(events.len());
-        let total: usize = events[from..]
-            .iter()
-            .map(|event| match event {
-                Event::Known(
-                    Known::UserMessage { images, .. } | Known::ToolFinished { images, .. },
-                ) => images.len(),
-                _ => 0,
-            })
-            .sum();
         Self {
             inner,
-            skip: std::cell::Cell::new(images_left_out(total)),
+            skip: std::cell::Cell::new(Shown::of(events).left_out()),
         }
     }
 }
@@ -227,6 +277,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 name,
                 content,
                 is_error,
+                ..
             } => {
                 let text = job_result(job, name, content, *is_error);
                 if pending.is_empty() {

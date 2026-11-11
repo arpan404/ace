@@ -27,6 +27,12 @@ interface Scan {
   count: number;
   replaced: boolean;
   ended: boolean;
+  /**
+   * A skill's own folder (it holds a SKILL.md): only that file is a definition (ADR 0103), so its
+   * references, scripts and assets are never inspected. Folders without one are grouping folders
+   * (Codex's `.system`) and are still walked.
+   */
+  skillOnly: boolean;
 }
 export interface DiscoveryMetrics {
   fileReads: number;
@@ -219,6 +225,12 @@ export class FileIndex {
       node.generation++;
       await this.stopScan(slot);
       this.watch(root, path);
+      const skillOnly =
+        root.skill === true &&
+        depth >= 1 &&
+        // A probe that fails only costs the old full walk of this folder.
+        (await this.io.stat(root, join(path, "SKILL.md")).catch(() => undefined))?.isFile() ===
+          true;
       try {
         const reader = await this.io.directory(root, path);
         this.scans.set(slot, {
@@ -228,6 +240,7 @@ export class FileIndex {
           count: 0,
           replaced,
           ended: false,
+          skillOnly,
         });
         this.queue({ ...job, kind: "scan" });
       } catch {
@@ -307,6 +320,10 @@ export class FileIndex {
           if (++scan.count > 2048) {
             await this.stopScan(slot);
             this.report(job.root, job.path, "Directory entry limit exceeded");
+            return;
+          }
+          if (scan.skillOnly && name !== "SKILL.md") {
+            this.queue(job);
             return;
           }
           const path = join(job.path, name);

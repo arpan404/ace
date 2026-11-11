@@ -124,6 +124,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
             ToolOutput {
                 content: text,
                 is_error: result.is_error,
+                uncertain: false,
                 images,
             }
         }
@@ -131,7 +132,7 @@ pub fn output(result: Result<AceToolResult, ToolsError>) -> ToolOutput {
             ToolOutput::error(format!("Not run: {why}. It is safe to try again."))
         }
         Err(error @ (ToolsError::OutcomeUnknown(_) | ToolsError::Timeout)) => {
-            ToolOutput::error(format!("{MAYBE_RAN} ({error})"))
+            ToolOutput::maybe_ran(format!("{MAYBE_RAN} ({error})"))
         }
         Err(error) => ToolOutput::error(error.to_string()),
     }

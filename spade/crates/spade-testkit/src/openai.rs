@@ -88,7 +88,10 @@ pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
             Value::Null,
         ));
         let arguments = call.arguments.to_string();
-        let middle = arguments.len() / 2;
+        let mut middle = arguments.len() / 2;
+        while !arguments.is_char_boundary(middle) {
+            middle += 1;
+        }
         for part in [&arguments[..middle], &arguments[middle..]] {
             frames.push(chunk(
                 json!({ "tool_calls": [{ "index": index, "function": { "arguments": part } }] }),
@@ -110,4 +113,33 @@ pub(crate) fn stream(script: &Script, tokens: Tokens) -> Vec<Frame> {
         data: "data: [DONE]\n\n".to_owned(),
     });
     frames
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The argument text the streamed frames add up to, in order.
+    fn streamed_arguments(frames: &[Frame]) -> String {
+        frames
+            .iter()
+            .filter_map(|frame| {
+                let body = frame.data.strip_prefix("data: ")?.trim();
+                let event: Value = serde_json::from_str(body).ok()?;
+                let part = event["choices"][0]["delta"]["tool_calls"][0]["function"]["arguments"]
+                    .as_str()?
+                    .to_owned();
+                Some(part)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn streams_non_ascii_tool_arguments_whole() {
+        let arguments = json!({ "x": "€€" });
+        let script = Script::reply("").call("call-1", "note", arguments.clone());
+        let frames = stream(&script, Tokens { read: 0, write: 0 });
+        let joined = streamed_arguments(&frames);
+        assert_eq!(serde_json::from_str::<Value>(&joined).ok(), Some(arguments));
+    }
 }

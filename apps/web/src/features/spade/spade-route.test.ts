@@ -7,6 +7,7 @@ import {
   recheckMs,
   spadePath,
   spadeStatusWith,
+  daemonStatusWhileAway,
 } from "./spade-route.ts";
 
 test("the app looks for Spade before its first request, and again after Spade's files change", () => {
@@ -43,6 +44,19 @@ test("without a direct answer, the daemon's word stands", () => {
   const starting = { state: "starting" as const };
   expect(spadeStatusWith(starting, { ready: false })).toBe(starting);
   expect(spadeStatusWith(starting, undefined)).toBe(starting);
+});
+
+test("a direct look finding nobody overrides the daemon's last ready", () => {
+  expect(spadeStatusWith({ state: "ready", version: "0.4.0" }, { ready: false })).toEqual({
+    state: "off",
+    reason: "Spade isn't reachable.",
+  });
+});
+
+test("a ready from a daemon whose connection is gone stops counting; other states stand", () => {
+  expect(daemonStatusWhileAway({ state: "ready", version: "0.4.0" })).toBeUndefined();
+  const off = { state: "off" as const };
+  expect(daemonStatusWhileAway(off)).toBe(off);
 });
 
 test("the host thread the daemon reports stays with a direct ready", () => {

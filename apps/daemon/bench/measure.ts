@@ -31,6 +31,7 @@ const collect = process.argv.includes("--collect");
 const collectWorkers = process.argv.includes("--collect-workers");
 if (collectWorkers && !collect) throw new Error("Worker collection requires --collect");
 const freshCycles = process.argv.includes("--fresh-cycles");
+const cpuProfile = argument("cpu-prof", "");
 const regions = process.argv.includes("--regions");
 const allocationOutput = argument("malloc-stacks", "");
 const progress = process.argv.includes("--progress");
@@ -55,6 +56,11 @@ const child = fork(
     execPath: resolve(argument("node", bunBinary())),
     execArgv: [
       ...(collect ? ["--expose-gc"] : []),
+      // --cpu-prof=<dir>: Bun writes the daemon's CPU profile (and a markdown summary) there on
+      // exit. The sampler adds CPU of its own, so never combine it with a budget measurement.
+      ...(cpuProfile
+        ? ["--cpu-prof", "--cpu-prof-md", `--cpu-prof-dir=${resolve(cpuProfile)}`]
+        : []),
       "--import",
       join(import.meta.dirname, "telemetry.mjs"),
     ],

@@ -1,4 +1,7 @@
-import { decodeStoredPayload } from "./stored-decode.ts";
+import { storedEvent, untrusted, untrustedEntities } from "./stored-decode.ts";
+import { storedEntityShape } from "./entity-shape.ts";
+import { storedEventShape, trustedSequenceStart } from "./stored-shape.ts";
+import { confirmThreadRows, openThreadRowTrust, threadRowShape } from "./thread-row-trust.ts";
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
@@ -69,7 +72,7 @@ import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { MachineCodes } from "./account-access/machine-codes.ts";
 import { SqlitePairingCodes } from "./pairing-codes.ts";
-import { migrate } from "./migrations.ts";
+import { migrate, schemaVersion } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
@@ -90,6 +93,12 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
   bufferScheduler?: BufferScheduler;
   /** Opens the connection that checkpoints the WAL off the event loop. */
   checkpointWorker?: CheckpointWorkerFactory;
+  /** The stored-event shape fingerprint; tests change it to stand in for a schema change. */
+  eventShape?: string;
+  /** Stands in for this build's thread row shape (`thread-row-trust.ts`), for tests. */
+  threadRowShape?: string;
+  /** The entity row shape this store reads in (`entity-shape.ts`); tests stand in builds with it. */
+  entityShape?: string;
 }
 type Listener = (events: Event[]) => void;
 /** Passes of the search writer (100 ms apart by default) between refreshes of streaming items. */
@@ -153,6 +162,10 @@ export class Store {
   private notifyingHistory = false;
   private publishing = false;
   private publishedSeq = 0;
+  /** Rows from here on were written by this build and are read without validating again. */
+  private readonly trust = untrusted();
+  /** Whether every entity row is in this build's shape, so read without validating again. */
+  private readonly entityTrust = untrustedEntities();
   constructor(
     path: string,
     onError: (error: unknown) => void = console.error,
@@ -206,8 +219,15 @@ export class Store {
       sequences: this.sequences,
       blocked: () => this.writes.isHeld() || this.historyWriting,
       transaction: (run, outcome) => this.transaction(run, outcome),
-      persist: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at, [event]),
-      append: (event) => this.appendEventBatch(event.threadId, [event.payload], event.at),
+      persist: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.append(event.threadId, [event.payload], event.at, [event]),
+        ),
+      // The stream parsed this payload when it built the envelope.
+      append: (event) =>
+        this.writeEvents(() =>
+          this.eventWriter.appendParsed(event.threadId, [event.payload], event.at),
+        ),
       stored: (event) =>
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
@@ -215,8 +235,13 @@ export class Store {
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
     });
-    this.payloads = new PayloadStore(this.db, this.nextId, (sql) => this.statement(sql));
-    this.status = new StatusStore(this.db, (sql) => this.statement(sql));
+    this.payloads = new PayloadStore(
+      this.db,
+      this.nextId,
+      (sql) => this.statement(sql),
+      this.trust,
+    );
+    this.status = new StatusStore(this.db, (sql) => this.statement(sql), this.entityTrust);
     try {
       this.db.exec(
         // auto_vacuum only takes effect before a new file's first page or through VACUUM.
@@ -237,7 +262,12 @@ export class Store {
       });
       migrate(this.db);
       this.sequences.initialize();
+      this.trust.from = trustedSequenceStart(
+        this.db,
+        options.eventShape ?? storedEventShape(schemaVersion),
+      );
       migrateSidebarRevisions(this.db);
+      openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
@@ -252,9 +282,9 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
-      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql));
+      this.nativeImages = new NativeImageStore(this.db, (sql) => this.statement(sql), this.trust);
       this.toolResults = new ToolResultStore(this.db, (sql) => this.statement(sql));
-      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql));
+      this.measurements = new MeasurementStore(this.db, (sql) => this.statement(sql), this.trust);
       this.atomic(indexThreadRows);
       this.history = new HistoryIndex(
         this.db,
@@ -262,6 +292,7 @@ export class Store {
         (stream, offset, limit) => this.payloads.readOutputBytes(stream, offset, limit),
         (thread, item, stream, offset, text) =>
           this.payloads.archiveOutput(thread, item, stream, offset, text),
+        this.trust,
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
@@ -278,12 +309,15 @@ export class Store {
         report: (error) => this.onError(error),
       });
       this.atomic(migrateRunClient);
+      this.status.trustEntities(options.entityShape ?? storedEntityShape(schemaVersion));
       this.longThreads = new LongThreadIndex(this.db, (id) => {
         const thread = this.getThread(ThreadId.parse(id));
         return thread?.deletedAt === undefined ? thread : undefined;
       });
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.atomic(seedSentMessages);
+      // After the passes above that rewrite threads rows; the writer keeps stamps current.
+      this.atomic((db) => confirmThreadRows(db));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -291,7 +325,7 @@ export class Store {
       this.pairingCodes = new SqlitePairingCodes(this.db);
       this.machineCodes = new MachineCodes(this.db);
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
-      this.searchReplay = new SearchReplay(this.db, this.history);
+      this.searchReplay = new SearchReplay(this.db, this.history, this.trust);
       this.search = new SearchIndex(this.db, {
         readOutput: (threadId, streamId, offset, limit) => {
           const replay = this.history.readSearchBytes(threadId, streamId, offset, limit);
@@ -1015,16 +1049,12 @@ export class Store {
       .map((row) => decodeThreadRow(row));
   }
   appendEvents(threadId: ThreadId, payloads: EventPayload[], at = this.now()): Event[] {
-    return this.appendEventBatch(threadId, payloads, at);
+    return this.writeEvents(() => this.eventWriter.append(threadId, payloads, at));
   }
-  private appendEventBatch(
-    threadId: ThreadId,
-    payloads: EventPayload[],
-    at: number,
-    envelopes?: Event[],
-  ): Event[] {
+  /** One write of the event writer, in a transaction with the write hooks. */
+  private writeEvents(write: () => Event[]): Event[] {
     return this.transaction(() => {
-      const events = this.eventWriter.append(threadId, payloads, at, envelopes);
+      const events = write();
       this.transactionEvents?.push(...events);
       for (const hook of this.writeHooks) hook(events);
       return events;
@@ -1083,15 +1113,9 @@ export class Store {
     const events: Event[] = [];
     let bytes = 0;
     for (const row of rows) {
-      const event = Event.parse({
-        seq: row.seq,
-        id: row.id,
-        threadId: row.thread_id,
-        at: row.at,
-        payload: decodeStoredPayload(JSON.parse(String(row.payload))),
-      });
+      const { event, bytes: size } = storedEvent(row, this.trust.from);
       events.push(event);
-      bytes += Buffer.byteLength(JSON.stringify(event));
+      bytes += size;
       // Include the crossing event so replay's caller can distinguish overflow from completion.
       if (bytes > (options.byteLimit ?? Infinity)) break;
     }

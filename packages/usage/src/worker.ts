@@ -1,10 +1,15 @@
 import { SessionTotalsRequest, SessionTotalPage } from "./session-totals.ts";
 import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { UsageBurn, UsageQuery, UsageResult } from "@ace/protocol";
-import { WorkerConfig, WorkerRequest, WorkerResponse, type WorkerCall } from "./worker-wire.ts";
+import {
+  WorkerCall,
+  WorkerConfig,
+  usageWireShape,
+  type WorkerRequest,
+  type WorkerResponse,
+} from "./worker-wire.ts";
 import { UsageBatch } from "./events.ts";
 import { UsageSettings } from "./settings.ts";
-import { QuotaWindow } from "./quotas.ts";
 export class UsageWorker {
   private readonly worker: IdleWorker;
   private readonly persistent: boolean;
@@ -21,19 +26,15 @@ export class UsageWorker {
     const config = WorkerConfig.parse({ path, settings: UsageSettings.parse(settings) });
     this.worker = new IdleWorker(
       new URL("./worker-entry.ts", import.meta.url),
-      { workerData: config },
+      { workerData: { ...config, shape: usageWireShape() } },
       runtime,
     );
     this.worker.on("error", () => this.rejectPending(new Error("Usage worker failed")));
     this.worker.on("exit", () => this.rejectPending(new Error("Usage worker exited")));
+    // The worker is this build (it checks `usageWireShape` when it starts): its reply is typed,
+    // and each method validates the value it returns.
     this.worker.on("message", (input: unknown) => {
-      const parsed = WorkerResponse.safeParse(input);
-      if (!parsed.success) {
-        this.fail(new Error("Invalid usage worker response"));
-        void this.worker.terminate();
-        return;
-      }
-      const message = parsed.data;
+      const message = input as WorkerResponse;
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
@@ -57,7 +58,7 @@ export class UsageWorker {
       return Promise.reject(this.failed ?? new Error("Usage worker closing"));
     if (call.method !== "close" && this.pending.size >= 16)
       return Promise.reject(new Error("Usage worker backpressure"));
-    const message = WorkerRequest.parse({ id: ++this.sequence, call });
+    const message: WorkerRequest = { id: ++this.sequence, call };
     const bytes = Buffer.byteLength(JSON.stringify(message));
     if (bytes > 1024 * 1024 || (call.method !== "close" && this.bytes + bytes > 4 * 1024 * 1024))
       return Promise.reject(new Error("Usage worker byte backpressure"));
@@ -98,7 +99,8 @@ export class UsageWorker {
   }
   async burn(account: string, window: unknown, now: number) {
     return UsageBurn.parse(
-      await this.call({ method: "burn", account, window: QuotaWindow.parse(window), now }),
+      // The account and clock come from the caller as they are: bound them as the wire does.
+      await this.call(WorkerCall.parse({ method: "burn", account, window, now })),
     );
   }
   close(): Promise<void> {

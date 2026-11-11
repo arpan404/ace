@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use spade_models::ToolSpec;
 
 /// How much a tool call can change in the world, which decides whether the gate asks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Risk {
     /// Only reads.
     Read,

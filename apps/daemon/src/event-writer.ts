@@ -10,6 +10,7 @@ import {
   type ThreadColumn,
 } from "./thread-columns.ts";
 import { rebuildThread } from "./thread-row.ts";
+import { keepThreadRowConfirmed, threadRowConfirmed } from "./thread-row-trust.ts";
 import type { FrozenThread } from "./thread-cache.ts";
 import type { StreamSequences } from "./stream-sequences.ts";
 import type { PayloadStore } from "./payload-store.ts";
@@ -54,13 +55,40 @@ interface EventWriteSource {
   nextId(): string;
   wakeSearch(): void;
 }
+/** An envelope before the canonicalising parse; its id is any string `nextId` made. */
+type EventInput = Omit<Event, "id" | "payload"> & { id: string; payload: EventPayload };
 /** Canonical folding and derived-table writes. The caller owns the SQLite transaction. */
 export class EventWriter {
   private readonly source: EventWriteSource;
   constructor(source: EventWriteSource) {
     this.source = source;
   }
+  /**
+   * Fold and store payloads built by ace, each made canonical by `Event.parse` (it fills the
+   * schema's defaults, so the row is in this build's shape). A supplied envelope was parsed when
+   * it was built and is stored as it is.
+   */
   append(threadId: ThreadId, payloads: EventPayload[], at: number, envelopes?: Event[]): Event[] {
+    return this.write(threadId, payloads, at, envelopes, (input) => Event.parse(input));
+  }
+  /**
+   * As `append`, for payloads that already came out of `Event.parse` (a live envelope stored
+   * under a new sequence). Parsing is idempotent on its own output, so they are not parsed
+   * again unless preparing or decorating them built a new payload.
+   */
+  appendParsed(threadId: ThreadId, payloads: EventPayload[], at: number): Event[] {
+    return this.write(threadId, payloads, at, undefined, (input, given) =>
+      // Trusted: `given` is Event.parse output, and seq, id, at and thread id are ace's own.
+      input.payload === given ? (input as Event) : Event.parse(input),
+    );
+  }
+  private write(
+    threadId: ThreadId,
+    payloads: EventPayload[],
+    at: number,
+    envelopes: Event[] | undefined,
+    canonical: (input: EventInput, given: EventPayload) => Event,
+  ): Event[] {
     let seq = this.source.sequences.head();
     const afterSeq = seq;
     const events: Event[] = [];
@@ -69,29 +97,28 @@ export class EventWriter {
     while (followup || inputIndex < payloads.length) {
       // A supplied envelope belongs to its input payload only; a follow-up is a new append.
       const envelope = followup ? undefined : envelopes?.[inputIndex];
+      const isFollowup = followup !== undefined;
       const payload = followup ?? payloads[inputIndex++];
       followup = undefined;
       if (!payload) break;
       const previousSeq = seq;
       const checkout = this.source.checkoutThread(threadId);
       const previous = checkout?.thread;
+      // Runs for an envelope too: it also records the turn's ask, whatever is stored.
       const prepared = previous ? prepareRunClient(this.source.db, previous, payload) : payload;
-      const event =
-        envelope ??
-        Event.parse({
-          seq: (seq = this.source.sequences.next(seq)),
+      let event = envelope;
+      if (!event) {
+        seq = this.source.sequences.next(seq);
+        const input: EventInput = {
+          seq,
           id: this.source.nextId(),
-          threadId,
           at,
-          payload: this.source.toolResults.decorate(
-            threadId,
-            this.source.nativeImages.decorate(
-              threadId,
-              this.source.measurements.decorate(threadId, prepared, seq),
-            ),
-            seq,
-          ),
-        });
+          threadId,
+          payload: this.decorate(threadId, prepared, seq),
+        };
+        // A follow-up was built here from stored rows, never parsed.
+        event = isFollowup ? Event.parse(input) : canonical(input, payload);
+      }
       seq = event.seq;
       if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
       let thread: Thread;
@@ -155,6 +182,14 @@ export class EventWriter {
     this.source.wakeSearch();
     return events;
   }
+  private decorate(threadId: ThreadId, payload: EventPayload, seq: number): EventPayload {
+    const { toolResults, nativeImages, measurements } = this.source;
+    return toolResults.decorate(
+      threadId,
+      nativeImages.decorate(threadId, measurements.decorate(threadId, payload, seq)),
+      seq,
+    );
+  }
   /**
    * Store what this event changed in the thread's columns, and nothing when it changed none,
    * which is most events. `previous` is what the row decoded to before (none on creation).
@@ -165,6 +200,10 @@ export class EventWriter {
     payload: EventPayload,
   ): void {
     const changes = threadColumnChanges(previous, thread, writtenColumns(payload));
+    if (!changes.hot.length && !changes.cold.length) return;
+    // A new row is written whole here; an existing one keeps the columns this write leaves.
+    const confirmed =
+      !previous || threadRowConfirmed((sql) => this.source.statement(sql), thread.id);
     if (changes.hot.length)
       this.source
         .statement(
@@ -183,12 +222,13 @@ export class EventWriter {
         )
         .run(thread.id, value("details"), value("capabilities"));
     }
-    if (!changes.hot.length && !changes.cold.length) return;
     const revision = this.source
       .statement("SELECT revision FROM sidebar_thread_revisions WHERE thread_id = ?")
       .get(thread.id)?.revision;
     if (typeof revision !== "number") return;
-    const rebuilt = rebuildThread(previous, changes.row, changes.parts);
+    const { thread: rebuilt, canonical } = rebuildThread(previous, changes.row, changes.parts);
+    if (confirmed && canonical)
+      keepThreadRowConfirmed((sql) => this.source.statement(sql), thread.id, revision);
     if (previous) this.source.rememberThread(thread.id, revision, rebuilt, changes.row);
     else this.source.rememberCreatedThread(thread.id, revision, rebuilt, changes.row);
   }

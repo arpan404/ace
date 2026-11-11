@@ -1,6 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { EntityCollection, Event, ItemId, Thread, ThreadId, ThreadView } from "@ace/protocol";
-import { EntitiesPage } from "@ace/protocol";
+import type {
+  EntitiesPage,
+  EntityCollection,
+  Event,
+  ItemId,
+  Thread,
+  ThreadId,
+  ThreadView,
+} from "@ace/protocol";
 import type { PayloadStore } from "./payload-store.ts";
 import type { HistoryIndex } from "./history-index.ts";
 import type { StatusStore } from "./status-store.ts";
@@ -97,17 +104,22 @@ export class ThreadReads {
       }),
     );
   }
-  readEntityPage(threadId: ThreadId, collection: EntityCollection, before: number, limit: number) {
+  readEntityPage(
+    threadId: ThreadId,
+    collection: EntityCollection,
+    before: number,
+    limit: number,
+  ): EntitiesPage {
     this.source.flush();
     const thread = this.source.getThread(threadId);
     if (!thread) throw new Error("Unknown thread");
+    // Built here from entity rows read in this build's shape (`entity-shape.ts`): not parsed again.
     return this.source.cache.read(
       JSON.stringify(["entities", threadId, collection, before, limit]),
-      () =>
-        EntitiesPage.parse({
-          ...this.source.status.page(thread, collection, before, limit),
-          seq: this.source.headSeq(),
-        }),
+      (): EntitiesPage => ({
+        ...this.source.status.page(thread, collection, before, limit),
+        seq: this.source.headSeq(),
+      }),
     );
   }
   getInteraction(id: string) {

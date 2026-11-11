@@ -1,31 +1,9 @@
 //! Brave Search API: `GET {base}web/search?q=…&count=N` with `X-Subscription-Token`.
 
-use serde::Deserialize;
+use super::{MOST_BODY_BYTES, http_reason, json_body, transport_reason, triples};
 
-use super::{http_reason, transport_reason};
-
-#[derive(Deserialize)]
-struct Page {
-    #[serde(default)]
-    web: Option<Web>,
-}
-
-#[derive(Deserialize)]
-struct Web {
-    #[serde(default)]
-    results: Vec<Item>,
-}
-
-#[derive(Deserialize)]
-struct Item {
-    #[serde(default)]
-    url: String,
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    description: String,
-}
-
+/// `http` must not follow redirects: the key is a custom header, which a client keeps when
+/// following one to another server.
 pub(crate) async fn search(
     http: &reqwest::Client,
     base_url: &str,
@@ -42,15 +20,17 @@ pub(crate) async fn search(
         .await
         .map_err(|e| transport_reason(&e))?;
     let status = response.status();
+    if status.is_redirection() {
+        return Err(format!(
+            "Brave redirected the request (HTTP {status}), which is not followed with a key"
+        ));
+    }
     if !status.is_success() {
         return Err(http_reason(status, "Brave"));
     }
-    let page: Page = response.json().await.map_err(|e| transport_reason(&e))?;
-    Ok(page
-        .web
-        .map(|web| web.results)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|item| (item.title, item.url, item.description))
-        .collect())
+    let page = json_body(response, MOST_BODY_BYTES).await?;
+    Ok(triples(
+        page.get("web").and_then(|web| web.get("results")),
+        "description",
+    ))
 }

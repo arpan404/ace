@@ -16,10 +16,11 @@ import {
 } from "@ace/protocol";
 import type { NotificationState, NotificationTransport } from "./service.ts";
 import {
-  FromWorker,
+  WorkerCall,
   WorkerConfig,
-  ToWorker,
-  type WorkerCall,
+  notifyWireShape,
+  type FromWorker,
+  type ToWorker,
   type WorkerValue,
 } from "./worker-wire.ts";
 const NoticeWindows = z.array(z.object({ after: z.number(), before: z.number() }));
@@ -114,7 +115,7 @@ export class NotificationWorker {
     const spawn =
       options.spawn ?? ((entry: URL, config: WorkerOptions) => startWorker(entry, config));
     const worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
-      workerData: WorkerConfig.parse(options),
+      workerData: { ...WorkerConfig.parse(options), shape: notifyWireShape() },
     });
     worker.on("error", (error: unknown) => {
       if (this.worker === worker)
@@ -128,12 +129,9 @@ export class NotificationWorker {
       // Node's own tooling posts on the same channel (`node --watch` sends `watch:import`
       // records from every worker). Only frames that claim to be this wire's are judged.
       if (!isWireFrame(input)) return;
-      const parsed = FromWorker.safeParse(input);
-      if (!parsed.success) {
-        this.fail(new Error("Invalid notification worker reply"));
-        return;
-      }
-      const message = parsed.data;
+      // The worker is this build (it checks `notifyWireShape` when it starts): its frames are
+      // typed, and the values in them come from its store, which decodes rows as it reads them.
+      const message = input as FromWorker;
       if (message.type === "ready") {
         const restarted = this.restarted;
         this.opened = true;
@@ -161,7 +159,7 @@ export class NotificationWorker {
         options.onState?.({ deadline: message.deadline, idle: message.idle });
       else {
         if (options.signal?.aborted || this.flights.size >= 16) {
-          this.worker.postMessage({ type: "deliveryResult", id: message.id, result: "retry" }, []);
+          this.send({ type: "deliveryResult", id: message.id, result: "retry" });
           return;
         }
         const controller = new AbortController();
@@ -172,7 +170,10 @@ export class NotificationWorker {
           .then((result) => {
             if (this.flights.get(message.id) === controller) this.flights.delete(message.id);
             if (!this.failed && this.worker === worker)
-              worker.postMessage({ type: "deliveryResult", id: message.id, result }, []);
+              worker.postMessage(
+                { type: "deliveryResult", id: message.id, result } satisfies ToWorker,
+                [],
+              );
           });
       }
     });
@@ -216,6 +217,17 @@ export class NotificationWorker {
       });
     });
   }
+  private send(message: ToWorker): void {
+    this.worker.postMessage(message, []);
+  }
+  /**
+   * A call whose arguments came from the daemon's callers: checked against the wire's bounds
+   * (id lengths, list sizes) before it is sent, so the worker never has to parse it.
+   */
+  private checked(call: WorkerCall, signal?: AbortSignal): Promise<WorkerValue> {
+    return this.call(WorkerCall.parse(call), signal);
+  }
+  /** A call this class built and bounded itself (`ingest` takes `metadata`'s validated records). */
   private call(call: WorkerCall, signal?: AbortSignal): Promise<WorkerValue> {
     if (signal?.aborted)
       return Promise.reject(new DOMException("Notification operation aborted", "AbortError"));
@@ -229,7 +241,7 @@ export class NotificationWorker {
     if (call.method !== "close" && !disconnect && this.pending.size >= 64)
       return Promise.reject(new Error("Notification worker backpressure"));
     const id = ++this.sequence;
-    const message = ToWorker.parse({ type: "call", id, call });
+    const message: ToWorker = { type: "call", id, call };
     const bytes = Buffer.byteLength(JSON.stringify(message));
     if (
       (disconnect && bytes > 2048) ||
@@ -266,7 +278,7 @@ export class NotificationWorker {
         .then(() => {
           if (!this.pending.has(id)) return;
           if (this.failed) throw this.failed;
-          this.worker.postMessage(message, []);
+          this.send(message);
         })
         .catch((error: unknown) => {
           if (this.pending.delete(id)) {
@@ -336,55 +348,55 @@ export class NotificationWorker {
     })();
   }
   async connectDevice(device: DeviceId): Promise<void> {
-    await this.call({ method: "connectDevice", device });
+    await this.checked({ method: "connectDevice", device });
   }
   async register(device: DeviceId, address: unknown): Promise<void> {
-    await this.call({ method: "register", device, address: NotificationAddress.parse(address) });
+    await this.checked({ method: "register", device, address: NotificationAddress.parse(address) });
   }
   /** Push addresses among these devices that may be alerted now, at most 128 asked. */
   async pushAddresses(devices: readonly DeviceId[]): Promise<NotificationDevice[]> {
     return PushDevices.parse(
-      await this.call({ method: "pushAddresses", devices: devices.slice(0, 128) }),
+      await this.checked({ method: "pushAddresses", devices: devices.slice(0, 128) }),
     );
   }
   /** Stops alerts to this device until it registers again. */
   async unregister(device: DeviceId): Promise<void> {
-    await this.call({ method: "unregister", device });
+    await this.checked({ method: "unregister", device });
   }
   async getPreferences(device: DeviceId) {
     return NotificationPreferences.parse(
-      (await this.call({ method: "getPreferences", device })) ?? {},
+      (await this.checked({ method: "getPreferences", device })) ?? {},
     );
   }
   async preferences(device: DeviceId, input: unknown): Promise<void> {
-    await this.call({
+    await this.checked({
       method: "preferences",
       device,
       preferences: NotificationPreferences.parse(input),
     });
   }
   async notify(notification: Notification): Promise<void> {
-    await this.call({ method: "notify", notification });
+    await this.checked({ method: "notify", notification });
   }
   async snooze(thread: ThreadId, until: number): Promise<void> {
-    await this.call({ method: "snooze", thread, until });
+    await this.checked({ method: "snooze", thread, until });
   }
   async updatePresence(session: string, device: DeviceId, update: PresenceUpdate): Promise<void> {
-    await this.call({ method: "presence", session, device, update });
+    await this.checked({ method: "presence", session, device, update });
   }
   /** Catch-up for a client that missed live delivery while suspended. */
   async feed(device: DeviceId, afterCursor: number): Promise<NotificationFeed> {
-    return NotificationFeed.parse(await this.call({ method: "feed", device, afterCursor }));
+    return NotificationFeed.parse(await this.checked({ method: "feed", device, afterCursor }));
   }
   async disconnect(session: string): Promise<void> {
-    await this.call({ method: "disconnect", session });
+    await this.checked({ method: "disconnect", session });
   }
   /** Threads a paired machine delegated here, at most 256 per call (`markRemote`). */
   async markRemote(threads: readonly ThreadId[], signal?: AbortSignal): Promise<void> {
-    await this.call({ method: "markRemote", threads: [...threads] }, signal);
+    await this.checked({ method: "markRemote", threads: [...threads] }, signal);
   }
   async revoke(device: DeviceId, signal?: AbortSignal): Promise<void> {
-    await this.call({ method: "revoke", device }, signal);
+    await this.checked({ method: "revoke", device }, signal);
   }
   async drain(): Promise<void> {
     await this.call({ method: "drain" });

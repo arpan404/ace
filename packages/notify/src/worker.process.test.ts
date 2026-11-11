@@ -2,7 +2,13 @@ import { Worker } from "node:worker_threads";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceId, Event, type NotificationDevice, type Notification } from "@ace/protocol";
+import {
+  DeviceId,
+  Event,
+  ThreadId,
+  type NotificationDevice,
+  type Notification,
+} from "@ace/protocol";
 import { expect, it } from "vitest";
 import { NotificationWorker, attachNotifications } from "./index.ts";
 
@@ -285,6 +291,51 @@ it("keeps working when Node tooling posts its own records on the worker channel"
   });
   try {
     await expect(worker.cursor()).resolves.toBe(0);
+  } finally {
+    await worker.close();
+  }
+});
+
+it("a notification worker from another build refuses to start, so no frame in another shape is taken", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    // What a daemon of another build sends: its own channel shape.
+    spawn: (entry, options) =>
+      new Worker(entry, { ...options, workerData: { ...options.workerData, shape: "other" } }),
+    schedule: () => () => {},
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    await expect(worker.cursor()).rejects.toThrow();
+  } finally {
+    await worker.close().catch(() => {});
+  }
+});
+
+it("arguments the daemon was handed are bounded before they reach the worker", async () => {
+  const worker = new NotificationWorker({
+    path: ":memory:",
+    transport: {
+      async send() {
+        return "accepted";
+      },
+    },
+  });
+  try {
+    const long = DeviceId.parse("d".repeat(201));
+    await expect(worker.connectDevice(long)).rejects.toThrow();
+    await expect(worker.disconnect("s".repeat(201))).rejects.toThrow();
+    await expect(
+      worker.markRemote(Array.from({ length: 257 }, (_, i) => ThreadId.parse(`t${i}`))),
+    ).rejects.toThrow();
+    await expect(worker.snooze(ThreadId.parse("thread"), -1)).rejects.toThrow();
+    // The worker is still answering: only the out-of-bounds calls were refused.
+    await expect(worker.cursor()).resolves.toBe(0);
+    await expect(worker.connectDevice(DeviceId.parse("device"))).resolves.toBeUndefined();
   } finally {
     await worker.close();
   }

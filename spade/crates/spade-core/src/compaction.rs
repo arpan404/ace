@@ -4,7 +4,7 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::context::{JOB_LOST, JOB_STOPPED};
+use crate::context::{self, outcome_unknown};
 use crate::event::{Event, Known};
 use crate::tools::{CALL_TOOL, Registry, Risk, unwrap_call_tool};
 
@@ -23,8 +23,11 @@ pub struct Plan {
 
 /// Whether to compact now, and where to cut. `prompt_tokens` is what the endpoint reported for
 /// the last call; `budget` is the smaller of the model's context and Spade's cap.
+/// Too many images to show also compacts, whatever the size: that is the only point where which
+/// older images are left out may change.
 pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
-    if budget == 0 || f64::from(prompt_tokens) < f64::from(budget) * HIGH {
+    let full = budget > 0 && f64::from(prompt_tokens) >= f64::from(budget) * HIGH;
+    if !full && !context::too_many_images(events) {
         return None;
     }
     // `prompt_tokens` comes from the last step. If a compaction came after it, that size is from
@@ -53,6 +56,8 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
     let keep_from = starts
         .iter()
         .copied()
+        // A cut at the very start would summarise nothing.
+        .filter(|&start| start > already.unwrap_or(0))
         .find(|&start| {
             let kept: usize = sizes[start..].iter().sum();
             f64::from(prompt_tokens) * (kept as f64 / total as f64) <= target
@@ -175,6 +180,9 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     out
 }
 
+/// The note for a write whose outcome is unknown.
+const MAYBE: &str = ", may have taken effect; check before trying it again";
+
 /// What became of a write made before the cut, for the summary's "already carried out" list.
 fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static str> {
     if background {
@@ -182,17 +190,14 @@ fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static
             Event::Known(Known::JobFinished {
                 job,
                 is_error,
+                uncertain,
                 content,
                 ..
-            }) if job == call_id => Some((*is_error, content.as_str())),
+            }) if job == call_id => Some(ended(*is_error, *uncertain, content)),
             _ => None,
         });
         return match ended {
-            Some((false, _)) => Some(""),
-            Some((true, content)) if content == JOB_LOST || content == JOB_STOPPED => {
-                Some(", may have taken effect; check before trying it again")
-            }
-            Some((true, _)) => None,
+            Some(note) => note,
             None if started_job(events, call_id) => {
                 Some(", still running in the background; its result has not arrived")
             }
@@ -203,17 +208,27 @@ fn outcome(events: &[Event], call_id: &str, background: bool) -> Option<&'static
         Event::Known(Known::ToolFinished {
             call_id: c,
             is_error,
+            uncertain,
+            content,
             ..
-        }) if c == call_id => Some(*is_error),
+        }) if c == call_id => Some(ended(*is_error, *uncertain, content)),
         _ => None,
     });
     match finished {
-        Some(false) => Some(""),
-        Some(true) => None,
-        None if started_tool(events, call_id) => {
-            Some(", may have taken effect; check before trying it again")
-        }
+        Some(note) => note,
+        None if started(events, call_id).is_some() => Some(MAYBE),
         None => None,
+    }
+}
+
+/// The note for a write that has a stored result: done, unknown, or failed (left out).
+fn ended(is_error: bool, uncertain: bool, content: &str) -> Option<&'static str> {
+    if outcome_unknown(is_error, uncertain, content) {
+        Some(MAYBE)
+    } else if is_error {
+        None
+    } else {
+        Some("")
     }
 }
 
@@ -223,17 +238,25 @@ fn started_job(events: &[Event], job: &str) -> bool {
         .any(|e| matches!(e, Event::Known(Known::JobStarted { job: j, .. }) if j == job))
 }
 
-fn started_tool(events: &[Event], call_id: &str) -> bool {
-    events
-        .iter()
-        .any(|e| matches!(e, Event::Known(Known::ToolStarted { call_id: c, .. }) if c == call_id))
+/// The call's stored start: the risk and background flag it was recorded with, if any.
+fn started(events: &[Event], call_id: &str) -> Option<Option<(Risk, bool)>> {
+    events.iter().find_map(|event| match event {
+        Event::Known(Known::ToolStarted {
+            call_id: c,
+            risk,
+            background,
+            ..
+        }) if c == call_id => Some(risk.map(|risk| (risk, *background))),
+        _ => None,
+    })
 }
 
 /// Writes and destructive calls made before `keep_from`, each with its call id and exact
 /// arguments taken from the step, never from a summary. A write counts when it finished without
 /// error, wherever in the conversation that happened; one whose outcome is unknown (cut off, or a
 /// background job stopped or lost) or still running is listed as such, since repeating it could
-/// act twice. Failed writes are left out.
+/// act twice. Failed writes are left out. A call's risk is the one stored when it ran; only events
+/// from before that was recorded fall back to `registry`.
 pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> Vec<String> {
     let mut out = Vec::new();
     for event in &events[..keep_from.min(events.len())] {
@@ -246,10 +269,13 @@ pub fn carried_out(events: &[Event], keep_from: usize, registry: &Registry) -> V
                     .unwrap_or_else(|| (call.name.clone(), call.arguments.clone())),
                 _ => (call.name.clone(), call.arguments.clone()),
             };
-            let Some(tool) = registry.get(&name).filter(|t| t.risk != Risk::Read) else {
+            let recorded = started(events, &call.id).flatten();
+            let facts =
+                recorded.or_else(|| registry.get(&name).map(|tool| (tool.risk, tool.background)));
+            let Some((_, background)) = facts.filter(|(risk, _)| *risk != Risk::Read) else {
                 continue;
             };
-            if let Some(note) = outcome(events, &call.id, tool.background) {
+            if let Some(note) = outcome(events, &call.id, background) {
                 out.push(format!("{name} (call {}) {arguments}{note}", call.id));
             }
         }

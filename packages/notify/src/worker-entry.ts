@@ -1,11 +1,22 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { NotificationService, type DeliveryResult } from "./service.ts";
-import { ToWorker, WorkerConfig, incompatibleFrame, type WorkerValue } from "./worker-wire.ts";
+import { assertWireShape } from "@ace/provider-kit/wire-shape";
+import {
+  WorkerConfig,
+  incompatibleFrame,
+  notifyWireShape,
+  type FromWorker,
+  type ToWorker,
+  type WorkerValue,
+} from "./worker-wire.ts";
 
 const port = parentPort;
 if (!port) throw new Error("Notification worker requires a parent");
+// A daemon of another build would send messages in another shape: refuse to start for it.
+assertWireShape("notification", Reflect.get(Object(workerData), "shape"), notifyWireShape);
 const config = WorkerConfig.parse(workerData);
+const post = (message: FromWorker) => port.postMessage(message);
 let sequence = 0;
 let reported = "";
 /** Tells the parent when delivery next has work, so it sets one timer instead of polling. */
@@ -14,7 +25,7 @@ const report = () => {
   const key = `${state.deadline}:${state.idle}`;
   if (key === reported) return;
   reported = key;
-  port.postMessage({ type: "state", ...state });
+  post({ type: "state", ...state });
 };
 const sends = new Map<number, (result: DeliveryResult) => void>();
 let service: NotificationService;
@@ -28,7 +39,7 @@ try {
         const id = ++sequence;
         return new Promise<DeliveryResult>((resolve) => {
           const abort = () => {
-            port.postMessage({ type: "cancel", id });
+            post({ type: "cancel", id });
             finish("retry");
           };
           const finish = (result: DeliveryResult) => {
@@ -39,7 +50,7 @@ try {
           sends.set(id, finish);
           signal.addEventListener("abort", abort, { once: true });
           if (signal.aborted) abort();
-          else port.postMessage({ type: "delivery", id, device, notification });
+          else post({ type: "delivery", id, device, notification });
         });
       },
     },
@@ -49,13 +60,13 @@ try {
   if (!incompatible) throw error;
   // Bun's worker error event drops the error's path, so send the fields and wait here, with
   // the port held open, until the parent stops this worker.
-  port.postMessage(incompatibleFrame(incompatible));
+  post(incompatibleFrame(incompatible));
   port.on("message", () => {});
   await new Promise<never>(() => {});
   throw error;
 }
-port.on("message", (input: unknown) => {
-  const message = ToWorker.parse(input);
+// Same build, checked above: the daemon's typed messages, bounded before it sent them.
+port.on("message", (message: ToWorker) => {
   if (message.type === "deliveryResult") {
     sends.get(message.id)?.(message.result);
     return;
@@ -127,14 +138,14 @@ port.on("message", (input: unknown) => {
           await service.close();
           break;
       }
-      port.postMessage({ type: "result", id, ok: true, ...(value === undefined ? {} : { value }) });
+      post({ type: "result", id, ok: true, ...(value === undefined ? {} : { value }) });
       if (call.method === "close") {
         port.close();
         return;
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Notification call failed";
-      port.postMessage({ type: "result", id, ok: false, error: reason.slice(0, 256) });
+      post({ type: "result", id, ok: false, error: reason.slice(0, 256) });
     }
     report();
   })();
@@ -142,5 +153,5 @@ port.on("message", (input: unknown) => {
 
 // Publish readiness only after SQLite is open and the RPC handler is installed. A restarted
 // worker reports its saved deadline at once: the parent's last report died with the old one.
-port.postMessage({ type: "ready" });
+post({ type: "ready" });
 report();

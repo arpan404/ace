@@ -26,6 +26,7 @@ export async function spadeCommand(
     home,
     env: process.env,
     version: () => cliVersion(process.env, process.argv[1]),
+    entry: process.argv[1],
   }),
 ): Promise<void> {
   const verb = args.words[1];

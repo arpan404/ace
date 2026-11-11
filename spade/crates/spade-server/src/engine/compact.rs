@@ -124,6 +124,7 @@ async fn run(
         summary,
         keep_from: plan.keep_from,
         tokens_before: last_prompt_tokens(events),
+        images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");

@@ -1,5 +1,6 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
-import { Event, ThreadId, type EntityCollection, ThreadView, type Thread } from "@ace/protocol";
+import type { EntityCollection, ThreadView, Thread } from "@ace/protocol";
+import { storedEntity, type EntityTrust, type StoredEntity } from "./stored-decode.ts";
 
 const active = `CASE
  WHEN collection='agents' THEN json_extract(value,'$.origin')='root' OR json_extract(value,'$.status.state') IN ('starting','working','blocked','unresponsive')
@@ -10,8 +11,10 @@ const active = `CASE
 const collections = ["agents", "runs", "interactions", "backgroundTasks"] as const;
 export class EntityWindow {
   private sql: (sql: string) => StatementSync;
-  constructor(db: DatabaseSync, sql: (sql: string) => StatementSync) {
+  private trust: EntityTrust;
+  constructor(db: DatabaseSync, sql: (sql: string) => StatementSync, trust: EntityTrust) {
     this.sql = sql;
+    this.trust = trust;
     const existing = sql("SELECT 1 FROM sqlite_master WHERE name='view_entity_windows'").get();
     db.exec(`CREATE TABLE IF NOT EXISTS view_entity_windows (
       thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -53,7 +56,7 @@ export class EntityWindow {
     for (const collection of collections) {
       const values: [string, unknown][] = [];
       for (const row of this.rows(view.thread.id, collection, "w.active=1", "ASC"))
-        values.push([String(row.id), JSON.parse(String(row.value))]);
+        values.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
       let bytes = 0;
       let before: number | undefined;
       let count = 0;
@@ -66,14 +69,13 @@ export class EntityWindow {
           break;
         }
         before = Number(row.created_seq);
-        recent.push([String(row.id), JSON.parse(String(row.value))]);
+        recent.push([String(row.id), storedEntity(collection, String(row.value), this.trust)]);
         bytes += size;
         count++;
       }
+      // Own data properties for every id, as decoding a record gives (`__proto__` included).
       Object.assign(view, {
-        [collection]: ThreadView.shape[collection].parse(
-          Object.fromEntries([...recent.toReversed(), ...values]),
-        ),
+        [collection]: Object.fromEntries([...recent.toReversed(), ...values]),
       });
       cursors[collection] = older ? (before ?? Number.MAX_SAFE_INTEGER) : null;
     }
@@ -100,7 +102,8 @@ export class EntityWindow {
         : this.sql(
             "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
           ).get(view.thread.id, id);
-      const agent = existing ?? (row ? importAgent(row.value) : undefined);
+      const agent =
+        existing ?? (row ? storedEntity("agents", String(row.value), this.trust) : undefined);
       if (!agent) continue;
       Object.defineProperty(view.agents, id, {
         value: agent,
@@ -120,10 +123,32 @@ export class EntityWindow {
     const row = this.sql(
       "SELECT created_seq FROM view_entity_windows WHERE thread_id=? AND collection=? AND id=?",
     ).get(threadId, collection, id);
-    return row ? Event.shape.seq.parse(Number(row.created_seq)) : 1;
+    return row ? Number(row.created_seq) : 1;
   }
+  /** A page of `collection`'s entities created before `before`; `seq` is the reader's to add. */
   page(thread: Thread, collection: EntityCollection, before: number, limit: number) {
-    const entries: unknown[] = [];
+    const page = { threadId: thread.id };
+    // Each case narrows `collection`, so its entries are that collection's entities.
+    switch (collection) {
+      case "agents":
+        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+      case "runs":
+        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+      case "interactions":
+        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+      case "backgroundTasks":
+        return { ...page, collection, ...this.entries(thread, collection, before, limit) };
+    }
+  }
+  /** At most 200 entries, the most a page holds, and at most 128 KiB unless one entry is more. */
+  private entries<C extends EntityCollection>(
+    thread: Thread,
+    collection: C,
+    before: number,
+    limit: number,
+  ): { entries: StoredEntity<C>[]; entitiesBefore: number | null } {
+    const most = Math.min(limit, 200);
+    const entries: StoredEntity<C>[] = [];
     let bytes = 0;
     let oldest = before;
     let more = false;
@@ -133,26 +158,17 @@ export class EntityWindow {
       "w.created_seq<?",
       "DESC LIMIT ?",
       before,
-      Math.min(limit, 200) + 1,
+      most + 1,
     )) {
       const size = Buffer.byteLength(String(row.value));
-      if (entries.length >= limit || (entries.length && bytes + size > 131072)) {
+      if (entries.length >= most || (entries.length && bytes + size > 131072)) {
         more = true;
         break;
       }
-      entries.push(JSON.parse(String(row.value)));
+      entries.push(storedEntity(collection, String(row.value), this.trust));
       bytes += size;
       oldest = Number(row.created_seq);
     }
-    return {
-      threadId: ThreadId.parse(thread.id),
-      collection,
-      entries: entries.toReversed(),
-      entitiesBefore: more ? oldest : null,
-    };
+    return { entries: entries.toReversed(), entitiesBefore: more ? oldest : null };
   }
-}
-import { Agent } from "@ace/protocol";
-function importAgent(value: unknown) {
-  return Agent.parse(JSON.parse(String(value)));
 }

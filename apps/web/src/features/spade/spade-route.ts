@@ -51,14 +51,22 @@ export function afterUnreachable(now: number): DirectRoute {
 /** What the app's direct look at Spade's `/health` found; undefined until it looked. */
 export type DirectHealth = { ready: true; version: string | undefined } | { ready: false };
 
+/** What the screens say while the app's own look at Spade finds nobody answering. */
+export const unreachableReason = "Spade isn't reachable.";
+
 /**
  * Spade's status for the screens: ready whenever Spade answers its `/health` directly, even
- * while the daemon is down or hasn't said; otherwise what the daemon says.
+ * while the daemon is down or hasn't said. A direct look that found nobody overrides the
+ * daemon's last ready (it may be stale): Spade isn't reachable. Otherwise what the daemon says.
+ * The unreachable status is `off` with a reason, so the screens show that one sentence and
+ * offer no switch.
  */
 export function spadeStatusWith(
   daemon: SpadeStatus | undefined,
   direct: DirectHealth | undefined,
 ): SpadeStatus | undefined {
+  if (direct?.ready === false && daemon?.state === "ready")
+    return { state: "off", reason: unreachableReason };
   if (!direct?.ready) return daemon;
   const version = direct.version ?? daemon?.version;
   return {
@@ -66,4 +74,12 @@ export function spadeStatusWith(
     ...(version === undefined ? {} : { version }),
     ...(daemon?.thread ? { thread: daemon.thread } : {}),
   };
+}
+
+/**
+ * The daemon's last word once its connection is gone: a ready it reported may no longer hold,
+ * so it stops counting until the daemon says again; anything else stands.
+ */
+export function daemonStatusWhileAway(status: SpadeStatus | undefined): SpadeStatus | undefined {
+  return status?.state === "ready" ? undefined : status;
 }

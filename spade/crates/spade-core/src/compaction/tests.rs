@@ -66,6 +66,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         summary: "earlier".into(),
         keep_from: 28,
         tokens_before: 8_000,
+        images_left_out: None,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
     let second = plan(&events, 8_000, 10_000)
@@ -87,6 +88,7 @@ fn the_model_sees_the_summary_then_the_kept_turns_with_the_top_unchanged() {
         summary: "Summary of the earlier conversation".into(),
         keep_from: 8,
         tokens_before: 5_000,
+        images_left_out: None,
     }));
     let after = context::prompt(context::SYSTEM, tools, &events);
 
@@ -146,6 +148,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
             content: "".into(),
             is_error,
             images: Vec::new(),
+            uncertain: false,
         })
     };
     let events = vec![
@@ -227,6 +230,7 @@ fn compaction_never_cuts_at_a_message_sent_while_tools_ran() {
             content: "word ".repeat(400),
             is_error: false,
             images: Vec::new(),
+            uncertain: false,
         }),
     ]);
     assert!(matches!(
@@ -291,6 +295,7 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
             name: "book".into(),
             content: content.into(),
             is_error,
+            uncertain: false,
         })
     };
     let mut events = vec![known(Known::StepFinished {
@@ -320,6 +325,8 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
         reply: "r".into(),
         call_id: "p1".into(),
         name: "pay".into(),
+        risk: None,
+        background: false,
     }));
     events.push(job("j1", false, "booked"));
     events.push(job("j2", true, "no table free"));
@@ -351,6 +358,7 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         summary: "earlier".into(),
         keep_from: first.unwrap_or(0),
         tokens_before: 8_000,
+        images_left_out: None,
     }));
     assert_eq!(
         plan(&events, 8_000, 10_000),
@@ -361,5 +369,159 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
     assert!(
         plan(&events, 8_000, 10_000).is_some(),
         "a new step's size counts again"
+    );
+}
+
+fn step_calling(calls: &[(&str, &str)]) -> Event {
+    Event::Known(Known::StepFinished {
+        reply: "r".into(),
+        text: "".into(),
+        calls: calls
+            .iter()
+            .map(|(id, name)| Call {
+                id: (*id).into(),
+                name: (*name).into(),
+                arguments: json!({ "id": id }),
+            })
+            .collect(),
+        thoughts: Vec::new(),
+        usage: Tokens::default(),
+        cost_micros: 0,
+        seen: None,
+    })
+}
+
+fn tool_ended(id: &str, name: &str, is_error: bool, uncertain: bool, content: &str) -> Event {
+    Event::Known(Known::ToolFinished {
+        reply: "r".into(),
+        call_id: id.into(),
+        name: name.into(),
+        content: content.into(),
+        is_error,
+        uncertain,
+        images: Vec::new(),
+    })
+}
+
+fn tool_started(id: &str, name: &str, risk: Option<Risk>, background: bool) -> Event {
+    Event::Known(Known::ToolStarted {
+        reply: "r".into(),
+        call_id: id.into(),
+        name: name.into(),
+        risk,
+        background,
+    })
+}
+
+fn write_tool(name: &str, risk: Risk) -> ToolDef {
+    ToolDef {
+        spec: ToolSpec {
+            name: name.into(),
+            description: "".into(),
+            schema: json!({}),
+        },
+        risk,
+        untrusted_output: false,
+        deferred: false,
+        background: false,
+    }
+}
+
+#[test]
+fn writes_cut_off_or_lost_stay_in_the_do_not_repeat_list_with_their_arguments() {
+    let registry = Registry::new([write_tool("send_email", Risk::Write)]);
+    let events = vec![
+        step_calling(&[
+            ("t1", "send_email"),
+            ("t2", "send_email"),
+            ("t3", "send_email"),
+        ]),
+        // Stored as unknown: a timeout.
+        tool_ended(
+            "t1",
+            "send_email",
+            true,
+            true,
+            "send_email did not answer in time",
+        ),
+        // Stored before the outcome was recorded: known by Spade's own text.
+        tool_ended("t2", "send_email", true, false, crate::context::MAYBE_RAN),
+        // A real failure stays out.
+        tool_ended("t3", "send_email", true, false, "mailbox full"),
+    ];
+    assert_eq!(
+        carried_out(&events, events.len(), &registry),
+        vec![
+            r#"send_email (call t1) {"id":"t1"}, may have taken effect; check before trying it again"#
+                .to_owned(),
+            r#"send_email (call t2) {"id":"t2"}, may have taken effect; check before trying it again"#
+                .to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn a_background_job_cut_off_stays_in_the_do_not_repeat_list() {
+    let events = vec![
+        step_calling(&[("j1", "book")]),
+        tool_started("j1", "book", Some(Risk::Write), true),
+        Event::Known(Known::JobStarted {
+            reply: "r".into(),
+            job: "j1".into(),
+            name: "book".into(),
+        }),
+        Event::Known(Known::JobFinished {
+            job: "j1".into(),
+            name: "book".into(),
+            content: "book did not finish within 30 minutes.".into(),
+            is_error: true,
+            uncertain: true,
+        }),
+    ];
+    assert_eq!(
+        carried_out(&events, events.len(), &Registry::default()),
+        vec![
+            r#"book (call j1) {"id":"j1"}, may have taken effect; check before trying it again"#
+                .to_owned()
+        ]
+    );
+}
+
+#[test]
+fn completed_writes_stay_listed_after_their_tool_is_gone_or_reclassified() {
+    // ace is disconnected (its tools are gone) and `post` now reads as a read.
+    let today = Registry::new([write_tool("post", Risk::Read)]);
+    let events = vec![
+        step_calling(&[("a1", "ace_send"), ("p1", "post"), ("s1", "search")]),
+        tool_started("a1", "ace_send", Some(Risk::Write), false),
+        tool_ended("a1", "ace_send", false, false, "sent"),
+        tool_started("p1", "post", Some(Risk::Destructive), false),
+        tool_ended("p1", "post", false, false, "posted"),
+        tool_started("s1", "search", Some(Risk::Read), false),
+        tool_ended("s1", "search", false, false, "found"),
+    ];
+    assert_eq!(
+        carried_out(&events, events.len(), &today),
+        vec![
+            r#"ace_send (call a1) {"id":"a1"}"#.to_owned(),
+            r#"post (call p1) {"id":"p1"}"#.to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn calls_stored_before_their_risk_was_recorded_fall_back_to_the_registry() {
+    let registry = Registry::new([write_tool("send_email", Risk::Write)]);
+    let old_start = serde_json::json!({
+        "type": "tool_started", "reply": "r", "call_id": "o1", "name": "send_email"
+    });
+    let events = vec![
+        step_calling(&[("o1", "send_email")]),
+        Event::from_json(old_start),
+        tool_ended("o1", "send_email", false, false, "sent"),
+    ];
+    assert_eq!(
+        carried_out(&events, events.len(), &registry),
+        vec![r#"send_email (call o1) {"id":"o1"}"#.to_owned()]
     );
 }

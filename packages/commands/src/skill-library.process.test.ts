@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { SkillEntry, SkillResult } from "@ace/protocol";
-import { SkillLibrary, openCommandChild } from "./index.ts";
+import { SkillLibrary, openCommandChild, type SkillLibraryOptions } from "./index.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -28,7 +28,7 @@ const skillText = (name: string, extra = "") =>
   `---\nname: ${name}\n# kept comment\ndescription: The ${name} skill\n${extra}---\n# ${name} title\n\nDo the ${name} work.\n`;
 
 /** A home laid out like the owner's: one shared folder linked into Claude, plus copies. */
-async function fixture() {
+async function fixture(extra: Partial<SkillLibraryOptions> = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-skill-library-")));
   const home = join(root, "home");
   const project = join(root, "project");
@@ -55,6 +55,7 @@ async function fixture() {
     workspace: (id) => (id === "project" ? project : undefined),
     builtinDirectory: shipped,
     id: () => `t${++sequence}`,
+    ...extra,
   });
   cleanups.push(async () => {
     await library.close();
@@ -298,4 +299,60 @@ test("deleting refuses a folder swapped for one with the same SKILL.md, and puts
   expect(await readFile(join(canonical, "scripts/run.sh"), "utf8")).toBe("echo mine");
   expect((await lstat(join(home, ".claude/skills/research"))).isSymbolicLink()).toBe(true);
   expect(await realpath(join(home, ".claude/skills/research"))).toBe(canonical);
+});
+
+test("a subscriber hears one change for the whole first walk, not one per skill found", async () => {
+  const { home, library } = await fixture();
+  for (let i = 0; i < 24; i++)
+    await put(join(home, `.agents/skills/bulk-${i}/SKILL.md`), skillText(`bulk-${i}`));
+  const changed = vi.fn();
+  const stop = library.subscribe(undefined, changed);
+  try {
+    await vi.waitFor(() => expect(changed).toHaveBeenCalled(), 10_000);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(changed).toHaveBeenCalledTimes(1);
+  } finally {
+    stop();
+  }
+});
+
+test("a watched listing is answered from memory, ace's own changes show at once, and the watch outlives its page", async () => {
+  // Watch events and recovery polls never arrive, so only the cache can explain a stale answer.
+  const expiries: (() => void)[] = [];
+  const { home, library } = await fixture({
+    watch: () => () => {},
+    schedule: () => () => {},
+    linger: (run) => {
+      expiries.push(run);
+      return () => {};
+    },
+  });
+  const changed = vi.fn();
+  let stop = library.subscribe(undefined, changed);
+  await vi.waitFor(() => expect(changed).toHaveBeenCalled(), 10_000);
+  const names = async () => (await list(library)).map((e) => e.name);
+  expect(await names()).toContain("research");
+  await put(join(home, ".agents/skills/unheard/SKILL.md"), skillText("unheard"));
+  expect(await names()).not.toContain("unheard");
+  // A change made through ace reads the disk throughout and drops the cache.
+  const made = await library.request({
+    op: "create",
+    scope: { kind: "personal" },
+    name: "made-here",
+    description: "Made in ace",
+    body: "Do it.",
+    manual: false,
+    agents: ["claude"],
+  });
+  expect(made.kind).toBe("skill");
+  expect(await names()).toEqual(expect.arrayContaining(["made-here", "unheard"]));
+  // Leaving and coming back inside the linger keeps the same watch, so the cache still holds.
+  stop();
+  await put(join(home, ".agents/skills/later/SKILL.md"), skillText("later"));
+  stop = library.subscribe(undefined, changed);
+  expect(await names()).not.toContain("later");
+  stop();
+  // Once the linger runs out the watch is gone and the next listing reads the disk.
+  for (const expire of expiries.splice(0)) expire();
+  expect(await names()).toContain("later");
 });
