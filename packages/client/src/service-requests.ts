@@ -36,7 +36,11 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "cli.r
                     ? Replies<"lockedUse.result">
                     : LegacyServiceResponse<Q>;
 
-type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
+type LegacyServiceResponse<Q extends ServiceRequest> = Q["type"] extends "outside.request"
+  ? Replies<"outside.result">
+  : StorageServiceResponse<Q>;
+
+type StorageServiceResponse<Q extends ServiceRequest> = Q["type"] extends "storage.request"
   ? Replies<"storage.result">
   : Q["type"] extends "admission.request"
     ? Replies<"admission.result">
@@ -218,6 +222,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "preview.request": ["preview.result"],
   "storage.request": ["storage.result"],
   "admission.request": ["admission.result"],
+  "outside.request": ["outside.result"],
   "appUpdate.request": ["appUpdate.result"],
   "machineUpdate.request": ["machineUpdate.result"],
   "user_browser.settings": ["user_browser.settings.result"],
