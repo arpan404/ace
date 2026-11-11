@@ -12,6 +12,8 @@ import { redirectAcceptable } from "./redirects.ts";
 
 export const unusedRegistrationMs = 86_400_000;
 export const registrationCap = 512;
+/** At the cap, only registrations this old and never used may make room for new ones. */
+export const evictableAfterMs = 60 * 60_000;
 const fallbackName = "Unnamed client";
 
 const Request = z.looseObject({
@@ -29,7 +31,8 @@ const Uris = z.array(z.string());
 
 export type RegistrationResult =
   | { registered: Record<string, unknown> }
-  | { error: "invalid_redirect_uri" | "invalid_client_metadata"; description: string };
+  | { error: "invalid_redirect_uri" | "invalid_client_metadata"; description: string }
+  | { error: "temporarily_unavailable"; description: string; status: 503 };
 
 export class ClientRegistrations {
   private sql: GrantSql;
@@ -60,12 +63,13 @@ export class ClientRegistrations {
     const stored = this.sql.atomic(() => {
       this.prune(now);
       if (this.count() >= registrationCap) {
-        // Make room from the oldest client that never signed in.
+        // Make room from the oldest client that never signed in, if it has waited an hour; a
+        // flood of fresh registrations can't push out one that is about to be used.
         this.sql
           .statement(
-            "DELETE FROM outside_oauth_clients WHERE client_id = (SELECT client_id FROM outside_oauth_clients WHERE used_at IS NULL ORDER BY created_at, client_id LIMIT 1)",
+            "DELETE FROM outside_oauth_clients WHERE client_id = (SELECT client_id FROM outside_oauth_clients WHERE used_at IS NULL AND created_at<=? ORDER BY created_at, client_id LIMIT 1)",
           )
-          .run();
+          .run(now - evictableAfterMs);
         if (this.count() >= registrationCap) return false;
       }
       this.sql
@@ -77,8 +81,9 @@ export class ClientRegistrations {
     });
     if (!stored)
       return {
-        error: "invalid_client_metadata",
-        description: "Too many clients are registered on this machine.",
+        error: "temporarily_unavailable",
+        description: "Too many clients registered lately. Try again later.",
+        status: 503,
       };
     // Public clients only: whatever method was asked for, there is no secret (RFC 7591 §3.2.1).
     return {

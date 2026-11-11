@@ -178,7 +178,9 @@ export async function externalMcp(context: ServiceContext) {
   // The ts.net base the Tailscale listener last accepted; it is the same for every request.
   let tailnet: OutsideBase | undefined;
   const onTailscale = await nodeListener((request) =>
-    tailnet ? oauth(request, tailnet, serve) : Promise.resolve(new Response(null, { status: 404 })),
+    tailnet
+      ? oauth(request, tailnet, serve, request.headers.get(peerHeader) || undefined)
+      : Promise.resolve(new Response(null, { status: 404 })),
   );
   return {
     /** Grants, tokens, access requests and screen use, for the admin protocol and OAuth. */
@@ -211,6 +213,8 @@ export async function externalMcp(context: ServiceContext) {
       );
       if (!base) return false;
       tailnet = base;
+      // The tailnet peer, for per-caller limits. Always set here, so a client's copy never counts.
+      request.headers[peerHeader] = request.socket.remoteAddress ?? "";
       void onTailscale(request, response);
       return true;
     },
@@ -283,6 +287,8 @@ export async function externalMcp(context: ServiceContext) {
   };
 }
 
+/** Carries the Tailscale caller's address from the listener to the OAuth limits. */
+const peerHeader = "x-ace-outside-peer";
 const reachKeys = [
   "remote.tailscaleMcp",
   "remote.relayMcp",

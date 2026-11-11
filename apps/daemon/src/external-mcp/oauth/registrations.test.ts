@@ -1,7 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { expect, test } from "vitest";
 import { grantDatabase } from "../grant-test-support.ts";
-import { ClientRegistrations, registrationCap, unusedRegistrationMs } from "./registrations.ts";
+import {
+  ClientRegistrations,
+  evictableAfterMs,
+  registrationCap,
+  unusedRegistrationMs,
+} from "./registrations.ts";
 
 function registrations() {
   const { sql } = grantDatabase();
@@ -59,14 +64,20 @@ test("a registration never approved expires after a day; an approved one stays",
   expect(f.store.get(used)).toBeDefined();
 });
 
-test("at the cap, the oldest unused registration makes room", () => {
+test("at the cap, fresh registrations are refused rather than pushing out recent ones", () => {
   const f = registrations();
   const first = register(f.store);
   for (let i = 1; i < registrationCap; i++) {
     f.clock.now += 1;
     register(f.store);
   }
-  f.clock.now += 1;
+  expect(f.store.register(request)).toMatchObject({
+    error: "temporarily_unavailable",
+    status: 503,
+  });
+  expect(f.store.get(first)).toBeDefined();
+  // An hour on, the oldest one nobody used makes room.
+  f.clock.now += evictableAfterMs;
   const newest = register(f.store);
   expect(f.store.get(first)).toBeUndefined();
   expect(f.store.get(newest)).toBeDefined();

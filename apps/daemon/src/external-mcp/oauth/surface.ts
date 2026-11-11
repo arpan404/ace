@@ -8,12 +8,17 @@ import type { ResourceFetch } from "@ace/mcp-server";
 import { relativePath, resourceOf, type OutsideBase } from "./base.ts";
 import type { Authorizations } from "./authorize.ts";
 import { authorizationServerMetadata, protectedResourceMetadata } from "./metadata.ts";
+import { RateLimit } from "./rate-limit.ts";
 import type { ClientRegistrations } from "./registrations.ts";
 import { tokenRequest, type TokenDeps } from "./token.ts";
 
 const maxFormBytes = 16 * 1024;
 const loopbackNames = new Set(["localhost", "127.0.0.1", "[::1]"]);
-/** Discovery, /token and /register answer browser-based clients from any origin. */
+/**
+ * Discovery, /token and /register answer browser-based clients from any origin, except
+ * /register on loopback: a web page the person visits must not register a client against
+ * this machine (it can't read the reply, so it can't go on to /authorize).
+ */
 const cors = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -26,7 +31,10 @@ export interface SurfaceDeps {
   registrations: ClientRegistrations;
   token: TokenDeps;
   machine(): string;
+  now(): number;
 }
+/** Calls per minute to the endpoints anyone can call, per caller (or per way in). */
+export const callLimits = { authorize: 20, register: 10 };
 
 function withCors(response: Response): Response {
   for (const [key, value] of Object.entries(cors)) response.headers.set(key, value);
@@ -62,9 +70,26 @@ function oauthError(status: number, error: string, description: string): Respons
 }
 
 export function outsideSurface(deps: SurfaceDeps) {
-  return async (request: Request, base: OutsideBase, mcp: ResourceFetch): Promise<Response> => {
+  const limits = {
+    authorize: new RateLimit({ limit: callLimits.authorize, windowMs: 60_000, now: deps.now }),
+    register: new RateLimit({ limit: callLimits.register, windowMs: 60_000, now: deps.now }),
+  };
+  /**
+   * Serves one request at `base`. `peer` is the caller's address where the daemon sees it (the
+   * Tailscale listener); loopback and ace's relay show none, so their limits are per base.
+   */
+  return async (
+    request: Request,
+    base: OutsideBase,
+    mcp: ResourceFetch,
+    peer?: string,
+  ): Promise<Response> => {
     const path = relativePath(request, base);
     const method = request.method;
+    const caller = peer ? `${base.url} ${peer}` : base.url;
+    const limited = () =>
+      new Response("Too many requests", { status: 429, headers: { "retry-after": "60" } });
+    const browserRegistration = path === "/register" && base.path === "local";
     if (path === "/mcp") {
       if (!originAllowed(request.headers.get("origin"), base))
         return new Response("Origin not allowed", { status: 403 });
@@ -72,7 +97,10 @@ export function outsideSurface(deps: SurfaceDeps) {
     }
     const json = (body: unknown, status = 200) =>
       withCors(Response.json(body, { status, headers: { "cache-control": "no-store" } }));
-    if (method === "OPTIONS") return withCors(new Response(null, { status: 204 }));
+    if (method === "OPTIONS")
+      return browserRegistration
+        ? new Response(null, { status: 204 })
+        : withCors(new Response(null, { status: 204 }));
     switch (path) {
       case "/.well-known/oauth-protected-resource":
       case "/.well-known/oauth-protected-resource/mcp":
@@ -84,9 +112,9 @@ export function outsideSurface(deps: SurfaceDeps) {
           ? json(authorizationServerMetadata(base))
           : new Response(null, { status: 405 });
       case "/authorize":
-        return method === "GET"
-          ? deps.authorizations.start(new URL(request.url).searchParams, base)
-          : new Response(null, { status: 405 });
+        if (method !== "GET") return new Response(null, { status: 405 });
+        if (!limits.authorize.allow(caller)) return limited();
+        return deps.authorizations.start(new URL(request.url).searchParams, base);
       case "/authorize/wait":
         return method === "GET"
           ? deps.authorizations.wait(new URL(request.url).searchParams)
@@ -102,6 +130,17 @@ export function outsideSurface(deps: SurfaceDeps) {
       }
       case "/register": {
         if (method !== "POST") return new Response(null, { status: 405 });
+        if (!limits.register.allow(caller)) return limited();
+        const answer = (response: Response) =>
+          browserRegistration ? response : withCors(response);
+        // JSON only (RFC 7591): a form a web page posts without asking first is refused.
+        if (!(request.headers.get("content-type") ?? "").startsWith("application/json"))
+          return answer(
+            Response.json(
+              { error: "invalid_client_metadata", error_description: "Send JSON." },
+              { status: 400 },
+            ),
+          );
         const text = await boundedText(request);
         let body: unknown;
         try {
@@ -110,9 +149,15 @@ export function outsideSurface(deps: SurfaceDeps) {
           body = undefined;
         }
         const result = deps.registrations.register(body);
-        return "registered" in result
-          ? json(result.registered, 201)
-          : oauthError(400, result.error, result.description);
+        const headers = { "cache-control": "no-store" };
+        return answer(
+          "registered" in result
+            ? Response.json(result.registered, { status: 201, headers })
+            : Response.json(
+                { error: result.error, error_description: result.description },
+                { status: "status" in result ? result.status : 400, headers },
+              ),
+        );
       }
       default:
         return new Response(null, { status: 404 });

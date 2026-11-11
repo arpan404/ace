@@ -18,7 +18,13 @@ import { consentPage, endedPage, pageHeaders, type ConsentView } from "./consent
 import { baselineScopes } from "./metadata.ts";
 import { matchRedirect, redirectTarget } from "./redirects.ts";
 
-const maxPending = 64;
+/** Sign-ins waiting at once: in all, per client, and per way in (base URL). */
+export const pendingLimits = { total: 64, perClient: 3, perBase: 16 };
+/**
+ * A waiting page reloads every two seconds; one silent this long was closed, and its request
+ * leaves the person's list.
+ */
+export const abandonedAfterMs = 15_000;
 
 export interface AuthorizeDeps {
   outside: Pick<OutsideAccess, "grants" | "requests" | "principals">;
@@ -29,6 +35,7 @@ export interface AuthorizeDeps {
   };
   codes: AuthorizationCodes;
   random: RandomBytes;
+  now: () => number;
   after: (ms: number, run: () => void) => () => void;
   /** The machine's name, as the person knows it. */
   machine(): string;
@@ -36,7 +43,15 @@ export interface AuthorizeDeps {
   note?: (text: string) => void;
 }
 
-type Waiting = { kind: "waiting"; view: ConsentView };
+type Waiting = {
+  kind: "waiting";
+  view: ConsentView;
+  requestId: string;
+  clientId: string;
+  base: string;
+  /** When the waiting page last loaded. */
+  seen: number;
+};
 type Done = { kind: "done"; location: string };
 
 /** The requested scopes ace knows; unknown ones are left out, none means reading. */
@@ -101,7 +116,7 @@ export class Authorizations {
     const resource = query.get("resource");
     if (!resource || !namesResource(resource, base))
       return refuse("invalid_target", `resource must be ${resourceOf(base)}.`);
-    if (this.pending.size >= maxPending)
+    if (!this.room(client.clientId, base.url))
       return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
     const scopes = requestedScopes(query.get("scope"));
     const target = redirectTarget(redirectUri);
@@ -119,8 +134,12 @@ export class Authorizations {
       return refuse("temporarily_unavailable", "Too many sign-ins are waiting. Try again soon.");
     }
     const key = this.deps.random(32).toString("base64url");
-    this.pending.set(key, {
+    const waiting: Waiting = {
       kind: "waiting",
+      requestId: opened.request.requestId,
+      clientId: client.clientId,
+      base: base.url,
+      seen: this.deps.now(),
       view: {
         clientName: client.name,
         domain: client.domain,
@@ -129,7 +148,9 @@ export class Authorizations {
         matchCode: opened.request.matchCode,
         machine,
       },
-    });
+    };
+    this.pending.set(key, waiting);
+    this.watchPage(key, waiting);
     void opened.outcome.then((outcome) => {
       let location: string;
       try {
@@ -207,6 +228,34 @@ export class Authorizations {
         ),
       );
     if (entry.kind === "done") return redirect(entry.location);
+    entry.seen = this.deps.now();
     return html(200, consentPage(entry.view));
+  }
+  /** Whether another sign-in may wait, from this client at this base. */
+  private room(clientId: string, base: string): boolean {
+    let all = 0;
+    let client = 0;
+    let atBase = 0;
+    for (const entry of this.pending.values()) {
+      if (entry.kind !== "waiting") continue;
+      all++;
+      if (entry.clientId === clientId) client++;
+      if (entry.base === base) atBase++;
+    }
+    return (
+      all < pendingLimits.total &&
+      client < pendingLimits.perClient &&
+      atBase < pendingLimits.perBase
+    );
+  }
+  /** Cancels the request once its page stops reloading: nobody is there to be redirected. */
+  private watchPage(key: string, entry: Waiting): void {
+    const check = () => {
+      if (this.pending.get(key) !== entry) return;
+      const quiet = this.deps.now() - entry.seen;
+      if (quiet >= abandonedAfterMs) this.deps.outside.requests.cancel(entry.requestId);
+      else this.deps.after(abandonedAfterMs - quiet, check);
+    };
+    this.deps.after(abandonedAfterMs, check);
   }
 }
