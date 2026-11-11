@@ -10,10 +10,10 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 
 use crate::catalog::{Catalog, Price, Role};
-use crate::config::{KeyRequest, Keys};
 use crate::error::ModelError;
 use crate::prompt::{Delta, Prompt, Reply, Speaker, Usage};
 use crate::typed;
+use spade_keys::{KeyRequest, Keys};
 
 /// Calls the catalogue's models on their endpoints.
 #[derive(Debug, Clone)]

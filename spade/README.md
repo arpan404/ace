@@ -39,10 +39,12 @@ crates/
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
   spade-keys/      endpoint API keys in the OS keychain (ADR 0116)
+  spade-search/    web search: your own SearXNG, then Brave with your key
   spade-server/    local API and reply engine (in progress)
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
   models.json      the model catalogue, read at startup
+  search.json      search backends, tried in order
 docs/
   design.md        features, architecture, decisions, build order
   chat-core.md     step 1 contract: events, API, live stream, spending

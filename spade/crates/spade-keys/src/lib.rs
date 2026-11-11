@@ -5,10 +5,14 @@
 //! The store is a value passed in, never a global, so tests use `keyring-core`'s in-memory mock
 //! and never touch a real keychain.
 
+mod lookup;
+
 use std::fmt;
 use std::sync::Arc;
 
 use keyring_core::{CredentialStore, Entry, Error};
+
+pub use lookup::{KeyRequest, Keys};
 
 /// The keychain service every Spade key is filed under.
 pub const SERVICE: &str = "dev.acehq.spade";

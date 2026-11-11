@@ -1984,6 +1984,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -2493,7 +2494,21 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+ "spade-keys",
  "spade-testkit",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "spade-search"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "spade-keys",
  "thiserror",
  "tokio",
 ]

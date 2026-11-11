@@ -109,6 +109,26 @@ conversation always misses; every later call misses only on its new tail. The ru
 - Every call records input, cache-read, cache-write and output tokens; cost uses the cache prices,
   and the trace shows the hit rate per turn.
 
+## Web search
+
+`web_search` tries, in order, and takes the first that answers:
+
+1. The model endpoint's own built-in search, where it has one (Anthropic Messages, OpenAI
+   Responses), switched on in the model request. Billed per search by the provider.
+2. The person's own SearXNG (`config/search.json`): free, no key, run by them. Its `settings.yml`
+   must allow the `json` format.
+3. Brave Search with the person's key, kept in the OS keychain (ADR 0116). Brave gives $5 of
+   searches a month free.
+4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
+   Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
+   subscription, and returns results with sources. Needs CLI brains.
+
+Never by reading search engines' result pages directly: it breaks their terms, trips their bot
+detection and can get the person's address blocked. `web_fetch` of a known URL is a plain HTTP
+call Spade makes itself. `spade-search` (owner, 2026-11-10: SearXNG and Brave only for now) gives
+clean title, address and snippet, drops repeats, caps results at 20, and skips a backend that
+fails, times out or has no key, with a reason that never carries the key.
+
 ## Compaction
 
 Automatic (owner, 2026-11-10), plus a manual `/compact [focus]`. It rewrites only the conversation
