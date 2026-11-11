@@ -38,11 +38,15 @@ const inputs: unknown[] = [
 
 test.skipIf(!process.versions.bun)(
   "a small object schema nothing has used costs under 1 KB of heap (3.6 KB with stock Zod)",
-  async () => {
-    const { heapStats } = await import("bun:jsc");
+  () => {
+    // Bun's own API, reached without Bun's type declarations (the package checks against Node's).
+    const bun: unknown = Reflect.get(globalThis, "Bun");
+    const gc: unknown =
+      typeof bun === "object" && bun !== null ? Reflect.get(bun, "gc") : undefined;
+    if (typeof gc !== "function") throw new Error("Bun.gc is unavailable");
     const heap = () => {
-      Bun.gc(true);
-      return heapStats().heapSize;
+      Reflect.apply(gc, bun, [true]);
+      return process.memoryUsage().heapUsed;
     };
     z.object({ a: z.string(), b: z.number() });
     const costs: number[] = [];
@@ -104,7 +108,7 @@ test("a discriminated union with an option missing its discriminator still fails
 test("a trait added to one built schema is not added to another schema of the same type", () => {
   const first = z.string();
   const second = z.string();
-  const Marker = z.core.$constructor("AceMarker", () => {});
+  const Marker: z.core.$constructor<z.core.$ZodType> = z.core.$constructor("AceMarker", () => {});
   Marker.init(first, first.def);
   expect(first instanceof Marker).toBe(true);
   expect(second instanceof Marker).toBe(false);
