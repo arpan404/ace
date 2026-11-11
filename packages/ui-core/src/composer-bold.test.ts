@@ -24,13 +24,10 @@ test.each([
   ["takes bold off a selection inside bold words", "**make |this| bold**", "make |this| bold"],
   ["takes bold off its whole run, marks selected too", "|**bold**|", "|bold|"],
   ["merges a bold run the selection touches", "|plain **bo|ld**", "**|plain bo|ld**"],
-  ["puts down marks at a bare caret", "say |", "say **|**"],
-  ["takes bold off words the caret is in", "**bo|ld** text", "bo|ld text"],
-  ["right after bold words carries them on", "**bold**| text", "**bold|** text"],
-  ["right before bold words carries them on", "say |**bold**", "say **|bold**"],
   ["wraps each line of a selection on its own", "|one\ntwo|", "**|one**\n**two|**"],
   ["wraps a list item's words, not its marker", "- |milk|", "- **|milk|**"],
   ["does nothing to a selection of spaces", "a | | b", "a | | b"],
+  ["changes no words at a bare caret", "**bo|ld** text", "**bo|ld** text"],
 ])("%s", (_name, before, after) => {
   expect(toggled(before).shown).toBe(after);
 });

@@ -1,4 +1,4 @@
-import { boldSpans } from "./composer-decoration.ts";
+import { boldSpans } from "./composer-blocks.ts";
 import { composerLines } from "./composer-lines.ts";
 import {
   mapTextOffset,
@@ -23,10 +23,9 @@ function wordsStart(line: ReturnType<typeof composerLines>[number]): number {
 }
 
 /**
- * Bold on or off. A caret inside bold words takes the bold off them; anywhere else it puts down
- * `****` with the caret between, so the next words typed are bold. A selection already bold
- * (inside one bold run) goes back to plain; otherwise each line's selected words are wrapped,
- * any bold run they touch merging into it.
+ * Bold on or off for a selection: a selection already bold (inside one bold run) goes back to
+ * plain; otherwise each line's selected words are wrapped, any bold run they touch merging into
+ * it. A bare caret changes no words: what is typed next is bold or not (`typeStyled`).
  */
 export function toggleBold(
   text: string,
@@ -37,6 +36,7 @@ export function toggleBold(
     (line) => line.end >= selection.start && line.start <= selection.end,
   );
   const caret = selection.start === selection.end;
+  if (caret) return { steps: [], selection };
   const edits: TextEdit[] = [];
   let unbolded = false;
   // The selected words, without the spaces around them, as the selection after wrapping.
