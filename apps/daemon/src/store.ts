@@ -10,6 +10,10 @@ import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
 import { ThreadCache, type FrozenThread } from "./thread-cache.ts";
 import { StreamSequences } from "./stream-sequences.ts";
+import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
+
+/** Committed sequences between marks: a rollback within the last this many may go unseen. */
+const lineageStride = 64;
 import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
@@ -83,6 +87,8 @@ import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { StoreWriteGate, type StoreWriteGateOptions } from "./store-write-gate.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
+  /** The mark kept beside the database, naming it afresh when it was rolled back (ADR 0128). */
+  lineage?: LineageFile;
   /** Store owns and closes this SQLite connection when supplied. */
   database?: DatabaseSync;
   nextId?: () => string;
@@ -162,6 +168,9 @@ export class Store {
   private notifyingHistory = false;
   private publishing = false;
   private publishedSeq = 0;
+  /** The mark beside the database and the sequence it was last written at (ADR 0128). */
+  private lineage: LineageFile | undefined;
+  private markedSeq = 0;
   /** Rows from here on were written by this build and are read without validating again. */
   private readonly trust = untrusted();
   /** Whether every entity row is in this build's shape, so read without validating again. */
@@ -209,6 +218,7 @@ export class Store {
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
       commit: (run) => this.atomic(run),
+      reserved: (through) => this.markLineage(through),
     });
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? timeOrderedIds();
@@ -267,6 +277,7 @@ export class Store {
         options.eventShape ?? storedEventShape(schemaVersion),
       );
       migrateSidebarRevisions(this.db);
+      this.keepLineage(options.lineage);
       openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
@@ -666,6 +677,9 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
+        // Committed, and about to reach clients: mark it, every so often, before they hear it.
+        if (this.publishedSeq >= this.markedSeq + lineageStride)
+          this.markLineage(this.publishedSeq);
         this.threadReads.updateViews(batch);
         const listeners = [...this.listeners];
         for (const listener of listeners) {
@@ -1018,9 +1032,31 @@ export class Store {
   sidebarRowRevision(entry: import("@ace/protocol").ThreadListEntry): number | undefined {
     return this.sidebarReads.rowRevision(entry);
   }
+  /** A database behind its mark was rolled back: it takes a new name, then marks where it is. */
+  private keepLineage(lineage: LineageFile | undefined): void {
+    if (!lineage) return;
+    this.lineage = lineage;
+    const reserved = this.sequences.reservedThrough();
+    if (rolledBack(lineage.read(), this.sidebarToken(), reserved))
+      this.statement(
+        "UPDATE sidebar_epoch SET token = lower(hex(randomblob(8))) WHERE id = 1",
+      ).run();
+    this.markLineage(reserved);
+  }
+  /** Mark `seq`, a sequence this database has committed, as reached (`sequence-lineage.ts`). */
+  private markLineage(seq: number): void {
+    if (!this.lineage || seq < this.markedSeq) return;
+    this.markedSeq = seq;
+    try {
+      this.lineage.write({ token: this.sidebarToken(), reserved: seq });
+    } catch (error) {
+      // A mark not written only narrows what a rollback can be told by; never fatal to a write.
+      this.onError(error);
+    }
+  }
   /**
    * This database's own token, made once: row revisions from another database (a restore, a
-   * reset) never pass for this one's.
+   * reset) never pass for this one's. Renamed when the database was rolled back (`keepLineage`).
    */
   sidebarToken(): string {
     return String(this.statement("SELECT token FROM sidebar_epoch WHERE id = 1").get()?.token);

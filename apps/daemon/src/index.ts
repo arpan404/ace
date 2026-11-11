@@ -39,6 +39,7 @@ import { installFatalLogFlush, installRejectionGuard } from "./fatal-log.ts";
 import { isStoreRetry } from "./store-busy.ts";
 import { buildFields, daemonLogDirectory, logStartupRefusal, openDaemonLog } from "./daemon-log.ts";
 import { logHomeBackup } from "./home-backup-log.ts";
+import { lineageFile } from "./sequence-lineage.ts";
 import { sqliteFailureDetails, systemDiskSpace } from "./sqlite-failure.ts";
 import { createLoopMonitor, systemLoopClock } from "./loop-monitor.ts";
 import { watchStalls } from "./stall-log.ts";
@@ -338,7 +339,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const eventStore = new Store(
       join(config.dataDir, "events.sqlite"),
       (error) => log.log("error", "Event subscriber failed", logError(error)),
-      { now },
+      // Beside the database, outside it: a rolled-back database is named afresh (ADR 0128).
+      { now, lineage: lineageFile(join(config.dataDir, "sequence-mark.json")) },
     );
     // One admission gate for the server and the engine, closed before any service starts when
     // maintenance was asked for, so startup recovery honours it too (ADR 0041).
