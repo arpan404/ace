@@ -97,3 +97,16 @@ test("pruning keeps the newest two protected copies and any a swap record still 
   expect([needed, ...others].map((path) => existsSync(path))).toEqual([true, false, true, true]);
   expect(existsSync(join(data, "spade.sqlite"))).toBe(true);
 });
+
+test("a new snapshot moves a leftover one to safety instead of deleting it", async ({
+  onTestFinished,
+}) => {
+  const { ports, leftSnapshot, data } = await home(onTestFinished);
+  await leftSnapshot("left by a crash");
+  await mkdir(data, { recursive: true });
+  const db = new DatabaseSync(join(data, "spade.sqlite"));
+  db.exec("CREATE TABLE t (x)");
+  db.close();
+  expect(await ports.snapshot()).toBeDefined();
+  expect(await readFile(join(data, "spade.sqlite.before-unknown"), "utf8")).toBe("left by a crash");
+});

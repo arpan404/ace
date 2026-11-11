@@ -42,6 +42,7 @@ function machine(options: {
   kept?: string[];
 }) {
   const log: string[] = [];
+  const restartedAt: number[] = [];
   let clock = 0;
   let current = options.installed ?? "0.4.0";
   let running =
@@ -147,9 +148,16 @@ function machine(options: {
     },
     async restart() {
       log.push("restart");
+      restartedAt.push(clock);
       start();
     },
-    health: async (version, oldPid) => running === version && pid !== oldPid,
+    async health(version, oldPid) {
+      const up = running === version && pid !== oldPid;
+      // The real port keeps looking for two minutes before it gives up.
+      if (!up) clock += 120_000;
+      return up;
+    },
+    runningVersion: async () => running,
     async wait(ms) {
       clock += ms;
     },
@@ -164,6 +172,7 @@ function machine(options: {
     schema: () => schema,
     admission: () => admission,
     pending: () => pending,
+    restartedAt,
   };
 }
 
@@ -290,6 +299,12 @@ test("an update that died after the flip is finished on the retry", async () => 
   expect(world.log).toEqual(["close now 30000", "restart"]);
   expect(world.running()).toBe("0.5.0");
   expect(world.admission()).toBe("open");
+});
+
+test("a retry restarts at once when the old version still answers, without a long health wait", async () => {
+  const world = machine({ installed: "0.5.0", runs: "0.4.0" });
+  expect(await swapSpade("0.5.0", "now", world.ports)).toMatchObject({ kind: "swapped" });
+  expect(world.restartedAt[0]).toBeLessThan(10_000);
 });
 
 test("a retry in idle mode waits for Spade's work before finishing an interrupted update", async () => {

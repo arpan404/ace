@@ -74,11 +74,16 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
    * installed and running.
    */
   const healUnreadable = async () => {
+    // The snapshot first: once the record is gone, nothing else says the copy matters.
+    await protectLeftover();
     await rename(swapRecord, freeNumbered(`${swapRecord}.unreadable`));
     await syncDirectory(home);
+    return undefined;
+  };
+  /** A snapshot no active swap owns is moved to safety, never deleted. */
+  const protectLeftover = async () => {
     const left = join(snapshotDir, "spade.sqlite");
     if (existsSync(left)) await protect(left, "before-unknown", undefined);
-    return undefined;
   };
   /** Where Spade says it listens (`server.json`) and the token it wrote, read afresh each time. */
   const endpoint = async () => {
@@ -131,6 +136,8 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
     },
     async snapshot() {
       if (!existsSync(database)) return undefined;
+      // A copy still here belongs to no swap in progress (theirs were kept or dropped by now).
+      await protectLeftover();
       await rm(snapshotDir, { recursive: true, force: true });
       await mkdir(snapshotDir, { mode: 0o700 });
       const copy = join(snapshotDir, "spade.sqlite");
@@ -231,6 +238,14 @@ export function localSpadeSwapPorts(io: SpadeSwapIo): SpadeSwapPorts {
     },
     stop: () => stopSpadeService(plan, service),
     restart: () => restartSpadeService(plan, service),
+    async runningVersion() {
+      try {
+        const { connection } = await endpoint();
+        return (await proven(connection))?.version;
+      } catch {
+        return undefined;
+      }
+    },
     async health(target, oldPid) {
       // A first start migrates the real database before it writes server.json, which can take
       // a while: Spade gets minutes while the service says its process runs, and a short limit

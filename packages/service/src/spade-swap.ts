@@ -96,6 +96,8 @@ export interface SpadeSwapPorts {
    * (waiting a little for the restart).
    */
   health(version: string, oldPid: number | undefined): Promise<boolean>;
+  /** One short look: the version a proven Spade answers with now, undefined when none does. */
+  runningVersion(): Promise<string | undefined>;
   wait(ms: number): Promise<void>;
   now(): number;
 }
@@ -261,7 +263,12 @@ async function finish(
     error,
   });
   try {
-    if (state === "running" && (await ports.health(version, undefined))) {
+    // A proven Spade at another version is the old one: no point waiting for it to change.
+    const answering = state === "running" ? await ports.runningVersion() : undefined;
+    const current =
+      answering === version ||
+      (state === "running" && answering === undefined && (await ports.health(version, undefined)));
+    if (current) {
       if (pending) await settle(ports, pending.snapshot);
       return { kind: "skipped", reason: "current" };
     }
