@@ -175,7 +175,7 @@ export class FakePrCatalog {
         detail: {
           ...fixture.detail,
           body: metadata.body,
-          status: { ...fixture.detail.status, title: metadata.title, state: next.snapshot.state },
+          status: { ...fixture.detail.status, title: metadata.title },
           labels: metadata.labels,
         },
         lifecycle: { ...fixture.lifecycle, snapshot: { ...snapshot, metadata, version } },
@@ -365,7 +365,7 @@ export class FakePrCatalog {
         body: metadata.body,
         labels: metadata.labels,
         baseBranch: metadata.baseBranch,
-        status: { ...fixture.detail.status, title: metadata.title },
+        status: { ...fixture.detail.status, title: metadata.title, state: next.snapshot.state },
       },
       lifecycle: next,
     };
