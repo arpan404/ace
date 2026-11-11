@@ -745,29 +745,45 @@ index db63ba8bac6cbf286de1d43c9d14c31724f742dd..6cf33134c570fe675e3dd98848c02a95
  // custom checks
  export function check(fn) {
 diff --git a/v4/core/core.cjs b/v4/core/core.cjs
-index 41266475c7a4125a9df8aee2553f2610a4c77f1d..39b00d78df8c08fc775e57005552310aa216237c 100644
+index 41266475c7a4125a9df8aee2553f2610a4c77f1d..07f2b56becc1252dbf6c560858154551cf97f200 100644
 --- a/v4/core/core.cjs
 +++ b/v4/core/core.cjs
-@@ -37,6 +37,8 @@ function newError(Definition) {
+@@ -37,6 +37,14 @@ function newError(Definition) {
      }
      return new Definition();
  }
-+// ace patch: one traits set per distinct trait list (see $constructor).
++// ace patch: one traits set per distinct trait list, and lazy schemas (see $constructor).
 +const sharedTraits = new Map();
++const lazyDef = Symbol.for("ace.zod.lazyDef");
++const lazyParent = Symbol.for("ace.zod.lazyParent");
++// Types whose setup rejects an invalid definition; they are built at once so it still throws there.
++const eagerConstructors = new Set(["UUID", "NanoID", "TemplateLiteral", "DiscriminatedUnion"]);
++// Properties Zod's initializers put directly on instances; reading one builds a shell.
++const lazyInstanceKeys = ["def", "type", "shape", "options", "element", "unwrap", "min", "max", "valueType", "keyType", "size", "nonempty", "values", "value", "enum", "removeDefault", "removeCatch", "in", "out", "mime", "isFinite", "extract", "exclude", "implement", "implementAsync", "input", "output"];
  function $constructor(name, initializer, 
  /** This trait's members, installed once on every prototype that composes it. They cannot be declared in the initializer above: that runs per instance, and the prototype is shared. */
  proto, params) {
-@@ -66,6 +68,9 @@ proto, params) {
+@@ -66,6 +74,9 @@ proto, params) {
          else if (inst._zod.traits.has(name)) {
              return;
          }
-+        // ace patch: a shared traits set is copied before it changes (see below).
++        // ace patch: a shared traits set is copied before it changes.
 +        if (inst._zod.traits.__shared)
 +            inst._zod.traits = new Set(inst._zod.traits);
          inst._zod.traits.add(name);
          initializer(inst, def);
          if (initialized) {
-@@ -107,6 +112,20 @@ proto, params) {
+@@ -96,8 +107,7 @@ proto, params) {
+     class Definition extends Parent {
+     }
+     Object.defineProperty(Definition, "name", { value: name });
+-    function _(def) {
+-        const inst = params?.Parent ? newError(Definition) : this;
++    function build(inst, def) {
+         init(inst, def);
+         const deferred = inst._zod.deferred;
+         if (deferred) {
+@@ -107,12 +117,103 @@ proto, params) {
              // Released: initializers run once, and the list would otherwise be retained for the schema's lifetime.
              inst._zod.deferred = undefined;
          }
@@ -788,30 +804,129 @@ index 41266475c7a4125a9df8aee2553f2610a4c77f1d..39b00d78df8c08fc775e57005552310a
          // Global post-processor hook. Internal: installed by `import "zod/compile"` to enable AOT compilation for every constructed schema. Runs last, once the instance is fully built, because it hands the instance to compile(). The post-processor is expected to be reentrancy-guarded by its own implementation.
          const pp = globalThis.__zod_globalConfig?.postProcessor;
          if (pp)
+             pp(inst);
+         return inst;
+     }
++    // ace patch: lazy schemas. The first instance of each constructor is built at once, which
++    // installs the constructor's members on its prototype. Later instances only keep their def
++    // until something reads `_zod` or one of the properties initializers put on instances; then
++    // the instance is built exactly as it would have been. Schemas nothing touches stay a shell.
++    let armed = false;
++    const eager = eagerConstructors.has(name.replace("$", "").replace("Zod", ""));
++    function arm() {
++        armed = true;
++        const proto = _.prototype;
++        Object.defineProperty(proto, "_zod", {
++            configurable: true,
++            enumerable: false,
++            get() {
++                const pending = this[lazyDef];
++                if (pending === undefined)
++                    return undefined;
++                this[lazyDef] = undefined;
++                build(this, pending);
++                const parent = this[lazyParent];
++                if (parent !== undefined) {
++                    this[lazyParent] = undefined;
++                    this._zod.parent = parent;
++                }
++                return this._zod;
++            },
++        });
++        // JSON.stringify of a schema writes its own enumerable properties, which a shell has none
++        // of yet; build it first so the output is the same as for an eagerly built schema.
++        if (!Object.prototype.hasOwnProperty.call(proto, "toJSON")) {
++            Object.defineProperty(proto, "toJSON", {
++                configurable: true,
++                enumerable: false,
++                writable: true,
++                value() {
++                    void this._zod;
++                    return { ...this };
++                },
++            });
++        }
++        for (const key of lazyInstanceKeys) {
++            if (Object.prototype.hasOwnProperty.call(proto, key))
++                continue;
++            // The def a shell keeps is the one its build assigns to `def`, so reading it (or its
++            // type) needs no build.
++            const fromDef = key === "def" ? (d) => d : key === "type" ? (d) => d.type : undefined;
++            Object.defineProperty(proto, key, {
++                configurable: true,
++                enumerable: false,
++                get() {
++                    const pending = this[lazyDef];
++                    if (pending !== undefined) {
++                        if (fromDef)
++                            return fromDef(pending);
++                        void this._zod;
++                    }
++                    return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : undefined;
++                },
++                set(value) {
++                    Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true });
++                },
++            });
++        }
++    }
++    function _(def) {
++        if (params?.Parent)
++            return build(newError(Definition), def);
++        const inst = this;
++        // Subclass instances are always built: a shell's prototype must name its constructor.
++        if (!armed || eager || globalThis.__zod_globalConfig?.eagerSchemas || Object.getPrototypeOf(inst) !== _.prototype) {
++            build(inst, def);
++            if (!armed)
++                arm();
++            return inst;
++        }
++        Object.defineProperty(inst, lazyDef, { value: def, writable: true, enumerable: false, configurable: true });
++        return inst;
++    }
+     Object.defineProperty(_, "init", { value: init });
+     Object.defineProperty(_, Symbol.hasInstance, {
+         value: (inst) => {
 diff --git a/v4/core/core.js b/v4/core/core.js
-index c8a0e5fc6d2680de8f07fa35b8c196f677c8a950..0673a9ab41b4e57557ed346a1f6c7a68ee5d7dd1 100644
+index c8a0e5fc6d2680de8f07fa35b8c196f677c8a950..9df342f6d530cf6c2defb2b02cd538031472c9f4 100644
 --- a/v4/core/core.js
 +++ b/v4/core/core.js
-@@ -32,6 +32,8 @@ function newError(Definition) {
+@@ -32,6 +32,14 @@ function newError(Definition) {
      }
      return new Definition();
  }
-+// ace patch: one traits set per distinct trait list (see $constructor).
++// ace patch: one traits set per distinct trait list, and lazy schemas (see $constructor).
 +const sharedTraits = new Map();
++const lazyDef = Symbol.for("ace.zod.lazyDef");
++const lazyParent = Symbol.for("ace.zod.lazyParent");
++// Types whose setup rejects an invalid definition; they are built at once so it still throws there.
++const eagerConstructors = new Set(["UUID", "NanoID", "TemplateLiteral", "DiscriminatedUnion"]);
++// Properties Zod's initializers put directly on instances; reading one builds a shell.
++const lazyInstanceKeys = ["def", "type", "shape", "options", "element", "unwrap", "min", "max", "valueType", "keyType", "size", "nonempty", "values", "value", "enum", "removeDefault", "removeCatch", "in", "out", "mime", "isFinite", "extract", "exclude", "implement", "implementAsync", "input", "output"];
  export /*@__NO_SIDE_EFFECTS__*/ function $constructor(name, initializer, 
  /** This trait's members, installed once on every prototype that composes it. They cannot be declared in the initializer above: that runs per instance, and the prototype is shared. */
  proto, params) {
-@@ -61,6 +63,9 @@ proto, params) {
+@@ -61,6 +69,9 @@ proto, params) {
          else if (inst._zod.traits.has(name)) {
              return;
          }
-+        // ace patch: a shared traits set is copied before it changes (see below).
++        // ace patch: a shared traits set is copied before it changes.
 +        if (inst._zod.traits.__shared)
 +            inst._zod.traits = new Set(inst._zod.traits);
          inst._zod.traits.add(name);
          initializer(inst, def);
          if (initialized) {
-@@ -102,6 +107,20 @@ proto, params) {
+@@ -91,8 +102,7 @@ proto, params) {
+     class Definition extends Parent {
+     }
+     Object.defineProperty(Definition, "name", { value: name });
+-    function _(def) {
+-        const inst = params?.Parent ? newError(Definition) : this;
++    function build(inst, def) {
+         init(inst, def);
+         const deferred = inst._zod.deferred;
+         if (deferred) {
+@@ -102,12 +112,103 @@ proto, params) {
              // Released: initializers run once, and the list would otherwise be retained for the schema's lifetime.
              inst._zod.deferred = undefined;
          }
@@ -832,6 +947,117 @@ index c8a0e5fc6d2680de8f07fa35b8c196f677c8a950..0673a9ab41b4e57557ed346a1f6c7a68
          // Global post-processor hook. Internal: installed by `import "zod/compile"` to enable AOT compilation for every constructed schema. Runs last, once the instance is fully built, because it hands the instance to compile(). The post-processor is expected to be reentrancy-guarded by its own implementation.
          const pp = globalThis.__zod_globalConfig?.postProcessor;
          if (pp)
+             pp(inst);
+         return inst;
+     }
++    // ace patch: lazy schemas. The first instance of each constructor is built at once, which
++    // installs the constructor's members on its prototype. Later instances only keep their def
++    // until something reads `_zod` or one of the properties initializers put on instances; then
++    // the instance is built exactly as it would have been. Schemas nothing touches stay a shell.
++    let armed = false;
++    const eager = eagerConstructors.has(name.replace("$", "").replace("Zod", ""));
++    function arm() {
++        armed = true;
++        const proto = _.prototype;
++        Object.defineProperty(proto, "_zod", {
++            configurable: true,
++            enumerable: false,
++            get() {
++                const pending = this[lazyDef];
++                if (pending === undefined)
++                    return undefined;
++                this[lazyDef] = undefined;
++                build(this, pending);
++                const parent = this[lazyParent];
++                if (parent !== undefined) {
++                    this[lazyParent] = undefined;
++                    this._zod.parent = parent;
++                }
++                return this._zod;
++            },
++        });
++        // JSON.stringify of a schema writes its own enumerable properties, which a shell has none
++        // of yet; build it first so the output is the same as for an eagerly built schema.
++        if (!Object.prototype.hasOwnProperty.call(proto, "toJSON")) {
++            Object.defineProperty(proto, "toJSON", {
++                configurable: true,
++                enumerable: false,
++                writable: true,
++                value() {
++                    void this._zod;
++                    return { ...this };
++                },
++            });
++        }
++        for (const key of lazyInstanceKeys) {
++            if (Object.prototype.hasOwnProperty.call(proto, key))
++                continue;
++            // The def a shell keeps is the one its build assigns to `def`, so reading it (or its
++            // type) needs no build.
++            const fromDef = key === "def" ? (d) => d : key === "type" ? (d) => d.type : undefined;
++            Object.defineProperty(proto, key, {
++                configurable: true,
++                enumerable: false,
++                get() {
++                    const pending = this[lazyDef];
++                    if (pending !== undefined) {
++                        if (fromDef)
++                            return fromDef(pending);
++                        void this._zod;
++                    }
++                    return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : undefined;
++                },
++                set(value) {
++                    Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true });
++                },
++            });
++        }
++    }
++    function _(def) {
++        if (params?.Parent)
++            return build(newError(Definition), def);
++        const inst = this;
++        // Subclass instances are always built: a shell's prototype must name its constructor.
++        if (!armed || eager || globalThis.__zod_globalConfig?.eagerSchemas || Object.getPrototypeOf(inst) !== _.prototype) {
++            build(inst, def);
++            if (!armed)
++                arm();
++            return inst;
++        }
++        Object.defineProperty(inst, lazyDef, { value: def, writable: true, enumerable: false, configurable: true });
++        return inst;
++    }
+     Object.defineProperty(_, "init", { value: init });
+     Object.defineProperty(_, Symbol.hasInstance, {
+         value: (inst) => {
+diff --git a/v4/core/schemas.cjs b/v4/core/schemas.cjs
+index 0d9f7203c375d0ceb49e52f72529c8e3c285245f..70e0f5de11dd45e72e04bf66cce9c7751f6cde23 100644
+--- a/v4/core/schemas.cjs
++++ b/v4/core/schemas.cjs
+@@ -1459,7 +1459,8 @@ core.$constructor("$ZodDiscriminatedUnion", (inst, def) => {
+     });
+     // Checked now rather than in the lookup map below, so an option that lacks the discriminator fails at the `discriminatedUnion` call instead of on the first object parsed. Options whose shape cannot be enumerated without resolving it — pipes and lazies — are left to the map.
+     def.options.forEach((option, i) => {
+-        const propShape = util.rawShape(option._zod.def);
++        // ace patch: read a lazy option's def without building it.
++        const propShape = util.rawShape(option[Symbol.for("ace.zod.lazyDef")] ?? option._zod.def);
+         if (propShape && !Object.prototype.hasOwnProperty.call(propShape, def.discriminator)) {
+             throw new Error(`Invalid discriminated union option at index "${i}"`);
+         }
+diff --git a/v4/core/schemas.js b/v4/core/schemas.js
+index c8c5de787d82e9c9db6df3fc21876d5924411f54..241f616289a056b5de9580dd0c7cda4be6c32d77 100644
+--- a/v4/core/schemas.js
++++ b/v4/core/schemas.js
+@@ -1415,7 +1415,8 @@ core.$constructor("$ZodDiscriminatedUnion", (inst, def) => {
+     });
+     // Checked now rather than in the lookup map below, so an option that lacks the discriminator fails at the `discriminatedUnion` call instead of on the first object parsed. Options whose shape cannot be enumerated without resolving it — pipes and lazies — are left to the map.
+     def.options.forEach((option, i) => {
+-        const propShape = util.rawShape(option._zod.def);
++        // ace patch: read a lazy option's def without building it.
++        const propShape = util.rawShape(option[Symbol.for("ace.zod.lazyDef")] ?? option._zod.def);
+         if (propShape && !Object.prototype.hasOwnProperty.call(propShape, def.discriminator)) {
+             throw new Error(`Invalid discriminated union option at index "${i}"`);
+         }
 diff --git a/v4/core/to-json-schema.cjs b/v4/core/to-json-schema.cjs
 index c2db7a55afd652408925c24bba4103d3b3351857..7f35935278a772a8fb1f3572f2a1d33dd1945798 100644
 --- a/v4/core/to-json-schema.cjs
@@ -862,3 +1088,57 @@ index c0ae14b7326566650a389c86c367c64341e7edcb..5b1b2bf1ea9cd26f2653c583261e194b
          else {
              const _json = result.schema;
              const processor = ctx.processors[def.type];
+diff --git a/v4/core/util.cjs b/v4/core/util.cjs
+index 7db65e0cada986f911868d1c0464fe2adee1fb66..63b95fa44fd28ec912de88bf8455c85e073b880c 100644
+--- a/v4/core/util.cjs
++++ b/v4/core/util.cjs
+@@ -402,9 +402,19 @@ function escapeRegex(str) {
+ }
+ // zod-specific utils
+ function clone(inst, def, params) {
+-    const cl = new inst._zod.constr(def ?? inst._zod.def);
+-    if (!def || params?.parent)
+-        cl._zod.parent = inst;
++    // ace patch: clone a lazy schema without building it. A shell's prototype is its
++    // constructor's own (subclass instances are never shells), so it names the constructor.
++    const pending = inst[Symbol.for("ace.zod.lazyDef")];
++    const cl = pending !== undefined
++        ? new (Object.getPrototypeOf(inst).constructor)(def ?? pending)
++        : new inst._zod.constr(def ?? inst._zod.def);
++    if (!def || params?.parent) {
++        // A lazy clone keeps its parent until it is built.
++        if (cl[Symbol.for("ace.zod.lazyDef")] !== undefined)
++            cl[Symbol.for("ace.zod.lazyParent")] = inst;
++        else
++            cl._zod.parent = inst;
++    }
+     return cl;
+ }
+ function normalizeParams(_params) {
+diff --git a/v4/core/util.js b/v4/core/util.js
+index b53c7a0ae51b9ad0e49f7262f282b01c67671681..c2bd7d1c98a0e5b7f56e6f157a3fa68fcbf830dc 100644
+--- a/v4/core/util.js
++++ b/v4/core/util.js
+@@ -331,9 +331,19 @@ export function escapeRegex(str) {
+ }
+ // zod-specific utils
+ export function clone(inst, def, params) {
+-    const cl = new inst._zod.constr(def ?? inst._zod.def);
+-    if (!def || params?.parent)
+-        cl._zod.parent = inst;
++    // ace patch: clone a lazy schema without building it. A shell's prototype is its
++    // constructor's own (subclass instances are never shells), so it names the constructor.
++    const pending = inst[Symbol.for("ace.zod.lazyDef")];
++    const cl = pending !== undefined
++        ? new (Object.getPrototypeOf(inst).constructor)(def ?? pending)
++        : new inst._zod.constr(def ?? inst._zod.def);
++    if (!def || params?.parent) {
++        // A lazy clone keeps its parent until it is built.
++        if (cl[Symbol.for("ace.zod.lazyDef")] !== undefined)
++            cl[Symbol.for("ace.zod.lazyParent")] = inst;
++        else
++            cl._zod.parent = inst;
++    }
+     return cl;
+ }
+ export function normalizeParams(_params) {
