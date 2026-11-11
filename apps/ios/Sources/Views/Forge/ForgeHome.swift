@@ -37,6 +37,7 @@ struct ForgeHome: View {
     @State private var issuesFilter = IssuesFilter()
     @State private var notificationsFilter = NotificationsFilter()
     @State private var creating = false
+    @State private var creatingIssue = false
     @State private var pulls = ForgeListModel<ForgePullList>()
     @State private var issues = ForgeListModel<ForgeIssueList>()
     @AppStorage(ForgeProjectChoice.key) private var remembered = ""
@@ -90,6 +91,13 @@ struct ForgeHome: View {
                 guard let client = session?.client, let chosen else { return }
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
                 if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
+            }
+            .sheet(isPresented: $creatingIssue) {
+                if let session, let chosen {
+                    ForgeNewIssueSheet(client: session.client, project: chosen) { number in
+                        actions.open(ForgeRoute(kind: .issue, machineId: session.hostId, project: chosen, number: number))
+                    }
+                }
             }
             .sheet(isPresented: $creating) {
                 if let session, let chosen {
@@ -175,6 +183,10 @@ struct ForgeHome: View {
                 Button("New pull request") { creating = true }.buttonStyle(.forgeWord)
                 .accessibilityLabel("New pull request")
                 .accessibilityIdentifier("forge.newpr")
+            }
+            if kind == .issues, session?.client.canOperate == true, chosen != nil, features?.create == true {
+                Button("New issue") { creatingIssue = true }.buttonStyle(.forgeWord)
+                    .accessibilityIdentifier("forge.newissue")
             }
             if kind == .inbox {
                 ForgeNotificationsFilterMenu(filter: $notificationsFilter, reasons: notificationReasons)

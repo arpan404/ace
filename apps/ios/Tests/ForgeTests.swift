@@ -3,6 +3,20 @@ import Foundation
 @testable import Ace
 
 @Suite @MainActor struct ForgeTests {
+    @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
+        let was = (title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"])
+        // Unchanged, in another order: nothing to send.
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash ", body: "Steps", labels: "ios\nbug", assignees: "mona").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Steps", labels: "bug\nmobile", assignees: "")
+        let inputs = edit.inputs(number: 7, revision: "2026-11-11T00:00:00Z", base: (was.title, was.body))
+        #expect(inputs.map { $0["action"] as? String } == ["edit", "labels", "assignees"])
+        // The edit names the text it started from, so only a field changed elsewhere conflicts.
+        #expect((inputs[0]["base"] as? [String: String])?["title"] == "Crash")
+        #expect(inputs[1]["add"] as? [String] == ["mobile"])
+        #expect(inputs[1]["remove"] as? [String] == ["ios"])
+        #expect(inputs[2]["remove"] as? [String] == ["mona"])
+    }
+
     @Test func aPullRequestEditSendsOnlyTheEditableFieldsThatChanged() {
         let metadata = ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug"], assignees: ["mona"])
         let editable: Set<String> = ["title", "body", "labels"]

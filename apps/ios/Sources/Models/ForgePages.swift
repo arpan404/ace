@@ -163,6 +163,8 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let author: String
     let createdAt: Double?
     let updatedAt: Double?
+    /// GitHub's own updatedAt, which an edit or a state change names; nil from an older bridge.
+    let revision: String?
     /// The body as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
     let tasks: Bool
