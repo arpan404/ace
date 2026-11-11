@@ -60,19 +60,52 @@ showing what its capabilities declare.
 
 - **GitHub**: everything.
 - **GitLab** (`glab`): reviews, files, commits, discussions as review threads (read and write,
-  including resolve), approvals and reviewers (read and write), pipelines as checks with retry and
-  cancel, merge pinned to the head SHA, "merge when pipeline succeeds" as auto-merge, merge
-  request create and edit (title, body and other metadata, draft and ready, close and reopen, lock
-  and unlock), issues (read and write), and to-dos as the inbox.
-- **Gitea and Forgejo** (`tea`): reviews, files, commits, comments (read and write), approvals
-  (read and write), commit statuses as checks, merge pinned to the head SHA, and issues (read and
-  write).
+  including replies and resolve), approvals and reviewers (read and write, including requesting
+  reviewers), pipelines as checks with retry and cancel, merge pinned to the head SHA, "merge when
+  pipeline succeeds" as auto-merge, merge request create and edit (title, body and other
+  metadata, draft and ready, close and reopen, lock and unlock), issues (read and write), and
+  to-dos as the inbox.
+- **Gitea and Forgejo** (`tea`): reviews, files, commits, conversation and new line comments
+  (read and write), approvals (read and write), commit statuses as checks, merge pinned to the
+  head SHA (from the pull request page and from a linked thread), and issues (read and write).
 - **Cursor Origin**: reviews and files, read only.
+
+Replying inside a review thread (`reviews.comments.reply`) and asking people to review
+(`reviews.reviewers.request`) are capabilities of their own, apart from commenting and approving,
+because Gitea and Forgejo do the latter but not the former.
+
+How host data maps, where a host says less than GitHub:
+
+- **Unknown is never passing.** A pull request row with no review decision or no CI is unknown,
+  not ready: it waits and says "Review status unavailable". `reviewDecision` null means the
+  repository requires no review; `UNKNOWN` means the host can't say. A merge state whose rules
+  the host can't confirm is `UNKNOWN`, never `CLEAN`.
+- **GitLab approvals**: APPROVED needs a real approver or a satisfied rule that requires one.
+  GitLab also marks an MR approved with nothing left when no approval is required, so that alone
+  is null only when GitLab says none is required, and `UNKNOWN` otherwise.
+- **GitLab pipelines**: skipped jobs, manual jobs that may fail, and failures GitLab allows
+  (shown as a warning) are neutral: they never block and never count as passed. A manual job that
+  may not fail, and every job still under way, keeps the pipeline pending. An MR with no pipeline
+  is blocked only when the project's "pipelines must succeed" setting
+  (`only_allow_merge_if_pipeline_succeeds`) is on or can't be read. `need_rebase` is `BEHIND`.
+- **GitLab to-dos** carry the inbox's shared reasons (`assigned` is `assign`, `mentioned` and
+  `directly_addressed` are `mention`, and so on); actions with no equivalent keep GitLab's name.
+- **Gitea merges**: `mergeable` only means no conflicts, and branch protection and required
+  approvals aren't read, so the merge state is `UNKNOWN` and the review decision `UNKNOWN`. A
+  draft (Gitea's draft flag or a WIP title) reads as `DRAFT` and is refused before anything is
+  sent; the host enforces its own protection on the pinned merge.
 
 Every GitLab adapter shares one transport, `GitLabApi`: the endpoint guard, the read budget,
 status mapping, and one rule for writes. Only an explicit refusal (400, 401, 403, 404, 405, 409,
 412, 422, 429) seen under an unchanged identity has definitely failed; any other failure after
-dispatch, and an identity change after a success, is uncertain. In the daemon, `host-routes.ts`
+dispatch, and an identity change after a success, is uncertain. Every tea write goes through one
+function, `teaWrite`, with the same rule.
+
+Each adapter's admitted writes are built for one repository (`writesUnder`): the GitLab project
+path or the Gitea `owner/name`, and one MR or pull request for review writes. Admission itself
+refuses another repository. A GitLab MR from a fork is posted to the fork, so creation admits
+exactly the target and that fork, and the fork is refused like the target when the project hides
+it. GitLab to-dos are account-wide, so marking one done isn't scoped to a repository. In the daemon, `host-routes.ts`
 and `hosted-browse.ts` pick each host's adapter in one place, `hosted-issues.ts` does the same for
 issues, and every non-GitHub writer goes through `ForgeBackends.admittedWriter`, which refuses a
 hidden repository and then admits exactly that adapter's writes. Uncertain writes reconcile
@@ -88,8 +121,11 @@ lifecycle writes. No host has a journal of its own.
   milestones) read empty. Resolving a discussion sends `PUT …/discussions/:id` with a JSON body `{resolved}`, while
   GitLab's documentation shows only the query form. It needs confirming against a real instance.
 - **Gitea and Forgejo**: check reruns, auto-merge, pull request create and edit, the inbox,
-  stacks, suggestions, reactions, media and check detail pages. Actions on a pull request linked
-  to a thread (merge, reply, review request from the thread) fail closed as unsupported; the same
-  actions from the pull request page work.
+  stacks, suggestions, reactions, media and check detail pages; requesting reviewers; and replies
+  inside a review thread. Released Gitea (1.25) and Forgejo have no API for those replies:
+  `POST repos/{owner}/{repo}/pulls/{index}/comments/{id}/replies` exists only in Gitea's
+  unreleased development API (gitea.com/swagger.v1.json), and Forgejo's
+  (codeberg.org/swagger.v1.json) has none, so ace neither sends nor offers them. Reading branch
+  protection and required approvals, which would let a Gitea merge state be `CLEAN`.
 - **Cursor Origin**: every write.
 - **Bitbucket and GitBucket**: blocked until an official CLI exists.
