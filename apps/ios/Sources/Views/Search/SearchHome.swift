@@ -67,9 +67,9 @@ private struct SearchStart: View {
                         SearchHeader("Recent searches")
                         Spacer()
                         Button("Clear") { withAnimation { recent = []; UserDefaults.standard.set([String](), forKey: RecentSearches.key) } }
-                            .aceFont(AceTheme.Typography.label, relativeTo: .subheadline)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .buttonStyle(.textAction())
                             .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
+                            .contentShape(Rectangle())
                             .accessibilityIdentifier("search.recent.clear")
                     }
                 }
