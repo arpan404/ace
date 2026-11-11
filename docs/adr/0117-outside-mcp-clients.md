@@ -135,7 +135,7 @@ protects this the same way it protects admin, because only an admin device can a
 ### Attribution
 
 - A thread started by an outside client records `startedBy: { kind: "mcp_client", grantId,
-  name }`, and messages it sends carry a matching `MessageOrigin` kind. Commands are recorded under
+name }`, and messages it sends carry a matching `MessageOrigin` kind. Commands are recorded under
   the grant, not `ace-agent`.
 - The thread list and header say "Started by Claude (claude.ai)". The grant's row in Settings shows
   the threads it started and changed.

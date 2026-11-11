@@ -299,6 +299,23 @@ export class NotificationDatabase {
     const row = this.statement("SELECT body FROM devices WHERE id=? AND revoked=0").get(id);
     return row ? NotificationDevice.parse(JSON.parse(String(row.body))) : undefined;
   }
+  /**
+   * The push addresses among these devices that may be alerted now: not revoked, not muted
+   * (`unregister`) and not an address the push service said is gone.
+   */
+  pushable(ids: readonly DeviceId[]): NotificationDevice[] {
+    const found: NotificationDevice[] = [];
+    const statement = this.statement(
+      "SELECT body FROM devices WHERE id=? AND revoked=0 AND expired=0",
+    );
+    for (const id of new Set(ids)) {
+      const row = statement.get(id);
+      if (!row) continue;
+      const device = NotificationDevice.parse(JSON.parse(String(row.body)));
+      if (device.address.channel === "push") found.push(device);
+    }
+    return found;
+  }
   preferences(id: DeviceId, input: unknown): void {
     const device = this.device(id);
     if (!device) throw new Error("Device unavailable");

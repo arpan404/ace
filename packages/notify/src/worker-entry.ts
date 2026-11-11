@@ -96,6 +96,9 @@ port.on("message", (input: unknown) => {
         case "connectDevice":
           service.connectDevice(call.device);
           break;
+        case "pushAddresses":
+          value = service.pushAddresses(call.devices);
+          break;
         case "preferences":
           service.preferences(call.device, call.preferences);
           break;

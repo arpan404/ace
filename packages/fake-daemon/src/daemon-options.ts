@@ -45,6 +45,8 @@ export interface ThreadInit {
   parentThreadId?: string;
   /** The thread whose agent opened this one with `thread_start`. */
   startedBy?: string;
+  /** The outside MCP client that started it (ADR 0117). */
+  startedByClient?: Thread["startedByClient"];
   /** The thread on a paired machine whose agent delegated this one here. */
   delegatedFrom?: Thread["delegatedFrom"];
   /** A delegated child still waiting for one of its parent's run slots, with its task. */

@@ -31,6 +31,7 @@ export { interruptedTurn, seedInterruptedTurn } from "./scenarios/interrupted-tu
 export { limitPausedTurn, seedTurnEndings, stoppedByYou } from "./scenarios/turn-endings.ts";
 export { leftRunning, seedLeftRunning } from "./scenarios/left-running.ts";
 export { seedSettledHeld } from "./scenarios/settled-held.ts";
+export { seedConnectedApps } from "./scenarios/connected-apps.ts";
 export {
   multiDayThread,
   multiDayShape,

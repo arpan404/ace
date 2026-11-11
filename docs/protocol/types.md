@@ -24811,6 +24811,56 @@ Example:
 }
 ```
 
+## PushAccessAlert
+
+[JSON Schema](schema/PushAccessAlert.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| clientName | yes | string | {"minLength":1,"maxLength":256} |
+| domain | yes | union | {"anyOf":[{"type":"string","minLength":1,"maxLength":253},{"type":"null"}]} |
+| matchCode | yes | string | {"minLength":4,"maxLength":16} |
+| expiresAt | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "clientName": "example",
+  "domain": "example",
+  "expiresAt": 5,
+  "matchCode": "example",
+  "requestId": "example"
+}
+```
+
+## PushAccessPayload
+
+[JSON Schema](schema/PushAccessPayload.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| v | yes | `1` |  |
+| hostId | yes | string | {"minLength":1,"maxLength":200} |
+| access | yes | [PushAccessAlert.json](schema/PushAccessAlert.json) |  |
+
+Example:
+
+```json
+{
+  "access": {
+    "clientName": "example",
+    "domain": null,
+    "expiresAt": 2,
+    "matchCode": "example",
+    "requestId": "example"
+  },
+  "hostId": "example",
+  "v": 1
+}
+```
+
 ## PushAlertPayload
 
 [JSON Schema](schema/PushAlertPayload.json), input validation.
