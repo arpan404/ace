@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { reachesPrivateNetwork } from "./private-network.ts";
+import { privateAddress, reachesPrivateNetwork } from "./private-network.ts";
 
 const names: Record<string, string[]> = {
   "example.com": ["93.184.215.14", "2606:2800:21f:cb07:6820:80da:af6b:8b2c"],
@@ -38,4 +38,42 @@ test.each([
   ["about:blank", false],
 ])("%s reaches this machine or its network: %s", async (url, expected) => {
   expect(await reachesPrivateNetwork(url, resolve)).toBe(expected);
+});
+
+test.each([
+  ["127.0.0.1", true],
+  ["93.184.215.14", false],
+  ["::", true],
+  ["::1", true],
+  ["0:0:0:0:0:0:0:1", true],
+  ["2606:2800:21f:cb07:6820:80da:af6b:8b2c", false],
+  // IPv4-mapped, as typed and as URLs write it.
+  ["::ffff:127.0.0.1", true],
+  ["::ffff:7f00:1", true],
+  ["::ffff:93.184.215.14", false],
+  // IPv4-translated (::ffff:0:a.b.c.d).
+  ["::ffff:0:127.0.0.1", true],
+  ["::ffff:0:7f00:1", true],
+  ["::ffff:0:a00:1", true],
+  ["::ffff:0:5db8:d70e", false],
+  // IPv4-compatible (::a.b.c.d).
+  ["::127.0.0.1", true],
+  ["::7f00:1", true],
+  ["::a9fe:a9fe", true],
+  ["::5db8:d70e", false],
+  // NAT64: the well-known prefix reaches the address it carries; the local-use prefix is local.
+  ["64:ff9b::127.0.0.1", true],
+  ["64:ff9b::a9fe:a9fe", true],
+  ["64:ff9b::c0a8:101", true],
+  ["64:ff9b::5db8:d70e", false],
+  ["64:ff9b:1::5db8:d70e", true],
+  // 6to4 carries its IPv4 address after the prefix.
+  ["2002:7f00:1::1", true],
+  ["2002:5db8:d70e::1", false],
+  ["fd00::1", true],
+  ["fe80::1%en0", true],
+  ["ff02::1", true],
+  ["not an address", true],
+])("%s is private: %s", (address, expected) => {
+  expect(privateAddress(address)).toBe(expected);
 });
