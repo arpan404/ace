@@ -51,7 +51,8 @@ export async function prepareSpadeImages(files: readonly File[]): Promise<Prepar
     files.map(async (file) => {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const ref = { sha256: await sha256(bytes), mediaType: file.type, bytes: bytes.length };
-      pictures.set(ref.sha256, Promise.resolve(URL.createObjectURL(file)));
+      if (!pictures.has(ref.sha256))
+        remember(ref.sha256, Promise.resolve(URL.createObjectURL(file)));
       return { data: base64(bytes), ref };
     }),
   );
@@ -59,20 +60,61 @@ export async function prepareSpadeImages(files: readonly File[]): Promise<Prepar
 
 /*
  * Pictures by hash: ones this window sent, and ones read from Spade (`GET /v1/images/{sha256}`,
- * immutable). Each hash is read once per page; a failed read is forgotten so it can be tried
- * again. Object URLs live as long as the page.
+ * immutable). Each hash is read once while shown; a failed read is forgotten so it can be tried
+ * again. A picture nothing shows for a minute is let go (its object URL revoked).
  */
-const pictures = new Map<string, Promise<string>>();
+interface Picture {
+  url: Promise<string>;
+  holders: number;
+  cancel: (() => void) | undefined;
+}
+const pictures = new Map<string, Picture>();
+const idleMs = 60_000;
 
-/** A picture for a stored image: this window's own, or Spade's copy read once and kept. */
-export function spadePicture(client: ClientApi, hash: string): Promise<string> {
-  let picture = pictures.get(hash);
-  if (!picture) {
-    picture = spadeBlob(client, `/v1/images/${segment(hash)}`).then((blob) =>
-      URL.createObjectURL(blob),
+function letGoLater(hash: string, picture: Picture) {
+  const timer = setTimeout(() => {
+    if (pictures.get(hash) !== picture || picture.holders > 0) return;
+    pictures.delete(hash);
+    void picture.url.then(
+      (url) => URL.revokeObjectURL(url),
+      () => {},
     );
-    picture.catch(() => pictures.delete(hash));
-    pictures.set(hash, picture);
-  }
+  }, idleMs);
+  picture.cancel = () => clearTimeout(timer);
+}
+
+function remember(hash: string, url: Promise<string>): Picture {
+  const picture: Picture = { url, holders: 0, cancel: undefined };
+  pictures.set(hash, picture);
+  url.catch(() => {
+    if (pictures.get(hash) === picture) pictures.delete(hash);
+  });
+  letGoLater(hash, picture);
   return picture;
+}
+
+/**
+ * A picture for a stored image, held until `release`: this window's own, or Spade's copy read
+ * once and kept while anything shows it.
+ */
+export function holdSpadePicture(client: ClientApi, hash: string) {
+  const picture =
+    pictures.get(hash) ??
+    remember(
+      hash,
+      spadeBlob(client, `/v1/images/${segment(hash)}`).then((blob) => URL.createObjectURL(blob)),
+    );
+  picture.holders++;
+  picture.cancel?.();
+  picture.cancel = undefined;
+  let held = true;
+  return {
+    url: picture.url,
+    release() {
+      if (!held) return;
+      held = false;
+      picture.holders--;
+      if (picture.holders === 0) letGoLater(hash, picture);
+    },
+  };
 }

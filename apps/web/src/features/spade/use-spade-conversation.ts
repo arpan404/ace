@@ -50,6 +50,12 @@ export function useSpadeConversation(conversation: string) {
         await spadeHttp(client, "POST", `${path}/messages`, { body: spadeBody(message) });
         listChanged();
       } catch (error) {
+        // No answer came back: Spade may have the message. It shows once it arrives; only a
+        // message Spade never stored comes back to the composer.
+        if (error instanceof SpadeRequestError && error.unanswered && (await follow.reached(key))) {
+          listChanged();
+          return;
+        }
         follow.apply({ kind: "refused", key });
         throw error;
       }

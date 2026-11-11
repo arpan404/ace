@@ -12,10 +12,17 @@ import { spadeProblem } from "@ace/ui-core/spade-chat";
 /** Spade refused, or the daemon couldn't reach it. `status` is Spade's, when it answered. */
 export class SpadeRequestError extends Error {
   readonly status: number | undefined;
-  constructor(message: string, status?: number) {
+  /** The daemon's code when it, not Spade, answered (`failed`: no answer came back). */
+  readonly code: string | undefined;
+  constructor(message: string, status?: number, code?: string) {
     super(message);
     this.name = "SpadeRequestError";
     this.status = status;
+    this.code = code;
+  }
+  /** The request may have reached Spade: no answer came back to say either way. */
+  get unanswered(): boolean {
+    return this.code === "failed";
   }
 }
 
@@ -41,7 +48,7 @@ async function spadeAnswer(
     signal,
     ...(large ? { timeoutMs: uploadTimeoutMs } : {}),
   });
-  if (answer.kind === "error") throw new SpadeRequestError(answer.message);
+  if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
   if (answer.status < 200 || answer.status > 299)
     throw new SpadeRequestError(
       refusal(answer.status, answer.encoding === "text" ? answer.body : ""),

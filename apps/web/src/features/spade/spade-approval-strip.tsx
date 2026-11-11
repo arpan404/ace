@@ -25,7 +25,8 @@ function argumentsText(value: unknown): string | undefined {
 export function SpadeApprovalStrip(props: {
   approval: Approval;
   more: number;
-  onAnswer(allowed: boolean, always: boolean): Promise<void>;
+  /** Resolves whether Spade took the answer. */
+  onAnswer(allowed: boolean, always: boolean): Promise<boolean>;
 }) {
   const { approval } = props;
   const [sending, setSending] = useState(false);
@@ -34,7 +35,10 @@ export function SpadeApprovalStrip(props: {
   const args = argumentsText(approval.arguments);
   const answer = (allowed: boolean, always: boolean) => {
     setSending(true);
-    void props.onAnswer(allowed, always).finally(() => setSending(false));
+    // A taken answer keeps the buttons off until Spade stores it and the strip moves on.
+    void props.onAnswer(allowed, always).then((taken) => {
+      if (!taken) setSending(false);
+    });
   };
   return (
     <StripSurface slot="request" variant={approval.callId}>

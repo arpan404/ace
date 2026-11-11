@@ -50,6 +50,7 @@ export class ConversationFollow {
   private paging = false;
   /** Stopped (unmounted): nothing opens again, however late a page or a timer finishes. */
   private stopped = true;
+  private sends: { key: string; resolve(reached: boolean): void; cancel(): void }[] = [];
   private retryTimer: (() => void) | undefined;
   private retries = 0;
   private readonly client: ClientApi;
@@ -122,6 +123,32 @@ export class ConversationFollow {
   /** Fold an input from this side (a message sent or refused). */
   apply(input: SpadeFoldInput): void {
     if (foldSpade(this.state, input)) this.publish();
+    this.settleSends(false);
+  }
+
+  /**
+   * Whether a message sent from here (`key`) reached Spade, when its send got no answer: true
+   * once Spade's copy arrives; false if the stream catches up (after a reconnect, say) without
+   * it, or `waitMs` passes first.
+   */
+  reached(key: string, waitMs = 30_000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const cancel = this.deps.later(waitMs, () => this.settleSends(true, key));
+      this.sends.push({ key, resolve, cancel });
+      this.settleSends(false);
+    });
+  }
+
+  /** Answer `reached` waits: a stored copy answers at once; a catch-up or a timeout, finally. */
+  private settleSends(final: boolean, only?: string) {
+    this.sends = this.sends.filter((send) => {
+      if (only !== undefined && send.key !== only) return true;
+      const stored = !this.state.pending.some((message) => message.key === send.key);
+      if (!stored && !final) return true;
+      send.cancel();
+      send.resolve(stored);
+      return false;
+    });
   }
 
   private open() {
@@ -200,6 +227,8 @@ export class ConversationFollow {
         this.retries = 0;
         this.schedule();
       }
+      // Caught up: anything sent before this that Spade stored has arrived by now.
+      this.settleSends(input?.kind === "caught_up");
       return;
     }
     if (message.type !== "spade.live.ended" || message.requestId !== this.requestId) return;
