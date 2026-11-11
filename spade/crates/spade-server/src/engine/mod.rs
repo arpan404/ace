@@ -2,138 +2,32 @@
 //! stored event, sent to live subscribers in order. Turns run as tasks driven by
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
+mod calls;
 mod compact;
+mod control;
 mod index;
 mod jobs;
 mod turn;
+mod types;
+
+pub use types::{
+    Activity, AnswerError, CompactError, Frame, Limits, SendError, Setup, Snapshot, Subscription,
+};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use spade_core::event::Known;
-use spade_core::turn::{job_stopped, stop_requested, unanswered_after};
+use spade_core::turn::job_stopped;
 use spade_core::{Event, Transcript, TurnState, spending};
 use spade_models::{Models, Role};
 use spade_store::{Conversation, Store, StoreError, StoredEvent};
 use tokio::sync::{Notify, broadcast, watch};
 
 use crate::clock::{Clock, Ids};
-use crate::images::{ImageError, ImageStore};
+use crate::images::ImageStore;
 use crate::tools::{SkillLibrary, Toolbox};
-
-/// Bounds on one turn.
-#[derive(Debug, Clone)]
-pub struct Limits {
-    pub max_steps: u32,
-    pub turn_cost_micros: u64,
-    pub max_parallel_tools: usize,
-    pub tool_timeout: Duration,
-    /// Longest tool result kept, in characters.
-    pub result_chars: usize,
-    pub longest_message: usize,
-    /// Compaction budget in tokens, capped by each model's own context window.
-    pub context_budget: u32,
-    /// Longest a background job may run.
-    pub job_timeout: Duration,
-}
-
-impl Default for Limits {
-    fn default() -> Self {
-        Self {
-            max_steps: 30,
-            turn_cost_micros: 2_000_000,
-            max_parallel_tools: 4,
-            tool_timeout: Duration::from_secs(120),
-            result_chars: 20_000,
-            longest_message: 100_000,
-            context_budget: 200_000,
-            job_timeout: Duration::from_secs(30 * 60),
-        }
-    }
-}
-
-pub struct Setup {
-    pub store: Store,
-    pub models: Models,
-    pub tools: Toolbox,
-    pub clock: Arc<dyn Clock>,
-    pub ids: Arc<dyn Ids>,
-    pub daily_cap_micros: u64,
-    pub utc_offset_seconds: i32,
-    pub limits: Limits,
-    /// The person's skill library, when ace provides one.
-    pub skills: Option<Arc<dyn SkillLibrary>>,
-    /// Where attached images are kept.
-    pub images: ImageStore,
-}
-
-/// What a live subscriber receives.
-#[derive(Debug, Clone)]
-pub enum Frame {
-    Stored(StoredEvent),
-    /// A new piece of the open reply's text. Not stored; checkpoints and the step are.
-    Delta {
-        reply: String,
-        text: String,
-    },
-}
-
-/// The open reply's text so far, for a subscriber joining mid-reply.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Snapshot {
-    pub reply: String,
-    pub text: String,
-}
-
-pub struct Subscription {
-    pub frames: broadcast::Receiver<Frame>,
-    pub backlog: Vec<StoredEvent>,
-    pub snapshot: Option<Snapshot>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SendError {
-    #[error("no such conversation")]
-    NotFound,
-    #[error("the message is empty")]
-    Empty,
-    #[error("the message is too long")]
-    TooLong,
-    #[error("today's spending cap is used up")]
-    OverCap,
-    #[error("a message can carry at most {} images", crate::images::MOST_IMAGES)]
-    TooManyImages,
-    #[error(transparent)]
-    Image(#[from] ImageError),
-    #[error(transparent)]
-    Store(#[from] StoreError),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum CompactError {
-    #[error("no such conversation")]
-    NotFound,
-    #[error("a reply is running; compact once it ends")]
-    Busy,
-    #[error("there is nothing to compact yet")]
-    Nothing,
-    #[error("today's spending cap is used up")]
-    OverCap,
-    #[error("{0}")]
-    Failed(String),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AnswerError {
-    #[error("no such conversation")]
-    NotFound,
-    #[error("that call is not waiting for an answer")]
-    NotAwaiting,
-    #[error(transparent)]
-    Store(#[from] StoreError),
-}
 
 /// Live state for one conversation.
 struct Live {
@@ -146,15 +40,6 @@ struct Live {
     turn_running: AtomicBool,
     /// Background jobs not yet stored as finished, by job id (see `jobs`).
     jobs: Mutex<HashMap<String, jobs::Job>>,
-}
-
-/// What a conversation is doing, for lists.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Activity {
-    pub answering: bool,
-    pub jobs: usize,
-    /// An approval is waiting for the person.
-    pub waiting_on_you: bool,
 }
 
 pub struct Engine {
@@ -329,147 +214,6 @@ impl Engine {
         if start {
             self.spawn_turn(id);
         }
-        Ok(())
-    }
-
-    /// Stops the open turn and the conversation's background jobs. Returns whether anything was
-    /// running.
-    ///
-    /// The stop is stored first: the turn's worker, job starts, job results and restart recovery
-    /// all honour it. If storing it fails, everything running is still stopped now, the stop is
-    /// retried in the background, and the error is returned so the person is told.
-    pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
-        let live = self.live(id);
-        let worker = live
-            .stop
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .as_ref()
-            .map(|(reply, _)| reply.clone());
-        let running_jobs: Vec<String> = live
-            .jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .keys()
-            .cloned()
-            .collect();
-        // What is running now, from storage and from memory, so a read failure still stops it.
-        let loaded = self.load(id).map(|events| Transcript::fold(&events));
-        let (open, mut jobs, busy) = match &loaded {
-            Ok(t) => (
-                t.open_reply().and_then(|m| m.reply.clone()),
-                t.jobs.clone(),
-                t.busy(),
-            ),
-            Err(_) => (None, Vec::new(), false),
-        };
-        let reply = open.or_else(|| worker.clone());
-        for job in &running_jobs {
-            if !jobs.contains(job) {
-                jobs.push(job.clone());
-            }
-        }
-        if !busy && reply.is_none() && jobs.is_empty() {
-            return loaded.map(|_| false);
-        }
-        // The stop names what it stops, so a late write never reaches newer work.
-        let marker = Event::Known(Known::StopRequested {
-            reply: reply.clone(),
-            jobs,
-        });
-        let stored = self.record(id, &marker);
-        if stored.is_err() {
-            let (engine, id) = (self.clone(), id.to_owned());
-            tokio::spawn(async move {
-                jobs::keep_trying(|| engine.record(&id, &marker).map(|_| ())).await;
-            });
-        }
-        let turn = {
-            let stop = live.stop.lock().unwrap_or_else(|p| p.into_inner());
-            match stop.as_ref() {
-                Some((driving, sender)) if Some(driving) == reply.as_ref() => {
-                    let _ = sender.send(true);
-                    true
-                }
-                _ => false,
-            }
-        };
-        let stopped_jobs = jobs::stop_all(self, id);
-        loaded?;
-        stored?;
-        Ok(turn || stopped_jobs > 0 || reply.is_some())
-    }
-
-    /// Closes `reply` with `close` (stopped or failed). Anything that arrived for the model and
-    /// was never answered (a message after the stop, or after the last step's prompt) opens the
-    /// next reply in the same lock, so it can never be left unanswered; the closing worker hands
-    /// it on.
-    fn close_reply(&self, id: &str, reply: &str, close: &Event) -> Result<(), StoreError> {
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let mut events = self.load(id)?;
-        events.push(close.clone());
-        if unanswered_after(&events, reply) {
-            let model = self.models.for_role(Role::Main).to_owned();
-            let started = Event::reply_started(self.ids.next("r"), model);
-            for stored in self
-                .store
-                .append_all(id, &[close.clone(), started], self.now_ms())?
-            {
-                let _ = self.live(id).frames.send(Frame::Stored(stored));
-            }
-        } else {
-            self.append(id, close)?;
-        }
-        Ok(())
-    }
-
-    /// Stores `event` unless the person pressed Stop after `reply` began. Returns whether it was
-    /// stored. Checked under the lock Stop records under.
-    fn record_unless_stopped(
-        &self,
-        id: &str,
-        reply: &str,
-        event: &Event,
-    ) -> Result<bool, StoreError> {
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        if stop_requested(&self.load(id)?, reply) {
-            return Ok(false);
-        }
-        self.append(id, event)?;
-        Ok(true)
-    }
-
-    /// Answers an approval the open turn is waiting on.
-    pub fn answer(
-        &self,
-        id: &str,
-        call_id: &str,
-        allowed: bool,
-        always: bool,
-    ) -> Result<(), AnswerError> {
-        if self.store.conversation(id)?.is_none() {
-            return Err(AnswerError::NotFound);
-        }
-        // Check and answer under one lock, so two answers to one approval cannot both land.
-        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let transcript = Transcript::fold(&self.load(id)?);
-        if !transcript.awaiting.iter().any(|c| c == call_id) {
-            return Err(AnswerError::NotAwaiting);
-        }
-        let reply = transcript
-            .open_reply()
-            .and_then(|m| m.reply.clone())
-            .unwrap_or_default();
-        self.append(
-            id,
-            &Event::Known(Known::ApprovalAnswered {
-                reply,
-                call_id: call_id.to_owned(),
-                allowed,
-                always,
-            }),
-        )?;
-        self.live(id).wake.notify_one();
         Ok(())
     }
 

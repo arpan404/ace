@@ -78,7 +78,7 @@ pub(super) fn start(
                 }
                 jobs.insert(job.clone(), Job::Finishing);
             }
-            let content = super::turn::trim(&output.content, engine.limits.result_chars);
+            let content = super::calls::trim(&output.content, engine.limits.result_chars);
             let finished = Event::Known(Known::JobFinished {
                 job: job.clone(),
                 name,
