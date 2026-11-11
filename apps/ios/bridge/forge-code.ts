@@ -291,6 +291,7 @@ export async function readFile(
     capabilities: detail,
     state,
     url: detail.status.url,
+    number: detail.status.ref.number,
     repository: detail.status.ref.repository,
     locked,
     preview,
