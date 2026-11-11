@@ -10,7 +10,7 @@ import { spadeBodyParts, spadeExchange, type SpadeHttpOwner } from "./spade-http
  */
 function fakeDaemon(
   answer: (body: string) => string,
-  opts: { forget?: number; refuseUploads?: boolean } = {},
+  opts: { forget?: number; refuseUploads?: boolean; holdUploadResults?: boolean } = {},
 ) {
   const uploads = new Map<string, { parts: number; got: string[]; done(): void }>();
   const listeners = new Set<(message: unknown) => void>();
@@ -66,6 +66,8 @@ function fakeDaemon(
           got: [],
           done() {
             const result = respond(requestId, this.got.join(""));
+            // A daemon whose socket goes away never sends it.
+            if (opts.holdUploadResults) return;
             for (const listener of listeners) listener(result);
           },
         });
@@ -84,9 +86,54 @@ function fakeDaemon(
       listeners.add(listener);
       return () => listeners.delete(listener);
     }) as SpadeHttpOwner["onMessage"],
+    connectionState: () => state.selection,
+    connectionGeneration: () => generation.selection,
   };
-  return { owner, received, partsSent: () => partsSeen };
+  const state = observable<"ready" | "reconnecting">("ready");
+  const generation = observable<number | undefined>(1);
+  return {
+    owner,
+    received,
+    partsSent: () => partsSeen,
+    uploadsOpen: () => uploads.size,
+    drop: () => state.set("reconnecting"),
+    move: () => generation.set(2),
+  };
 }
+
+function observable<T>(initial: T) {
+  let value = initial;
+  const listeners = new Set<() => void>();
+  return {
+    set(next: T) {
+      value = next;
+      for (const listener of listeners) listener();
+    },
+    selection: {
+      getSnapshot: () => value,
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    } as never,
+  };
+}
+
+/** Timers the test fires by hand. */
+function manualTimers() {
+  const pending: (() => void)[] = [];
+  return {
+    later: (_delay: number, callback: () => void) => {
+      pending.push(callback);
+      return () => pending.splice(pending.indexOf(callback), 1);
+    },
+    fire: () => {
+      for (const callback of pending.splice(0)) callback();
+    },
+  };
+}
+
+const settled = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 let ids = 0;
 const id = () => `r${++ids}`;
@@ -142,4 +189,40 @@ test("an upload the daemon refuses sends no parts and says why", async () => {
   const answer = await spadeExchange(daemon.owner, { method: "POST", path: "/v1/x", body }, { id });
   expect(answer).toEqual({ kind: "error", code: "limit", message: "Too many uploads." });
   expect(daemon.partsSent()).toBe(0);
+});
+
+test("an upload whose socket drops after the open ends as a failure instead of waiting", async () => {
+  const body = "A".repeat(2 * maxSpadeRequestBytes);
+  const daemon = fakeDaemon(() => "{}", { holdUploadResults: true });
+  const exchange = spadeExchange(daemon.owner, { method: "POST", path: "/v1/x", body }, { id });
+  await settled();
+  daemon.drop();
+  expect(await exchange).toMatchObject({ kind: "error", code: "failed" });
+});
+
+test("an upload whose socket moves after the open ends as a failure", async () => {
+  const body = "A".repeat(2 * maxSpadeRequestBytes);
+  const daemon = fakeDaemon(() => "{}", { holdUploadResults: true });
+  const exchange = spadeExchange(daemon.owner, { method: "POST", path: "/v1/x", body }, { id });
+  await settled();
+  daemon.move();
+  expect(await exchange).toMatchObject({ kind: "error", code: "failed" });
+});
+
+test("an upload with no result in time after the open ends as a failure", async () => {
+  const body = "A".repeat(2 * maxSpadeRequestBytes);
+  const daemon = fakeDaemon(() => "{}", { holdUploadResults: true });
+  const timers = manualTimers();
+  const exchange = spadeExchange(
+    daemon.owner,
+    { method: "POST", path: "/v1/x", body },
+    { id, later: timers.later },
+  );
+  await settled();
+  timers.fire();
+  expect(await exchange).toEqual({
+    kind: "error",
+    code: "failed",
+    message: "Spade didn't answer the upload in time.",
+  });
 });

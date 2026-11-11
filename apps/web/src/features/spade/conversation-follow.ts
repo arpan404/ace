@@ -48,6 +48,8 @@ export class ConversationFollow {
   /** The first open reads the history in pages before it follows live. */
   private paged = false;
   private paging = false;
+  /** Stopped (unmounted): nothing opens again, however late a page or a timer finishes. */
+  private stopped = true;
   private retryTimer: (() => void) | undefined;
   private retries = 0;
   private readonly client: ClientApi;
@@ -74,6 +76,7 @@ export class ConversationFollow {
   }
 
   start(): void {
+    this.stopped = false;
     const connection = this.client.connectionState();
     try {
       this.stops.push(this.client.onMessage((message) => this.receive(message)));
@@ -95,6 +98,7 @@ export class ConversationFollow {
   }
 
   stop(): void {
+    this.stopped = true;
     for (const stop of this.stops.splice(0)) stop();
     this.retryTimer?.();
     this.close();
@@ -121,7 +125,14 @@ export class ConversationFollow {
   }
 
   private open() {
-    if (this.requestId || this.paging || !this.spadeReady || this.client.state !== "ready") return;
+    if (
+      this.stopped ||
+      this.requestId ||
+      this.paging ||
+      !this.spadeReady ||
+      this.client.state !== "ready"
+    )
+      return;
     if (this.snapshot.problem) return;
     if (!this.paged) {
       this.paging = true;
@@ -157,10 +168,12 @@ export class ConversationFollow {
           `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
         );
       } catch (error) {
+        if (this.stopped) return;
         if (error instanceof SpadeRequestError && error.status === 404)
           this.setProblem("This conversation isn't in Spade any more.");
         return;
       }
+      if (this.stopped) return;
       const page = parseSpadeEvents(body);
       if (!page) return;
       for (const stored of page) foldSpade(this.state, { kind: "stored", stored });

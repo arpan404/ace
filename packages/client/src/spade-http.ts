@@ -6,6 +6,7 @@ import {
   type SpadeMethod,
 } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
+import { onSocketMove } from "./socket-moves.ts";
 
 /*
  * One exchange with Spade through the daemon (ADR 0117, `spade.http`): a body larger than one
@@ -14,7 +15,39 @@ import type { ClientApi } from "./api.ts";
  */
 
 /** What an exchange needs from the connection. */
-export type SpadeHttpOwner = Pick<ClientApi, "request" | "send" | "onMessage">;
+export type SpadeHttpOwner = Pick<
+  ClientApi,
+  "request" | "send" | "onMessage" | "connectionState" | "connectionGeneration"
+>;
+
+/** Run `callback` after `delay` ms; returns its cancel. Injected so tests control time. */
+export type SpadeLater = (delay: number, callback: () => void) => () => void;
+
+const defaultLater: SpadeLater = (delay, callback) => {
+  const timer = setTimeout(callback, delay);
+  return () => clearTimeout(timer);
+};
+
+/**
+ * How long an upload may go without its result once the daemon opened it: room for 60 MB on a
+ * slow link and Spade's own work. The request's own timeout ended when it resolved on the open.
+ */
+const uploadAnswerMs = 5 * 60_000;
+
+export interface SpadeExchangeOptions {
+  id(): string;
+  signal?: AbortSignal | undefined;
+  timeoutMs?: number | undefined;
+  /** Timers for the wait after an upload's open; real ones by default. */
+  later?: SpadeLater | undefined;
+}
+
+/** An upload whose result can't come any more, or didn't come in time: Spade may have it. */
+const uploadLost = (message: string) => ({
+  kind: "error" as const,
+  code: "failed" as const,
+  message,
+});
 
 export interface SpadeExchange {
   method: SpadeMethod;
@@ -73,7 +106,7 @@ const partsPerTurn = 16;
 export async function spadeExchange(
   client: SpadeHttpOwner,
   exchange: SpadeExchange,
-  options: { id(): string; signal?: AbortSignal | undefined; timeoutMs?: number | undefined },
+  options: SpadeExchangeOptions,
 ): Promise<SpadeAnswer> {
   const first = await attempt(client, exchange, options);
   return first === "gone" ? attemptOnce(client, exchange, options) : first;
@@ -129,14 +162,12 @@ async function attempt(
       if (answer.type === "spade.http.result")
         return finish(client, requestId, answer.result, requestOptions);
       // The open: the daemon took the request and wants the body now. A refusal partway through
-      // ends the upload with a result; a part the socket can't take ends it here.
+      // ends the upload with a result; a part the socket can't take ends it here, and so does a
+      // drop, a socket move or a long silence after the open (`uploadResult`).
+      uploaded.arm(options.timeoutMs ?? uploadAnswerMs, options.later ?? defaultLater);
       const lost = sendParts(client, requestId, parts).then(
         () => new Promise<never>(() => {}),
-        () => ({
-          kind: "error" as const,
-          code: "failed" as const,
-          message: "The connection dropped while sending to Spade.",
-        }),
+        () => uploadLost("The connection dropped while sending to Spade."),
       );
       const result = await Promise.race([uploaded.result, lost]);
       return finish(client, requestId, result, requestOptions);
@@ -152,24 +183,51 @@ async function attempt(
 
 const noop = () => {};
 
-/** The `spade.http.result` that ends the upload `requestId`, however it arrives. */
+/**
+ * The `spade.http.result` that ends the upload `requestId`, however it arrives. It can't arrive
+ * once the connection leaves ready or moves to another socket (the daemon ended the upload with
+ * the old one), so either ends it as lost; so does no result within the time `arm` sets.
+ */
 function uploadResult(client: SpadeHttpOwner, requestId: string, signal: AbortSignal | undefined) {
   let stop: () => void = noop;
+  let settle: (result: SpadeHttpResult["result"]) => void = noop;
+  let cancelTimer: () => void = noop;
   const result = new Promise<SpadeHttpResult["result"]>((resolve, reject) => {
+    settle = resolve;
+    const connection = client.connectionState();
     const unsubscribe = client.onMessage((message) => {
       if (message.type === "spade.http.result" && message.requestId === requestId)
         resolve(message.result);
     });
+    const dropped = connection.subscribe(() => {
+      if (connection.getSnapshot() !== "ready")
+        resolve(uploadLost("The connection dropped before Spade answered."));
+    });
+    const moved = onSocketMove(client, () =>
+      resolve(uploadLost("The connection moved before Spade answered.")),
+    );
     const aborted = () => reject(signal?.reason ?? new Error("aborted"));
     signal?.addEventListener("abort", aborted, { once: true });
     stop = () => {
       unsubscribe();
+      dropped();
+      moved();
+      cancelTimer();
       signal?.removeEventListener("abort", aborted);
     };
   });
   // Unobserved until the open arrives; a refusal before it never reads this.
   result.catch(() => {});
-  return { result, stop: () => stop() };
+  return {
+    result,
+    stop: () => stop(),
+    /** Start the wait for the result: past `delay`, the upload is lost. */
+    arm(delay: number, later: SpadeLater) {
+      cancelTimer = later(delay, () =>
+        settle(uploadLost("Spade didn't answer the upload in time.")),
+      );
+    },
+  };
 }
 
 async function sendParts(client: SpadeHttpOwner, requestId: string, parts: readonly string[]) {
