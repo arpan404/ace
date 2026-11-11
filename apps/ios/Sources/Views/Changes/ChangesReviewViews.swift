@@ -2,7 +2,7 @@ import SwiftUI
 
 extension ClientModel {
     /// A review action for the Changes sheet (`bridge/CHANGES-CONTRACT.md`); answers the request
-    /// id its `changes.notice` will carry, or nil when it couldn't be sent.
+    /// id its `changes.notice` will carry, including a local refusal when it cannot be sent.
     @discardableResult func reviewAction(_ kind: String, _ fields: [String: Any] = [:]) -> String {
         let id = "review-\(UUID().uuidString.prefix(18))"
         var action = fields
@@ -242,7 +242,9 @@ struct ReviewRepliesSheet: View {
             .listStyle(.plain)
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: AceTheme.Spacing.sm) {
-                    if let notice, !notice.ok {
+                    if replyDraft.tooLong {
+                        Text("Reply is too long. Shorten it before sending.").foregroundStyle(AceTheme.StatusText.failed)
+                    } else if let notice, !notice.ok {
                         Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
                     }
                     HStack(spacing: AceTheme.Spacing.sm) {
@@ -250,10 +252,10 @@ struct ReviewRepliesSheet: View {
                             .padding(.horizontal, AceTheme.Spacing.md).padding(.vertical, AceTheme.Spacing.sm)
                             .background(AceTheme.Colours.fill, in: AceShape.field)
                         Button(replyDraft.pending ? "Replying…" : notice?.ok == false ? "Retry" : "Reply") {
-                            replyDraft.begin(id: model.reviewAction("review.reply", ["key": draft.key, "text": String(replyDraft.text.prefix(4096))]))
+                            replyDraft.begin(id: model.reviewAction("review.reply", ["key": draft.key, "text": replyDraft.text]))
                     }
                     .fontWeight(AceDesign.Typeface.strong)
-                    .disabled(replyDraft.pending || replyDraft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canOperate)
+                    .disabled(!replyDraft.canSubmit || !model.canOperate)
                     .frame(minHeight: AceDesign.Size.tap)
                     }
                 }

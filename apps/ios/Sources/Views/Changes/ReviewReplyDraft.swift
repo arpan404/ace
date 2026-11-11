@@ -6,6 +6,9 @@ struct ReviewReplyDraft {
     private(set) var pending = false
     private var submitted = ""
 
+    var tooLong: Bool { text.utf16.count > 4096 }
+    var canSubmit: Bool { !pending && !tooLong && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     mutating func begin(id: String) {
         request = id
         submitted = text
