@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { expect, test } from "vitest";
 import { DeviceId, type ServerMessage } from "@ace/protocol";
 import { readConfig, startDaemon } from "./index.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 import { Client } from "./socket-test-support.ts";
+import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
+import { mcpStatus, spadeEnv, until as poll } from "./spade-test-support.ts";
 
-const fakeSpade = resolve(import.meta.dirname, "__fixtures__/spade/fake-spade.ts");
+const pollMs = { waiting: 50, ready: 200 };
 
 const backlog = new WeakMap<Client, ServerMessage[]>();
 /** The first message that matches, in arrival order; others stay for later calls. */
@@ -62,49 +64,18 @@ async function http(
   if (result.kind !== "response") throw new Error(`Spade request failed: ${result.message}`);
   return { status: result.status, body: JSON.parse(result.body) as Record<string, unknown> };
 }
-async function mcpStatus(url: string, bearer: string): Promise<number> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${bearer}`,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-    },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
-  });
-  await response.body?.cancel();
-  return response.status;
-}
-const alive = (pid: number) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-test("the daemon runs Spade while it is enabled, forwards requests and live streams, restarts a crash and stops it", async ({
+test("the daemon forwards requests and live streams to the Spade service, follows its restarts and lets it go when turned off", async ({
   onTestFinished,
 }) => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-host-")));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-service-")));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "ace");
-  const binary = join(root, "spade-server");
-  await writeFile(binary, `#!/bin/sh\nexec "${process.execPath}" "${fakeSpade}"\n`);
-  await chmod(binary, 0o755);
-  // A setting of ace's own in the daemon's environment, which Spade must not inherit.
-  process.env.ACE_PROBE_SETTING = "daemon-only";
-  onTestFinished(() => {
-    delete process.env.ACE_PROBE_SETTING;
-  });
+  const service = fakeSpadeService(() => home);
+  onTestFinished(() => service.close());
   const daemon = await startDaemon({
     engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
-    spade: {
-      env: { PATH: process.env.PATH, HOME: home, ACE_SPADE_BIN: binary },
-      backoff: { baseMs: 100, maxMs: 1000, healthyMs: 60_000 },
-    },
+    spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
   const token = await readFile(daemon.tokenPath, "utf8");
@@ -121,7 +92,7 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
   );
   expect(first.status.state).toBe("off");
 
-  // Off by default; turning the setting on starts Spade.
+  // Off by default; turning the setting on registers Spade's service, which starts it.
   const enable = (value: boolean, requestId: string) =>
     client.send({
       type: "settings.set",
@@ -131,19 +102,17 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
       layer: { kind: "global" },
     });
   enable(true, "on");
-  await until(client, status("starting"));
   const ready = await until(client, status("ready"));
   expect(ready.status.version).toBe("0.1.0-fake");
+  expect(service.registered()).toBe(true);
 
-  // Spade got the daemon's address, the local token and an MCP lease that works.
-  const env = (await http(client, "h1", "GET", "/v1/env")).body;
-  expect(env).toMatchObject({ aceUrl: daemon.url, aceToken: token });
-  // None of ace's own settings reach Spade, even those the daemon itself runs with.
-  expect(env.aceKeys).toEqual([]);
-  const mcpUrl = String(env.mcpUrl);
-  const firstLease = String(env.mcpToken);
-  expect(await mcpStatus(mcpUrl, firstLease)).not.toBe(401);
-
+  // Spade was handed its grant, which works on the daemon's MCP endpoint.
+  const mcpUrl = daemon.mcp?.url ?? "";
+  const env = await poll(async () => {
+    const seen = await spadeEnv(daemon);
+    return seen.grant ? seen : undefined;
+  }, "Spade's grant");
+  expect(await mcpStatus(mcpUrl, env.grant ?? "")).toBe(200);
   // Bodies pass through untouched, both ways.
   const created = await http(client, "h2", "POST", "/v1/conversations", '{"text":"hi"}');
   expect(created).toEqual({ status: 201, body: { id: "c1", received: '{"text":"hi"}' } });
@@ -166,18 +135,21 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
     data: '{"text":"more"}',
   });
 
-  // A crash is reported, the stream ends, and Spade comes back with a new lease.
+  // Spade crashes and its service manager starts it again: the stream to the old one ends, and
+  // the new one, which lost its grant with its memory, is handed a new one.
   await http(client, "h4", "POST", "/v1/crash");
   const ended = await until(client, live("l1"));
   expect(ended.type).toBe("spade.live.ended");
-  const failed = await until(client, status("failed"));
-  expect(failed.status.reason).toBe("Spade exited with code 1.");
-  await until(client, status("ready"));
-  expect(await mcpStatus(mcpUrl, firstLease)).toBe(401);
-  const restarted = (await http(client, "h5", "GET", "/v1/env")).body;
-  expect(restarted.pid).not.toBe(env.pid);
+  const restarted = await poll(async () => {
+    if (daemon.spade?.status().state !== "ready") return undefined;
+    const seen = await spadeEnv(daemon).catch(() => undefined);
+    return seen && seen.pid !== env.pid && seen.grant ? seen : undefined;
+  }, "the restarted Spade's grant");
+  expect(restarted.grant).not.toBe(env.grant);
+  expect(await mcpStatus(mcpUrl, env.grant ?? "")).toBe(401);
+  expect(await mcpStatus(mcpUrl, restarted.grant ?? "")).toBe(200);
 
-  // Turning it off stops Spade: its stream ends as restarted, its lease is revoked.
+  // Turning it off: its stream ends, its grant stops working and its service is removed.
   client.send({
     type: "spade.live.subscribe",
     requestId: "l2",
@@ -190,8 +162,8 @@ test("the daemon runs Spade while it is enabled, forwards requests and live stre
     reason: "restarted",
   });
   await until(client, status("off"));
-  expect(alive(Number(restarted.pid))).toBe(false);
-  expect(await mcpStatus(mcpUrl, String(restarted.mcpToken))).toBe(401);
+  await poll(() => !service.registered() && service.pid() === undefined, "Spade's service to go");
+  expect(await mcpStatus(mcpUrl, restarted.grant ?? "")).toBe(401);
   client.send({
     type: "spade.http",
     requestId: "h6",
@@ -216,13 +188,12 @@ test("spade.http carries images back as base64 and streams a message with images
   const root = await realpath(await mkdtemp(join(tmpdir(), "ace-spade-bodies-")));
   onTestFinished(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "ace");
-  const binary = join(root, "spade-server");
-  await writeFile(binary, `#!/bin/sh\nexec "${process.execPath}" "${fakeSpade}"\n`);
-  await chmod(binary, 0o755);
+  const service = fakeSpadeService(() => home);
+  onTestFinished(() => service.close());
   const daemon = await startDaemon({
     engine: noProviderDiscovery,
     config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
-    spade: { env: { PATH: process.env.PATH, HOME: home, ACE_SPADE_BIN: binary } },
+    spade: { service: service.control, pollMs },
   });
   onTestFinished(() => daemon.close());
   const token = await readFile(daemon.tokenPath, "utf8");
