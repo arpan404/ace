@@ -1,8 +1,10 @@
 //! Readable text from HTML: the main content as light Markdown. Pure: a string in, text out.
 //!
-//! The main content is the first `main` (or `role="main"`), else the first `article`, else the
-//! body. Scripts, styles, navigation, page headers and footers, asides, forms and hidden elements
-//! are dropped with everything inside them, which also drops text a page hides to steer an agent.
+//! The main content is the first `main` (or `role="main"`), else the article when the page has
+//! exactly one and it holds at least half the page's text, else the body (which loses nothing,
+//! only adds what surrounds the article). Scripts, styles, navigation, asides, form controls, hidden
+//! elements, and headers and footers of the page itself (not of an article, section or the main
+//! content) are dropped with everything inside them, which also drops text a page hides to steer an agent.
 //! Headings become `#` lines, list items `- ` lines, links `[text](absolute url)`, `pre` blocks
 //! fenced code, and whitespace is collapsed.
 //!
@@ -58,17 +60,17 @@ pub fn html(source: &str, page_url: &Url) -> Readable {
     let main = find(&tree, Tree::ROOT, &|el| {
         el.name.as_ref() == "main" || el.role.as_deref() == Some("main")
     })
-    .or_else(|| find(&tree, Tree::ROOT, &|el| el.name.as_ref() == "article"))
-    .or_else(|| find(&tree, Tree::ROOT, &|el| el.name.as_ref() == "body"))
+    .or_else(|| only_article(&tree))
+    .or_else(|| body(&tree))
     .unwrap_or(Tree::ROOT);
-    let in_article = is_or_inside(&tree, main, "article");
+    let in_section = is_or_inside_section(&tree, main);
 
     let mut out = Out::new(MOST_TEXT_BYTES);
     let ctx = Ctx {
         tree: &tree,
         base: base.as_ref(),
         list_depth: 0,
-        in_article,
+        in_section,
     };
     walk(main, &ctx, &mut out);
 
@@ -96,7 +98,9 @@ struct Ctx<'a> {
     /// What relative links resolve against, when there is a short enough base.
     base: Option<&'a Url>,
     list_depth: usize,
-    in_article: bool,
+    /// Inside an article, section, aside, nav or the main content, where a header or footer
+    /// belongs to that part and is content, not the page's own banner or footer.
+    in_section: bool,
 }
 
 fn walk(id: Id, ctx: &Ctx<'_>, out: &mut Out) {
@@ -136,7 +140,7 @@ fn element(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
         }
         return;
     }
-    if matches!(name, "header" | "footer") && !ctx.in_article {
+    if matches!(name, "header" | "footer") && !ctx.in_section {
         return;
     }
     match name {
@@ -182,9 +186,9 @@ fn element(el: &Element, ctx: &Ctx<'_>, out: &mut Out) {
             children(el, ctx, out);
             out.end(Break::Line);
         }
-        "article" => {
+        _ if sectioning(name) => {
             let inner = Ctx {
-                in_article: true,
+                in_section: true,
                 ..*ctx
             };
             out.start(Break::Para);
@@ -289,9 +293,14 @@ fn collapse(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn is_or_inside(tree: &Tree, mut id: Id, name: &str) -> bool {
+/// Elements whose own header and footer are content.
+fn sectioning(name: &str) -> bool {
+    matches!(name, "article" | "aside" | "main" | "nav" | "section")
+}
+
+fn is_or_inside_section(tree: &Tree, mut id: Id) -> bool {
     loop {
-        if tree.element(id).is_some_and(|el| el.name.as_ref() == name) {
+        if tree.element(id).is_some_and(|el| sectioning(&el.name)) {
             return true;
         }
         if id == Tree::ROOT {
@@ -301,30 +310,74 @@ fn is_or_inside(tree: &Tree, mut id: Id, name: &str) -> bool {
     }
 }
 
-/// The first element under `from`, in document order, that `matches`. Page headers and footers
-/// outside an article are not searched, as they are not read.
+/// The first element under `from`, in document order, that `matches`.
 fn find(tree: &Tree, from: Id, matches: &dyn Fn(&Element) -> bool) -> Option<Id> {
-    let mut stack = vec![(from, is_or_inside(tree, from, "article"))];
-    while let Some((id, in_article)) = stack.pop() {
-        let Some(el) = tree.element(id) else { continue };
-        if id != from {
-            if matches!(el.name.as_ref(), "header" | "footer") && !in_article {
+    read_elements(tree, from).find(|&id| tree.element(id).is_some_and(matches))
+}
+
+fn body(tree: &Tree) -> Option<Id> {
+    find(tree, Tree::ROOT, &|el| el.name.as_ref() == "body")
+}
+
+/// The page's article, when it has exactly one and it holds at least half the page's text. A
+/// listing of several, or a lone article that is only a related card beside the real content,
+/// is read as part of the body instead.
+fn only_article(tree: &Tree) -> Option<Id> {
+    let mut articles = read_elements(tree, Tree::ROOT).filter(|&id| {
+        tree.element(id)
+            .is_some_and(|el| el.name.as_ref() == "article")
+    });
+    let first = articles.next()?;
+    if articles.next().is_some() {
+        return None;
+    }
+    let page = text_len(tree, body(tree).unwrap_or(Tree::ROOT));
+    (text_len(tree, first) * 2 >= page).then_some(first)
+}
+
+/// Bytes of non-blank text read under `from`.
+fn text_len(tree: &Tree, from: Id) -> usize {
+    std::iter::once(from)
+        .chain(read_elements(tree, from))
+        .filter_map(|id| tree.element(id))
+        .flat_map(|el| el.children.iter())
+        .map(|&child| match tree.nodes.get(child) {
+            Some(Node::Text(text)) => text.trim().len(),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// The elements under `from` (not `from` itself), in document order, that are read: the page's
+/// own headers and footers, outside any article, section or main content, are skipped.
+fn read_elements(tree: &Tree, from: Id) -> impl Iterator<Item = Id> + '_ {
+    let mut stack: Vec<(Id, bool)> = tree
+        .element(from)
+        .map(|el| {
+            let inside = is_or_inside_section(tree, from);
+            el.children.iter().rev().map(|&c| (c, inside)).collect()
+        })
+        .unwrap_or_default();
+    std::iter::from_fn(move || {
+        while let Some((id, in_section)) = stack.pop() {
+            let Some(el) = tree.element(id) else { continue };
+            if matches!(el.name.as_ref(), "header" | "footer") && !in_section {
                 continue;
             }
-            if matches(el) {
-                return Some(id);
-            }
+            let inside = in_section || sectioning(&el.name);
+            stack.extend(el.children.iter().rev().map(|&c| (c, inside)));
+            return Some(id);
         }
-        let in_article = in_article || el.name.as_ref() == "article";
-        stack.extend(el.children.iter().rev().map(|&c| (c, in_article)));
-    }
-    None
+        None
+    })
 }
 
 fn block(name: &str) -> bool {
     matches!(
         name,
         "p" | "div"
+            | "form"
+            | "button"
             | "section"
             | "main"
             | "body"

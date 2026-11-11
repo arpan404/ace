@@ -68,7 +68,8 @@ pub fn html_inside(name: &str, attrs: &[(&str, &str)]) -> bool {
     }
 }
 
-/// Elements whose content is never page text.
+/// Elements whose content is never page text. A form's or button's text is kept; only the
+/// controls inside a form are dropped.
 pub fn left_out(name: &str) -> bool {
     matches!(
         name,
@@ -80,9 +81,8 @@ pub fn left_out(name: &str) -> bool {
             | "template"
             | "nav"
             | "aside"
-            | "form"
-            | "button"
             | "input"
+            | "datalist"
             | "select"
             | "textarea"
             | "svg"
