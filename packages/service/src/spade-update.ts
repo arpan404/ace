@@ -24,16 +24,23 @@ export async function updateSpade(options: {
   if (!existsSync(source)) return { kind: "skipped", reason: "not-shipped" };
   try {
     const plan = options.plan ?? (await localSpadePlan(home));
-    return await withInstallLock(join(home, ".spade-update"), async () => {
-      const result = await swapSpade(
+    const result = await withSpadeLock(home, async () => {
+      const swapped = await swapSpade(
         version,
         mode,
         localSpadeSwapPorts({ ...options.io, home, plan, source, version }),
       );
-      if (result.kind === "swapped")
-        await pruneSpadeReleases(home, [result.to, ...(result.from ? [result.from] : [])]);
-      return result;
+      if (swapped.kind === "swapped")
+        await pruneSpadeReleases(home, [swapped.to, ...(swapped.from ? [swapped.from] : [])]);
+      return swapped;
     });
+    if (result !== busy) return result;
+    return {
+      kind: "failed",
+      from: undefined,
+      to: version,
+      error: "Another update is swapping Spade right now",
+    };
   } catch (error) {
     return {
       kind: "failed",
@@ -44,16 +51,47 @@ export async function updateSpade(options: {
   }
 }
 
+const busy = Symbol("busy");
+// SQLITE_BUSY and SQLITE_LOCKED: another updater holds Spade's lock.
+const busyCodes = new Set([5, 6]);
+
+/** Runs `work` holding Spade's update lock, or answers `busy` when another updater holds it. */
+async function withSpadeLock<T>(home: string, work: () => Promise<T>): Promise<T | typeof busy> {
+  try {
+    return await withInstallLock(join(home, ".spade-update"), work);
+  } catch (error) {
+    const code = error instanceof Error ? Reflect.get(error, "errcode") : undefined;
+    if (typeof code === "number" && busyCodes.has(code)) return busy;
+    throw error;
+  }
+}
+
 /**
- * Reopens Spade's admission after an updater that closed it died (`ace update recover`).
- * Best effort: a Spade that isn't running has nothing to reopen.
+ * Reopens Spade's admission after an updater that closed it died (`ace update recover`, and
+ * the start of every `apply`). Only under Spade's update lock, so it never reopens Spade in the
+ * middle of another updater's swap (that one holds the lock and is left alone), and only for a
+ * Spade whose service runs. Best effort: never throws.
  */
-export async function reopenSpadeAdmission(home: string): Promise<void> {
-  const ports = localSpadeSwapPorts({
-    home,
-    plan: await localSpadePlan(home),
-    source: "",
-    version: "0.0.0",
-  });
-  await ports.reopenAdmission().catch(() => {});
+export async function reopenSpadeAdmission(
+  home: string,
+  options: { plan?: SpadeServicePlan; io?: Partial<SpadeSwapIo> } = {},
+): Promise<"reopened" | "busy" | "not-running" | "failed"> {
+  try {
+    const plan = options.plan ?? (await localSpadePlan(home));
+    const ports = localSpadeSwapPorts({
+      ...options.io,
+      home,
+      plan,
+      source: "",
+      version: "0.0.0",
+    });
+    const result = await withSpadeLock(home, async () => {
+      if ((await ports.state()) !== "running") return "not-running" as const;
+      await ports.reopenAdmission();
+      return "reopened" as const;
+    });
+    return result === busy ? "busy" : result;
+  } catch {
+    return "failed";
+  }
 }

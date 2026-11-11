@@ -1,15 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { InstalledRelease } from "@ace/protocol";
-import { releasePointer } from "@ace/service";
+import { isNewer, releasePointer } from "@ace/service";
 import {
   describeSpadeSwap,
+  reopenSpadeAdmission,
   spadeBinaryName,
+  swapPrograms,
   takeSpadeUpdateMode,
   updateSpade,
   type SpadeSwapMode,
   type SpadeSwapResult,
-} from "@ace/service/spade";
+} from "@ace/service/spade-service";
 
 /**
  * Spade's half of `ace update apply` (ADR 0123): after the daemon's swap, Spade moves to the
@@ -58,4 +60,38 @@ export async function spadeFollowCli(
   const line = describeSpadeSwap(result);
   if (line) write(line);
   return result;
+}
+
+const writeLine = (line: string) => process.stdout.write(`${line}\n`);
+
+/**
+ * `ace update apply`'s two programs (ADR 0123): the daemon's swap, then Spade's, never both
+ * stopped at once. `--interrupt` swaps Spade `now`, anything else waits for it to be idle. An
+ * up-to-date daemon still brings along a Spade an earlier failed swap left behind.
+ */
+export async function applyWithSpade(options: {
+  root: string;
+  installed: string;
+  offered: string;
+  interrupt: boolean | undefined;
+  daemon(): Promise<unknown>;
+}): Promise<void> {
+  const mode = options.interrupt ? "now" : "idle";
+  if (!isNewer(options.offered, options.installed))
+    await updateSpadeToCurrent(options.root, mode, writeLine);
+  await swapPrograms({
+    daemon: options.daemon,
+    spade: () => updateSpadeToCurrent(options.root, mode, writeLine),
+  });
+}
+
+/** `ace update recover`: an updater that died with Spade's admission closed leaves it closed. */
+export async function recoverSpade(root: string): Promise<void> {
+  await reopenSpadeAdmission(root);
+}
+
+/** The release command `spade-follow`; a failed swap exits 1. */
+export async function spadeReleaseCommand(root: string, args: readonly string[]): Promise<void> {
+  const result = await spadeFollowCli(root, args, writeLine);
+  if (result.kind === "failed") process.exitCode = 1;
 }

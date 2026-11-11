@@ -35,14 +35,13 @@ import {
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
-import { isNewer, recoveryDelay } from "@ace/service";
+import { recoveryDelay } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
-import { reopenSpadeAdmission, swapPrograms } from "@ace/service/spade";
-import { spadeFollowCli, updateSpadeToCurrent } from "./spade-update.ts";
+import { updateArguments } from "./update-arguments.ts";
+import { applyWithSpade, recoverSpade, spadeReleaseCommand } from "./spade-update.ts";
 // Build replaces this constant. A source checkout cannot authenticate a public release.
 export const RELEASE_PUBLIC_KEY = "__ACE_RELEASE_PUBLIC_KEY__";
-const writeLine = (line: string) => process.stdout.write(`${line}\n`);
 const sleep = () => new Promise<void>((r) => setTimeout(r, 1000));
 const dataDir = () => readConfig().dataDir;
 const Connection = z.object({
@@ -145,8 +144,7 @@ export async function updateCli(args: string[]) {
       await recoverUpdate(root, root, ports);
       // A crash after committing can leave only the in-memory admission barrier.
       await ports.maintenance("DELETE");
-      // So can an updater that died while Spade's admission was closed.
-      await reopenSpadeAdmission(root).catch(() => {});
+      await recoverSpade(root);
     });
     if (command === "recover") return;
   }
@@ -169,12 +167,11 @@ export async function updateCli(args: string[]) {
       process.stdout.write(JSON.stringify(release.manifest) + "\n");
       return;
     }
-    const spadeMode = interrupt ? "now" : "idle";
-    // An up-to-date daemon still brings a Spade left behind by an earlier failed swap along.
-    if (!isNewer(release.manifest.version, installed.version))
-      await updateSpadeToCurrent(root, spadeMode, writeLine);
-    // The daemon first, then Spade: never both stopped at once (ADR 0123).
-    await swapPrograms({
+    await applyWithSpade({
+      root,
+      installed: installed.version,
+      offered: release.manifest.version,
+      interrupt,
       daemon: () =>
         applyUpdate({
           root,
@@ -188,7 +185,6 @@ export async function updateCli(args: string[]) {
           interrupt,
           ports,
         }),
-      spade: () => updateSpadeToCurrent(root, spadeMode, writeLine),
     });
   };
   if (!outcome) return install();
@@ -204,30 +200,6 @@ export async function updateCli(args: string[]) {
   }
 }
 
-/**
- * `ace update check | recover | apply [--drain | --interrupt] [--outcome]`. `--interrupt`
- * stops running agents instead of waiting (they continue after the restart); `--outcome`
- * records how it ended for the daemon, as a remote update does.
- */
-export function updateArguments(args: readonly string[]) {
-  const usage = "Usage: ace update check|apply [--drain|--interrupt] [--outcome]|recover";
-  const command = z.enum(["check", "apply", "recover"]).parse(args[0]);
-  const flags = args.slice(1);
-  const known = new Set(["--drain", "--interrupt", "--outcome"]);
-  if (
-    (command !== "apply" && flags.length > 0) ||
-    flags.some((flag) => !known.has(flag)) ||
-    new Set(flags).size !== flags.length ||
-    (flags.includes("--drain") && flags.includes("--interrupt"))
-  )
-    throw new Error(usage);
-  return {
-    command,
-    drain: flags.includes("--drain"),
-    interrupt: flags.includes("--interrupt"),
-    outcome: flags.includes("--outcome"),
-  };
-}
 export async function installArtifact(
   artifact: string,
   installService: (root: string) => Promise<unknown> = (root) =>
@@ -344,10 +316,8 @@ export async function releaseCommand(args: string[]): Promise<boolean> {
   else if (args[0] === "supervise") await supervise();
   else if (args[0] === "migrate-check" && args.length === 2 && args[1])
     await migrateCheck(resolve(args[1]));
-  else if (args[0] === "spade-follow") {
-    const result = await spadeFollowCli(dataDir(), args.slice(1), writeLine);
-    if (result.kind === "failed") process.exitCode = 1;
-  } else if (args[0] === "install-artifact" && args.length === 2 && args[1])
+  else if (args[0] === "spade-follow") await spadeReleaseCommand(dataDir(), args.slice(1));
+  else if (args[0] === "install-artifact" && args.length === 2 && args[1])
     await installArtifact(resolve(args[1]));
   else return false;
   return true;

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { updateArguments } from "./runtime.ts";
+import { updateArguments } from "./update-arguments.ts";
 
 test.each([
   [["apply"], { command: "apply", drain: false, interrupt: false, outcome: false }],
