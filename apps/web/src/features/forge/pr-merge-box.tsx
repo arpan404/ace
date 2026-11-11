@@ -157,7 +157,7 @@ export function PrMergeBox(props: {
   const blocking = useBlockingItems(detail);
   const state = detail.status.state;
   if (state === "unknown") return null;
-  const surface = "scroll-mt-16 rounded-lg bg-surface-1";
+  const surface = "scroll-mt-16 rounded-lg bg-fill";
   if (state === "merged" || state === "closed") {
     const merged = state === "merged";
     const by = ended?.by ? ` by ${ended.by}` : "";

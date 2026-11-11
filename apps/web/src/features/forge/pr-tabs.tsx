@@ -21,10 +21,10 @@ const names: Record<PrTab, string> = {
 
 /**
  * Summary · Timeline · Code · Checks as words on the bar's hairline, the current one in full ink
- * and underlined in ink. Focus shows only from the keyboard.
+ * and underlined in ink. Focus is the app's own ring, from the keyboard only. Focus shows only from the keyboard.
  */
 const wordTab =
-  "h-10 rounded-none bg-transparent px-2 text-ui font-normal focus-ring-inset hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
+  "h-10 rounded-sm bg-transparent px-2 text-ui font-normal hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
 
 /**
  * The tab bar: Summary · Timeline · Code · Checks as words with a quiet count each, and the

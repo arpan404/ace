@@ -127,7 +127,7 @@ export function PrPageSkeleton(props: {
       <div aria-hidden className={props.readable}>
         <div className="grid gap-6 px-[var(--forge-gutter,1rem)] pt-4 @min-[50rem]/pr:grid-cols-[minmax(0,1fr)_15rem] @min-[50rem]/pr:gap-8">
           <div className="min-w-0 space-y-7">
-            <section className="rounded-lg bg-surface-1">
+            <section className="rounded-lg bg-fill">
               <div className="space-y-2.5 px-4 pt-3.5 pb-3">
                 <span className="flex items-center gap-2">
                   <Skeleton className="size-4.5 rounded-full" />
