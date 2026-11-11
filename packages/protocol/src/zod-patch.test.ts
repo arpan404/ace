@@ -105,7 +105,7 @@ test("a trait added to one built schema is not added to another schema of the sa
   const first = z.string();
   const second = z.string();
   const Marker = z.core.$constructor("AceMarker", () => {});
-  Marker.init(first, first._zod.def);
+  Marker.init(first, first.def);
   expect(first instanceof Marker).toBe(true);
   expect(second instanceof Marker).toBe(false);
   expect(z.string() instanceof Marker).toBe(false);
