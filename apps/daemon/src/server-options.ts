@@ -73,7 +73,8 @@ export interface ServerOptions {
   utility?: Pick<import("./services/utility.ts").UtilityService, "titles">;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
-  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers"> &
+    Partial<Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "handleHttp">>;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   /** This Mac's locked computer use component (`lockedUse.*`); a placeholder when absent. */

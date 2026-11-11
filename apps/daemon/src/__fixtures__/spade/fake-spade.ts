@@ -9,6 +9,10 @@
  * Routes for tests:
  * - `GET /v1/env`: its pid, the grant it holds (null when none), how many grants it was handed,
  *   and the names of the `ACE_*` variables it was started with.
+ * - `POST /v1/test/ace` → 202: finds ace as Spade does, from `<SPADE_ACE_HOME>/daemon-endpoint`,
+ *   and calls `<endpoint>/mcp` with its grant: a ping, then a 2025-11-25 session's list-changed
+ *   stream, held open until its first event. `GET /v1/test/ace` → 202 while that runs, then 200
+ *   with the MCP URL used, the ping's status, and the stream's status and first event.
  * - `POST /v1/conversations`: `201`, echoing the body it received.
  * - `GET /v1/conversations/{id}/live?after=N`: server-sent events, `stored` with seq N + 1 first.
  * - `POST /v1/conversations/{id}/messages`: `202` with the body's size and SHA-256, and a `delta`
@@ -51,6 +55,7 @@ const token = randomBytes(32).toString("hex");
 const version = "0.1.0-fake";
 let grant: string | null = null;
 let handed = 0;
+let reached: { pending: true } | { found: unknown } | { error: string } | undefined;
 /** A stored image `GET /v1/images/{n}` answers: `n` bytes in a fixed pattern. */
 const imageBytes = (size: number) =>
   Buffer.from(Array.from({ length: size }, (_, index) => (index * 31 + 7) % 256));
@@ -87,6 +92,20 @@ const server = createServer((request, response) => {
         handed,
         aceKeys: Object.keys(process.env).filter((key) => key.startsWith("ACE_")),
       });
+    if (url.pathname === "/v1/test/ace") {
+      if (request.method === "POST") {
+        reached = { pending: true };
+        reachAce().then(
+          (found) => (reached = { found }),
+          (error: unknown) => (reached = { error: String(error) }),
+        );
+        return json(response, 202, {});
+      }
+      if (!reached || "pending" in reached) return json(response, 202, {});
+      return "found" in reached
+        ? json(response, 200, reached.found)
+        : json(response, 502, { error: reached.error });
+    }
     if (url.pathname === "/v1/ace") {
       if (request.method === "GET")
         return json(response, 200, { grant: grant !== null, connected: false });
@@ -143,6 +162,82 @@ const server = createServer((request, response) => {
     json(response, 404, {});
   });
 });
+
+/** ace's MCP endpoint as Spade finds it, called with the grant it holds. */
+async function reachAce() {
+  const home = process.env.SPADE_ACE_HOME;
+  if (!home) throw new Error("SPADE_ACE_HOME is not set");
+  const endpoint = readFileSync(join(home, "daemon-endpoint"), "utf8").trim();
+  const mcpUrl = `${endpoint}/mcp`;
+  const headers = {
+    authorization: `Bearer ${grant ?? ""}`,
+    accept: "application/json, text/event-stream",
+    "x-ace-notifications": "stream",
+  };
+  const ping = await fetch(mcpUrl, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+  });
+  await ping.body?.cancel();
+  // The list-changed stream as spade-ace opens it: a 2025-11-25 session, then GET under its id.
+  const post = (body: unknown, session?: string) =>
+    fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "content-type": "application/json",
+        ...(session ? { "mcp-session-id": session, "mcp-protocol-version": "2025-11-25" } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  const opened = await post({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "spade", version },
+    },
+  });
+  const session = opened.headers.get("mcp-session-id") ?? "";
+  await opened.body?.cancel();
+  await (
+    await post({ jsonrpc: "2.0", method: "notifications/initialized" }, session)
+  ).body?.cancel();
+  const stream = await fetch(mcpUrl, {
+    method: "GET",
+    headers: {
+      ...headers,
+      accept: "text/event-stream",
+      "mcp-session-id": session,
+      "mcp-protocol-version": "2025-11-25",
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+  // The first event the stream carries (a tools list change), then it is let go.
+  const reader = stream.body?.getReader();
+  let text = "";
+  while (!/data: .*\n/.test(text)) {
+    if (!reader) break;
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += new TextDecoder().decode(value);
+  }
+  await reader?.cancel();
+  const data = /data: (.*)\n/.exec(text)?.[1];
+  const event: unknown = data ? JSON.parse(data) : undefined;
+  return {
+    mcpUrl,
+    ping: ping.status,
+    stream: {
+      status: stream.status,
+      method:
+        typeof event === "object" && event !== null ? String(Reflect.get(event, "method")) : null,
+    },
+  };
+}
 
 const [host = "127.0.0.1", port = "0"] = listen.split(":");
 server.listen(Number(port), host, () => {

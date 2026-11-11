@@ -97,6 +97,8 @@ export async function startDaemonMcp(
   });
   return {
     url: server.url,
+    /** Serves `/mcp` arriving on the daemon's own loopback port, as `url` serves it. */
+    handleHttp: server.handleHttp,
     toolNames: () => ["context", aceToolSearch, aceToolDispatch, ...registry.names()],
     toolsChanged: server.toolsChanged,
     /** This session's failed ace calls, for diagnostics. */

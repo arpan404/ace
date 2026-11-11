@@ -7,7 +7,7 @@ import { Command, DeviceId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import { Client } from "./socket-test-support.ts";
-import { connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
+import { aceMcpUrl, connectSpadeMcp, spadeEnv, until } from "./spade-test-support.ts";
 
 type Daemon = Awaited<ReturnType<typeof daemonFixture>>["daemon"];
 
@@ -21,7 +21,7 @@ async function startSpade(daemon: Daemon) {
   const grant = await until(async () => (await spadeEnv(daemon)).grant, "Spade's grant");
   const thread = daemon.spade?.status().thread;
   if (!thread) throw new Error("Spade has no host thread");
-  return { hostId: ThreadId.parse(thread.id), grant, url: daemon.mcp?.url ?? "" };
+  return { hostId: ThreadId.parse(thread.id), grant, url: aceMcpUrl(daemon) };
 }
 /** Spade's MCP client as spade-ace connects. */
 const connectMcp = (spade: { url: string; grant: string }) =>

@@ -1,13 +1,16 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
 import { daemonFixture } from "./agent-control/daemon-test-support.ts";
 import {
+  aceMcpUrl,
   adminSocket,
   connectSpadeMcp,
   mcpStatus,
   OlderOutsideResult,
   spadeEnv,
+  spadeReachesAce,
   until,
 } from "./spade-test-support.ts";
 
@@ -43,7 +46,17 @@ test("Spade's grant reaches Spade when it appears, acts only as its host thread,
     service.release();
     await ready(daemon);
     const token = await until(async () => (await spadeEnv(daemon)).grant, "Spade's grant");
-    const mcpUrl = daemon.mcp?.url ?? "";
+    // Spade finds ace as it does for real: `<daemon-endpoint>/mcp`, on the daemon's own port,
+    // where its grant works for calls and for the notifications stream.
+    const reached = await spadeReachesAce(daemon, () => daemon.mcp?.toolsChanged());
+    const endpoint = (await readFile(join(home, "daemon-endpoint"), "utf8")).trim();
+    expect(reached).toEqual({
+      mcpUrl: `${endpoint}/mcp`,
+      ping: 200,
+      stream: { status: 200, method: "notifications/tools/list_changed" },
+    });
+    expect(reached.mcpUrl).not.toBe(daemon.mcp?.url);
+    const mcpUrl = reached.mcpUrl;
 
     // The grant is the host thread's lease: the agent tool set, with nothing that waits on the
     // person inside the hidden thread.
@@ -84,7 +97,7 @@ test("Spade's grant reaches Spade when it appears, acts only as its host thread,
     daemon = await f.restart();
     await ready(daemon);
     expect(service.pid()).toBe(pid);
-    expect(await mcpStatus(daemon.mcp?.url ?? "", token)).toBe(200);
+    expect(await mcpStatus(aceMcpUrl(daemon), token)).toBe(200);
     expect(await spadeEnv(daemon)).toMatchObject({ grant: token, handed: 1 });
 
     // The person revokes it from Spade's settings: the token stops working at once and Spade is
@@ -96,7 +109,7 @@ test("Spade's grant reaches Spade when it appears, acts only as its host thread,
       revoked: true,
     });
     expect(grantOf(daemon)?.state).toBe("revoked");
-    expect(await mcpStatus(daemon.mcp?.url ?? "", token)).toBe(401);
+    expect(await mcpStatus(aceMcpUrl(daemon), token)).toBe(401);
     await until(async () => (await spadeEnv(daemon)).grant === null, "Spade to forget its grant");
 
     // It stays revoked across a restart, until Spade is turned on again.
@@ -127,7 +140,7 @@ test("turning Spade off retires its grant and removes its service; turning it on
     await until(() => !service.registered(), "the service to be removed");
     await until(() => daemon.spade?.status().state === "off", "Spade to be off");
     expect(service.pid()).toBeUndefined();
-    expect(await mcpStatus(daemon.mcp?.url ?? "", first)).toBe(401);
+    expect(await mcpStatus(aceMcpUrl(daemon), first)).toBe(401);
     expect(grantOf(daemon)?.state).toBe("revoked");
 
     // On again: registered again, and the new Spade gets a new grant that works.
@@ -136,7 +149,7 @@ test("turning Spade off retires its grant and removes its service; turning it on
     expect(service.pid()).not.toBe(pid);
     const second = await until(async () => (await spadeEnv(daemon)).grant, "a grant");
     expect(second).not.toBe(first);
-    expect(await mcpStatus(daemon.mcp?.url ?? "", second)).toBe(200);
+    expect(await mcpStatus(aceMcpUrl(daemon), second)).toBe(200);
     expect(grantOf(daemon)?.state).toBe("present");
   } finally {
     await daemon.close();

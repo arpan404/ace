@@ -58,6 +58,41 @@ export async function spadeEnv(daemon: { spade?: SpadeLink | undefined }) {
   return Env.parse(JSON.parse(answer.body.toString("utf8")));
 }
 
+const ReachedAce = z.object({
+  mcpUrl: z.string(),
+  ping: z.number(),
+  stream: z.object({ status: z.number(), method: z.string().nullable() }),
+});
+/**
+ * ace as the fake Spade finds it: from `daemon-endpoint`, calling `<endpoint>/mcp` with its
+ * grant, a ping and then the list-changed stream. The stream answers only with its first event,
+ * so `changeTools` is called until one arrives.
+ */
+export async function spadeReachesAce(
+  daemon: { spade?: SpadeLink | undefined },
+  changeTools: () => void,
+) {
+  const ready = daemon.spade?.ready();
+  if (!ready) throw new Error("Spade isn't ready");
+  const call = (method: "GET" | "POST") =>
+    spadeRequest(
+      ready.connection,
+      { method, path: "/v1/test/ace" },
+      { signal: AbortSignal.timeout(10_000), maxBytes: 65536 },
+    );
+  await call("POST");
+  const text = await until(async () => {
+    changeTools();
+    const answer = await call("GET");
+    if (answer.kind !== "response" || answer.status === 202) return undefined;
+    return answer.body.toString("utf8");
+  }, "Spade to reach ace");
+  return ReachedAce.parse(JSON.parse(text));
+}
+
+/** Where Spade calls ace's tools: `<daemon-endpoint>/mcp`, on the daemon's own port. */
+export const aceMcpUrl = (daemon: { url: string }) => `${daemon.url.replace(/^ws:/, "http:")}/mcp`;
+
 /** The HTTP status of an MCP ping with `bearer`. */
 export async function mcpStatus(url: string, bearer: string): Promise<number> {
   const response = await fetch(url, {

@@ -9,7 +9,7 @@ import { readConfig, startDaemon } from "./index.ts";
 import { noProviderDiscovery } from "./testing/no-provider-discovery.ts";
 import { Client } from "./socket-test-support.ts";
 import { fakeSpadeService } from "./__fixtures__/spade/fake-service.ts";
-import { mcpStatus, spadeEnv, until as poll } from "./spade-test-support.ts";
+import { aceMcpUrl, mcpStatus, spadeEnv, until as poll } from "./spade-test-support.ts";
 
 const pollMs = { waiting: 50, ready: 200 };
 
@@ -107,7 +107,7 @@ test("the daemon forwards requests and live streams to the Spade service, follow
   expect(service.registered()).toBe(true);
 
   // Spade was handed its grant, which works on the daemon's MCP endpoint.
-  const mcpUrl = daemon.mcp?.url ?? "";
+  const mcpUrl = aceMcpUrl(daemon);
   const env = await poll(async () => {
     const seen = await spadeEnv(daemon);
     return seen.grant ? seen : undefined;
