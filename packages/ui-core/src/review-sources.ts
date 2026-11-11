@@ -1,7 +1,6 @@
 import { repositoryKey } from "@ace/forge/project-repositories";
-import { issueReadableForges } from "@ace/protocol/forge";
+import { can } from "./forge-capability.ts";
 import type { ForgeRepository, ProjectRepositories } from "@ace/protocol";
-import { reviewRepositories } from "./project-repositories.ts";
 
 /*
  * Which list reads Code review sends for a set of projects (ADR 0116): one per repository each
@@ -20,13 +19,16 @@ export interface ReviewSource {
 function sourcesOf(
   projects: readonly string[],
   lists: ReadonlyMap<string, ProjectRepositories>,
-  readable: (repository: ForgeRepository) => boolean,
+  readable: (entry: ProjectRepositories["repositories"][number]) => boolean,
 ): ReviewSource[] {
   return projects.flatMap((project): ReviewSource[] => {
     const value = lists.get(project);
     if (!value) return [{ project }];
-    const repositories = reviewRepositories(value).filter(readable);
-    if (!repositories.length) return value.config ? [] : [{ project }];
+    const shown = value.repositories.filter((entry) => entry.visible && entry.available);
+    // Nothing listed at all keeps the old project read, so its error still explains why.
+    if (!shown.length) return value.config ? [] : [{ project }];
+    const repositories = shown.filter(readable).map((entry) => entry.repository);
+    if (!repositories.length) return [];
     const primary = value.primary && repositoryKey(value.primary);
     const several = repositories.length > 1;
     return repositories.map((repository) => {
@@ -49,19 +51,18 @@ export function reviewSources(
   projects: readonly string[],
   lists: ReadonlyMap<string, ProjectRepositories>,
 ): ReviewSource[] {
-  return sourcesOf(projects, lists, () => true);
+  return sourcesOf(projects, lists, (entry) => can(entry, "reviews.read"));
 }
 
 /**
  * Each project's issue reads, by the same rule as `reviewSources`, from the repositories whose
- * provider ace reads issues from (`issueReadableForges`): a GitLab mirror lists its merge
- * requests in Pull requests but nothing in Issues.
+ * capabilities include issues.read. Older daemons keep the legacy GitHub-only issue list.
  */
 export function issueSources(
   projects: readonly string[],
   lists: ReadonlyMap<string, ProjectRepositories>,
 ): ReviewSource[] {
-  return sourcesOf(projects, lists, (repository) => issueReadableForges.includes(repository.forge));
+  return sourcesOf(projects, lists, (entry) => can(entry, "issues.read"));
 }
 
 /** A read's id: the project alone for its primary, else the project and the repository. */

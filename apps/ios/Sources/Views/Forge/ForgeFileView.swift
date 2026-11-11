@@ -193,7 +193,7 @@ struct ForgeFileView: View {
         let head = file.headSha
         let picked = file.lines.filter { pick.holds($0) }
         // A suggestion replaces lines of the new side; deleted lines have none to change.
-        let suggestion = pick.side == "RIGHT" ? picked.map(\.text).joined(separator: "\n") : nil
+        let suggestion = file.suggestions == true && pick.side == "RIGHT" ? picked.map(\.text).joined(separator: "\n") : nil
         let done: (Bool) -> Bool = { ok in
             if ok { withAnimation { self.pick = nil } }
             return ok

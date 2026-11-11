@@ -787,9 +787,9 @@ Example:
   "base": "W<",
   "body": "example",
   "head": {
-    "branch": "z_p6K>>C{",
-    "name": "x6shunNpXP",
-    "owner": "Ih7CnnyPz"
+    "branch": "6QJM.+6wH",
+    "name": "bwIyP",
+    "owner": "Ih7CnnyQz/6shun/pXPY8P2/Dtt/-fOG/J471Z/A.HmtEPq/vWiwzNEuNG/VlpplP8-m/fTFUyH"
   },
   "repository": {
     "forge": "gitbucket",
@@ -797,7 +797,7 @@ Example:
     "name": "EhfVC",
     "owner": "SY2kwq4nO/MD-l/Zdo8yM.qe"
   },
-  "title": "*",
+  "title": "s",
   "type": "forge.hosted.pr.create",
   "workspaceId": "example"
 }
@@ -1522,7 +1522,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"forge.review.request"` |  |
 | link | yes | [ForgeThreadLink.json](schema/ForgeThreadLink.json) |  |
-| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^[\\w-]+$"}} |
+| reviewers | yes | array | {"minItems":1,"maxItems":100,"items":{"type":"string","maxLength":100,"pattern":"^[\\w.-]+$"}} |
 
 Example:
 
@@ -1541,7 +1541,7 @@ Example:
     "threadId": "example"
   },
   "reviewers": [
-    "WMa95"
+    "XMa-6"
   ],
   "type": "forge.review.request"
 }

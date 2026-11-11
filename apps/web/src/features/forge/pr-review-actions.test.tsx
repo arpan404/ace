@@ -159,6 +159,29 @@ test("a suggestion commits on its own or with others as one batch, never from an
   }
 });
 
+test("a host that can approve but not ask for reviewers offers no review request", async () => {
+  const app = harness();
+  for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  const operation = {
+    op: "forge.pr.detail",
+    workspaceId: WorkspaceId.parse("api"),
+    number: 42,
+  } as const;
+  app.daemon.workspace.setForgeRead(operation, {
+    resource: "prDetail",
+    value: {
+      ...detail,
+      capabilities: ["reviews.read", "reviews.approvals.read", "reviews.approvals.write"],
+      status: { ...detail.status, reviewThreads: [] },
+    },
+  });
+  await openPullRequest(app, { project: "api", number: 42 });
+  await screen.findByRole("article", { name: "Pull request #42" }, { timeout: 10_000 });
+  await userEvent.click(await screen.findByRole("button", { name: "Pull request actions" }));
+  await screen.findByRole("menu");
+  expect(screen.queryByRole("menuitem", { name: "Request review…" })).toBeNull();
+}, 30_000);
+
 test("a reviewer can be requested from the PR panel when no task is linked to the pull request", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();

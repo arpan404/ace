@@ -400,3 +400,5 @@ export {
 } from "./locked-use.ts";
 export * from "./forge-review-submit.ts";
 export * from "./forge-fix-marks.ts";
+
+export * from "./forge-capability.ts";

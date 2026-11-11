@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import type { z } from "zod";
 import { useClient, useConnectionState } from "@ace/client-react";
@@ -41,6 +42,7 @@ export function usePrLifecycle(props: {
       props.detail.status.state,
       props.detail.status.title,
     ],
+    enabled: can(props.detail, "reviews.edit"),
     retry: false,
     gcTime: keptForgeMs,
     staleTime: 0,
@@ -103,7 +105,7 @@ export function usePrLifecycle(props: {
       setPending(false);
     }
   };
-  const snapshot = query.data?.snapshot;
+  const snapshot = can(props.detail, "reviews.edit") ? query.data?.snapshot : undefined;
   const unresolved = (query.data?.operations ?? []).filter(
     (op) => op.state === "pending" || op.state === "uncertain",
   );

@@ -147,7 +147,14 @@ test("Origin browsing probes its account once per window and fails closed after 
     (await h.read(originRepository, { op: "forge.pr.detail", number: 7 })).result,
   ).toMatchObject({
     kind: "forge",
-    data: { resource: "prDetail", value: { readOnly: true, body: "Review description" } },
+    data: {
+      resource: "prDetail",
+      value: {
+        readOnly: true,
+        body: "Review description",
+        capabilities: expect.arrayContaining(["reviews.read", "reviews.files"]),
+      },
+    },
   });
   expect(
     (
@@ -313,6 +320,15 @@ function glab(mrs: Record<number, object>, seen: string[]): CommandRunner {
     seen.push(endpoint);
     if (endpoint === "user") return http("200 OK", { username: "a.user_1" });
     if (!request.args.includes("GET")) throw new Error("Unexpected mutation");
+    if (
+      endpoint.includes("/discussions?") ||
+      endpoint.includes("/commits?") ||
+      endpoint.includes("/pipelines?")
+    )
+      return http("200 OK", [], { "x-total": "0", "x-next-page": "" });
+    if (endpoint.endsWith("/approvals"))
+      return http("200 OK", { approved_by: [], approved: false });
+    if (endpoint.endsWith("/approval_state")) return http("200 OK", { rules: [] });
     if (endpoint.includes("/diffs?"))
       return http(
         "200 OK",
@@ -362,7 +378,21 @@ test("GitLab merge requests browse through glab with GET-only, pinned reads", as
     (await h.read(gitlabRepository, { op: "forge.pr.detail", number: 3 })).result,
   ).toMatchObject({
     kind: "forge",
-    data: { resource: "prDetail", value: { body: "MR body", changedFiles: 1 } },
+    data: {
+      resource: "prDetail",
+      value: {
+        body: "MR body",
+        changedFiles: 1,
+        // What clients gate GitLab's comments, approvals and pipelines on.
+        capabilities: expect.arrayContaining([
+          "reviews.read",
+          "reviews.files",
+          "reviews.comments.read",
+          "reviews.approvals.read",
+          "reviews.checks",
+        ]),
+      },
+    },
   });
   expect(
     (

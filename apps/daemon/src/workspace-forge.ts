@@ -1,4 +1,10 @@
+import { gitLabInboxWriter } from "./hosted-inbox.ts";
+import { HostedChecks } from "./hosted-checks.ts";
+import { lifecycleBackend, mergeBackend, reviewBackend } from "./host-routes.ts";
+import { executeGitLabThreadConversation } from "./hosted-review-conversation.ts";
+import { withForgeCapabilities } from "@ace/forge";
 import { commandNotDispatched } from "./command-not-dispatched.ts";
+import { hostedIssueWriter, hostedIssues, type IssueScope } from "./hosted-issues.ts";
 import { WorkspaceIssueLinks } from "./workspace-issue-links.ts";
 import { actionErrorCode } from "./action-errors.ts";
 import { IssueActions } from "./issue-actions.ts";
@@ -7,9 +13,14 @@ import type { Command } from "@ace/protocol";
 import { ForgeResourceOwner } from "./forge-resource-owner.ts";
 import { WorkspaceForgeLifecycle } from "./workspace-forge-lifecycle.ts";
 import { WorkspaceForgeReviews } from "./workspace-forge-reviews.ts";
-import { WorkspaceForgeChecks } from "./workspace-forge-checks.ts";
 import { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
-import { ForgeError, repositoryKey, type GitHubForge, type CommandRunner } from "@ace/forge";
+import {
+  ForgeError,
+  isTeaHost,
+  repositoryKey,
+  type GitHubForge,
+  type CommandRunner,
+} from "@ace/forge";
 import {
   ForgeCommand,
   type ForgePrRef,
@@ -43,7 +54,7 @@ export class WorkspaceForge {
   private issueLinks: WorkspaceIssueLinks;
   private issueActions: IssueActions;
   private reviews: WorkspaceForgeReviews;
-  private checks = new WorkspaceForgeChecks();
+  private hostedCheckActions: HostedChecks;
   private now: () => number;
   private projection: WorkspacePrLinks;
   private links: WorkspacePrLinks["links"];
@@ -101,6 +112,7 @@ export class WorkspaceForge {
       projection: this.projection,
       links: this.links,
     };
+    this.hostedCheckActions = new HostedChecks(context);
     this.newPr = new WorkspaceNewPr(context);
     this.browser = new WorkspaceForgeBrowse(context, {
       newPr: this.newPr,
@@ -192,7 +204,7 @@ export class WorkspaceForge {
     // GitHub keeps a PR whose fork was deleted, but its head can no longer be fetched.
     if (!detail.headRepository) throw new ForgeError("fork_deleted");
     if (detail.status.headSha !== selection.headSha) throw new ForgeError("head_moved");
-    return detail;
+    return withForgeCapabilities(detail, detail.status.ref.repository);
   }
   async checkout(
     cwd: string,
@@ -224,9 +236,16 @@ export class WorkspaceForge {
   }
   async issueCommand(command: Command, cwd: string, allowed: () => boolean) {
     const p = command.payload;
+    const scope = (repository: IssueScope["repository"]): IssueScope => ({
+      cwd,
+      repository,
+      backends: this.backends,
+      sourceControl: this.sourceControl,
+      signal: this.lifetime.signal,
+    });
     if (p.type === "forge.issue.link") {
       await (
-        await this.backends.backend(cwd, p.issue.repository)
+        await hostedIssues(scope(p.issue.repository))
       ).issueDetail(p.issue.number, this.lifetime.signal);
       if (!allowed()) throw new Error("forbidden");
       this.issueLinks.link(p.threadId, p.issue, this.now());
@@ -234,14 +253,14 @@ export class WorkspaceForge {
     }
     if (p.type !== "forge.issue.write" && p.type !== "forge.issue.reconcile")
       throw new Error("invalid_command");
-    let backend: GitHubForge;
+    let backend: Pick<GitHubForge, "writeIssue" | "reconcileIssue">;
     try {
       // A write is refused on a hidden or unavailable repository. Reconciling only reads whether
       // an earlier write landed, so an uncertain one still settles after its repository is hidden.
       backend =
         p.type === "forge.issue.write"
-          ? await this.backends.writer(cwd, p.repository)
-          : await this.backends.backend(cwd, p.repository);
+          ? await hostedIssueWriter(scope(p.repository))
+          : await hostedIssues(scope(p.repository));
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -252,6 +271,7 @@ export class WorkspaceForge {
     input: unknown,
     cwd: string,
     permitted: () => boolean,
+    commandId?: string,
   ): Promise<Omit<CommandResult, "commandId">> {
     const check = await this.sourceControl?.guard();
     const allowed = () => {
@@ -295,6 +315,53 @@ export class WorkspaceForge {
     }
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) throw new Error("forbidden");
+    // GitLab, Gitea and Forgejo PRs go through their own adapters' admitted writers, never
+    // GitHub's backend.
+    if (p.link.pr.repository.forge === "gitlab" || isTeaHost(p.link.pr.repository.forge)) {
+      const pr = p.link.pr;
+      const generation = this.links.getLinkState(id, pr)?.generation;
+      if (p.type === "forge.pr.status") {
+        const { value } = await this.actions.readDetail(pr, async () => ({
+          status: await (
+            await this.backends.reader(cwd, pr.repository, this.lifetime.signal)
+          ).status(pr.number, this.lifetime.signal),
+        }));
+        this.projection.update(id, value.status, generation);
+        return { ok: true, pr, prStatus: value.status };
+      }
+      // tea has no reply or reviewer-request writes (ADR 0117).
+      if (
+        (p.type === "forge.comment.reply" || p.type === "forge.review.request") &&
+        isTeaHost(pr.repository.forge)
+      )
+        throw new ForgeError("unsupported");
+      if (p.type === "forge.comment.reply" || p.type === "forge.review.request")
+        return executeGitLabThreadConversation({
+          backends: this.backends,
+          reviews: this.reviews,
+          store: this.store,
+          cwd,
+          commandId,
+          action: p,
+          signal: this.lifetime.signal,
+          allowed: () => allowed() && this.links.getLinkState(id, pr)?.generation === generation,
+        });
+      if (
+        p.type !== "forge.pr.merge" &&
+        p.type !== "forge.pr.auto-merge" &&
+        p.type !== "forge.pr.merge-state.change"
+      )
+        throw new ForgeError("unsupported");
+      if (generation === undefined) return { ok: false, error: "forge_not_found" };
+      const backend = await mergeBackend(this.backends, cwd, pr.repository, this.lifetime.signal);
+      return this.actions.execute(
+        p,
+        backend,
+        this.lifetime.signal,
+        () => allowed() && this.links.getLinkState(id, pr)?.generation === generation,
+        (status) => this.projection.update(id, status, generation),
+      );
+    }
     const generation = this.links.getLinkState(id, p.link.pr)?.generation;
     // Refreshing a link's status reads; everything else here writes to the PR's repository.
     const backend =
@@ -358,7 +425,7 @@ export class WorkspaceForge {
     await this.reviews.execute(
       p,
       input.id,
-      await this.backends.writer(cwd, p.pr.repository),
+      await reviewBackend(this.backends, cwd, p.pr, this.lifetime.signal),
       this.lifetime.signal,
       allowed,
     );
@@ -372,7 +439,12 @@ export class WorkspaceForge {
   ) {
     return runInboxWrite(
       command,
-      () => this.backends.inbox(cwd, command.payload.host),
+      async () => {
+        const repository = await this.backends.inboxRepository(cwd, command.payload.host);
+        return repository.forge === "gitlab"
+          ? gitLabInboxWriter(this.backends, cwd, repository, this.lifetime.signal)
+          : this.backends.inbox(cwd, command.payload.host);
+      },
       allowed,
       this.lifetime.signal,
     );
@@ -383,8 +455,7 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.writer(cwd, p.pr.repository);
-    await this.checks.execute(p, backend, this.lifetime.signal, allowed);
+    await this.hostedCheckActions.execute(p, cwd, this.lifetime.signal, allowed);
     return { ok: true };
   }
   /**
@@ -403,9 +474,9 @@ export class WorkspaceForge {
     const p = command.payload;
     this.lifetime.signal.throwIfAborted();
     if (!allowed()) return commandNotDispatched(command, "forbidden");
-    let backend: GitHubForge;
+    let backend: import("./workspace-forge-actions.ts").ForgeActionBackend;
     try {
-      backend = await this.backends.writer(cwd, p.pr.repository);
+      backend = await mergeBackend(this.backends, cwd, p.pr.repository, this.lifetime.signal);
     } catch (error) {
       return commandNotDispatched(command, actionErrorCode(error));
     }
@@ -433,7 +504,12 @@ export class WorkspaceForge {
     allowed: () => boolean,
   ) {
     const p = command.payload;
-    const backend = await this.backends.writer(cwd, p.pr.repository);
+    const backend = await lifecycleBackend(
+      this.backends,
+      cwd,
+      p.pr.repository,
+      this.lifetime.signal,
+    );
     const receipt = await this.lifecycle.execute(
       p,
       command.id,

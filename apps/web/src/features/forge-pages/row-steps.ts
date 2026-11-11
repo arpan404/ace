@@ -1,3 +1,4 @@
+import { can, repositoryCapabilities } from "@ace/ui-core";
 import {
   prNextAction,
   prStatusWords,
@@ -12,7 +13,7 @@ import {
 } from "@ace/ui-core";
 import { useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import type { ForgePrRow, VerifyRun } from "@ace/protocol";
+import type { ForgePrRow, VerifyRun, ProjectRepositories } from "@ace/protocol";
 import type { MergeRun } from "./merge-run.ts";
 import { useMarkReady } from "./mark-ready.ts";
 import { useStepAction } from "./pr-step.tsx";
@@ -39,6 +40,7 @@ export interface RowStepView {
  * agent's thread.
  */
 export function useRowSteps(input: {
+  lists: ReadonlyMap<string, ProjectRepositories>;
   back: string;
   rows: readonly ForgePrRow[];
   projectOf(row: ForgePrRow): string;
@@ -47,13 +49,17 @@ export function useRowSteps(input: {
   runs: readonly VerifyRun[];
   command: string | null | undefined;
 }) {
-  const { rows, viewer, linked, runs } = input;
+  const { rows, viewer, linked, runs, lists } = input;
+  const sourceOf = (row: ForgePrRow) =>
+    repositoryCapabilities(row.ref.repository, lists.get(input.projectOf(row))?.repositories ?? []);
   const steps = useMemo(() => {
     const found = new Map<string, RowStep>();
     for (const row of rows)
-      found.set(keyOf(row), rowStep(row, viewer, linked.get(keyOf(row)), runs));
+      found.set(keyOf(row), rowStep(row, viewer, linked.get(keyOf(row)), runs, sourceOf(row)));
     return found;
-  }, [rows, viewer, linked, runs]);
+    // sourceOf reads only lists and each row's project, which changes with the rows.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, viewer, linked, runs, lists]);
   const act = useStepAction(input.back);
   const markReady = useMarkReady();
   const navigate = useNavigate();
@@ -73,8 +79,22 @@ export function useRowSteps(input: {
     const status = prStatusWords(row, step, local, thread);
     const label = prNextAction(row, step, thread, viewer);
     const group = groupOf(row);
+    const source = sourceOf(row);
+    // A host that reports neither reviews nor checks can't say where a review stands.
+    if (
+      !can(source, "reviews.approvals.read") &&
+      !can(source, "reviews.checks") &&
+      step !== "answer"
+    )
+      return {
+        status:
+          row.state === "closed" || row.state === "merged"
+            ? status
+            : { words: "Review status unavailable", tone: undefined },
+        action: { label: "View", onPress: () => openPr(row) },
+      };
     // Merging picks the row for a verified merge; one without a known head merges on its page.
-    if (group === "merge" && merge && row.headSha)
+    if (can(source, "reviews.merge") && group === "merge" && merge && row.headSha)
       return {
         status,
         action: {
@@ -92,14 +112,8 @@ export function useRowSteps(input: {
           onPress: () => void navigate({ to: "/t/$threadId", params: { threadId: thread.id } }),
         },
       };
-    if (row.ref.repository.forge !== "github" && step !== "answer")
-      return {
-        status:
-          row.state === "closed" || row.state === "merged"
-            ? status
-            : { words: "Review status unavailable", tone: undefined },
-        action: { label: "View", onPress: () => openPr(row) },
-      };
+    if (label === "Mark ready" && !can(source, "reviews.edit"))
+      return { status, action: { label: "View", onPress: () => openPr(row) } };
     if (label === "Mark ready")
       return {
         status,

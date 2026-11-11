@@ -1,10 +1,15 @@
 import { expect, test } from "vitest";
-import { isReadOnlyApiRequest, type ReadOnlyCli } from "./read-only-api.ts";
+import {
+  isAdmittedApiRequest,
+  isAdmittedWriteRequest,
+  isReadOnlyApiRequest,
+  type HostApiCli,
+} from "./read-only-api.ts";
 
 const host = "gitlab.example.com";
 const glabRead = (endpoint: string) => ["api", endpoint, "-X", "GET", "--hostname", host];
 
-const cases: [string, ReadOnlyCli, string, string[], boolean][] = [
+const cases: [string, HostApiCli, string, string[], boolean][] = [
   ["glab GET read", "glab", "glab", [...glabRead("projects/1/merge_requests"), "--include"], true],
   ["glab GET read without output flags", "glab", "glab", glabRead("projects/1"), true],
   [
@@ -84,4 +89,45 @@ test("a request carrying a body on stdin is refused even as a GET", () => {
       host,
     ),
   ).toBe(false);
+});
+
+const noteWrite = { method: "POST" as const, endpoint: /^projects\/[^/]+\/issues\/\d+\/notes$/ };
+const write = (args: string[], input?: string) =>
+  input === undefined ? { command: "glab", args } : { command: "glab", args, input };
+const noteArgs = (endpoint: string, method = "POST", hostname = "gitlab.com") => [
+  "api",
+  endpoint,
+  "-X",
+  method,
+  "--hostname",
+  hostname,
+  "--include",
+  "--input",
+  "-",
+];
+
+test.each([
+  ["an admitted note", noteArgs("projects/1/issues/2/notes"), '{"body":"hi"}', true],
+  ["another endpoint", noteArgs("projects/1/issues/2"), '{"body":"hi"}', false],
+  ["another method", noteArgs("projects/1/issues/2/notes", "DELETE"), '{"body":"hi"}', false],
+  ["another host", noteArgs("projects/1/issues/2/notes", "POST", "evil.com"), "{}", false],
+  ["no body", noteArgs("projects/1/issues/2/notes"), undefined, false],
+  ["a body that isn't an object", noteArgs("projects/1/issues/2/notes"), "[1]", false],
+  ["a field flag", [...noteArgs("projects/1/issues/2/notes"), "-f", "body=x"], "{}", false],
+] as const)("glab write: %s", (_name, args, input, allowed) => {
+  expect(isAdmittedWriteRequest("glab", write([...args], input), "gitlab.com", [noteWrite])).toBe(
+    allowed,
+  );
+});
+
+test("reads stay admitted and no write is admitted without a listed write", () => {
+  const read = write(["api", "projects/1", "-X", "GET", "--hostname", "gitlab.com"]);
+  expect(isAdmittedApiRequest("glab", read, "gitlab.com", [])).toBe(true);
+  const note = write(noteArgs("projects/1/issues/2/notes"), "{}");
+  expect(isAdmittedApiRequest("glab", note, "gitlab.com", [])).toBe(false);
+});
+
+test("Origin admits no writes yet", () => {
+  const post = { command: "origin", args: ["api", "/repos/o/r/pulls/1", "--method", "POST"] };
+  expect(isAdmittedApiRequest("origin", post, "origin.cursor.com", [noteWrite])).toBe(false);
 });

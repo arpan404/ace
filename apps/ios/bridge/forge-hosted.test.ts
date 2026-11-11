@@ -1,4 +1,5 @@
 import "./test-host.ts";
+import { WorkspaceId } from "@ace/protocol";
 import type { ForgeBrowserResult, ForgePrDetail, ForgePrRow, ForgeRepository } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { reviewDraftKeys, type HostedFilesReply } from "./forge-hosted.ts";
@@ -128,7 +129,7 @@ test("a GitLab merge request reads as a read-only page: GitLab's words, no contr
   expect(page.hosted).toMatchObject({
     provider: "GitLab",
     noun: "merge request",
-    line: "Read only in ace. Reviews, comments, checks and merge actions are available on GitLab.",
+    line: "Some review actions are available only on GitLab.",
     filesUnavailable: null,
   });
   // A count the host didn't give is no number at all, never "0 files" or "0 commits".
@@ -157,14 +158,17 @@ test("a known file count shows as a number on a read-only review", async () => {
   expect([page.changedFiles, page.commits]).toEqual([3, 2]);
 });
 
-test("a GitHub detail the daemon marks read-only also offers no controls", async () => {
+test("an explicit GitHub read-only capability list offers no controls", async () => {
   const github: ForgeRepository = {
     forge: "github",
     host: "github.com",
     owner: "acme",
     name: "ace",
   };
-  const { ask, ops } = service(() => ({ resource: "prDetail", value: detail(github) }));
+  const { ask, ops } = service(() => ({
+    resource: "prDetail",
+    value: detail(github, { capabilities: ["reviews.read", "reviews.files"] }),
+  }));
   const page = (await ask(pullRead(github))) as PullReply;
   expect(page.hosted?.provider).toBe("GitHub");
   expect(page.action).toBeNull();
@@ -367,4 +371,309 @@ test("a review summary is kept per provider and host, with GitHub's older key re
   expect(github.legacy).toBe("ace.forge.review.acme/ace#7");
   // Only GitHub reviews were ever kept under the old key.
   expect(lab.legacy).toBeNull();
+});
+
+test("GitLab declared merge and checks reach the full page without granting auto-merge or editing", async () => {
+  const capabilities = ["reviews.read", "reviews.files", "reviews.merge", "reviews.checks"];
+  const { ask, ops } = service((op) =>
+    op.op === "forge.pr.detail"
+      ? { resource: "prDetail", value: detail(gitlab, { capabilities }) }
+      : { error: "forge_unavailable" },
+  );
+  const page = (await ask(pullRead(gitlab))) as PullReply;
+  expect(new Set(page.capabilities)).toEqual(new Set(capabilities));
+  expect(page.action?.kind).toBe("merge");
+  expect(page.secondary).toBeNull();
+  expect(page.tasks).toBe(false);
+  expect(ops.map((op) => op.op)).toEqual(["forge.pr.detail", "forge.pr.merge-state"]);
+});
+
+test("an explicit empty GitHub declaration suppresses reads and controls despite legacy defaults", async () => {
+  const github = { ...gitlab, forge: "github" as const, host: "github.com" };
+  const { ask, ops } = service(() => ({
+    resource: "prDetail",
+    value: detail(github, { capabilities: [] }),
+  }));
+  const page = (await ask(pullRead(github))) as PullReply;
+  expect(page.capabilities).toEqual([]);
+  expect(page.action).toBeNull();
+  expect(page.methods).toEqual([]);
+  expect(page.primary).toBe("");
+  expect(ops.map((op) => op.op)).toEqual(["forge.pr.detail"]);
+});
+
+test("read-only comments stay readable without requesting write state, lifecycle or commits", async () => {
+  const capabilities = ["reviews.read", "reviews.comments.read"];
+  const { ask, ops } = service((op) =>
+    op.op === "forge.pr.detail"
+      ? {
+          resource: "prDetail",
+          value: detail(gitlab, {
+            capabilities,
+            status: {
+              ...detail(gitlab).status,
+              comments: [
+                {
+                  kind: "issue",
+                  id: 12,
+                  author: "mira",
+                  body: "Readable discussion",
+                  createdAt: "2026-11-10T00:00:00Z",
+                  updatedAt: "2026-11-10T00:00:00Z",
+                  file: null,
+                  line: null,
+                  replyTo: null,
+                },
+              ],
+            },
+          }),
+        }
+      : { error: "forge_unavailable" },
+  );
+  const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
+    rows: { comment?: { body: string; edit: boolean } }[];
+    box: unknown;
+    review: unknown;
+    unread: unknown;
+  };
+  expect(page.rows.some((each) => each.comment?.body === "Readable discussion")).toBe(true);
+  expect(page.box).toBeNull();
+  expect(page.review).toBeNull();
+  expect(page.unread).toBeNull();
+  expect(ops.map((op) => op.op)).toEqual(["forge.pr.detail", "forge.pr.activity"]);
+});
+
+test("navigation follows declared GitLab issues and inbox while an empty GitHub declaration hides them", async () => {
+  for (const [repository, capabilities, expected] of [
+    [
+      gitlab,
+      ["reviews.read", "issues.read", "inbox", "reviews.create"],
+      { issues: true, inbox: true, create: true },
+    ],
+    [
+      { ...gitlab, forge: "github", host: "github.com" },
+      [],
+      { issues: false, inbox: false, create: false },
+    ],
+  ] as const) {
+    const { ask } = service(() => ({
+      resource: "repositories",
+      value: {
+        workspaceId: WorkspaceId.parse("ace"),
+        repositories: [
+          {
+            repository,
+            capabilities: [...capabilities],
+            source: "remote",
+            visible: true,
+            available: true,
+            primary: true,
+          },
+        ],
+        primary: repository,
+        config: null,
+      },
+    }));
+    expect(await ask({ type: "forge.features", project: "ace" })).toEqual(expected);
+  }
+});
+
+test("comment-write capability supplies a composer without granting approvals or timeline reads", async () => {
+  const { ask, ops } = service((op) => {
+    if (op.op === "forge.pr.detail")
+      return {
+        resource: "prDetail",
+        value: detail(gitlab, { capabilities: ["reviews.read", "reviews.comments.write"] }),
+      };
+    if (op.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: {
+          viewer: "reader",
+          headSha: head,
+          drafts: [],
+          viewed: null,
+          canReview: true,
+          canComment: true,
+          resolvableThreads: [],
+          operations: [],
+        },
+      };
+    return { error: "forge_unsupported" };
+  });
+  const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
+    box: unknown;
+    review: { verdicts: { event: string }[] };
+  };
+  expect(page.box).toEqual({ off: null });
+  expect(page.review.verdicts.map((verdict) => verdict.event)).toEqual(["COMMENT"]);
+  expect(ops.map((op) => op.op)).toEqual(["forge.pr.detail", "forge.pr.review-state"]);
+});
+
+test("approval-write capability offers verdicts without granting a conversation comment box", async () => {
+  const { ask } = service((op) => {
+    if (op.op === "forge.pr.detail")
+      return {
+        resource: "prDetail",
+        value: detail(gitlab, { capabilities: ["reviews.read", "reviews.approvals.write"] }),
+      };
+    if (op.op === "forge.pr.review-state")
+      return {
+        resource: "prReviewState",
+        value: {
+          viewer: "reader",
+          headSha: head,
+          drafts: [],
+          viewed: null,
+          canReview: true,
+          canComment: true,
+          resolvableThreads: [],
+          operations: [],
+        },
+      };
+    return { error: "forge_unsupported" };
+  });
+  const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
+    box: unknown;
+    review: { verdicts: { event: string }[] };
+  };
+  expect(page.box).toBeNull();
+  expect(page.review.verdicts.map((verdict) => verdict.event)).toEqual([
+    "APPROVE",
+    "REQUEST_CHANGES",
+  ]);
+});
+
+test("media without its capability is refused before the host resolves any URL", async () => {
+  const { ask, ops } = service(() => ({
+    resource: "repositories",
+    value: {
+      workspaceId: WorkspaceId.parse("ace"),
+      primary: gitlab,
+      config: null,
+      repositories: [
+        {
+          repository: gitlab,
+          capabilities: ["reviews.read"],
+          source: "remote",
+          visible: true,
+          available: true,
+          primary: true,
+        },
+      ],
+    },
+  }));
+  expect(
+    await ask({
+      type: "forge.media",
+      project: "ace",
+      repository: gitlab,
+      url: "https://gitlab.com/acme/image.png",
+      role: "image",
+    }),
+  ).toMatchObject({ state: "unavailable", reason: "Can't be shown here" });
+  expect(ops.map((op) => op.op)).toEqual(["forge.repositories"]);
+});
+
+test("suggestion application without its capability is refused before issuing a write", async () => {
+  const { ask, ops } = service(() => ({
+    resource: "repositories",
+    value: {
+      workspaceId: WorkspaceId.parse("ace"),
+      primary: gitlab,
+      config: null,
+      repositories: [
+        {
+          repository: gitlab,
+          capabilities: ["reviews.comments.write"],
+          source: "remote",
+          visible: true,
+          available: true,
+          primary: true,
+        },
+      ],
+    },
+  }));
+  expect(
+    await ask({
+      type: "forge.review",
+      project: "ace",
+      repository: gitlab,
+      number: 7,
+      action: {
+        kind: "suggestions.apply",
+        headSha: head,
+        commentIds: [12],
+        message: "Apply suggestion",
+      },
+    }),
+  ).toMatchObject({
+    ok: false,
+    uncertain: false,
+    message: "Suggested changes aren't supported for this repository.",
+  });
+  expect(ops.map((op) => op.op)).toEqual(["forge.repositories"]);
+});
+
+test("a review thread offers Reply only where the host can reply inside a thread", async () => {
+  const comments = ["reviews.read", "reviews.comments.read", "reviews.comments.write"];
+  const reviewThread = {
+    id: "T1",
+    resolved: false,
+    outdated: false,
+    file: "src/parse.ts",
+    line: 3,
+    comments: [
+      {
+        kind: "inline" as const,
+        id: 5,
+        body: "Rename this?",
+        author: "ola",
+        file: "src/parse.ts",
+        line: 3,
+        updatedAt: "2026-10-10T10:00:00Z",
+        replyTo: null,
+      },
+    ],
+  };
+  for (const [capabilities, canReply] of [
+    [comments, false],
+    [[...comments, "reviews.comments.reply"], true],
+  ] as const) {
+    const { ask } = service((op) => {
+      if (op.op === "forge.pr.detail") {
+        const value = detail(gitlab, { capabilities: [...capabilities] });
+        return {
+          resource: "prDetail",
+          value: {
+            ...value,
+            status: {
+              ...value.status,
+              comments: reviewThread.comments,
+              reviewThreads: [reviewThread],
+            },
+          },
+        };
+      }
+      if (op.op === "forge.pr.review-state")
+        return {
+          resource: "prReviewState",
+          value: {
+            viewer: "reader",
+            headSha: head,
+            drafts: [],
+            viewed: null,
+            canReview: true,
+            canComment: true,
+            resolvableThreads: [],
+            operations: [],
+          },
+        };
+      return { error: "forge_unsupported" };
+    });
+    const page = (await ask({ ...pullRead(gitlab), type: "forge.pull.timeline" })) as {
+      rows: { kind: string; thread?: { id: string; canReply: boolean } }[];
+    };
+    expect(page.rows.find((each) => each.thread?.id === "T1")?.thread?.canReply).toBe(canReply);
+  }
 });

@@ -35,6 +35,8 @@ struct ForgePullPage: Decodable, Sendable, Equatable {
     let changedFiles: Int?
     /// A review ace only reads (not GitHub): the page shows it and offers no writes.
     let hosted: ForgeHostedReview?
+    let capabilities: [String]?
+    func can(_ capability: String) -> Bool { capabilities?.contains(capability) == true }
     /// The description as shown, drawn by markit; task boxes are named by offsets into it.
     let body: String
     let tasks: Bool
@@ -170,6 +172,7 @@ struct ForgeIssuePage: Decodable, Sendable, Equatable {
     let events: [Event]
     let moreEvents: Bool
     let threads: [ForgeRelatedThread]
+    let writable: Bool?
     let box: ForgeBox
     let unconfirmed: [ForgeManage.Unconfirmed]
     let start: Start

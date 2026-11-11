@@ -278,7 +278,8 @@ test("a project lists every remote's repository, and hiding one moves the primar
     return reply.result.kind === "forge" ? reply.result.data : reply.result;
   };
   try {
-    expect(await read("forge.repositories")).toEqual({
+    const listed = await read("forge.repositories");
+    expect(listed).toMatchObject({
       resource: "repositories",
       value: {
         workspaceId,
@@ -304,6 +305,14 @@ test("a project lists every remote's repository, and hiding one moves the primar
         config: null,
       },
     });
+    // Each repository reports what its own host supports.
+    const capabilities =
+      "value" in listed && "repositories" in listed.value
+        ? listed.value.repositories.map((entry) => entry.capabilities ?? [])
+        : [];
+    expect(capabilities[0]).toContain("reviews.stacks");
+    expect(capabilities[1]).toContain("issues.write");
+    expect(capabilities[1]).not.toContain("reviews.stacks");
     new ProjectRepositoryConfigs(store).set(workspaceId, {
       added: [],
       hidden: [github],

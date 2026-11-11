@@ -129,3 +129,41 @@ test("hosted reviews with unavailable review and CI data are never ready to merg
     ).toBe("answer");
   }
 });
+
+test("a GitLab or Gitea row that carries no review or CI data is never ready to merge, even where merging is supported", () => {
+  const capabilities = [
+    "reviews.read",
+    "reviews.approvals.read",
+    "reviews.checks",
+    "reviews.merge",
+  ];
+  for (const forge of ["gitlab", "gitea"] as const) {
+    const listed = row(1, {
+      ref: { repository: { ...repository, forge }, number: 1 },
+      ci: undefined,
+      reviewDecision: undefined,
+    });
+    const step = rowStep(listed, "someone", undefined, [], { capabilities });
+    expect(step.step).toBe("wait");
+    expect(waitingWord(listed, step.local)).toBe("Review status unavailable");
+    // Known checks alone aren't enough: the review is still unknown.
+    expect(
+      rowStep({ ...listed, ci: "success" }, "someone", undefined, [], { capabilities }).step,
+    ).toBe("wait");
+  }
+});
+
+test("a mirror offers merge only when its declaration permits merging", () => {
+  const mirror = row(1, {
+    ref: { repository: { ...repository, forge: "gitlab" }, number: 1 },
+    ci: "success",
+    reviewDecision: "APPROVED",
+  });
+  expect(rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read"] }).step).toBe(
+    "wait",
+  );
+  expect(
+    rowStep(mirror, "someone", undefined, [], { capabilities: ["reviews.read", "reviews.merge"] })
+      .step,
+  ).toBe("merge");
+});

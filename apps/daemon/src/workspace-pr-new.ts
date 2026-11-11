@@ -1,4 +1,11 @@
-import { ForgeError, ForgeMutationOutcome, repositoryKey, type GitHubForge } from "@ace/forge";
+import { gitLabCreationBackend, createHostedGitLabPr } from "./hosted-create.ts";
+import {
+  ForgeError,
+  ForgeMutationOutcome,
+  GitLabCreation,
+  repositoryKey,
+  type GitHubForge,
+} from "@ace/forge";
 import {
   ForgeHostedPrCreateCommand,
   type CommandResult,
@@ -35,17 +42,19 @@ export class WorkspaceNewPr {
   }
   /** Where a PR from this checkout opens, read now: what every create uses. */
   private async resolveTarget(cwd: string) {
-    // The same head a thread's PR is pushed to (ADR 0116): the primary, or its fork.
-    const head = await this.ctx.backends.prHead(cwd);
-    const checkout = { repository: head.head.pushed.repository };
+    const { checkout, target, metadata } = await this.projectTarget(cwd);
     const pushed = await this.ctx.backends.backend(cwd, checkout.repository);
-    const metadata = await head.metadata();
-    const target = prCreateTarget(checkout.repository, metadata, {});
     const backend =
       repositoryKey(target.repository) === repositoryKey(checkout.repository)
         ? pushed
         : await this.ctx.backends.backend(cwd, target.repository);
     return { target, pushed, backend, headDefault: metadata.defaultBranch };
+  }
+  private async projectTarget(cwd: string) {
+    const head = await this.ctx.backends.prHead(cwd);
+    const checkout = { repository: head.head.pushed.repository };
+    const metadata = await head.metadata();
+    return { checkout, metadata, target: prCreateTarget(checkout.repository, metadata, {}) };
   }
   /** Forget every resolved target: the account or source control preferences changed. */
   clear(): void {
@@ -66,6 +75,23 @@ export class WorkspaceNewPr {
     return value;
   }
   async context(cwd: string, signal: AbortSignal): Promise<ForgeNewPrContext> {
+    if ((await this.ctx.backends.repository(cwd)).forge === "gitlab") {
+      const { checkout, metadata, target } = await this.projectTarget(cwd);
+      const read = async (repository: typeof checkout.repository, defaultBranch: string) =>
+        new GitLabCreation({
+          repository,
+          runner: await this.ctx.backends.hostRunner(cwd, repository, [], signal),
+        }).branches(defaultBranch, signal);
+      const [base, head] = await Promise.all([
+        read(target.repository, target.base),
+        read(checkout.repository, metadata.defaultBranch),
+      ]);
+      return {
+        base: { repository: target.repository, defaultBranch: target.base, ...base },
+        head: { repository: checkout.repository, ...head },
+        template: null,
+      };
+    }
     const { target, pushed, backend, headDefault } = await this.cachedTarget(cwd);
     const fork = backend !== pushed;
     const [base, head, template] = await Promise.all([
@@ -109,6 +135,20 @@ export class WorkspaceNewPr {
   ): Promise<Omit<CommandResult, "commandId">> {
     const p = ForgeHostedPrCreateCommand.parse(input);
     const signal = this.ctx.signal;
+    if ((await this.ctx.backends.repository(cwd)).forge === "gitlab") {
+      const { target } = await this.projectTarget(cwd);
+      if (
+        repositoryKey(p.repository) !== repositoryKey(target.repository) ||
+        !headIn(target, p.head)
+      )
+        throw new Error("repository_mismatch");
+      return createHostedGitLabPr(
+        p,
+        await gitLabCreationBackend(this.ctx.backends, cwd, target.repository, signal, p.head),
+        signal,
+        allowed,
+      );
+    }
     const { target, backend } = await this.resolveTarget(cwd);
     if (repositoryKey(p.repository) !== repositoryKey(target.repository))
       throw new Error("repository_mismatch");

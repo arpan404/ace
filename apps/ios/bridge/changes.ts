@@ -2,11 +2,17 @@ import type { ChangeTap, ClientCore, ThreadSource } from "@ace/client";
 import {
   ThreadId,
   WorkspaceId,
+  type ProjectRepository,
   type SourceControlSelection,
   type ThreadDetails,
   type WorkspaceActionRequest,
 } from "@ace/protocol";
-import { reviewRepositories, type DiffScope } from "@ace/ui-core";
+import {
+  repositoryCapabilities,
+  reviewRepositories,
+  type ForgeCapabilitySource,
+  type DiffScope,
+} from "@ace/ui-core";
 import type { DiffRows } from "@ace/ui-core/review";
 import { patchFiles } from "@ace/ui-core/mobile";
 import type { PatchSink, Preview } from "./agents.ts";
@@ -114,6 +120,7 @@ export class ChangesSession {
    * under a new PR need it): a refresh never reads the project's repositories again.
    */
   #several: Promise<boolean> | undefined;
+  #repositories: ProjectRepository[] = [];
   #state: "loading" | "ready" | "error" = "loading";
   #error = "";
   #reading: Promise<void> | undefined;
@@ -321,6 +328,11 @@ export class ChangesSession {
     this.#sink.clear("changes:");
   }
 
+  get capabilitySource(): ForgeCapabilitySource | undefined {
+    const repository = this.#reads?.pr?.ref.repository ?? this.details?.repository;
+    return repository ? repositoryCapabilities(repository, this.#repositories) : undefined;
+  }
+
   summary(): void {
     if (this.#closed) return;
     this.#sink.put("changes:summary", () =>
@@ -331,6 +343,7 @@ export class ChangesSession {
             epoch: this.epoch,
             preview: this.#preview,
             details: this.details,
+            capabilitySource: this.capabilitySource,
             reads: this.#reads,
             state: this.#scope.workingTree ? this.#state : "ready",
             message: this.#scope.workingTree ? this.#error : "",
@@ -386,10 +399,11 @@ export class ChangesSession {
       op: "forge.repositories",
       workspaceId: WorkspaceId.parse(workspaceId),
     }).then(
-      (result) =>
-        result.kind === "forge" &&
-        result.data.resource === "repositories" &&
-        reviewRepositories(result.data.value).length > 1,
+      (result) => {
+        if (result.kind !== "forge" || result.data.resource !== "repositories") return false;
+        this.#repositories = result.data.value.repositories;
+        return reviewRepositories(result.data.value).length > 1;
+      },
       () => {
         // A failed read is asked again on the next refresh.
         this.#several = undefined;

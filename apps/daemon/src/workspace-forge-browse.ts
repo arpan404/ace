@@ -1,4 +1,13 @@
-import { ForgeError, repositoryKey, prUrl } from "@ace/forge";
+import {
+  ForgeError,
+  forgeCapabilities,
+  prUrl,
+  repositoryKey,
+  withForgeCapabilities,
+} from "@ace/forge";
+import { hostedBrowse } from "./hosted-browse.ts";
+import { gitLabInboxBackend } from "./hosted-inbox.ts";
+import { hostedIssueRead, isIssueRead } from "./hosted-issues.ts";
 import type { ForgeMediaService } from "./forge-media/media-service.ts";
 import { ThreadId, type ForgePrStatus } from "@ace/protocol";
 import type { IssueActions } from "./issue-actions.ts";
@@ -32,6 +41,21 @@ export class WorkspaceForgeBrowse {
     operation: import("@ace/protocol").ForgeBrowserOperation,
     signal: AbortSignal,
   ): Promise<import("@ace/protocol").ForgeBrowserResult> {
+    const result = await this.read(cwd, operation, signal);
+    if (result.resource === "prDetail")
+      return {
+        ...result,
+        value: withForgeCapabilities(result.value, result.value.status.ref.repository),
+      };
+    if (result.resource === "issueDetail")
+      return { ...result, value: withForgeCapabilities(result.value, result.value.ref.repository) };
+    return result;
+  }
+  private async read(
+    cwd: string,
+    operation: import("@ace/protocol").ForgeBrowserOperation,
+    signal: AbortSignal,
+  ): Promise<import("@ace/protocol").ForgeBrowserResult> {
     if (operation.op === "forge.inbox.list") return this.inbox(cwd, operation, signal);
     // Which repository a project is, from its remote alone: lists tag rows by project with it.
     if (operation.op === "forge.repository")
@@ -42,7 +66,10 @@ export class WorkspaceForgeBrowse {
         resource: "repositories",
         value: {
           workspaceId: operation.workspaceId,
-          repositories: resolved.repositories,
+          repositories: resolved.repositories.map((entry) => ({
+            ...entry,
+            capabilities: [...forgeCapabilities[entry.repository.forge]],
+          })),
           primary: resolved.primary?.repository ?? null,
           config: config ?? null,
         },
@@ -60,26 +87,34 @@ export class WorkspaceForgeBrowse {
           resource: "compare",
           value: await this.parts.newPr.compare(cwd, operation, signal),
         };
+      if ((await this.ctx.backends.repository(cwd)).forge === "gitlab")
+        return {
+          resource: "repoPrOptions",
+          value: { labels: [], assignable: [], milestones: [], truncated: true },
+        };
       const target = await this.parts.newPr.targetBackend(cwd);
       return { resource: "repoPrOptions", value: await target.prOptions(signal) };
     }
     const repository = operation.repository ?? (await this.ctx.backends.repository(cwd));
     signal.throwIfAborted();
-    if (repository.forge !== "github") {
-      const reader = await this.ctx.backends.reader(cwd, repository, signal);
-      if (operation.op === "forge.pr.list")
-        return { resource: "prList", value: await reader.listPrs(operation.query, signal) };
-      if (operation.op === "forge.pr.files")
-        return { resource: "prFiles", value: await reader.prFiles(operation, signal) };
-      if (operation.op === "forge.pr.detail") {
-        const ref = { repository, number: operation.number };
-        const revision = this.ctx.owner.capture(ref);
-        const value = await reader.prDetail(operation.number, signal);
-        if (this.ctx.owner.current(ref, revision)) this.publishStatus(value.status);
-        return { resource: "prDetail", value };
-      }
-      throw new ForgeError("unsupported");
+    if (isIssueRead(operation)) {
+      const { backends, sourceControl } = this.ctx;
+      const scope = { cwd, repository, backends, sourceControl, signal };
+      return hostedIssueRead(operation, scope, this.parts);
     }
+    if (repository.forge !== "github")
+      return hostedBrowse(
+        {
+          ctx: this.ctx,
+          parts: this.parts,
+          publishStatus: (status) => this.publishStatus(status),
+          publishLifecycle: (snapshot) => this.publishLifecycle(snapshot),
+        },
+        cwd,
+        repository,
+        operation,
+        signal,
+      );
     const backend = await this.ctx.backends.backend(cwd, repository);
     if (operation.op === "forge.pr.lifecycle") {
       const ref = { repository, number: operation.number };
@@ -114,25 +149,6 @@ export class WorkspaceForgeBrowse {
           signal,
           operation.headSha,
         ),
-      };
-    }
-    if (operation.op === "forge.issue.list")
-      return { resource: "issueList", value: await backend.listIssues(operation.query, signal) };
-    if (operation.op === "forge.issue.timeline")
-      return {
-        resource: "issueTimeline",
-        ...(await backend.issueTimeline(operation.number, operation.page, signal)),
-      };
-    if (operation.op === "forge.issue.actions")
-      return {
-        resource: "issueActions",
-        actions: this.parts.issueActions.list(repository, operation.number),
-      };
-    if (operation.op === "forge.issue.detail") {
-      const value = await backend.issueDetail(operation.number, signal);
-      return {
-        resource: "issueDetail",
-        value: { ...value, ...this.parts.issueLinks.related(value.ref) },
       };
     }
     if (operation.op === "forge.pr.merge-state") {
@@ -270,7 +286,12 @@ export class WorkspaceForgeBrowse {
       throw error;
     });
     const host = operation.host ?? own?.host ?? "";
-    const value = await (await this.ctx.backends.inbox(cwd, host)).list(operation.query, signal);
+    const repository = await this.ctx.backends.inboxRepository(cwd, host);
+    const inbox =
+      repository.forge === "gitlab"
+        ? await gitLabInboxBackend(this.ctx.backends, cwd, repository, signal)
+        : await this.ctx.backends.inbox(cwd, host);
+    const value = await inbox.list(operation.query, signal);
     // Rows from any repository the project uses on this host open without naming it.
     const visible = own
       ? (await this.ctx.backends.projectRepositories(cwd)).resolved.repositories

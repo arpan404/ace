@@ -26,8 +26,18 @@ function runner(
       const endpoint = request.args[1] as string;
       const route =
         routes[endpoint] ??
+        (endpoint.includes("/pipelines?") ? { status: "200 OK", body: [] } : undefined) ??
         (endpoint.includes("merge_requests?") ? routes["*list"] : undefined) ??
         (endpoint.includes("/diffs?") ? routes["*diffs"] : undefined) ??
+        (endpoint.includes("/discussions?") || endpoint.includes("/commits?")
+          ? { status: "200 OK", headers: { "x-next-page": "", "x-total": "0" }, body: [] }
+          : undefined) ??
+        (endpoint.endsWith("/approvals")
+          ? { status: "200 OK", body: { approved_by: [], approved: false } }
+          : undefined) ??
+        (endpoint.endsWith("/approval_state")
+          ? { status: "200 OK", body: { rules: [] } }
+          : undefined) ??
         routes["*mr"];
       if (!route) return { code: 1, stdout: http("404 Not Found", {}, {}), truncated: false };
       return {
@@ -99,7 +109,7 @@ describe("gitlab reader", () => {
       title: "Add feature",
       headSha: HEAD,
       state: "open",
-      ci: "unknown",
+      ci: "none",
     });
     expect(f.seen[0]?.args).toEqual([
       "api",
@@ -178,6 +188,30 @@ describe("gitlab reader", () => {
     );
     expect(page.items.map((item) => item.ref.number)).toEqual([8]);
     expect(page.incomplete).toBe(true);
+  });
+
+  it("list rows carry the conflicts, rebase need and missing approvals GitLab listed, and never a review or CI verdict it didn't", async () => {
+    const list = runner({
+      "*list": {
+        status: "200 OK",
+        headers: { "x-total": "3" },
+        body: [
+          mr({ iid: 1, has_conflicts: true, detailed_merge_status: "conflict" }),
+          mr({ iid: 2, has_conflicts: false, detailed_merge_status: "need_rebase" }),
+          mr({ iid: 3, has_conflicts: false, detailed_merge_status: "not_approved" }),
+        ],
+      },
+    });
+    const page = await new GitLabReader({ repository, runner: list.runner }).listPrs(
+      prQuery(),
+      signal(),
+    );
+    const [conflicting, behind, unapproved] = page.items;
+    expect(conflicting).toMatchObject({ conflicting: true });
+    expect(behind).toMatchObject({ conflicting: false, behind: true });
+    expect(unapproved).toMatchObject({ behind: false, reviewDecision: "REVIEW_REQUIRED" });
+    for (const row of [conflicting, behind]) expect(row?.reviewDecision).toBeUndefined();
+    for (const row of page.items) expect(row.ci).toBeUndefined();
   });
 
   it("keeps a record whose title or labels exceed protocol bounds, cut to fit", async () => {
@@ -339,12 +373,12 @@ describe("gitlab reader", () => {
     expect(f.seen).toHaveLength(0);
   });
 
-  it("marks detail read-only with unavailable resources", async () => {
+  it("exposes conversation resources while checks remain unavailable", async () => {
     const f = runner({ "*mr": { status: "200 OK", body: mr() } });
     const reader = new GitLabReader({ repository, runner: f.runner });
     const detail = await reader.prDetail(7, signal());
-    expect(detail.readOnly).toBe(true);
-    expect(detail.unavailableResources).toEqual(["comments", "checks", "reviews", "commits"]);
+    expect(detail.readOnly).toBe(false);
+    expect(detail.unavailableResources).toEqual([]);
     expect(detail.baseSha).toBe(BASE);
   });
 

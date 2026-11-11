@@ -1,5 +1,11 @@
 import { ForgeResourceOwner, forgeResourceKey } from "./forge-resource-owner.ts";
-import { ForgeError, WriteDispatch, uncertainWriteExpired, type GitHubForge } from "@ace/forge";
+import {
+  ForgeError,
+  WriteDispatch,
+  uncertainWriteExpired,
+  type GitHubForge,
+  type GitLabHostedMerge,
+} from "@ace/forge";
 import type { CommandResult, ForgePrRef, ForgePrStatus, ForgeMergeState } from "@ace/protocol";
 import { z } from "zod";
 import type { Store } from "./store.ts";
@@ -12,6 +18,20 @@ import {
   writeTarget,
   type ForgePrWrite,
 } from "./forge-action-observation.ts";
+
+/** What the PR action journal needs from a host: GitHub and Gitea in full, GitLab's merge only. */
+export type ForgeActionBackend =
+  | Pick<
+      GitHubForge,
+      | "status"
+      | "prMergeState"
+      | "currentUser"
+      | "replyComment"
+      | "requestReviews"
+      | "merge"
+      | "changeMergeState"
+    >
+  | GitLabHostedMerge;
 
 type Settled = "reconciled" | "failed";
 const settled = (receipt: ForgeWriteReceipt) =>
@@ -133,7 +153,7 @@ export class WorkspaceForgeActions {
   }
   private async status(
     action: ForgeWriteReceipt["action"],
-    backend: GitHubForge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
   ): Promise<ForgePrStatus> {
     const target =
@@ -150,7 +170,7 @@ export class WorkspaceForgeActions {
   }
   async execute(
     action: ForgePrWrite,
-    backend: GitHubForge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,
@@ -184,14 +204,16 @@ export class WorkspaceForgeActions {
   private async write(
     action: ForgePrWrite,
     key: string,
-    backend: GitHubForge,
+    backend: ForgeActionBackend,
     signal: AbortSignal,
     allowed: () => boolean,
     publish: (status: ForgePrStatus) => void,
   ): Promise<Omit<CommandResult, "commandId">> {
     const pr = writeTarget(action);
     const actor =
-      action.type === "forge.comment.reply" ? await backend.currentUser(signal) : undefined;
+      action.type === "forge.comment.reply" && "currentUser" in backend
+        ? await backend.currentUser(signal)
+        : undefined;
     signal.throwIfAborted();
     if (!allowed()) return { ok: false, error: "forbidden" };
     const baseline =
@@ -221,9 +243,9 @@ export class WorkspaceForgeActions {
     });
     let mergeState: ForgeMergeState | undefined;
     try {
-      if (action.type === "forge.comment.reply")
+      if (action.type === "forge.comment.reply" && "replyComment" in backend)
         await backend.replyComment(pr.number, action.commentId, action.body, signal, dispatch);
-      else if (action.type === "forge.review.request")
+      else if (action.type === "forge.review.request" && "requestReviews" in backend)
         await backend.requestReviews(pr.number, action.reviewers, signal, dispatch);
       else if (action.type === "forge.pr.merge" || action.type === "forge.hosted.merge")
         await backend.merge(

@@ -22927,6 +22927,7 @@ Example:
 | primary | yes | boolean |  |
 | available | yes | boolean |  |
 | unavailable | no | [ProjectRepositoryUnavailable.json](schema/ProjectRepositoryUnavailable.json) |  |
+| capabilities | no | [ForgeCapabilities.json](schema/ForgeCapabilities.json) |  |
 
 Example:
 

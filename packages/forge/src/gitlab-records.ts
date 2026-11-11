@@ -113,6 +113,13 @@ export function changesCount(mr: GitLabMr): { count: number; capped: boolean } |
 }
 
 /** Output schemas are ours, but a throw must still be a sanitized ForgeError. */
+/** `input` parsed by `schema`; anything else is the host's invalid data. */
+export function decode<T>(schema: z.ZodType<T>, input: unknown): T {
+  const parsed = schema.safeParse(input);
+  if (!parsed.success) throw new ForgeError("invalid_data");
+  return parsed.data;
+}
+
 export function must<T>(result: { success: boolean; data?: T }): T {
   if (!result.success || result.data === undefined) throw new ForgeError("invalid_data");
   return result.data;
@@ -220,7 +227,23 @@ export function prRow(repository: ForgeRepository, item: GitLabMr): object | nul
     item.user_notes_count !== undefined ? { commentCount: item.user_notes_count } : null,
     item.source_branch ? { headBranch: item.source_branch } : null,
     item.target_branch ? { baseBranch: item.target_branch } : null,
+    ...listedMergeFacts(item),
   );
+}
+
+/**
+ * What a list item says about merging, without another read: conflicts, a needed rebase, and
+ * missing approvals. GitLab's list never says a review passed or how the pipeline went, so a
+ * row carries no review decision or CI unless approvals are plainly missing (left unknown,
+ * never passing).
+ */
+function listedMergeFacts(item: GitLabMr): object[] {
+  const status = item.detailed_merge_status;
+  return [
+    item.has_conflicts !== undefined ? { conflicting: item.has_conflicts } : {},
+    status !== undefined ? { behind: status === "need_rebase" } : {},
+    status === "not_approved" ? { reviewDecision: "REVIEW_REQUIRED" } : {},
+  ];
 }
 
 /** A diff's added and removed lines. Only the `---`/`+++` file header before the first hunk is

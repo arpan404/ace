@@ -44,8 +44,8 @@ export const forgeClis: Readonly<Record<ForgeKind, string | undefined>> = {
   gitlab: "glab",
   gitbucket: undefined,
   bitbucket: undefined,
-  gitea: undefined,
-  forgejo: undefined,
+  gitea: "tea",
+  forgejo: "tea",
 };
 
 /** Whether ace can check a provider's sign-in and API through its CLI. */

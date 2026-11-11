@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { ClientError } from "@ace/client";
 import {
   maxCommitMessageLength,
@@ -100,9 +101,9 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
   };
   // The step the sheet offered must still be the step, and not blocked, when it runs. A review
   // request rides on the open PR's step, which the merge gate doesn't block.
-  const step = changesNextStep(details, reads?.pr, totals);
+  const step = changesNextStep(details, reads?.pr, totals, session.capabilitySource);
   const expected = action.kind === "request-review" ? "merge" : action.kind;
-  if (action.kind !== "push" && step.kind !== expected)
+  if (action.kind !== "push" && action.kind !== "request-review" && step.kind !== expected)
     throw new WorkspaceRefusal("pr_link_changed");
   if (step.blocked && step.kind === expected && action.kind !== "request-review")
     throw new Error(step.blocked);
@@ -187,6 +188,11 @@ async function perform(owner: ChangesOwner, session: ChangesSession, action: Git
   const pr = reads?.pr;
   if (!pr) throw new WorkspaceRefusal("pr_not_linked");
   if (action.kind === "request-review") {
+    if (
+      !(pr.state === "open" || pr.state === "draft") ||
+      !can(session.capabilitySource, "reviews.reviewers.request")
+    )
+      throw new WorkspaceRefusal("forge_unsupported");
     const reviewers = reviewersOf(action.reviewers);
     if (!reviewers.length) throw new Error("Name at least one reviewer.");
     await requestReview(owner, session.threadId, pr.ref, reviewers);

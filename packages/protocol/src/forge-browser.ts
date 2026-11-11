@@ -1,4 +1,5 @@
 import { ForgeLifecycleState } from "./forge-lifecycle.ts";
+import { ForgeCapabilities } from "./forge-capabilities.ts";
 import {
   ForgeIssueOperations,
   ForgeIssueResults,
@@ -156,6 +157,8 @@ export const ForgePrDetailFile = z.object({
 });
 export type ForgePrDetailFile = z.infer<typeof ForgePrDetailFile>;
 export const ForgePrDetail = z.object({
+  /** What ace can do with this review's host (ADR 0117). Absent from older daemons. */
+  capabilities: ForgeCapabilities.optional(),
   /** Host reads are available, but ace does not yet admit mutations for this provider. */
   readOnly: z.boolean().optional(),
   /** Resources this adapter cannot read; never present empty arrays as complete results.
@@ -183,6 +186,10 @@ export const ForgePrDetail = z.object({
   /** Each label's GitHub colour, by name. */
   labelColors: ForgeLabelColors.optional(),
   reviewers: z.array(text).max(100),
+  /**
+   * The host's review decision (`APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`); null when
+   * the repository requires no review, and `UNKNOWN` when the host can't say.
+   */
   reviewDecision: z.string().max(100).nullable(),
   commits: z.number().int().nonnegative(),
   changedFiles: z.number().int().nonnegative(),

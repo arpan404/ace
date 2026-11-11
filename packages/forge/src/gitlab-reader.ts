@@ -15,7 +15,11 @@ import {
   type ForgePrList as ForgePrListType,
 } from "@ace/protocol/forge-browser";
 import { ForgePrCheckout } from "@ace/protocol/forge-worktree";
-import { Buffer } from "node:buffer";
+import { GitLabChecks } from "./gitlab-checks.ts";
+import { GitLabReviews } from "./gitlab-reviews.ts";
+import { GitLabConversation, reviewersOf } from "./gitlab-conversation.ts";
+import { conversation } from "./gitlab-conversation-records.ts";
+import { GitLabApi } from "./gitlab-api.ts";
 import type { ForgeReader } from "./api.ts";
 import type { CommandRunner } from "./command.ts";
 import { ForgeError } from "./errors.ts";
@@ -36,71 +40,40 @@ import {
   must,
   prRow,
   requireSha,
-  splitHttp,
   statusState,
-  throwForStatus,
   type GitLabMr,
-  type Headers,
 } from "./gitlab-records.ts";
 
-/** Read-only GitLab merge request adapter over the user's glab CLI.
- * Primary docs: docs.gitlab.com/cli/api/ and docs.gitlab.com/api/merge_requests/.
- * No mutations; the caller's runner already verified API identity. */
+/** GitLab merge request reads over the user's glab CLI, with pipelines as checks and
+ * discussions as review threads. Primary docs: docs.gitlab.com/cli/api/ and
+ * docs.gitlab.com/api/merge_requests/. Writes live in GitLabReviews and the other GitLab
+ * adapters; the caller's runner already verified API identity. */
 export class GitLabReader implements ForgeReader {
   readonly repository: ForgeRepository;
-  readonly #runner: CommandRunner;
+  readonly #api: GitLabApi;
+  readonly conversation: GitLabConversation;
+  readonly reviews: GitLabReviews;
   readonly #host: string;
-  readonly #project: string;
 
   constructor(options: { repository: ForgeRepository; runner: CommandRunner }) {
     this.repository = ForgeRepository.parse(options.repository);
     if (this.repository.forge !== "gitlab") throw new ForgeError("unsupported");
     if (!options.runner) throw new ForgeError("unsupported");
-    this.#runner = options.runner;
+    this.#api = new GitLabApi(options);
+    this.reviews = new GitLabReviews(options);
+    this.conversation = new GitLabConversation(this.#api);
     this.#host = this.repository.host;
-    this.#project = encodeURIComponent(`${this.repository.owner}/${this.repository.name}`);
   }
 
   #ref(number: number): { repository: ForgeRepository; number: number } {
     return ForgePrRef.parse({ repository: this.repository, number });
   }
 
-  /** One explicit GET through glab; stdout/stderr/credentials never leave as errors. */
-  async #get(
-    endpoint: string,
-    signal: AbortSignal,
-    budget: ReadBudget,
-  ): Promise<{ headers: Headers; body: unknown }> {
-    signal.throwIfAborted();
-    let result;
-    try {
-      result = await this.#runner({
-        command: "glab",
-        args: ["api", endpoint, "-X", "GET", "--hostname", this.#host, "--include"],
-        signal,
-        mode: "json",
-      });
-    } catch (error) {
-      signal.throwIfAborted();
-      if (error instanceof ForgeError) throw error;
-      throw new ForgeError("cli");
-    }
-    if (result.truncated) throw new ForgeError("limit");
-    if (result.unreachable) throw new ForgeError("offline");
-    // One 8 MiB budget spans every request in the snapshot, counted in UTF-8 bytes.
-    budget.add(Buffer.byteLength(result.stdout, "utf8"));
-    const { headers, body } = splitHttp(result.stdout);
-    const code = Number(/^HTTP\/[\d.]+ (\d{3})/i.exec(result.stdout)?.[1]);
-    if (!Number.isInteger(code)) throw new ForgeError("invalid_data");
-    throwForStatus(code, headers, result.code);
-    try {
-      return { headers, body: JSON.parse(body) };
-    } catch {
-      throw new ForgeError("invalid_data");
-    }
-  }
-
-  #statusOf(mr: GitLabMr): ForgePrStatusType {
+  #statusOf(
+    mr: GitLabMr,
+    checks: ForgePrStatusType["checks"] = [],
+    ci: ForgePrStatusType["ci"] = "unknown",
+  ): ForgePrStatusType {
     return must(
       ForgePrStatus.safeParse({
         ref: this.#ref(mr.iid),
@@ -114,14 +87,32 @@ export class GitLabReader implements ForgeReader {
             : mr.detailed_merge_status === "mergeable"
               ? "mergeable"
               : "unknown",
-        // Pipeline state is never fetched: unknown, not none.
-        ci: "unknown",
-        checks: [],
+        ci,
+        checks,
         comments: [],
         reviewThreads: [],
         raw: redactData(mr),
       }),
     );
+  }
+
+  async #checkedStatus(
+    mr: GitLabMr,
+    signal: AbortSignal,
+    budget: ReadBudget,
+  ): Promise<ForgePrStatusType> {
+    const head = requireSha(headOf(mr));
+    const snapshot = await new GitLabChecks(this.#api).snapshot(mr.iid, head, signal, budget);
+    const response = await this.#api.get(
+      `${this.#api.root}/merge_requests/${mr.iid}`,
+      signal,
+      budget,
+    );
+    const current = Mr.safeParse(response.body);
+    if (!current.success || current.data.iid !== mr.iid) throw new ForgeError("invalid_data");
+    if (headOf(current.data).toLowerCase() !== head.toLowerCase())
+      throw new ForgeError("head_moved");
+    return this.#statusOf(mr, snapshot.checks, snapshot.ci);
   }
 
   /** A fork's source project, resolved to owner/name; anything else is unsupported. */
@@ -130,7 +121,7 @@ export class GitLabReader implements ForgeReader {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<ForgeRepository> {
-    const { body } = await this.#get(`projects/${id}`, signal, budget);
+    const { body } = await this.#api.get(`projects/${id}`, signal, budget);
     const parsed = SourceProject.safeParse(body);
     const path = parsed.success ? parsed.data.path_with_namespace : "";
     const slash = path.lastIndexOf("/");
@@ -178,14 +169,16 @@ export class GitLabReader implements ForgeReader {
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatusType> {
     this.#ref(number);
     const budget = new ReadBudget();
-    const { body } = await this.#get(
-      `projects/${this.#project}/merge_requests/${number}`,
+    const { body } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
     const parsed = Mr.safeParse(body);
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
-    return this.#statusOf(parsed.data);
+    const status = await this.#checkedStatus(parsed.data, signal, budget);
+    const snapshot = await this.conversation.snapshot(number, status.headSha, signal, budget);
+    return { ...status, comments: snapshot.comments, reviewThreads: snapshot.reviewThreads };
   }
 
   async listPrs(query: ForgePrSearch, signal: AbortSignal): Promise<ForgePrListType> {
@@ -214,8 +207,8 @@ export class GitLabReader implements ForgeReader {
     else if (q.state === "all") params.set("state", "all");
     else throw new ForgeError("unsupported");
     const budget = new ReadBudget();
-    const { body, headers } = await this.#get(
-      `projects/${this.#project}/merge_requests?${params}`,
+    const { body, headers } = await this.#api.get(
+      `${this.#api.root}/merge_requests?${params}`,
       signal,
       budget,
     );
@@ -256,8 +249,8 @@ export class GitLabReader implements ForgeReader {
     const scope = search ? `&search=${encodeURIComponent(search)}` : "";
     const read = async (extra: string): Promise<{ total: number; capped: boolean }> => {
       try {
-        const { headers } = await this.#get(
-          `projects/${this.#project}/merge_requests?per_page=1&page=1${extra}${scope}`,
+        const { headers } = await this.#api.get(
+          `${this.#api.root}/merge_requests?per_page=1&page=1${extra}${scope}`,
           signal,
           budget,
         );
@@ -294,8 +287,8 @@ export class GitLabReader implements ForgeReader {
   async prDetail(number: number, signal: AbortSignal): Promise<ForgePrDetailType> {
     this.#ref(number);
     const budget = new ReadBudget();
-    const { body } = await this.#get(
-      `projects/${this.#project}/merge_requests/${number}`,
+    const { body } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
@@ -303,19 +296,26 @@ export class GitLabReader implements ForgeReader {
     if (!parsed.success || parsed.data.iid !== number) throw new ForgeError("invalid_data");
     const mr = parsed.data;
     const changed = changesCount(mr) ?? (await this.#diffCount(number, signal, budget));
-    // Commits are never read: their count stays a placeholder named in unavailableResources,
-    // as does a file count GitLab didn't give; the files themselves still read page by page.
+    const status = await this.#checkedStatus(mr, signal, budget);
+    const snapshot = await this.conversation.snapshot(number, status.headSha, signal, budget);
+    const commits = await this.conversation.commits(
+      number,
+      undefined,
+      status.headSha,
+      signal,
+      budget,
+    );
+    const reviewers = reviewersOf(mr, snapshot.approvals);
     return must(
       ForgePrDetail.safeParse({
-        readOnly: true,
+        readOnly: false,
         unavailableResources: [
-          "comments",
-          "checks",
-          "reviews",
-          "commits",
+          ...(commits.total === undefined && commits.before !== undefined
+            ? ["commits" as const]
+            : []),
           ...(changed ? [] : ["fileCount" as const]),
         ],
-        status: this.#statusOf(mr),
+        status: { ...status, comments: snapshot.comments, reviewThreads: snapshot.reviewThreads },
         ...(mr.updated_at ? { updatedAt: mr.updated_at } : {}),
         ...(mr.created_at ? { createdAt: mr.created_at } : {}),
         body: clipText(typeof mr.description === "string" ? mr.description : ""),
@@ -325,14 +325,34 @@ export class GitLabReader implements ForgeReader {
         baseSha: requireSha(mr.diff_refs?.base_sha ?? ""),
         headRepository: this.#detailHeadRepository(mr),
         labels: clipLabels(mr.labels),
-        reviewers: [],
-        reviewDecision: null,
-        commits: 0,
+        reviewers: reviewers.requested.flatMap((r) => (r.kind === "user" ? [r.login] : [])),
+        reviewDecision: snapshot.reviewDecision,
+        commits: commits.total ?? commits.commits.length,
         changedFiles: changed?.count ?? 0,
         relatedThreads: [],
         relatedThreadsTruncated: false,
       }),
     );
+  }
+
+  prCommits(number: number, before: string | undefined, headSha: string, signal: AbortSignal) {
+    return this.conversation.commits(number, before, headSha, signal);
+  }
+  prReviewers(number: number, signal: AbortSignal) {
+    return this.conversation.reviewers(number, signal);
+  }
+  async prActivity(number: number, page: number, signal: AbortSignal) {
+    if (!Number.isInteger(page) || page < 1 || page > 20) throw new ForgeError("invalid_data");
+    const mr = await this.conversation.mr(number, signal);
+    const events = conversation(
+      await this.conversation.discussions(number, signal),
+      requireSha(headOf(mr)),
+    ).events;
+    return {
+      events: events.slice((page - 1) * 100, page * 100),
+      ...(events.length > page * 100 ? { nextPage: page + 1 } : {}),
+      truncated: false,
+    };
   }
 
   /** The diff file count from one per_page=1 page's x-total, when GitLab hasn't counted yet;
@@ -342,8 +362,8 @@ export class GitLabReader implements ForgeReader {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<{ count: number; capped: boolean } | undefined> {
-    const { headers } = await this.#get(
-      `projects/${this.#project}/merge_requests/${number}/diffs?per_page=1&page=1`,
+    const { headers } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${number}/diffs?per_page=1&page=1`,
       signal,
       budget,
     );
@@ -360,8 +380,8 @@ export class GitLabReader implements ForgeReader {
     signal: AbortSignal,
     budget: ReadBudget,
   ): Promise<GitLabMr> {
-    const { body } = await this.#get(
-      `projects/${this.#project}/merge_requests/${number}`,
+    const { body } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );
@@ -397,8 +417,8 @@ export class GitLabReader implements ForgeReader {
     // The MR's diff_refs pin the read before and after the page; one 25-file page of /diffs
     // (the /changes endpoint is deprecated since GitLab 15.7) is the only diff page read.
     const mr = await this.#pinnedMr(input.number, pinned, signal, budget);
-    const { body, headers } = await this.#get(
-      `projects/${this.#project}/merge_requests/${input.number}/diffs?per_page=25&page=${input.page}`,
+    const { body, headers } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${input.number}/diffs?per_page=25&page=${input.page}`,
       signal,
       budget,
     );
@@ -435,8 +455,8 @@ export class GitLabReader implements ForgeReader {
   async prCheckout(number: number, signal: AbortSignal) {
     this.#ref(number);
     const budget = new ReadBudget();
-    const { body } = await this.#get(
-      `projects/${this.#project}/merge_requests/${number}`,
+    const { body } = await this.#api.get(
+      `${this.#api.root}/merge_requests/${number}`,
       signal,
       budget,
     );

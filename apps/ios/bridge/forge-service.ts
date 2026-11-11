@@ -1,3 +1,4 @@
+import { readFeatures } from "./forge-features.ts";
 import { ClientError } from "@ace/client";
 import type { ForgeKind } from "@ace/protocol";
 import { forgeErrorText } from "@ace/ui-core";
@@ -67,6 +68,7 @@ import {
 export const ForgeRequest = z.intersection(
   z.union([
     z.object({ type: z.literal("forge.projects") }),
+    z.object({ type: z.literal("forge.features"), project: z.string().min(1).max(512) }),
     ForgeListRequest,
     ForgePullRequest,
     ForgeIssueRequest,
@@ -152,6 +154,8 @@ export class ForgeService {
     );
     try {
       switch (request.type) {
+        case "forge.features":
+          return await readFeatures(reads, request.project);
         case "forge.projects":
           return await this.#projects(signal);
         case "forge.pulls":

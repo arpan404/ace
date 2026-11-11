@@ -6,6 +6,7 @@ import type {
   ForgePrSearch,
 } from "@ace/protocol";
 import {
+  can,
   groupBySteps,
   groupIssues,
   groupPrs,
@@ -19,6 +20,7 @@ import {
   type RowGroup,
   type RowStep,
   repositoryLabel,
+  repositoryCapabilities,
 } from "@ace/ui-core";
 import { z } from "zod";
 import type { Preview } from "./agents.ts";
@@ -181,7 +183,10 @@ async function readRepositoryPulls(
   const more = ranked?.more ?? listed?.more ?? false;
   const linked = reads.linked().pulls;
   const steps = new Map(
-    rows.map((row) => [identity(row), rowStep(row, first.viewer, linked.get(identity(row)), [])]),
+    rows.map((row) => [
+      identity(row),
+      rowStep(row, first.viewer, linked.get(identity(row)), [], source.capabilitySource),
+    ]),
   );
   const groups: RowGroup<ForgePrRow>[] = byReadiness
     ? groupBySteps(rows, (row) => steps.get(identity(row))?.step ?? "wait")
@@ -203,7 +208,7 @@ export async function readPulls(
   const { search } = request;
   const sort = search.sort ?? "ready";
   const byReadiness = sort === "ready" && (search.state ?? "open") === "open";
-  const { sources, unlisted } = await pullSources(reads, request.project);
+  const { sources, unlisted, entries } = await pullSources(reads, request.project);
   const { answers, failed } = await readEach(sources, (source) =>
     readRepositoryPulls(reads, request, source),
   );
@@ -212,6 +217,7 @@ export async function readPulls(
   // Counts are known only once every repository answered in full, so none undercounts.
   const complete = answeredInFull(sources, lists, unlisted);
   const linked = reads.linked().pulls;
+
   const labelled = sources.some((source) => source.label);
   const steps = new Map<string, RowStep>();
   for (const list of lists)
@@ -243,7 +249,13 @@ export async function readPulls(
       label: group.label,
       count: byReadiness ? (more || !complete ? null : group.rows.length) : total,
       rows: group.rows.map((row) => ({
-        ...prRowView(row, stepOf(row), linked, preview),
+        ...prRowView(
+          row,
+          stepOf(row),
+          linked,
+          preview,
+          repositoryCapabilities(row.ref.repository, entries),
+        ),
         repositoryLabel: labelled ? repositoryLabel(row.ref.repository) : null,
       })),
     })),
@@ -279,6 +291,7 @@ export async function readIssues(
   const linked = reads.linked().issues;
   const first = lists[0]?.first;
   const complete = answeredInFull(sources, lists, unlisted);
+  const primary = answers.find((answer) => answer.source.repository === undefined);
   return {
     type: "forge.issues",
     repository: first ? `${first.repository.owner}/${first.repository.name}` : "",
@@ -307,8 +320,8 @@ export async function readIssues(
     ),
     // New issues open on the primary, which is read without naming it.
     canCreate:
-      answers.find((answer) => answer.source.repository === undefined)?.value.first.canCreate ??
-      false,
+      !!primary?.value.first.canCreate &&
+      can(primary.source.capabilitySource ?? primary.value.first.repository, "issues.write"),
   };
 }
 

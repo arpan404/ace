@@ -116,6 +116,7 @@ struct ForgeTimeline: Decodable, Sendable, Equatable {
 
 /// One changed file in the Code view (`bridge/forge-code.ts`).
 struct ForgeFileDiff: Decodable, Sendable, Equatable {
+    let suggestions: Bool?
     /// The commits this diff is between; a copy kept from before they were sent has none.
     var revisions: ForgeFileRevisions?
     struct Anchor: Decodable, Sendable, Equatable, Hashable { let line: Int; let side: String }
@@ -206,6 +207,7 @@ extension ClientModel {
 /// A pull request's changed files (`forge.pull.files`) for All commits or a range, each with its
 /// open conversations and its Viewed mark.
 struct ForgeFilesList: Decodable, Sendable, Equatable {
+    let canCompare: Bool?
     struct File: Decodable, Sendable, Equatable, Hashable {
         let path: String
         let status: String

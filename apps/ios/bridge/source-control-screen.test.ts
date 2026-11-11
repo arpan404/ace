@@ -114,7 +114,7 @@ test("saved hosts whose provider contradicts the host are refused with that reas
   expect(result).toEqual({ problem: expect.stringContaining("provider must match the host") });
 });
 
-test("hosts read under their provider, and the active GitLab host is browse-only with glab", async () => {
+test("hosts read under their provider, and GitLab and Gitea show the write support this build has", async () => {
   const { ask } = await open({
     hosts: [
       { host: "github.com" },
@@ -141,7 +141,7 @@ test("hosts read under their provider, and the active GitLab host is browse-only
       name: "GitLab",
       account: null,
       active: true,
-      support: "browse",
+      support: "full",
     },
     {
       host: "git.example.com",
@@ -149,7 +149,7 @@ test("hosts read under their provider, and the active GitLab host is browse-only
       name: "Gitea",
       account: null,
       active: false,
-      support: "pending",
+      support: "full",
     },
   ]);
   expect(answer.screen.status).toMatchObject({
@@ -157,7 +157,8 @@ test("hosts read under their provider, and the active GitLab host is browse-only
     cli: { title: "GitLab CLI", value: expect.stringMatching(/^glab \d+\.\d+/) },
     api: { title: "GitLab API", value: "Signed in as ada" },
   });
-  expect(answer.screen.status.note).toContain("Code review");
+  // GitLab can comment, approve and merge from ace now, so no read-only note.
+  expect(answer.screen.status.note).toBeNull();
 });
 
 test("choosing the active host and the remote from the phone keeps a self-hosted GitLab host GitLab", async () => {

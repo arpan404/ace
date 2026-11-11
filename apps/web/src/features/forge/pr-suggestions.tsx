@@ -1,3 +1,4 @@
+import { can } from "@ace/ui-core";
 import { useState } from "react";
 import { suggestionOf } from "@ace/forge/suggestions";
 import type { ForgeComment } from "@ace/protocol";
@@ -119,12 +120,20 @@ function ApplyWithAgentButton(props: {
  * GitHub can't commit (outdated, or its commit was refused) goes to the agent instead.
  */
 export function PrSuggestionActions(props: { comment: ForgeComment; outdated: boolean }) {
+  const detail = usePrDetail();
   const review = usePrReview();
   const [open, setOpen] = useState(false);
   const [refused, setRefused] = useState(false);
   const { comment } = props;
   const suggestion = suggestionOf(comment.body);
-  if (!review?.state || comment.kind !== "inline" || !suggestion) return null;
+  if (
+    !detail ||
+    !can(detail, "reviews.suggestions") ||
+    !review?.state ||
+    comment.kind !== "inline" ||
+    !suggestion
+  )
+    return null;
   if (props.outdated)
     return (
       <div className="flex items-center gap-1">
@@ -163,9 +172,11 @@ export function PrSuggestionActions(props: { comment: ForgeComment; outdated: bo
 
 /** The batched suggestions, committed together as one commit or cleared. */
 export function PrSuggestionBatch() {
+  const detail = usePrDetail();
   const review = usePrReview();
   const [open, setOpen] = useState(false);
-  if (!review || !review.batch.length) return null;
+  if (!detail || !can(detail, "reviews.suggestions") || !review || !review.batch.length)
+    return null;
   const count = review.batch.length;
   return (
     <div

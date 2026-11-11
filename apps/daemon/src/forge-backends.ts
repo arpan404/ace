@@ -1,6 +1,15 @@
 import {
   GitHubForge,
   GitLabReader,
+  GitLabCreation,
+  TeaReader,
+  isTeaHost,
+  TeaReviews,
+  teaReviewWrites,
+  TeaWriter,
+  TeaIssueWriter,
+  teaIssueWrites,
+  teaWrites,
   OriginReader,
   type ForgeReader,
   GitHubInbox,
@@ -11,8 +20,14 @@ import {
   repositoryWriteRefusal,
   resolveProjectRepositories,
   type CommandRunner,
+  type HostApiWrite,
 } from "@ace/forge";
-import { readableForges, type ForgeRepository, type LinkedPullRequest } from "@ace/protocol";
+import {
+  configuredForge,
+  readableForges,
+  type ForgeRepository,
+  type LinkedPullRequest,
+} from "@ace/protocol";
 import type { ForgeReplyReceipts } from "./forge-reply-receipts.ts";
 import type { SourceControl } from "./source-control.ts";
 import type { WorkspaceForgeGit } from "./workspace-forge-context.ts";
@@ -92,8 +107,14 @@ export class ForgeBackends {
    */
   async prHead(cwd: string) {
     const project = await this.projectRepositories(cwd);
-    const read = async (entry: { repository: ForgeRepository }) =>
-      (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    const read = async (entry: { repository: ForgeRepository }) => {
+      if (entry.repository.forge === "gitlab")
+        return new GitLabCreation({
+          repository: entry.repository,
+          runner: await this.hostRunner(cwd, entry.repository, [], this.signal),
+        }).repositoryMetadata(this.signal);
+      return (await this.backend(cwd, entry.repository)).repositoryMetadata(this.signal);
+    };
     const head = await resolvePrHead({
       resolved: project.resolved,
       globalRemote: project.globalRemote,
@@ -108,15 +129,91 @@ export class ForgeBackends {
   }
   /** The GitHub backend for a write, refused when the project hides or can't use `repository`. */
   async writer(cwd: string, repository: ForgeRepository): Promise<GitHubForge> {
+    await this.assertWritable(cwd, repository);
+    return this.backend(cwd, repository);
+  }
+  /** Refuses a write to a repository the project hides or can't use (ADR 0116). */
+  async assertWritable(cwd: string, repository: ForgeRepository): Promise<void> {
     // Without saved choices nothing is hidden, so a write goes exactly where it always did,
     // without reading Git first: a checkout Git can't read must not refuse the write.
-    if (!this.configs.forCheckout(cwd)) return this.backend(cwd, repository);
+    if (!this.configs.forCheckout(cwd)) return;
     const refusal = repositoryWriteRefusal(
       (await this.projectRepositories(cwd)).resolved,
       repository,
     );
     if (refusal) throw new Error(refusal);
-    return this.backend(cwd, repository);
+  }
+  /**
+   * The write identity for a non-GitHub adapter: refused first for a hidden or unavailable
+   * repository (ADR 0116), then admitting reads plus exactly `writes` (ADR 0117).
+   */
+  async admittedWriter(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ) {
+    await this.assertWritable(cwd, repository);
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    return this.sourceControl.writeIdentity(cwd, repository, writes, signal);
+  }
+  /** Alternate-host I/O: reads only, or admitted writes through `admittedWriter`. */
+  async hostRunner(
+    cwd: string,
+    repository: ForgeRepository,
+    writes: readonly HostApiWrite[],
+    signal: AbortSignal,
+  ): Promise<CommandRunner> {
+    if (writes.length > 0)
+      return (await this.admittedWriter(cwd, repository, writes, signal)).runner;
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    return (await this.sourceControl.readIdentity(cwd, repository, signal)).runner;
+  }
+  /** A Gitea/Forgejo identity's tea login, which every tea request names. */
+  #teaOptions(repository: ForgeRepository, identity: { runner: CommandRunner; login?: unknown }) {
+    if (!isTeaHost(repository.forge)) throw new ForgeError("unsupported");
+    if (typeof identity.login !== "string" || !identity.login) throw new ForgeError("unsupported");
+    return { repository, runner: identity.runner, login: identity.login };
+  }
+  async #teaRead(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    if (!this.sourceControl) throw new ForgeError("unsupported");
+    return this.#teaOptions(
+      repository,
+      await this.sourceControl.readIdentity(cwd, repository, signal),
+    );
+  }
+  async teaWriter(
+    cwd: string,
+    repository: ForgeRepository,
+    signal: AbortSignal,
+  ): Promise<{ writer: TeaWriter; account: string }> {
+    const identity = await this.admittedWriter(cwd, repository, teaWrites(repository), signal);
+    return {
+      writer: new TeaWriter(this.#teaOptions(repository, identity)),
+      account: identity.account,
+    };
+  }
+  async teaMergeReader(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    return new TeaWriter(await this.#teaRead(cwd, repository, signal));
+  }
+  /** Gitea/Forgejo review writes, admitted only on PR `number` of `repository`. */
+  async teaReviews(cwd: string, repository: ForgeRepository, number: number, signal: AbortSignal) {
+    const identity = await this.admittedWriter(
+      cwd,
+      repository,
+      teaReviewWrites(repository, number),
+      signal,
+    );
+    return { reviews: new TeaReviews(this.#teaOptions(repository, identity)) };
+  }
+  /** Gitea/Forgejo issue writes. */
+  async teaIssueWriter(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    const identity = await this.admittedWriter(cwd, repository, teaIssueWrites(repository), signal);
+    return new TeaIssueWriter(this.#teaOptions(repository, identity));
+  }
+  /** Gitea/Forgejo issue reads, and recovery reads of earlier issue writes. */
+  async teaIssues(cwd: string, repository: ForgeRepository, signal: AbortSignal) {
+    return new TeaIssueWriter(await this.#teaRead(cwd, repository, signal));
   }
   async hostAliases(remotes: readonly { fetchUrls: readonly string[] }[]) {
     return (
@@ -139,6 +236,7 @@ export class ForgeBackends {
     const identity = await this.sourceControl.readIdentity(cwd, repository, signal);
     const options = { repository, runner: identity.runner };
     if (repository.forge === "gitlab") return new GitLabReader(options);
+    if (isTeaHost(repository.forge)) return new TeaReader(this.#teaOptions(repository, identity));
     return new OriginReader({
       ...options,
       snapshots: this.snapshots(
@@ -237,6 +335,26 @@ export class ForgeBackends {
    * The signed-in account's notifications on `host`, or on the host of the checkout's own
    * repository. Every request goes through the identity-checked runner.
    */
+  /** Resolve an inbox host through the project's repositories and configured provider. */
+  async inboxRepository(cwd: string, host: string | undefined): Promise<ForgeRepository> {
+    const own = await this.repository(cwd).catch((error: unknown) => {
+      if (host) return undefined;
+      throw error;
+    });
+    if (own && (!host || own.host === host)) return own;
+    if (!host) throw new ForgeError("unsupported");
+    const entries = (await this.projectRepositories(cwd)).resolved.repositories;
+    const entry = entries.find(
+      (item) => item.visible && item.available && item.repository.host === host,
+    );
+    if (entry) return entry.repository;
+    const configured = (await this.sourceControl?.preferences())?.hosts.find(
+      (item) => item.host === host,
+    );
+    if (!configured) throw new ForgeError("unsupported");
+    // Inbox is account-wide; no real repository is needed to read its host's to-dos.
+    return { forge: configuredForge(configured), host, owner: "inbox", name: "inbox" };
+  }
   async inbox(cwd: string, host: string | undefined): Promise<GitHubInbox> {
     const repository = host ? undefined : await this.repository(cwd);
     if (repository && repository.forge !== "github") throw new ForgeError("unsupported");

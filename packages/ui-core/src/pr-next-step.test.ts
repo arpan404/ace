@@ -64,6 +64,13 @@ test("an approved PR, or one needing no review, with passing or no checks is rea
   expect(open({ author: "sam", ci: "pending" })).toBe("wait");
 });
 
+test("a PR whose review decision or checks the host didn't report is never ready to merge", () => {
+  expect(open({ author: "sam", reviewDecision: undefined })).toBe("wait");
+  expect(open({ author: "sam", ci: undefined })).toBe("wait");
+  expect(open({ author: "sam", ci: "unknown" })).toBe("wait");
+  expect(open({ author: "sam", ci: "unknown" }, { local: "passed" })).toBe("wait");
+});
+
 test("drafts, merged and closed PRs have no step to take", () => {
   expect(open({ state: "draft", ci: "failure" })).toBe("draft");
   expect(open({ state: "merged" })).toBe("none");
