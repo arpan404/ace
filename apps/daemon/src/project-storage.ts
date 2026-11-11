@@ -43,6 +43,17 @@ export function migrateProjects(db: DatabaseSync): void {
   if (!columns.has("kind")) db.exec("ALTER TABLE workspace_metadata ADD COLUMN kind TEXT");
 }
 
+/**
+ * Whether a workspace is Spade's own hidden project (ADR 0117): an empty folder, never a
+ * repository, which no list shows and nothing reads Git or forge data from.
+ */
+export function isSpadeProject(store: Pick<Store, "statement">, id: string): boolean {
+  return (
+    store.statement("SELECT kind FROM workspace_metadata WHERE workspace_id=?").get(id)?.kind ===
+    "spade"
+  );
+}
+
 /** Every project column a `Project` decodes from (`decodeProjectRow`), with `w` the workspace. */
 export const projectSelect =
   "SELECT w.id,w.name,w.path,m.icon,m.default_icon AS defaultIcon,m.badge,m.defaults,m.notes,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id";

@@ -639,7 +639,8 @@ export class WorkspaceRuntime {
       return this.store.atomic((db) => {
         const rows = db
           .prepare(
-            `${projectSelect} WHERE w.id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) ORDER BY w.id LIMIT ?`,
+            // Spade's hidden project is never listed (ADR 0117): no app reads it.
+            `${projectSelect} WHERE w.id>? AND NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) AND coalesce(m.kind,'')<>'spade' ORDER BY w.id LIMIT ?`,
           )
           .all(op.after ?? "", op.limit + 1);
         const result = wrap({
@@ -659,7 +660,7 @@ export class WorkspaceRuntime {
       const projects = this.store.atomic((db) =>
         db
           .prepare(
-            `${projectSelect} WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) ORDER BY w.id`,
+            `${projectSelect} WHERE NOT EXISTS (SELECT 1 FROM workspace_unregistered WHERE workspace_id=w.id) AND coalesce(m.kind,'')<>'spade' ORDER BY w.id`,
           )
           .all()
           .map(decodeProjectRow)
