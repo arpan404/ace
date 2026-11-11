@@ -235,7 +235,7 @@ private struct TurnsSheet: View {
                 if loading || problem != nil || (loaded && turns.isEmpty) {
                     Group {
                         if let problem {
-                            Button("Try again") { load() }.foregroundStyle(AceTheme.Colours.foreground)
+                            Button("Retry") { load() }.foregroundStyle(AceTheme.Colours.foreground)
                             Text(problem).foregroundStyle(AceTheme.Colours.mutedForeground)
                         } else if loading {
                             ProgressView().frame(maxWidth: .infinity)
@@ -274,6 +274,10 @@ private struct TurnsSheet: View {
             if let older { payload["before"] = older }
             do {
                 let page = try await model.service(payload, as: TurnsPage.self)
+                guard page.ready else {
+                    problem = "Turns are not ready yet."
+                    return
+                }
                 turns += page.turns.filter { turn in !turns.contains { $0.id == turn.id } }
                 older = page.older
                 loaded = true
