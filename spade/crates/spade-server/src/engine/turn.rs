@@ -38,13 +38,15 @@ enum Step {
 pub(super) async fn run(
     engine: Arc<Engine>,
     id: String,
+    reply: String,
     stop_rx: watch::Receiver<bool>,
     mut pause_rx: watch::Receiver<Pause>,
 ) {
     let live = engine.live(&id);
     // The reply this worker drives, so the hand-off below can tell it from one opened later. It
     // is taken before the first stop check, so a Stop that arrives at once still closes it.
-    let mut driven: Option<String> = open_reply(&engine, &id);
+    // It is the one `spawn_turn` read, so closing it never depends on another read succeeding.
+    let mut driven: Option<String> = Some(reply);
     let ended = drive(&engine, &id, stop_rx, &mut pause_rx, &mut driven).await;
     let paused = matches!(ended, Ended::Paused);
     // Decided from the reply this worker drove, not from a fresh read: a read that fails now must
@@ -460,5 +462,67 @@ mod tests {
                 text: "Hello".into()
             })
         );
+    }
+
+    type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+
+    fn engine(
+        dir: &std::path::Path,
+    ) -> std::result::Result<Arc<Engine>, Box<dyn std::error::Error>> {
+        let catalog = serde_json::json!({
+            "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
+            "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat",
+                            "base_url": "http://127.0.0.1:9/", "key": { "env": "FAKE_KEY" },
+                            "models": [{ "id": "m", "name": "M", "capabilities": ["tools"] }] }]
+        });
+        let models = spade_models::Models::new(
+            spade_models::Catalog::from_json(&catalog.to_string())?,
+            spade_keys::Keys::new(|_| Some("fake-key".to_owned())),
+        )?;
+        Ok(Engine::open(super::super::Setup {
+            store: spade_store::Store::open(&dir.join("spade.sqlite"))?,
+            models,
+            tools: crate::tools::Toolbox::new(Vec::new()),
+            clock: Arc::new(crate::clock::SystemClock),
+            ids: Arc::new(crate::clock::CountingIds::default()),
+            daily_cap_micros: 1_000_000,
+            utc_offset_seconds: 0,
+            limits: super::super::Limits::default(),
+            skills: None,
+            images: crate::images::ImageStore::open(&dir.join("images"))?,
+        })?)
+    }
+
+    #[tokio::test]
+    async fn a_worker_whose_first_read_fails_still_closes_the_reply_it_was_given() -> Result {
+        let dir = tempfile::tempdir()?;
+        let engine = engine(dir.path())?;
+        engine.store.create_conversation("c1", 0)?;
+        engine.record("c1", &Event::user_message("Hi"))?;
+        engine.record("c1", &Event::reply_started("r1", "fake/m"))?;
+        // Storage fails from the moment the worker is scheduled.
+        let hide = rusqlite::Connection::open(dir.path().join("spade.sqlite"))?;
+        hide.execute_batch("ALTER TABLE events RENAME TO events_away;")?;
+        let (_stop, stop_rx) = watch::channel(false);
+        let pause_rx = engine.pause.subscribe();
+        let worker = tokio::spawn(run(
+            engine.clone(),
+            "c1".into(),
+            "r1".into(),
+            stop_rx,
+            pause_rx,
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        hide.execute_batch("ALTER TABLE events_away RENAME TO events;")?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), worker).await??;
+
+        let events = engine.load("c1")?;
+        let transcript = Transcript::fold(&events);
+        assert!(transcript.open_reply().is_none(), "r1 was left open");
+        assert!(events.iter().any(|e| matches!(
+            e,
+            Event::Known(Known::ReplyFailed { reply, .. }) if reply == "r1"
+        )));
+        Ok(())
     }
 }

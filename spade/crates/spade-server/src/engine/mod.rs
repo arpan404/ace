@@ -456,10 +456,10 @@ impl Engine {
             return;
         };
         let (stop_tx, stop_rx) = watch::channel(false);
-        *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some((reply, stop_tx));
+        *live.stop.lock().unwrap_or_else(|p| p.into_inner()) = Some((reply.clone(), stop_tx));
         let pause_rx = self.pause.subscribe();
         let engine = self.clone();
         let id = id.to_owned();
-        tokio::spawn(async move { turn::run(engine, id, stop_rx, pause_rx).await });
+        tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
     }
 }

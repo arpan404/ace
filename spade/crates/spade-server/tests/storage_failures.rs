@@ -254,9 +254,11 @@ async fn stop_cancels_a_call_in_flight_while_a_background_jobs_start_cannot_be_s
     let research = FakeTool::new("research", Risk::Read, "Found it").background();
     let spade = Spade::start(
         vec![
-            Script::reply("")
-                .call("c1", "watch_page", json!({}))
-                .call("c2", "research", json!({ "topic": "weather" })),
+            Script::reply("").call("c1", "watch_page", json!({})).call(
+                "c2",
+                "research",
+                json!({ "topic": "weather" }),
+            ),
             Script::reply("").plain(r#"{"title":"Weather"}"#),
         ],
         vec![Arc::new(endless) as Arc<dyn Tool>, Arc::new(research)],
