@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import type { SpadeStatus } from "@ace/protocol";
+import { ThreadId, type SpadeStatus } from "@ace/protocol";
 import { SpadeHost, type SpadeExit, type SpadeHostRuntime } from "./host.ts";
 
 const pollMs = 7;
@@ -226,4 +226,22 @@ test("turning Spade off ends its streams, stops it with a 5 s grace and revokes 
   expect(h.host.ready()?.generation).not.toBe(generation);
   await h.host.close();
   expect(h.host.status().state).toBe("off");
+});
+
+test("the host thread and its busy flag ride along with every status, and a change is pushed", async () => {
+  const thread = ThreadId.parse("t1");
+  const h = harness({ binary: undefined });
+  h.host.setThread({ id: thread, busy: false });
+  expect(h.statuses.at(-1)).toEqual({ state: "off", thread: { id: "t1", busy: false } });
+  h.host.setThread({ id: thread, busy: true });
+  h.host.setEnabled(true);
+  await eventually(() => h.statuses.at(-1)?.reason !== undefined);
+  expect(h.host.status()).toEqual({
+    state: "off",
+    reason: "Spade isn't installed: no spade-server binary was found.",
+    thread: { id: "t1", busy: true },
+  });
+  const pushed = h.statuses.length;
+  h.host.setThread({ id: thread, busy: true });
+  expect(h.statuses).toHaveLength(pushed);
 });
