@@ -53,9 +53,9 @@ export class GrantPrincipals implements Authenticator {
     this.now = options.now;
     this.ended = options.ended;
   }
-  authenticate(bearer: string): Principal | undefined {
+  authenticate(bearer: string, resource?: string): Principal | undefined {
     if (this.closed) return undefined;
-    const grant = this.tokens.verify(bearer);
+    const grant = this.tokens.verify(bearer, resource);
     if (!grant) return undefined;
     this.grants.touch(grant);
     return this.principal(grant);

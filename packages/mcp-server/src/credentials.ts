@@ -19,7 +19,11 @@ export interface SessionLease {
  * reads its store each time applies a revocation to the next request.
  */
 export interface Authenticator {
-  authenticate(bearer: string): Principal | undefined;
+  /**
+   * `resource` is the MCP URL the request arrived at, for an endpoint whose tokens are bound to
+   * one (RFC 8707, ADR 0117); undefined on the internal endpoint.
+   */
+  authenticate(bearer: string, resource?: string): Principal | undefined;
   /** Ends every principal it handed out. */
   close(): void;
 }
