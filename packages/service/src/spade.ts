@@ -30,3 +30,22 @@ export {
   spadeReleases,
 } from "./spade-release.ts";
 export { localSpadePlan } from "./spade-local.ts";
+export {
+  swapSpade,
+  swapPrograms,
+  spadeQuiet,
+  describeSpadeSwap,
+  spadeDeadlines,
+  SpadeMaintenance,
+  type SpadeSwapMode,
+  type SpadeSwapPorts,
+  type SpadeSwapResult,
+} from "./spade-swap.ts";
+export { localSpadeSwapPorts, type SpadeSwapIo } from "./spade-swap-ports.ts";
+export {
+  updateSpade,
+  reopenSpadeAdmission,
+  rememberSpadeUpdateMode,
+  takeSpadeUpdateMode,
+  spadeUpdateModeFile,
+} from "./spade-update.ts";
