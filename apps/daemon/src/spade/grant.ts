@@ -45,9 +45,13 @@ export class SpadeGrants {
       })
     );
   }
-  /** A new token for the grant; every earlier one stops working. */
+  /**
+   * A new token for the grant; every earlier one stops working. The grant reads as unused until
+   * Spade first calls with it, which is how a restarted daemon knows Spade may lack it.
+   */
   issue(grant: OutsideGrant): string {
     this.tokens.revokeTokens(grant.id);
+    this.grants.markUnused(grant.id);
     return this.tokens.issueBearer(grant);
   }
   /** The live Spade grant `bearer` belongs to; records the use. Reads SQLite every call. */
@@ -57,16 +61,30 @@ export class SpadeGrants {
     this.grants.touch(grant);
     return grant;
   }
-  /** Revokes every live Spade grant and its tokens; the ids revoked. */
-  revokeAll(): string[] {
-    const revoked: string[] = [];
+  /**
+   * Spade was turned off: every live Spade grant ends, recorded as expired at that moment as
+   * well as revoked, which is how `wanted` tells it from the person revoking it. The ids ended.
+   */
+  retireAll(now: number): string[] {
+    const retired: string[] = [];
     for (const grant of this.grants.liveGrants()) {
       if (grant.clientKind !== "spade") continue;
+      this.grants.update(grant.id, { expiresAt: now });
       this.grants.revoke(grant.id);
       this.tokens.revokeTokens(grant.id);
-      revoked.push(grant.id);
+      retired.push(grant.id);
     }
-    return revoked;
+    return retired;
+  }
+  /**
+   * Whether Spade, turned on, should have a grant it lacks: none was ever made, or the last one
+   * ended because Spade was turned off. One the person revoked stays revoked until Spade is
+   * turned on again.
+   */
+  wanted(): boolean {
+    if (this.current()) return false;
+    const last = this.grants.list().find((grant) => grant.clientKind === "spade");
+    return !last || last.expiresAt !== null;
   }
   /** Whether a grant id is Spade's (live or not). */
   owns(grantId: string): boolean {

@@ -191,6 +191,10 @@ export class GrantStore {
     if (grant.lastUsedAt !== null && now - grant.lastUsedAt < touchEveryMs) return;
     this.sql.statement("UPDATE outside_grants SET last_used_at=? WHERE id=?").run(now, grant.id);
   }
+  /** Forgets the last use: a new token was issued, and it hasn't been used yet. */
+  markUnused(id: string): void {
+    this.sql.statement("UPDATE outside_grants SET last_used_at=NULL WHERE id=?").run(id);
+  }
   /** Notes a thread the grant started or messaged, for its row in Settings. */
   noteThread(grantId: string, threadId: ThreadId, kind: "started" | "messaged"): void {
     this.sql

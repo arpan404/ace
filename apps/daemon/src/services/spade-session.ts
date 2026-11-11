@@ -1,14 +1,14 @@
 import { maxSpadeResponseBytes, type SpadeLiveEndReason, type SpadeStatus } from "@ace/protocol";
 import { spadeLive } from "../spade/forward.ts";
-import type { SpadeHost } from "../spade/host.ts";
+import type { SpadeLink } from "../spade/link.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
-/** What the session reads of the Spade host. */
-export type SpadeAccess = Pick<SpadeHost, "ready" | "status" | "subscribe" | "onRunEnded">;
+/** What the session reads of the Spade service. */
+export type SpadeAccess = Pick<SpadeLink, "ready" | "status" | "subscribe" | "onRunEnded">;
 type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> & {
   options: { spade?: SpadeAccess | undefined };
 };
@@ -26,7 +26,7 @@ function unavailable(host: SpadeAccess | undefined): string {
   return status.reason ?? "Spade isn't running.";
 }
 
-/** `spade.*` (ADR 0121): status, HTTP requests and live streams forwarded to Spade. */
+/** `spade.*` (ADR 0121, 0123): status, HTTP requests and live streams forwarded to Spade. */
 export function createSpadeSession(context: SpadeSocket): SocketService {
   const streams = new Map<string, Stream>();
   const stops: (() => void)[] = [];
