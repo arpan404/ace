@@ -103,7 +103,8 @@ export async function serveHttpExchange(
     const stop = () => void source?.cancel().catch(() => {});
     controller.signal.addEventListener("abort", stop, { once: true });
     try {
-      while (source && !controller.signal.aborted) {
+      for (;;) {
+        if (!source || controller.signal.aborted) break;
         const { done, value } = await source.read();
         if (done) break;
         for (const chunk of chunks(value)) {

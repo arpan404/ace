@@ -3,7 +3,7 @@ import { accountApi, isAccountPath } from "./account/api.ts";
 import type { AccountApi } from "./account/api.ts";
 import { readAccountSetup } from "./account/config.ts";
 import type { AccountSetup } from "./account/config.ts";
-import { ACCOUNT_HEADER, PROTOCOL_HEADER, admit } from "./admission.ts";
+import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER, admit } from "./admission.ts";
 import type { Env } from "./env.ts";
 import { forwardPath } from "./http-path.ts";
 import type { ForwardPath } from "./http-path.ts";
@@ -41,13 +41,29 @@ const tooMany = () =>
  * machine's relay object, which carries it to the daemon. Paths, headers and bodies are never
  * logged; the caller's account isn't checked, since the daemon authorizes every request.
  */
-async function forwardHttp(request: Request, env: Env, target: ForwardPath): Promise<Response> {
+async function forwardHttp(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  target: ForwardPath,
+): Promise<Response> {
   if (await limited(env.HTTP_REQUESTS, request)) return tooMany();
   if (await limited(env.HTTP_HOST_REQUESTS, request, target.hostId)) return tooMany();
   const length = Number(request.headers.get("content-length") ?? 0);
   if (!Number.isFinite(length) || length > HTTP_MAX_REQUEST_BYTES)
     return new Response("Request body too large.\n", { status: 413 });
-  return env.RELAY.get(env.RELAY.idFromName(target.hostId)).fetch(request);
+  const relay = env.RELAY.get(env.RELAY.idFromName(target.hostId));
+  // A caller leaving doesn't cancel the object's side of the request by itself; the Worker
+  // sees it and tells the object, which cancels the daemon's work.
+  const exchange = crypto.randomUUID();
+  request.signal.addEventListener(
+    "abort",
+    () => ctx.waitUntil(relay.cancelHttp(exchange).catch(() => {})),
+    { once: true },
+  );
+  const headers = new Headers(request.headers);
+  headers.set(EXCHANGE_HEADER, exchange);
+  return relay.fetch(new Request(request, { headers }));
 }
 
 /** Account settings and the API built from them, once per isolate. */
@@ -75,12 +91,12 @@ function accounts(env: Env) {
  * checked here and handed to the Durable Object named by its host id.
  */
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const url = new URL(request.url);
     if (isAccountPath(url.pathname))
       return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request));
     const target = forwardPath(url);
-    if (target) return forwardHttp(request, env, target);
+    if (target) return forwardHttp(request, env, ctx, target);
     if (!endpoints.has(url.pathname))
       return url.pathname === "/"
         ? new Response("ace relay\n")
@@ -103,6 +119,7 @@ export default {
     const headers = new Headers(request.headers);
     headers.delete(ACCOUNT_HEADER);
     headers.delete(PROTOCOL_HEADER);
+    headers.delete(EXCHANGE_HEADER);
     if (url.pathname === "/host" || url.pathname === "/client") {
       const admission = admit({
         endpoint: url.pathname,

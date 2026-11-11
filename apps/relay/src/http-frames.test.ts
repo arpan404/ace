@@ -44,7 +44,7 @@ it("a large body splits into chunks that each fit a frame and join back to the b
   const body = new Uint8Array(HTTP_CHUNK_BYTES * 2 + 5).map((_, index) => index % 251);
   const parts = [...chunks(body)];
   expect(parts.map((part) => part.length)).toEqual([HTTP_CHUNK_BYTES, HTTP_CHUNK_BYTES, 5]);
-  expect(new Uint8Array(parts.flatMap((part) => [...part]))).toEqual(body);
+  expect(new Uint8Array(Buffer.concat(parts))).toEqual(body);
   expect([...chunks(new Uint8Array(0))]).toEqual([]);
 });
 
@@ -93,12 +93,13 @@ it("a daemon's response can't set cookies or origin-wide policy on the shared re
   });
 });
 
+const typed = (type: string) => ({
+  status: 200,
+  headers: [["Content-Type", type]] as [string, string][],
+});
+
 it("only event-stream responses count as long-lived streams", () => {
-  const head = (type: string) => ({
-    status: 200,
-    headers: [["Content-Type", type]] as [string, string][],
-  });
-  expect(isEventStream(head("text/event-stream; charset=utf-8"))).toBe(true);
-  expect(isEventStream(head("application/json"))).toBe(false);
+  expect(isEventStream(typed("text/event-stream; charset=utf-8"))).toBe(true);
+  expect(isEventStream(typed("application/json"))).toBe(false);
   expect(isEventStream({ status: 204, headers: [] })).toBe(false);
 });

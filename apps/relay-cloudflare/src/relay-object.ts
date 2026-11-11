@@ -12,7 +12,7 @@ import {
 } from "@ace/relay/wire";
 import type { RouteAction } from "@ace/relay/wire";
 import { Attachment, hostAccount, nextExpiry, routeFacts } from "./attachment.ts";
-import { ACCOUNT_HEADER, PROTOCOL_HEADER } from "./admission.ts";
+import { ACCOUNT_HEADER, EXCHANGE_HEADER, PROTOCOL_HEADER } from "./admission.ts";
 import { machineStore } from "./account/machines.ts";
 import { openControl, sealControl } from "./control.ts";
 import { FrameBudget } from "./frame-budget.ts";
@@ -61,8 +61,11 @@ export class RelayObject extends DurableObject<Env> {
     // Public HTTP for this machine, checked and limited by the Worker (ADR 0117).
     const target = forwardPath(url);
     if (target)
-      return this.#http.forward(request, target, (ticket) =>
-        this.#offerHttp(target.hostId, ticket),
+      return this.#http.forward(
+        request,
+        target,
+        request.headers.get(EXCHANGE_HEADER) ?? crypto.randomUUID(),
+        (ticket) => this.#offerHttp(target.hostId, ticket),
       );
     if (url.pathname === "/serve")
       return this.#http.join(Ticket.parse(url.searchParams.get("ticket")));
@@ -257,6 +260,11 @@ export class RelayObject extends DurableObject<Env> {
     if (this.#read(ws)?.id !== attachment.id) return;
     this.#save(ws, host);
     this.#apply(this.#routing().register(attachment.id, host.hostId));
+  }
+
+  /** The caller of forwarded request `exchange` left (the Worker saw it): cancel it. */
+  async cancelHttp(exchange: string): Promise<void> {
+    this.#http.cancel(exchange);
   }
 
   /**

@@ -61,11 +61,18 @@ function randomTicket(): string {
  */
 export class HttpGateway {
   #waiting = new Map<string, Waiting>();
+  /** How to cancel each exchange in flight, by the id the Worker gave it. */
+  #cancels = new Map<string, () => void>();
   #active = 0;
   #streams = 0;
 
   /** Forwards one caller request to the daemon and returns its response, streamed. */
-  async forward(request: Request, target: ForwardPath, offer: Offer): Promise<Response> {
+  async forward(
+    request: Request,
+    target: ForwardPath,
+    exchange: string,
+    offer: Offer,
+  ): Promise<Response> {
     if (this.#active >= httpLimits.maxRequests)
       return plain(429, "Too many requests to this machine at once.", { "retry-after": "1" });
     this.#active++;
@@ -76,11 +83,16 @@ export class HttpGateway {
       this.#active--;
     };
     try {
-      return await this.#exchange(request, target, offer, release);
+      return await this.#exchange(request, target, exchange, offer, release);
     } catch {
       release();
       return plain(502, "The machine's answer was cut off.");
     }
+  }
+
+  /** The caller of `exchange` left. */
+  cancel(exchange: string): void {
+    this.#cancels.get(exchange)?.();
   }
 
   /** The daemon's `/serve` upgrade for `ticket`, or a refusal if nothing waits for it. */
@@ -91,6 +103,8 @@ export class HttpGateway {
     const [client, server] = Object.values(new WebSocketPair()) as [WebSocket, WebSocket];
     // Not hibernatable: the caller's request keeps the object awake for the exchange's life.
     server.accept();
+    // Newer compatibility dates deliver binary messages as Blobs unless asked.
+    server.binaryType = "arraybuffer";
     waiting.open(server);
     return upgraded(client);
   }
@@ -107,6 +121,7 @@ export class HttpGateway {
   async #exchange(
     request: Request,
     target: ForwardPath,
+    exchange: string,
     offer: Offer,
     release: () => void,
   ): Promise<Response> {
@@ -126,13 +141,12 @@ export class HttpGateway {
     }
     const started = Date.now();
     let timer = setTimeout(() => opened.resolve(503), httpLimits.openTimeoutMs);
-    const callerGone = () => opened.resolve(499);
-    request.signal?.addEventListener("abort", callerGone, { once: true });
+    this.#cancels.set(exchange, () => opened.resolve(499));
     const socket = await opened.promise;
     clearTimeout(timer);
     this.#waiting.delete(ticket);
     if (typeof socket === "number") {
-      request.signal?.removeEventListener("abort", callerGone);
+      this.#cancels.delete(exchange);
       release();
       return socket === 404 ? new Response(null, { status: 404 }) : offline();
     }
@@ -150,7 +164,7 @@ export class HttpGateway {
       if (finished) return;
       finished = true;
       clearTimeout(timer);
-      request.signal?.removeEventListener("abort", cancel);
+      this.#cancels.delete(exchange);
       if (frame) trySend(socket, frame);
       try {
         socket.close(1000);
@@ -164,10 +178,9 @@ export class HttpGateway {
       onEnd();
       finish(abortFrame());
     };
-    request.signal?.removeEventListener("abort", callerGone);
-    request.signal?.addEventListener("abort", cancel, { once: true });
+    this.#cancels.set(exchange, cancel);
     socket.addEventListener("message", (event) => {
-      if (typeof event.data === "string") return cancel();
+      if (!(event.data instanceof ArrayBuffer)) return cancel();
       try {
         onFrame(decodeFrame(new Uint8Array(event.data)));
       } catch {
@@ -221,11 +234,12 @@ export class HttpGateway {
 
     let received = 0;
     let credited = 0;
-    let queued = () => 0;
+    let sink: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const queued = () => HTTP_RESPONSE_WINDOW - (sink?.desiredSize ?? HTTP_RESPONSE_WINDOW);
     const body$ = new ReadableStream<Uint8Array>(
       {
         start: (controller) => {
-          queued = () => HTTP_RESPONSE_WINDOW - (controller.desiredSize ?? 0);
+          sink = controller;
           onFrame = (frame) => {
             if (frame.kind === "body") {
               received += frame.bytes.length;
