@@ -59,7 +59,8 @@ parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unav
     `spade.http.part` `{requestId, index, body}` messages, `index` 0 to N - 1 in order, each at
     most 192 Ki characters. A base64 part other than the last holds a multiple of 4 characters,
     and a text part never splits a surrogate pair. The daemon streams the parts to Spade as they
-    arrive, with chunked transfer. A part out of order or bad base64 ends the request with
+    arrive, with chunked transfer. Send the parts only after `spade.http.open` `{requestId}`
+    arrives: it says the daemon took the request; a refusal comes as `spade.http.result` instead. A part out of order or bad base64 ends the request with
     `invalid_body`; 60 s without the next part ends it with `failed`.
   - **Request caps.** `POST /v1/conversations` and `POST /v1/conversations/{id}/messages` take up
     to 56 MiB, room for 8 images of 5 MiB as base64 in JSON. Every other route takes 512 KiB. A
