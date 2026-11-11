@@ -629,29 +629,65 @@ async fn a_message_sent_right_after_stop_gets_its_own_reply() -> Result {
         .await?;
     assert_eq!(status, 202);
     let events = spade.wait_for(&id, "reply_finished").await?;
-    let order: Vec<String> = types(&events)
-        .into_iter()
-        .filter(|t| t.starts_with("reply_s") || t == "reply_finished" || t == "user_message")
-        .collect();
-    assert_eq!(
-        order,
-        vec![
-            "user_message",
-            "reply_started",
-            "reply_stopped",
-            "user_message",
-            "reply_started",
-            "reply_finished"
-        ]
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<Vec<_>>(),
-        "{order:?}"
-    );
+    // Whether the message lands before or after the stopped reply closes, it gets a reply of its
+    // own; the decision itself is tested in spade-core (turn::unanswered_after).
+    let started = types(&events)
+        .iter()
+        .filter(|t| *t == "reply_started")
+        .count();
+    assert_eq!(started, 2, "{:?}", types(&events));
+    assert!(types(&events).contains(&"reply_stopped".to_owned()));
     let finished = events.iter().find(|e| e["type"] == "reply_finished");
     assert_eq!(
         finished.map(|e| e["text"].clone()),
         Some(json!("Evenings, then."))
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_message_steered_into_a_reply_cut_off_by_a_restart_is_answered_after_it() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply(&"word ".repeat(200))
+                .chunks(200)
+                .delay(Duration::from_millis(50)),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Find flights").await?;
+    spade.wait_for(&id, "reply_progress").await?;
+    spade
+        .post(
+            &format!("/v1/conversations/{id}/messages"),
+            json!({ "text": "Only mornings" }),
+        )
+        .await?;
+    let spade = spade
+        .restart(
+            Vec::new(),
+            vec![Script::reply("Mornings: flight A.").plain(r#"{"title":"Flights"}"#)],
+        )
+        .await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let order: Vec<String> = types(&events)
+        .into_iter()
+        .filter(|t| t.starts_with("reply_") && t != "reply_progress")
+        .collect();
+    assert_eq!(
+        order,
+        vec![
+            "reply_started",
+            "reply_interrupted",
+            "reply_started",
+            "reply_finished"
+        ]
+    );
+    let finished = events.iter().find(|e| e["type"] == "reply_finished");
+    assert_eq!(
+        finished.map(|e| e["text"].clone()),
+        Some(json!("Mornings: flight A."))
     );
     Ok(())
 }

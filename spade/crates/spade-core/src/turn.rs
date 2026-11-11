@@ -156,18 +156,22 @@ pub fn unanswered_after(events: &[Event], reply: &str) -> bool {
     let Some(started) = started else {
         return false;
     };
-    let mut from = started + 1;
+    // The last step's prompt, and the stop, each bound what counts as unanswered; a step stored
+    // after the stop must not move the bound back before it.
+    let mut prompted = started + 1;
+    let mut stopped = 0;
     for (at, event) in events.iter().enumerate().skip(started) {
         match event {
             Event::Known(Known::StepFinished { reply: r, seen, .. }) if r == reply => {
-                from = seen.unwrap_or(at).max(started + 1);
+                prompted = seen.unwrap_or(at).max(started + 1);
             }
             Event::Known(Known::StopRequested { reply: Some(r), .. }) if r == reply => {
-                from = from.max(at + 1);
+                stopped = at + 1;
             }
             _ => {}
         }
     }
+    let from = prompted.max(stopped);
     events.iter().skip(from).any(|event| match event {
         Event::Known(Known::UserMessage { .. }) => true,
         Event::Known(Known::JobFinished { job, .. }) => !job_stopped(events, job),
@@ -424,6 +428,26 @@ mod tests {
         );
         events.push(Event::user_message("Actually, evenings"));
         assert!(unanswered_after(&events, "r1"));
+    }
+
+    #[test]
+    fn a_step_stored_after_the_stop_keeps_earlier_messages_stopped() {
+        let mut late_step = step(Vec::new(), 0);
+        if let Event::Known(Known::StepFinished { seen, .. }) = &mut late_step {
+            *seen = Some(2);
+        }
+        let events = vec![
+            Event::user_message("Find flights"),
+            Event::reply_started("r1", "m"),
+            Event::user_message("Mornings only"),
+            Event::Known(Known::StopRequested {
+                reply: Some("r1".into()),
+                jobs: Vec::new(),
+            }),
+            // The stream finished just as Stop landed.
+            late_step,
+        ];
+        assert!(!unanswered_after(&events, "r1"));
     }
 
     #[test]

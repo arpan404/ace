@@ -180,7 +180,19 @@ impl Engine {
             let events = engine.load(&conversation.id)?;
             let transcript = Transcript::fold(&events);
             if let Some(close) = transcript.close_after_restart() {
-                engine.record(&conversation.id, &close)?;
+                // Closed like any reply: a message it never answered opens the next one.
+                match transcript.open_reply().and_then(|m| m.reply.clone()) {
+                    Some(reply) => engine.close_reply(&conversation.id, &reply, &close)?,
+                    None => {
+                        engine.record(&conversation.id, &close)?;
+                    }
+                }
+                if Transcript::fold(&engine.load(&conversation.id)?)
+                    .open_reply()
+                    .is_some()
+                {
+                    engine.spawn_turn(&conversation.id);
+                }
             } else if transcript.turn_state() == Some(TurnState::WaitingOnYou) {
                 engine.spawn_turn(&conversation.id);
             }
