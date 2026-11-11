@@ -86,6 +86,7 @@ struct BridgeMachineAccess: MachineAccess {
         guard let data = try? JSONSerialization.data(withJSONObject: body) else { return .failure(.unknown) }
         let once = Once()
         var services = HostServices(secrets: secrets, secretAccess: .directory, directoryURL: directoryURL)
+        services.isCancelled = { once.isCancelled }
         let outcome: Result<AccessOutcome, ProblemNotice> = await withTaskCancellationHandler {
           await withCheckedContinuation { continuation in
             let finish: @Sendable (Result<AccessOutcome, ProblemNotice>) -> Void = { result in
@@ -101,7 +102,7 @@ struct BridgeMachineAccess: MachineAccess {
             // the person waits on.
             let priority: QualityOfService = switch request { case .list, .remember: .utility; default: .userInitiated }
             let runtime = ClientRuntime(access: target, services: services, priority: priority, fail: { _ in finish(.failure(.unknown)) })
-            guard once.install(runtime) else { runtime.stop(); return }
+            guard once.install(runtime) else { return }
             runtime.startAccess(String(decoding: data, as: UTF8.self))
           }
         } onCancel: { once.cancel() }
@@ -117,12 +118,13 @@ private final class Once: @unchecked Sendable {
     private var cancelled = false
     private var storedRuntime: ClientRuntime?
     private var finish: (@Sendable (Result<AccessOutcome, ProblemNotice>) -> Void)?
+    var isCancelled: Bool { lock.withLock { cancelled } }
     var runtime: ClientRuntime? { lock.withLock { storedRuntime } }
     func begin(_ finish: @escaping @Sendable (Result<AccessOutcome, ProblemNotice>) -> Void) -> Bool {
         lock.withLock { self.finish = finish; return !cancelled }
     }
     func install(_ runtime: ClientRuntime) -> Bool {
-        lock.withLock { storedRuntime = runtime; return !cancelled }
+        lock.withLock { guard !cancelled else { return false }; storedRuntime = runtime; return true }
     }
     func cancel() {
         let state = lock.withLock { cancelled = true; return (storedRuntime, finish) }
