@@ -262,3 +262,64 @@ async fn an_unknown_mode_is_refused_and_admission_stays_open() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn reopening_without_a_restart_resumes_paused_turns_and_answers_new_messages() -> Result {
+    let spade = Spade::start(
+        vec![
+            slow_reply("A long answer about boats."),
+            Script::reply("Boats float."),
+            title(),
+            Script::reply("Fresh answer."),
+            title(),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    let id = spade.ask("Tell me about boats").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    spade
+        .post(
+            "/v1/maintenance",
+            json!({ "mode": "now", "deadline_ms": 50 }),
+        )
+        .await?;
+    spade.wait_for(&id, "turn_paused").await?;
+    wait_until(&spade, |s| s["running_turns"] == 0).await?;
+
+    // The update was aborted: the same Spade carries on.
+    spade.delete("/v1/maintenance").await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert_eq!(last_text(&events, "reply_finished"), "Boats float.");
+    spade.wait_for(&id, "renamed").await?;
+    let next = spade.ask("And ships?").await?;
+    let events = spade.wait_for(&next, "reply_finished").await?;
+    assert_eq!(last_text(&events, "reply_finished"), "Fresh answer.");
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_update_aborted_at_once_never_pauses_a_turn() -> Result {
+    let lookup = FakeTool::new("lookup", Risk::Read, "Two trains a day");
+    let spade = Spade::start(
+        vec![
+            slow_reply("Let me check.").call("c1", "lookup", json!({})),
+            Script::reply("Two a day."),
+            title(),
+        ],
+        vec![Arc::new(lookup) as Arc<dyn Tool>],
+    )
+    .await?;
+    let id = spade.ask("Trains?").await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Closed and reopened before the closing task first runs.
+    spade
+        .engine
+        .begin_maintenance(spade_core::maintenance::Mode::Now, None);
+    spade.engine.end_maintenance();
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    let kinds = types(&events);
+    assert!(!kinds.contains(&"turn_paused".to_owned()), "{kinds:?}");
+    assert_eq!(last_text(&events, "reply_finished"), "Two a day.");
+    Ok(())
+}

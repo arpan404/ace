@@ -72,16 +72,20 @@ impl Engine {
                         }
                         tokio::time::sleep(POLL).await;
                     }
-                    let _ = engine.pause.send(Pause::AfterStep);
-                }
-                Mode::Now => {
-                    let _ = engine.pause.send(Pause::AfterStep);
-                    let allowance = maintenance::step_allowance(deadline);
-                    engine.wait_for_turns(allowance, &current).await;
-                    if !current() {
+                    if !engine.publish_if(generation, Pause::AfterStep) {
                         return;
                     }
-                    let _ = engine.pause.send(Pause::Now);
+                }
+                Mode::Now => {
+                    // A reopen may already have come before this task first ran.
+                    if !engine.publish_if(generation, Pause::AfterStep) {
+                        return;
+                    }
+                    let allowance = maintenance::step_allowance(deadline);
+                    engine.wait_for_turns(allowance, &current).await;
+                    if !engine.publish_if(generation, Pause::Now) {
+                        return;
+                    }
                 }
             }
             // Every turn is paused; if the restart never comes (the updater died), Spade
@@ -97,8 +101,12 @@ impl Engine {
     /// Reopens admission (an update was aborted): paused turns resume and messages stored while
     /// closed are answered.
     pub fn end_maintenance(self: &Arc<Self>) {
-        self.maintenance.fetch_add(1, Ordering::SeqCst);
-        self.reopen();
+        {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.maintenance.fetch_add(1, Ordering::SeqCst);
+            self.open_admission();
+        }
+        self.resume_all();
     }
 
     /// For a plain stop (SIGTERM): closes admission, lets running model steps finish within
@@ -106,42 +114,57 @@ impl Engine {
     pub async fn pause_for_stop(self: &Arc<Self>, allowance: Duration) {
         let generation = self.close_admission();
         let current = || self.maintenance.load(Ordering::SeqCst) == generation;
-        let _ = self.pause.send(Pause::AfterStep);
+        if !self.publish_if(generation, Pause::AfterStep) {
+            return;
+        }
         self.wait_for_turns(allowance, &current).await;
-        let _ = self.pause.send(Pause::Now);
+        if !self.publish_if(generation, Pause::Now) {
+            return;
+        }
         self.wait_for_turns(SETTLE, &current).await;
     }
 
+    /// Generation changes, admission and the pause signal all change under `record_lock`, so a
+    /// closing task can never publish a pause after a newer request (or a reopen).
     fn close_admission(&self) -> u64 {
-        let generation = self.maintenance.fetch_add(1, Ordering::SeqCst) + 1;
-        {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.admission.store(false, Ordering::SeqCst);
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        self.admission.store(false, Ordering::SeqCst);
+        self.maintenance.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Tells turn workers `pause` if request `generation` is still the current one. The value is
+    /// stored even when no worker is listening (all paused ones have exited), so a worker started
+    /// later reads it. Returns whether it was published.
+    fn publish_if(&self, generation: u64, pause: Pause) -> bool {
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        if self.maintenance.load(Ordering::SeqCst) != generation {
+            return false;
         }
-        generation
+        self.pause.send_replace(pause);
+        true
     }
 
     fn reopen_if(self: &Arc<Self>, generation: u64) {
-        if self
-            .maintenance
-            .compare_exchange(
-                generation,
-                generation + 1,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_ok()
-        {
-            self.reopen();
-        }
-    }
-
-    fn reopen(self: &Arc<Self>) {
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.admission.store(true, Ordering::SeqCst);
+            if self.maintenance.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            self.maintenance.fetch_add(1, Ordering::SeqCst);
+            self.open_admission();
         }
-        let _ = self.pause.send(Pause::Off);
+        self.resume_all();
+    }
+
+    /// Opens admission and tells workers to run; the caller holds `record_lock`. `send_replace`
+    /// always stores, even with no worker listening, so resumed workers read `Off`.
+    fn open_admission(&self) {
+        self.admission.store(true, Ordering::SeqCst);
+        self.pause.send_replace(Pause::Off);
+    }
+
+    /// Resumes paused turns and answers messages stored while closed.
+    fn resume_all(self: &Arc<Self>) {
         let conversations = match self.store.conversations() {
             Ok(conversations) => conversations,
             Err(error) => {
