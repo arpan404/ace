@@ -109,6 +109,8 @@ struct ForgeIssueList: Decodable, Sendable, Equatable {
     let labels: [String]
     var failed: [String]? = nil
     let canCreate: Bool
+    /// The repository New issue opens on; nil where this account can't open one.
+    var createOn: ForgeRepository? = nil
 }
 
 struct ForgeProject: Decodable, Sendable, Equatable, Identifiable { let id: String; let name: String }

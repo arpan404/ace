@@ -32,7 +32,12 @@ struct ForgeFileView: View {
         ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository, path: path, index: route.index, range: route.range)
     }
 
-    init(client: ClientModel, route: ForgeRoute) {
+    /// "Fix with agent" on comments: nil where the phone can't hand one on.
+    var fixer: ForgeFixer? = nil
+    @Environment(\.threadDrafts) private var drafts
+
+    init(client: ClientModel, route: ForgeRoute, fixer: ForgeFixer? = nil) {
+        self.fixer = fixer
         self.client = client
         self.route = route
         let kept = client.kept(ClientModel.forgeFileRead(project: route.project, number: route.number, repository: route.repository,
@@ -60,6 +65,8 @@ struct ForgeFileView: View {
         .navigationTitle(Text(verbatim: (path as NSString).lastPathComponent))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: client.readGeneration(request)) { await load() }
+        // The desk hands a comment's "Fix with agent" to the pull request's thread, once it exists.
+        .onChange(of: desk?.target.number, initial: true) { attachFix() }
         .sheet(item: $composing) { compose in
             if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
         }
@@ -171,6 +178,13 @@ struct ForgeFileView: View {
         guard let head = viewedHead(file) else { return }
         let action: [String: Any] = ["kind": file.viewed == "viewed" ? "file.unview" : "file.view", "path": file.path, "headSha": head]
         Task { if await desk.run(action) { marked += 1 } }
+    }
+
+    private func attachFix() {
+        guard let desk, let fixer else { return }
+        let client = client, drafts = drafts, target = desk.target
+        // Offered wherever the phone can act; the pull request's thread is found when it's asked.
+        desk.fix = client.canOperate ? { request in await fixer.fix(request, client: client, target: target, drafts: drafts) } : nil
     }
 
     private func load() async {

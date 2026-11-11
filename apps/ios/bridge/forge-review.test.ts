@@ -53,6 +53,9 @@ test("the timeline shows comments, reviews and line conversations oldest first, 
   // Someone else's: quote reply and reactions, but no edit or delete.
   const theirs = commentRow(reply, "issue:321")?.comment;
   expect(theirs).toMatchObject({ quote: true, edit: false, remove: false, hidden: null });
+  // "Fix with agent" hands the thread on the PR a request naming who said it and the PR.
+  expect(theirs?.fix).toMatch(/^Address \S+'s comment in PR #31:\n\n> /);
+  expect(theirs?.fix).toContain("reply to the comment");
   expect(theirs?.reactions.map((reaction) => reaction.label)).toEqual([
     "Thumbs up",
     "Thumbs down",

@@ -24,6 +24,47 @@ import Foundation
         #expect(range.suggestion(in: [whole, shortened]) == nil)
         let left = ForgeLinePick(hunk: 0, anchor: .init(line: 1, side: "LEFT"))
         #expect(left.suggestion(in: [whole]) == nil)
+    @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
+        let was = ForgeIssueBaseline(title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"],
+                                     revision: "2026-11-11T00:00:00Z", bodyComplete: true)
+        // Unchanged, in another order or case: nothing to send (GitHub matches names without case).
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash ", body: "Steps", labels: "IOS\nbug", assignees: "Mona").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Steps", labels: "bug\nmobile", assignees: "")
+        let inputs = edit.inputs(number: 7, was: was)
+        #expect(inputs.map(\.step) == ["text", "labels", "assignees"])
+        // The edit names the text it started from, so only a field changed elsewhere conflicts.
+        #expect((inputs[0].input["base"] as? [String: String])?["title"] == "Crash")
+        #expect(inputs[1].input["add"] as? [String] == ["mobile"])
+        #expect(inputs[1].input["remove"] as? [String] == ["ios"])
+        #expect(inputs[2].input["remove"] as? [String] == ["mona"])
+    }
+
+    @Test func aShortenedDescriptionIsNeverSentBackAsTheIssuesText() {
+        let was = ForgeIssueBaseline(title: "Crash", body: "Long…", labels: [], assignees: [], revision: "r", bodyComplete: false)
+        // Typing in a body the phone only has part of changes nothing; a title edit keeps it as read.
+        #expect(ForgeIssueEdit.from(was: was, title: "Crash", body: "Long… edited", labels: "", assignees: "").isEmpty)
+        let edit = ForgeIssueEdit.from(was: was, title: "Crash on launch", body: "Long… edited", labels: "", assignees: "")
+        #expect(edit.body == "Long…")
+    }
+
+    @Test func aPullRequestEditSendsOnlyTheEditableFieldsThatChanged() {
+        let metadata = ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug"], assignees: ["mona"])
+        let editable: Set<String> = ["title", "body", "labels"]
+        // Nothing changed: nothing to send, so Save stays off.
+        #expect(ForgePullEdit.changes(from: metadata, editable: editable, title: "Old", body: "Body", base: "main",
+                                      labels: "bug", assignees: "mona").isEmpty)
+        // Reordering isn't an edit.
+        #expect(ForgePullEdit.changes(from: ForgeManage.Metadata(title: "Old", body: "Body", baseBranch: "main", labels: ["bug", "ui"], assignees: []),
+                                      editable: editable, title: "Old", body: "Body", base: "main", labels: "ui\nbug", assignees: "").isEmpty)
+        let changes = ForgePullEdit.changes(from: metadata, editable: editable, title: "  New  ", body: "Body", base: "release",
+                                            labels: "bug\nneeds, triage\nbug\n", assignees: "octo")
+        #expect(changes["title"] as? String == "New")
+        // One per line: a label's own comma stays in its name.
+        #expect(changes["labels"] as? [String] == ["bug", "needs, triage"])
+        #expect(changes["body"] == nil)
+        // The base and assignees aren't this account's to change, whatever was typed.
+        #expect(changes["baseBranch"] == nil)
+        #expect(changes["assignees"] == nil)
     }
 
     private func store() -> NewThreadDraftStore {

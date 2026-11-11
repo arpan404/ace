@@ -16,7 +16,12 @@ struct ForgeTimelineView: View {
     @FocusState private var boxFocused: Bool
     private var request: [String: Any] { ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository) }
 
-    init(client: ClientModel, route: ForgeRoute) {
+    /// "Fix with agent" on comments: nil where the phone can't hand one on.
+    var fixer: ForgeFixer? = nil
+    @Environment(\.threadDrafts) private var drafts
+
+    init(client: ClientModel, route: ForgeRoute, fixer: ForgeFixer? = nil) {
+        self.fixer = fixer
         self.client = client
         self.route = route
         let kept = client.kept(ClientModel.forgeTimelineRead(project: route.project, number: route.number, repository: route.repository), as: ForgeTimeline.self)
@@ -58,6 +63,8 @@ struct ForgeTimelineView: View {
             }
         }
         .task(id: client.readGeneration(request)) { await load() }
+        // The desk hands a comment's "Fix with agent" to the pull request's thread, once it exists.
+        .onChange(of: desk?.target.number, initial: true) { attachFix() }
         .sheet(item: $composing) { compose in
             if let desk { ForgeWriteSheet(compose: compose, desk: desk) }
         }
@@ -136,6 +143,13 @@ struct ForgeTimelineView: View {
             // Text typed while it posted stays, to send next.
             if await desk.run(["kind": "conversation", "body": body]), draft == body { draft = "" }
         }
+    }
+
+    private func attachFix() {
+        guard let desk, let fixer else { return }
+        let client = client, drafts = drafts, target = desk.target
+        // Offered wherever the phone can act; the pull request's thread is found when it's asked.
+        desk.fix = client.canOperate ? { request in await fixer.fix(request, client: client, target: target, drafts: drafts) } : nil
     }
 
     private func load() async {

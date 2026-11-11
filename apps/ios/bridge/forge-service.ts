@@ -27,7 +27,9 @@ import { ForgeMediaRequest, readMedia, type Download } from "./forge-media-read.
 import { ForgeTaskRequest, writeTask } from "./forge-task.ts";
 import {
   checkIssueWrite,
+  changeIssue,
   commentOnIssue,
+  ForgeIssueChangeRequest,
   ForgeIssueCommentRequest,
   ForgeIssueReconcileRequest,
 } from "./forge-issue-write.ts";
@@ -89,6 +91,7 @@ export const ForgeRequest = z.intersection(
     ForgeNewPrCompareRequest,
     ForgeNewPrCreateRequest,
     ForgeIssueCommentRequest,
+    ForgeIssueChangeRequest,
     ForgeIssueReconcileRequest,
     ForgeChecksRequest,
     ForgeConflictsRequest,
@@ -197,6 +200,8 @@ export class ForgeService {
           return await createPr(this.#owner, reads, request);
         case "forge.issue.comment":
           return await commentOnIssue(this.#owner, reads, request, this.#newId);
+        case "forge.issue.change":
+          return await changeIssue(this.#owner, reads, request, this.#newId);
         case "forge.issue.check":
           return await checkIssueWrite(this.#owner, reads, request);
         case "forge.task":

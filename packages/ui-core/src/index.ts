@@ -383,6 +383,7 @@ export * from "./forge-review-rules.ts";
 export * from "./text-completions.ts";
 export * from "./forge-lifecycle-words.ts";
 export * from "./pr-check-model.ts";
+export * from "./pr-fix-requests.ts";
 export * from "./pr-conflicts-model.ts";
 export * from "./pr-stack-labels.ts";
 export * from "./pr-stack-controls.ts";
