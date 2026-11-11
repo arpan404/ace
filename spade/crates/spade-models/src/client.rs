@@ -104,20 +104,21 @@ impl Models {
         self.endpoints().iter().find(|e| e.id == id).cloned()
     }
 
-    /// What is known about model `id` on `endpoint`: what the person saved, else the presets'
-    /// facts for that id, else defaults. A model nobody saved still works.
+    /// What is known about model `id` on `endpoint`: its own models (saved, or from the preset it
+    /// was made from), else any preset's facts for that id without its price (another
+    /// endpoint's price would be wrong here), else defaults. A model nobody saved still works.
     pub fn facts(&self, endpoint: &Endpoint, id: &str) -> Model {
-        endpoint
-            .models
-            .iter()
-            .find(|m| m.id == id)
-            .or_else(|| self.catalog.facts(id))
-            .cloned()
-            .map(|mut model| {
-                model.id = id.to_owned();
-                model
-            })
-            .unwrap_or_else(|| Model::unknown(id))
+        if let Some(model) = endpoint.models.iter().find(|m| m.id == id) {
+            return model.clone();
+        }
+        match self.catalog.facts(id) {
+            Some(known) => Model {
+                id: id.to_owned(),
+                price: None,
+                ..known.clone()
+            },
+            None => Model::unknown(id),
+        }
     }
 
     /// Finds `endpoint/model` (split at the first `/`) on the person's endpoints.
@@ -139,6 +140,11 @@ impl Models {
     /// Whether a call to `endpoint` would have a key (or needs none).
     pub fn has_key(&self, endpoint: &Endpoint) -> bool {
         !endpoint.needs_key || self.key(endpoint).is_some()
+    }
+
+    /// Whether a key for `endpoint` is set (keychain or environment), whatever it needs.
+    pub fn key_found(&self, endpoint: &Endpoint) -> bool {
+        self.key(endpoint).is_some()
     }
 
     fn key(&self, endpoint: &Endpoint) -> Option<String> {

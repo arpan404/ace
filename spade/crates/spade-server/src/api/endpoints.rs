@@ -118,6 +118,7 @@ fn endpoint_problem(error: &EndpointError) -> Response {
         EndpointError::Invalid(_) | EndpointError::MissingKey(_) => {
             problem(StatusCode::BAD_REQUEST, &error.to_string())
         }
+        EndpointError::Conflict(_) => problem(StatusCode::CONFLICT, &error.to_string()),
         EndpointError::Listing(_) => problem(StatusCode::BAD_GATEWAY, &error.to_string()),
         EndpointError::Store(spade_store::StoreError::Exists(_)) => {
             problem(StatusCode::CONFLICT, "an endpoint with that id exists")

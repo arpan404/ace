@@ -363,6 +363,7 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
         session_header: Some("x-session".into()),
         needs_key: true,
         key_env: Some("GO_KEY".into()),
+        preset: Some("opencode-go".into()),
         created_ms: 1,
         models: vec![StoredModel {
             id: "kimi".into(),

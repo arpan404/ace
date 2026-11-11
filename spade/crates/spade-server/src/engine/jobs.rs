@@ -62,7 +62,7 @@ pub(super) fn start(
 ) -> Result<Started, StoreError> {
     let live = engine.live(id);
     let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
-    if *stop.borrow() {
+    if *stop.borrow() || engine.deleting(id) {
         return Ok(Started::Stopped);
     }
     let started = Event::Known(Known::JobStarted {
@@ -118,6 +118,17 @@ pub(super) fn start(
         },
     );
     Ok(Started::Running)
+}
+
+/// Cancels every job of a conversation whose agent is being deleted. Nothing is stored: the
+/// conversation goes with it.
+pub(super) fn cancel_all(live: &super::Live) {
+    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+    for (_, job) in jobs.drain() {
+        if let Job::Running { handle, .. } = job {
+            handle.abort();
+        }
+    }
 }
 
 /// Runs the job's tool. `key` is unique across conversations and stable for this job.

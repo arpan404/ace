@@ -14,7 +14,7 @@ use spade_keys::{KeyStore, Keys};
 use spade_models::{Catalog, Models, ToolSpec};
 use spade_server::api::AppState;
 use spade_server::clock::{CountingIds, SystemClock};
-use spade_server::engine::{EndpointInput, Engine, Limits, Setup};
+use spade_server::engine::{Engine, Limits, Setup};
 use spade_server::tools::{
     AceLink, AceTarget, Retry, SkillLibrary, Tool, ToolFuture, ToolOutput, ToolSource, Toolbox,
 };
@@ -158,7 +158,14 @@ fn catalog(root: &str) -> Result<Catalog> {
         "roles": { "main": "fake/m", "fast": "fake/m", "deep": "fake/m" },
         "endpoints": [{ "id": "fake", "name": "Fake", "format": "openai-chat", "base_url": root,
                         "key": { "env": "FAKE_KEY" }, "session_header": "x-session",
-                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] }]
+                        "models": [{ "id": "m", "name": "M", "capabilities": ["tools", "images"], "price": { "input": 2, "output": 10 } }] },
+                      // A second preset nobody has a key for: never imported on its own. It shares
+                      // the model id `m` at another price.
+                      { "id": "spare", "name": "Spare", "format": "openai-chat",
+                        "base_url": "https://spare.example/v1/", "key": {},
+                        "models": [{ "id": "m", "name": "Spare M", "context": 1000, "capabilities": ["tools"],
+                                     "price": { "input": 100, "output": 100 } },
+                                   { "id": "s", "name": "S", "context": 1000, "capabilities": ["tools"] }] }]
     });
     Ok(Catalog::from_json(&json.to_string())?)
 }
@@ -237,8 +244,17 @@ impl Spade {
             ),
             spade_server::home::VERSION,
         )?;
+        let store = Store::open(&dir.path().join("spade.sqlite"))?;
+        // The endpoint is the person's now, kept in the database, and a restarted fake listens
+        // on a new port. Moved here as a person cannot (the API refuses a key's host change).
+        for mut endpoint in store.endpoints()? {
+            if endpoint.id == "fake" {
+                endpoint.base_url = fake.root.clone();
+                store.update_endpoint(&endpoint)?;
+            }
+        }
         let engine = Engine::open(Setup {
-            store: Store::open(&dir.path().join("spade.sqlite"))?,
+            store,
             models,
             tools,
             clock: Arc::new(SystemClock),
@@ -250,14 +266,6 @@ impl Spade {
             images: spade_server::images::ImageStore::open(&dir.path().join("images"))?,
             adopt: options.adopt.clone(),
         })?;
-        // The endpoint is the person's now, kept in the database: a restarted fake has a new port.
-        engine.update_endpoint(
-            "fake",
-            EndpointInput {
-                base_url: Some(fake.root.clone()),
-                ..EndpointInput::default()
-            },
-        )?;
         engine.open_for_work();
         let state = AppState {
             engine: engine.clone(),

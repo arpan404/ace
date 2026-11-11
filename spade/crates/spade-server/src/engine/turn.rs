@@ -396,6 +396,10 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
 /// Names the conversation after its first reply, with the person's fast model (else the agent's
 /// own), else after its first message.
 async fn name_if_untitled(engine: &Arc<Engine>, id: &str) {
+    // Never for an agent being deleted: nothing is spent on a conversation about to go.
+    if engine.deleting(id) {
+        return;
+    }
     let Ok(events) = engine.load(id) else { return };
     let transcript = Transcript::fold(&events);
     if transcript.title.is_some() || transcript.open_reply().is_some() {

@@ -20,8 +20,13 @@ describe. Agents run on models from the person's own endpoints.
   conversation and used from its next turn, never mid-turn: a turn's prompt takes the task stored
   before its `reply_started`, placed in the cached top of the prompt, and `reply_started` names
   its model. A restart rebuilds the identical prompt. Name and avatar changes apply at once.
-- **Delete** stops the agent's turn and jobs, waits briefly for them to let go, then deletes the
-  agent, its conversation and its events. Spending stays in the ledger.
+- **Delete** first marks the agent as being deleted, under the lock every delivery takes: from
+  then on no message or job result reaches it, no turn, job or title starts, and messages answer
+  `404`. Its turn and jobs are stopped and given up to 5 seconds to let go; whatever is still
+  running then is cancelled. Then the agent, its conversation and its events are deleted.
+  Spending stays in the ledger.
+- **Concurrent changes** to one agent are read, merged and written as one, so two PATCHes never
+  overwrite each other's fields.
 - **Upgrade.** Schema 2 turns each stored conversation into a bot named after its title (or
   `Agent`), empty task, generated avatar, and the model its latest reply used (else the presets'
   main role). The main agent is created fresh.
@@ -50,10 +55,28 @@ templates and known facts about model ids (context, capabilities, prices). On th
 with schema 2, every preset whose key is already present becomes one of the person's endpoints
 with the same id, so existing keys keep working.
 
+**Credentials stay with their host.** Spade follows no redirect on any model call or listing,
+since each carries a key or the person's headers; a redirect answers as an error. Changing an
+endpoint's `base_url` to another origin (scheme, host, port) is refused with `409` while a key is
+set for it (remove it with `DELETE /v1/keys/{id}`, and unset its environment variable) or while
+it has extra headers (send `"headers": {}` with the new URL). Headers that carry credentials
+(`authorization`, `proxy-authorization`, `x-api-key`, `api-key`, `x-goog-api-key`, `cookie`,
+`set-cookie`, any case) are refused as extra headers and as the session header: keys go to the
+keychain. Listing errors hide the key and every configured header value.
+
+**Presets are inherited, not copied.** An endpoint made from a preset remembers it. Only what the
+person chose is stored; the preset's models and their facts (context, capabilities, price) are
+read from the binary each time, so shipped corrections reach existing installs. A model's facts
+come from the endpoint's own preset first; a fact borrowed from another preset with the same model
+id never brings its price.
+
 Earlier builds copied `models.json` into the data folder and then read only that copy, so an
-upgrade never saw new shipped facts. Now a copy found there is read once: if it equals a file some
-Spade shipped it holds nothing of the person's; if it was edited, its endpoints (shipped ones only
-when they have a key) and models become the person's. Either way it is moved to
+upgrade never saw new shipped facts. Now a copy found there is read once, before presets are
+imported: if it equals a file some Spade shipped it holds nothing of the person's. Otherwise every
+value in it that no Spade ever shipped for that endpoint or model (a moved URL, an added header, a
+changed context) is the person's edit and is stored, winning over the presets; the rest is
+inherited. Endpoints no Spade shipped are taken whole; a shipped endpoint nobody edited is taken
+only when it has a key. Either way it is moved to
 `models.json.old` and never read again.
 
 A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). Any

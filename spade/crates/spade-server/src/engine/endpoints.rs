@@ -9,8 +9,6 @@ use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
 use super::Engine;
 
-const PRESETS_IMPORTED: &str = "presets_imported";
-const FILE_ADOPTED: &str = "models_file_adopted";
 const FAST_MODEL: &str = "fast_model";
 const NAME_CHARS: usize = 60;
 const URL_CHARS: usize = 2_048;
@@ -28,6 +26,9 @@ pub enum EndpointError {
     InUse(Vec<String>),
     #[error("{0}")]
     MissingKey(String),
+    /// The change would hand credentials to another host.
+    #[error("{0}")]
+    Conflict(String),
     /// The endpoint's own model list could not be read.
     #[error("{0}")]
     Listing(String),
@@ -76,6 +77,41 @@ fn header_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Headers that carry credentials. They are never stored with an endpoint: keys go to the
+/// keychain (ADR 0119).
+const CREDENTIAL_HEADERS: [&str; 7] = [
+    "authorization",
+    "proxy-authorization",
+    "x-api-key",
+    "api-key",
+    "x-goog-api-key",
+    "cookie",
+    "set-cookie",
+];
+
+pub(super) fn is_credential_header(name: &str) -> bool {
+    CREDENTIAL_HEADERS.contains(&name.trim().to_ascii_lowercase().as_str())
+}
+
+/// `scheme://host:port` of a URL, lower case; the whole text when it has no scheme.
+pub(super) fn origin(url: &str) -> String {
+    let lower = url.trim().to_ascii_lowercase();
+    match lower.split_once("://") {
+        Some((scheme, rest)) => {
+            let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+            let host = host.rsplit_once('@').map_or(host, |(_, h)| h);
+            let default = if scheme == "https" { ":443" } else { ":80" };
+            let host = if host.contains(':') && !host.ends_with(']') {
+                host.to_owned()
+            } else {
+                format!("{host}{default}")
+            };
+            format!("{scheme}://{host}")
+        }
+        None => lower,
+    }
+}
+
 /// A slug from `name`: lowercase letters, digits and dashes.
 fn slug(name: &str) -> String {
     let mut out = String::new();
@@ -108,6 +144,33 @@ impl Engine {
         Ok(())
     }
 
+    /// The shipped preset `stored` was made from, if this build still ships it.
+    pub(super) fn preset_of(&self, stored: &StoredEndpoint) -> Option<&Endpoint> {
+        let id = stored.preset.as_deref()?;
+        self.models
+            .catalog()
+            .endpoints()
+            .iter()
+            .find(|p| p.id == id)
+    }
+
+    /// The endpoint's models: what the person saved, then its preset's models they did not
+    /// save, each with its facts resolved and where it came from.
+    fn models_of(&self, stored: &StoredEndpoint) -> Vec<(Model, String)> {
+        let preset = self.preset_of(stored);
+        let mut models: Vec<(Model, String)> = stored
+            .models
+            .iter()
+            .map(|m| (self.model_of(preset, m), m.source.clone()))
+            .collect();
+        for shipped in preset.map(|p| p.models.as_slice()).unwrap_or_default() {
+            if !stored.models.iter().any(|m| m.id == shipped.id) {
+                models.push((shipped.clone(), "preset".to_owned()));
+            }
+        }
+        models
+    }
+
     fn endpoint_of(&self, stored: &StoredEndpoint) -> Option<Endpoint> {
         let format = Format::parse(&stored.format)?;
         Some(Endpoint {
@@ -119,13 +182,17 @@ impl Engine {
             key_env: stored.key_env.clone(),
             headers: stored.headers.clone(),
             session_header: stored.session_header.clone(),
-            models: stored.models.iter().map(|m| self.model_of(m)).collect(),
+            models: self.models_of(stored).into_iter().map(|(m, _)| m).collect(),
         })
     }
 
-    /// A saved model with its gaps filled from the presets, else defaults.
-    fn model_of(&self, saved: &StoredModel) -> Model {
-        let preset = self.models.catalog().facts(&saved.id);
+    /// A saved model with its gaps filled from the endpoint's own preset, else from any preset
+    /// knowing that id (never its price: another endpoint's price would be wrong here), else
+    /// defaults. Facts come from the binary at read time, so shipped corrections reach it.
+    fn model_of(&self, own: Option<&Endpoint>, saved: &StoredModel) -> Model {
+        let mine = own.and_then(|p| p.models.iter().find(|m| m.id == saved.id));
+        let price = mine.and_then(|m| m.price);
+        let preset = mine.or_else(|| self.models.catalog().facts(&saved.id));
         let fallback = Model::unknown(&saved.id);
         Model {
             id: saved.id.clone(),
@@ -142,87 +209,7 @@ impl Engine {
                 Some(names) => names.iter().filter_map(|n| Capability::parse(n)).collect(),
                 None => preset.map_or(fallback.capabilities, |p| p.capabilities.clone()),
             },
-            price: preset.and_then(|p| p.price),
-        }
-    }
-
-    /// Once: shipped presets that already have a key (keychain or environment) become the
-    /// person's endpoints, so a setup from before ADR 0126 keeps working.
-    pub(super) fn import_presets(&self) -> Result<(), StoreError> {
-        if self.store.setting(PRESETS_IMPORTED)?.is_some() {
-            return Ok(());
-        }
-        let have: HashSet<String> = self.store.endpoints()?.into_iter().map(|e| e.id).collect();
-        for preset in self.models.catalog().endpoints() {
-            if have.contains(&preset.id) || !preset.needs_key || !self.models.has_key(preset) {
-                continue;
-            }
-            let stored = self.stored_preset(preset, preset.id.clone(), preset.name.clone());
-            match self.store.insert_endpoint(&stored) {
-                Ok(()) | Err(StoreError::Exists(_)) => {}
-                Err(error) => return Err(error),
-            }
-        }
-        self.store.set_setting(PRESETS_IMPORTED, Some("1"))
-    }
-
-    /// Once: the endpoints and models of an edited `models.json` from an earlier Spade become the
-    /// person's. A shipped endpoint is taken only if it has a key (or needs none); one the person
-    /// added is always taken. Models it lists that an endpoint has not saved are added.
-    pub(super) fn adopt_file(&self, file: &spade_models::Catalog) -> Result<(), StoreError> {
-        if self.store.setting(FILE_ADOPTED)?.is_some() {
-            return Ok(());
-        }
-        let stored = self.store.endpoints()?;
-        let shipped = self.models.catalog();
-        for endpoint in file.endpoints() {
-            let is_preset = shipped.endpoints().iter().any(|p| p.id == endpoint.id);
-            if is_preset && endpoint.needs_key && !self.models.has_key(endpoint) {
-                continue;
-            }
-            let mut wanted =
-                self.stored_preset(endpoint, endpoint.id.clone(), endpoint.name.clone());
-            for model in &mut wanted.models {
-                model.source = "typed".to_owned();
-            }
-            match stored.iter().find(|e| e.id == endpoint.id) {
-                Some(have) => {
-                    for model in wanted.models {
-                        if !have.models.iter().any(|m| m.id == model.id) {
-                            self.store.put_model(&have.id, &model)?;
-                        }
-                    }
-                }
-                None => self.store.insert_endpoint(&wanted)?,
-            }
-        }
-        self.store.set_setting(FILE_ADOPTED, Some("1"))
-    }
-
-    fn stored_preset(&self, preset: &Endpoint, id: String, name: String) -> StoredEndpoint {
-        StoredEndpoint {
-            id,
-            name,
-            format: preset.format.name().to_owned(),
-            base_url: preset.base_url.clone(),
-            headers: preset.headers.clone(),
-            session_header: preset.session_header.clone(),
-            needs_key: preset.needs_key,
-            key_env: preset.key_env.clone(),
-            created_ms: self.now_ms(),
-            models: preset
-                .models
-                .iter()
-                .map(|m| StoredModel {
-                    id: m.id.clone(),
-                    name: Some(m.name.clone()),
-                    context: m.context,
-                    capabilities: Some(
-                        m.capabilities.iter().map(|c| c.name().to_owned()).collect(),
-                    ),
-                    source: "preset".to_owned(),
-                })
-                .collect(),
+            price,
         }
     }
 
@@ -244,11 +231,7 @@ impl Engine {
             .endpoints()?
             .into_iter()
             .map(|stored| EndpointView {
-                models: stored
-                    .models
-                    .iter()
-                    .map(|m| (self.model_of(m), m.source.clone()))
-                    .collect(),
+                models: self.models_of(&stored),
                 stored,
             })
             .collect())
@@ -303,6 +286,7 @@ impl Engine {
                 session_header: None,
                 needs_key: true,
                 key_env: None,
+                preset: None,
                 created_ms: self.now_ms(),
                 models: Vec::new(),
             },
@@ -318,8 +302,34 @@ impl Engine {
         id: &str,
         input: EndpointInput,
     ) -> Result<EndpointView, EndpointError> {
-        let mut stored = self.endpoint_view(id)?.stored;
+        let before = self.endpoint_view(id)?.stored;
+        let mut stored = before.clone();
         apply(&mut stored, input)?;
+        // A key or headers belong to the host they were set for: never hand them to another.
+        if origin(&stored.base_url) != origin(&before.base_url) {
+            let key = self
+                .endpoint_of(&before)
+                .is_some_and(|e| e.needs_key && self.models.key_found(&e));
+            if key {
+                return Err(EndpointError::Conflict(format!(
+                    "this endpoint has a key for {}; remove it first (DELETE /v1/keys/{id}{}) and \
+                     add the new host's key after",
+                    origin(&before.base_url),
+                    before
+                        .key_env
+                        .as_ref()
+                        .map(|v| format!(", and unset {v}"))
+                        .unwrap_or_default()
+                )));
+            }
+            if !stored.headers.is_empty() {
+                return Err(EndpointError::Conflict(format!(
+                    "this endpoint sends extra headers to {}; send \"headers\": {{}} with the new \
+                     base URL to drop them, then add the new host's",
+                    origin(&before.base_url)
+                )));
+            }
+        }
         self.store.update_endpoint(&stored)?;
         self.sync_endpoints()?;
         self.endpoint_view(id)
@@ -411,9 +421,13 @@ impl Engine {
             .get(endpoint)
             .and_then(|list| list.iter().find(|m| m.id == id).cloned());
         let previous = view.stored.models.iter().find(|m| m.id == id);
+        let shipped = self
+            .preset_of(&view.stored)
+            .is_some_and(|p| p.models.iter().any(|m| m.id == id));
         let source = match (&listed, previous) {
             (Some(_), _) => "listed",
             (None, Some(previous)) => previous.source.as_str(),
+            (None, None) if shipped => "preset",
             (None, None) => "typed",
         };
         let model = StoredModel {
@@ -512,6 +526,12 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
             if !header_name(name) {
                 return Err(invalid(format!("{name:?} is not a header name")));
             }
+            if is_credential_header(name) {
+                return Err(invalid(format!(
+                    "{name} carries a credential; set the key with PUT /v1/keys/{{endpoint}}, \
+                     which keeps it in the keychain"
+                )));
+            }
             if value.len() > 4_096 || value.chars().any(char::is_control) {
                 return Err(invalid(format!(
                     "the {name} header's value is too long or has line breaks"
@@ -530,6 +550,11 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
         if session.as_deref().is_some_and(|s| !header_name(s)) {
             return Err(invalid("the session header is not a header name"));
         }
+        if session.as_deref().is_some_and(is_credential_header) {
+            return Err(invalid(
+                "the session header cannot be a header that carries a credential",
+            ));
+        }
         stored.session_header = session;
     }
     if let Some(needs_key) = input.needs_key {
@@ -540,7 +565,39 @@ fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), Endpoi
 
 #[cfg(test)]
 mod tests {
-    use super::slug;
+    use super::{is_credential_header, origin, slug};
+
+    #[test]
+    fn an_origin_is_scheme_host_and_port() {
+        assert_eq!(
+            origin("https://API.example.com/v1/"),
+            "https://api.example.com:443"
+        );
+        assert_eq!(
+            origin("https://api.example.com:443/v2"),
+            origin("https://api.example.com")
+        );
+        assert_ne!(origin("https://a.example/"), origin("https://b.example/"));
+        assert_ne!(origin("http://a.example/"), origin("https://a.example/"));
+        assert_ne!(
+            origin("https://a.example@b.example/"),
+            origin("https://a.example/")
+        );
+    }
+
+    #[test]
+    fn credential_headers_are_known_whatever_their_case() {
+        for name in [
+            "Authorization",
+            "X-API-Key",
+            "api-key",
+            "Cookie",
+            "Proxy-Authorization",
+        ] {
+            assert!(is_credential_header(name), "{name}");
+        }
+        assert!(!is_credential_header("x-team"));
+    }
 
     #[test]
     fn an_endpoint_id_is_a_slug_of_its_name() {

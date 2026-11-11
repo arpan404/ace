@@ -18,6 +18,9 @@ pub struct StoredEndpoint {
     pub needs_key: bool,
     /// The environment variable that may hold the key (from a preset).
     pub key_env: Option<String>,
+    /// The shipped preset it was made from: its models and their facts are inherited from the
+    /// binary at read time, so shipped corrections reach it.
+    pub preset: Option<String>,
     pub created_ms: i64,
     pub models: Vec<StoredModel>,
 }
@@ -53,7 +56,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, name, format, base_url, headers, session_header, needs_key, key_env,
-                    created_ms
+                    created_ms, preset
              FROM endpoints ORDER BY created_ms, id",
         )?;
         let mut endpoints = statement
@@ -68,6 +71,7 @@ impl Store {
                     needs_key: row.get(6)?,
                     key_env: row.get(7)?,
                     created_ms: row.get(8)?,
+                    preset: row.get(9)?,
                     models: Vec::new(),
                 })
             })?
@@ -105,8 +109,9 @@ impl Store {
         let tx = connection.transaction()?;
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO endpoints
-             (id, name, format, base_url, headers, session_header, needs_key, key_env, created_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, name, format, base_url, headers, session_header, needs_key, key_env, created_ms,
+              preset)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 endpoint.id,
                 endpoint.name,
@@ -116,7 +121,8 @@ impl Store {
                 endpoint.session_header,
                 endpoint.needs_key,
                 endpoint.key_env,
-                endpoint.created_ms
+                endpoint.created_ms,
+                endpoint.preset
             ],
         )?;
         if inserted == 0 {

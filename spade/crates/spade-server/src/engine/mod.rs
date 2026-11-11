@@ -2,6 +2,7 @@
 //! stored event, sent to live subscribers in order. Turns run as tasks driven by
 //! `spade_core::turn::next_step`, so they resume from storage after a restart.
 
+mod adopt;
 mod agents;
 mod bots;
 mod calls;
@@ -56,6 +57,8 @@ struct Live {
     jobs: Mutex<HashMap<String, jobs::Job>>,
     /// A few words on what the running turn is doing (ADR 0127); `None` between turns.
     status: Mutex<Option<String>>,
+    /// The running turn worker, so deleting the agent can cancel it.
+    worker: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 pub struct Engine {
@@ -85,6 +88,12 @@ pub struct Engine {
     maintenance: std::sync::atomic::AtomicU64,
     /// Each endpoint's latest live model list, so a model saved from it counts as listed.
     listed: Mutex<HashMap<String, Vec<Listed>>>,
+    /// Conversations whose agent is being deleted: nothing new is delivered to them, and no turn
+    /// or job starts. Changed under `record_lock`.
+    deleting: Mutex<std::collections::HashSet<String>>,
+    /// Held across reading, merging and writing an agent's settings, so concurrent changes
+    /// never overwrite each other.
+    agent_lock: Mutex<()>,
 }
 
 impl Engine {
@@ -116,12 +125,15 @@ impl Engine {
             pause: watch::channel(Pause::Off).0,
             maintenance: std::sync::atomic::AtomicU64::new(0),
             listed: Mutex::default(),
+            deleting: Mutex::default(),
+            agent_lock: Mutex::default(),
         });
         handle.set(&engine);
-        engine.import_presets()?;
+        // The person's old edits first, so presets imported after never overwrite them.
         if let Some(file) = &adopt {
             engine.adopt_file(file)?;
         }
+        engine.import_presets()?;
         engine.sync_endpoints()?;
         engine.store.fill_missing_models(&engine.default_model())?;
         engine.ensure_main()?;
@@ -209,11 +221,46 @@ impl Engine {
         self.announce(id);
     }
 
-    /// Sends the agent's state and status to live subscribers.
+    /// Sends the agent's state and status to live subscribers: the same the roster shows.
     fn announce(&self, id: &str) {
-        let live = self.live(id);
-        let (state, status) = live_state(&live);
-        let _ = live.frames.send(Frame::Status { state, status });
+        let Ok(activity) = self.activity(id) else {
+            return;
+        };
+        let status = self.status_for(id, &activity);
+        let _ = self.live(id).frames.send(Frame::Status {
+            state: activity.state,
+            status,
+        });
+    }
+
+    /// The status words for `id` in `activity`'s state; `None` when idle.
+    pub(super) fn status_for(&self, id: &str, activity: &Activity) -> Option<String> {
+        match activity.state {
+            State::Idle => None,
+            State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
+            State::Working => Some(
+                self.live(id)
+                    .status
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .clone()
+                    .unwrap_or_else(|| {
+                        if activity.answering {
+                            roster::THINKING.to_owned()
+                        } else {
+                            roster::IN_BACKGROUND.to_owned()
+                        }
+                    }),
+            ),
+        }
+    }
+
+    /// Whether `id`'s agent is being deleted.
+    pub(super) fn deleting(&self, id: &str) -> bool {
+        self.deleting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(id)
     }
 
     pub fn events(&self, id: &str, after: i64) -> Result<Option<Vec<StoredEvent>>, StoreError> {
@@ -232,7 +279,7 @@ impl Engine {
         images: &[Vec<u8>],
     ) -> Result<(), SendError> {
         self.check_message(text, images.len())?;
-        if self.store.conversation(id)?.is_none() {
+        if self.store.conversation(id)?.is_none() || self.deleting(id) {
             return Err(SendError::NotFound);
         }
         if self.disabled_main(id)? {
@@ -276,6 +323,9 @@ impl Engine {
     fn deliver(self: &Arc<Self>, id: &str, event: &Event) -> Result<(), StoreError> {
         let start = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if self.deleting(id) {
+                return Err(StoreError::NoConversation(id.to_owned()));
+            }
             let events = self.load(id)?;
             // A job's result after the person pressed Stop is kept, but opens no reply. Checked
             // under the same lock Stop records under, so the two cannot interleave.
@@ -316,7 +366,9 @@ impl Engine {
             (live.frames.subscribe(), current.clone())
         };
         let backlog = self.store.events(id, after)?;
-        let (state, status) = live_state(&live);
+        let activity = self.activity(id)?;
+        let status = self.status_for(id, &activity);
+        let state = activity.state;
         Ok(Some(Subscription {
             frames,
             backlog,
@@ -415,6 +467,7 @@ impl Engine {
                     waiting_on_you: AtomicBool::new(false),
                     jobs: Mutex::default(),
                     status: Mutex::default(),
+                    worker: Mutex::default(),
                 })
             })
             .clone()
@@ -463,6 +516,9 @@ impl Engine {
     fn resume(self: &Arc<Self>, id: &str) -> Result<(), StoreError> {
         let open = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if self.deleting(id) {
+                return Ok(());
+            }
             let events = self.load(id)?;
             if needs_reply(&events) {
                 let model = self.reply_model(id);
@@ -479,6 +535,9 @@ impl Engine {
     }
 
     fn spawn_turn(self: &Arc<Self>, id: &str) {
+        if self.deleting(id) {
+            return;
+        }
         let live = self.live(id);
         if live
             .turn_running
@@ -501,33 +560,8 @@ impl Engine {
         let pause_rx = self.pause.subscribe();
         let engine = self.clone();
         let id = id.to_owned();
-        tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
-    }
-}
-
-/// The state and status live flags show, without reading storage.
-fn live_state(live: &Live) -> (State, Option<String>) {
-    let running = live.turn_running.load(Ordering::SeqCst);
-    let jobs = !live
-        .jobs
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .is_empty();
-    if live.waiting_on_you.load(Ordering::SeqCst) {
-        (State::Waiting, Some(roster::WAITING_FOR_YOU.to_owned()))
-    } else if running {
-        let status = live
-            .status
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        (
-            State::Working,
-            Some(status.unwrap_or_else(|| roster::THINKING.to_owned())),
-        )
-    } else if jobs {
-        (State::Working, Some(roster::IN_BACKGROUND.to_owned()))
-    } else {
-        (State::Idle, None)
+        let worker =
+            tokio::spawn(async move { turn::run(engine, id, reply, stop_rx, pause_rx).await });
+        *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
 }

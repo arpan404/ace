@@ -24,6 +24,19 @@ const SHIPPED: [&str; 4] = [
     "80616f4192b2143f59572a77f3cb0a7382fa6f8f1648adfa25fa20cc7d4058cc",
 ];
 
+/// Earlier shipped files this build can still read, oldest first. An old copy's value that equals
+/// one of these (or the current presets) is a shipped default, not the person's edit.
+const READABLE_HISTORY: [&str; 1] = [include_str!("../shipped/models-2026-11-10.json")];
+
+/// Every shipped catalogue this build can read: the earlier ones, then the current presets.
+pub fn history() -> Vec<Catalog> {
+    READABLE_HISTORY
+        .iter()
+        .chain(std::iter::once(&DEFAULT_MODELS))
+        .filter_map(|text| Catalog::from_json(text).ok())
+        .collect()
+}
+
 fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -103,6 +116,14 @@ pub fn set_aside(path: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_readable_shipped_file_is_known_by_its_hash_and_parses() {
+        for text in READABLE_HISTORY {
+            assert!(SHIPPED.contains(&sha256(text.as_bytes()).as_str()));
+        }
+        assert_eq!(history().len(), READABLE_HISTORY.len() + 1);
+    }
 
     #[test]
     fn the_current_shipped_file_counts_as_shipped() {

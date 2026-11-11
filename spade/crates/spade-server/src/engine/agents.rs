@@ -9,7 +9,6 @@ use spade_core::Event;
 use spade_core::event::Known;
 use spade_store::{AVATAR_COLORS, Agent, NewAgent, StoreError, generated_color};
 
-use super::roster::{self, State};
 use super::{AgentChange, AgentError, AgentInput, AgentView, AvatarInput, Engine};
 
 pub const NAME_CHARS: usize = 40;
@@ -125,6 +124,8 @@ impl Engine {
     /// Changes an agent. Name and avatar apply at once; a task or model change is stored as an
     /// event and used from the agent's next turn. Spade's own name and face stay.
     pub fn update_agent(&self, id: &str, change: AgentChange) -> Result<AgentView, AgentError> {
+        // Read, merge and write as one, so a concurrent change is never overwritten.
+        let _settings = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
         let agent = self.store.agent(id)?.ok_or(AgentError::NotFound)?;
         if agent.kind == MAIN && (change.name.is_some() || change.avatar.is_some()) {
             return Err(AgentError::Main(
@@ -172,30 +173,51 @@ impl Engine {
             return Err(AgentError::Main("Spade, the main agent, cannot be deleted"));
         }
         let conversation = agent.conversation;
+        // Marked first, under the lock deliveries take: from here no message or job result is
+        // delivered, and no turn or job starts, so stopping drains everything there is.
+        {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.deleting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(conversation.clone());
+        }
         if let Err(error) = self.stop(&conversation) {
             tracing::warn!(%error, "deleting an agent: its stop was not stored");
         }
         let live = self.live(&conversation);
-        let deadline = Instant::now() + LET_GO;
-        while Instant::now() < deadline
-            && (live.turn_running.load(std::sync::atomic::Ordering::SeqCst)
+        let busy = || {
+            live.turn_running.load(std::sync::atomic::Ordering::SeqCst)
                 || !live
                     .jobs
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
-                    .is_empty())
-        {
+                    .is_empty()
+        };
+        let deadline = Instant::now() + LET_GO;
+        while Instant::now() < deadline && busy() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.store.delete_agent(id)?;
-            self.forget_activity(&conversation);
+        // Whatever did not let go in time is cancelled, so nothing acts after the delete.
+        if let Some(worker) = live.worker.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            worker.abort();
         }
+        super::jobs::cancel_all(&live);
+        let deleted = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let deleted = self.store.delete_agent(id);
+            self.forget_activity(&conversation);
+            deleted
+        };
         self.live
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&conversation);
+        self.deleting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&conversation);
+        deleted?;
         Ok(())
     }
 
@@ -223,24 +245,7 @@ impl Engine {
 
     fn view_of(&self, agent: Agent) -> Result<AgentView, StoreError> {
         let activity = self.activity(&agent.conversation)?;
-        let status = match activity.state {
-            State::Idle => None,
-            State::Waiting => Some(roster::WAITING_FOR_YOU.to_owned()),
-            State::Working => Some(
-                self.live(&agent.conversation)
-                    .status
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .clone()
-                    .unwrap_or_else(|| {
-                        if activity.answering {
-                            roster::THINKING.to_owned()
-                        } else {
-                            roster::IN_BACKGROUND.to_owned()
-                        }
-                    }),
-            ),
-        };
+        let status = self.status_for(&agent.conversation, &activity);
         Ok(AgentView {
             state: activity.state,
             status,

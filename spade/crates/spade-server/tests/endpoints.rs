@@ -271,3 +271,157 @@ async fn a_persons_endpoint_carries_the_conversations_session_id_and_spades_user
     }
     Ok(())
 }
+
+async fn patch(spade: &Spade, path: &str, body: Value) -> Result<(u16, Value)> {
+    let response = spade
+        .http
+        .patch(format!("{}{path}", spade.base))
+        .bearer_auth(support::TOKEN)
+        .json(&body)
+        .send()
+        .await?;
+    let status = response.status().as_u16();
+    Ok((status, response.json().await.unwrap_or(Value::Null)))
+}
+
+#[tokio::test]
+async fn moving_an_endpoint_to_another_host_is_refused_while_a_key_or_headers_are_attached()
+-> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Gate", "format": "openai-chat", "base_url": "https://gate.example/v1" }),
+        )
+        .await?;
+    spade.put("/v1/keys/gate", json!({ "key": KEY })).await?;
+    let (status, body) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://evil.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("remove it first")),
+        "{body}"
+    );
+    assert_eq!(
+        endpoint(&spade, "gate").await?["base_url"],
+        "https://gate.example/v1/"
+    );
+    // The same host is fine, and so is another once the key is gone.
+    let (status, _) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://gate.example/v2" }),
+    )
+    .await?;
+    assert_eq!(status, 200);
+    spade.delete("/v1/keys/gate").await?;
+    let (status, _) = patch(
+        &spade,
+        "/v1/endpoints/gate",
+        json!({ "base_url": "https://new.example/v1" }),
+    )
+    .await?;
+    assert_eq!(status, 200);
+
+    spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Team", "format": "openai-chat", "base_url": "http://127.0.0.1:9",
+                    "needs_key": false, "headers": { "x-team": HEADER_VALUE } }),
+        )
+        .await?;
+    let (status, _) = patch(
+        &spade,
+        "/v1/endpoints/team",
+        json!({ "base_url": "http://127.0.0.2:9" }),
+    )
+    .await?;
+    assert_eq!(status, 409, "headers stay with their host");
+    let (status, body) = patch(
+        &spade,
+        "/v1/endpoints/team",
+        json!({ "base_url": "http://127.0.0.2:9", "headers": {} }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_header_that_carries_a_credential_is_refused_whatever_its_case() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    for headers in [
+        json!({ "Authorization": "Bearer x" }),
+        json!({ "X-API-Key": "x" }),
+        json!({ "api-key": "x" }),
+        json!({ "Cookie": "s=1" }),
+        json!({ "Proxy-Authorization": "Basic x" }),
+    ] {
+        let (status, body) = spade
+            .post(
+                "/v1/endpoints",
+                json!({ "name": "Leaky", "format": "openai-chat", "base_url": "https://l.example/", "headers": headers }),
+            )
+            .await?;
+        assert_eq!(status, 400, "{headers}: {body}");
+    }
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Leaky", "format": "openai-chat", "base_url": "https://l.example/",
+                    "session_header": "x-api-key" }),
+        )
+        .await?;
+    assert_eq!(status, 400);
+    assert_eq!(endpoint(&spade, "leaky").await?, Value::Null);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_model_on_an_endpoint_costs_its_own_presets_price_not_another_endpoints() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let spare_fake = spade_testkit::FakeProvider::start("Priced.").await?;
+    let (status, body) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "preset": "spare", "needs_key": false }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = patch(
+        &spade,
+        "/v1/endpoints/spare",
+        json!({ "base_url": spare_fake.root }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    spade
+        .put("/v1/settings", json!({ "fast_model": "spare/s" }))
+        .await?;
+    let (_, agent) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Spender", "model": "spare/m" }),
+        )
+        .await?;
+    let conversation = agent["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "Hi").await?;
+    let events = spade.wait_for(&conversation, "reply_finished").await?;
+    let finished = events
+        .iter()
+        .find(|e| e["type"] == "reply_finished")
+        .cloned()
+        .unwrap_or_default();
+    // 11 input and 7 output tokens at $100/M each: 1,800 micros (fake's $2/$10 would give 92).
+    assert_eq!(finished["cost_micros"], 1800);
+    Ok(())
+}

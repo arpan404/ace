@@ -61,6 +61,7 @@ const MIGRATIONS: &[Migration] = &[
         session_header TEXT,
         needs_key INTEGER NOT NULL,
         key_env TEXT,
+        preset TEXT,
         created_ms INTEGER NOT NULL
     );
     CREATE TABLE models (

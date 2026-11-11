@@ -420,3 +420,157 @@ async fn a_typed_model_id_nobody_saved_works_end_to_end() -> Result {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn while_an_agent_is_deleted_nothing_new_reaches_it_and_no_tool_acts_after() -> Result {
+    let lookup = FakeTool::new("lookup", Risk::Read, "found").slow(Duration::from_millis(300));
+    let calls = lookup.calls();
+    let spade = Arc::new(
+        Spade::start(
+            vec![Script::reply("").call("c1", "lookup", json!({}))],
+            vec![Arc::new(lookup) as Arc<dyn Tool>],
+        )
+        .await?,
+    );
+    let conversation = spade.ask("Look it up").await?;
+    spade.wait_for(&conversation, "tool_started").await?;
+    let id = roster(&spade)
+        .await?
+        .into_iter()
+        .find(|a| a["conversation"] == conversation.as_str())
+        .map(|a| a["id"].as_str().unwrap_or_default().to_owned())
+        .unwrap_or_default();
+    // Messages keep arriving while the delete runs; none may start a new turn.
+    let spam = {
+        let (spade, conversation) = (spade.clone(), conversation.clone());
+        tokio::spawn(async move {
+            for _ in 0..200 {
+                let _ = spade
+                    .post(
+                        &format!("/v1/conversations/{conversation}/messages"),
+                        json!({ "text": "and this" }),
+                    )
+                    .await;
+            }
+        })
+    };
+    let (status, _) = spade.delete(&format!("/v1/agents/{id}")).await?;
+    assert_eq!(status, 204);
+    let requests_at_delete = spade.fake.seen().len();
+    spam.await?;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(
+        spade.fake.seen().len(),
+        requests_at_delete,
+        "no turn ran after the delete"
+    );
+    assert_eq!(
+        requests_at_delete, 1,
+        "no new turn started while it was deleted"
+    );
+    assert!(
+        calls.lock().map(|c| c.is_empty()).unwrap_or(false),
+        "the cut tool never finished"
+    );
+    let (status, _) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/messages"),
+            json!({ "text": "still there?" }),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_paused_agent_shows_working_on_the_live_stream_as_in_the_roster() -> Result {
+    let slow = Script::reply("one two three four five six")
+        .chunks(6)
+        .delay(Duration::from_millis(200));
+    let spade = Spade::start(vec![slow], Vec::new()).await?;
+    let conversation = spade.ask("Count slowly").await?;
+    spade.wait_for(&conversation, "reply_progress").await?;
+    spade
+        .post(
+            "/v1/maintenance",
+            json!({ "mode": "now", "deadline_ms": 100 }),
+        )
+        .await?;
+    spade.wait_for(&conversation, "turn_paused").await?;
+    let shown = roster(&spade)
+        .await?
+        .into_iter()
+        .find(|a| a["conversation"] == conversation.as_str())
+        .unwrap_or_default();
+    assert_eq!(shown["state"], "working");
+    let mut live = spade
+        .http
+        .get(format!(
+            "{}/v1/conversations/{conversation}/live",
+            spade.base
+        ))
+        .bearer_auth(support::TOKEN)
+        .send()
+        .await?
+        .bytes_stream();
+    let mut seen = String::new();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !seen.contains("event: status") && Instant::now() < deadline {
+        if let Ok(Some(Ok(chunk))) = tokio::time::timeout(Duration::from_secs(1), live.next()).await
+        {
+            seen.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+    let status_line = seen
+        .lines()
+        .skip_while(|l| *l != "event: status")
+        .nth(1)
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        status_line.contains(r#""state":"working""#),
+        "{status_line}"
+    );
+    Ok(())
+}
+
+// Truly parallel: on one thread the two changes never interleave.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_changes_to_one_agent_never_overwrite_each_other() -> Result {
+    let spade = Arc::new(Spade::start(vec![Script::reply("unused")], Vec::new()).await?);
+    let agent = spade.new_agent("Racer", "").await?;
+    let id = agent["id"].as_str().unwrap_or_default().to_owned();
+    for round in 0..100 {
+        let task = format!("Task {round}");
+        let model = if round % 2 == 0 { "fake/a" } else { "fake/b" };
+        let send = |body: Value| {
+            let (spade, id) = (spade.clone(), id.clone());
+            tokio::spawn(async move {
+                spade
+                    .http
+                    .patch(format!("{}/v1/agents/{id}", spade.base))
+                    .bearer_auth(support::TOKEN)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map(|r| r.status().as_u16())
+            })
+        };
+        let (a, b) = (
+            send(json!({ "task": task })),
+            send(json!({ "model": model })),
+        );
+        assert_eq!((a.await??, b.await??), (200, 200));
+        let now = agent_by_id(&spade, &id).await?;
+        assert_eq!(
+            (&now["task"], &now["model"]),
+            (&json!(task), &json!(model)),
+            "round {round}"
+        );
+    }
+    Ok(())
+}
+
+async fn agent_by_id(spade: &Spade, id: &str) -> Result<Value> {
+    agent(spade, id).await
+}
